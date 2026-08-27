@@ -97,7 +97,10 @@ router.post(
         entity_type: "sale",
         entity_id: String(result.id ?? ""),
         summary: `Processed sale (status: ${req.body.status})`,
-        metadata: { status: req.body.status, itemCount: req.body.items?.length },
+        metadata: {
+          status: req.body.status,
+          itemCount: req.body.items?.length,
+        },
       });
     }
 

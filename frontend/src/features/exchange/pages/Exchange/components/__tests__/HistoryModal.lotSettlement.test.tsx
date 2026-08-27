@@ -15,7 +15,13 @@
  *  - id 14: plain USD↔LBP row — neither summary (pre-existing behavior).
  */
 
-import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  within,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 
 const mockUpdateExchangeMetadata = jest.fn();
 const mockGetBreakdown = jest.fn();
@@ -163,7 +169,9 @@ function renderModal(initialCurrencyFilter?: string) {
       loading={false}
       onClose={jest.fn()}
       onRefresh={jest.fn()}
-      {...(initialCurrencyFilter !== undefined ? { initialCurrencyFilter } : {})}
+      {...(initialCurrencyFilter !== undefined
+        ? { initialCurrencyFilter }
+        : {})}
     />,
   );
 }
@@ -286,12 +294,16 @@ describe("Exchange HistoryModal — expandable settlement breakdown (Q16)", () =
     fireEvent.click(rowFor(PARTIAL_BUY_AMOUNT_IN));
 
     expect(mockGetBreakdown).toHaveBeenCalledWith(11);
-    expect(screen.getByText(/Loading settlement breakdown/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Loading settlement breakdown/i),
+    ).toBeInTheDocument();
 
     await waitFor(() =>
       expect(screen.getByText("+$12.5000")).toBeInTheDocument(),
     );
-    expect(screen.getByText(/Later settlements against this lot/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Later settlements against this lot/i),
+    ).toBeInTheDocument();
 
     // Toggling again collapses without a second fetch.
     fireEvent.click(rowFor(PARTIAL_BUY_AMOUNT_IN));

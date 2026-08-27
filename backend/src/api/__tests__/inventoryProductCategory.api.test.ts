@@ -133,8 +133,9 @@ describe("Inventory product write routes — category_id resolution", () => {
     reads = [];
     nextRowId = 500;
     existingCategory = undefined;
-    (globalThis as unknown as { __LIRATEK_TEST_DB__: unknown }).__LIRATEK_TEST_DB__ =
-      mockDatabase;
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__: unknown }
+    ).__LIRATEK_TEST_DB__ = mockDatabase;
 
     mockStatement.run.mockImplementation(function (
       this: StatementThis,
@@ -221,9 +222,7 @@ describe("Inventory product write routes — category_id resolution", () => {
     });
 
     it("still enforces the admin gate — no role, no SQL", async () => {
-      const res = await request(app)
-        .post("/api/inventory/products")
-        .send(body);
+      const res = await request(app).post("/api/inventory/products").send(body);
 
       expect(res.status).toBe(401);
       expect(mockDatabase.prepare).not.toHaveBeenCalled();

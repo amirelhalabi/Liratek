@@ -36,7 +36,10 @@ import {
   TransactionRepository,
   resetTransactionRepository,
 } from "../TransactionRepository.js";
-import { ClosingRepository, resetClosingRepository } from "../ClosingRepository.js";
+import {
+  ClosingRepository,
+  resetClosingRepository,
+} from "../ClosingRepository.js";
 import { FinancialRepository } from "../FinancialRepository.js";
 import {
   initFixedTenantContext,
@@ -276,9 +279,17 @@ describe("Expense active-gate (rule 14 / rule 20) — Closing + Financial report
         USER_ID,
       );
 
-    const activeId = create(amounts.activeUsd, amounts.activeLbp ?? 0, "active");
+    const activeId = create(
+      amounts.activeUsd,
+      amounts.activeLbp ?? 0,
+      "active",
+    );
 
-    const voidedId = create(amounts.voidedUsd, amounts.voidedLbp ?? 0, "voided-via-delete");
+    const voidedId = create(
+      amounts.voidedUsd,
+      amounts.voidedLbp ?? 0,
+      "voided-via-delete",
+    );
     expenseRepo.deleteExpense(voidedId, USER_ID);
 
     const refundedId = create(

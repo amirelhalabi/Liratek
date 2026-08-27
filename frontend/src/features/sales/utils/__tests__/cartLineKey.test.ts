@@ -30,9 +30,7 @@ describe("getCartLineKey", () => {
 
 describe("generateCartLineId", () => {
   it("returns a distinct value on every call", () => {
-    const ids = new Set(
-      Array.from({ length: 20 }, () => generateCartLineId()),
-    );
+    const ids = new Set(Array.from({ length: 20 }, () => generateCartLineId()));
     expect(ids.size).toBe(20);
   });
 });

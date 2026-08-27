@@ -40,7 +40,13 @@
  * manually, then reverted — see the task report for the exact captured
  * output.
  */
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import CustomServices from "../index";
 
 const mockAddCustomService = jest.fn();
@@ -191,8 +197,18 @@ jest.mock("@/utils/exchangeRates", () => ({
 
 jest.mock("@/utils/logger", () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
-  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+  default: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
+  logger: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 jest.mock("@/shared/hooks/useSaveAsClient", () => ({

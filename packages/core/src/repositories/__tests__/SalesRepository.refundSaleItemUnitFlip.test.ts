@@ -196,7 +196,11 @@ function insertProduct(
   return Number(result.lastInsertRowid);
 }
 
-function insertUnit(db: Database.Database, productId: number, imei: string): number {
+function insertUnit(
+  db: Database.Database,
+  productId: number,
+  imei: string,
+): number {
   const result = db
     .prepare(
       `INSERT INTO product_units (tenant_id, product_id, imei, status) VALUES (1, ?, ?, 'IN_STOCK')`,
@@ -255,13 +259,21 @@ describe("SalesRepository.refundSaleItem — product_units per-item flip (LIRA-1
   });
 
   it("flips the linked SOLD unit back to IN_STOCK when its sale_items line is refunded", () => {
-    const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 5 });
+    const productId = insertProduct(db, {
+      name: "iPhone 13",
+      stockQuantity: 5,
+    });
     const unitId = insertUnit(db, productId, "CCCCCCCCCCCCCCC");
 
     const result = salesRepo.processSale(
       baseSale({
         items: [
-          { product_id: productId, quantity: 1, price: 500, product_unit_id: unitId },
+          {
+            product_id: productId,
+            quantity: 1,
+            price: 500,
+            product_unit_id: unitId,
+          },
         ],
         total_amount: 500,
         final_amount: 500,
@@ -288,15 +300,28 @@ describe("SalesRepository.refundSaleItem — product_units per-item flip (LIRA-1
   });
 
   it("a unit line refunded via refundSaleItem blocks the whole-sale refund; refunding the remaining line produces no double effects", () => {
-    const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 5 });
+    const productId = insertProduct(db, {
+      name: "iPhone 13",
+      stockQuantity: 5,
+    });
     const unitA = insertUnit(db, productId, "DDDDDDDDDDDDDDD");
     const unitB = insertUnit(db, productId, "EEEEEEEEEEEEEEE");
 
     const result = salesRepo.processSale(
       baseSale({
         items: [
-          { product_id: productId, quantity: 1, price: 500, product_unit_id: unitA },
-          { product_id: productId, quantity: 1, price: 500, product_unit_id: unitB },
+          {
+            product_id: productId,
+            quantity: 1,
+            price: 500,
+            product_unit_id: unitA,
+          },
+          {
+            product_id: productId,
+            quantity: 1,
+            price: 500,
+            product_unit_id: unitB,
+          },
         ],
         total_amount: 1000,
         final_amount: 1000,
@@ -334,9 +359,9 @@ describe("SalesRepository.refundSaleItem — product_units per-item flip (LIRA-1
         `SELECT id FROM transactions WHERE type = 'SALE' AND source_table = 'sales' AND source_id = ?`,
       )
       .get(saleId) as { id: number };
-    expect(() => getTransactionRepository().refundTransaction(txn.id, 1)).toThrow(
-      /This sale was partially refunded/,
-    );
+    expect(() =>
+      getTransactionRepository().refundTransaction(txn.id, 1),
+    ).toThrow(/This sale was partially refunded/);
     // Refused before any write: unit B is still SOLD and stock is unmoved.
     expect(getUnitStatus(db, unitB)).toBe("SOLD");
     expect(getStock(db, productId)).toBe(stockAfterSale + 1);

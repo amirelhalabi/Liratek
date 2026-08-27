@@ -375,7 +375,14 @@ function debtLedgerRowsFor(db: Database.Database, txnId: number): DebtRow[] {
 }
 
 function fmtLedgerRows(
-  rows: Array<{ transaction_type: string | null; amount_usd?: number; amount_lbp?: number; amount?: number; currency?: string; direction?: string }>,
+  rows: Array<{
+    transaction_type: string | null;
+    amount_usd?: number;
+    amount_lbp?: number;
+    amount?: number;
+    currency?: string;
+    direction?: string;
+  }>,
 ): string {
   if (rows.length === 0) return "(none)";
   return rows
@@ -459,9 +466,7 @@ const rows: Row[] = [];
 function formatTable(allRows: Row[]): string {
   const lines: string[] = [];
   lines.push("");
-  lines.push(
-    "=".repeat(150),
-  );
+  lines.push("=".repeat(150));
   lines.push(
     "CUSTOM SERVICES ('Services' page, /custom-services) — CHARACTERIZATION MATRIX",
   );
@@ -594,9 +599,9 @@ function runScenario(
           (partnerNetByCurrency[p.currency] ?? 0) +
           (p.direction === "DEBIT" ? p.amount : -p.amount);
       }
-      row.partnerLedgerNetsToZero = Object.values(
-        partnerNetByCurrency,
-      ).every((v) => Math.abs(v) < 0.01);
+      row.partnerLedgerNetsToZero = Object.values(partnerNetByCurrency).every(
+        (v) => Math.abs(v) < 0.01,
+      );
 
       const debtRowsAfterRefund = txn ? debtLedgerRowsFor(db, txn.id) : [];
       const debtNetUsd = debtRowsAfterRefund.reduce(
@@ -689,9 +694,7 @@ describe("CustomServiceRepository — owner-facing characterization matrix", () 
   // ═══════════════════════════════════════════════════════════════════════
   describe("Section A — input type is indistinguishable at the repository layer (except the inventory path's stock effect)", () => {
     it("A1/A3: preset-derived and free-text payloads still post identically (no product_id, no stock effect)", () => {
-      const basePayload = (
-        description: string,
-      ): CreateCustomServiceInput => ({
+      const basePayload = (description: string): CreateCustomServiceInput => ({
         description,
         cost_usd: 2,
         cost_lbp: 0,
@@ -728,9 +731,7 @@ describe("CustomServiceRepository — owner-facing characterization matrix", () 
     it("A2: the inventory-item path now DIVERGES from A1/A3 — identical money postings, but decrements stock", () => {
       const productId = seedProduct(db, "iPhone 12 Screen (SKU-1042)", 5);
 
-      const basePayload = (
-        description: string,
-      ): CreateCustomServiceInput => ({
+      const basePayload = (description: string): CreateCustomServiceInput => ({
         description,
         cost_usd: 2,
         cost_lbp: 0,

@@ -54,11 +54,7 @@ function serverWith(total: number) {
 describe("fetchAllUnitsForExport", () => {
   it("assembles every row across pages, in order, and reports the call count", async () => {
     const { list, calls } = serverWith(450);
-    const result = await fetchAllUnitsForExport(
-      list,
-      {},
-      planExportFetch(450),
-    );
+    const result = await fetchAllUnitsForExport(list, {}, planExportFetch(450));
 
     expect(result.calls).toBe(3);
     expect(list).toHaveBeenCalledTimes(3);

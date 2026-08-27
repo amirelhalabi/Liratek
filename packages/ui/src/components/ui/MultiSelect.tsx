@@ -104,9 +104,7 @@ export default function MultiSelect({
               <ListboxOption
                 key={option}
                 value={option}
-                data-testid={
-                  testId ? `${testId}-option-${option}` : undefined
-                }
+                data-testid={testId ? `${testId}-option-${option}` : undefined}
                 className={({ focus, selected }) =>
                   `relative cursor-pointer select-none py-2 pl-9 pr-4 ${
                     focus

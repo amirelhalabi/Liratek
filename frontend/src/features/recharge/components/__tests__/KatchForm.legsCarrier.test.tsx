@@ -180,9 +180,7 @@ function renderForm() {
         activeConfig={CONFIG}
         activeProvider="Katsh"
         getCategoriesForProvider={() => ["games"]}
-        getServiceItems={(_p, category) =>
-          category === "games" ? [ITEM] : []
-        }
+        getServiceItems={(_p, category) => (category === "games" ? [ITEM] : [])}
         methods={[
           { code: "CASH", label: "Cash" },
           { code: "CUSTOMER_ACCOUNT", label: "Customer Account (Debt)" },

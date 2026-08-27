@@ -241,7 +241,8 @@ export class ExchangeLotService {
           rate.is_stronger,
         );
         const unrealizedProfitUsd = roundMoney(
-          position.open_qty * (currentMarketUnitUsd - position.avg_unit_cost_usd),
+          position.open_qty *
+            (currentMarketUnitUsd - position.avg_unit_cost_usd),
         );
         return {
           ...position,

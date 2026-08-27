@@ -98,9 +98,30 @@ const mockApi = {
 // (`useCurrencyContext()` runs fresh on every render), so reassigning it
 // before a render changes what that render sees.
 let mockActiveCurrencies = [
-  { id: 1, code: "USD", name: "US Dollar", symbol: "$", decimal_places: 2, is_active: 1 },
-  { id: 2, code: "LBP", name: "Lebanese Pound", symbol: "LBP", decimal_places: 0, is_active: 1 },
-  { id: 3, code: "EUR", name: "Euro", symbol: "€", decimal_places: 2, is_active: 1 },
+  {
+    id: 1,
+    code: "USD",
+    name: "US Dollar",
+    symbol: "$",
+    decimal_places: 2,
+    is_active: 1,
+  },
+  {
+    id: 2,
+    code: "LBP",
+    name: "Lebanese Pound",
+    symbol: "LBP",
+    decimal_places: 0,
+    is_active: 1,
+  },
+  {
+    id: 3,
+    code: "EUR",
+    name: "Euro",
+    symbol: "€",
+    decimal_places: 2,
+    is_active: 1,
+  },
 ];
 const mockActiveCurrenciesWithEur = mockActiveCurrencies;
 const mockActiveCurrenciesNoExtras = mockActiveCurrencies.filter(
@@ -121,8 +142,20 @@ jest.mock("@/utils/liveExchangeRates", () => ({
   fetchLiveRatesSnapshot: jest.fn().mockResolvedValue({
     raw: {},
     rates: [
-      { to_code: "GBP", market_rate: 1.27, buy_rate: 1.27, sell_rate: 1.27, is_stronger: -1 },
-      { to_code: "JPY", market_rate: 157, buy_rate: 157, sell_rate: 157, is_stronger: 1 },
+      {
+        to_code: "GBP",
+        market_rate: 1.27,
+        buy_rate: 1.27,
+        sell_rate: 1.27,
+        is_stronger: -1,
+      },
+      {
+        to_code: "JPY",
+        market_rate: 157,
+        buy_rate: 157,
+        sell_rate: 157,
+        is_stronger: 1,
+      },
     ],
     marketRates: [],
     lastUpdatedUtc: "Fri, 21 Aug 2026 00:02:31 +0000",
@@ -138,7 +171,7 @@ jest.mock("@/utils/liveExchangeRates", () => ({
   EXCLUDED_CURRENCIES: new Set(["USD", "LBP", "EUR"]),
   getCurrencySymbol: (code: string) =>
     (
-      { USD: "$", LBP: "LBP", EUR: "€", GBP: "£", JPY: "¥" } as Record<
+      ({ USD: "$", LBP: "LBP", EUR: "€", GBP: "£", JPY: "¥" }) as Record<
         string,
         string
       >

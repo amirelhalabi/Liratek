@@ -90,9 +90,7 @@ function insertProduct(
   opts: { tenantId: number; name: string },
 ): number {
   const result = db
-    .prepare(
-      `INSERT INTO products (tenant_id, name, barcode) VALUES (?, ?, ?)`,
-    )
+    .prepare(`INSERT INTO products (tenant_id, name, barcode) VALUES (?, ?, ?)`)
     .run(opts.tenantId, opts.name, null);
   return Number(result.lastInsertRowid);
 }
@@ -212,9 +210,7 @@ describe("ProductRepository — IMEI joins product search (LIRA-143 Phase 3)", (
       const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
       insertUnit(db, { tenantId: 1, productId, imei: "356938035643809" });
 
-      const results = runWithTenant(1, () =>
-        repo.search("356938035643809"),
-      );
+      const results = runWithTenant(1, () => repo.search("356938035643809"));
       expect(results.map((p) => p.id)).toEqual([productId]);
     });
 
@@ -237,9 +233,7 @@ describe("ProductRepository — IMEI joins product search (LIRA-143 Phase 3)", (
         status: "SOLD",
       });
 
-      const results = runWithTenant(1, () =>
-        repo.search("111122223333444"),
-      );
+      const results = runWithTenant(1, () => repo.search("111122223333444"));
       expect(results.map((p) => p.id)).toEqual([productId]);
     });
 
@@ -251,9 +245,7 @@ describe("ProductRepository — IMEI joins product search (LIRA-143 Phase 3)", (
         imei: "999988887777666",
       });
 
-      const results = runWithTenant(1, () =>
-        repo.search("999988887777666"),
-      );
+      const results = runWithTenant(1, () => repo.search("999988887777666"));
       expect(results).toHaveLength(0);
     });
 

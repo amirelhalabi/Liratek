@@ -166,7 +166,8 @@ async function ensureEurActive(page: Page): Promise<void> {
   };
 
   const eur = await page.evaluate(async () => {
-    const list = (await window.api.currencies.list()) as unknown as CurrencyRow[];
+    const list =
+      (await window.api.currencies.list()) as unknown as CurrencyRow[];
     return list.find((c) => c.code === "EUR") ?? null;
   });
   if (!eur) {
@@ -268,8 +269,7 @@ async function pickCurrency(box: Locator, code: "USD" | "LBP" | "EUR") {
     }
   }
   throw (
-    lastError ??
-    new Error(`pickCurrency(${code}): option never became visible`)
+    lastError ?? new Error(`pickCurrency(${code}): option never became visible`)
   );
 }
 
@@ -498,9 +498,7 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
     // Exact match — PositionsPanel's own "View EUR history" button
     // (title attribute) is a substring match for the bare name "History",
     // which broke the first live run of this spec (strict-mode violation).
-    await appPage
-      .getByRole("button", { name: "History", exact: true })
-      .click();
+    await appPage.getByRole("button", { name: "History", exact: true }).click();
     await expect(historyModal(appPage)).toBeVisible({ timeout: 5_000 });
 
     // Identity within the modal (scoped via historyModal() — see its doc
@@ -643,9 +641,7 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
     // The BUY's lot is fully restored: History status back to Open/217.
     await navigateTo(appPage, "/");
     await navigateTo(appPage, "/exchange");
-    await appPage
-      .getByRole("button", { name: "History", exact: true })
-      .click();
+    await appPage.getByRole("button", { name: "History", exact: true }).click();
     await expect(historyModal(appPage)).toBeVisible({ timeout: 5_000 });
     const buyHistoryRowAfterReversal = historyModal(appPage)
       .locator("tbody tr")
@@ -653,17 +649,14 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
       .filter({ hasText: String(BUY_AMOUNT_EUR) });
     await expect(buyHistoryRowAfterReversal).toBeVisible({ timeout: 8_000 });
     await buyHistoryRowAfterReversal.scrollIntoViewIfNeeded();
-    await expect(
-      buyHistoryRowAfterReversal.locator("td").nth(5),
-    ).toContainText("Open");
+    await expect(buyHistoryRowAfterReversal.locator("td").nth(5)).toContainText(
+      "Open",
+    );
     const remainingAfterReversalText = await buyHistoryRowAfterReversal
       .locator("td")
       .nth(6)
       .innerText();
-    expect(parseNum(remainingAfterReversalText)).toBeCloseTo(
-      BUY_AMOUNT_EUR,
-      2,
-    );
+    expect(parseNum(remainingAfterReversalText)).toBeCloseTo(BUY_AMOUNT_EUR, 2);
 
     // Drawers net back to exactly where they stood right after the BUY —
     // the SELL's own create+void nets to 0 (rule 20).

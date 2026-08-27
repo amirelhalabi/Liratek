@@ -2326,9 +2326,7 @@ export interface ElectronAPI {
       error?: string;
     }>;
     delete: (unitId: number) => Promise<{ success: boolean; error?: string }>;
-    getStory: (
-      imei: string,
-    ) => Promise<{
+    getStory: (imei: string) => Promise<{
       success: boolean;
       data?: ProductUnitStory[];
       error?: string;

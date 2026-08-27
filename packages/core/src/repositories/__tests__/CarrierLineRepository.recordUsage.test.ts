@@ -516,7 +516,8 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       // match) so the assertion below proves the write moved both sides by
       // the exact same number, which is the actual invariant this method
       // must preserve.
-      const offsetBefore = drawer("MTC", "USD") - repo.getCarrierCreditsSum("mtc");
+      const offsetBefore =
+        drawer("MTC", "USD") - repo.getCarrierCreditsSum("mtc");
 
       const result = repo.recordUsage(
         { carrierLineId: line.id, newCredits: 1.375 },
@@ -538,7 +539,8 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       // The point of the test: the drawer moved by EXACTLY minus the line's
       // credits delta, so the offset is unchanged to the bit — no
       // `toBeCloseTo` tolerance hiding a residual sub-cent drift.
-      const offsetAfter = drawer("MTC", "USD") - repo.getCarrierCreditsSum("mtc");
+      const offsetAfter =
+        drawer("MTC", "USD") - repo.getCarrierCreditsSum("mtc");
       expect(offsetAfter - offsetBefore).toBe(0);
     });
 
@@ -713,7 +715,11 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
 
       expect(() =>
         repo.recordUsage(
-          { carrierLineId: primary, newCredits: 50, expectedCurrentCredits: 90 },
+          {
+            carrierLineId: primary,
+            newCredits: 50,
+            expectedCurrentCredits: 90,
+          },
           USER_ID,
         ),
       ).toThrow(/balance changed/i);

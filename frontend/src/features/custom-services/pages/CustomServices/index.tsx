@@ -987,8 +987,8 @@ export default function CustomServices() {
                     testId="custom-service-partner-no-payment-notice"
                     className="text-sm text-teal-200 bg-teal-500/10 border border-teal-500/30 rounded-xl px-4 py-4"
                   >
-                    No price is collected from a customer for a partner
-                    service. The full{" "}
+                    No price is collected from a customer for a partner service.
+                    The full{" "}
                     <span className="font-bold">
                       {formatCurrency(priceUsdVal, priceLbpVal)}
                     </span>{" "}

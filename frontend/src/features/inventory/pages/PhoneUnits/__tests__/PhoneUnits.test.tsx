@@ -235,10 +235,9 @@ describe("PhoneUnits — filter state → list query args", () => {
     fireEvent.change(input, { target: { value: "3569" } });
     fireEvent.change(input, { target: { value: "356938" } });
 
-    await waitFor(
-      () => expect(lastFilters().search).toBe("356938"),
-      { timeout: 2000 },
-    );
+    await waitFor(() => expect(lastFilters().search).toBe("356938"), {
+      timeout: 2000,
+    });
     // The intermediate value never reached the backend.
     const searched = mockList.mock.calls.map(
       (c) => (c[0] as { search?: string }).search,
@@ -832,7 +831,10 @@ describe("PhoneUnits — export covers every filtered row, not the page", () => 
     );
     mockList.mockImplementation(
       async (filters: { limit: number; offset: number }) =>
-        result(all.slice(filters.offset, filters.offset + filters.limit), total),
+        result(
+          all.slice(filters.offset, filters.offset + filters.limit),
+          total,
+        ),
     );
     return all;
   }
@@ -979,9 +981,7 @@ describe("PhoneUnits — export covers every filtered row, not the page", () => 
 
     await waitFor(() => expect(mockExportExcel).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(
-        screen.getByTestId("phone-units-export-excel"),
-      ).not.toBeDisabled(),
+      expect(screen.getByTestId("phone-units-export-excel")).not.toBeDisabled(),
     );
     expect(screen.getByTestId("phone-units-export-excel")).toHaveTextContent(
       "Excel",
@@ -1003,9 +1003,7 @@ describe("PhoneUnits — export covers every filtered row, not the page", () => 
     expect(prompt).toContain("5,000");
     expect(prompt).toContain("5,400");
 
-    const [tableData] = mockExportExcel.mock.calls[0] as [
-      { rows: string[][] },
-    ];
+    const [tableData] = mockExportExcel.mock.calls[0] as [{ rows: string[][] }];
     expect(tableData.rows).toHaveLength(PHONE_UNITS_EXPORT_MAX_ROWS);
   });
 
@@ -1053,7 +1051,9 @@ describe("PhoneUnits — export covers every filtered row, not the page", () => 
     ).toBeInTheDocument();
     // …and DataTable's own export buttons are gone: only the header pair.
     expect(screen.getAllByTitle(/Export/i)).toHaveLength(2);
-    expect(screen.queryByTestId("export-column-picker")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("export-column-picker"),
+    ).not.toBeInTheDocument();
   });
 
   it("disables both export buttons when nothing matches the filters", async () => {
@@ -1076,9 +1076,7 @@ describe("PhoneUnits — export covers every filtered row, not the page", () => 
     fireEvent.click(screen.getByTestId("phone-units-export-excel"));
 
     await waitFor(() =>
-      expect(
-        screen.getByTestId("phone-units-export-excel"),
-      ).not.toBeDisabled(),
+      expect(screen.getByTestId("phone-units-export-excel")).not.toBeDisabled(),
     );
     expect(mockExportExcel).not.toHaveBeenCalled();
   });

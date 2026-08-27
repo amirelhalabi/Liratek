@@ -119,9 +119,9 @@ function lotRow(
   db: Database.Database,
   id: number,
 ): ExchangeLotEntity | undefined {
-  return db
-    .prepare(`SELECT * FROM exchange_lots WHERE id = ?`)
-    .get(id) as ExchangeLotEntity | undefined;
+  return db.prepare(`SELECT * FROM exchange_lots WHERE id = ?`).get(id) as
+    | ExchangeLotEntity
+    | undefined;
 }
 
 function settlementRows(db: Database.Database): ExchangeLotSettlementEntity[] {
@@ -348,10 +348,16 @@ describe("ExchangeLotRepository", () => {
       expect(result.settlements).toHaveLength(2);
       expect(result.settlements[0].lot_id).toBe(lotA.id);
       expect(result.settlements[0].qty).toBe(500);
-      expect(result.settlements[0].profit_usd).toBeCloseTo(500 * (1.2 - 1.09), 6);
+      expect(result.settlements[0].profit_usd).toBeCloseTo(
+        500 * (1.2 - 1.09),
+        6,
+      );
       expect(result.settlements[1].lot_id).toBe(lotB.id);
       expect(result.settlements[1].qty).toBe(300);
-      expect(result.settlements[1].profit_usd).toBeCloseTo(300 * (1.2 - 1.12), 6);
+      expect(result.settlements[1].profit_usd).toBeCloseTo(
+        300 * (1.2 - 1.12),
+        6,
+      );
 
       const expectedSum =
         Math.round(500 * (1.2 - 1.09) * 100) / 100 +
@@ -678,7 +684,9 @@ describe("ExchangeLotRepository", () => {
       );
       expect(result.coveredQty).toBe(1000);
       expect(result.marketQty).toBe(500);
-      expect(result.settlements.filter((s) => s.basis_source === "LOT")).toHaveLength(1);
+      expect(
+        result.settlements.filter((s) => s.basis_source === "LOT"),
+      ).toHaveLength(1);
 
       // Tenant 2's lot must be untouched by tenant 1's consumption.
       const positions2After = runWithTenant(2, () => repo.getPositions());
@@ -776,9 +784,10 @@ describe("ExchangeLotRepository", () => {
         settledById: 201,
       });
 
-      const summary = repo.getSummaryForSettlers("exchange_transactions", [
-        200, 201, 999,
-      ]);
+      const summary = repo.getSummaryForSettlers(
+        "exchange_transactions",
+        [200, 201, 999],
+      );
       expect(summary[200].settled_qty).toBe(800);
       expect(summary[200].realized_profit_usd).toBeCloseTo(80, 6);
       expect(summary[201]).toBeUndefined();
@@ -871,9 +880,10 @@ describe("ExchangeLotRepository", () => {
         settledById: 402,
       });
 
-      const summary = repo.getSummaryForSources("exchange_transactions", [
-        301, 302, 303, 304, 999,
-      ]);
+      const summary = repo.getSummaryForSources(
+        "exchange_transactions",
+        [301, 302, 303, 304, 999],
+      );
 
       expect(summary[301].original_qty).toBe(2000);
       expect(summary[301].remaining_qty).toBe(0);
@@ -974,9 +984,7 @@ describe("ExchangeLotRepository", () => {
       expect(countRows(db, "exchange_position_adjustments")).toBe(
         beforeAdjustments,
       );
-      expect(countRows(db, "exchange_lot_settlements")).toBe(
-        beforeSettlements,
-      );
+      expect(countRows(db, "exchange_lot_settlements")).toBe(beforeSettlements);
       expect(repo.getPositions()[0].open_qty).toBe(500);
     });
 

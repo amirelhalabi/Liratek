@@ -259,10 +259,7 @@ describe("ExchangeLotHandlers", () => {
       });
       const handler = handlers.get("exchange-lots:adjust")!;
 
-      await handler(
-        { sender: { id: 1 } },
-        { currencyCode: "EUR", qty: -100 },
-      );
+      await handler({ sender: { id: 1 } }, { currencyCode: "EUR", qty: -100 });
 
       expect(audit).not.toHaveBeenCalled();
     });

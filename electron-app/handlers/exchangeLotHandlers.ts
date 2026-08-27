@@ -29,8 +29,7 @@ import {
   AdjustLotPositionSchema,
 } from "../schemas/index.js";
 
-let _exchangeLotService: ReturnType<typeof getExchangeLotService> | null =
-  null;
+let _exchangeLotService: ReturnType<typeof getExchangeLotService> | null = null;
 
 function getExchangeLotServiceInstance() {
   if (!_exchangeLotService) {
@@ -65,9 +64,7 @@ export function registerExchangeLotHandlers(): void {
       const validation = validatePayload(PreviewLotSettlementSchema, data);
       if (!validation.ok) return { success: false, error: validation.error };
 
-      return getExchangeLotServiceInstance().previewSettlement(
-        validation.data,
-      );
+      return getExchangeLotServiceInstance().previewSettlement(validation.data);
     } catch (error) {
       exchangeLogger.error({ error }, "exchange-lots:preview failed");
       return {

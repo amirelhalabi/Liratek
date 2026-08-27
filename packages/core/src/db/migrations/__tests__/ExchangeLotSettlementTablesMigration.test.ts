@@ -76,7 +76,9 @@ function createTestDb(): Database.Database {
 function tableExists(db: Database.Database, name: string): boolean {
   return (
     db
-      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      )
       .get(name) !== undefined
   );
 }
@@ -84,7 +86,9 @@ function tableExists(db: Database.Database, name: string): boolean {
 function indexExists(db: Database.Database, name: string): boolean {
   return (
     db
-      .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`)
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`,
+      )
       .get(name) !== undefined
   );
 }
@@ -112,9 +116,9 @@ describe("Migration v156 — add_exchange_lot_settlement_tables", () => {
     expect(indexExists(db, "idx_exchange_lot_settlements_settled_by")).toBe(
       true,
     );
-    expect(
-      indexExists(db, "idx_exchange_position_adjustments_tenant_id"),
-    ).toBe(true);
+    expect(indexExists(db, "idx_exchange_position_adjustments_tenant_id")).toBe(
+      true,
+    );
     expect(indexExists(db, "idx_exchange_position_adjustments_currency")).toBe(
       true,
     );

@@ -8,7 +8,13 @@
  * events.
  */
 
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import ServiceProvidersManager from "../ServiceProvidersManager";
 import type { ServiceProviderEntity } from "@liratek/ui";
 

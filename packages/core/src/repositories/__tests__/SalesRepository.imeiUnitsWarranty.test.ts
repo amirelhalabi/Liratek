@@ -170,7 +170,11 @@ function createTestDb(): Database.Database {
 
 function insertProduct(
   db: Database.Database,
-  opts: { name: string; warrantyMonths?: number | null; stockQuantity?: number },
+  opts: {
+    name: string;
+    warrantyMonths?: number | null;
+    stockQuantity?: number;
+  },
 ): number {
   const result = db
     .prepare(
@@ -181,7 +185,11 @@ function insertProduct(
   return Number(result.lastInsertRowid);
 }
 
-function insertUnit(db: Database.Database, productId: number, imei: string): number {
+function insertUnit(
+  db: Database.Database,
+  productId: number,
+  imei: string,
+): number {
   const result = db
     .prepare(
       `INSERT INTO product_units (tenant_id, product_id, imei, status) VALUES (1, ?, ?, 'IN_STOCK')`,
@@ -200,8 +208,15 @@ function getUnit(
   imei: string;
 } {
   return db
-    .prepare(`SELECT id, status, sale_item_id, imei FROM product_units WHERE id = ?`)
-    .get(id) as { id: number; status: string; sale_item_id: number | null; imei: string };
+    .prepare(
+      `SELECT id, status, sale_item_id, imei FROM product_units WHERE id = ?`,
+    )
+    .get(id) as {
+    id: number;
+    status: string;
+    sale_item_id: number | null;
+    imei: string;
+  };
 }
 
 function getSaleItem(
@@ -212,7 +227,11 @@ function getSaleItem(
     .prepare(
       `SELECT imei, warranty_until, quantity FROM sale_items WHERE sale_id = ? ORDER BY id ASC LIMIT 1`,
     )
-    .get(saleId) as { imei: string | null; warranty_until: string | null; quantity: number };
+    .get(saleId) as {
+    imei: string | null;
+    warranty_until: string | null;
+    quantity: number;
+  };
 }
 
 function getSaleItems(
@@ -223,7 +242,11 @@ function getSaleItems(
     .prepare(
       `SELECT id, imei, warranty_until FROM sale_items WHERE sale_id = ? ORDER BY id ASC`,
     )
-    .all(saleId) as { id: number; imei: string | null; warranty_until: string | null }[];
+    .all(saleId) as {
+    id: number;
+    imei: string | null;
+    warranty_until: string | null;
+  }[];
 }
 
 describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 phase 4)", () => {
@@ -265,7 +288,10 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
 
   describe("unit consumption + warranty stamp", () => {
     it("flips the specified unit to SOLD, stamps sale_item_id, and overrides free-text imei with the unit's own imei", () => {
-      const productId = insertProduct(db, { name: "iPhone 13", warrantyMonths: 12 });
+      const productId = insertProduct(db, {
+        name: "iPhone 13",
+        warrantyMonths: 12,
+      });
       const unitId = insertUnit(db, productId, "111111111111111");
 
       const result = repo.processSale(
@@ -298,13 +324,21 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
     });
 
     it("stamps warranty_until = sale date + warranty_months using a backdated transaction_time", () => {
-      const productId = insertProduct(db, { name: "iPhone 13", warrantyMonths: 12 });
+      const productId = insertProduct(db, {
+        name: "iPhone 13",
+        warrantyMonths: 12,
+      });
       const unitId = insertUnit(db, productId, "222222222222222");
 
       const result = repo.processSale(
         baseSale({
           items: [
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitId },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitId,
+            },
           ],
           total_amount: 500,
           final_amount: 500,
@@ -322,7 +356,10 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
     });
 
     it("stamps warranty_until using today's date when transaction_time is omitted", () => {
-      const productId = insertProduct(db, { name: "Charger", warrantyMonths: 3 });
+      const productId = insertProduct(db, {
+        name: "Charger",
+        warrantyMonths: 3,
+      });
       // No product_unit_id — warranty stamping is independent of unit tracking.
       const result = repo.processSale(
         baseSale({
@@ -346,7 +383,10 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
     });
 
     it("a product with NO warranty_months stamps NULL", () => {
-      const productId = insertProduct(db, { name: "Cable", warrantyMonths: null });
+      const productId = insertProduct(db, {
+        name: "Cable",
+        warrantyMonths: null,
+      });
       const result = repo.processSale(
         baseSale({
           items: [{ product_id: productId, quantity: 1, price: 5 }],
@@ -384,7 +424,10 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
     });
 
     it("proceeds exactly as before when the product has ZERO registered units", () => {
-      const productId = insertProduct(db, { name: "Charger", stockQuantity: 5 });
+      const productId = insertProduct(db, {
+        name: "Charger",
+        stockQuantity: 5,
+      });
       const result = repo.processSale(
         baseSale({
           items: [{ product_id: productId, quantity: 2, price: 10 }],
@@ -404,8 +447,18 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
       const result = repo.processSale(
         baseSale({
           items: [
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitId },
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitId },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitId,
+            },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitId,
+            },
           ],
           total_amount: 1000,
           final_amount: 1000,
@@ -425,7 +478,12 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
       const result = repo.processSale(
         baseSale({
           items: [
-            { product_id: productId, quantity: 2, price: 500, product_unit_id: unitId },
+            {
+              product_id: productId,
+              quantity: 2,
+              price: 500,
+              product_unit_id: unitId,
+            },
           ],
           total_amount: 1000,
           final_amount: 1000,
@@ -439,7 +497,10 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
     });
 
     it("selling BOTH registered units as two unit lines + a third plain surplus line proceeds (drift)", () => {
-      const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 3 });
+      const productId = insertProduct(db, {
+        name: "iPhone 13",
+        stockQuantity: 3,
+      });
       const unitA = insertUnit(db, productId, "666666666666666");
       const unitB = insertUnit(db, productId, "777777777777777");
       // A third physical phone exists in stock_quantity but was never
@@ -448,8 +509,18 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
       const result = repo.processSale(
         baseSale({
           items: [
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitA },
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitB },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitA,
+            },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitB,
+            },
             { product_id: productId, quantity: 1, price: 500 },
           ],
           total_amount: 1500,
@@ -475,7 +546,10 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
     // unit(s) in stock" rejection (see PR/handover for the captured output),
     // then passed once the exclusion became request-scoped.
     it("selling the plain surplus line FIRST still proceeds — order must not matter (adversarial-review finding 1)", () => {
-      const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 3 });
+      const productId = insertProduct(db, {
+        name: "iPhone 13",
+        stockQuantity: 3,
+      });
       const unitA = insertUnit(db, productId, "888800000000001");
       const unitB = insertUnit(db, productId, "888800000000002");
 
@@ -485,8 +559,18 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
             // Plain surplus line comes FIRST this time — reverse of the
             // "proceeds (drift)" case above, which puts it last.
             { product_id: productId, quantity: 1, price: 500 },
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitA },
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitB },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitA,
+            },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitB,
+            },
           ],
           total_amount: 1500,
           final_amount: 1500,
@@ -503,7 +587,10 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
     });
 
     it("still REJECTS when one registered unit is claimed by a unit line but a SECOND stays unclaimed across two plain lines (not globally blind)", () => {
-      const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 4 });
+      const productId = insertProduct(db, {
+        name: "iPhone 13",
+        stockQuantity: 4,
+      });
       const unitA = insertUnit(db, productId, "888800000000003");
       // unitB is deliberately left unclaimed by any line below.
       insertUnit(db, productId, "888800000000004");
@@ -511,7 +598,12 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
       const result = repo.processSale(
         baseSale({
           items: [
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitA },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitA,
+            },
             { product_id: productId, quantity: 1, price: 500 },
             { product_id: productId, quantity: 1, price: 500 },
           ],
@@ -531,13 +623,21 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
 
   describe("drafts", () => {
     it("a draft with product_unit_id leaves the unit IN_STOCK and stamps no warranty", () => {
-      const productId = insertProduct(db, { name: "iPhone 13", warrantyMonths: 12 });
+      const productId = insertProduct(db, {
+        name: "iPhone 13",
+        warrantyMonths: 12,
+      });
       const unitId = insertUnit(db, productId, "888888888888888");
 
       const result = repo.processSale(
         baseSale({
           items: [
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitId },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitId,
+            },
           ],
           total_amount: 500,
           final_amount: 500,

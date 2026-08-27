@@ -1578,7 +1578,12 @@ function DetailPanel({
                 {breakdown.usd.for !== 0 && (
                   <div className="flex justify-between text-[10px]">
                     <span className="text-violet-400">FOR (our system)</span>
-                    <span className={balanceTextColor(-breakdown.usd.for, BALANCE_EPS)}>
+                    <span
+                      className={balanceTextColor(
+                        -breakdown.usd.for,
+                        BALANCE_EPS,
+                      )}
+                    >
                       {fmtUSD(breakdown.usd.for)}
                     </span>
                   </div>
@@ -1587,7 +1592,10 @@ function DetailPanel({
                   <div className="flex justify-between text-[10px]">
                     <span className="text-sky-400">THROUGH (their system)</span>
                     <span
-                      className={balanceTextColor(-breakdown.usd.through, BALANCE_EPS)}
+                      className={balanceTextColor(
+                        -breakdown.usd.through,
+                        BALANCE_EPS,
+                      )}
                     >
                       {fmtUSD(breakdown.usd.through)}
                     </span>
@@ -1596,7 +1604,12 @@ function DetailPanel({
                 {breakdown.usd.other !== 0 && (
                   <div className="flex justify-between text-[10px]">
                     <span className="text-slate-500">Settlements / Adj.</span>
-                    <span className={balanceTextColor(-breakdown.usd.other, BALANCE_EPS)}>
+                    <span
+                      className={balanceTextColor(
+                        -breakdown.usd.other,
+                        BALANCE_EPS,
+                      )}
+                    >
                       {fmtUSD(breakdown.usd.other)}
                     </span>
                   </div>
@@ -1627,7 +1640,12 @@ function DetailPanel({
                 {breakdown.lbp.for !== 0 && (
                   <div className="flex justify-between text-[10px]">
                     <span className="text-violet-400">FOR (our system)</span>
-                    <span className={balanceTextColor(-breakdown.lbp.for, BALANCE_EPS)}>
+                    <span
+                      className={balanceTextColor(
+                        -breakdown.lbp.for,
+                        BALANCE_EPS,
+                      )}
+                    >
                       {fmtLBP(breakdown.lbp.for)}
                     </span>
                   </div>
@@ -1636,7 +1654,10 @@ function DetailPanel({
                   <div className="flex justify-between text-[10px]">
                     <span className="text-sky-400">THROUGH (their system)</span>
                     <span
-                      className={balanceTextColor(-breakdown.lbp.through, BALANCE_EPS)}
+                      className={balanceTextColor(
+                        -breakdown.lbp.through,
+                        BALANCE_EPS,
+                      )}
                     >
                       {fmtLBP(breakdown.lbp.through)}
                     </span>
@@ -1645,7 +1666,12 @@ function DetailPanel({
                 {breakdown.lbp.other !== 0 && (
                   <div className="flex justify-between text-[10px]">
                     <span className="text-slate-500">Settlements / Adj.</span>
-                    <span className={balanceTextColor(-breakdown.lbp.other, BALANCE_EPS)}>
+                    <span
+                      className={balanceTextColor(
+                        -breakdown.lbp.other,
+                        BALANCE_EPS,
+                      )}
+                    >
                       {fmtLBP(breakdown.lbp.other)}
                     </span>
                   </div>

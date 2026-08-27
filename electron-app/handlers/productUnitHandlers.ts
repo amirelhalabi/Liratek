@@ -29,8 +29,7 @@ import {
   UnitsForSaleItemsSchema,
 } from "../schemas/index.js";
 
-let _productUnitService: ReturnType<typeof getProductUnitService> | null =
-  null;
+let _productUnitService: ReturnType<typeof getProductUnitService> | null = null;
 
 function getProductUnitServiceInstance() {
   if (!_productUnitService) {
@@ -187,9 +186,7 @@ export function registerProductUnitHandlers(): void {
       return {
         success: false,
         error:
-          error instanceof Error
-            ? error.message
-            : "Failed to load unit story",
+          error instanceof Error ? error.message : "Failed to load unit story",
       };
     }
   });
@@ -206,10 +203,7 @@ export function registerProductUnitHandlers(): void {
       );
       return { success: true, data: result };
     } catch (error) {
-      inventoryLogger.error(
-        { error },
-        "product-units:for-sale-items failed",
-      );
+      inventoryLogger.error({ error }, "product-units:for-sale-items failed");
       return {
         success: false,
         error:

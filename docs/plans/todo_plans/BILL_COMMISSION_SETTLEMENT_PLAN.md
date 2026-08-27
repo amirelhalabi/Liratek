@@ -72,11 +72,11 @@ any RATE. This is not a stray bug that fires only in an edge case — for a bill
 
 `:762`'s comment ("Net you pay = supplier_owed itself, NOT owed − commission again") is about the
 **LEGACY** (`commission_model = 0`, OMT/WHISH float model) branch a few lines above (`:758-769`) — it
-explains why the *old* math doesn't double-subtract, not why the *new-model* clamp floors bills to
+explains why the _old_ math doesn't double-subtract, not why the _new-model_ clamp floors bills to
 zero. The comment that actually explains today's bill behaviour is the one immediately above the
 clamp itself, `:856-860`, quoted above — and it is written as **a known, intended consequence**
 ("clamped at 0 … only the commission credit moves"), not an oversight. The code's own author already
-knew a bills-only settlement pays **$0 cash**; what the code doesn't do is tell the *operator* that in
+knew a bills-only settlement pays **$0 cash**; what the code doesn't do is tell the _operator_ that in
 the modal, or point the commission the correct direction. That is the actual defect: a true, silent
 fact ("no cash moves") is being surfaced as a false one ("you owe nothing" / "there's nothing to
 enter").
@@ -88,7 +88,7 @@ enter").
 
 That risk was written for **Phase 2** (OMT/WHISH, not yet shipped) as an edge case: an OMT/WHISH
 batch's gross owed is usually a real, larger number, so the clamp only bites when commission
-*exceeds* gross owed — rare. For **bills** (Phase 1, shipped), gross owed is *structurally* always 0,
+_exceeds_ gross owed — rare. For **bills** (Phase 1, shipped), gross owed is _structurally_ always 0,
 so the same clamp bites **100% of the time**. Phase 1 shipped without noticing this because Phase 1's
 own e2e (`lira-089-bill-commission-settlement.spec.ts`) drives `settleTransactions` over raw IPC and
 never opens the modal — it can't see a UI-only symptom.
@@ -124,7 +124,7 @@ backend accepts that (see Q3): `owesCash` in `settleTransactions` is `false` whe
 so no payment leg is required and the call succeeds.
 
 **Related risk found while tracing this (not one of the five questions, but load-bearing for any
-fix):** `settleTransactions`'s guard only checks the *direction* "cash owed but no legs⇒throw"
+fix):** `settleTransactions`'s guard only checks the _direction_ "cash owed but no legs⇒throw"
 (`SupplierRepository.ts:1045-1051`); it does **not** check the reverse — legs present but no cash
 contractually owed. Step 4 (`:1197-1226`) debits **every** leg in `data.payments` unconditionally. If
 an operator, confused by the $0 target, forces a real number into the payment line anyway and
@@ -167,7 +167,7 @@ changes is the `supplier_ledger` balance.
 row **reduces** the running balance — i.e. it reduces how much the shop owes Katsh (or, if the balance
 is already negative/"they owe us", makes the shop owe them even less). Concretely: after this
 settlement, whatever the shop's Katsh balance was, it drops by exactly the entered commission. This
-*is* money moving in the shop's favor — it is just invisible in the modal, because the modal's only
+_is_ money moving in the shop's favor — it is just invisible in the modal, because the modal's only
 displayed "net" figure (`settleNetPayAmount`) is a different, always-0 number.
 
 ### Q4 — is there an existing flow to actually RECEIVE that cash
@@ -192,7 +192,7 @@ debits/credits a **real drawer** through actual payment-method legs (`:1691-1713
 
 So the model **is already two-step by design**, just not connected end-to-end for bills:
 `settleTransactions` books the credit as a running-balance adjustment (Q3); a manual "Receive" later
-can turn part or all of that credit into real collected cash, via the *opposite-signed* same
+can turn part or all of that credit into real collected cash, via the _opposite-signed_ same
 `entry_type` (`SUPPLIER_PAYS_US`, this time `+`), which nets against the settlement's `-` row in the
 balance sum. Nothing forces the operator to ever run that second step — if they don't, the credit
 simply sits in the ledger forever, silently reducing what the shop will owe at the next top-up. That
@@ -239,7 +239,7 @@ case the owner hit):
   headline number for this case should be the entered commission itself, framed as **incoming**:
   something like "Katsh owes the shop: 100,000 LBP" (or a signed/two-color figure once §D13 below is
   answered), not a $0.00 amount sitting above a payment form.
-- The "Total owed to Katsh (fee-net)" header (`:2109-2112`) is *also* worth revisiting on its own —
+- The "Total owed to Katsh (fee-net)" header (`:2109-2112`) is _also_ worth revisiting on its own —
   it's hardcoded to a `$`-prefixed USD string regardless of the batch's real currency (unlike the
   `preSettleCurrency`/`preSettleOwed` pair already computed at `:901-910` for the pre-modal strip,
   which the confirm modal itself never reuses). Whether that's folded into this fix or filed

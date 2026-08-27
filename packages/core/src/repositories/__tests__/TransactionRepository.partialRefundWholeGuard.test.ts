@@ -306,9 +306,9 @@ describe("TransactionRepository — whole-sale void/refund after a partial item 
     expect(result.success).toBe(true);
     const saleId = result.id!;
     const saleItemId = (
-      db
-        .prepare(`SELECT id FROM sale_items WHERE sale_id = ?`)
-        .get(saleId) as { id: number }
+      db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as {
+        id: number;
+      }
     ).id;
     return { saleId, saleItemId };
   }
@@ -330,9 +330,9 @@ describe("TransactionRepository — whole-sale void/refund after a partial item 
       expect(refundsAfterItem).toBe(1);
 
       const txnId = saleTxnId(saleId);
-      expect(() => getTransactionRepository().refundTransaction(txnId, 1)).toThrow(
-        PARTIAL_REFUND_BLOCK,
-      );
+      expect(() =>
+        getTransactionRepository().refundTransaction(txnId, 1),
+      ).toThrow(PARTIAL_REFUND_BLOCK);
 
       // Pre-guard this read 4990 — the full $30 mirrored on top of the $10
       // already returned. The guard throws before this.transaction() opens,
@@ -353,15 +353,17 @@ describe("TransactionRepository — whole-sale void/refund after a partial item 
       expect(drawerUsd()).toBe(5020);
 
       const txnId = saleTxnId(saleId);
-      expect(() => getTransactionRepository().voidTransaction(txnId, 1)).toThrow(
-        PARTIAL_REFUND_BLOCK,
-      );
+      expect(() =>
+        getTransactionRepository().voidTransaction(txnId, 1),
+      ).toThrow(PARTIAL_REFUND_BLOCK);
 
       // Pre-guard this read 4990.
       expect(drawerUsd()).toBe(5020);
       expect(saleStatus(saleId)).toBe("completed");
       const status = (
-        db.prepare(`SELECT status FROM transactions WHERE id = ?`).get(txnId) as {
+        db
+          .prepare(`SELECT status FROM transactions WHERE id = ?`)
+          .get(txnId) as {
           status: string;
         }
       ).status;
@@ -377,9 +379,9 @@ describe("TransactionRepository — whole-sale void/refund after a partial item 
         userId: 1,
       });
 
-      expect(() => getTransactionRepository().refundBySaleId(saleId, 1)).toThrow(
-        PARTIAL_REFUND_BLOCK,
-      );
+      expect(() =>
+        getTransactionRepository().refundBySaleId(saleId, 1),
+      ).toThrow(PARTIAL_REFUND_BLOCK);
       expect(drawerUsd()).toBe(5020);
     });
 

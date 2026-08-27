@@ -52,28 +52,28 @@ of context around the current sprint. It does **not** hold multi-month history �
 
 ## LIRA-113: Should a DAYS sale consume the shop line's validity? (reverses D12) — DONE
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Recharge / Carrier Lines              |
-| **Type**              | Product decision                      |
-| **Priority**          | Medium                                |
-| **Status**            | **DONE** `eb820c7` (corrected 2026-08-12 — this detail block read TODO everywhere in the file; owner confirmed 2026-08-08 D12 is reversed, shipped 2026-08-11 decrementing the SELECTED carrier line, guarded by 3 new rule-20 VOID/REFUND tests) |
-| **Affected Modules**  | Recharge > Telecom, Carrier Lines     |
-| **Assigned To**       | —                                      |
-| **Source Plan**       | Owner report 2026-08-08 vs `done_plans/CARRIER_LINES_VALIDITY_PLAN.md` D12 |
+| Field                | Value                                                                                                                                                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Recharge / Carrier Lines                                                                                                                                                                                                                          |
+| **Type**             | Product decision                                                                                                                                                                                                                                  |
+| **Priority**         | Medium                                                                                                                                                                                                                                            |
+| **Status**           | **DONE** `eb820c7` (corrected 2026-08-12 — this detail block read TODO everywhere in the file; owner confirmed 2026-08-08 D12 is reversed, shipped 2026-08-11 decrementing the SELECTED carrier line, guarded by 3 new rule-20 VOID/REFUND tests) |
+| **Affected Modules** | Recharge > Telecom, Carrier Lines                                                                                                                                                                                                                 |
+| **Assigned To**      | —                                                                                                                                                                                                                                                 |
+| **Source Plan**      | Owner report 2026-08-08 vs `done_plans/CARRIER_LINES_VALIDITY_PLAN.md` D12                                                                                                                                                                        |
 
 ### Summary
 
-Owner (2026-08-08): *"Validity is not decreasing when we charge days from a shop line, only credits
+Owner (2026-08-08): _"Validity is not decreasing when we charge days from a shop line, only credits
 are… if we are charging 10 days to the customer, our shop line validity should decrease by the
-amount of days charged."*
+amount of days charged."_
 
 **Confirmed: validity is never decremented, in any flow** (`applyMovement` has exactly 4 production
 call sites; none decrement a shop line for a customer sale). **But that is the shipped, ratified
 design, not a gap** — `CARRIER_LINES_VALIDITY_PLAN.md` **D12** (owner interview **2026-08-06**, two
-days earlier): *"A DAYS sale costs credits only — `(days / 10) × $0.30`; the shop's expiry never
-moves"*, recorded from the owner's own words: *"We charge the customer by sending SMS. Each SMS adds
-10 days to the client's phone number. We lose $0.30 per each ten days sent."* It is documented in
+days earlier): _"A DAYS sale costs credits only — `(days / 10) × $0.30`; the shop's expiry never
+moves"_, recorded from the owner's own words: _"We charge the customer by sending SMS. Each SMS adds
+10 days to the client's phone number. We lose $0.30 per each ten days sent."_ It is documented in
 `telecomStockLeg`'s doc comment and guarded by a passing test
 (`RechargeRepository.daysStockCost.test.ts`).
 
@@ -82,8 +82,8 @@ explicit confirmation that D12/D9 are superseded.
 
 ### Owner decision 2026-08-08 — D12 REVERSED, build it
 
-> *"shop expiry moves. but be aware we can have multiple lines for each carrier in shop, so make
-> sure to decrease the validity from the selected line."*
+> _"shop expiry moves. but be aware we can have multiple lines for each carrier in shop, so make
+> sure to decrease the validity from the selected line."_
 
 - **Shop expiry DOES move.** `CARRIER_LINES_VALIDITY_PLAN.md` D12/D9 are superseded — update that
   doc and `telecomStockLeg`'s doc comment, which currently assert the opposite, or the codebase
@@ -107,7 +107,7 @@ explicit confirmation that D12/D9 are superseded.
 
 - `CarrierLineRepository.computeAppliedState` rebases day-deltas to `max(today, current_expiry)` —
   right for **adding**, wrong for **subtracting** on an already-expired line (a naive decrement
-  lands *before* today). Needs a subtract-safe path, not the reused rebase.
+  lands _before_ today). Needs a subtract-safe path, not the reused rebase.
 - Reversal is free: `_reverseCarrierLineMovements` already reverses any movement tied to a voided
   transaction generically — just pass `transactionId` to `applyMovement`.
 - Repro test ready (currently failing by design, untracked so main stays green):
@@ -118,7 +118,7 @@ explicit confirmation that D12/D9 are superseded.
 
 `CarrierLineRepository.computeAppliedState` rebases day-deltas to `max(today, current_expiry)` —
 correct for **adding** days, wrong for **subtracting** on an already-expired line (a naive
-decrement lands *before* today). Needs a subtract-safe path, not a reused rebase.
+decrement lands _before_ today). Needs a subtract-safe path, not a reused rebase.
 Reversal is free: `_reverseCarrierLineMovements` already reverses any movement tied to a voided
 transaction generically.
 
@@ -129,14 +129,14 @@ Repro test written (currently failing by design):
 
 ## LIRA-118: BLOCKER — "Submit to partner" disabled on Custom Services even with a partner selected
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Custom Services / Partners            |
-| **Type**              | Bug - blocker (flow unusable)         |
-| **Priority**          | **BLOCKER**                           |
-| **Status**            | **DONE** (e586de9) - owner-tested |
-| **Affected Modules**  | Custom Services                       |
-| **Source Plan**       | Owner manual test 2026-08-10          |
+| Field                | Value                             |
+| -------------------- | --------------------------------- |
+| **Epic**             | Custom Services / Partners        |
+| **Type**             | Bug - blocker (flow unusable)     |
+| **Priority**         | **BLOCKER**                       |
+| **Status**           | **DONE** (e586de9) - owner-tested |
+| **Affected Modules** | Custom Services                   |
+| **Source Plan**      | Owner manual test 2026-08-10      |
 
 ### Summary
 
@@ -166,14 +166,14 @@ validation; or a guard added in slice 1.
 
 ## LIRA-119: Settle modal shows "Net payment $0.00" for an LBP commission
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Suppliers / Commission                |
-| **Type**              | Bug - money risk                      |
-| **Priority**          | **High**                              |
-| **Status**            | **PARTIAL** (cccd4ca) - see Open below |
-| **Affected Modules**  | Suppliers (settle), Commission        |
-| **Source Plan**       | Owner manual test 2026-08-10          |
+| Field                | Value                                  |
+| -------------------- | -------------------------------------- |
+| **Epic**             | Suppliers / Commission                 |
+| **Type**             | Bug - money risk                       |
+| **Priority**         | **High**                               |
+| **Status**           | **PARTIAL** (cccd4ca) - see Open below |
+| **Affected Modules** | Suppliers (settle), Commission         |
+| **Source Plan**      | Owner manual test 2026-08-10           |
 
 ### Summary
 
@@ -187,8 +187,8 @@ Total Amount:          $0.00
 ```
 
 Owner's read, consistent with the symptom: the **net payment / total are computed in USD**, so a
-20,000 LBP commission lands as $0. Owner: *"the net payment and currency selected by default in
-payment should be in LBP."*
+20,000 LBP commission lands as $0. Owner: _"the net payment and currency selected by default in
+payment should be in LBP."_
 
 **Why this is a money risk rather than cosmetic:** the operator sees $0.00 net and may submit,
 potentially settling the wrong amount. Establish what actually posts.
@@ -196,6 +196,7 @@ potentially settling the wrong amount. Establish what actually posts.
 Related to LIRA-112 (`be4143c`), which added `suppliers.commission_rate_currency` and taught the
 settle screen to read it for the **commission entry**. The **net-pay/total** side evidently still
 assumes USD. Batch settle math is USD-only today by design (`Suppliers/index.tsx` excludes LBP rows)
+
 - likely the root.
 
 ### Acceptance Criteria
@@ -205,7 +206,7 @@ assumes USD. Batch settle math is USD-only today by design (`Suppliers/index.tsx
       BILL branch is hardcoded 0 - a bill's principal already left via the provider-drawer
       cost leg at creation, never through the settlement ledger). The 20,000 LBP commission
       posts correctly and in full, in LBP, as a cashless `SUPPLIER_PAYS_US` ledger credit.
-      **It was a pure display bug** (hardcoded `$` + `currency: "USD"`). Fixed in cccd4ca.
+      **It was a pure display bug** (hardcoded `$`+`currency: "USD"`). Fixed in cccd4ca.
 
 ### NOTE - revisit later (owner, 2026-08-10)
 
@@ -239,19 +240,19 @@ kept here rather than archived since the correction is still fresh.
 
 ## LIRA-120: Currency dropdown does not open on Partners Add Credit/Debt (re-opens LIRA-097)
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Partners / UI                         |
-| **Type**              | Bug - feature unusable                |
-| **Priority**          | **High**                              |
-| **Status**            | **DONE** (714837d) - owner-tested OK |
-| **Affected Modules**  | Partners (possibly every Select in a modal) |
-| **Source Plan**       | Owner manual test 2026-08-10          |
+| Field                | Value                                       |
+| -------------------- | ------------------------------------------- |
+| **Epic**             | Partners / UI                               |
+| **Type**             | Bug - feature unusable                      |
+| **Priority**         | **High**                                    |
+| **Status**           | **DONE** (714837d) - owner-tested OK        |
+| **Affected Modules** | Partners (possibly every Select in a modal) |
+| **Source Plan**      | Owner manual test 2026-08-10                |
 
 ### Summary
 
-Owner: *"clicking on the currency drop down only changes the arrow direction, no dropdown is opening
-to be able to select lbp."*
+Owner: _"clicking on the currency drop down only changes the arrow direction, no dropdown is opening
+to be able to select lbp."_
 
 **This supersedes the wrong closure of LIRA-097.** That ticket was closed as "already working"
 because the options exist in code - verified present as `{USD, LBP}` at
@@ -281,23 +282,23 @@ Lesson recorded: reading an options array is not testing a control.
 
 ## LIRA-121: For-Partner notice on Custom Services states the opposite of the truth
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Custom Services / Copy                |
-| **Type**              | Bug - misleading copy                 |
-| **Priority**          | Medium                                |
-| **Status**            | **DONE** (e586de9) |
-| **Affected Modules**  | Custom Services                       |
-| **Source Plan**       | Owner manual test 2026-08-10          |
+| Field                | Value                        |
+| -------------------- | ---------------------------- |
+| **Epic**             | Custom Services / Copy       |
+| **Type**             | Bug - misleading copy        |
+| **Priority**         | Medium                       |
+| **Status**           | **DONE** (e586de9)           |
+| **Affected Modules** | Custom Services              |
+| **Source Plan**      | Owner manual test 2026-08-10 |
 
 ### Summary
 
-The notice currently reads: *"The service's cost, $8.00, **still leaves the General drawer right
-now**, the same as a walk-in job."* **Section 2a (`d1a0ad2`) removed exactly that behaviour** - the
+The notice currently reads: _"The service's cost, $8.00, **still leaves the General drawer right
+now**, the same as a walk-in job."_ **Section 2a (`d1a0ad2`) removed exactly that behaviour** - the
 cost no longer moves any drawer.
 
 Sequencing error: the copy was written in `cc45227` under an explicit instruction to describe
-*current* behaviour, and `d1a0ad2` invalidated it one commit later without the copy being revisited.
+_current_ behaviour, and `d1a0ad2` invalidated it one commit later without the copy being revisited.
 Misleading copy is what triggered this whole line of work (section 5), so it should not be left.
 
 ### Acceptance Criteria
@@ -310,24 +311,24 @@ Misleading copy is what triggered this whole line of work (section 5), so it sho
 
 ## LIRA-122: Supplier table shows "Unpaid" on rows where nothing is owed
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Suppliers / Reporting                 |
-| **Type**              | Bug - misleading info (no money impact) |
-| **Priority**          | Low                                   |
-| **Status**            | **DONE** (pending commit) |
-| **Affected Modules**  | Suppliers                             |
-| **Source Plan**       | Owner manual test 2026-08-10          |
+| Field                | Value                                   |
+| -------------------- | --------------------------------------- |
+| **Epic**             | Suppliers / Reporting                   |
+| **Type**             | Bug - misleading info (no money impact) |
+| **Priority**         | Low                                     |
+| **Status**           | **DONE** (pending commit)               |
+| **Affected Modules** | Suppliers                               |
+| **Source Plan**      | Owner manual test 2026-08-10            |
 
 ### Summary
 
 Owner sold a Katsh **item** (not a bill) and saw it in the Katsh supplier table as
 `SEND | 462,075 LBP | Unpaid`, while the supplier balance correctly read **Settled**.
 
-Owner's reasoning, which is correct: *"in katsh we pay from our own shop balance, nothing is owed.
+Owner's reasoning, which is correct: _"in katsh we pay from our own shop balance, nothing is owed.
 basically only topping up the katsh balance is what we owe to katsh... if item other than bill, we
 dont need to see it in the katsh supplier table. the unpaid is misleading but... not critical, not
-affecting the money flow, just misleading info."*
+affecting the money flow, just misleading info."_
 
 Owner asked to cover **the class**, not just this row: any supplier-table row whose status implies a
 debt where none exists.
@@ -344,14 +345,14 @@ debt where none exists.
 
 ## LIRA-123: `yarn test:e2e` silently no-ops - exit 0, zero output, nothing run
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Tooling / Verification integrity      |
-| **Type**              | Bug - false-green verification        |
-| **Priority**          | **High**                              |
-| **Status**            | **DONE** (db149e6) - see CI correction below |
-| **Affected Modules**  | e2e harness (all)                     |
-| **Source Plan**       | Found 2026-08-10 while verifying LIRA-118..121 |
+| Field                | Value                                          |
+| -------------------- | ---------------------------------------------- |
+| **Epic**             | Tooling / Verification integrity               |
+| **Type**             | Bug - false-green verification                 |
+| **Priority**         | **High**                                       |
+| **Status**           | **DONE** (db149e6) - see CI correction below   |
+| **Affected Modules** | e2e harness (all)                              |
+| **Source Plan**      | Found 2026-08-10 while verifying LIRA-118..121 |
 
 ### Summary
 
@@ -365,13 +366,13 @@ cd frontend && npx playwright test --config playwright.electron.config.ts --repo
 # -> 252 passed (7.2m)
 ```
 
-`--list` also works through the wrapper, enumerating all 252 specs. Only *execution* via the
+`--list` also works through the wrapper, enumerating all 252 specs. Only _execution_ via the
 yarn script is silent. The script is
 `"test:e2e": "cd frontend && npx playwright test --config playwright.electron.config.ts"`.
 
 **Why this is High and not tooling trivia:** a command that exits 0 without running is
 indistinguishable from a pass to any caller that checks the exit code - including CI, agents, and
-`| tail` pipelines (a pipe returns *tail's* status, so even the empty output is masked). Every
+`| tail` pipelines (a pipe returns _tail's_ status, so even the empty output is masked). Every
 "e2e green" in this project that rested on `yarn test:e2e` is therefore **unproven**, not proven.
 This ticket was itself only caught because the log was inspected rather than the exit code trusted.
 
@@ -380,7 +381,7 @@ This ticket was itself only caught because the log was inspected rather than the
 - [x] **ROOT CAUSE (db149e6):** the failure is above Node's own `child_process` layer (a
       `--require` spawn hook never fired), i.e. inside yarn's script-dispatch/spawn path when
       the script would spawn Playwright. A direct invocation with no `yarn run`/`yarn
-      workspace` hop never exhibits it. **Windows dev-machine only.**
+    workspace` hop never exhibits it. **Windows dev-machine only.**
 
 ### CORRECTION - CI was NOT affected (verified 2026-08-10)
 
@@ -415,14 +416,14 @@ report a file count - an empty glob passed silently).
 
 ## LIRA-124: THROUGH-partner OMT/Whish RECEIVE pays the customer from no drawer
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Partners / Money posting              |
-| **Type**              | Bug - untracked cash outflow          |
-| **Priority**          | **High** (latent today, realizes on first use) |
-| **Status**            | **DONE** (2e9e822) |
-| **Affected Modules**  | omt_whish, partners                   |
-| **Source Plan**       | `docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md` (22be723), VIOLATES #1 |
+| Field                | Value                                                                         |
+| -------------------- | ----------------------------------------------------------------------------- |
+| **Epic**             | Partners / Money posting                                                      |
+| **Type**             | Bug - untracked cash outflow                                                  |
+| **Priority**         | **High** (latent today, realizes on first use)                                |
+| **Status**           | **DONE** (2e9e822)                                                            |
+| **Affected Modules** | omt_whish, partners                                                           |
+| **Source Plan**      | `docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md` (22be723), VIOLATES #1 |
 
 ### Summary
 
@@ -431,8 +432,9 @@ drawer is debited**. The payout postings at `FinancialServiceRepository.ts:3137-
 `:3253-3257` and `:3270-3276` are all gated on `!skipSystemDrawer`, and
 `skipSystemDrawer = isThroughPartner` (`:909`).
 
-This is the owner's own stated scenario (2026-08-10): *"whish system receive [for partner checked
-- through partner] i physically give money to the customer ... yes its from our drawers."*
+This is the owner's own stated scenario (2026-08-10): \*"whish system receive [for partner checked
+
+- through partner] i physically give money to the customer ... yes its from our drawers."\*
 
 **Latent but structurally mandatory.** Zero `THROUGH_%` rows exist in the live DB today, so there
 is no historical drift. It cannot be avoided going forward, though: a walk-in transaction on the
@@ -440,7 +442,7 @@ shop's secondary system is hard-rejected without a partner (`:966-973`), and the
 attaches a partner without ticking "For Partner" (`Services/index.tsx:1081`) hardcodes
 `partnerMode: "THROUGH"`. It realizes on the shop's first secondary-system RECEIVE.
 
-**Note the correction this ticket embeds:** this was originally diagnosed as a *FOR*-partner gap,
+**Note the correction this ticket embeds:** this was originally diagnosed as a _FOR_-partner gap,
 citing the comment at `:3277-3279` ("partner handles the payout, not our cash"). That comment sits
 on **unreachable code** - `isForPartner` takes a dedicated early-return branch (`:1867-2188`) that
 posts the shop's disbursement via `processReturnLegs("Partner disbursement")` at `:2185` and
@@ -464,14 +466,14 @@ foregone revenue rather than untracked cash.
 
 ## LIRA-125: THROUGH-partner legacy single-method SEND skips the drawer credit
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Partners / Money posting              |
-| **Type**              | Bug - two code paths disagree         |
-| **Priority**          | Medium (latent)                       |
-| **Status**            | **DONE** (43c7450) |
-| **Affected Modules**  | omt_whish, partners                   |
-| **Source Plan**       | `PARTNER_DISBURSEMENT_MATRIX.md` VIOLATES #3 |
+| Field                | Value                                        |
+| -------------------- | -------------------------------------------- |
+| **Epic**             | Partners / Money posting                     |
+| **Type**             | Bug - two code paths disagree                |
+| **Priority**         | Medium (latent)                              |
+| **Status**           | **DONE** (43c7450)                           |
+| **Affected Modules** | omt_whish, partners                          |
+| **Source Plan**      | `PARTNER_DISBURSEMENT_MATRIX.md` VIOLATES #3 |
 
 ### Summary
 
@@ -493,14 +495,14 @@ exercised today. It is a trap for any future caller (or an older payload shape) 
 
 ## LIRA-126: THROUGH partner_ledger rows mislabeled WHISH for Binance/iPick/Katsh
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Partners / Reporting                  |
-| **Type**              | Bug - wrong label, no money impact    |
-| **Priority**          | Low                                   |
-| **Status**            | **DONE** (43c7450) - no migration needed, zero rows existed |
-| **Affected Modules**  | partners, reporting                   |
-| **Source Plan**       | `PARTNER_DISBURSEMENT_MATRIX.md` VIOLATES #4 |
+| Field                | Value                                                       |
+| -------------------- | ----------------------------------------------------------- |
+| **Epic**             | Partners / Reporting                                        |
+| **Type**             | Bug - wrong label, no money impact                          |
+| **Priority**         | Low                                                         |
+| **Status**           | **DONE** (43c7450) - no migration needed, zero rows existed |
+| **Affected Modules** | partners, reporting                                         |
+| **Source Plan**      | `PARTNER_DISBURSEMENT_MATRIX.md` VIOLATES #4                |
 
 ### Summary
 
@@ -523,14 +525,14 @@ defaulting.
 
 ## LIRA-127: Secondary-system partner selector hardcodes `provider === "WHISH"`
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Partners / OMT-Whish                  |
-| **Type**              | Bug - asymmetric guard                |
-| **Priority**          | Medium                                |
-| **Status**            | **DONE** (5980180) |
-| **Affected Modules**  | omt_whish, partners                   |
-| **Source Plan**       | `FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md` section 5b (lines ~268-270) |
+| Field                | Value                                                                  |
+| -------------------- | ---------------------------------------------------------------------- |
+| **Epic**             | Partners / OMT-Whish                                                   |
+| **Type**             | Bug - asymmetric guard                                                 |
+| **Priority**         | Medium                                                                 |
+| **Status**           | **DONE** (5980180)                                                     |
+| **Affected Modules** | omt_whish, partners                                                    |
+| **Source Plan**      | `FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md` section 5b (lines ~268-270) |
 
 ### Summary
 
@@ -565,30 +567,31 @@ system, and after taxonomy phase 4 against the partner's own `system_association
 
 ## LIRA-128: Confirm on-behalf (FOR) RECEIVE drawer semantics - OMT/Whish vs app-wallet/Binance differ
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Partners / Money posting              |
-| **Type**              | Question - blocked on shop owner      |
-| **Priority**          | Medium (no known loss; consistency)   |
-| **Status**            | **RESOLVED** - no change needed; documented in FEATURE_GUIDE 8.1.0 |
-| **Affected Modules**  | omt_whish, partners                   |
-| **Source Plan**       | `PARTNER_DISBURSEMENT_MATRIX.md` open item |
+| Field                | Value                                                              |
+| -------------------- | ------------------------------------------------------------------ |
+| **Epic**             | Partners / Money posting                                           |
+| **Type**             | Question - blocked on shop owner                                   |
+| **Priority**         | Medium (no known loss; consistency)                                |
+| **Status**           | **RESOLVED** - no change needed; documented in FEATURE_GUIDE 8.1.0 |
+| **Affected Modules** | omt_whish, partners                                                |
+| **Source Plan**      | `PARTNER_DISBURSEMENT_MATRIX.md` open item                         |
 
 ### Summary
 
 A FOR-partner ("on behalf of") RECEIVE posts **differently depending on provider**:
 
-| Provider family | What posts at transaction time |
-| --- | --- |
+| Provider family                  | What posts at transaction time                                |
+| -------------------------------- | ------------------------------------------------------------- |
 | **OMT / WHISH** (primary system) | supplier-ledger TOP_UP + partner CREDIT - **no drawer moves** |
-| **App wallet / Binance** | the wallet drawer is **CREDITED** the full amount |
+| **App wallet / Binance**         | the wallet drawer is **CREDITED** the full amount             |
 
-Owner's description of the flow (2026-08-10): *"OMT received: he calls us and tells us to receive
+Owner's description of the flow (2026-08-10): _"OMT received: he calls us and tells us to receive
 this OMT transaction and hold on to the money. Not physically hold on to the money, but we will
-settle at the end. This receiver of the OMT amount, the amount is what we owe to the partner."*
+settle at the end. This receiver of the OMT amount, the amount is what we owe to the partner."_
 
 Owner's provisional answer (2026-08-10), pending confirmation with the shop owner:
-> *"im not sure, im asking the shop owner but yes i think drawers doesnt change"*
+
+> _"im not sure, im asking the shop owner but yes i think drawers doesnt change"_
 
 ⇒ **Provisional conclusion: the OMT/Whish behaviour is CORRECT and needs no change.**
 
@@ -620,14 +623,14 @@ collection pays out of the PCD").
 
 ## LIRA-129: `TOP_UP` badge and a negative amount contradict each other on screen
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Suppliers / Reporting                 |
-| **Type**              | Bug - misleading display (money is correct) |
-| **Priority**          | Medium                                |
-| **Status**            | **DONE** (9082d6c) - one sign rule; 4 of 7 entry_types were affected |
-| **Affected Modules**  | Suppliers (ledger tab), omt_whish     |
-| **Source Plan**       | Found closing LIRA-128, 2026-08-10    |
+| Field                | Value                                                                |
+| -------------------- | -------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Reporting                                                |
+| **Type**             | Bug - misleading display (money is correct)                          |
+| **Priority**         | Medium                                                               |
+| **Status**           | **DONE** (9082d6c) - one sign rule; 4 of 7 entry_types were affected |
+| **Affected Modules** | Suppliers (ledger tab), omt_whish                                    |
+| **Source Plan**      | Found closing LIRA-128, 2026-08-10                                   |
 
 ### Summary
 
@@ -640,7 +643,7 @@ things the operator reads say opposite things:
   "debt going DOWN"
 
 Reading it correctly requires already knowing the C5 signed-`TOP_UP` convention, where a RECEIVE
-books a negative TOP_UP because it *reduces* what the shop owes the provider (`grossOwedDelta`).
+books a negative TOP_UP because it _reduces_ what the shop owes the provider (`grossOwedDelta`).
 
 **NOT partner-specific.** A plain walk-in OMT/WHISH RECEIVE produces the identical row, so this
 is on the OMT supplier page during ordinary daily trading - not an edge case.
@@ -663,14 +666,14 @@ signed-amount presentation rule rather than a fourth point fix.
 
 ## LIRA-130: Custom Services history shows a refunded service as live
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Custom Services / Reporting           |
-| **Type**              | Bug - misleading display (money is correct) |
-| **Priority**          | **High** (owner-reported; operator cannot tell a refund happened) |
-| **Status**            | **DONE** (e47dfa2) - projection fix; the audit spawned LIRA-131 |
-| **Affected Modules**  | custom_services                       |
-| **Source Plan**       | Owner report 2026-08-10               |
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Custom Services / Reporting                                       |
+| **Type**             | Bug - misleading display (money is correct)                       |
+| **Priority**         | **High** (owner-reported; operator cannot tell a refund happened) |
+| **Status**           | **DONE** (e47dfa2) - projection fix; the audit spawned LIRA-131   |
+| **Affected Modules** | custom_services                                                   |
+| **Source Plan**      | Owner report 2026-08-10                                           |
 
 ### Summary
 
@@ -682,7 +685,7 @@ plus a `REFUND ... $-110` row. The **Custom Services history** still shows it as
 08:58 PM   up $110.00   7welet syria 100$   -   $100.00   $110.00   $10.00   CASH
 ```
 
-No refund indication at all. Owner: *"Shouldn't we see a refund transaction in the Services.history?"*
+No refund indication at all. Owner: _"Shouldn't we see a refund transaction in the Services.history?"_
 
 **The money is right; the screen is not told.** The refund DOES set the flag - `custom_services` is in
 `TransactionRepository._markSourceRefunded`'s whitelist (~:1843-1855), so `is_refunded = 1` and
@@ -758,14 +761,14 @@ reachable through the UI. Check reachability before building enforcement.
 
 ## LIRA-131: `is_refunded` dropped from FIVE more module read paths (the audit result)
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Reporting / cross-module              |
-| **Type**              | Bug - misleading display (money correct) |
-| **Priority**          | **High** (5 modules; same defect the owner hit) |
-| **Status**            | **DONE** (4710cb8) - all 5 fixed; found a 6th and 7th drop site |
-| **Affected Modules**  | recharge, omt_whish, exchange, expenses, debts |
-| **Source Plan**       | The 11-table audit demanded by LIRA-130, run 2026-08-10 |
+| Field                | Value                                                           |
+| -------------------- | --------------------------------------------------------------- |
+| **Epic**             | Reporting / cross-module                                        |
+| **Type**             | Bug - misleading display (money correct)                        |
+| **Priority**         | **High** (5 modules; same defect the owner hit)                 |
+| **Status**           | **DONE** (4710cb8) - all 5 fixed; found a 6th and 7th drop site |
+| **Affected Modules** | recharge, omt_whish, exchange, expenses, debts                  |
+| **Source Plan**      | The 11-table audit demanded by LIRA-130, run 2026-08-10         |
 
 ### Summary
 
@@ -778,19 +781,19 @@ history shows a refunded record as live.
 fix.** The frontend badge code is already written and dead in four of them, starved by the SQL
 projection.
 
-| Table | Projected? | Frontend ready? | Verdict |
-| --- | --- | --- | --- |
-| `custom_services` | fixed (e47dfa2) | badge existed; profit neutralised | **DONE** |
-| `recharges` | **No** - `RechargeRepository.ts:366-368` | **Yes, dead** - `recharge/components/HistoryModal.tsx:301,332,336-338` | one-line fix |
-| `financial_services` | **No** - `FinancialServiceRepository.ts:816-818` (via `getHistory()`:4001-4013 -> `omtHandlers.ts:72`) | **Split**: `services/pages/Services/index.tsx` inline table has NO badge code at all; the shared `recharge/HistoryModal.tsx` (iPick/Katsh/Whish-App/Crypto) has dead badge code | **TWO surfaces** - one needs UI built |
-| `exchange_transactions` | **No** - `ExchangeRepository.ts:127-152` | **Yes, dead** - `exchange/.../HistoryModal.tsx:26-27,174,198-200` | one-line fix |
-| `expenses` | **No** - `ExpenseRepository.ts:43-45` | **Yes, dead** - `expenses/.../HistoryModal.tsx:17,162,179-181` | one-line fix |
-| `debt_ledger` | **No** - `DebtRepository.ts:147-150` (`findClientHistory`:228-235) | **Yes, dead** - `debts/pages/Debts/index.tsx:104,1572,1826` | one-line fix (softer: a visible "Refund Reversal" row also appears) |
-| `maintenance` | Yes - `MaintenanceRepository.ts:181-183` | Yes, list + modal, **with tests** | already correct |
-| `loto_tickets` | Yes - `LotoTicketRepository.ts:458-464` | Yes, `TicketHistoryModal.tsx:55,209,238-240`, **with tests** | already correct |
-| `supplier_ledger` | Yes - `SupplierRepository.ts:875-876` | Yes | already correct |
-| `wallet_exchanges` | Yes, IPC+REST wired | **No UI consumes it** - `walletExchangeHistory()` has zero callers | dead plumbing, not a wrong display |
-| `drawer_transfers` | N/A - no module read method | Visible only via the unified log, which reads `transactions.status` correctly | flag is for reversal idempotency only |
+| Table                   | Projected?                                                                                             | Frontend ready?                                                                                                                                                                 | Verdict                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `custom_services`       | fixed (e47dfa2)                                                                                        | badge existed; profit neutralised                                                                                                                                               | **DONE**                                                            |
+| `recharges`             | **No** - `RechargeRepository.ts:366-368`                                                               | **Yes, dead** - `recharge/components/HistoryModal.tsx:301,332,336-338`                                                                                                          | one-line fix                                                        |
+| `financial_services`    | **No** - `FinancialServiceRepository.ts:816-818` (via `getHistory()`:4001-4013 -> `omtHandlers.ts:72`) | **Split**: `services/pages/Services/index.tsx` inline table has NO badge code at all; the shared `recharge/HistoryModal.tsx` (iPick/Katsh/Whish-App/Crypto) has dead badge code | **TWO surfaces** - one needs UI built                               |
+| `exchange_transactions` | **No** - `ExchangeRepository.ts:127-152`                                                               | **Yes, dead** - `exchange/.../HistoryModal.tsx:26-27,174,198-200`                                                                                                               | one-line fix                                                        |
+| `expenses`              | **No** - `ExpenseRepository.ts:43-45`                                                                  | **Yes, dead** - `expenses/.../HistoryModal.tsx:17,162,179-181`                                                                                                                  | one-line fix                                                        |
+| `debt_ledger`           | **No** - `DebtRepository.ts:147-150` (`findClientHistory`:228-235)                                     | **Yes, dead** - `debts/pages/Debts/index.tsx:104,1572,1826`                                                                                                                     | one-line fix (softer: a visible "Refund Reversal" row also appears) |
+| `maintenance`           | Yes - `MaintenanceRepository.ts:181-183`                                                               | Yes, list + modal, **with tests**                                                                                                                                               | already correct                                                     |
+| `loto_tickets`          | Yes - `LotoTicketRepository.ts:458-464`                                                                | Yes, `TicketHistoryModal.tsx:55,209,238-240`, **with tests**                                                                                                                    | already correct                                                     |
+| `supplier_ledger`       | Yes - `SupplierRepository.ts:875-876`                                                                  | Yes                                                                                                                                                                             | already correct                                                     |
+| `wallet_exchanges`      | Yes, IPC+REST wired                                                                                    | **No UI consumes it** - `walletExchangeHistory()` has zero callers                                                                                                              | dead plumbing, not a wrong display                                  |
+| `drawer_transfers`      | N/A - no module read method                                                                            | Visible only via the unified log, which reads `transactions.status` correctly                                                                                                   | flag is for reversal idempotency only                               |
 
 **Why it looked isolated:** `maintenance`, `loto_tickets` and `supplier_ledger` do it correctly, WITH
 tests. So the pattern was invisible - someone built refund display across the app and five read paths
@@ -821,14 +824,14 @@ nothing else in the whitelist is affected.
 
 ## LIRA-137: Katsh bill settlement — commission frozen at $0, wrong direction (DONE)
 
-| Field                | Value                                                                            |
+| Field                | Value                                                                             |
 | -------------------- | --------------------------------------------------------------------------------- |
 | **Epic**             | Suppliers / Commission-at-settlement                                              |
 | **Type**             | Bug (money-correctness + UX)                                                      |
 | **Priority**         | **High**                                                                          |
 | **Status**           | **DONE** — see `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4 for the full design record |
 | **Affected Modules** | Suppliers (Katsh), Settle modal, `SupplierRepository`                             |
-| **Assigned To**      | —                                                                                  |
+| **Assigned To**      | —                                                                                 |
 | **Depends On**       | LIRA-112, LIRA-119 (partial fix, superseded here)                                 |
 | **Source Plan**      | `docs/plans/todo_plans/BILL_COMMISSION_SETTLEMENT_PLAN.md`                        |
 
@@ -887,7 +890,6 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 
 ---
 
-
 ---
 
 ## Open Board (19 items)
@@ -898,30 +900,30 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 > quotes, commit references unchanged) except where a stale marker is explicitly corrected elsewhere
 > in this file. Grouped by priority; original sprint/location noted per row.
 
-| Ticket | Description | Priority | Originally in |
-|---|---|---|---|
-| LIRA-114 | Services/OMT-Whish For-Partner payment section: unfiltered on SEND, discarded on RECEIVE | High (narrowed) | Sprint 6 |
-| LIRA-138 | Generalise the commission-at-settlement drawer top-up (LIRA-137) from Katsh bills to OMT/WHISH | Medium | Sprint 6 |
-| LIRA-079 | Refund scope (which txn types get Refund) + whether to remove the Void button | Medium | Sprint 4 |
-| LIRA-083 | Custom Services needs a real work-status lifecycle | Medium | Sprint 4 |
-| LIRA-084 | Partial keep-change in MultiPaymentInput | Medium | Sprint 4 |
-| LIRA-087 | Record a supplier debt without line items, attach products later | Medium | Sprint 4 |
-| LIRA-088 | Signed decrement path for MTC/Alfa provider balance | Medium (likely partially superseded) | Sprint 4 |
-| LIRA-099 | Multi-tenant admin/impersonation e2e spec + full-suite proof run | Medium | Sprint 6 |
-| LIRA-101 | Primary Cash Drawer cleanup + verify Suppliers `settleNetPayUsd` | Medium | Sprint 6 |
-| LIRA-110 | Daily closing sums financial-services commission with zero gates | Medium | Sprint 6 |
-| LIRA-116 | Rename the crossed `custom_services`/`omt_whish` module labels + routes | **High** (raised 2026-08-22 — has now misled 3 investigations) | Sprint 6 |
-| LIRA-117 | No e2e spec drives the inventory-pick to stock-decrement flow | Medium | Sprint 6 |
-| LIRA-058 | OMT App topup flow design (dual cash/owed-pool model) | Medium | Sprint 2 |
-| LIRA-096 | Partners page — remove "Record Transaction" | Low | Sprint 5 |
-| LIRA-068 | Mark Transaction "Amount Changed" when edited | Low | Sprint 3 |
-| LIRA-075 | Favorite/pin Whish App quick link in home grid | Low | Sprint 3 |
-| LIRA-086 | Dashboard checkpoint freshness coloring | Low | Sprint 4 |
-| LIRA-054-FU | Binance rows in TransactionsViewer missing directional badge | Low | Sprint 1 follow-up (orphaned) |
-| LIRA-055-FU | Voucher support at session checkout needs `client_id` | Low | Sprint 1 follow-up (orphaned) |
-| LIRA-139 | Sort-by-Amount ignores `amount_lbp` — every LBP-primary row sorts as 0 | Medium | Found 2026-08-12 |
-| LIRA-140 | Non-till money renders identically to till cash on a settlement row | Low | Found 2026-08-12 |
-| LIRA-142 | PM Fee input renders on a For-Partner SEND while the payload forces the fee to 0 | Low | Found 2026-08-22 |
+| Ticket      | Description                                                                                    | Priority                                                       | Originally in                 |
+| ----------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------- |
+| LIRA-114    | Services/OMT-Whish For-Partner payment section: unfiltered on SEND, discarded on RECEIVE       | High (narrowed)                                                | Sprint 6                      |
+| LIRA-138    | Generalise the commission-at-settlement drawer top-up (LIRA-137) from Katsh bills to OMT/WHISH | Medium                                                         | Sprint 6                      |
+| LIRA-079    | Refund scope (which txn types get Refund) + whether to remove the Void button                  | Medium                                                         | Sprint 4                      |
+| LIRA-083    | Custom Services needs a real work-status lifecycle                                             | Medium                                                         | Sprint 4                      |
+| LIRA-084    | Partial keep-change in MultiPaymentInput                                                       | Medium                                                         | Sprint 4                      |
+| LIRA-087    | Record a supplier debt without line items, attach products later                               | Medium                                                         | Sprint 4                      |
+| LIRA-088    | Signed decrement path for MTC/Alfa provider balance                                            | Medium (likely partially superseded)                           | Sprint 4                      |
+| LIRA-099    | Multi-tenant admin/impersonation e2e spec + full-suite proof run                               | Medium                                                         | Sprint 6                      |
+| LIRA-101    | Primary Cash Drawer cleanup + verify Suppliers `settleNetPayUsd`                               | Medium                                                         | Sprint 6                      |
+| LIRA-110    | Daily closing sums financial-services commission with zero gates                               | Medium                                                         | Sprint 6                      |
+| LIRA-116    | Rename the crossed `custom_services`/`omt_whish` module labels + routes                        | **High** (raised 2026-08-22 — has now misled 3 investigations) | Sprint 6                      |
+| LIRA-117    | No e2e spec drives the inventory-pick to stock-decrement flow                                  | Medium                                                         | Sprint 6                      |
+| LIRA-058    | OMT App topup flow design (dual cash/owed-pool model)                                          | Medium                                                         | Sprint 2                      |
+| LIRA-096    | Partners page — remove "Record Transaction"                                                    | Low                                                            | Sprint 5                      |
+| LIRA-068    | Mark Transaction "Amount Changed" when edited                                                  | Low                                                            | Sprint 3                      |
+| LIRA-075    | Favorite/pin Whish App quick link in home grid                                                 | Low                                                            | Sprint 3                      |
+| LIRA-086    | Dashboard checkpoint freshness coloring                                                        | Low                                                            | Sprint 4                      |
+| LIRA-054-FU | Binance rows in TransactionsViewer missing directional badge                                   | Low                                                            | Sprint 1 follow-up (orphaned) |
+| LIRA-055-FU | Voucher support at session checkout needs `client_id`                                          | Low                                                            | Sprint 1 follow-up (orphaned) |
+| LIRA-139    | Sort-by-Amount ignores `amount_lbp` — every LBP-primary row sorts as 0                         | Medium                                                         | Found 2026-08-12              |
+| LIRA-140    | Non-till money renders identically to till cash on a settlement row                            | Low                                                            | Found 2026-08-12              |
+| LIRA-142    | PM Fee input renders on a For-Partner SEND while the payload forces the fee to 0               | Low                                                            | Found 2026-08-22              |
 
 **Count by priority:** High — 2 · Medium — 12 · Low — 8. **Total: 22.**
 
@@ -929,14 +931,14 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 
 ## LIRA-139: Sort-by-Amount ignores `amount_lbp` — every LBP-primary row sorts as 0
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Transactions / Reporting              |
-| **Type**              | Bug - pre-existing, table-wide        |
-| **Priority**          | Medium                                |
-| **Status**            | TODO - needs an owner decision on semantics |
-| **Affected Modules**  | audit (Transactions page)             |
-| **Source**            | Found 2026-08-12 during the LIRA-137 render-site sweep (`752e154`) |
+| Field                | Value                                                              |
+| -------------------- | ------------------------------------------------------------------ |
+| **Epic**             | Transactions / Reporting                                           |
+| **Type**             | Bug - pre-existing, table-wide                                     |
+| **Priority**         | Medium                                                             |
+| **Status**           | TODO - needs an owner decision on semantics                        |
+| **Affected Modules** | audit (Transactions page)                                          |
+| **Source**           | Found 2026-08-12 during the LIRA-137 render-site sweep (`752e154`) |
 
 ### Summary
 
@@ -973,14 +975,14 @@ what "sort by amount" should MEAN:
 
 ## LIRA-140: Non-till money renders identically to till cash on a settlement row
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Transactions / Reporting              |
-| **Type**              | UX - missing distinction (money is correct) |
-| **Priority**          | Low                                   |
-| **Status**            | TODO - product call, not a defect     |
-| **Affected Modules**  | audit (Transactions page), suppliers  |
-| **Source**            | Found 2026-08-12 assessing the amber marker during `752e154` |
+| Field                | Value                                                        |
+| -------------------- | ------------------------------------------------------------ |
+| **Epic**             | Transactions / Reporting                                     |
+| **Type**             | UX - missing distinction (money is correct)                  |
+| **Priority**         | Low                                                          |
+| **Status**           | TODO - product call, not a defect                            |
+| **Affected Modules** | audit (Transactions page), suppliers                         |
+| **Source**           | Found 2026-08-12 assessing the amber marker during `752e154` |
 
 ### Summary
 
@@ -989,7 +991,7 @@ an ordinary cash receipt** — even though that money never touched a till. It w
 provider balance as a top-up.
 
 There used to be an affordance for exactly this: `isSupplierCredit` renders a distinct **amber `+`**
-marker meaning *"a receivable owed to us, not drawer cash."* It keys on
+marker meaning _"a receivable owed to us, not drawer cash."_ It keys on
 `type === "SUPPLIER_PAYMENT"` with `is_credit === true`, which only a `SUPPLIER_PAYS_US` ledger entry
 stamps — and LIRA-137 (`4fd0ad1`) deliberately stopped booking that entry for bills, replacing it with
 the drawer top-up. So the marker is now **unreachable for new bills**.
@@ -1017,15 +1019,15 @@ question is purely whether the page should say WHERE it landed at a glance.
 
 ## LIRA-114: For-Partner payment section on Services — ROOT CAUSE FIXED, §4 UI gating IN BUILD
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Services / Partners                   |
-| **Type**              | Investigation → likely UX fix         |
-| **Priority**          | Medium                                |
-| **Status**            | **IN BUILD 2026-08-22** (was NEEDS INTERVIEW) |
-| **Affected Modules**  | Financial Services, Custom Services, Partners |
-| **Assigned To**       | —                                      |
-| **Source Plan**       | Owner report 2026-08-08 ('7welet souria') |
+| Field                | Value                                         |
+| -------------------- | --------------------------------------------- |
+| **Epic**             | Services / Partners                           |
+| **Type**             | Investigation → likely UX fix                 |
+| **Priority**         | Medium                                        |
+| **Status**           | **IN BUILD 2026-08-22** (was NEEDS INTERVIEW) |
+| **Affected Modules** | Financial Services, Custom Services, Partners |
+| **Assigned To**      | —                                             |
+| **Source Plan**      | Owner report 2026-08-08 ('7welet souria')     |
 
 > ⏭ **Jump to "RESOLVED 2026-08-22" at the end of this ticket first.** The root cause was fixed
 > on 2026-08-09; everything between here and there is historical investigation written while it was
@@ -1033,18 +1035,18 @@ question is purely whether the page should say WHERE it landed at a glance.
 
 ### Summary
 
-Owner: *"a service for partner called '7welet souria' and payment method debt; it's affecting the
-general drawer."*
+Owner: _"a service for partner called '7welet souria' and payment method debt; it's affecting the
+general drawer."_
 
 **The literal scenario does NOT reproduce.** In `FinancialServiceRepository`, a FOR-partner service
 carrying a CUSTOMER_ACCOUNT leg is **rejected before any drawer write**
-(`assertNoCustomerAccountLeg` → *"A partner financial service cannot carry a CUSTOMER_ACCOUNT
-leg"*), and the whole transaction rolls back. 8 new tests + 27 existing partner tests + 5
+(`assertNoCustomerAccountLeg` → _"A partner financial service cannot carry a CUSTOMER_ACCOUNT
+leg"_), and the whole transaction rolls back. 8 new tests + 27 existing partner tests + 5
 custom-service partner tests all confirm General delta = 0. (Note: the `DEBT` payment code was
 renamed `CUSTOMER_ACCOUNT` in migration v86; the UI label is still "Customer Account (Debt)".)
 
 **Most likely the report is about a different feature**: `CustomServiceRepository`'s FOR-partner
-branch posts a **cost outflow** (real money leaving for the provider) while the form still *shows*
+branch posts a **cost outflow** (real money leaving for the provider) while the form still _shows_
 a Payment Method selector that is inert in FOR mode — producing exactly the "I chose Debt but the
 drawer moved" impression.
 
@@ -1052,34 +1054,35 @@ drawer moved" impression.
 
 **The module labels and routes are crossed, and it misled two investigations:**
 
-| module key        | UI label      | route              |
-| ----------------- | ------------- | ------------------ |
-| `custom_services` | **"Services"**| `/custom-services` |
-| `omt_whish`       | "OMT/Whish"   | **`/services`**    |
+| module key        | UI label       | route              |
+| ----------------- | -------------- | ------------------ |
+| `custom_services` | **"Services"** | `/custom-services` |
+| `omt_whish`       | "OMT/Whish"    | **`/services`**    |
 
 (`electron-app/create_db.sql:1218,1222`.) When the owner said "it's in the **Services** module",
-they meant the tile labeled *Services* — which is **`custom_services`** — not the `/services`
-route. A prior investigation "refuted" this ticket on the reasoning *"Services/index.tsx never sets
-cost/price, so cost 1008 / price 1010 cannot originate there"*. That reasoning was **correct about
+they meant the tile labeled _Services_ — which is **`custom_services`** — not the `/services`
+route. A prior investigation "refuted" this ticket on the reasoning _"Services/index.tsx never sets
+cost/price, so cost 1008 / price 1010 cannot originate there"_. That reasoning was **correct about
 the code and wrong about which page** — `custom_services` DOES have cost/price fields, and the
 numbers fit it exactly.
 
 ⇒ **The original hypothesis is back: this is `CustomServiceRepository`'s FOR-partner cost outflow.**
 
 **Owner confirmed 2026-08-09:** the transaction WAS entered with the **"For Partner"** checkbox
-ticked — *"yes confirmed it was for partner but it acts as through"*. That mismatch (labelled FOR,
+ticked — _"yes confirmed it was for partner but it acts as through"_. That mismatch (labelled FOR,
 behaving like THROUGH) is now the core question of this ticket, not the drawer routing alone.
 Owner also confirmed: **keep the checkbox label "For Partner"** — do not rename it.
 
 ### ⚑ EARLIER HANDOFF CONTEXT (superseded in part by the correction above)
 
 **The exact scenario, in the owner's words:**
-> *"7welet souria is the partner name. It's in the **Services** module… I entered **cost 1008** and
-> **price USD 1010** and **payment method customer account**."*
+
+> _"7welet souria is the partner name. It's in the **Services** module… I entered **cost 1008** and
+> **price USD 1010** and **payment method customer account**."_
 
 So: **Services page** (`frontend/src/features/services/`, i.e. `FinancialServiceRepository`) — **not**
 Custom Services (the owner reports that page isn't even visible to them; the earlier diagnosis
-guessed Custom Services and that guess is now **ruled out**). Partner = *7welet souria*.
+guessed Custom Services and that guess is now **ruled out**). Partner = _7welet souria_.
 Cost $1008, price $1010, payment method **Customer Account**. Observed: **General drawer moved.**
 
 **🔴 These are the same numbers as LIRA-115.** The refund report ("customer paid 1010, cost 1008,
@@ -1088,11 +1091,12 @@ two symptoms**. Investigate them together; a single root cause may explain both,
 blind could mask the other.
 
 **What the earlier (pre-clarification) diagnosis established — still valid, don't redo:**
+
 - The `DEBT` payment code was renamed `CUSTOMER_ACCOUNT` in migration v86. The UI label is
   "Customer Account (Debt)". No row for a literal `"DEBT"` code exists.
 - **FOR**-partner + a `CUSTOMER_ACCOUNT` leg is **rejected before any drawer write** by
-  `assertNoCustomerAccountLeg` (~`FinancialServiceRepository.ts:1806`) — *"A partner financial
-  service cannot carry a CUSTOMER_ACCOUNT leg"* — and the whole `db.transaction` rolls back.
+  `assertNoCustomerAccountLeg` (~`FinancialServiceRepository.ts:1806`) — _"A partner financial
+  service cannot carry a CUSTOMER_ACCOUNT leg"_ — and the whole `db.transaction` rolls back.
 - **THROUGH**-partner: `CUSTOMER_ACCOUNT` legs are explicitly skipped by the drawer-crediting loop
   (`if (p.method === "CUSTOMER_ACCOUNT") continue;`, ~:2769) and booked to `debt_ledger` via
   `bookClientDebtCharge`. General delta 0.
@@ -1130,7 +1134,7 @@ confirms with a regression test. **Not changed this pass — needs the owner's d
 Services cost/price flow (KatchForm, FinancialForm, CryptoForm, OmtWhishAppTransferForm,
 `Services/index.tsx`): every one of them hardcodes `partnerMode: "FOR"` for a partner selection, and
 a FOR-partner cost/price sale **forbids ALL payment legs outright** (`FinancialServiceRepository.ts`
-~1864-1868, *"the full selling price goes on the partner's tab"*) — so a partner-carrying cost/price
+~1864-1868, _"the full selling price goes on the partner's tab"_) — so a partner-carrying cost/price
 item can never reach the session-basket/`deferPayment` path LIRA-115 actually reproduces (that path
 requires NO partner at all, per its own repro fixture). The owner's two reports share the SAME
 round numbers (cost 1008, price 1010) most likely because they explored the SAME cost/price flow
@@ -1144,8 +1148,8 @@ the code is behaving as designed — confirmed with a new regression test, no mo
 
 1. Attaching a CUSTOMER_ACCOUNT leg (any IN-direction payment leg, in fact — see below) to a
    FOR-partner cost/price sale throws **before any drawer write** — General/iPick delta 0, zero rows
-   written. The rejecting guard is actually `assertNoCounterPayment` (*"a partner financial service
-   takes no counter payment"*), not `assertNoCustomerAccountLeg` — a FOR-partner cost/price sale
+   written. The rejecting guard is actually `assertNoCounterPayment` (_"a partner financial service
+   takes no counter payment"_), not `assertNoCustomerAccountLeg` — a FOR-partner cost/price sale
    rejects the customer "paying" via ANY method at all (there is no walk-in customer on a partner
    sale), so the operator's payment-method choice is never even evaluated. This is a MORE total
    rejection than the ticket's original hypothesis, not a narrower one.
@@ -1172,7 +1176,6 @@ this ticket's mechanism.
 **Status: investigation closed for the literal report (correct-accounting, tests lock it in);
 NEEDS INTERVIEW remains open only for (a) the owner's exact click path and (b) the THROUGH-partner
 inconsistency decision.**
-
 
 ### ✅ RESOLVED 2026-08-22 — the root cause was already fixed; only the UI gating remained
 
@@ -1211,16 +1214,16 @@ sides; RECEIVE hides it behind a notice. Full rationale in
 
 ## LIRA-138: Generalise the commission-at-settlement drawer top-up to OMT/WHISH (Phase 2)
 
-| Field                | Value                                                                             |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| **Epic**             | Suppliers / Commission-at-settlement                                             |
-| **Type**             | Feature (deferred generalisation)                                                |
-| **Priority**         | Medium                                                                            |
-| **Status**           | TODO                                                                              |
-| **Affected Modules** | Suppliers (OMT/WHISH), `SupplierRepository`                                      |
-| **Assigned To**      | —                                                                                 |
+| Field                | Value                                                                                           |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Commission-at-settlement                                                            |
+| **Type**             | Feature (deferred generalisation)                                                               |
+| **Priority**         | Medium                                                                                          |
+| **Status**           | TODO                                                                                            |
+| **Affected Modules** | Suppliers (OMT/WHISH), `SupplierRepository`                                                     |
+| **Assigned To**      | —                                                                                               |
 | **Depends On**       | LIRA-137 (DONE), `COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 2 (OMT/WHISH gross flip, not shipped) |
-| **Source Plan**      | `COMMISSION_AT_SETTLEMENT_PLAN.md` D13; `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4   |
+| **Source Plan**      | `COMMISSION_AT_SETTLEMENT_PLAN.md` D13; `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4                 |
 
 ### Summary
 
@@ -1576,14 +1579,14 @@ the closing screen's daily commission number. Also rule-14 debt: a third hand-ro
 
 ## LIRA-116: Rename the crossed "Services" module labels/routes (owner approved)
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Naming / DX                           |
-| **Type**              | Refactor (naming only)                |
-| **Priority**          | **High** (raised 2026-08-22)          |
-| **Status**            | TODO — **owner approved 2026-08-09**  |
-| **Affected Modules**  | Custom Services, OMT/Whish            |
-| **Source Plan**       | Found while diagnosing LIRA-114       |
+| Field                | Value                                |
+| -------------------- | ------------------------------------ |
+| **Epic**             | Naming / DX                          |
+| **Type**             | Refactor (naming only)               |
+| **Priority**         | **High** (raised 2026-08-22)         |
+| **Status**           | TODO — **owner approved 2026-08-09** |
+| **Affected Modules** | Custom Services, OMT/Whish           |
+| **Source Plan**      | Found while diagnosing LIRA-114      |
 
 > 🔴 **THIRD STRIKE, 2026-08-22 — priority raised to High.** This has now misled a **third**
 > consecutive LIRA-114 investigation, and that one produced a dated, file:line-cited "resolved"
@@ -1596,14 +1599,14 @@ the closing screen's daily commission number. Also rule-14 debt: a third hand-ro
 
 The two modules have crossed names, which has already cost real debugging time:
 
-| module key        | UI label       | route              | repository                  |
-| ----------------- | -------------- | ------------------ | --------------------------- |
-| `custom_services` | **"Services"** | `/custom-services` | `CustomServiceRepository`   |
-| `omt_whish`       | "OMT/Whish"    | **`/services`**    | `FinancialServiceRepository`|
+| module key        | UI label       | route              | repository                   |
+| ----------------- | -------------- | ------------------ | ---------------------------- |
+| `custom_services` | **"Services"** | `/custom-services` | `CustomServiceRepository`    |
+| `omt_whish`       | "OMT/Whish"    | **`/services`**    | `FinancialServiceRepository` |
 
 So "the Services page" means `custom_services`, while the `/services` ROUTE belongs to OMT/Whish.
-This directly caused LIRA-114 to be wrongly refuted: an investigation reasoned *"Services/index.tsx
-never sets cost/price, so the owner's cost 1008 / price 1010 can't come from there"* — true of
+This directly caused LIRA-114 to be wrongly refuted: an investigation reasoned _"Services/index.tsx
+never sets cost/price, so the owner's cost 1008 / price 1010 can't come from there"_ — true of
 `/services`, irrelevant to the page the owner actually meant. Two separate agent investigations
 were misled by it.
 
@@ -1632,14 +1635,14 @@ Owner approved the rename 2026-08-09 ("rename yes").
 
 ## LIRA-117: No e2e spec drives the inventory-pick → stock-decrement flow
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Custom Services / Inventory           |
-| **Type**              | Test coverage gap                     |
-| **Priority**          | Medium                                |
-| **Status**            | TODO                                  |
-| **Affected Modules**  | Custom Services, Inventory            |
-| **Source Plan**       | Found while shipping §2b (2026-08-09) |
+| Field                | Value                                 |
+| -------------------- | ------------------------------------- |
+| **Epic**             | Custom Services / Inventory           |
+| **Type**             | Test coverage gap                     |
+| **Priority**         | Medium                                |
+| **Status**           | TODO                                  |
+| **Affected Modules** | Custom Services, Inventory            |
+| **Source Plan**      | Found while shipping §2b (2026-08-09) |
 
 ### Summary
 
@@ -1669,8 +1672,8 @@ IPC payloads bypass the frontend entirely and cannot catch a frontend↔reposito
 
 ### Files to Modify
 
-| Layer | File                                                    | Change   |
-| ----- | ----------------------------------------------------------- | ------------ |
+| Layer | File                                                                      | Change   |
+| ----- | ------------------------------------------------------------------------- | -------- |
 | E2E   | `frontend/tests/e2e-electron/lira-117-custom-service-stock.spec.ts` (new) | New spec |
 
 ---
@@ -1849,7 +1852,6 @@ drift. Thresholds TBD with the owner.
 
 ---
 
-
 ## Open Follow-ups (Post-Sprint 1) — orphaned, still open
 
 > These two never appear in any Sprint 2-6 board or summary — structurally orphaned since Sprint 1,
@@ -1894,13 +1896,13 @@ structurally; no ticket number assigned yet.
 Closed sprint history moved out of this file on 2026-08-12 (per
 `docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md`, committed `2bfc7f5`):
 
-| Archive file | Contents |
-|---|---|
-| `docs/plans/done_plans/SPRINT_1_ARCHIVE_2026-08-12.md` | Pre-merge review (2026-06-19), post-review follow-ups (2026-06-20), LIRA-048..055 — all DONE |
-| `docs/plans/done_plans/SPRINT_2_ARCHIVE_2026-08-12.md` | LIRA-056, 057, 059..064 — all DONE (LIRA-058 stayed here, open) |
-| `docs/plans/done_plans/SPRINT_3_ARCHIVE_2026-08-12.md` | LIRA-065..067, 069..074, 076, 077 + Backlog + Session Summary narrative — all DONE (LIRA-068, 075 stayed here, open) |
-| `docs/plans/done_plans/SPRINT_4_ARCHIVE_2026-08-12.md` | LIRA-078, 080..082, 085, 089..091, 094 — all DONE, including LIRA-090 (corrected DONE) (LIRA-079, 083, 084, 086, 087, 088 stayed here, open) |
-| `docs/plans/done_plans/SPRINT_5_ARCHIVE_2026-08-12.md` | LIRA-095, 097 — DONE / CLOSED-already-working (LIRA-096 stayed here, open) |
+| Archive file                                           | Contents                                                                                                                                                                                 |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/plans/done_plans/SPRINT_1_ARCHIVE_2026-08-12.md` | Pre-merge review (2026-06-19), post-review follow-ups (2026-06-20), LIRA-048..055 — all DONE                                                                                             |
+| `docs/plans/done_plans/SPRINT_2_ARCHIVE_2026-08-12.md` | LIRA-056, 057, 059..064 — all DONE (LIRA-058 stayed here, open)                                                                                                                          |
+| `docs/plans/done_plans/SPRINT_3_ARCHIVE_2026-08-12.md` | LIRA-065..067, 069..074, 076, 077 + Backlog + Session Summary narrative — all DONE (LIRA-068, 075 stayed here, open)                                                                     |
+| `docs/plans/done_plans/SPRINT_4_ARCHIVE_2026-08-12.md` | LIRA-078, 080..082, 085, 089..091, 094 — all DONE, including LIRA-090 (corrected DONE) (LIRA-079, 083, 084, 086, 087, 088 stayed here, open)                                             |
+| `docs/plans/done_plans/SPRINT_5_ARCHIVE_2026-08-12.md` | LIRA-095, 097 — DONE / CLOSED-already-working (LIRA-096 stayed here, open)                                                                                                               |
 | `docs/plans/done_plans/SPRINT_6_ARCHIVE_2026-08-12.md` | LIRA-098, 100, 102, 103, 104 (corrected DONE), 105..109, 111 (corrected DONE), 112, 115 — all DONE/CLOSED, plus the DECISION LOG and the Sprint 6 summary board (header range corrected) |
 
 The 6-row `Ticket \| Spec \| Validates` e2e coverage table (originally lines 80-88 of this file, under
@@ -1912,14 +1914,14 @@ as open. It is also preserved verbatim inside the Sprint 1 archive above.
 
 ## LIRA-142: PM Fee input renders on a For-Partner SEND while the payload forces the fee to 0
 
-| Field                | Value                                             |
-| --------------------- | --------------------------------------------------- |
-| **Epic**              | Services / Partners                                 |
-| **Type**              | UX fix (offered-but-discarded input)                |
-| **Priority**          | Low                                                 |
-| **Status**            | TODO                                                |
-| **Affected Modules**  | OMT/Whish (Financial Services)                      |
-| **Source**            | Found while building LIRA-114 §4, 2026-08-22        |
+| Field                | Value                                        |
+| -------------------- | -------------------------------------------- |
+| **Epic**             | Services / Partners                          |
+| **Type**             | UX fix (offered-but-discarded input)         |
+| **Priority**         | Low                                          |
+| **Status**           | TODO                                         |
+| **Affected Modules** | OMT/Whish (Financial Services)               |
+| **Source**           | Found while building LIRA-114 §4, 2026-08-22 |
 
 ### Summary
 
@@ -1946,10 +1948,9 @@ can be picked".
 
 ### Files to Modify
 
-| Layer    | File                                                        | Change              |
-| -------- | ----------------------------------------------------------- | ------------------- |
-| Frontend | `frontend/src/features/services/pages/Services/index.tsx`   | Gate the PM-fee box |
-
+| Layer    | File                                                      | Change              |
+| -------- | --------------------------------------------------------- | ------------------- |
+| Frontend | `frontend/src/features/services/pages/Services/index.tsx` | Gate the PM-fee box |
 
 ---
 
@@ -2009,7 +2010,7 @@ scanning the IMEI barcode off a phone box finds nothing. Barcode and IMEI are se
     sale was refunded, else (c) the sale line's stamped warranty-until. A refunded sale must
     never report "covered" from its own stamp.
 12. **Re-sale of a returned unit**: a new sale stamps a fresh warranty-until (sale date +
-    months) as normal. *Answer during build, don't block:* whether an operator warranty
+    months) as normal. _Answer during build, don't block:_ whether an operator warranty
     override from #10 should prefill/beat the fresh stamp on that unit's next sale — default
     plan: the new sale's own stamp wins and the override is cleared, since the override exists
     for customers who KEPT a phone, not for the next buyer.
@@ -2084,7 +2085,7 @@ both fixed same-day with failing-first regression tests:
 - [x] Duplicate active IMEI rejected, named error — repo test + e2e step (a).
 - [x] Refund returns the unit to stock; e2e proves sell+refund nets unit status, stock, drawer,
       and warranty display to the pre-sale state, failing-first proven (rule 17: with
-      _reverseProductUnits stubbed out the spec fails at Expected IN_STOCK / Received SOLD).
+      \_reverseProductUnits stubbed out the spec fails at Expected IN_STOCK / Received SOLD).
 - [x] Dual transport (rule 19): unit CRUD/search/lookup/refund-extras mirrored on REST;
       web e2e lira-web-023 (68 passed total).
 - [x] Migration in BOTH migrations/index.ts and create_db.sql (rule 10); product_units has
@@ -2131,6 +2132,7 @@ repro through the real form (failing-first captured for both causes). Adversaria
 no BLOCKER/MAJOR; cross-tenant canary held; 84-combo badge truth table exact.
 
 **Owner decisions on the open items (2026-08-26):**
+
 - Category endpoints ungated → **ACCEPTED AS-IS** (JWT-only, matching the IPC handlers).
 - CSV bulk import cache invalidation → **DISMISSED** (the import format carries no warranty
   fields; not a real path).
@@ -2197,7 +2199,6 @@ no BLOCKER/MAJOR; cross-tenant canary held; 84-combo badge truth table exact.
   named owner wired there, same pattern as `_reverseExchangeLotEffects` (rule 20).
 - Warranty stamping at checkout must ride `sale_items` (per-line), NOT `products` — the sale is
   the event that starts the clock (owner decision #4).
-
 
 ---
 

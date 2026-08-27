@@ -8238,7 +8238,9 @@ export const MIGRATIONS: Migration[] = [
         db.exec(`ALTER TABLE custom_services DROP COLUMN product_id;`);
       }
 
-      console.log("Migration v152 rolled back: custom_services.product_id dropped");
+      console.log(
+        "Migration v152 rolled back: custom_services.product_id dropped",
+      );
     },
   },
   {
@@ -8301,15 +8303,69 @@ export const MIGRATIONS: Migration[] = [
         isSystemProvider: number;
         sortOrder: number;
       }[] = [
-        { code: "OMT", label: "OMT", drawerName: "OMT_System", isSystemProvider: 1, sortOrder: 0 },
-        { code: "WHISH", label: "Whish", drawerName: "Whish_System", isSystemProvider: 1, sortOrder: 1 },
-        { code: "BOB", label: "BOB", drawerName: "General", isSystemProvider: 0, sortOrder: 2 },
-        { code: "OTHER", label: "Other", drawerName: "General", isSystemProvider: 0, sortOrder: 3 },
-        { code: "iPick", label: "iPick", drawerName: "iPick", isSystemProvider: 0, sortOrder: 4 },
-        { code: "Katsh", label: "Katsh", drawerName: "Katsh", isSystemProvider: 0, sortOrder: 5 },
-        { code: "WHISH_APP", label: "Whish App", drawerName: "Whish_App", isSystemProvider: 0, sortOrder: 6 },
-        { code: "OMT_APP", label: "OMT App", drawerName: "OMT_App", isSystemProvider: 0, sortOrder: 7 },
-        { code: "BINANCE", label: "Binance", drawerName: "Binance", isSystemProvider: 0, sortOrder: 8 },
+        {
+          code: "OMT",
+          label: "OMT",
+          drawerName: "OMT_System",
+          isSystemProvider: 1,
+          sortOrder: 0,
+        },
+        {
+          code: "WHISH",
+          label: "Whish",
+          drawerName: "Whish_System",
+          isSystemProvider: 1,
+          sortOrder: 1,
+        },
+        {
+          code: "BOB",
+          label: "BOB",
+          drawerName: "General",
+          isSystemProvider: 0,
+          sortOrder: 2,
+        },
+        {
+          code: "OTHER",
+          label: "Other",
+          drawerName: "General",
+          isSystemProvider: 0,
+          sortOrder: 3,
+        },
+        {
+          code: "iPick",
+          label: "iPick",
+          drawerName: "iPick",
+          isSystemProvider: 0,
+          sortOrder: 4,
+        },
+        {
+          code: "Katsh",
+          label: "Katsh",
+          drawerName: "Katsh",
+          isSystemProvider: 0,
+          sortOrder: 5,
+        },
+        {
+          code: "WHISH_APP",
+          label: "Whish App",
+          drawerName: "Whish_App",
+          isSystemProvider: 0,
+          sortOrder: 6,
+        },
+        {
+          code: "OMT_APP",
+          label: "OMT App",
+          drawerName: "OMT_App",
+          isSystemProvider: 0,
+          sortOrder: 7,
+        },
+        {
+          code: "BINANCE",
+          label: "Binance",
+          drawerName: "Binance",
+          isSystemProvider: 0,
+          sortOrder: 8,
+        },
       ];
 
       let totalSeeded = 0;
@@ -8330,7 +8386,9 @@ export const MIGRATIONS: Migration[] = [
     },
     down(db: Database.Database) {
       db.exec(`DROP TABLE IF EXISTS service_providers;`);
-      console.log("Migration v153 rolled back: service_providers table dropped");
+      console.log(
+        "Migration v153 rolled back: service_providers table dropped",
+      );
     },
   },
   {
@@ -8372,7 +8430,7 @@ export const MIGRATIONS: Migration[] = [
       "'leave history alone, apply forward' behavior (rule 20 / D3 precedent), not a loophole opened " +
       "by this migration. A gotcha the round-trip test on the real DB copy caught: after " +
       "`ALTER TABLE … RENAME TO financial_services`, SQLite re-serializes the stored CREATE TABLE " +
-      "text with the table name double-quoted (`CREATE TABLE \"financial_services\" (`) — the " +
+      'text with the table name double-quoted (`CREATE TABLE "financial_services" (`) — the ' +
       "table-name swap regex below matches both the quoted and unquoted forms, or down() would silently " +
       "fail to rename its rebuild target and collide with the live table. Self-guards with an explicit " +
       "PRAGMA foreign_key_check after the rebuild (mirrors v123 §4) since FK enforcement is OFF for " +
@@ -8466,7 +8524,9 @@ export const MIGRATIONS: Migration[] = [
         `INSERT INTO financial_services_new SELECT * FROM financial_services;`,
       );
       db.exec(`DROP TABLE financial_services;`);
-      db.exec(`ALTER TABLE financial_services_new RENAME TO financial_services;`);
+      db.exec(
+        `ALTER TABLE financial_services_new RENAME TO financial_services;`,
+      );
       for (const r of idx) db.exec(r.sql);
       for (const r of triggers) db.exec(r.sql);
 
@@ -8574,7 +8634,9 @@ export const MIGRATIONS: Migration[] = [
         `INSERT INTO financial_services_old SELECT * FROM financial_services;`,
       );
       db.exec(`DROP TABLE financial_services;`);
-      db.exec(`ALTER TABLE financial_services_old RENAME TO financial_services;`);
+      db.exec(
+        `ALTER TABLE financial_services_old RENAME TO financial_services;`,
+      );
       for (const r of idx) db.exec(r.sql);
       for (const r of triggers) db.exec(r.sql);
 
@@ -8627,7 +8689,7 @@ export const MIGRATIONS: Migration[] = [
       "PRAGMA foreign_key_check after the rebuild (mirrors v123 §4 / v154) since FK enforcement is OFF " +
       "for the whole migration batch. A gotcha inherited from v154: after `ALTER TABLE … RENAME TO`, " +
       "SQLite re-serializes the stored CREATE TABLE text with the table name double-quoted " +
-      "(`CREATE TABLE \"partners\" (`) — the table-name swap regex below matches both the quoted and " +
+      '(`CREATE TABLE "partners" (`) — the table-name swap regex below matches both the quoted and ' +
       "unquoted forms, or down() would silently fail to rename its rebuild target and collide with " +
       "the live table. Unlike v154's own down(), this down() is data-lossless: reverting " +
       "system_association to unconstrained TEXT can represent every value already stored (including " +
@@ -8653,7 +8715,9 @@ export const MIGRATIONS: Migration[] = [
       }
 
       const tbl = db
-        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='partners'`)
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='table' AND name='partners'`,
+        )
         .get() as { sql: string };
 
       const FK_MARKER =
@@ -8733,12 +8797,16 @@ export const MIGRATIONS: Migration[] = [
         )
         .get();
       if (!hasPartners) {
-        console.log("Migration v155 rollback skipped: 'partners' table not present");
+        console.log(
+          "Migration v155 rollback skipped: 'partners' table not present",
+        );
         return;
       }
 
       const tbl = db
-        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='partners'`)
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='table' AND name='partners'`,
+        )
         .get() as { sql: string };
 
       const FK_SUFFIX =
@@ -8930,7 +8998,7 @@ export const MIGRATIONS: Migration[] = [
       "product_id/sale_item_id are bare single-column FOREIGN KEYs (not the v154/v155/v156 " +
       "composite-tenant-FK shape) because both target the PRIMARY KEY of their table — the " +
       "composite-FK requirement only applies to FKs targeting a non-PK unique column such as " +
-      "currencies(tenant_id, code); do not \"fix\" this to a composite FK. Also: `warranty_months` " +
+      'currencies(tenant_id, code); do not "fix" this to a composite FK. Also: `warranty_months` ' +
       "on products (NULL = no warranty; decision #4 — the clock starts at sale time, not " +
       "intake, so it lives on the product as a duration, not a date); `tracks_imei_units` on " +
       "product_categories, backfilled to 1 for the row literally named 'Phones' only (decision " +

@@ -342,7 +342,10 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
           insertedIds.push(Number(result.lastInsertRowid));
         } catch (error) {
           const code = (error as { code?: string })?.code;
-          if (code === "SQLITE_CONSTRAINT_UNIQUE" || code === "SQLITE_CONSTRAINT") {
+          if (
+            code === "SQLITE_CONSTRAINT_UNIQUE" ||
+            code === "SQLITE_CONSTRAINT"
+          ) {
             // Race backstop: a concurrent request won the insert between
             // our pre-check and this statement. Re-query to name the real
             // holder rather than surfacing the raw SQLite error.
@@ -694,7 +697,10 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
 
     this.assertImeiNotActiveElsewhere(tenantId, current.imei, unitId);
 
-    const setClauses = ["status = 'IN_STOCK'", "updated_at = CURRENT_TIMESTAMP"];
+    const setClauses = [
+      "status = 'IN_STOCK'",
+      "updated_at = CURRENT_TIMESTAMP",
+    ];
     const params: unknown[] = [];
 
     if (opts?.isDefective !== undefined) {
@@ -743,7 +749,9 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
   deleteUnit(unitId: number): void {
     const tenantId = getCurrentTenantId();
     const row = this.db
-      .prepare(`SELECT status FROM product_units WHERE id = ? AND tenant_id = ?`)
+      .prepare(
+        `SELECT status FROM product_units WHERE id = ? AND tenant_id = ?`,
+      )
       .get(unitId, tenantId) as { status: ProductUnitStatus } | undefined;
 
     if (!row) {

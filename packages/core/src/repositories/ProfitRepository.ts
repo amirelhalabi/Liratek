@@ -640,11 +640,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${dateRange("created_at")}
           AND tenant_id = ?`,
       )
-      .get(
-        fromDt,
-        toDt,
-        getCurrentTenantId(),
-      ) as SupplierCommissionTotalsRow;
+      .get(fromDt, toDt, getCurrentTenantId()) as SupplierCommissionTotalsRow;
   }
 
   /** Settled financial-service commissions (OMT/WHISH family) grouped by currency. */

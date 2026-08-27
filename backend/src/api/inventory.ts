@@ -15,10 +15,7 @@ import {
   createSuccessResponse,
   ErrorCodes,
 } from "@liratek/core";
-import {
-  validateRequest,
-  validateQuery,
-} from "../middleware/validation.js";
+import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
 
 function errMessage(err: unknown): string {
@@ -91,7 +88,9 @@ router.get("/products", validateQuery(productListQuerySchema), (req, res) => {
 // GET /products/:id, and the same as the mirroring IPC channel.
 router.get("/product-filter-options", (_req, res) => {
   try {
-    res.json(createSuccessResponse(getInventoryService().getProductFilterOptions()));
+    res.json(
+      createSuccessResponse(getInventoryService().getProductFilterOptions()),
+    );
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }

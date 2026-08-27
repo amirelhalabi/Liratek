@@ -176,7 +176,9 @@ describe("Migration v155 — partners_system_association_to_fk", () => {
     // UNIQUE(tenant_id, name) survives the rebuild.
     expect(() =>
       db
-        .prepare(`INSERT INTO partners (tenant_id, name) VALUES (1, 'hwelet souria')`)
+        .prepare(
+          `INSERT INTO partners (tenant_id, name) VALUES (1, 'hwelet souria')`,
+        )
         .run(),
     ).toThrow(/UNIQUE constraint failed/);
 
@@ -298,7 +300,9 @@ describe("Migration v155 — partners_system_association_to_fk", () => {
     // UNIQUE(tenant_id, name) still survives after rollback.
     expect(() =>
       db
-        .prepare(`INSERT INTO partners (tenant_id, name) VALUES (1, 'hwelet souria')`)
+        .prepare(
+          `INSERT INTO partners (tenant_id, name) VALUES (1, 'hwelet souria')`,
+        )
         .run(),
     ).toThrow(/UNIQUE constraint failed/);
 

@@ -927,8 +927,8 @@ export function DrawerTopUpModal({
                                 </div>
                                 <p className="mt-1 text-[11px] text-slate-500">
                                   What one {row.currency_code || "unit"} cost
-                                  you in USD — sets the cost basis for
-                                  exchange profit.
+                                  you in USD — sets the cost basis for exchange
+                                  profit.
                                 </p>
                               </div>
                             ))}

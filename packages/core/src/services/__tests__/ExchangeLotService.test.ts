@@ -113,9 +113,9 @@ describe("ExchangeLotService — previewSettlement", () => {
 
     expect(result.success).toBe(true);
     expect((result as { lotTracked: boolean }).lotTracked).toBe(true);
-    expect((result as { marketUnitCostUsd: number }).marketUnitCostUsd).toBeCloseTo(
-      1 / 90000,
-    );
+    expect(
+      (result as { marketUnitCostUsd: number }).marketUnitCostUsd,
+    ).toBeCloseTo(1 / 90000);
     expect(repo.previewConsume).toHaveBeenCalledWith({
       currencyCode: "XXX",
       qty: 10,
@@ -151,7 +151,9 @@ describe("ExchangeLotService — previewSettlement", () => {
     });
 
     expect(result.success).toBe(true);
-    expect((result as { marketUnitCostUsd: number }).marketUnitCostUsd).toBe(1.18);
+    expect((result as { marketUnitCostUsd: number }).marketUnitCostUsd).toBe(
+      1.18,
+    );
     expect(repo.previewConsume).toHaveBeenCalledWith({
       currencyCode: "EUR",
       qty: 5,

@@ -243,7 +243,9 @@ describe("REST audit wiring (LIRA-104, Implementer B)", () => {
     const app = buildApp("/api/transactions", transactionsRouter);
 
     it("success: records exactly one audit entry, actor from JWT", async () => {
-      jest.spyOn(getTransactionService(), "voidTransaction").mockReturnValue(999);
+      jest
+        .spyOn(getTransactionService(), "voidTransaction")
+        .mockReturnValue(999);
 
       const res = await request(app)
         .post("/api/transactions/123/void")
@@ -266,9 +268,11 @@ describe("REST audit wiring (LIRA-104, Implementer B)", () => {
     });
 
     it("business failure (voidTransaction throws, caught as 500): records nothing", async () => {
-      jest.spyOn(getTransactionService(), "voidTransaction").mockImplementation(() => {
-        throw new Error("Transaction already voided");
-      });
+      jest
+        .spyOn(getTransactionService(), "voidTransaction")
+        .mockImplementation(() => {
+          throw new Error("Transaction already voided");
+        });
 
       const res = await request(app)
         .post("/api/transactions/123/void")

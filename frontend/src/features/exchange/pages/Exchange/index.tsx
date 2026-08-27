@@ -1079,269 +1079,291 @@ export default function Exchange() {
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="w-full max-w-6xl mx-auto flex flex-col gap-6">
-        <div className="w-full flex flex-col lg:flex-row lg:items-stretch gap-6">
-          {/* ── Exchange Calculator ── */}
-          <div className="w-full lg:flex-1 max-w-2xl mx-auto lg:mx-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col gap-4">
-            {/* Currency Selectors */}
-            <div className="flex items-center gap-2">
-              <div className="flex-1">
-                <span className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                  From
-                </span>
-                <CurrencySelector
-                  selected={fromCurrency}
-                  onSelect={setFromCurrency}
-                  options={currencyOptions}
-                />
+          <div className="w-full flex flex-col lg:flex-row lg:items-stretch gap-6">
+            {/* ── Exchange Calculator ── */}
+            <div className="w-full lg:flex-1 max-w-2xl mx-auto lg:mx-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col gap-4">
+              {/* Currency Selectors */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <span className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                    From
+                  </span>
+                  <CurrencySelector
+                    selected={fromCurrency}
+                    onSelect={setFromCurrency}
+                    options={currencyOptions}
+                  />
+                </div>
+
+                <button
+                  data-testid="exchange-swap-button"
+                  onClick={handleSwap}
+                  className="mt-5 p-2 rounded-full bg-slate-700 text-slate-400 hover:bg-violet-600 hover:text-white transition-all"
+                >
+                  <ArrowRightLeft size={16} />
+                </button>
+
+                <div className="flex-1">
+                  <span className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                    To
+                  </span>
+                  <CurrencySelector
+                    selected={toCurrency}
+                    onSelect={setToCurrency}
+                    options={currencyOptions}
+                  />
+                </div>
               </div>
 
-              <button
-                data-testid="exchange-swap-button"
-                onClick={handleSwap}
-                className="mt-5 p-2 rounded-full bg-slate-700 text-slate-400 hover:bg-violet-600 hover:text-white transition-all"
-              >
-                <ArrowRightLeft size={16} />
-              </button>
+              {/* Error Banner */}
+              {calcError && (
+                <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 px-3 py-2 rounded border border-red-500/20">
+                  <AlertCircle size={14} />
+                  {calcError}
+                </div>
+              )}
 
-              <div className="flex-1">
-                <span className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                  To
-                </span>
-                <CurrencySelector
-                  selected={toCurrency}
-                  onSelect={setToCurrency}
-                  options={currencyOptions}
-                />
-              </div>
-            </div>
+              {/* Profit Sanity Warning */}
+              {profitWarning && (
+                <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 px-3 py-2 rounded border border-amber-500/20">
+                  <AlertCircle size={14} className="shrink-0" />
+                  {profitWarning}
+                </div>
+              )}
 
-            {/* Error Banner */}
-            {calcError && (
-              <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 px-3 py-2 rounded border border-red-500/20">
-                <AlertCircle size={14} />
-                {calcError}
-              </div>
-            )}
-
-            {/* Profit Sanity Warning */}
-            {profitWarning && (
-              <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 px-3 py-2 rounded border border-amber-500/20">
-                <AlertCircle size={14} className="shrink-0" />
-                {profitWarning}
-              </div>
-            )}
-
-            {/* FIX 3 (adversarial review) — the FIFO preview call itself
+              {/* FIX 3 (adversarial review) — the FIFO preview call itself
               errored; distinct from "not yet started"/"not applicable"
               (both leave lotPreview at null too). Never blocks or disables
               submit — the server still computes profit authoritatively. */}
-            {toIsLotTracked && lotPreviewError && (
-              <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 px-3 py-2 rounded border border-amber-500/20">
-                <AlertCircle size={14} className="shrink-0" />
-                Realized-profit preview unavailable — profit will be computed
-                at submit
-              </div>
-            )}
+              {toIsLotTracked && lotPreviewError && (
+                <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 px-3 py-2 rounded border border-amber-500/20">
+                  <AlertCircle size={14} className="shrink-0" />
+                  Realized-profit preview unavailable — profit will be computed
+                  at submit
+                </div>
+              )}
 
-            {/* Cross-Currency Leg Breakdown (2 legs, each with editable rate,
+              {/* Cross-Currency Leg Breakdown (2 legs, each with editable rate,
               one compact row per leg; total profit lives in the header) */}
-            {isCrossCurrency && effectiveResult && (
-              <div className="bg-slate-900/60 rounded-xl border border-amber-500/20 p-3 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
-                    ⚡ Cross-Currency via USD
-                  </span>
-                  <span
-                    data-testid="exchange-cross-total-profit"
-                    className={`text-xs font-semibold whitespace-nowrap ${
-                      displayTotalProfitUsd >= 0
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }`}
-                  >
-                    {/* Sign BEFORE the "$" (matches the direct panel's
+              {isCrossCurrency && effectiveResult && (
+                <div className="bg-slate-900/60 rounded-xl border border-amber-500/20 p-3 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
+                      ⚡ Cross-Currency via USD
+                    </span>
+                    <span
+                      data-testid="exchange-cross-total-profit"
+                      className={`text-xs font-semibold whitespace-nowrap ${
+                        displayTotalProfitUsd >= 0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                      }`}
+                    >
+                      {/* Sign BEFORE the "$" (matches the direct panel's
                       lot-tracked "Realized profit" line) — `.toFixed(4)`
                       already prints its own "-" for a negative number, which
                       would otherwise land after the "$" as "$-0.6480". */}
-                    Total {displayTotalProfitUsd >= 0 ? "+" : "-"}$
-                    {Math.abs(displayTotalProfitUsd).toFixed(4)}
-                  </span>
-                </div>
-                {effectiveResult.legs.map((leg, i) => {
-                  const isAcquireLeg = i === 0 && fromIsLotTracked;
-                  const isConsumeLeg =
-                    i === effectiveResult.legs.length - 1 && toIsLotTracked;
-                  const legProfit = displayLegProfits[i] ?? leg.profitUsd;
-                  return (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 text-xs bg-slate-800/50 rounded px-2 py-1.5"
-                    >
-                      <span className="w-4 h-4 rounded-full bg-slate-700 text-slate-400 text-[10px] font-bold flex items-center justify-center shrink-0">
-                        {i + 1}
-                      </span>
-                      <span className="font-mono text-slate-300 whitespace-nowrap">
-                        {formatAmount(leg.amountIn, leg.fromCurrency)}
-                        <span className="text-slate-500"> → </span>
-                        {formatAmount(leg.amountOut, leg.toCurrency)}
-                      </span>
-                      <input
-                        type="number"
-                        data-testid={`exchange-cross-rate-input-${i + 1}`}
-                        value={customRates[i] ?? leg.rate}
-                        onChange={(e) => handleRateChange(i, e.target.value)}
-                        title={`Rate (${legRateUnit(leg.fromCurrency, leg.toCurrency, effectiveRates)})`}
-                        className={`flex-1 min-w-[70px] bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
-                          rateOverridden[i]
-                            ? "border-amber-500/60 bg-amber-500/10"
-                            : "border-slate-600 focus:border-violet-500"
-                        }`}
-                      />
-                      <span className="text-[10px] text-slate-500 shrink-0">
-                        {legRateUnit(
-                          leg.fromCurrency,
-                          leg.toCurrency,
-                          effectiveRates,
+                      Total {displayTotalProfitUsd >= 0 ? "+" : "-"}$
+                      {Math.abs(displayTotalProfitUsd).toFixed(4)}
+                    </span>
+                  </div>
+                  {effectiveResult.legs.map((leg, i) => {
+                    const isAcquireLeg = i === 0 && fromIsLotTracked;
+                    const isConsumeLeg =
+                      i === effectiveResult.legs.length - 1 && toIsLotTracked;
+                    const legProfit = displayLegProfits[i] ?? leg.profitUsd;
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 text-xs bg-slate-800/50 rounded px-2 py-1.5"
+                      >
+                        <span className="w-4 h-4 rounded-full bg-slate-700 text-slate-400 text-[10px] font-bold flex items-center justify-center shrink-0">
+                          {i + 1}
+                        </span>
+                        <span className="font-mono text-slate-300 whitespace-nowrap">
+                          {formatAmount(leg.amountIn, leg.fromCurrency)}
+                          <span className="text-slate-500"> → </span>
+                          {formatAmount(leg.amountOut, leg.toCurrency)}
+                        </span>
+                        <input
+                          type="number"
+                          data-testid={`exchange-cross-rate-input-${i + 1}`}
+                          value={customRates[i] ?? leg.rate}
+                          onChange={(e) => handleRateChange(i, e.target.value)}
+                          title={`Rate (${legRateUnit(leg.fromCurrency, leg.toCurrency, effectiveRates)})`}
+                          className={`flex-1 min-w-[70px] bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
+                            rateOverridden[i]
+                              ? "border-amber-500/60 bg-amber-500/10"
+                              : "border-slate-600 focus:border-violet-500"
+                          }`}
+                        />
+                        <span className="text-[10px] text-slate-500 shrink-0">
+                          {legRateUnit(
+                            leg.fromCurrency,
+                            leg.toCurrency,
+                            effectiveRates,
+                          )}
+                        </span>
+                        {rateOverridden[i] && (
+                          <button
+                            onClick={() => resetRate(i)}
+                            className="text-xs text-slate-500 hover:text-white transition-colors shrink-0"
+                            title="Reset to default rate"
+                          >
+                            ↺
+                          </button>
                         )}
-                      </span>
-                      {rateOverridden[i] && (
-                        <button
-                          onClick={() => resetRate(i)}
-                          className="text-xs text-slate-500 hover:text-white transition-colors shrink-0"
-                          title="Reset to default rate"
-                        >
-                          ↺
-                        </button>
-                      )}
-                      {isAcquireLeg ? (
-                        // Deferred-profit annotation (owner-reported
-                        // confusion: buying cheaper LOOKED like earning
-                        // less). `leg.profitUsd` here is the RAW,
-                        // non-zeroed leg-1 signed profit (displayLegProfits
-                        // zeroes it only for the booked/submitted total —
-                        // Q8, the server defers it to sale) — i.e. exactly
-                        // what WOULD book if this lot were sold today.
-                        // Display-only: never fed back into what's submitted.
-                        <span
-                          data-testid="exchange-cross-deferred-1"
-                          className={`text-[10px] italic whitespace-nowrap shrink-0 ${
-                            leg.profitUsd >= 0
-                              ? "text-slate-500"
-                              : "text-red-400"
-                          }`}
-                          title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold. Shown here is what it would book if sold today at market."
-                        >
-                          {leg.profitUsd >= 0 ? "+" : "-"}$
-                          {Math.abs(leg.profitUsd).toFixed(2)} books at sale
-                          {leg.profitUsd < 0 ? " (loss)" : ""}
-                        </span>
-                      ) : isConsumeLeg && lotPreviewLoading && !lotPreview ? (
-                        <span className="text-[10px] text-slate-500 whitespace-nowrap shrink-0">
-                          Calculating…
-                        </span>
-                      ) : (
-                        <span
-                          data-testid={`exchange-cross-leg-profit-${i + 1}`}
-                          className={`font-semibold whitespace-nowrap shrink-0 ${
-                            legProfit >= 0 ? "text-emerald-400" : "text-red-400"
-                          }`}
-                        >
-                          {legProfit >= 0 ? "+" : "-"}$
-                          {Math.abs(legProfit).toFixed(4)}
+                        {isAcquireLeg ? (
+                          // Deferred-profit annotation (owner-reported
+                          // confusion: buying cheaper LOOKED like earning
+                          // less). `leg.profitUsd` here is the RAW,
+                          // non-zeroed leg-1 signed profit (displayLegProfits
+                          // zeroes it only for the booked/submitted total —
+                          // Q8, the server defers it to sale) — i.e. exactly
+                          // what WOULD book if this lot were sold today.
+                          // Display-only: never fed back into what's submitted.
+                          <span
+                            data-testid="exchange-cross-deferred-1"
+                            className={`text-[10px] italic whitespace-nowrap shrink-0 ${
+                              leg.profitUsd >= 0
+                                ? "text-slate-500"
+                                : "text-red-400"
+                            }`}
+                            title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold. Shown here is what it would book if sold today at market."
+                          >
+                            {leg.profitUsd >= 0 ? "+" : "-"}$
+                            {Math.abs(leg.profitUsd).toFixed(2)} books at sale
+                            {leg.profitUsd < 0 ? " (loss)" : ""}
+                          </span>
+                        ) : isConsumeLeg && lotPreviewLoading && !lotPreview ? (
+                          <span className="text-[10px] text-slate-500 whitespace-nowrap shrink-0">
+                            Calculating…
+                          </span>
+                        ) : (
+                          <span
+                            data-testid={`exchange-cross-leg-profit-${i + 1}`}
+                            className={`font-semibold whitespace-nowrap shrink-0 ${
+                              legProfit >= 0
+                                ? "text-emerald-400"
+                                : "text-red-400"
+                            }`}
+                          >
+                            {legProfit >= 0 ? "+" : "-"}$
+                            {Math.abs(legProfit).toFixed(4)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {toIsLotTracked && lotPreview?.lotTracked && (
+                    <div className="text-[10px] text-slate-500 pt-1">
+                      FIFO vs cost basis
+                      {lotPreview.marketQty > 0 && (
+                        <span className="text-amber-400">
+                          {" "}
+                          ·{" "}
+                          {lotPreview.marketQty.toLocaleString(undefined, {
+                            maximumFractionDigits: 4,
+                          })}{" "}
+                          {toCurrency} uncovered — settled at today's market
+                          rate
                         </span>
                       )}
                     </div>
-                  );
-                })}
-                {toIsLotTracked && lotPreview?.lotTracked && (
-                  <div className="text-[10px] text-slate-500 pt-1">
-                    FIFO vs cost basis
-                    {lotPreview.marketQty > 0 && (
-                      <span className="text-amber-400">
-                        {" "}
-                        · {lotPreview.marketQty.toLocaleString(undefined, {
-                          maximumFractionDigits: 4,
-                        })}{" "}
-                        {toCurrency} uncovered — settled at today's market rate
-                      </span>
-                    )}
-                  </div>
-                )}
-                {/* FIX 2 item 3 (adversarial review) — no cost-basis was
+                  )}
+                  {/* FIX 2 item 3 (adversarial review) — no cost-basis was
                   actually calculated for this pair (no USD rate anchor), so
                   the "FIFO vs cost basis" line above must NOT show; the
                   profit figures above already fall back to the plain
                   spread model, which is what the server will actually keep. */}
-                {toIsLotTracked &&
-                  lotPreview?.lotTracked === false &&
-                  lotPreview.reason === "NO_RATE_ANCHOR" && (
-                    <div className="text-[10px] text-amber-400 pt-1">
-                      Cost-basis tracking unavailable for this pair —
-                      configure a rate in Settings to enable it
-                    </div>
-                  )}
-              </div>
-            )}
-
-            {/* Direct Exchange Rate Info (1 leg, editable rate) */}
-            {!isCrossCurrency && effectiveResult && (
-              <div className="bg-slate-900/50 px-3 py-2 rounded border border-slate-700 space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 shrink-0">Rate:</span>
-                  <input
-                    type="number"
-                    data-testid="exchange-direct-rate-input"
-                    value={
-                      customRates[0] ?? effectiveResult.legs[0]?.rate ?? ""
-                    }
-                    onChange={(e) => handleRateChange(0, e.target.value)}
-                    className={`flex-1 bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
-                      rateOverridden[0]
-                        ? "border-amber-500/60 bg-amber-500/10"
-                        : "border-slate-600 focus:border-violet-500"
-                    }`}
-                  />
-                  <span className="text-xs text-slate-500 shrink-0">
-                    {effectiveResult.legs[0]
-                      ? formatLegRate(
-                          effectiveResult.legs[0].fromCurrency,
-                          effectiveResult.legs[0].toCurrency,
-                          effectiveResult.legs[0].rate,
-                          effectiveRates,
-                        )
-                          .split(" ")
-                          .slice(1)
-                          .join(" ")
-                      : ""}
-                  </span>
-                  {rateOverridden[0] && (
-                    <button
-                      onClick={() => resetRate(0)}
-                      className="text-xs text-slate-500 hover:text-white transition-colors"
-                      title="Reset to default rate"
-                    >
-                      ↺
-                    </button>
-                  )}
+                  {toIsLotTracked &&
+                    lotPreview?.lotTracked === false &&
+                    lotPreview.reason === "NO_RATE_ANCHOR" && (
+                      <div className="text-[10px] text-amber-400 pt-1">
+                        Cost-basis tracking unavailable for this pair —
+                        configure a rate in Settings to enable it
+                      </div>
+                    )}
                 </div>
-                <div className="flex justify-between text-xs">
-                  {fromIsLotTracked ? (
-                    <span
-                      className="text-slate-500 italic"
-                      title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold."
-                    >
-                      Buy — profit books when this {fromCurrency} is later
-                      sold (cost-basis lot)
+              )}
+
+              {/* Direct Exchange Rate Info (1 leg, editable rate) */}
+              {!isCrossCurrency && effectiveResult && (
+                <div className="bg-slate-900/50 px-3 py-2 rounded border border-slate-700 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 shrink-0">
+                      Rate:
                     </span>
-                  ) : toIsLotTracked ? (
-                    lotPreviewLoading && !lotPreview ? (
-                      <span className="text-slate-500">
-                        Calculating realized profit…
+                    <input
+                      type="number"
+                      data-testid="exchange-direct-rate-input"
+                      value={
+                        customRates[0] ?? effectiveResult.legs[0]?.rate ?? ""
+                      }
+                      onChange={(e) => handleRateChange(0, e.target.value)}
+                      className={`flex-1 bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
+                        rateOverridden[0]
+                          ? "border-amber-500/60 bg-amber-500/10"
+                          : "border-slate-600 focus:border-violet-500"
+                      }`}
+                    />
+                    <span className="text-xs text-slate-500 shrink-0">
+                      {effectiveResult.legs[0]
+                        ? formatLegRate(
+                            effectiveResult.legs[0].fromCurrency,
+                            effectiveResult.legs[0].toCurrency,
+                            effectiveResult.legs[0].rate,
+                            effectiveRates,
+                          )
+                            .split(" ")
+                            .slice(1)
+                            .join(" ")
+                        : ""}
+                    </span>
+                    {rateOverridden[0] && (
+                      <button
+                        onClick={() => resetRate(0)}
+                        className="text-xs text-slate-500 hover:text-white transition-colors"
+                        title="Reset to default rate"
+                      >
+                        ↺
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    {fromIsLotTracked ? (
+                      <span
+                        className="text-slate-500 italic"
+                        title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold."
+                      >
+                        Buy — profit books when this {fromCurrency} is later
+                        sold (cost-basis lot)
                       </span>
+                    ) : toIsLotTracked ? (
+                      lotPreviewLoading && !lotPreview ? (
+                        <span className="text-slate-500">
+                          Calculating realized profit…
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">
+                          Realized profit:{" "}
+                          <span
+                            className={`font-bold ${
+                              displayTotalProfitUsd >= 0
+                                ? "text-emerald-400"
+                                : "text-red-400"
+                            }`}
+                          >
+                            {displayTotalProfitUsd >= 0 ? "" : "-"}$
+                            {Math.abs(displayTotalProfitUsd).toFixed(4)} USD
+                          </span>
+                        </span>
+                      )
                     ) : (
                       <span className="text-slate-400">
-                        Realized profit:{" "}
+                        Profit:{" "}
                         <span
+                          data-testid="exchange-direct-total-profit"
                           className={`font-bold ${
                             displayTotalProfitUsd >= 0
                               ? "text-emerald-400"
@@ -1352,93 +1374,79 @@ export default function Exchange() {
                           {Math.abs(displayTotalProfitUsd).toFixed(4)} USD
                         </span>
                       </span>
-                    )
-                  ) : (
-                    <span className="text-slate-400">
-                      Profit:{" "}
-                      <span
-                        data-testid="exchange-direct-total-profit"
-                        className={`font-bold ${
-                          displayTotalProfitUsd >= 0
-                            ? "text-emerald-400"
-                            : "text-red-400"
-                        }`}
-                      >
-                        {displayTotalProfitUsd >= 0 ? "" : "-"}$
-                        {Math.abs(displayTotalProfitUsd).toFixed(4)} USD
-                      </span>
-                    </span>
-                  )}
-                  {rateOverridden[0] && (
-                    <span className="text-amber-400 text-xs">
-                      ⚡ Custom rate
-                    </span>
-                  )}
-                </div>
-                {toIsLotTracked && lotPreview?.lotTracked && (
-                  <div className="text-[10px] text-slate-500">
-                    FIFO vs cost basis
-                    {lotPreview.marketQty > 0 && (
-                      <span className="text-amber-400">
-                        {" "}
-                        · {lotPreview.marketQty.toLocaleString(undefined, {
-                          maximumFractionDigits: 4,
-                        })}{" "}
-                        {toCurrency} uncovered — settled at today's market rate
+                    )}
+                    {rateOverridden[0] && (
+                      <span className="text-amber-400 text-xs">
+                        ⚡ Custom rate
                       </span>
                     )}
                   </div>
-                )}
-                {/* FIX 2 item 3 (adversarial review) — see cross-currency
-                  block above for the reasoning: no cost-basis was actually
-                  calculated for this pair, so no "FIFO vs cost basis" line. */}
-                {toIsLotTracked &&
-                  lotPreview?.lotTracked === false &&
-                  lotPreview.reason === "NO_RATE_ANCHOR" && (
-                    <div className="text-[10px] text-amber-400">
-                      Cost-basis tracking unavailable for this pair —
-                      configure a rate in Settings to enable it
+                  {toIsLotTracked && lotPreview?.lotTracked && (
+                    <div className="text-[10px] text-slate-500">
+                      FIFO vs cost basis
+                      {lotPreview.marketQty > 0 && (
+                        <span className="text-amber-400">
+                          {" "}
+                          ·{" "}
+                          {lotPreview.marketQty.toLocaleString(undefined, {
+                            maximumFractionDigits: 4,
+                          })}{" "}
+                          {toCurrency} uncovered — settled at today's market
+                          rate
+                        </span>
+                      )}
                     </div>
                   )}
-              </div>
-            )}
-
-            {/* Amount Inputs */}
-            <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                  You Receive ({fromCurrency})
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold z-10 pointer-events-none">
-                    {getCurrencySymbol(fromCurrency)}
-                  </span>
-                  <DecimalInput
-                    value={amountIn}
-                    onChange={setAmountIn}
-                    decimals={getDecimals(fromCurrency)}
-                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-14 pr-4 py-4 text-xl font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                    placeholder="0.00"
-                  />
+                  {/* FIX 2 item 3 (adversarial review) — see cross-currency
+                  block above for the reasoning: no cost-basis was actually
+                  calculated for this pair, so no "FIFO vs cost basis" line. */}
+                  {toIsLotTracked &&
+                    lotPreview?.lotTracked === false &&
+                    lotPreview.reason === "NO_RATE_ANCHOR" && (
+                      <div className="text-[10px] text-amber-400">
+                        Cost-basis tracking unavailable for this pair —
+                        configure a rate in Settings to enable it
+                      </div>
+                    )}
                 </div>
-              </div>
+              )}
 
-              <div className="flex items-center justify-center -my-1">
-                <div className="bg-slate-700 rounded-full p-1.5 border-4 border-slate-800">
-                  <ArrowRight size={16} className="text-slate-400" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                  Customer Gets
-                  {toCurrency !== "USD" && toCurrency !== "LBP" && (
-                    <span className="ml-1 normal-case text-slate-500">
-                      ({toCurrency} equivalent)
+              {/* Amount Inputs */}
+              <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                    You Receive ({fromCurrency})
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold z-10 pointer-events-none">
+                      {getCurrencySymbol(fromCurrency)}
                     </span>
-                  )}
-                </label>
-                {/* FIX 6 (owner-reported 2026-08-23) — for an exotic target
+                    <DecimalInput
+                      value={amountIn}
+                      onChange={setAmountIn}
+                      decimals={getDecimals(fromCurrency)}
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-14 pr-4 py-4 text-xl font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-center -my-1">
+                  <div className="bg-slate-700 rounded-full p-1.5 border-4 border-slate-800">
+                    <ArrowRight size={16} className="text-slate-400" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                    Customer Gets
+                    {toCurrency !== "USD" && toCurrency !== "LBP" && (
+                      <span className="ml-1 normal-case text-slate-500">
+                        ({toCurrency} equivalent)
+                      </span>
+                    )}
+                  </label>
+                  {/* FIX 6 (owner-reported 2026-08-23) — for an exotic target
                   (neither USD nor LBP), show the ACTUAL payout quantity in
                   that currency prominently, first. Before this, only the
                   USD/LBP value-equivalents below existed, so the till
@@ -1447,231 +1455,233 @@ export default function Exchange() {
                   "prominent" treatment below (same classes, no new visual
                   language) — USD-target and LBP-target rendering is
                   untouched; this is purely an added third case. */}
-                {exoticIsPayout && (
-                  <div
-                    data-testid="exchange-exotic-payout"
-                    className="relative mb-2"
-                  >
-                    <input
-                      type="text"
-                      value={
-                        effectiveResult
-                          ? effectiveResult.totalAmountOut.toLocaleString(
-                              undefined,
-                              {
-                                minimumFractionDigits: getDecimals(toCurrency),
-                                maximumFractionDigits: getDecimals(toCurrency),
-                              },
-                            )
-                          : ""
-                      }
-                      readOnly
-                      className="w-full rounded-lg pl-4 pr-16 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/80 border border-violet-500/50 text-white"
-                      placeholder="0.00"
-                    />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-violet-300">
-                      {toCurrency}
-                    </span>
-                  </div>
-                )}
+                  {exoticIsPayout && (
+                    <div
+                      data-testid="exchange-exotic-payout"
+                      className="relative mb-2"
+                    >
+                      <input
+                        type="text"
+                        value={
+                          effectiveResult
+                            ? effectiveResult.totalAmountOut.toLocaleString(
+                                undefined,
+                                {
+                                  minimumFractionDigits:
+                                    getDecimals(toCurrency),
+                                  maximumFractionDigits:
+                                    getDecimals(toCurrency),
+                                },
+                              )
+                            : ""
+                        }
+                        readOnly
+                        className="w-full rounded-lg pl-4 pr-16 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/80 border border-violet-500/50 text-white"
+                        placeholder="0.00"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-violet-300">
+                        {toCurrency}
+                      </span>
+                    </div>
+                  )}
 
-                {/* The two values are EQUIVALENTS of one payout, not a sum —
+                  {/* The two values are EQUIVALENTS of one payout, not a sum —
                   the target-currency box is primary, the other is a dimmed
                   "≈" conversion, and the "or" separator seals the reading.
                   For an exotic target (above), both boxes below render
                   dimmed automatically (usdIsPayout/lbpIsPayout are both
                   false) — no change needed to their own logic. */}
-                <div className="flex items-center gap-2">
-                  {/* USD output */}
-                  <div className="relative flex-1 min-w-0">
-                    <span
-                      className={`absolute left-4 top-1/2 -translate-y-1/2 font-bold ${
-                        usdIsPayout ? "text-red-400" : "text-slate-500"
-                      }`}
-                    >
-                      $
-                    </span>
-                    <input
-                      type="text"
-                      value={
-                        outputDual
-                          ? `${usdIsPayout ? "" : "≈ "}${outputDual.usd.toLocaleString(
-                              undefined,
-                              {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              },
-                            )}`
-                          : ""
-                      }
-                      readOnly
-                      className={`w-full rounded-lg pl-9 pr-12 py-4 text-xl font-bold cursor-not-allowed ${
-                        usdIsPayout
-                          ? "bg-slate-800/80 border border-violet-500/50 text-white"
-                          : "bg-slate-800/40 border border-slate-700/60 text-slate-500"
-                      }`}
-                      placeholder="0.00"
-                    />
-                    <span
-                      className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
-                        usdIsPayout ? "text-violet-300" : "text-slate-600"
-                      }`}
-                    >
-                      USD
-                    </span>
-                  </div>
+                  <div className="flex items-center gap-2">
+                    {/* USD output */}
+                    <div className="relative flex-1 min-w-0">
+                      <span
+                        className={`absolute left-4 top-1/2 -translate-y-1/2 font-bold ${
+                          usdIsPayout ? "text-red-400" : "text-slate-500"
+                        }`}
+                      >
+                        $
+                      </span>
+                      <input
+                        type="text"
+                        value={
+                          outputDual
+                            ? `${usdIsPayout ? "" : "≈ "}${outputDual.usd.toLocaleString(
+                                undefined,
+                                {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                },
+                              )}`
+                            : ""
+                        }
+                        readOnly
+                        className={`w-full rounded-lg pl-9 pr-12 py-4 text-xl font-bold cursor-not-allowed ${
+                          usdIsPayout
+                            ? "bg-slate-800/80 border border-violet-500/50 text-white"
+                            : "bg-slate-800/40 border border-slate-700/60 text-slate-500"
+                        }`}
+                        placeholder="0.00"
+                      />
+                      <span
+                        className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
+                          usdIsPayout ? "text-violet-300" : "text-slate-600"
+                        }`}
+                      >
+                        USD
+                      </span>
+                    </div>
 
-                  <span className="text-[11px] font-semibold text-slate-500 uppercase shrink-0">
-                    or
-                  </span>
-
-                  {/* LBP output */}
-                  <div className="relative flex-1 min-w-0">
-                    <input
-                      type="text"
-                      value={
-                        outputDual
-                          ? `${lbpIsPayout ? "" : "≈ "}${Math.round(outputDual.lbp).toLocaleString()}`
-                          : ""
-                      }
-                      readOnly
-                      className={`w-full rounded-lg pl-4 pr-12 py-4 text-xl font-bold cursor-not-allowed ${
-                        lbpIsPayout
-                          ? "bg-slate-800/80 border border-violet-500/50 text-white"
-                          : "bg-slate-800/40 border border-slate-700/60 text-slate-500"
-                      }`}
-                      placeholder="0"
-                    />
-                    <span
-                      className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
-                        lbpIsPayout ? "text-violet-300" : "text-slate-600"
-                      }`}
-                    >
-                      LBP
+                    <span className="text-[11px] font-semibold text-slate-500 uppercase shrink-0">
+                      or
                     </span>
+
+                    {/* LBP output */}
+                    <div className="relative flex-1 min-w-0">
+                      <input
+                        type="text"
+                        value={
+                          outputDual
+                            ? `${lbpIsPayout ? "" : "≈ "}${Math.round(outputDual.lbp).toLocaleString()}`
+                            : ""
+                        }
+                        readOnly
+                        className={`w-full rounded-lg pl-4 pr-12 py-4 text-xl font-bold cursor-not-allowed ${
+                          lbpIsPayout
+                            ? "bg-slate-800/80 border border-violet-500/50 text-white"
+                            : "bg-slate-800/40 border border-slate-700/60 text-slate-500"
+                        }`}
+                        placeholder="0"
+                      />
+                      <span
+                        className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
+                          lbpIsPayout ? "text-violet-300" : "text-slate-600"
+                        }`}
+                      >
+                        LBP
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* LIRA-081 (PFT-R): "For Partner" — takes no counter cash; the
+              {/* LIRA-081 (PFT-R): "For Partner" — takes no counter cash; the
               partner owes the exchange's fromCurrency amount instead. */}
-            <div>
-              <ForPartnerToggle
-                testId="exchange-for-partner-toggle"
-                checked={forPartner}
-                onChange={setForPartner}
-                selectedPartnerId={selectedPartnerId}
-                onPartnerChange={setSelectedPartnerId}
-                checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-              />
-            </div>
-
-            {/* Client Name — hidden in for-partner mode (no walk-in customer) */}
-            {forPartner ? (
-              <ForPartnerNotice
-                testId="exchange-partner-no-payment-notice"
-                className="text-sm text-violet-200 bg-violet-500/10 border border-violet-500/30 rounded-xl px-4 py-4"
-              >
-                No payment is collected for a partner exchange. The full{" "}
-                <span className="font-bold">
-                  {amountIn.toLocaleString()} {fromCurrency}
-                </span>{" "}
-                goes on the selected partner&apos;s account, settled later on
-                the Partners page.
-              </ForPartnerNotice>
-            ) : (
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                  Client Name (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
-                  placeholder="Walk-in Client"
+                <ForPartnerToggle
+                  testId="exchange-for-partner-toggle"
+                  checked={forPartner}
+                  onChange={setForPartner}
+                  selectedPartnerId={selectedPartnerId}
+                  onPartnerChange={setSelectedPartnerId}
+                  checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
                 />
               </div>
-            )}
 
-            <TransactionTimeOverride
-              value={transactionTime}
-              onChange={setTransactionTime}
-            />
+              {/* Client Name — hidden in for-partner mode (no walk-in customer) */}
+              {forPartner ? (
+                <ForPartnerNotice
+                  testId="exchange-partner-no-payment-notice"
+                  className="text-sm text-violet-200 bg-violet-500/10 border border-violet-500/30 rounded-xl px-4 py-4"
+                >
+                  No payment is collected for a partner exchange. The full{" "}
+                  <span className="font-bold">
+                    {amountIn.toLocaleString()} {fromCurrency}
+                  </span>{" "}
+                  goes on the selected partner&apos;s account, settled later on
+                  the Partners page.
+                </ForPartnerNotice>
+              ) : (
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                    Client Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
+                    placeholder="Walk-in Client"
+                  />
+                </div>
+              )}
 
-            <button
-              onClick={() => {
-                // Split payout (2026-07-30): USD/LBP-target walk-in exchanges
-                // confirm through the PaymentSheet so the payout can be split;
-                // partner mode and exotic targets keep the direct submit.
-                if (canSplitPayout) {
-                  setPayoutLines([]);
-                  setPayoutTenderRate(undefined);
-                  setPayoutSheetKey((k) => k + 1);
-                  setShowPayoutSheet(true);
-                } else if (
-                  toIsLotTracked &&
-                  lotPreview?.lotTracked &&
-                  lotPreview.realizedProfitUsd < 0
-                ) {
-                  // Q10 — a legitimate loss is never a hard block; any
-                  // operator confirms before it submits.
-                  setShowLossConfirm(true);
-                } else {
-                  void handleProcess();
+              <TransactionTimeOverride
+                value={transactionTime}
+                onChange={setTransactionTime}
+              />
+
+              <button
+                onClick={() => {
+                  // Split payout (2026-07-30): USD/LBP-target walk-in exchanges
+                  // confirm through the PaymentSheet so the payout can be split;
+                  // partner mode and exotic targets keep the direct submit.
+                  if (canSplitPayout) {
+                    setPayoutLines([]);
+                    setPayoutTenderRate(undefined);
+                    setPayoutSheetKey((k) => k + 1);
+                    setShowPayoutSheet(true);
+                  } else if (
+                    toIsLotTracked &&
+                    lotPreview?.lotTracked &&
+                    lotPreview.realizedProfitUsd < 0
+                  ) {
+                    // Q10 — a legitimate loss is never a hard block; any
+                    // operator confirms before it submits.
+                    setShowLossConfirm(true);
+                  } else {
+                    void handleProcess();
+                  }
+                }}
+                disabled={
+                  !effectiveResult ||
+                  !!calcError ||
+                  !!profitWarning ||
+                  isSubmitting ||
+                  isSubmittingPartner ||
+                  (forPartner && !selectedPartnerId) ||
+                  (toIsLotTracked && lotPreviewLoading)
                 }
-              }}
-              disabled={
-                !effectiveResult ||
-                !!calcError ||
-                !!profitWarning ||
-                isSubmitting ||
-                isSubmittingPartner ||
-                (forPartner && !selectedPartnerId) ||
-                (toIsLotTracked && lotPreviewLoading)
-              }
-              className="w-full py-4 mt-2 rounded-xl font-bold text-lg bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {forPartner
-                ? "Submit to Partner"
-                : canSplitPayout
-                  ? "Proceed to Payout"
-                  : "Confirm Exchange"}
-            </button>
-          </div>
+                className="w-full py-4 mt-2 rounded-xl font-bold text-lg bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {forPartner
+                  ? "Submit to Partner"
+                  : canSplitPayout
+                    ? "Proceed to Payout"
+                    : "Confirm Exchange"}
+              </button>
+            </div>
 
-          {/* ── Rates: the shop's configured rates (LBP, EUR — from Settings)
+            {/* ── Rates: the shop's configured rates (LBP, EUR — from Settings)
                 pinned above the market reference for every other currency the
                 feed carries. Full spread + stamped-profit detail is behind the
                 "Your Rates" button in the header. ── */}
-          {/* The wrapper stretches to the row's height — which the calculator
+            {/* The wrapper stretches to the row's height — which the calculator
               alone determines, because on `lg` the panel inside is absolutely
               positioned and so contributes no intrinsic height. That is what
               makes the two columns exactly equal: without it, 165 rows of
               content would make the panel the tallest item and drive the row.
               Below `lg` the panel is static and self-caps instead. */}
-          <div className="w-full lg:w-72 shrink-0 relative">
-            <LiveRatesPanel
-              rates={marketRates}
-              configuredRates={rateRows}
-              lastUpdatedUtc={liveUpdatedUtc}
-              loading={liveLoading || ratesLoading}
-              className="w-full max-h-[28rem] lg:max-h-none lg:absolute lg:inset-0"
-            />
+            <div className="w-full lg:w-72 shrink-0 relative">
+              <LiveRatesPanel
+                rates={marketRates}
+                configuredRates={rateRows}
+                lastUpdatedUtc={liveUpdatedUtc}
+                loading={liveLoading || ratesLoading}
+                className="w-full max-h-[28rem] lg:max-h-none lg:absolute lg:inset-0"
+              />
+            </div>
           </div>
-        </div>
 
-        {/* Open Positions (Q16) — one row per lot-tracked currency the shop
+          {/* Open Positions (Q16) — one row per lot-tracked currency the shop
             currently holds; links into the History modal pre-filtered to
             that currency. */}
-        <PositionsPanel
-          refreshKey={positionsRefreshKey}
-          onViewCurrency={(code) => {
-            setHistoryCurrencyFilter(code);
-            setShowHistoryModal(true);
-          }}
-        />
+          <PositionsPanel
+            refreshKey={positionsRefreshKey}
+            onViewCurrency={(code) => {
+              setHistoryCurrencyFilter(code);
+              setShowHistoryModal(true);
+            }}
+          />
         </div>
       </div>
 

@@ -85,8 +85,7 @@ LIRA-095 + LIRA-089). This ticket closes when that plan's OMT/Whish phases ship.
 
 ---
 
-
-> *(LIRA-096 — Partners Page: Remove "Record Transaction" — moved to the live board, still open)*
+> _(LIRA-096 — Partners Page: Remove "Record Transaction" — moved to the live board, still open)_
 
 ---
 
@@ -167,4 +166,3 @@ proven failing-first by temporarily removing the LBP option (rule 17).
 ---
 
 ---
-

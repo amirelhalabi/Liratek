@@ -148,7 +148,10 @@ async function ensureEurActive(page: Page, headers: Headers): Promise<void> {
     is_active: number;
   }>;
   const eur = currencies.find((c) => c.code === "EUR");
-  expect(eur, "EUR currency row not found via GET /api/currencies").toBeTruthy();
+  expect(
+    eur,
+    "EUR currency row not found via GET /api/currencies",
+  ).toBeTruthy();
   if (eur!.is_active) return;
 
   const updated = await (
@@ -259,9 +262,7 @@ test("cash-in EUR over REST appears in the Dashboard's Cash on Hand and gets exa
   // ── Phase 3: the REAL Dashboard, in a REAL browser — no window.api
   //    anywhere, so this only passes on the HTTP branch of ipcOrHttp ───
   await loginAsAdmin(page);
-  await expect(page.locator("#root")).not.toContainText(
-    "Something went wrong",
-  );
+  await expect(page.locator("#root")).not.toContainText("Something went wrong");
 
   await expect
     .poll(() => cashOnHandGeneralEur(page), { timeout: 15_000 })

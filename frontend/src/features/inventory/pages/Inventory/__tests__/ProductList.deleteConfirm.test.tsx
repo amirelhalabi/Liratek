@@ -145,9 +145,7 @@ describe("ProductList delete confirm — IMEI disclosure", () => {
     mockGetForProduct.mockResolvedValue([{ id: 1, imei: "111111111111111" }]);
 
     fireEvent.click(screen.getByTestId("inventory-delete-42"));
-    await waitFor(() =>
-      expect(confirmMessage()).toContain("111111111111111"),
-    );
+    await waitFor(() => expect(confirmMessage()).toContain("111111111111111"));
 
     fireEvent.click(screen.getByTestId("confirm-modal-confirm-btn"));
     await waitFor(() => expect(mockDeleteProduct).toHaveBeenCalledWith(42));
@@ -172,9 +170,7 @@ describe("ProductList delete confirm — IMEI disclosure", () => {
     mockGetForProduct.mockResolvedValue([{ id: 1, imei: "111111111111111" }]);
 
     fireEvent.click(screen.getByTestId("inventory-delete-42"));
-    await waitFor(() =>
-      expect(confirmMessage()).toContain("111111111111111"),
-    );
+    await waitFor(() => expect(confirmMessage()).toContain("111111111111111"));
     fireEvent.click(screen.getByTestId("confirm-modal-cancel-btn"));
 
     mockGetForProduct.mockResolvedValue([]);
@@ -196,12 +192,17 @@ describe("ProductList delete confirm — IMEI disclosure", () => {
     ]);
     mockGetForProduct.mockImplementation(async (id: number) =>
       id === 42
-        ? [{ id: 1, imei: "111111111111111" }, { id: 2, imei: "222222222222222" }]
+        ? [
+            { id: 1, imei: "111111111111111" },
+            { id: 2, imei: "222222222222222" },
+          ]
         : [{ id: 3, imei: "333333333333333" }],
     );
 
     // Select both rows, then open the batch delete confirm.
-    fireEvent.click(screen.getByLabelText("Delete iPhone 15 Pro").closest("tr")!);
+    fireEvent.click(
+      screen.getByLabelText("Delete iPhone 15 Pro").closest("tr")!,
+    );
     fireEvent.click(screen.getByLabelText("Delete Milk 1L").closest("tr")!);
     fireEvent.click(await screen.findByTestId("inventory-batch-delete"));
 

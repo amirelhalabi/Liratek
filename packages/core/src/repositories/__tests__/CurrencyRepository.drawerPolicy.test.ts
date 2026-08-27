@@ -124,7 +124,9 @@ describe("CurrencyRepository — drawer currency policy", () => {
   // ─── 1. General is unrestricted ─────────────────────────────────────────
 
   it("General offers every ACTIVE currency, not just its currency_drawers rows", () => {
-    const codes = runWithTenant(1, () => repo.getCurrenciesForDrawer("General"));
+    const codes = runWithTenant(1, () =>
+      repo.getCurrenciesForDrawer("General"),
+    );
 
     // The whole point: EUR/USDT are active but have no General row.
     expect(codes).toEqual(["EUR", "LBP", "USD", "USDT"]);
@@ -147,7 +149,9 @@ describe("CurrencyRepository — drawer currency policy", () => {
        VALUES (1, 'General', 'GBP', 250)`,
     ).run();
 
-    const codes = runWithTenant(1, () => repo.getCurrenciesForDrawer("General"));
+    const codes = runWithTenant(1, () =>
+      repo.getCurrenciesForDrawer("General"),
+    );
     expect(codes).toContain("GBP");
   });
 
@@ -157,14 +161,18 @@ describe("CurrencyRepository — drawer currency policy", () => {
        VALUES (1, 'General', 'GBP', 0)`,
     ).run();
 
-    const codes = runWithTenant(1, () => repo.getCurrenciesForDrawer("General"));
+    const codes = runWithTenant(1, () =>
+      repo.getCurrenciesForDrawer("General"),
+    );
     expect(codes).not.toContain("GBP");
   });
 
   // ─── 2. Provider drawers stay restricted (decision D1) ──────────────────
 
   it("Binance still returns exactly USDT — the fix did not open every drawer", () => {
-    const codes = runWithTenant(1, () => repo.getCurrenciesForDrawer("Binance"));
+    const codes = runWithTenant(1, () =>
+      repo.getCurrenciesForDrawer("Binance"),
+    );
     expect(codes).toEqual(["USDT"]);
   });
 

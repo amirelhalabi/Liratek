@@ -43,10 +43,7 @@ import {
   within,
 } from "@testing-library/react";
 
-function marketRateToUsdPerUnitMock(
-  rate: number,
-  isStronger: 1 | -1,
-): number {
+function marketRateToUsdPerUnitMock(rate: number, isStronger: 1 | -1): number {
   return isStronger === 1 ? 1 / rate : rate;
 }
 
@@ -151,8 +148,20 @@ const mockAddExchangeTransaction = jest
   .fn()
   .mockResolvedValue({ success: true, id: 1 });
 const mockGetRates = jest.fn().mockResolvedValue([
-  { to_code: "LBP", market_rate: 89_500, buy_rate: 89_000, sell_rate: 90_000, is_stronger: 1 },
-  { to_code: "EUR", market_rate: 1.18, buy_rate: 1.16, sell_rate: 1.2, is_stronger: -1 },
+  {
+    to_code: "LBP",
+    market_rate: 89_500,
+    buy_rate: 89_000,
+    sell_rate: 90_000,
+    is_stronger: 1,
+  },
+  {
+    to_code: "EUR",
+    market_rate: 1.18,
+    buy_rate: 1.16,
+    sell_rate: 1.2,
+    is_stronger: -1,
+  },
 ]);
 const mockGetExchangeHistory = jest.fn().mockResolvedValue([]);
 

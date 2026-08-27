@@ -156,7 +156,11 @@ export function registerTransactionHandlers(): void {
           entity_type: "transaction",
           entity_id: String(id),
           summary: `Refunded transaction #${id}`,
-          metadata: { refundId, refundLegs: legs, refundUnitExtras: unitExtras },
+          metadata: {
+            refundId,
+            refundLegs: legs,
+            refundUnitExtras: unitExtras,
+          },
         });
         return { success: true, refundId };
       } catch (err) {

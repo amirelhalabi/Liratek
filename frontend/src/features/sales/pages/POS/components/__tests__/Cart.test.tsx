@@ -107,8 +107,12 @@ describe("Cart — IMEI line gate (resolveCartLineMode)", () => {
     expect(
       screen.queryByPlaceholderText(/Enter IMEI/i),
     ).not.toBeInTheDocument();
-    expect(within(select).getByRole("option", { name: "IMEI-A" })).toBeInTheDocument();
-    expect(within(select).getByRole("option", { name: "IMEI-B" })).toBeInTheDocument();
+    expect(
+      within(select).getByRole("option", { name: "IMEI-A" }),
+    ).toBeInTheDocument();
+    expect(
+      within(select).getByRole("option", { name: "IMEI-B" }),
+    ).toBeInTheDocument();
   });
 
   it("locks the qty +/- buttons at 1 for a unit-picker line", async () => {

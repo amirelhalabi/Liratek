@@ -163,8 +163,7 @@ async function generalUsd(
     })
   ).json();
   expect(res.success, JSON.stringify(res)).toBeTruthy();
-  return (res.balances as { generalDrawer: { usd: number } }).generalDrawer
-    .usd;
+  return (res.balances as { generalDrawer: { usd: number } }).generalDrawer.usd;
 }
 
 test.describe("LIRA-143 — phone IMEI units & warranty over REST", () => {
@@ -358,7 +357,12 @@ test.describe("LIRA-143 — phone IMEI units & warranty over REST", () => {
           payment_usd: price,
           payment_lbp: 0,
           payments: [
-            { method: "CASH", currency_code: "USD", amount: price, direction: "IN" },
+            {
+              method: "CASH",
+              currency_code: "USD",
+              amount: price,
+              direction: "IN",
+            },
           ],
           change_given_usd: 0,
           change_given_lbp: 0,

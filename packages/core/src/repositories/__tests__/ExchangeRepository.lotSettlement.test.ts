@@ -278,9 +278,7 @@ function seedPartner(db: Database.Database, name = "Exchange Partner"): number {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function exchangeRow(db: Database.Database, id: number): any {
-  return db
-    .prepare(`SELECT * FROM exchange_transactions WHERE id = ?`)
-    .get(id);
+  return db.prepare(`SELECT * FROM exchange_transactions WHERE id = ?`).get(id);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -760,7 +758,9 @@ describe("ExchangeRepository.createTransaction() — lot settlement wiring (EXCH
       // anchor (not LBP, no rate row on either side).
       const warnSpy = jest
         .spyOn(exchangeLogger, "warn")
-        .mockImplementation(() => undefined as unknown as ReturnType<typeof exchangeLogger.warn>);
+        .mockImplementation(
+          () => undefined as unknown as ReturnType<typeof exchangeLogger.warn>,
+        );
 
       const result = repo.createTransaction({
         fromCurrency: "XAF",

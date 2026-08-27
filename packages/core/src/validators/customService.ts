@@ -81,8 +81,7 @@ export const createCustomServiceSchema = z
     },
   )
   .refine(
-    (data) =>
-      data.partnerMode !== "FOR" || data.paid_by !== "CUSTOMER_ACCOUNT",
+    (data) => data.partnerMode !== "FOR" || data.paid_by !== "CUSTOMER_ACCOUNT",
     {
       // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3: explicit rule, not a
       // side effect of the CUSTOMER_ACCOUNT-requires-client_id refine above

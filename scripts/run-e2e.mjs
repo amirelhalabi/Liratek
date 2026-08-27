@@ -48,7 +48,9 @@ const FRONTEND_DIR = path.join(__dirname, "..", "frontend");
 // that YOU must quote yourself, silently splitting multi-word args like
 // `-g "some test title"` into separate positional arguments. A plain node
 // + .js-file + args-array spawn has none of that ambiguity on any platform.
-const playwrightRequire = createRequire(path.join(FRONTEND_DIR, "package.json"));
+const playwrightRequire = createRequire(
+  path.join(FRONTEND_DIR, "package.json"),
+);
 const PLAYWRIGHT_CLI = playwrightRequire.resolve("@playwright/test/cli");
 
 const CONFIGS = {
@@ -151,7 +153,9 @@ function main() {
   ];
 
   console.log(`[run-e2e] cwd=${FRONTEND_DIR}`);
-  console.log(`[run-e2e] ${process.execPath} ${PLAYWRIGHT_CLI} ${args.join(" ")}`);
+  console.log(
+    `[run-e2e] ${process.execPath} ${PLAYWRIGHT_CLI} ${args.join(" ")}`,
+  );
 
   const result = spawnSync(process.execPath, [PLAYWRIGHT_CLI, ...args], {
     cwd: FRONTEND_DIR,
@@ -179,7 +183,9 @@ function main() {
   console.log(`[run-e2e] ${floor.reason}`);
 
   if (result.error) {
-    console.error(`[run-e2e] failed to launch Playwright: ${result.error.message}`);
+    console.error(
+      `[run-e2e] failed to launch Playwright: ${result.error.message}`,
+    );
     process.exitCode = 1;
     return;
   }

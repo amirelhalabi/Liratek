@@ -166,7 +166,11 @@ export interface ProfitSummary {
    *  partner-/debt-pending gate applies to it, unlike financial_services
    *  commission). Exactly 0 for every other settlement shape (legacy
    *  commission_model = 0, or a non-bills new-model batch). */
-  supplier_commission: { profit_usd: number; profit_lbp: number; count: number };
+  supplier_commission: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   expenses: { total_usd: number; total_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;

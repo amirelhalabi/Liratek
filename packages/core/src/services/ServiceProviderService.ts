@@ -152,7 +152,10 @@ export class ServiceProviderService {
       }
       return result;
     } catch (error) {
-      log.error({ error, id, data }, "ServiceProviderService.updateProvider error");
+      log.error(
+        { error, id, data },
+        "ServiceProviderService.updateProvider error",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

@@ -168,8 +168,7 @@ every row the ACTIVE-join excludes was already excluded by the old `notRefunded`
 
 ---
 
-
-> *(LIRA-099 — Multi-tenant admin/impersonation e2e spec + full-suite proof — moved to the live board, still open)*
+> _(LIRA-099 — Multi-tenant admin/impersonation e2e spec + full-suite proof — moved to the live board, still open)_
 
 ---
 
@@ -218,8 +217,7 @@ can only be reprinted today via the general `/audit` Transactions viewer.
 
 ---
 
-
-> *(LIRA-101 — Primary Cash Drawer cleanup + settleNetPayUsd verification — moved to the live board, still open)*
+> _(LIRA-101 — Primary Cash Drawer cleanup + settleNetPayUsd verification — moved to the live board, still open)_
 
 ---
 
@@ -328,25 +326,26 @@ ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
 
 ## LIRA-115: Refunding a session-basket item never returns the customer's cash (live money loss)
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Transactions / Sessions               |
-| **Type**              | Bug (money loss)                      |
-| **Priority**          | **HIGH — live money**                 |
-| **Status**            | **FIX IMPLEMENTED (option (a)) — pending e2e + orchestrator review/commit** |
-| **Affected Modules**  | Transactions, Customer Sessions, Financial Services |
-| **Assigned To**       | —                                      |
-| **Depends On**        | —                                      |
-| **Source Plan**       | Owner report 2026-08-08, reproduced   |
+| Field                | Value                                                                       |
+| -------------------- | --------------------------------------------------------------------------- |
+| **Epic**             | Transactions / Sessions                                                     |
+| **Type**             | Bug (money loss)                                                            |
+| **Priority**         | **HIGH — live money**                                                       |
+| **Status**           | **FIX IMPLEMENTED (option (a)) — pending e2e + orchestrator review/commit** |
+| **Affected Modules** | Transactions, Customer Sessions, Financial Services                         |
+| **Assigned To**      | —                                                                           |
+| **Depends On**       | —                                                                           |
+| **Source Plan**      | Owner report 2026-08-08, reproduced                                         |
 
 ### Summary
 
-Owner: *"Refund of a service txn where customer paid 1010$, cost 1008$, is adding back into drawer
-1008$ not 1010$."* **Reproduced.** Fires only when the item was sold through a **session basket**
+Owner: _"Refund of a service txn where customer paid 1010$, cost 1008$, is adding back into drawer
+1008$ not 1010$."_ **Reproduced.** Fires only when the item was sold through a **session basket**
 (customer cart) — the direct single-item sale path is correct
 (`TransactionRepository.refundCostPriceFlow.test.ts` proves it).
 
 Mechanism:
+
 - At sale time the **cost leg** is written with `transaction_id = <item's own txn id>`.
 - The **customer's cash leg** is deliberately skipped for basket items (`deferPayment`) and written
   later by `SessionPaymentService.recordBasketPayment` → `insertSessionLeg` with
@@ -377,7 +376,7 @@ to **refuse the per-item reversal and require a group-level one**.
   existing `split_group` check immediately above it (rule 14): any row linked via
   `customer_session_transactions.unified_transaction_id` now hard-refuses a bare
   `voidTransaction`/`refundTransaction` with `"This transaction is part of session basket #N;
-  void/refund the whole basket instead."` — before any write (the throw is before
+void/refund the whole basket instead."` — before any write (the throw is before
   `this.transaction()` opens).
 - New repository methods `voidSessionBasket(sessionId, userId)` and
   `refundSessionBasket(sessionId, userId)` are the basket-level route: they loop every item linked to
@@ -387,9 +386,9 @@ to **refuse the per-item reversal and require a group-level one**.
   siblings, partner ledger) is reversed exactly the way a normal single-item void/refund already
   does, nothing reimplemented — PLUS two new steps that only run ONCE for the whole basket:
   `_reverseSessionPooledPayments` (negates the pooled `payments` row(s), `transaction_id IS NULL,
-  session_id = ?`) and `_cancelSessionDebt` (negates the pooled `debt_ledger` `'Session Debt'` row —
-  closes the gap `transactionTypes.ts`'s own doc comment named but never implemented: *"reversed by
-  the session flow, not the generic path"* — that flow now exists). A `_assertSessionBasketReversible`
+session_id = ?`) and `_cancelSessionDebt` (negates the pooled `debt_ledger` `'Session Debt'` row —
+  closes the gap `transactionTypes.ts`'s own doc comment named but never implemented: _"reversed by
+  the session flow, not the generic path"_ — that flow now exists). A `_assertSessionBasketReversible`
   up-front guard refuses a second call on an already-reversed basket (idempotency without
   double-reversal risk).
 - Regression test file (now tracked — see rule 17/.gitignore note below):
@@ -410,7 +409,7 @@ to **refuse the per-item reversal and require a group-level one**.
   wiring a real "Void/Refund entire basket" button (IPC handler + REST route + preload/adapter
   binding + UI) is the explicit follow-up, same shape as `voidCheckoutGroup`'s existing wiring.
 - **Also a known, pre-existing, NOT-newly-introduced gap**: if an item was refunded through the OLD
-  buggy per-item path *before* this fix shipped, its pooled cash is already lost and this fix does
+  buggy per-item path _before_ this fix shipped, its pooled cash is already lost and this fix does
   not retroactively recover it (no backfill was attempted — out of scope for "stop further loss").
 
 ### Acceptance Criteria
@@ -429,16 +428,15 @@ to **refuse the per-item reversal and require a group-level one**.
 
 ### Files Modified
 
-| Layer   | File                                                     | Change                          |
-| ------- | ------------------------------------------------------------ | ---------------------------------- |
-| Backend | `packages/core/src/repositories/TransactionRepository.ts` | Session-aware refund/void gating + `voidSessionBasket`/`refundSessionBasket` |
-| Tests   | `packages/core/src/repositories/__tests__/TransactionRepository.refundSessionBasketCostPriceFlow.test.ts` | Now tracked (removed from `.gitignore`); 8 tests |
-| Frontend| `frontend/src/features/audit/pages/TransactionsViewer.tsx` | Hide per-item Void/Refund buttons on session-basket rows, explain why |
+| Layer    | File                                                                                                      | Change                                                                       |
+| -------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Backend  | `packages/core/src/repositories/TransactionRepository.ts`                                                 | Session-aware refund/void gating + `voidSessionBasket`/`refundSessionBasket` |
+| Tests    | `packages/core/src/repositories/__tests__/TransactionRepository.refundSessionBasketCostPriceFlow.test.ts` | Now tracked (removed from `.gitignore`); 8 tests                             |
+| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx`                                                | Hide per-item Void/Refund buttons on session-basket rows, explain why        |
 
 ---
 
-
-> *(LIRA-113, 114, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130 — all closed or opened on 2026-08-12 (today) or still genuinely open — moved to current_sprint.md: LIRA-114 is open (live board); the rest were closed today and live in the "Recently Closed" section)*
+> _(LIRA-113, 114, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130 — all closed or opened on 2026-08-12 (today) or still genuinely open — moved to current_sprint.md: LIRA-114 is open (live board); the rest were closed today and live in the "Recently Closed" section)_
 
 ---
 
@@ -468,29 +466,29 @@ reachable through the UI. Check reachability before building enforcement.
 
 ---
 
-
-> *(LIRA-131 — closed today 2026-08-12, lives in the "Recently Closed" section of current_sprint.md. LIRA-117 and LIRA-116 are both still genuinely open — moved to the live board.)*
+> _(LIRA-131 — closed today 2026-08-12, lives in the "Recently Closed" section of current_sprint.md. LIRA-117 and LIRA-116 are both still genuinely open — moved to the live board.)_
 
 ---
 
 ## LIRA-112: iPick bills must book NO commission (only Katsh pays) — corrects shipped behavior
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Suppliers / Recharge                  |
-| **Type**              | Bug (pre-existing, carried forward)   |
-| **Priority**          | **High** (wrong money on the supplier ledger) |
-| **Status**            | DONE (2026-08-09, `be4143c`) — v151, e2e 252/252 |
-| **Affected Modules**  | Recharge > iPick/Katsh, Suppliers     |
-| **Assigned To**       | —                                      |
-| **Depends On**        | LIRA-089 (DONE)                       |
-| **Source Plan**       | Owner correction 2026-08-08 (COMMISSION_AT_SETTLEMENT_PLAN §6 D12) |
+| Field                | Value                                                              |
+| -------------------- | ------------------------------------------------------------------ |
+| **Epic**             | Suppliers / Recharge                                               |
+| **Type**             | Bug (pre-existing, carried forward)                                |
+| **Priority**         | **High** (wrong money on the supplier ledger)                      |
+| **Status**           | DONE (2026-08-09, `be4143c`) — v151, e2e 252/252                   |
+| **Affected Modules** | Recharge > iPick/Katsh, Suppliers                                  |
+| **Assigned To**      | —                                                                  |
+| **Depends On**       | LIRA-089 (DONE)                                                    |
+| **Source Plan**      | Owner correction 2026-08-08 (COMMISSION_AT_SETTLEMENT_PLAN §6 D12) |
 
 ### Summary
 
 Owner: **iPick bills earn the shop NO commission. Katsh bills earn 20,000 LBP per bill.**
 
 Both the pre-plan code and shipped Phase 1 treat the two providers identically:
+
 - Legacy booking: `Auto: BILL commission from ${data.provider}` fired for ANY bill provider
   (`FinancialServiceRepository.ts:~3337`) — so **iPick has been credited 20,000 LBP per bill it
   never earned**, inflating the iPick supplier balance in the shop's favour.
@@ -526,27 +524,26 @@ Phase 1 is the right place to fix it since the machinery now exists.
 
 ### Files to Modify
 
-| Layer    | File                                                          | Change                        |
-| -------- | ---------------------------------------------------------------- | -------------------------------- |
+| Layer    | File                                                           | Change                           |
+| -------- | -------------------------------------------------------------- | -------------------------------- |
 | Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts` | Provider-aware commission gating |
 | Backend  | `packages/core/src/db/migrations/index.ts` + `create_db.sql`   | Rate currency + Katsh/iPick seed |
 | Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`    | Estimated-commission prefill     |
 
 ---
 
-
 ## LIRA-111: 8 e2e specs navigate to `/audit` without the documented remount bounce
 
-| Field                 | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Test infrastructure                   |
-| **Type**              | Latent flake / hygiene                |
-| **Priority**          | Low                                   |
-| **Status**            | **DONE** `6949bc1` (corrected 2026-08-12 — this detail block was stale "TODO"; the Sprint 6 board 350 lines below it already said DONE) |
-| **Affected Modules**  | e2e suite                             |
-| **Assigned To**       | —                                      |
-| **Depends On**        | —                                      |
-| **Source Plan**       | Found while shipping Phase 0+1 (2026-08-08) |
+| Field                | Value                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Test infrastructure                                                                                                                     |
+| **Type**             | Latent flake / hygiene                                                                                                                  |
+| **Priority**         | Low                                                                                                                                     |
+| **Status**           | **DONE** `6949bc1` (corrected 2026-08-12 — this detail block was stale "TODO"; the Sprint 6 board 350 lines below it already said DONE) |
+| **Affected Modules** | e2e suite                                                                                                                               |
+| **Assigned To**      | —                                                                                                                                       |
+| **Depends On**       | —                                                                                                                                       |
+| **Source Plan**      | Found while shipping Phase 0+1 (2026-08-08)                                                                                             |
 
 ### Summary
 
@@ -586,7 +583,7 @@ This ticket's own detail block above still read `TODO` while the Sprint 6 board 
 
 ---
 
-> *(LIRA-110 — Daily closing sums financial-services commission with ZERO gates — moved to the live board, still open)*
+> _(LIRA-110 — Daily closing sums financial-services commission with ZERO gates — moved to the live board, still open)_
 
 ---
 
@@ -642,19 +639,18 @@ roles!), dual-mode wrapper, adapter type, switch the call site (rule 19).
 
 ---
 
-
 ## LIRA-104: Web-mode REST write routes create no audit trail
 
-| Field                | Value                                              |
-| -------------------- | -------------------------------------------------- |
-| **Epic**             | Web Parity / Security                              |
-| **Type**             | Design / Feature                                   |
-| **Priority**         | Medium                                             |
+| Field                | Value                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Epic**             | Web Parity / Security                                                                                                                   |
+| **Type**             | Design / Feature                                                                                                                        |
+| **Priority**         | Medium                                                                                                                                  |
 | **Status**           | **DONE** `6949bc1` (corrected 2026-08-12 — this detail block was stale "TODO"; the Sprint 6 board 350 lines below it already said DONE) |
-| **Affected Modules** | All web-migrated modules                           |
-| **Assigned To**      | —                                                  |
-| **Depends On**       | —                                                  |
-| **Source Plan**      | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9) |
+| **Affected Modules** | All web-migrated modules                                                                                                                |
+| **Assigned To**      | —                                                                                                                                       |
+| **Depends On**       | —                                                                                                                                       |
+| **Source Plan**      | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9)                                                                                      |
 
 ### Summary
 
@@ -689,6 +685,7 @@ This ticket's own detail block above still read `TODO` while the Sprint 6 board 
 - `24cead2` ("docs(plan): LIRA-104 + LIRA-111 verified green (desktop e2e 252/252)") is the proof run.
 
 ---
+
 ## LIRA-105: Payment-method unknown-code fallback disagrees between `payments.ts` and `PaymentMethodRepository`
 
 | Field                | Value                                                                 |
@@ -865,8 +862,7 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 
 ---
 
-
-> *(LIRA-137 — closed today 2026-08-12, lives in the "Recently Closed" section of current_sprint.md. LIRA-138 is still genuinely open — moved to the live board.)*
+> _(LIRA-137 — closed today 2026-08-12, lives in the "Recently Closed" section of current_sprint.md. LIRA-138 is still genuinely open — moved to the live board.)_
 
 ---
 
@@ -895,46 +891,45 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 
 ### Sprint 6 board
 
-| ID       | Title                                                    | Priority | Status                                                    | Source Plan                         |
-| -------- | --------------------------------------------------------- | -------- | --------------------------------------------------------- | ------------------------------------ |
-| LIRA-098 | Profit-recognition guard test                            | Medium   | DONE `e6e3747` (found LIRA-108)                           | COUNTERPARTY_CONSOLIDATION_PLAN.md  |
-| LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof  | Medium   | TODO — still open, see current_sprint.md live board       | MULTI_TENANT_IMPLEMENTATION_PLAN.md |
-| LIRA-100 | Loto — in-module ticket reprint UI                       | Low      | DONE `a3e24af` (e2e row green)                            | PARTIAL_TASKS_COMPLETION_PLAN.md    |
-| LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification   | Medium   | TODO — still open, see current_sprint.md live board       | PRIMARY_CASH_DRAWER_PLAN.md         |
-| LIRA-102 | Session-grouping UI e2e spec                             | Low      | DONE — executed green 2026-08-08 (4/4 with lira-069+LOTO) | session-basket-payment-remaining.md |
-| LIRA-103 | Recharge — remaining REST-parity gaps                    | Medium   | DONE (web spec green; found LIRA-109)                     | WEB_PARITY_ROADMAP.md               |
-| LIRA-104 | Web-mode REST writes have no audit trail                 | Medium   | DONE `6949bc1` (124 routes, 2 blockers fixed)             | WEB_PARITY_ROADMAP.md               |
-| LIRA-105 | Payment-method unknown-code semantics mismatch           | Low      | DONE `c9f2262`+`6f74cfd`                                  | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md  |
-| LIRA-106 | Recharge — crypto fields not reset on tab switch         | Low      | DONE `0c910cd`                                            | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md  |
-| LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing              | Low      | CLOSED — WON'T DO (owner)                                 | found reviewing LIRA-106            |
-| LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates | Medium   | DONE — confirmed real (18 USD divergence), fixed, 2× SHIP | found by LIRA-098's guard           |
-| LIRA-110 | Daily closing sums fs commission with zero gates         | Medium   | TODO — still open, see current_sprint.md live board       | found by LIRA-108's workflow        |
-| LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | DONE `6949bc1` (desktop e2e 252/252)                      | found shipping commission Phase 0+1 |
-| LIRA-112 | iPick bills must book NO commission (only Katsh pays)    | **High** | DONE `be4143c` (v151, data-driven, e2e 252/252)           | owner correction (plan §6 D12)      |
-| LIRA-113 | DAYS sale decrements shop-line validity (D12 reversed)   | Medium   | **DONE** `eb820c7` (corrected 2026-08-12 — was stale TODO; owner confirmed, decrements the SELECTED line) | owner report 2026-08-08             |
-| LIRA-114 | 'For Partner' custom service acts as THROUGH; cost hits General | **High** | RE-OPENED 2026-08-09 — it IS custom_services, not omt_whish (crossed labels); owner confirmed For-Partner ticked — still open (narrowed), see current_sprint.md live board | owner report 2026-08-08 |
-| LIRA-116 | Rename crossed 'Services' module labels/routes          | Medium   | TODO (owner approved 2026-08-09) — still open, see current_sprint.md live board | found via LIRA-114                  |
-| LIRA-117 | No e2e drives inventory-pick -> stock decrement          | Medium   | TODO — still open, see current_sprint.md live board       | found shipping §2b                  |
-| LIRA-118 | BLOCKER: submit-to-partner disabled on Custom Services   | **BLOCKER** | **DONE** e586de9 (pre-existing from 62e43ea, NOT a regression) | owner manual test 2026-08-10        |
-| LIRA-119 | Settle modal: LBP commission shows Net payment $0.00     | **High** | **PARTIAL** cccd4ca - display fixed; "supplier owes you X" line still open (owner: revisit); superseded for its filed scope by LIRA-137 — see current_sprint.md | owner manual test 2026-08-10        |
-| LIRA-120 | Partners currency dropdown will not open (re-opens 097)  | **High** | **DONE** 714837d, owner-tested; check-icon removal in flight | owner manual test 2026-08-10        |
-| LIRA-121 | For-Partner notice now states the opposite of the truth  | Medium   | **DONE** e586de9                                          | owner manual test 2026-08-10        |
-| LIRA-122 | Supplier table shows 'Unpaid' where nothing is owed      | Low      | **DONE** - rule-14 unification on supplier_debt_booked    | owner manual test 2026-08-10        |
-| LIRA-123 | `yarn test:e2e` silently no-ops (exit 0, zero output)     | **High** | **DONE** db149e6 - direct invocation + spec-count floor; CI was NOT affected (Ubuntu) | found verifying LIRA-118..121 |
-| LIRA-124 | THROUGH-partner RECEIVE pays customer from no drawer     | **High** | **DONE** 2e9e822 - payout + fee leg post; FOR path untouched (correct) | PARTNER_DISBURSEMENT_MATRIX.md |
-| LIRA-125 | THROUGH legacy single-method SEND skips drawer credit    | Medium   | **DONE** 43c7450 - legacy path was LIVE, unified not deleted | PARTNER_DISBURSEMENT_MATRIX.md   |
-| LIRA-126 | THROUGH ledger rows mislabeled WHISH (Binance/iPick/Katsh) | Low    | **DONE** 43c7450 - throws on unmapped; 0 rows to migrate  | PARTNER_DISBURSEMENT_MATRIX.md      |
-| LIRA-127 | Secondary-system partner guard hardcodes provider==='WHISH' | Medium | **DONE** 5980180 - was an UNSUBMITTABLE OMT tab, not just a missing guard | section 5b, owner-approved 2026-08-10 |
-| LIRA-128 | Confirm on-behalf RECEIVE drawer semantics (OMT vs wallet) | Medium | **RESOLVED** - owner confirmed no cash moves; documented FEATURE_GUIDE 8.1.0 | PARTNER_DISBURSEMENT_MATRIX.md |
-| LIRA-129 | Ledger badge contradicts the amount's sign                | Medium | **DONE** 9082d6c - one sign rule; 4 of 7 entry_types affected, incl. an unreported LOTO SETTLEMENT case | found closing LIRA-128 |
-| LIRA-130 | Custom Services history shows a REFUNDED service as live | **High** | **DONE** e47dfa2 - frontend was starved, not unbuilt; audit -> LIRA-131 | owner report 2026-08-10 |
-| LIRA-131 | is_refunded dropped from 5 MORE module read paths        | **High** | **DONE** 4710cb8 - plus a 2nd financial_services projection and 2 frontend re-mapping drops the audit had missed | LIRA-130's 11-table audit |
-| LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
-| LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
-| LIRA-137 | Katsh bill settlement: commission frozen at $0, wrong direction | **High** | **DONE** — commission now books as a real Katsh-drawer top-up (profit-stamped, no supplier debt), tender form removed for the bills-only shape, both ends of the "legs with nothing owed" hazard closed; e2e spec rewritten as a guard (unexecuted — desktop e2e cannot run from an agent shell); see current_sprint.md "Recently Closed" for full ticket body | owner report 2026-08-11, `BILL_COMMISSION_SETTLEMENT_PLAN.md` |
-| LIRA-138 | Generalise commission-at-settlement drawer top-up to OMT/WHISH (Phase 2) | Medium | TODO — deliberately NOT built by LIRA-137 (narrow scope, owner-approved); still open, see current_sprint.md live board | `COMMISSION_AT_SETTLEMENT_PLAN.md` D13, `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4 |
+| ID       | Title                                                                    | Priority    | Status                                                                                                                                                                                                                                                                                                                                                         | Source Plan                                                                     |
+| -------- | ------------------------------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| LIRA-098 | Profit-recognition guard test                                            | Medium      | DONE `e6e3747` (found LIRA-108)                                                                                                                                                                                                                                                                                                                                | COUNTERPARTY_CONSOLIDATION_PLAN.md                                              |
+| LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof                  | Medium      | TODO — still open, see current_sprint.md live board                                                                                                                                                                                                                                                                                                            | MULTI_TENANT_IMPLEMENTATION_PLAN.md                                             |
+| LIRA-100 | Loto — in-module ticket reprint UI                                       | Low         | DONE `a3e24af` (e2e row green)                                                                                                                                                                                                                                                                                                                                 | PARTIAL_TASKS_COMPLETION_PLAN.md                                                |
+| LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification                   | Medium      | TODO — still open, see current_sprint.md live board                                                                                                                                                                                                                                                                                                            | PRIMARY_CASH_DRAWER_PLAN.md                                                     |
+| LIRA-102 | Session-grouping UI e2e spec                                             | Low         | DONE — executed green 2026-08-08 (4/4 with lira-069+LOTO)                                                                                                                                                                                                                                                                                                      | session-basket-payment-remaining.md                                             |
+| LIRA-103 | Recharge — remaining REST-parity gaps                                    | Medium      | DONE (web spec green; found LIRA-109)                                                                                                                                                                                                                                                                                                                          | WEB_PARITY_ROADMAP.md                                                           |
+| LIRA-104 | Web-mode REST writes have no audit trail                                 | Medium      | DONE `6949bc1` (124 routes, 2 blockers fixed)                                                                                                                                                                                                                                                                                                                  | WEB_PARITY_ROADMAP.md                                                           |
+| LIRA-105 | Payment-method unknown-code semantics mismatch                           | Low         | DONE `c9f2262`+`6f74cfd`                                                                                                                                                                                                                                                                                                                                       | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md                                              |
+| LIRA-106 | Recharge — crypto fields not reset on tab switch                         | Low         | DONE `0c910cd`                                                                                                                                                                                                                                                                                                                                                 | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md                                              |
+| LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing                              | Low         | CLOSED — WON'T DO (owner)                                                                                                                                                                                                                                                                                                                                      | found reviewing LIRA-106                                                        |
+| LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates                 | Medium      | DONE — confirmed real (18 USD divergence), fixed, 2× SHIP                                                                                                                                                                                                                                                                                                      | found by LIRA-098's guard                                                       |
+| LIRA-110 | Daily closing sums fs commission with zero gates                         | Medium      | TODO — still open, see current_sprint.md live board                                                                                                                                                                                                                                                                                                            | found by LIRA-108's workflow                                                    |
+| LIRA-111 | 8 e2e specs miss the `/audit` remount bounce                             | Low         | DONE `6949bc1` (desktop e2e 252/252)                                                                                                                                                                                                                                                                                                                           | found shipping commission Phase 0+1                                             |
+| LIRA-112 | iPick bills must book NO commission (only Katsh pays)                    | **High**    | DONE `be4143c` (v151, data-driven, e2e 252/252)                                                                                                                                                                                                                                                                                                                | owner correction (plan §6 D12)                                                  |
+| LIRA-113 | DAYS sale decrements shop-line validity (D12 reversed)                   | Medium      | **DONE** `eb820c7` (corrected 2026-08-12 — was stale TODO; owner confirmed, decrements the SELECTED line)                                                                                                                                                                                                                                                      | owner report 2026-08-08                                                         |
+| LIRA-114 | 'For Partner' custom service acts as THROUGH; cost hits General          | **High**    | RE-OPENED 2026-08-09 — it IS custom_services, not omt_whish (crossed labels); owner confirmed For-Partner ticked — still open (narrowed), see current_sprint.md live board                                                                                                                                                                                     | owner report 2026-08-08                                                         |
+| LIRA-116 | Rename crossed 'Services' module labels/routes                           | Medium      | TODO (owner approved 2026-08-09) — still open, see current_sprint.md live board                                                                                                                                                                                                                                                                                | found via LIRA-114                                                              |
+| LIRA-117 | No e2e drives inventory-pick -> stock decrement                          | Medium      | TODO — still open, see current_sprint.md live board                                                                                                                                                                                                                                                                                                            | found shipping §2b                                                              |
+| LIRA-118 | BLOCKER: submit-to-partner disabled on Custom Services                   | **BLOCKER** | **DONE** e586de9 (pre-existing from 62e43ea, NOT a regression)                                                                                                                                                                                                                                                                                                 | owner manual test 2026-08-10                                                    |
+| LIRA-119 | Settle modal: LBP commission shows Net payment $0.00                     | **High**    | **PARTIAL** cccd4ca - display fixed; "supplier owes you X" line still open (owner: revisit); superseded for its filed scope by LIRA-137 — see current_sprint.md                                                                                                                                                                                                | owner manual test 2026-08-10                                                    |
+| LIRA-120 | Partners currency dropdown will not open (re-opens 097)                  | **High**    | **DONE** 714837d, owner-tested; check-icon removal in flight                                                                                                                                                                                                                                                                                                   | owner manual test 2026-08-10                                                    |
+| LIRA-121 | For-Partner notice now states the opposite of the truth                  | Medium      | **DONE** e586de9                                                                                                                                                                                                                                                                                                                                               | owner manual test 2026-08-10                                                    |
+| LIRA-122 | Supplier table shows 'Unpaid' where nothing is owed                      | Low         | **DONE** - rule-14 unification on supplier_debt_booked                                                                                                                                                                                                                                                                                                         | owner manual test 2026-08-10                                                    |
+| LIRA-123 | `yarn test:e2e` silently no-ops (exit 0, zero output)                    | **High**    | **DONE** db149e6 - direct invocation + spec-count floor; CI was NOT affected (Ubuntu)                                                                                                                                                                                                                                                                          | found verifying LIRA-118..121                                                   |
+| LIRA-124 | THROUGH-partner RECEIVE pays customer from no drawer                     | **High**    | **DONE** 2e9e822 - payout + fee leg post; FOR path untouched (correct)                                                                                                                                                                                                                                                                                         | PARTNER_DISBURSEMENT_MATRIX.md                                                  |
+| LIRA-125 | THROUGH legacy single-method SEND skips drawer credit                    | Medium      | **DONE** 43c7450 - legacy path was LIVE, unified not deleted                                                                                                                                                                                                                                                                                                   | PARTNER_DISBURSEMENT_MATRIX.md                                                  |
+| LIRA-126 | THROUGH ledger rows mislabeled WHISH (Binance/iPick/Katsh)               | Low         | **DONE** 43c7450 - throws on unmapped; 0 rows to migrate                                                                                                                                                                                                                                                                                                       | PARTNER_DISBURSEMENT_MATRIX.md                                                  |
+| LIRA-127 | Secondary-system partner guard hardcodes provider==='WHISH'              | Medium      | **DONE** 5980180 - was an UNSUBMITTABLE OMT tab, not just a missing guard                                                                                                                                                                                                                                                                                      | section 5b, owner-approved 2026-08-10                                           |
+| LIRA-128 | Confirm on-behalf RECEIVE drawer semantics (OMT vs wallet)               | Medium      | **RESOLVED** - owner confirmed no cash moves; documented FEATURE_GUIDE 8.1.0                                                                                                                                                                                                                                                                                   | PARTNER_DISBURSEMENT_MATRIX.md                                                  |
+| LIRA-129 | Ledger badge contradicts the amount's sign                               | Medium      | **DONE** 9082d6c - one sign rule; 4 of 7 entry_types affected, incl. an unreported LOTO SETTLEMENT case                                                                                                                                                                                                                                                        | found closing LIRA-128                                                          |
+| LIRA-130 | Custom Services history shows a REFUNDED service as live                 | **High**    | **DONE** e47dfa2 - frontend was starved, not unbuilt; audit -> LIRA-131                                                                                                                                                                                                                                                                                        | owner report 2026-08-10                                                         |
+| LIRA-131 | is_refunded dropped from 5 MORE module read paths                        | **High**    | **DONE** 4710cb8 - plus a 2nd financial_services projection and 2 frontend re-mapping drops the audit had missed                                                                                                                                                                                                                                               | LIRA-130's 11-table audit                                                       |
+| LIRA-115 | Session-basket refund never returns customer cash                        | **HIGH**    | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up                                                                                                                                                                                                                                              | owner report 2026-08-08, reproduced                                             |
+| LIRA-109 | Recharge `updateMetadata` still raw `window.api`                         | Low         | DONE — web e2e green 60/60                                                                                                                                                                                                                                                                                                                                     | found during LIRA-103                                                           |
+| LIRA-137 | Katsh bill settlement: commission frozen at $0, wrong direction          | **High**    | **DONE** — commission now books as a real Katsh-drawer top-up (profit-stamped, no supplier debt), tender form removed for the bills-only shape, both ends of the "legs with nothing owed" hazard closed; e2e spec rewritten as a guard (unexecuted — desktop e2e cannot run from an agent shell); see current_sprint.md "Recently Closed" for full ticket body | owner report 2026-08-11, `BILL_COMMISSION_SETTLEMENT_PLAN.md`                   |
+| LIRA-138 | Generalise commission-at-settlement drawer top-up to OMT/WHISH (Phase 2) | Medium      | TODO — deliberately NOT built by LIRA-137 (narrow scope, owner-approved); still open, see current_sprint.md live board                                                                                                                                                                                                                                         | `COMMISSION_AT_SETTLEMENT_PLAN.md` D13, `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4 |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
 > LIRA-083, 084, 086, 087, 088, 089 (Sprint 4). All 8 `todo_plans/*.md` files are now fully
 > represented in this registry — `current_sprint.md` is the source of truth going forward.
-

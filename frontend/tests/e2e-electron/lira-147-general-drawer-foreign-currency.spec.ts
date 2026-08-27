@@ -138,7 +138,8 @@ async function ensureEurActive(page: Page): Promise<void> {
   };
 
   const eur = await page.evaluate(async () => {
-    const list = (await window.api.currencies.list()) as unknown as CurrencyRow[];
+    const list =
+      (await window.api.currencies.list()) as unknown as CurrencyRow[];
     return list.find((c) => c.code === "EUR") ?? null;
   });
   if (!eur) {
@@ -206,7 +207,9 @@ async function pickExtraCurrency(
   index: number,
   code: string,
 ): Promise<void> {
-  const amountInput = modal.getByTestId(`drawer-topup-currency-amount-${index}`);
+  const amountInput = modal.getByTestId(
+    `drawer-topup-currency-amount-${index}`,
+  );
   const row = amountInput.locator(
     'xpath=ancestor::div[contains(@class,"items-center") and contains(@class,"gap-2")][1]',
   );

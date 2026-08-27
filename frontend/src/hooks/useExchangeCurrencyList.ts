@@ -125,5 +125,11 @@ export function useExchangeCurrencyList(
     return [...configured, ...fed];
   }, [activeCurrencies, liveCurrencyRates]);
 
-  return { options, liveCurrencyRates, marketRates, liveUpdatedUtc, liveLoading };
+  return {
+    options,
+    liveCurrencyRates,
+    marketRates,
+    liveUpdatedUtc,
+    liveLoading,
+  };
 }

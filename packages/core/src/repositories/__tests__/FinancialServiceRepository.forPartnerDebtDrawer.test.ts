@@ -565,10 +565,7 @@ describe("BUG 2 repro — FOR/THROUGH-partner financial service paid by DEBT (CU
       // paymentMethodToDrawerName("CASH") falls through to "General" — and,
       // as above, nothing in the multi-leg loop skips it for a partner
       // transaction.
-      expect(drawerBalance(db, "General")).toBeCloseTo(
-        generalBefore + 103,
-        2,
-      );
+      expect(drawerBalance(db, "General")).toBeCloseTo(generalBefore + 103, 2);
       expect(drawerBalance(db, "Whish_System")).toBe(500); // correctly untouched
     });
   });

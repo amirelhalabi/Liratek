@@ -339,8 +339,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // `lotEffects.touched` is false — so that row is never UPDATEd,
         // proving the byte-identical-today guarantee at the SQL level, not
         // just "the values happen to match".
-        profitUsd =
-          lotEffects.leg1ProfitUsd + (lotEffects.leg2ProfitUsd ?? 0);
+        profitUsd = lotEffects.leg1ProfitUsd + (lotEffects.leg2ProfitUsd ?? 0);
         this.db
           .prepare(
             `UPDATE exchange_transactions
@@ -701,7 +700,11 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       crossUsdNotional = this._crossUsdNotional(data);
       if (crossUsdNotional === null) {
         exchangeLogger.warn(
-          { exchangeId: id, fromCurrency: data.fromCurrency, toCurrency: data.toCurrency },
+          {
+            exchangeId: id,
+            fromCurrency: data.fromCurrency,
+            toCurrency: data.toCurrency,
+          },
           `lot tracking skipped: no configured exchange_rates row for either ${data.fromCurrency} or ${data.toCurrency} — configure a rate to enable cost-basis tracking`,
         );
         return { touched: false, leg1ProfitUsd, leg2ProfitUsd };

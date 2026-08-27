@@ -38,7 +38,7 @@ files as of this handover: `current_sprint.md`, `docs/plans/todo_plans/FOR_PARTN
 **Done + verified:** Phase 1, Phase 2, Phase 3 item 7 (see the verification record above).
 **Outstanding, in priority order:** item 8 → item 9 → item 10 → Phase 4.
 
-> ⚠ **Do item 8 FIRST.** Phase 1 made General's set derive to *every active currency*, and the
+> ⚠ **Do item 8 FIRST.** Phase 1 made General's set derive to _every active currency_, and the
 > closing screens still read that set raw — so **today the General count sheet is wrong** (§8).
 > It is the only user-visible regression left from this work.
 
@@ -49,6 +49,7 @@ with a non-zero balance}**, where base = the configured allowlist (restricted dr
 **USD + LBP** (unrestricted, i.e. General). Deduplicated.
 
 **Two bugs it fixes** (both verified live, see §8 for the full trace):
+
 1. **USDT gets two input fields** for General. `Checkpoint/index.tsx:163-172` builds `coreCurrencies`
    (derived ∩ {USD,LBP,EUR,USDT}) and `otherCurrencies` (derived − {USD,LBP,EUR}); USDT is in
    **both**, and `DrawerCard.tsx:307,372` renders the two lists **independently with no dedup**.
@@ -168,23 +169,23 @@ non-zero balances (live DB, 2026-08-22):
 One untick + Save on Katsh makes **2,957,925 LBP uncountable at closing**. Real money, one click,
 no warning. So the fix is three layers, ordered by what actually eliminates the class:
 
-| Layer | What                                                                                                                                                      | Why                                                                                                                                                        |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1** | **The count sheet must not depend on the config.** For _any_ drawer: sheet = base ∪ {currencies holding a non-zero balance}. Base = allowlist (restricted) or USD+LBP (unrestricted). | The real fix. Money existing is a **fact**; the allowlist is a **display preference** — the fact wins. Makes config drift structurally unable to hide money. |
-| **2** | **Refuse to un-configure money.** `setCurrenciesForDrawer` diffs the removed set against non-zero `drawer_balances` and rejects, naming currency + amount.  | Prevents the drift at the source. Zero-balance removals stay allowed. Reject rather than silently re-tick — overriding the operator's click unannounced is worse than a clear refusal. |
-| **3** | **Reject any write to an unrestricted drawer** (General).                                                                                                  | The allowlist concept does not apply there at all.                                                                                                          |
+| Layer | What                                                                                                                                                                                  | Why                                                                                                                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1** | **The count sheet must not depend on the config.** For _any_ drawer: sheet = base ∪ {currencies holding a non-zero balance}. Base = allowlist (restricted) or USD+LBP (unrestricted). | The real fix. Money existing is a **fact**; the allowlist is a **display preference** — the fact wins. Makes config drift structurally unable to hide money.                           |
+| **2** | **Refuse to un-configure money.** `setCurrenciesForDrawer` diffs the removed set against non-zero `drawer_balances` and rejects, naming currency + amount.                            | Prevents the drift at the source. Zero-balance removals stay allowed. Reject rather than silently re-tick — overriding the operator's click unannounced is worse than a clear refusal. |
+| **3** | **Reject any write to an unrestricted drawer** (General).                                                                                                                             | The allowlist concept does not apply there at all.                                                                                                                                     |
 
 ---
 
 ## 2. Owner decisions (2026-08-22)
 
-| #   | Decision                                                                     | Rationale / consequence                                                                                                                                                                     |
-| --- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | **General only** is unrestricted — OMT_System / Whish_System stay restricted   | Narrowest change. Verified to have **zero residual gap** today — see §5.                                                                                                                     |
-| D2  | Count sheet = **base set, plus any currency with a non-zero balance**         | You count exactly what is physically in the till; the sheet shrinks again once an exotic currency is spent to zero.                                                                          |
-| D3  | **EUR stays `exchange`-only** in `currency_modules`                           | EUR can be exchanged, held, cashed in, and counted — but not tendered in POS/services. Separate axis; no work here.                                                                          |
-| D4  | Plan doc first, then implement                                               | This document.                                                                                                                                                                              |
-| D5  | §1a Layer 1 applies to **all** drawers, not just General (owner-approved)      | Slightly widens D1 — but on a **different axis**. It does not let other drawers _accept_ new currencies; it only makes money they already hold _countable_. Acceptance stays General-only.    |
+| #   | Decision                                                                           | Rationale / consequence                                                                                                                                                                    |
+| --- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D1  | **General only** is unrestricted — OMT_System / Whish_System stay restricted       | Narrowest change. Verified to have **zero residual gap** today — see §5.                                                                                                                   |
+| D2  | Count sheet = **base set, plus any currency with a non-zero balance**              | You count exactly what is physically in the till; the sheet shrinks again once an exotic currency is spent to zero.                                                                        |
+| D3  | **EUR stays `exchange`-only** in `currency_modules`                                | EUR can be exchanged, held, cashed in, and counted — but not tendered in POS/services. Separate axis; no work here.                                                                        |
+| D4  | Plan doc first, then implement                                                     | This document.                                                                                                                                                                             |
+| D5  | §1a Layer 1 applies to **all** drawers, not just General (owner-approved)          | Slightly widens D1 — but on a **different axis**. It does not let other drawers _accept_ new currencies; it only makes money they already hold _countable_. Acceptance stays General-only. |
 | D6  | Settings shows **no General card at all** (owner chose this over a read-only card) | Grid = configurable drawers only, plus a footnote explaining the omission so it does not read as a missing drawer. Implemented in Phase 3 item 7.                                          |
 
 ---
@@ -295,9 +296,9 @@ An exotic currency can reach **only General**:
 | Writer                        | Drawer                       | Currency                                                            |
 | ----------------------------- | ---------------------------- | ------------------------------------------------------------------- |
 | `ExchangeRepository` inflow   | General — **hardcoded**      | any (`data.fromCurrency`)                                           |
-| `ExchangeRepository` payout   | method-mapped                | **USD/LBP only** — split payouts hard-reject a non-USD/LBP target    |
+| `ExchangeRepository` payout   | method-mapped                | **USD/LBP only** — split payouts hard-reject a non-USD/LBP target   |
 | `DrawerTopUpRepository` extra | `GENERAL_DRAWER` — hardcoded | any                                                                 |
-| `WalletExchangeRepository`    | wallet drawer                | **USD/LBP only** — `WalletExchangeService.VALID_CURRENCIES` rejects  |
+| `WalletExchangeRepository`    | wallet drawer                | **USD/LBP only** — `WalletExchangeService.VALID_CURRENCIES` rejects |
 | Service/session/txn legs      | method-mapped                | USD/LBP tender currencies                                           |
 
 Also `payment_methods` (live DB): **`CASH → General`**, so a cash payout leg lands in General, not

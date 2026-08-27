@@ -277,9 +277,9 @@ describe("Migration v154 — financial_services_provider_check_to_fk", () => {
     migration!.down!(db);
 
     const remaining = allRows(db);
-    expect(remaining.some((r) => r.id === Number(syriaRow.lastInsertRowid))).toBe(
-      false,
-    );
+    expect(
+      remaining.some((r) => r.id === Number(syriaRow.lastInsertRowid)),
+    ).toBe(false);
     expect(remaining.some((r) => r.provider === "OMT")).toBe(true);
 
     db.close();

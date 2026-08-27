@@ -12,18 +12,12 @@ describe("getWarrantyState", () => {
   });
 
   it("is COVERED when warranty_until is today or later", () => {
-    expect(getWarrantyState("2026-08-25", "2026-08-25", false)).toBe(
-      "COVERED",
-    );
-    expect(getWarrantyState("2027-01-01", "2026-08-25", false)).toBe(
-      "COVERED",
-    );
+    expect(getWarrantyState("2026-08-25", "2026-08-25", false)).toBe("COVERED");
+    expect(getWarrantyState("2027-01-01", "2026-08-25", false)).toBe("COVERED");
   });
 
   it("is EXPIRED when warranty_until is before today", () => {
-    expect(getWarrantyState("2026-08-24", "2026-08-25", false)).toBe(
-      "EXPIRED",
-    );
+    expect(getWarrantyState("2026-08-24", "2026-08-25", false)).toBe("EXPIRED");
   });
 
   it("compares only the date prefix of a full ISO datetime", () => {

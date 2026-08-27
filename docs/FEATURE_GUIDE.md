@@ -311,18 +311,18 @@ by cashPaid with no partner row (the margin exists only as a drawer delta) — l
 
 #### 8.1.0 On-behalf (FOR-partner) RECEIVE moves no drawer — and that is CORRECT
 
-**Owner-confirmed 2026-08-10** (LIRA-128). The partner phones in: *"receive this OMT
-transaction and hold the money."* Asked whether any cash physically moves at that moment, the
-owner's answer was **no** — *"cash doesn't move ... but an OMT transaction should be recorded,
-and this should appear in the OMT supplier page."*
+**Owner-confirmed 2026-08-10** (LIRA-128). The partner phones in: _"receive this OMT
+transaction and hold the money."_ Asked whether any cash physically moves at that moment, the
+owner's answer was **no** — _"cash doesn't move ... but an OMT transaction should be recorded,
+and this should appear in the OMT supplier page."_
 
 So a FOR-partner OMT/WHISH RECEIVE books **obligations only**:
 
-| What | Where |
-| --- | --- |
-| the provider side | a `supplier_ledger` `TOP_UP` entry, amount from `grossOwedDelta` (**signed NEGATIVE** for a RECEIVE — it *reduces* what the shop owes the provider) |
-| the partner side | a `partner_ledger` **CREDIT** (the shop owes the partner) |
-| any drawer | **nothing** — no cash moved, so no till movement. The partner's later collection pays out of the PCD. |
+| What              | Where                                                                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the provider side | a `supplier_ledger` `TOP_UP` entry, amount from `grossOwedDelta` (**signed NEGATIVE** for a RECEIVE — it _reduces_ what the shop owes the provider) |
+| the partner side  | a `partner_ledger` **CREDIT** (the shop owes the partner)                                                                                           |
+| any drawer        | **nothing** — no cash moved, so no till movement. The partner's later collection pays out of the PCD.                                               |
 
 The books balance without a drawer leg: the provider obligation falls by `x`, the partner
 obligation rises by `x`, the till is untouched.
@@ -342,7 +342,6 @@ asserting the row's existence, `entry_type`, sign and reversal-to-zero).
 (reads as "debt going up") while a negative amount renders GREEN (reads as "debt going down"),
 so the badge and the number contradict each other. The money is right; the screen is
 misleading. Not partner-specific — a walk-in OMT/WHISH RECEIVE produces the identical row.
-
 
 Four distinct quantities, never conflate them — conflating the first three is exactly
 what made the original (pre-#66) gross-reserve bug hard to see:

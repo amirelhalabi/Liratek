@@ -113,9 +113,7 @@ describe("Checkpoint count sheet — General drawer (item 8)", () => {
 
     // The second render path itself must not exist any more, not merely be
     // unopened — the "Other currencies" trigger drove the duplicate popup.
-    expect(
-      screen.queryByTitle("Other currencies"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Other currencies")).not.toBeInTheDocument();
   });
 
   it("(b) omits EUR and USDT fields for General when their balance is zero", async () => {

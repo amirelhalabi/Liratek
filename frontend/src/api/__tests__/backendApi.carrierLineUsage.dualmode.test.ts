@@ -102,9 +102,9 @@ describe("backendApi recordCarrierLineUsage dual-mode routing (LIRA-145)", () =>
     ) as any;
 
     const apiMod = await import("../backendApi");
-    await expect(
-      apiMod.recordCarrierLineUsage(USAGE_PAYLOAD),
-    ).resolves.toEqual(rejection);
+    await expect(apiMod.recordCarrierLineUsage(USAGE_PAYLOAD)).resolves.toEqual(
+      rejection,
+    );
   });
 
   it("omits the optional fields when the caller omits them", async () => {

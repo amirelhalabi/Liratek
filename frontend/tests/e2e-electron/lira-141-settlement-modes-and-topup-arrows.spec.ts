@@ -293,7 +293,8 @@ async function getDrawers(
     const w = window as unknown as Api;
     const rows = await w.api.recharge.getDrawerBalances();
     const out: Record<string, { usd: number; lbp: number }> = {};
-    for (const r of rows) out[r.name] = { usd: r.usdBalance, lbp: r.lbpBalance };
+    for (const r of rows)
+      out[r.name] = { usd: r.usdBalance, lbp: r.lbpBalance };
     return out;
   });
 }

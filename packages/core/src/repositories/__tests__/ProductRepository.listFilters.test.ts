@@ -377,8 +377,14 @@ describe("ProductRepository — inventory list filters", () => {
     it.each<[string, ProductListFilters | undefined]>([
       ["undefined", undefined],
       ["an empty object", {}],
-      ["an all-undefined filter set", { categories: undefined, costMin: undefined }],
-      ["empty arrays (cleared filters, not 'match nothing')", { categories: [], suppliers: [] }],
+      [
+        "an all-undefined filter set",
+        { categories: undefined, costMin: undefined },
+      ],
+      [
+        "empty arrays (cleared filters, not 'match nothing')",
+        { categories: [], suppliers: [] },
+      ],
     ])("treats %s as no filter at all", (_label, filters) => {
       const [captured] = captureQueries(db, () => {
         runWithTenant(1, () => repo.findAllProducts(undefined, filters));
@@ -421,7 +427,9 @@ describe("ProductRepository — inventory list filters", () => {
 
     it("binds category values as parameters, never inlined SQL", () => {
       const [captured] = captureQueries(db, () => {
-        runWithTenant(1, () => repo.findAllProducts(undefined, { categories: ["A", "B"] }));
+        runWithTenant(1, () =>
+          repo.findAllProducts(undefined, { categories: ["A", "B"] }),
+        );
       });
       expect(captured.sql).toContain("IN (?, ?)");
       expect(captured.sql).not.toContain("'A'");
@@ -469,24 +477,24 @@ describe("ProductRepository — inventory list filters", () => {
     });
 
     it("applies both bounds, inclusive on each end", () => {
-      expect(names({ addedFrom: "2026-01-10", addedTo: "2026-02-15" })).toEqual([
-        "Alpha Phone",
-        "Beta Cable",
-      ]);
+      expect(names({ addedFrom: "2026-01-10", addedTo: "2026-02-15" })).toEqual(
+        ["Alpha Phone", "Beta Cable"],
+      );
     });
 
     it("normalizes both created_at storage forms to the same day", () => {
       // Delta Zero is stored in the space form ('YYYY-MM-DD HH:MM:SS'), Gamma
       // Freebie in the ISO-`T` form — and they sit at opposite ends of the
       // same local day (22:00 vs 08:30). A single-day window must catch both.
-      expect(names({ addedFrom: "2026-03-20", addedTo: "2026-03-20" })).toEqual([
-        "Delta Zero",
-        "Gamma Freebie",
-      ]);
+      expect(names({ addedFrom: "2026-03-20", addedTo: "2026-03-20" })).toEqual(
+        ["Delta Zero", "Gamma Freebie"],
+      );
     });
 
     it("returns an empty set for an inverted range rather than rejecting it", () => {
-      expect(names({ addedFrom: "2026-04-01", addedTo: "2026-01-01" })).toEqual([]);
+      expect(names({ addedFrom: "2026-04-01", addedTo: "2026-01-01" })).toEqual(
+        [],
+      );
     });
 
     it("buckets a row by its LOCAL day, not by its UTC day", () => {
@@ -587,7 +595,9 @@ describe("ProductRepository — inventory list filters", () => {
 
     it("treats cost = 0 with retail = 0 as 0%, not 100%", () => {
       expect(names({ profitPctMin: 100 })).not.toContain("Delta Zero");
-      expect(names({ profitPctMin: 0, profitPctMax: 0 })).toEqual(["Delta Zero"]);
+      expect(names({ profitPctMin: 0, profitPctMax: 0 })).toEqual([
+        "Delta Zero",
+      ]);
     });
 
     it("computes a normal margin", () => {
@@ -597,7 +607,10 @@ describe("ProductRepository — inventory list filters", () => {
     });
 
     it("keeps negative margins reachable via profitPctMax", () => {
-      expect(names({ profitPctMax: 0 })).toEqual(["Delta Zero", "Epsilon Loss"]);
+      expect(names({ profitPctMax: 0 })).toEqual([
+        "Delta Zero",
+        "Epsilon Loss",
+      ]);
       expect(names({ profitPctMax: -1 })).toEqual(["Epsilon Loss"]);
     });
 
@@ -607,7 +620,8 @@ describe("ProductRepository — inventory list filters", () => {
           repo.findAllProducts(undefined, { profitPctMin: 1, profitPctMax: 2 }),
         );
       });
-      const occurrences = captured.sql.split("CASE WHEN p.cost_price_usd > 0").length - 1;
+      const occurrences =
+        captured.sql.split("CASE WHEN p.cost_price_usd > 0").length - 1;
       expect(occurrences).toBe(2);
       expect(captured.params).toEqual([1, 1, 1, 2]);
     });
@@ -635,11 +649,21 @@ describe("ProductRepository — inventory list filters", () => {
       const [captured] = captureQueries(db, () => {
         runWithTenant(1, () => repo.findAllProducts("Cab", { stockMin: 1 }));
       });
-      expect(captured.params).toEqual([1, 1, "%Cab%", "%Cab%", "%Cab%", "%Cab%", 1]);
+      expect(captured.params).toEqual([
+        1,
+        1,
+        "%Cab%",
+        "%Cab%",
+        "%Cab%",
+        "%Cab%",
+        1,
+      ]);
     });
 
     it("returns an empty set when filters contradict", () => {
-      expect(names({ categories: ["Phones"], suppliers: ["Bolt"] })).toEqual([]);
+      expect(names({ categories: ["Phones"], suppliers: ["Bolt"] })).toEqual(
+        [],
+      );
     });
   });
 
@@ -703,8 +727,16 @@ describe("ProductRepository — inventory list filters", () => {
     });
 
     it("sorts case-insensitively", () => {
-      insertProduct(db, { name: "zz lower", category: "aardvark", supplier: "zulu" });
-      insertProduct(db, { name: "zz upper", category: "Banana", supplier: "Alpha" });
+      insertProduct(db, {
+        name: "zz lower",
+        category: "aardvark",
+        supplier: "zulu",
+      });
+      insertProduct(db, {
+        name: "zz upper",
+        category: "Banana",
+        supplier: "Alpha",
+      });
       const options = runWithTenant(1, () => repo.getProductFilterOptions());
       expect(options.categories).toEqual([
         "aardvark",

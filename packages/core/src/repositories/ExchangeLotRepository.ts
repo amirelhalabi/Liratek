@@ -715,7 +715,8 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
     return rows.map((row) => ({
       currency_code: row.currency_code,
       open_qty: row.open_qty,
-      avg_unit_cost_usd: row.open_qty > 0 ? row.weighted_cost / row.open_qty : 0,
+      avg_unit_cost_usd:
+        row.open_qty > 0 ? row.weighted_cost / row.open_qty : 0,
       lot_count: row.lot_count,
     }));
   }
@@ -896,7 +897,10 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
     return out;
   }
 
-  private getOpenQtyForCurrency(currencyCode: string, tenantId: number): number {
+  private getOpenQtyForCurrency(
+    currencyCode: string,
+    tenantId: number,
+  ): number {
     const row = this.db
       .prepare(
         `SELECT COALESCE(SUM(remaining_qty), 0) AS open_qty

@@ -152,7 +152,9 @@ describe("buildProductListFilters — sanitization to the core schema", () => {
 
   it("leaves profit % alone — it is signed and unconstrained", () => {
     expect(
-      buildProductListFilters(ui({ profitPctMin: "-20", profitPctMax: "12.5" })),
+      buildProductListFilters(
+        ui({ profitPctMin: "-20", profitPctMax: "12.5" }),
+      ),
     ).toEqual({ profitPctMin: -20, profitPctMax: 12.5 });
   });
 

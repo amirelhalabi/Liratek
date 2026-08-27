@@ -1068,7 +1068,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * `_assertSessionBasketReversible`) rather than risk double-reversing money
    * that was already returned.
    */
-  voidSessionBasket(sessionId: number, userId: number): SessionBasketReversalResult {
+  voidSessionBasket(
+    sessionId: number,
+    userId: number,
+  ): SessionBasketReversalResult {
     const tenantId = getCurrentTenantId();
     this._assertSessionBasketReversible(sessionId);
     const items = this.query<{ id: number; status: TransactionStatus }>(
@@ -1228,7 +1231,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * rows unconditionally, so this reversal leg surfaces on its own date
    * exactly like the original leg did on its date — no report changes needed.
    */
-  private _reverseSessionPooledPayments(sessionId: number, userId: number): void {
+  private _reverseSessionPooledPayments(
+    sessionId: number,
+    userId: number,
+  ): void {
     const tenantId = getCurrentTenantId();
     const legs = this.query<{
       method: string;
@@ -2119,10 +2125,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     ) {
       return;
     }
-    const settlerTables = getExchangeLotRepository().getActiveSettlerTablesAgainstSource({
-      sourceTable: "exchange_transactions",
-      sourceId: original.source_id,
-    });
+    const settlerTables =
+      getExchangeLotRepository().getActiveSettlerTablesAgainstSource({
+        sourceTable: "exchange_transactions",
+        sourceId: original.source_id,
+      });
     if (settlerTables.length === 0) return;
 
     // Adversarial review FIX 5 — name the REAL blocker instead of always

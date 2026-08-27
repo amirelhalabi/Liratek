@@ -72,7 +72,9 @@ describe("escapeLike + LIKE_ESCAPE_CLAUSE against real SQLite", () => {
   function search(term: string): string[] {
     return (
       db
-        .prepare(`SELECT v FROM t WHERE v LIKE ? ${LIKE_ESCAPE_CLAUSE} ORDER BY v`)
+        .prepare(
+          `SELECT v FROM t WHERE v LIKE ? ${LIKE_ESCAPE_CLAUSE} ORDER BY v`,
+        )
         .all(`%${escapeLike(term)}%`) as { v: string }[]
     ).map((r) => r.v);
   }

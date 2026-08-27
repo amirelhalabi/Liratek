@@ -7,7 +7,13 @@
  * untouched here, and simply renders empty since `window.api` is undefined
  * in this jsdom environment (optional-chained, so no crash).
  */
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import CategoriesManager from "../CategoriesManager";
 
 const mockGetCategoriesFull = jest.fn();

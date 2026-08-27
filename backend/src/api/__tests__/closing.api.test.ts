@@ -211,7 +211,12 @@ describe("Closing REST routes — CQ-9 follow-up", () => {
         .send({
           drawer_name: "General",
           amounts: [
-            { drawer_name: "General", currency_code: "USD", expected_amount: 100, physical_amount: 100 },
+            {
+              drawer_name: "General",
+              currency_code: "USD",
+              expected_amount: 100,
+              physical_amount: 100,
+            },
           ],
           user_id: 999, // spoofed — must be ignored
           username: "attacker",
@@ -241,7 +246,12 @@ describe("Closing REST routes — CQ-9 follow-up", () => {
         .send({
           drawer_name: "General",
           amounts: [
-            { drawer_name: "General", currency_code: "USD", expected_amount: 100, physical_amount: 90 },
+            {
+              drawer_name: "General",
+              currency_code: "USD",
+              expected_amount: 100,
+              physical_amount: 90,
+            },
           ],
         });
 

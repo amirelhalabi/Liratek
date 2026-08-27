@@ -141,8 +141,7 @@ Consume the structured in/out payment data from **LIRA-064** in two more surface
 
 ---
 
-
-> *(LIRA-068 — Mark Transaction "Amount Changed" When Edited — moved to the live board, still open)*
+> _(LIRA-068 — Mark Transaction "Amount Changed" When Edited — moved to the live board, still open)_
 
 ---
 
@@ -334,8 +333,7 @@ Remove the free-form **Manual Entry** tab (TOP_UP/PAYMENT/ADJUSTMENT raw entry) 
 
 ---
 
-
-> *(LIRA-075 — Favorite/Pin Whish App Quick Link in Home Grid — moved to the live board, still open)*
+> _(LIRA-075 — Favorite/Pin Whish App Quick Link in Home Grid — moved to the live board, still open)_
 
 ---
 
@@ -538,4 +536,3 @@ sequential (`-A`) so the local full-suite run no longer OOMs (CI runs per-worksp
 ---
 
 ---
-

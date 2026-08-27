@@ -99,11 +99,17 @@ async function submitExchange(
   headers: Record<string, string>,
   body: Record<string, unknown>,
 ): Promise<ExchangeSubmitResult> {
-  const res = await page.request.post(`${BACKEND_URL}/api/exchange/transactions`, {
-    headers,
-    data: body,
-  });
-  return { status: res.status(), ...(await res.json()) } as ExchangeSubmitResult & {
+  const res = await page.request.post(
+    `${BACKEND_URL}/api/exchange/transactions`,
+    {
+      headers,
+      data: body,
+    },
+  );
+  return {
+    status: res.status(),
+    ...(await res.json()),
+  } as ExchangeSubmitResult & {
     status: number;
   };
 }
@@ -184,25 +190,28 @@ test.describe("Exchange submit parity over REST (EXCHANGE_LOT_SETTLEMENT.md F3)"
     // `res.status(result.success ? 200 : 400)` line answered with 400.
     const admin = await loginHeaders(page, "admin", "admin123");
 
-    const res = await page.request.post(`${BACKEND_URL}/api/exchange/transactions`, {
-      headers: admin,
-      data: {
-        fromCurrency: "USD",
-        toCurrency: "LBP",
-        amountIn: 10,
-        amountOut: 900_000,
-        // `rate` is unused by exchangeSubmitSchema (stripped) but keeps this
-        // payload valid against the OLD createExchangeSchema too, so the
-        // pre-fix rerun (rule 17) actually reaches the business-logic guard
-        // below instead of failing earlier at schema validation.
-        rate: 90_000,
-        leg1Rate: 90_000,
-        leg1MarketRate: 90_000,
-        leg1ProfitUsd: 0,
-        totalProfitUsd: 0,
-        partnerMode: "FOR",
+    const res = await page.request.post(
+      `${BACKEND_URL}/api/exchange/transactions`,
+      {
+        headers: admin,
+        data: {
+          fromCurrency: "USD",
+          toCurrency: "LBP",
+          amountIn: 10,
+          amountOut: 900_000,
+          // `rate` is unused by exchangeSubmitSchema (stripped) but keeps this
+          // payload valid against the OLD createExchangeSchema too, so the
+          // pre-fix rerun (rule 17) actually reaches the business-logic guard
+          // below instead of failing earlier at schema validation.
+          rate: 90_000,
+          leg1Rate: 90_000,
+          leg1MarketRate: 90_000,
+          leg1ProfitUsd: 0,
+          totalProfitUsd: 0,
+          partnerMode: "FOR",
+        },
       },
-    });
+    );
 
     // Gap 2 (envelope parity): this used to be a 400. Rule 19c: always 200,
     // the frontend adapter branches on `success`, never on status code.

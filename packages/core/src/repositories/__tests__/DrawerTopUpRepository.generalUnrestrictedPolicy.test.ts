@@ -26,7 +26,10 @@
 import Database from "better-sqlite3";
 import { DrawerTopUpRepository } from "../DrawerTopUpRepository";
 import { DrawerTopUpService } from "../../services/DrawerTopUpService";
-import { CurrencyRepository, resetCurrencyRepository } from "../CurrencyRepository";
+import {
+  CurrencyRepository,
+  resetCurrencyRepository,
+} from "../CurrencyRepository";
 import { resetExchangeLotRepository } from "../ExchangeLotRepository";
 import {
   initFixedTenantContext,

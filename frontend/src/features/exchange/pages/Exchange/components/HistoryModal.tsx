@@ -225,7 +225,8 @@ export function HistoryModal({
     if (currencyFilter === "ALL") return filteredData;
     return filteredData.filter(
       (tx) =>
-        tx.from_currency === currencyFilter || tx.to_currency === currencyFilter,
+        tx.from_currency === currencyFilter ||
+        tx.to_currency === currencyFilter,
     );
   }, [filteredData, currencyFilter]);
 
@@ -511,9 +512,7 @@ export function HistoryModal({
                                 : "text-red-400"
                             }
                           >
-                            {tx.lot_summary.realized_profit_usd >= 0
-                              ? "+"
-                              : ""}
+                            {tx.lot_summary.realized_profit_usd >= 0 ? "+" : ""}
                             ${tx.lot_summary.realized_profit_usd.toFixed(2)}
                           </span>
                         ) : (
@@ -625,7 +624,8 @@ export function HistoryModal({
                     {isExpanded && isLotTouched && (
                       <tr className="bg-slate-800/40 border-b border-slate-700/50">
                         <td colSpan={10} className="px-4 py-3">
-                          {breakdown === "loading" || breakdown === undefined ? (
+                          {breakdown === "loading" ||
+                          breakdown === undefined ? (
                             <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
                               <RefreshCw size={12} className="animate-spin" />
                               Loading settlement breakdown...

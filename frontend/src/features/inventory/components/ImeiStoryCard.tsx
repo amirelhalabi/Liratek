@@ -56,7 +56,9 @@ export function ImeiStoryCard({ story }: ImeiStoryCardProps) {
       <div className="text-xs text-slate-400">
         Sold:{" "}
         <span className="text-slate-300">
-          {story.sold_at ? parseDbDate(story.sold_at).toLocaleDateString() : "—"}
+          {story.sold_at
+            ? parseDbDate(story.sold_at).toLocaleDateString()
+            : "—"}
         </span>
       </div>
 

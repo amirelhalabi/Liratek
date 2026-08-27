@@ -98,18 +98,26 @@ describe("exchangeSubmitSchema — cross, toCurrency === 'LBP' (anchor: leg2Rate
     const result = exchangeSubmitSchema.safeParse(crossToLbp);
     expect(result.success).toBe(false);
     if (!result.success) {
-      const issue = result.error.issues.find((i) => i.path.includes("leg2Rate"));
+      const issue = result.error.issues.find((i) =>
+        i.path.includes("leg2Rate"),
+      );
       expect(issue).toBeDefined();
     }
   });
 
   it("rejects when leg2Rate is zero", () => {
-    const result = exchangeSubmitSchema.safeParse({ ...crossToLbp, leg2Rate: 0 });
+    const result = exchangeSubmitSchema.safeParse({
+      ...crossToLbp,
+      leg2Rate: 0,
+    });
     expect(result.success).toBe(false);
   });
 
   it("rejects when leg2Rate is negative", () => {
-    const result = exchangeSubmitSchema.safeParse({ ...crossToLbp, leg2Rate: -90000 });
+    const result = exchangeSubmitSchema.safeParse({
+      ...crossToLbp,
+      leg2Rate: -90000,
+    });
     expect(result.success).toBe(false);
   });
 
@@ -122,7 +130,10 @@ describe("exchangeSubmitSchema — cross, toCurrency === 'LBP' (anchor: leg2Rate
   });
 
   it("accepts when leg2Rate is a finite positive number", () => {
-    const result = exchangeSubmitSchema.safeParse({ ...crossToLbp, leg2Rate: 90000 });
+    const result = exchangeSubmitSchema.safeParse({
+      ...crossToLbp,
+      leg2Rate: 90000,
+    });
     expect(result.success).toBe(true);
   });
 });
@@ -134,16 +145,24 @@ describe("exchangeSubmitSchema — cross, toCurrency !== 'LBP' (anchor: leg1Rate
   });
 
   it("rejects when leg1Rate is zero", () => {
-    const result = exchangeSubmitSchema.safeParse({ ...crossFromLbp, leg1Rate: 0 });
+    const result = exchangeSubmitSchema.safeParse({
+      ...crossFromLbp,
+      leg1Rate: 0,
+    });
     expect(result.success).toBe(false);
     if (!result.success) {
-      const issue = result.error.issues.find((i) => i.path.includes("leg1Rate"));
+      const issue = result.error.issues.find((i) =>
+        i.path.includes("leg1Rate"),
+      );
       expect(issue).toBeDefined();
     }
   });
 
   it("rejects when leg1Rate is negative", () => {
-    const result = exchangeSubmitSchema.safeParse({ ...crossFromLbp, leg1Rate: -90000 });
+    const result = exchangeSubmitSchema.safeParse({
+      ...crossFromLbp,
+      leg1Rate: -90000,
+    });
     expect(result.success).toBe(false);
   });
 });
@@ -159,13 +178,18 @@ describe("exchangeSubmitSchema — cross, neither side LBP (both legs must ancho
     const result = exchangeSubmitSchema.safeParse(rest);
     expect(result.success).toBe(false);
     if (!result.success) {
-      const issue = result.error.issues.find((i) => i.path.includes("leg2Rate"));
+      const issue = result.error.issues.find((i) =>
+        i.path.includes("leg2Rate"),
+      );
       expect(issue).toBeDefined();
     }
   });
 
   it("rejects when leg2Rate is zero", () => {
-    const result = exchangeSubmitSchema.safeParse({ ...crossExoticToExotic, leg2Rate: 0 });
+    const result = exchangeSubmitSchema.safeParse({
+      ...crossExoticToExotic,
+      leg2Rate: 0,
+    });
     expect(result.success).toBe(false);
   });
 
@@ -174,7 +198,9 @@ describe("exchangeSubmitSchema — cross, neither side LBP (both legs must ancho
     const result = exchangeSubmitSchema.safeParse(rest);
     expect(result.success).toBe(false);
     if (!result.success) {
-      const issue = result.error.issues.find((i) => i.path.includes("leg1Rate"));
+      const issue = result.error.issues.find((i) =>
+        i.path.includes("leg1Rate"),
+      );
       expect(issue).toBeDefined();
     }
   });

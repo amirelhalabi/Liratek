@@ -75,7 +75,9 @@ describe("Inventory product-list REST routes", () => {
 
   describe("GET /api/inventory/products", () => {
     it("calls the service with NO filters when no params are sent (pre-filter behaviour is unchanged)", async () => {
-      const spy = jest.spyOn(inventoryService, "getProducts").mockReturnValue([]);
+      const spy = jest
+        .spyOn(inventoryService, "getProducts")
+        .mockReturnValue([]);
 
       const res = await request(app)
         .get("/api/inventory/products")
@@ -100,7 +102,9 @@ describe("Inventory product-list REST routes", () => {
     });
 
     it("folds repeated ?category=/?supplier= params into the plural array keys", async () => {
-      const spy = jest.spyOn(inventoryService, "getProducts").mockReturnValue([]);
+      const spy = jest
+        .spyOn(inventoryService, "getProducts")
+        .mockReturnValue([]);
 
       const res = await request(app)
         .get(
@@ -120,7 +124,9 @@ describe("Inventory product-list REST routes", () => {
     });
 
     it("normalizes a SINGLE ?category= occurrence to a one-element array", async () => {
-      const spy = jest.spyOn(inventoryService, "getProducts").mockReturnValue([]);
+      const spy = jest
+        .spyOn(inventoryService, "getProducts")
+        .mockReturnValue([]);
 
       await request(app)
         .get("/api/inventory/products?category=Phones")
@@ -134,7 +140,9 @@ describe("Inventory product-list REST routes", () => {
     });
 
     it("parses every numeric/date bound into its real JS type and passes search through", async () => {
-      const spy = jest.spyOn(inventoryService, "getProducts").mockReturnValue([]);
+      const spy = jest
+        .spyOn(inventoryService, "getProducts")
+        .mockReturnValue([]);
 
       const res = await request(app)
         .get(
@@ -173,7 +181,9 @@ describe("Inventory product-list REST routes", () => {
     });
 
     it("treats an EMPTY numeric/date param as 'no bound' — never as a real 0 / epoch filter", async () => {
-      const spy = jest.spyOn(inventoryService, "getProducts").mockReturnValue([]);
+      const spy = jest
+        .spyOn(inventoryService, "getProducts")
+        .mockReturnValue([]);
 
       const res = await request(app)
         .get("/api/inventory/products?costMin=&stockMax=&addedFrom=")
@@ -232,7 +242,9 @@ describe("Inventory product-list REST routes", () => {
     });
 
     it("still accepts the legacy ?barcode=/?activeOnly= params without applying them", async () => {
-      const spy = jest.spyOn(inventoryService, "getProducts").mockReturnValue([]);
+      const spy = jest
+        .spyOn(inventoryService, "getProducts")
+        .mockReturnValue([]);
 
       const res = await request(app)
         .get("/api/inventory/products?barcode=123&activeOnly=false")

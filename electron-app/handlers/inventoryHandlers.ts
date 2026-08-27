@@ -119,7 +119,8 @@ export function registerInventoryHandlers(): void {
       inventoryLogger.error({ error }, "inventory:resolve-scan-code failed");
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to resolve code",
+        error:
+          error instanceof Error ? error.message : "Failed to resolve code",
       };
     }
   });

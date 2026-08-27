@@ -449,4 +449,3 @@ The Customer Session Checkout Modal should have the same richness instead of a r
 | Low       | 1     | 1     | 0         |
 | Bug       | 1     | 1     | 0         |
 | **Total** | **8** | **8** | **0**     |
-

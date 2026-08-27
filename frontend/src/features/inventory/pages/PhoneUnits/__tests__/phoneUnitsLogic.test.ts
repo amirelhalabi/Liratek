@@ -61,7 +61,8 @@ describe("buildUnitListFilters — filter state → query args", () => {
       buildUnitListFilters({ ...base, defectiveOnly: true }).defectiveOnly,
     ).toBe(true);
     expect(
-      "defectiveOnly" in buildUnitListFilters({ ...base, defectiveOnly: false }),
+      "defectiveOnly" in
+        buildUnitListFilters({ ...base, defectiveOnly: false }),
     ).toBe(false);
   });
 

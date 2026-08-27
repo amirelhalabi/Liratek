@@ -307,9 +307,7 @@ function seedRate(
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function exchangeRow(db: Database.Database, id: number): any {
-  return db
-    .prepare(`SELECT * FROM exchange_transactions WHERE id = ?`)
-    .get(id);
+  return db.prepare(`SELECT * FROM exchange_transactions WHERE id = ?`).get(id);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

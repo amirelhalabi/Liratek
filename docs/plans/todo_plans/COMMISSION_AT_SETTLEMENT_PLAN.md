@@ -5,6 +5,7 @@ slice, dual-transport, green on every gate (full `yarn test` exit 0; desktop e2e
 61/61). **Phases 2-4 NOT started.**
 
 > ### ⚠ Read this before starting Phase 2
+>
 > Phase 0 shipped with `commission_model = 1` scoped to **BILL rows only**. OMT/WHISH SEND/RECEIVE
 > are deliberately still born `commission_model = 0` (legacy embedded), because their payable is
 > STILL netted by `−commission` in `grossOwedDelta`/`SUPPLIER_OWED_EXPR`. Routing them into the new
@@ -14,13 +15,13 @@ slice, dual-transport, green on every gate (full `yarn test` exit 0; desktop e2e
 > realistic OMT SEND (real `omtServiceType`/`omtFee` so the auto-calc fires — fixtures using
 > `commission: 0` cannot catch this class) proving no double deduction.
 > Guard already in place: `FinancialServiceRepository.omtCommissionModelGate.test.ts`.
-**Owner decisions (interview 2026-08-08):** one unified redesign; commission entered at supplier
-settlement in one of two modes per supplier (LUMP for the batch, or RATE × unit count); per-type
-reporting via PROPORTIONAL allocation of the settlement amount; CUTOVER — history keeps the old
-embedded/per-bill model, no restatement.
-**Grounding:** every file:line below was verified against HEAD `ba03976` by a 3-agent deep-read
-(bills flow / payable math / storage) on 2026-08-08. Re-verify before building a later phase —
-this repo's plan docs go stale fast.
+> **Owner decisions (interview 2026-08-08):** one unified redesign; commission entered at supplier
+> settlement in one of two modes per supplier (LUMP for the batch, or RATE × unit count); per-type
+> reporting via PROPORTIONAL allocation of the settlement amount; CUTOVER — history keeps the old
+> embedded/per-bill model, no restatement.
+> **Grounding:** every file:line below was verified against HEAD `ba03976` by a 3-agent deep-read
+> (bills flow / payable math / storage) on 2026-08-08. Re-verify before building a later phase —
+> this repo's plan docs go stale fast.
 
 ---
 
@@ -206,22 +207,22 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 ## §6 Owner check-ins — ANSWERED 2026-08-08
 
 **D10 — Closing screen: CASH BASIS.** The daily closing shows commission on the day it is
-*settled*, not the day the transactions happened. No estimate line, no true-up. Phase 3 implements
+_settled_, not the day the transactions happened. No estimate line, no true-up. Phase 3 implements
 this and it supersedes LIRA-110's "decide the semantics" item (LIRA-110's ungated-sum fix still
 stands on its own).
 
-**D11 — "Commission" means supplier-paid only.** Owner: *"commission is a word named after what
+**D11 — "Commission" means supplier-paid only.** Owner: _"commission is a word named after what
 supplier pays the shop based on transactions he did or sales. The card sell−cost is a profit and
-not commission."* So: the Profits "Commission" row = money a supplier grants the shop
+not commission."_ So: the Profits "Commission" row = money a supplier grants the shop
 (OMT/Whish/wallets + bill commission from settlement). iPick/Katsh **card margin (price − cost) is
 PROFIT** and belongs under Mobile Services only. Each figure gets exactly one home; the two can
 then be summed safely. The existing pending → settled split ("to be paid" vs "paid") is unchanged
 and orthogonal to this.
 
-**D12 — iPick pays NO commission; Katsh does. ← CORRECTS SHIPPED BEHAVIOR.** Owner: *"i said ipick
+**D12 — iPick pays NO commission; Katsh does. ← CORRECTS SHIPPED BEHAVIOR.** Owner: _"i said ipick
 bills gives us no comission, but katsh does. So in katsh we should count the bills we sold. And at
 settlement in suppliers page we should showcase an estimated commission amount for the customer
-20,000 LBP per bill sold. Whereas in ipick its not the case."*
+20,000 LBP per bill sold. Whereas in ipick its not the case."_
 
 > Both the pre-plan code AND shipped Phase 1 treat the two providers identically — the legacy
 > booking was `Auto: BILL commission from ${provider}` for ANY bill provider
@@ -229,10 +230,10 @@ settlement in suppliers page we should showcase an estimated commission amount f
 > provider check (`:1046`). So **iPick has been receiving a 20,000 LBP credit it never earned** —
 > a pre-existing bug carried forward. Tracked as **LIRA-112**.
 
-**D13 — Negative-net settlement: model commission as a DIRECTIONAL leg.** Owner: *"Can we have a
+**D13 — Negative-net settlement: model commission as a DIRECTIONAL leg.** Owner: _"Can we have a
 field for the commission amount? And in the payment, if the payment was already in my favor we can
 see the amount increase? Or should we have a separate row for the commission payment with a
-direction (in/out)? I think we already have this bidirectional payment implemented."*
+direction (in/out)? I think we already have this bidirectional payment implemented."_
 → Reuse the existing bidirectional payment-leg machinery
 (`docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md`, `partitionLegs` in
 `packages/core/src/utils/payments.ts`, `direction: "OUT"`) rather than inventing a clamp/branch:

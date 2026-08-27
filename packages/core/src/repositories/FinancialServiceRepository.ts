@@ -4250,7 +4250,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
          ORDER BY t.created_at DESC
          LIMIT ?`,
       )
-      .all(provider, tenantId, provider, tenantId, limit) as FinancialServiceEntity[];
+      .all(
+        provider,
+        tenantId,
+        provider,
+        tenantId,
+        limit,
+      ) as FinancialServiceEntity[];
   }
 
   /**

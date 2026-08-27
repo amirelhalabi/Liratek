@@ -236,11 +236,17 @@ describe("ProductUnitsSection — single-IMEI add row (ImeiAddRow)", () => {
     mockRegister
       .mockResolvedValueOnce({
         success: true,
-        data: { units: [], drift: { inStockUnits: 1, stockQuantity: 2, matches: false } },
+        data: {
+          units: [],
+          drift: { inStockUnits: 1, stockQuantity: 2, matches: false },
+        },
       })
       .mockResolvedValueOnce({
         success: true,
-        data: { units: [], drift: { inStockUnits: 2, stockQuantity: 2, matches: true } },
+        data: {
+          units: [],
+          drift: { inStockUnits: 2, stockQuantity: 2, matches: true },
+        },
       });
     renderSection(0);
     await screen.findByText("No units registered yet.");

@@ -100,7 +100,9 @@ function createTestDb(): Database.Database {
 function tableExists(db: Database.Database, name: string): boolean {
   return (
     db
-      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      )
       .get(name) !== undefined
   );
 }
@@ -108,7 +110,9 @@ function tableExists(db: Database.Database, name: string): boolean {
 function indexExists(db: Database.Database, name: string): boolean {
   return (
     db
-      .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`)
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`,
+      )
       .get(name) !== undefined
   );
 }
@@ -158,7 +162,11 @@ describe("Migration v157 — add_product_imei_units_and_warranty", () => {
       .prepare(
         `SELECT tenant_id, name, tracks_imei_units FROM product_categories ORDER BY tenant_id, name`,
       )
-      .all() as { tenant_id: number; name: string; tracks_imei_units: number }[];
+      .all() as {
+      tenant_id: number;
+      name: string;
+      tracks_imei_units: number;
+    }[];
 
     const phonesRows = rows.filter((r) => r.name === "Phones");
     expect(phonesRows).toHaveLength(2);
@@ -330,7 +338,9 @@ describe("Migration v157 — add_product_imei_units_and_warranty", () => {
       `INSERT INTO product_units (tenant_id, product_id, imei, status, sale_item_id) VALUES (1, 1, '222', 'SOLD', 1)`,
     ).run();
 
-    expect(() => db.prepare(`DELETE FROM sale_items WHERE id = 1`).run()).not.toThrow();
+    expect(() =>
+      db.prepare(`DELETE FROM sale_items WHERE id = 1`).run(),
+    ).not.toThrow();
 
     const unit = db
       .prepare(`SELECT sale_item_id FROM product_units WHERE imei = '222'`)

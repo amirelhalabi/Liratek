@@ -133,7 +133,8 @@ const queryDayKeySchema = z.preprocess(
  */
 const queryBooleanDefaultTrueSchema = z.preprocess((v) => {
   if (v === undefined || v === null || v === "") return undefined;
-  if (typeof v === "string") return !["false", "0", "no"].includes(v.toLowerCase());
+  if (typeof v === "string")
+    return !["false", "0", "no"].includes(v.toLowerCase());
   return v;
 }, z.boolean().default(true));
 

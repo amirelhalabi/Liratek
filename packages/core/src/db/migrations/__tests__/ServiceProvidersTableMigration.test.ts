@@ -121,7 +121,9 @@ describe("Migration v153 — add_service_providers_table", () => {
     migration!.up(db);
 
     const count = db
-      .prepare(`SELECT COUNT(*) AS n FROM service_providers WHERE tenant_id = 1`)
+      .prepare(
+        `SELECT COUNT(*) AS n FROM service_providers WHERE tenant_id = 1`,
+      )
       .get() as { n: number };
     expect(count.n).toBe(9);
 

@@ -56,7 +56,11 @@ describe("warrantyBadgeInfo", () => {
   });
 
   it("NONE: neutral slate family, no warranty ever existed", () => {
-    const warranty: WarrantyStatus = { source: null, until: null, state: "NONE" };
+    const warranty: WarrantyStatus = {
+      source: null,
+      until: null,
+      state: "NONE",
+    };
     const badge = warrantyBadgeInfo(warranty);
     expect(badge.label).toBe("No warranty");
     expect(badge.className).toMatch(/slate/);
@@ -131,9 +135,9 @@ describe("ImeiStoryCard render", () => {
         })}
       />,
     );
-    expect(
-      screen.getByTestId("imei-story-warranty-badge"),
-    ).toHaveTextContent("No warranty");
+    expect(screen.getByTestId("imei-story-warranty-badge")).toHaveTextContent(
+      "No warranty",
+    );
   });
 
   /**

@@ -141,7 +141,9 @@ describe("RefundMethodModal — units (phone-refund extras)", () => {
         onConfirm={jest.fn()}
       />,
     );
-    expect(screen.queryByTestId("refund-units-section")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("refund-units-section"),
+    ).not.toBeInTheDocument();
   });
 
   it("confirming with units present but untouched calls onConfirm with ONE argument (no unitExtras)", () => {
@@ -222,7 +224,9 @@ describe("RefundMethodModal — units (phone-refund extras)", () => {
     );
 
     expect(screen.queryByTestId("multi-payment-input")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("refund-return-summary")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("refund-return-summary"),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Confirm Refund" }),
     ).not.toBeDisabled();

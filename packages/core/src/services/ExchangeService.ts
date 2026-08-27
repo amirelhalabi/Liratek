@@ -93,7 +93,10 @@ export class ExchangeService {
   private exchangeRepo: ExchangeRepository;
   private lotRepo: ExchangeLotRepository;
 
-  constructor(exchangeRepo?: ExchangeRepository, lotRepo?: ExchangeLotRepository) {
+  constructor(
+    exchangeRepo?: ExchangeRepository,
+    lotRepo?: ExchangeLotRepository,
+  ) {
     this.exchangeRepo = exchangeRepo ?? getExchangeRepository();
     this.lotRepo = lotRepo ?? getExchangeLotRepository();
   }
@@ -157,8 +160,13 @@ export class ExchangeService {
         tender_exchange_rate: input.tender_exchange_rate,
       };
 
-      const { id, bookedProfitUsd, realizedProfitUsd, lotCoveredQty, lotMarketQty } =
-        this.exchangeRepo.createTransaction(txData);
+      const {
+        id,
+        bookedProfitUsd,
+        realizedProfitUsd,
+        lotCoveredQty,
+        lotMarketQty,
+      } = this.exchangeRepo.createTransaction(txData);
 
       exchangeLogger.info(
         {
@@ -214,8 +222,13 @@ export class ExchangeService {
         }
       }
 
-      const { id, bookedProfitUsd, realizedProfitUsd, lotCoveredQty, lotMarketQty } =
-        this.exchangeRepo.createTransaction(data);
+      const {
+        id,
+        bookedProfitUsd,
+        realizedProfitUsd,
+        lotCoveredQty,
+        lotMarketQty,
+      } = this.exchangeRepo.createTransaction(data);
       exchangeLogger.info(
         {
           id,

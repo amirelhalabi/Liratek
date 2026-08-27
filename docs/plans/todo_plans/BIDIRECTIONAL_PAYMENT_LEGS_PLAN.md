@@ -322,8 +322,8 @@ still-open pre-existing-pattern item, not a regression).
 - [x] **REST envelope**: owner decided — change the middleware, not rule 19's wording. Fixed
       same session (`074887b`): `validateRequest`/`validateQuery`/`validateParams`
       (`backend/src/middleware/validation.ts`) now return HTTP 200 + `{success:false, error:
-  <plain string>}` instead of HTTP 400 + the `createErrorResponse` object shape (`{code,
-  message, details, field}`) — confirmed via grep that zero frontend code depended on the
+<plain string>}` instead of HTTP 400 + the `createErrorResponse` object shape (`{code,
+message, details, field}`) — confirmed via grep that zero frontend code depended on the
       object shape, so it's dropped rather than preserved under a new key. Proven failing-first
       (reverting the source alone sent 34/79 touched tests red); `lira-web-017`'s two
       "discovered parity gap" assertions updated to expect 200 + string. Full `yarn test`:

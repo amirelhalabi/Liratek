@@ -102,13 +102,15 @@ export default function StepDrawerAmounts() {
     api
       .getCountableDrawerCurrencies()
       .then((configured) => setDrawerCurrencies(configured ?? {}));
-    api.getCurrencies().then((rows) =>
-      setAllCurrencies(
-        (Array.isArray(rows) ? rows : []).filter(
-          (c: CurrencyOption) => c.is_active,
+    api
+      .getCurrencies()
+      .then((rows) =>
+        setAllCurrencies(
+          (Array.isArray(rows) ? rows : []).filter(
+            (c: CurrencyOption) => c.is_active,
+          ),
         ),
-      ),
-    );
+      );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

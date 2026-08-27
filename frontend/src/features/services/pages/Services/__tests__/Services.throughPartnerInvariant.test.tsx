@@ -41,7 +41,13 @@
  * failure — see the task report for the transcript.
  */
 
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import Services from "../index";
 
 const mockAddOMTTransaction = jest
@@ -69,7 +75,10 @@ const mockApi = {
 // Fixed for this file: base system OMT, so the shop's SECONDARY system
 // (partnerSystem) is WHISH — the WHISH tab is where the THROUGH-mode,
 // system-filtered PartnerSelector mounts.
-const mockShopBase: { baseSystem: "OMT" | "WHISH"; partnerSystem: "OMT" | "WHISH" } = {
+const mockShopBase: {
+  baseSystem: "OMT" | "WHISH";
+  partnerSystem: "OMT" | "WHISH";
+} = {
   baseSystem: "OMT",
   partnerSystem: "WHISH",
 };
@@ -302,9 +311,7 @@ describe("Services page — THROUGH-mode partner selector is system-filtered (gu
       { target: { value: "50" } },
     );
     fireEvent.click(screen.getByRole("button", { name: /Record Send/i }));
-    await waitFor(() =>
-      expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
 
     const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
       string,

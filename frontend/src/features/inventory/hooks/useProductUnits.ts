@@ -5,7 +5,11 @@ import type { WarrantyStatus } from "../productUnitsLogic";
 // Re-exported for convenience — callers that only need the warranty-status
 // shape (e.g. ImeiStoryCard) can import it from either this hooks file or
 // `../productUnitsLogic` directly.
-export type { WarrantyStatus, WarrantySource, WarrantyState } from "../productUnitsLogic";
+export type {
+  WarrantyStatus,
+  WarrantySource,
+  WarrantyState,
+} from "../productUnitsLogic";
 
 /**
  * Product Units (LIRA-143 Phase 6b) — TanStack Query hooks over
@@ -132,8 +136,7 @@ export const PRODUCT_UNITS_KEYS = {
   /** Prefix shared by EVERY filter/page combination of the unit list —
    *  invalidating this refetches whichever page is on screen. */
   listRoot: ["product-units-list"] as const,
-  list: (filters: UnitListFilters) =>
-    ["product-units-list", filters] as const,
+  list: (filters: UnitListFilters) => ["product-units-list", filters] as const,
 };
 
 /** All units for one product (both `IN_STOCK` and `SOLD`), oldest first. */
@@ -261,7 +264,11 @@ export interface UnitExportFetchResult {
 export async function fetchAllUnitsForExport(
   list: UnitListFetcher,
   baseFilters: Omit<UnitListFilters, "limit" | "offset">,
-  plan: { rowCount: number; capped: boolean; pages: Array<{ limit: number; offset: number }> },
+  plan: {
+    rowCount: number;
+    capped: boolean;
+    pages: Array<{ limit: number; offset: number }>;
+  },
 ): Promise<UnitExportFetchResult> {
   const rows: UnitListRowWithWarranty[] = [];
   let calls = 0;

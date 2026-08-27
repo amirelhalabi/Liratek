@@ -146,7 +146,12 @@ describe("ProfitRepository.getSupplierCommissionTotals — LIRA-137 fix", () => 
   it("an OMT/legacy (commission_model = 0) settlement — profit stamped 0/0 — contributes nothing", () => {
     // Mirrors SupplierRepository.settleTransactions's real stamp for every
     // shape OTHER than isBillsOnlyBatch: `profit_usd: 0, profit_lbp: 0`.
-    insertTxn({ type: "SUPPLIER_SETTLEMENT", sourceId: 1, profitUsd: 0, profitLbp: 0 });
+    insertTxn({
+      type: "SUPPLIER_SETTLEMENT",
+      sourceId: 1,
+      profitUsd: 0,
+      profitLbp: 0,
+    });
 
     const totals = repo.getSupplierCommissionTotals(FROM, TO);
     expect(totals.profit_usd).toBe(0);
@@ -158,7 +163,12 @@ describe("ProfitRepository.getSupplierCommissionTotals — LIRA-137 fix", () => 
     // SupplierRepository's SUPPLIER_PAYMENT / journal-entry createTransaction
     // calls never pass profit_usd/profit_lbp (verified: defaults to 0) — this
     // proves the source_table match alone is harmless.
-    insertTxn({ type: "SUPPLIER_PAYMENT", sourceId: 2, profitUsd: 0, profitLbp: 0 });
+    insertTxn({
+      type: "SUPPLIER_PAYMENT",
+      sourceId: 2,
+      profitUsd: 0,
+      profitLbp: 0,
+    });
     insertTxn({ type: "SUPPLIER_SETTLEMENT", sourceId: 1, profitLbp: 20000 });
 
     const totals = repo.getSupplierCommissionTotals(FROM, TO);

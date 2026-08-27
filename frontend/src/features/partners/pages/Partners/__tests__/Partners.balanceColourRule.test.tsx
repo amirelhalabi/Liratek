@@ -183,7 +183,9 @@ describe("Partners page — PartnerCard balance colour (Balance Pages colour aud
 describe("Partners page — LedgerRow colour handles USDT (Balance Pages colour audit)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetAllBalances.mockResolvedValue([partner({ usd: 0, lbp: 0, usdt: 0 })]);
+    mockGetAllBalances.mockResolvedValue([
+      partner({ usd: 0, lbp: 0, usdt: 0 }),
+    ]);
   });
 
   it("a USDT DEBIT row (partner owes shop) renders RED, a USDT CREDIT row (shop owes partner) renders GREEN", async () => {

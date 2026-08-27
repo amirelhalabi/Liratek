@@ -2010,7 +2010,9 @@ export default function SuppliersPage() {
                                       : balanceColor(row.amount_usd)
                                 }`}
                                 title={
-                                  showUsdCommission ? commissionTitle : undefined
+                                  showUsdCommission
+                                    ? commissionTitle
+                                    : undefined
                                 }
                               >
                                 {row.amount_usd !== 0
@@ -2028,7 +2030,9 @@ export default function SuppliersPage() {
                                       : balanceColor(row.amount_lbp)
                                 }`}
                                 title={
-                                  showLbpCommission ? commissionTitle : undefined
+                                  showLbpCommission
+                                    ? commissionTitle
+                                    : undefined
                                 }
                               >
                                 {row.amount_lbp !== 0

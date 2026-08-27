@@ -103,14 +103,25 @@ describe("migration v151 — commission_at_settlement_provider_eligibility", () 
       .prepare(
         `SELECT commission_eligible, commission_rate_currency FROM suppliers WHERE id = ?`,
       )
-      .get(omtId) as { commission_eligible: number; commission_rate_currency: string };
+      .get(omtId) as {
+      commission_eligible: number;
+      commission_rate_currency: string;
+    };
     expect(row.commission_eligible).toBe(1);
     expect(row.commission_rate_currency).toBe("USD");
   });
 
   it("backfills EVERY existing iPick row to commission_eligible = 0 (LIRA-112 — no commission, ever)", () => {
-    const ipickTenant1 = insertSupplier(db, { name: "iPick", provider: "iPick", tenantId: 1 });
-    const ipickTenant2 = insertSupplier(db, { name: "iPick", provider: "iPick", tenantId: 2 });
+    const ipickTenant1 = insertSupplier(db, {
+      name: "iPick",
+      provider: "iPick",
+      tenantId: 1,
+    });
+    const ipickTenant2 = insertSupplier(db, {
+      name: "iPick",
+      provider: "iPick",
+      tenantId: 2,
+    });
 
     v151.up(db);
 
@@ -123,8 +134,16 @@ describe("migration v151 — commission_at_settlement_provider_eligibility", () 
   });
 
   it("backfills EVERY existing Katsh row to commission_eligible = 1, entry_mode = 'RATE', rate = 20000, currency = 'LBP'", () => {
-    const katshTenant1 = insertSupplier(db, { name: "Katsh", provider: "Katsh", tenantId: 1 });
-    const katshTenant2 = insertSupplier(db, { name: "Katsh", provider: "Katsh", tenantId: 2 });
+    const katshTenant1 = insertSupplier(db, {
+      name: "Katsh",
+      provider: "Katsh",
+      tenantId: 1,
+    });
+    const katshTenant2 = insertSupplier(db, {
+      name: "Katsh",
+      provider: "Katsh",
+      tenantId: 2,
+    });
 
     v151.up(db);
 

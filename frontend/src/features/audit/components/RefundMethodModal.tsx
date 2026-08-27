@@ -130,9 +130,7 @@ export function RefundMethodModal({
   );
 
   const [currentLines, setCurrentLines] = useState<PaymentLine[]>([]);
-  const [unitFlags, setUnitFlags] = useState<Record<number, UnitFlagState>>(
-    {},
-  );
+  const [unitFlags, setUnitFlags] = useState<Record<number, UnitFlagState>>({});
 
   const overrideLines = toOverride(currentLines);
   const validationError = validateRefundLines(overrideLines, originalNet);

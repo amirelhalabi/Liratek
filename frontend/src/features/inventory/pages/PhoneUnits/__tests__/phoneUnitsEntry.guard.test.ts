@@ -51,7 +51,14 @@ const ROUTE_PAIRS: RoutePair[] = [
   {
     path: "/inventory/units",
     pageModule: "@/features/inventory/pages/PhoneUnits",
-    pageFile: join(SRC, "features", "inventory", "pages", "PhoneUnits", "index.tsx"),
+    pageFile: join(
+      SRC,
+      "features",
+      "inventory",
+      "pages",
+      "PhoneUnits",
+      "index.tsx",
+    ),
   },
 ];
 

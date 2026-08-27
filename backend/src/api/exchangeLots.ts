@@ -26,10 +26,7 @@ import {
   requireRole,
   type AuthRequest,
 } from "../middleware/auth.js";
-import {
-  validateRequest,
-  validateParams,
-} from "../middleware/validation.js";
+import { validateRequest, validateParams } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
@@ -55,14 +52,18 @@ function resolveActingUsername(userId: number): string {
 }
 
 // POST /api/exchange-lots/preview — FIFO dry-run (Q10 loss-confirm dialog)
-router.post("/preview", validateRequest(previewLotSettlementSchema), (req, res) => {
-  try {
-    const result = getExchangeLotService().previewSettlement(req.body);
-    res.json(result);
-  } catch (err) {
-    res.json({ success: false, error: errMessage(err) });
-  }
-});
+router.post(
+  "/preview",
+  validateRequest(previewLotSettlementSchema),
+  (req, res) => {
+    try {
+      const result = getExchangeLotService().previewSettlement(req.body);
+      res.json(result);
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
 
 // GET /api/exchange-lots/positions — per-currency open position + Q11
 // indicative unrealized P&L (display-only)

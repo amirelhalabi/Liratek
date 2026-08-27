@@ -68,9 +68,17 @@ const mockCreate = jest.fn().mockResolvedValue({ success: true });
 // EUR has a configured `exchange_rates` row (market_rate 1.16, is_stronger
 // -1 => already USD-per-unit, so marketRateToUsdPerUnit returns 1.16
 // unchanged). GBP deliberately has none — it only exists in the feed below.
-const mockGetRates = jest.fn().mockResolvedValue([
-  { to_code: "EUR", market_rate: 1.16, buy_rate: 1.1601, sell_rate: 1.17, is_stronger: -1 },
-]);
+const mockGetRates = jest
+  .fn()
+  .mockResolvedValue([
+    {
+      to_code: "EUR",
+      market_rate: 1.16,
+      buy_rate: 1.1601,
+      sell_rate: 1.17,
+      is_stronger: -1,
+    },
+  ]);
 
 const mockApi = {
   drawerTopUp: {
@@ -88,9 +96,30 @@ const mockApi = {
 jest.mock("@/contexts/CurrencyContext", () => ({
   useCurrencyContext: () => ({
     activeCurrencies: [
-      { id: 1, code: "USD", name: "US Dollar", symbol: "$", decimal_places: 2, is_active: 1 },
-      { id: 2, code: "LBP", name: "Lebanese Pound", symbol: "LBP", decimal_places: 0, is_active: 1 },
-      { id: 3, code: "EUR", name: "Euro", symbol: "€", decimal_places: 2, is_active: 1 },
+      {
+        id: 1,
+        code: "USD",
+        name: "US Dollar",
+        symbol: "$",
+        decimal_places: 2,
+        is_active: 1,
+      },
+      {
+        id: 2,
+        code: "LBP",
+        name: "Lebanese Pound",
+        symbol: "LBP",
+        decimal_places: 0,
+        is_active: 1,
+      },
+      {
+        id: 3,
+        code: "EUR",
+        name: "Euro",
+        symbol: "€",
+        decimal_places: 2,
+        is_active: 1,
+      },
     ],
     getCurrenciesForDrawer: jest.fn().mockResolvedValue([]),
   }),
@@ -103,7 +132,13 @@ jest.mock("@/utils/liveExchangeRates", () => ({
   fetchLiveRatesSnapshot: jest.fn().mockResolvedValue({
     raw: {},
     rates: [
-      { to_code: "GBP", market_rate: 1.27, buy_rate: 1.27, sell_rate: 1.27, is_stronger: -1 },
+      {
+        to_code: "GBP",
+        market_rate: 1.27,
+        buy_rate: 1.27,
+        sell_rate: 1.27,
+        is_stronger: -1,
+      },
     ],
     marketRates: [],
     lastUpdatedUtc: "Fri, 21 Aug 2026 00:02:31 +0000",
@@ -117,9 +152,9 @@ jest.mock("@/utils/liveExchangeRates", () => ({
   },
   EXCLUDED_CURRENCIES: new Set(["USD", "LBP", "EUR"]),
   getCurrencySymbol: (code: string) =>
-    (
-      { USD: "$", LBP: "LBP", EUR: "€", GBP: "£" } as Record<string, string>
-    )[code] ?? code,
+    (({ USD: "$", LBP: "LBP", EUR: "€", GBP: "£" }) as Record<string, string>)[
+      code
+    ] ?? code,
 }));
 
 jest.mock("@/hooks/useShopBase", () => ({
@@ -154,9 +189,12 @@ function selectCurrency(select: HTMLSelectElement, code: string) {
 }
 
 function setAmount(index: number, value: string) {
-  fireEvent.change(screen.getByTestId(`drawer-topup-currency-amount-${index}`), {
-    target: { value },
-  });
+  fireEvent.change(
+    screen.getByTestId(`drawer-topup-currency-amount-${index}`),
+    {
+      target: { value },
+    },
+  );
 }
 
 function submit() {
@@ -172,7 +210,13 @@ describe("DrawerTopUpModal — hands-free cost basis (AC2)", () => {
     jest.clearAllMocks();
     mockCreate.mockResolvedValue({ success: true });
     mockGetRates.mockResolvedValue([
-      { to_code: "EUR", market_rate: 1.16, buy_rate: 1.1601, sell_rate: 1.17, is_stronger: -1 },
+      {
+        to_code: "EUR",
+        market_rate: 1.16,
+        buy_rate: 1.1601,
+        sell_rate: 1.17,
+        is_stronger: -1,
+      },
     ]);
     alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
   });
@@ -186,7 +230,9 @@ describe("DrawerTopUpModal — hands-free cost basis (AC2)", () => {
     await addFirstRow();
 
     const basisLine = await screen.findByTestId("drawer-topup-basis-line-0");
-    expect(basisLine.textContent).toMatch(/Cost basis: market rate 1\.16 USD\/EUR/);
+    expect(basisLine.textContent).toMatch(
+      /Cost basis: market rate 1\.16 USD\/EUR/,
+    );
     expect(screen.queryByTestId("drawer-topup-acquisition-rate-0")).toBeNull();
   });
 
@@ -209,7 +255,9 @@ describe("DrawerTopUpModal — hands-free cost basis (AC2)", () => {
     selectCurrency(select, "GBP");
 
     const basisLine = await screen.findByTestId("drawer-topup-basis-line-0");
-    expect(basisLine.textContent).toMatch(/Cost basis: market rate 1\.27 USD\/GBP/);
+    expect(basisLine.textContent).toMatch(
+      /Cost basis: market rate 1\.27 USD\/GBP/,
+    );
   });
 
   it("submitting a feed-only currency (GBP) without an override attaches market_usd_per_unit_hint, never acquisition_usd_per_unit", async () => {
@@ -286,7 +334,9 @@ describe("DrawerTopUpModal — hands-free cost basis (AC2)", () => {
     submit();
 
     await waitFor(() => expect(alertSpy).toHaveBeenCalled());
-    expect(alertSpy.mock.calls[0][0]).toMatch(/No market rate available for EUR/);
+    expect(alertSpy.mock.calls[0][0]).toMatch(
+      /No market rate available for EUR/,
+    );
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });

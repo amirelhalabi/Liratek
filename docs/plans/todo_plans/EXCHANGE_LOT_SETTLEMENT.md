@@ -21,25 +21,25 @@ current spread model unchanged.
 
 ## Decision record (owner, 2026-08-22)
 
-| # | Question | Decision |
-|---|----------|----------|
-| Q1 | Scope | **Exotics only** (non-USD, non-LBP). USD↔LBP stays spread-based. |
-| Q2 | Profit unit | **Always USD.** |
-| Q3 | Lot sources | Exchange BUYs **and** foreign-currency drawer top-ups. Basis: **market rate by default** (owner refinement 2026-08-23): override via edit link; configured market rate server-side; feed-only uses the client feed hint; error only when none exist. |
-| Q4 | Wallet exchange | **Out of scope** — OMT_App/Whish_App conversions keep booking zero profit. |
-| Q5 | Matching | **FIFO automatic** (no manual lot picking). |
-| Q6 | Oversell | Never block. Uncovered quantity settles at **that day's market rate as basis** (≈ zero profit on the uncovered slice). |
-| Q7 | Cross-currency | **Two independent lot events**, one per leg. Direction (stated correctly): customer gives EUR / receives GBP ⇒ shop **acquires** a EUR lot (leg-1 basis) and **consumes** GBP lots (realizing P&L at leg-2 proceeds). |
-| Q8 | Old spread profit | **Replaced entirely** for lot-tracked currencies. A buy's exotic leg stamps 0 profit; all profit appears at settlement. |
-| Q9 | Profit date | **Settlement date** (the sell's own date) — daily closing and Profits see it then. The buy's history row displays accumulated realized profit for reference only. |
-| Q10 | Losses | Legitimate. **Confirmation dialog ("realizes −$X — proceed?"), any operator**; must not be blocked by the existing >10% sanity guard. |
-| Q11 | Unrealized P&L | **Yes** — indicative, display-only, never in Profits totals. |
-| Q12 | Void partially-settled BUY | **Blocked** until its settling sells are voided first (supplier-settlement guard pattern). Voiding a SELL always allowed: restores quantities, negates realized profit. |
-| Q13 | For-partner | Lots move **at trade time**; realized profit stamped then but **deferred via the existing `notPartnerPending` gate** until partner coverage. (Note: for-partner requires `fromCurrency ∈ {USD, LBP}` — partner debt guard — so for-partner can only **consume** exotic lots, never create them. Moot for the buy side.) |
-| Q14 | Go-live | **Start empty.** No opening lots, no history replay. Pre-existing EUR sells through the Q6 market-basis path; the Q15 admin adjust is the manual escape hatch to establish a basis. |
-| Q15 | Drift | **Admin-only manual position adjustment** (add at stated basis / write off), with note. |
-| Q16 | History UI | All four: status+remaining+realized columns, expandable per-row settlement breakdown, currency filter, open-positions panel on the Exchange page. |
-| Q17 | History cap | **Keep the 50-row cap**; currency filter is client-side over loaded rows. (Positions panel is unaffected — it reads the lot table, not history rows.) |
+| #   | Question                   | Decision                                                                                                                                                                                                                                                                                                                |
+| --- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Q1  | Scope                      | **Exotics only** (non-USD, non-LBP). USD↔LBP stays spread-based.                                                                                                                                                                                                                                                        |
+| Q2  | Profit unit                | **Always USD.**                                                                                                                                                                                                                                                                                                         |
+| Q3  | Lot sources                | Exchange BUYs **and** foreign-currency drawer top-ups. Basis: **market rate by default** (owner refinement 2026-08-23): override via edit link; configured market rate server-side; feed-only uses the client feed hint; error only when none exist.                                                                    |
+| Q4  | Wallet exchange            | **Out of scope** — OMT_App/Whish_App conversions keep booking zero profit.                                                                                                                                                                                                                                              |
+| Q5  | Matching                   | **FIFO automatic** (no manual lot picking).                                                                                                                                                                                                                                                                             |
+| Q6  | Oversell                   | Never block. Uncovered quantity settles at **that day's market rate as basis** (≈ zero profit on the uncovered slice).                                                                                                                                                                                                  |
+| Q7  | Cross-currency             | **Two independent lot events**, one per leg. Direction (stated correctly): customer gives EUR / receives GBP ⇒ shop **acquires** a EUR lot (leg-1 basis) and **consumes** GBP lots (realizing P&L at leg-2 proceeds).                                                                                                   |
+| Q8  | Old spread profit          | **Replaced entirely** for lot-tracked currencies. A buy's exotic leg stamps 0 profit; all profit appears at settlement.                                                                                                                                                                                                 |
+| Q9  | Profit date                | **Settlement date** (the sell's own date) — daily closing and Profits see it then. The buy's history row displays accumulated realized profit for reference only.                                                                                                                                                       |
+| Q10 | Losses                     | Legitimate. **Confirmation dialog ("realizes −$X — proceed?"), any operator**; must not be blocked by the existing >10% sanity guard.                                                                                                                                                                                   |
+| Q11 | Unrealized P&L             | **Yes** — indicative, display-only, never in Profits totals.                                                                                                                                                                                                                                                            |
+| Q12 | Void partially-settled BUY | **Blocked** until its settling sells are voided first (supplier-settlement guard pattern). Voiding a SELL always allowed: restores quantities, negates realized profit.                                                                                                                                                 |
+| Q13 | For-partner                | Lots move **at trade time**; realized profit stamped then but **deferred via the existing `notPartnerPending` gate** until partner coverage. (Note: for-partner requires `fromCurrency ∈ {USD, LBP}` — partner debt guard — so for-partner can only **consume** exotic lots, never create them. Moot for the buy side.) |
+| Q14 | Go-live                    | **Start empty.** No opening lots, no history replay. Pre-existing EUR sells through the Q6 market-basis path; the Q15 admin adjust is the manual escape hatch to establish a basis.                                                                                                                                     |
+| Q15 | Drift                      | **Admin-only manual position adjustment** (add at stated basis / write off), with note.                                                                                                                                                                                                                                 |
+| Q16 | History UI                 | All four: status+remaining+realized columns, expandable per-row settlement breakdown, currency filter, open-positions panel on the Exchange page.                                                                                                                                                                       |
+| Q17 | History cap                | **Keep the 50-row cap**; currency filter is client-side over loaded rows. (Positions panel is unaffected — it reads the lot table, not history rows.)                                                                                                                                                                   |
 
 ## Direction semantics (get this right — it was inverted once already)
 
@@ -113,6 +113,7 @@ strips leg profit fields). Per exchange:
    `notPartnerPending` gate composes automatically (Q13).
 
 **Reversals (rule 20):**
+
 - Up-front guard `_assertExchangeLotsVoidable` in BOTH `_voidTransactionInternal` and
   `_refundTransactionInternal` (mirror `_assertSupplierSiblingsVoidable` at ~:1305/:1509):
   refuse reversing an exchange whose created lot has active (is_refunded=0) settlements (Q12).
@@ -135,7 +136,7 @@ there — upsert overwrites).
 
 - `exchange-lots:preview` — FIFO dry-run for (currency, qty): matched lots, uncovered slice,
   realized profit. Feeds the form's live profit display and the Q10 loss-confirm dialog
-  *before* submit; submit recomputes authoritatively server-side. The existing >10% sanity
+  _before_ submit; submit recomputes authoritatively server-side. The existing >10% sanity
   guard must treat a lot-realized loss as expected, not anomalous.
 - `exchange-lots:positions` — per currency: open qty, weighted-avg cost, current market rate,
   unrealized P&L. Powers the Q11/Q16 panel; label **indicative** (feed ~24h stale).
@@ -180,6 +181,7 @@ scenarios + a parity/checklist sweep). 21/22 money attacks held. Confirmed findi
 their outcomes:
 
 **Fixed in the review-fix commit(s):**
+
 - `notPartnerPending("exchange_transactions", "id")`'s unqualified `id` broke the for-partner
   deferral on `getExchangeTotals` + the `daily_exchange` CTE (correlated against `plp.id`) —
   PRE-EXISTING since LIRA-081, amplified by lot P&L; fixed by qualifying the outer column,
@@ -194,6 +196,7 @@ their outcomes:
   now names an adjustment blocker honestly; result-type declarations completed.
 
 **Accepted behavior, documented (no code change):**
+
 - **Epsilon stranding**: a lot left at 0 < remaining ≤ 0.005 is permanently depleted-by-epsilon
   (invisible to positions/FIFO). Worst case 0.005 × unit cost per lot — negligible for fiat.
 - **Backdating is trusted**: a sell backdated before its lot's acquisition still consumes at
@@ -202,6 +205,7 @@ their outcomes:
   system-wide; noted, not guarded.
 
 **DECIDED (owner, 2026-08-23): accept as-is.**
+
 - **A BUY becomes permanently unvoidable once an admin write-off (Q15 adjust) consumes from
   its lot** — write-off settlements have no reversal path (adjustments tie to no transaction),
   so `_assertExchangeLotsVoidable` blocks the buy's void forever (honest message names the
@@ -219,6 +223,7 @@ with verbatim override storage, 200+success:false on business failure, realizedP
 the web response, admin unaffected. The dangling "Appendix A" adapter comment is gone.
 
 **RESOLVED 2026-08-23 (owner decision: ENABLE exchange backdating, trusted, no guard):**
+
 - **`transaction_time` was stripped by the exchange submit schema** — the Exchange page's
   backdate field never survived `validatePayload`/`validateRequest`, so exchange rows always
   stamped CURRENT_TIMESTAMP even when the operator backdated. The repository layer already
@@ -269,11 +274,11 @@ the web response, admin unaffected. The dangling "Appendix A" adapter comment is
    voids its untouched lot). Prove create+reverse nets to 0 across lots/settlements/drawers/
    profit per currency, failing-first (rule 17).
 9. **Profits**: realized profit stamped server-side on the sell's exotic-leg profit column
-   + unified `profit_usd`; buy's exotic leg stamps 0 (spread model replaced, owner Q8).
-   Refund nets via existing `notRefunded` retro-removal + REFUND-row negation.
-   `profitRecognition.guard.test.ts` gains the exchange entry. **The frontend's
-   `session.linkTransaction(profitUsd)` must carry the SERVER-returned realized profit**,
-   not the client preview — return it from addExchangeTransaction.
+   - unified `profit_usd`; buy's exotic leg stamps 0 (spread model replaced, owner Q8).
+     Refund nets via existing `notRefunded` retro-removal + REFUND-row negation.
+     `profitRecognition.guard.test.ts` gains the exchange entry. **The frontend's
+     `session.linkTransaction(profitUsd)` must carry the SERVER-returned realized profit**,
+     not the client preview — return it from addExchangeTransaction.
 10. **Sessions**: documented exclusion stands — exchange has no basket branch; executes
     immediately, links via `session.linkTransaction` (lira-094).
 11. **Audit viewer**: unchanged — no new visible types, cash-only filter unaffected.
@@ -282,6 +287,6 @@ the web response, admin unaffected. The dangling "Appendix A" adapter comment is
 13. **Item 14 (one obligation, one owner)**: lots are NOT an obligation ledger — they are a
     cost-basis decomposition of `drawer_balances(General, exotic)`. Flow invariant, per
     currency, per exchange: `covered_lot_qty + market_slice_qty = amount_out = |drawer
-    delta|` on sells, and `lot original_qty = amount_in = drawer delta` on buys. With
+delta|` on sells, and `lot original_qty = amount_in = drawer delta` on buys. With
     "start empty" (Q14) the absolute sums diverge from drawer balances by the pre-feature
     holdings — deltas, not absolutes, are the invariant.

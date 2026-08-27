@@ -109,9 +109,7 @@ describe("Partners page — System Association dropdown offers the real provider
   it("lists providers returned by the API (not the hardcoded OMT/WHISH pair) and submits the selected provider's code", async () => {
     render(<Partners />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Add Partner" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add Partner" }));
 
     await screen.findByText("System Association");
 

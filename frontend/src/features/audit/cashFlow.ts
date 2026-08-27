@@ -38,7 +38,9 @@ const PROVIDER_STOCK_DRAWERS = new Set(["MTC", "Alfa", "Katsh", "iPick"]);
 /** True for General/OMT_System/Whish_System/OMT_App/Whish_App — every drawer
  *  the app already treats as customer/owner-facing money. False for the four
  *  provider stock drawers above (and for a missing/unknown name). */
-function isCashEquivalentDrawer(drawerName: string | null | undefined): boolean {
+function isCashEquivalentDrawer(
+  drawerName: string | null | undefined,
+): boolean {
   return !!drawerName && !PROVIDER_STOCK_DRAWERS.has(drawerName);
 }
 

@@ -128,7 +128,11 @@ interface ProfitSummary {
    *  "our profit entirely" (owner). Already folded into the totals above;
    *  this is a visibility breakout. Optional so an older cached summary
    *  response (pre-fix backend) doesn't crash the page. */
-  supplier_commission?: { profit_usd: number; profit_lbp: number; count: number };
+  supplier_commission?: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   totals: {
     gross_revenue_usd: number;
     gross_revenue_lbp: number;

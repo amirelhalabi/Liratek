@@ -29,7 +29,9 @@ export interface ReceiptItem {
 function warrantyLineFor(item: ReceiptItem, timestamp: string): string | null {
   const until =
     item.warranty_until ??
-    (item.warranty_months ? addMonthsIso(timestamp, item.warranty_months) : null);
+    (item.warranty_months
+      ? addMonthsIso(timestamp, item.warranty_months)
+      : null);
   return until ? `Warranty until: ${until}` : null;
 }
 

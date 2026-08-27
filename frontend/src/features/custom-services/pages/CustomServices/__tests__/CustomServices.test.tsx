@@ -611,7 +611,16 @@ describe("CustomServices Page", () => {
   // comment, then reverted.
   it("auto-selects the sole partner and ENABLES submit for a valid For-Partner service with exactly one partner in the DB (LIRA-118)", async () => {
     mockPartnersGetAll.mockResolvedValueOnce([
-      { id: 7, name: "test", phone: null, notes: null, is_active: 1, system_association: null, created_at: "", updated_at: "" },
+      {
+        id: 7,
+        name: "test",
+        phone: null,
+        notes: null,
+        is_active: 1,
+        system_association: null,
+        created_at: "",
+        updated_at: "",
+      },
     ]);
 
     render(<CustomServices />);
@@ -653,7 +662,16 @@ describe("CustomServices Page", () => {
   // payload as `partnerId`, not just flip a visual "selected" state.
   it("carries the auto-selected sole partner through to the submitted payload as partnerId (LIRA-118)", async () => {
     mockPartnersGetAll.mockResolvedValueOnce([
-      { id: 13, name: "Solo Partner Co", phone: null, notes: null, is_active: 1, system_association: null, created_at: "", updated_at: "" },
+      {
+        id: 13,
+        name: "Solo Partner Co",
+        phone: null,
+        notes: null,
+        is_active: 1,
+        system_association: null,
+        created_at: "",
+        updated_at: "",
+      },
     ]);
 
     render(<CustomServices />);

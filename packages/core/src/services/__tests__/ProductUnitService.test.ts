@@ -21,7 +21,9 @@ import type {
   ProductEntity,
 } from "../../repositories/ProductRepository";
 
-function makeUnit(overrides: Partial<ProductUnitEntity> = {}): ProductUnitEntity {
+function makeUnit(
+  overrides: Partial<ProductUnitEntity> = {},
+): ProductUnitEntity {
   return {
     id: 1,
     tenant_id: 1,
@@ -148,9 +150,7 @@ describe("ProductUnitService", () => {
       expect(mockRepo.deleteUnit).toHaveBeenCalledWith(1);
 
       expect(service.findActiveByImei("111111111111111")).toEqual(makeUnit());
-      expect(mockRepo.findActiveByImei).toHaveBeenCalledWith(
-        "111111111111111",
-      );
+      expect(mockRepo.findActiveByImei).toHaveBeenCalledWith("111111111111111");
 
       // Phase 6 refund UI — the units linked to a sale being refunded.
       expect(service.getUnitsForSaleItems([10, 11])).toEqual([makeUnit()]);
@@ -254,9 +254,7 @@ describe("ProductUnitService", () => {
 
   describe("listUnits", () => {
     /** One `UnitListRow` (the repository's list shape) with sane defaults. */
-    function makeListRow(
-      overrides: Partial<UnitListRow> = {},
-    ): UnitListRow {
+    function makeListRow(overrides: Partial<UnitListRow> = {}): UnitListRow {
       return {
         id: 1,
         product_id: 1,
@@ -378,7 +376,10 @@ describe("ProductUnitService", () => {
         {} as unknown as ProductRepository,
       );
 
-      const { rows } = service.listUnits({ limit: 50, offset: 0 }, "2026-08-25");
+      const { rows } = service.listUnits(
+        { limit: 50, offset: 0 },
+        "2026-08-25",
+      );
 
       expect(rows[0].product_warranty_months).toBe(6);
       expect(rows[1].product_warranty_months).toBeNull();

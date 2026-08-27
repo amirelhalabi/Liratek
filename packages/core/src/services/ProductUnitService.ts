@@ -207,7 +207,10 @@ export class ProductUnitService {
     try {
       return this.repo.getSummaryForProducts(productIds);
     } catch (error) {
-      inventoryLogger.error({ error, productIds }, "getSummaryForProducts failed");
+      inventoryLogger.error(
+        { error, productIds },
+        "getSummaryForProducts failed",
+      );
       throw error;
     }
   }

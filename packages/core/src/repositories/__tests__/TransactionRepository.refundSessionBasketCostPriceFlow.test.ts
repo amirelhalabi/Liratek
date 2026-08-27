@@ -445,9 +445,8 @@ function sessionPooledPayments(
 
 function seedClient(db: Database.Database, name = "Test Client"): number {
   return Number(
-    db
-      .prepare("INSERT INTO clients (full_name) VALUES (?)")
-      .run(name).lastInsertRowid,
+    db.prepare("INSERT INTO clients (full_name) VALUES (?)").run(name)
+      .lastInsertRowid,
   );
 }
 
@@ -512,9 +511,7 @@ describe("BUG 3 repro (session-basket variant) — refunding ONE cost/price item
   function seedSession(): number {
     return Number(
       db
-        .prepare(
-          "INSERT INTO customer_sessions (started_by) VALUES ('admin')",
-        )
+        .prepare("INSERT INTO customer_sessions (started_by) VALUES ('admin')")
         .run().lastInsertRowid,
     );
   }
@@ -553,7 +550,9 @@ describe("BUG 3 repro (session-basket variant) — refunding ONE cost/price item
     createCostPriceSaleInSession(sessionId);
 
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" }],
+      legs: [
+        { method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" },
+      ],
       exchangeRate: 90000,
       userId: 1,
     });
@@ -577,7 +576,9 @@ describe("BUG 3 repro (session-basket variant) — refunding ONE cost/price item
     const { txnId } = createCostPriceSaleInSession(sessionId);
 
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" }],
+      legs: [
+        { method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" },
+      ],
       exchangeRate: 90000,
       userId: 1,
     });
@@ -601,7 +602,9 @@ describe("BUG 3 repro (session-basket variant) — refunding ONE cost/price item
     const { txnId } = createCostPriceSaleInSession(sessionId);
 
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" }],
+      legs: [
+        { method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" },
+      ],
       exchangeRate: 90000,
       userId: 1,
     });
@@ -621,7 +624,9 @@ describe("BUG 3 repro (session-basket variant) — refunding ONE cost/price item
     const { txnId } = createCostPriceSaleInSession(sessionId);
 
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" }],
+      legs: [
+        { method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" },
+      ],
       exchangeRate: 90000,
       userId: 1,
     });
@@ -643,14 +648,20 @@ describe("BUG 3 repro (session-basket variant) — refunding ONE cost/price item
     // item that "owns" pooled cash.
     const ownRefundLegs = paymentsFor(db, refundId);
     expect(ownRefundLegs).toHaveLength(1);
-    expect(ownRefundLegs[0]).toMatchObject({ drawer_name: "iPick", amount: 1008 });
+    expect(ownRefundLegs[0]).toMatchObject({
+      drawer_name: "iPick",
+      amount: 1008,
+    });
     expect(profitUsdFor(db, refundId)).toBeCloseTo(-2, 2); // profit nets to 0 too
 
     // The pooled reversal leg lives on the session, not any one item.
     const pooled = sessionPooledPayments(db, sessionId);
     const pooledReversal = pooled.find((p) => p.note === "Basket reversal");
     expect(pooledReversal).toBeDefined();
-    expect(pooledReversal).toMatchObject({ drawer_name: "General", amount: -1010 });
+    expect(pooledReversal).toMatchObject({
+      drawer_name: "General",
+      amount: -1010,
+    });
 
     // Rule 20 — the WHOLE create+refund cycle nets every drawer back to
     // exactly its pre-sale baseline, not just "some money moved back."
@@ -692,7 +703,9 @@ describe("BUG 3 repro (session-basket variant) — refunding ONE cost/price item
     const { txnId } = createCostPriceSaleInSession(sessionId);
 
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" }],
+      legs: [
+        { method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" },
+      ],
       exchangeRate: 90000,
       userId: 1,
     });
@@ -715,7 +728,9 @@ describe("BUG 3 repro (session-basket variant) — refunding ONE cost/price item
     createCostPriceSaleInSession(sessionId);
 
     sessionPaymentService.recordBasketPayment(sessionId, {
-      legs: [{ method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" }],
+      legs: [
+        { method: "CASH", currencyCode: "USD", amount: 1010, direction: "IN" },
+      ],
       exchangeRate: 90000,
       userId: 1,
     });
@@ -759,7 +774,9 @@ describe("BUG 3 repro (session-basket variant) — refunding ONE cost/price item
 
     sessionPaymentService.recordBasketPayment(sessionId, {
       // 1010 (item 1) + 520 (item 2) = 1530 pooled into ONE cash leg.
-      legs: [{ method: "CASH", currencyCode: "USD", amount: 1530, direction: "IN" }],
+      legs: [
+        { method: "CASH", currencyCode: "USD", amount: 1530, direction: "IN" },
+      ],
       exchangeRate: 90000,
       userId: 1,
     });

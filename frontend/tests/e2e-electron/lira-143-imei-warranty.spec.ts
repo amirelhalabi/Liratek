@@ -330,7 +330,10 @@ async function findTodaysSaleId(
   return sale.id;
 }
 
-async function saleItemsFor(page: Page, saleId: number): Promise<SaleItemRow[]> {
+async function saleItemsFor(
+  page: Page,
+  saleId: number,
+): Promise<SaleItemRow[]> {
   return page.evaluate(
     (id) => window.api.sales.getItems(id) as unknown as Promise<SaleItemRow[]>,
     saleId,
@@ -370,7 +373,8 @@ async function ensureImeiCategory(page: Page): Promise<number> {
     throw new Error(`Failed to create category: ${created.error}`);
   }
   const upd = await page.evaluate(
-    (id) => window.api.inventory.updateCategory(id, { tracks_imei_units: true }),
+    (id) =>
+      window.api.inventory.updateCategory(id, { tracks_imei_units: true }),
     created.id,
   );
   if (!upd.success) {
@@ -382,7 +386,8 @@ async function ensureImeiCategory(page: Page): Promise<number> {
 async function provisionProduct(page: Page): Promise<number> {
   const result = await page.evaluate(
     ({ name, category, cost, retail, stock, warrantyMonths }) => {
-      const api = window.api.inventory as unknown as CreateProductWithWarrantyApi;
+      const api = window.api
+        .inventory as unknown as CreateProductWithWarrantyApi;
       return api.createProduct({
         barcode: "",
         name,
@@ -418,7 +423,8 @@ async function provisionProduct(page: Page): Promise<number> {
 async function provisionNoWarrantyProduct(page: Page): Promise<number> {
   const result = await page.evaluate(
     ({ name, category, cost, retail, stock }) => {
-      const api = window.api.inventory as unknown as CreateProductWithWarrantyApi;
+      const api = window.api
+        .inventory as unknown as CreateProductWithWarrantyApi;
       return api.createProduct({
         barcode: "",
         name,
@@ -535,9 +541,9 @@ async function openEditProduct(
   // Row's action cell renders exactly 3 icon buttons in this fixed JSX
   // order: [0] Adjust stock, [1] Edit, [2] Delete (ProductList.tsx).
   await row.getByRole("button").nth(1).click();
-  await expect(
-    page.getByRole("heading", { name: "Edit Product" }),
-  ).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible(
+    { timeout: 5_000 },
+  );
 }
 
 /** The Units/IMEIs section's single-IMEI input + Add button (ImeiAddRow,
@@ -853,9 +859,9 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
 
     // Register the 3rd unit through the real input+Add row — drift clears.
     await registerImeiViaUi(appPage, IMEI_3);
-    await expect(
-      section.getByText(IMEI_3, { exact: false }),
-    ).toBeVisible({ timeout: 5_000 });
+    await expect(section.getByText(IMEI_3, { exact: false })).toBeVisible({
+      timeout: 5_000,
+    });
     await expect(drift).not.toBeVisible({ timeout: 5_000 });
 
     // Duplicate IMEI (still IN_STOCK) — named error, inline (not a toast).
@@ -894,11 +900,11 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await expect(cartLine1.locator("select")).toHaveValue(
       String(unit1Initial.id),
     );
-    await expect(cartLine1.locator('input[placeholder="Enter IMEI / Serial"]')).toHaveCount(0);
+    await expect(
+      cartLine1.locator('input[placeholder="Enter IMEI / Serial"]'),
+    ).toHaveCount(0);
 
-    await appPage
-      .getByRole("button", { name: "Proceed to Checkout" })
-      .click();
+    await appPage.getByRole("button", { name: "Proceed to Checkout" }).click();
     await expect(appPage.getByTestId("checkout-modal")).toBeVisible({
       timeout: 5_000,
     });
@@ -928,7 +934,9 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
       expectedWarranty1,
       addMonthsIso(todayIso(), WARRANTY_MONTHS),
     ];
-    expect(expectedWarrantyToleratingMidnight).toContain(sale1Item.warranty_until);
+    expect(expectedWarrantyToleratingMidnight).toContain(
+      sale1Item.warranty_until,
+    );
 
     // ─── (c) Strictness ─────────────────────────────────────────────────────
     // Add the SAME product again via a plain click (not scan) — 2 units
@@ -952,9 +960,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
       await unitsForProduct(appPage, productId)
     ).filter((u) => u.status === "IN_STOCK").length;
 
-    await appPage
-      .getByRole("button", { name: "Proceed to Checkout" })
-      .click();
+    await appPage.getByRole("button", { name: "Proceed to Checkout" }).click();
     await expect(appPage.getByTestId("checkout-modal")).toBeVisible({
       timeout: 5_000,
     });
@@ -967,9 +973,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await expect(strictnessAlert).toContainText(
       `${inStockBeforeAttempt} IMEI-registered unit(s) in stock`,
     );
-    await expect(strictnessAlert).toContainText(
-      "identify the unit being sold",
-    );
+    await expect(strictnessAlert).toContainText("identify the unit being sold");
     // The modal stayed open (rejected sale, no state change) — clean up.
     await appPage.locator('button[title="Cancel Order"]').click();
     await expect(appPage.getByTestId("checkout-modal")).not.toBeVisible({
@@ -1064,9 +1068,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
       String(unit1AfterRefund.id),
     );
 
-    await appPage
-      .getByRole("button", { name: "Proceed to Checkout" })
-      .click();
+    await appPage.getByRole("button", { name: "Proceed to Checkout" }).click();
     await expect(appPage.getByTestId("checkout-modal")).toBeVisible({
       timeout: 5_000,
     });
@@ -1162,9 +1164,9 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await expect(
       unit2Row.getByTestId(`phone-unit-warranty-${unit2Initial.id}`),
     ).toHaveText(termBadgeLabel(WARRANTY_MONTHS));
-    await expect(
-      appPage.getByTestId(`phone-unit-row-${unit3.id}`),
-    ).toHaveCount(0);
+    await expect(appPage.getByTestId(`phone-unit-row-${unit3.id}`)).toHaveCount(
+      0,
+    );
   });
 
   /**
@@ -1242,7 +1244,8 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     const nwSaleId = await findTodaysSaleId(appPage, CLIENT_3, NW_RETAIL_PRICE);
     const nwSaleItems = await saleItemsFor(appPage, nwSaleId);
     const nwSaleItem = nwSaleItems.find((it) => it.product_id === nwProductId);
-    if (!nwSaleItem) throw new Error("Sale item for the no-warranty sale not found");
+    if (!nwSaleItem)
+      throw new Error("Sale item for the no-warranty sale not found");
     expect(nwSaleItem.imei).toBe(IMEI_5);
     expect(nwSaleItem.warranty_until).toBeNull();
 
@@ -1250,26 +1253,32 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await openPhoneUnitsPage(appPage);
 
     await searchPhoneUnits(appPage, IMEI_4);
-    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible(
+      {
+        timeout: 10_000,
+      },
+    );
     await expect(phoneUnitWarrantyBadge(appPage, unit4.id)).toHaveText(
       "No warranty",
     );
 
     await searchPhoneUnits(appPage, IMEI_5);
-    await expect(appPage.getByTestId(`phone-unit-row-${unit5.id}`)).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(appPage.getByTestId(`phone-unit-row-${unit5.id}`)).toBeVisible(
+      {
+        timeout: 10_000,
+      },
+    );
     await expect(phoneUnitWarrantyBadge(appPage, unit5.id)).toHaveText(
       "No warranty",
     );
 
     // Warm the story cache for IMEI_4 too — the second surface.
     await searchPhoneUnits(appPage, IMEI_4);
-    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible(
+      {
+        timeout: 10_000,
+      },
+    );
     await expect(
       await expandedStoryWarrantyBadge(appPage, unit4.id),
     ).toHaveText("No warranty");
@@ -1286,9 +1295,11 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     // ─── The owner's exact navigation: back to /inventory/units ───────────
     await openPhoneUnitsPage(appPage);
     await searchPhoneUnits(appPage, IMEI_4);
-    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible(
+      {
+        timeout: 10_000,
+      },
+    );
     await expect(phoneUnitWarrantyBadge(appPage, unit4.id)).toHaveText(
       termBadgeLabel(NW_WARRANTY_MONTHS),
       { timeout: 10_000 },
@@ -1296,18 +1307,22 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
 
     // Decision #4 honesty: the unit sold BEFORE the term existed keeps none.
     await searchPhoneUnits(appPage, IMEI_5);
-    await expect(appPage.getByTestId(`phone-unit-row-${unit5.id}`)).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(appPage.getByTestId(`phone-unit-row-${unit5.id}`)).toBeVisible(
+      {
+        timeout: 10_000,
+      },
+    );
     await expect(phoneUnitWarrantyBadge(appPage, unit5.id)).toHaveText(
       "No warranty",
     );
 
     // Both surfaces agree — the expanded story card shows the term too.
     await searchPhoneUnits(appPage, IMEI_4);
-    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible(
+      {
+        timeout: 10_000,
+      },
+    );
     await expect(
       await expandedStoryWarrantyBadge(appPage, unit4.id),
     ).toHaveText(termBadgeLabel(NW_WARRANTY_MONTHS), { timeout: 10_000 });
@@ -1423,9 +1438,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
       PRODUCT_NAME_DEL,
     );
     // Today's base copy is untouched…
-    await expect(deleteConfirm).toContainText(
-      "This action cannot be undone.",
-    );
+    await expect(deleteConfirm).toContainText("This action cannot be undone.");
     // …plus the disclosure of exactly what else goes.
     await expect(deleteConfirm).toContainText(
       "also removes 2 registered in-stock IMEIs",
@@ -1496,9 +1509,10 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
 
     // The deleted in-stock unit is gone from that same register.
     await searchPhoneUnits(appPage, IMEI_7);
-    await expect(
-      appPage.getByTestId(`phone-unit-row-${unit7.id}`),
-    ).toHaveCount(0, { timeout: 10_000 });
+    await expect(appPage.getByTestId(`phone-unit-row-${unit7.id}`)).toHaveCount(
+      0,
+      { timeout: 10_000 },
+    );
   });
 
   /**

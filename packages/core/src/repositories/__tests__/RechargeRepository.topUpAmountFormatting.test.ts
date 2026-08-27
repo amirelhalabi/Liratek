@@ -211,9 +211,8 @@ describe("RechargeRepository top-up summary/note amount formatting", () => {
   }
 
   function rechargeNote(): string {
-    return (
-      db.prepare("SELECT note FROM recharges").get() as { note: string }
-    ).note;
+    return (db.prepare("SELECT note FROM recharges").get() as { note: string })
+      .note;
   }
 
   it("topUpFromSupplier: no raw comma-less amount in recharges.note, transactions.summary, or supplier_ledger.note", () => {
@@ -259,9 +258,7 @@ describe("RechargeRepository top-up summary/note amount formatting", () => {
       expect(text).toContain("700,579 LBP");
     }
     // The exact shape the owner saw live: "OMT App top-up: General → OMT_App: <amount>"
-    expect(txnSummary()).toBe(
-      "OMT App top-up: General → OMT_App: 700,579 LBP",
-    );
+    expect(txnSummary()).toBe("OMT App top-up: General → OMT_App: 700,579 LBP");
   });
 
   it("topUpFromPartner: no raw comma-less USD amount in recharges.note or transactions.summary", () => {

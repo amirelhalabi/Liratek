@@ -325,7 +325,8 @@ async function ensureEurActive(page: Page): Promise<void> {
   };
 
   const eur = await page.evaluate(async () => {
-    const list = (await window.api.currencies.list()) as unknown as CurrencyRow[];
+    const list =
+      (await window.api.currencies.list()) as unknown as CurrencyRow[];
     return list.find((c) => c.code === "EUR") ?? null;
   });
   if (!eur) {
@@ -392,8 +393,7 @@ async function pickCurrency(box: Locator, code: "USD" | "LBP" | "EUR") {
     }
   }
   throw (
-    lastError ??
-    new Error(`pickCurrency(${code}): option never became visible`)
+    lastError ?? new Error(`pickCurrency(${code}): option never became visible`)
   );
 }
 
@@ -715,7 +715,8 @@ test.describe("Exchange — losing rate override on a non-lot-tracked pair (sign
 
     const history = await getExchangeHistory(appPage);
     const lossRow = history.find((r) => r.client_name === LOSS_CLIENT);
-    if (!lossRow) throw new Error("Loss-override exchange row not found by identity");
+    if (!lossRow)
+      throw new Error("Loss-override exchange row not found by identity");
 
     const bookedProfit = Number(lossRow.leg1_profit_usd ?? lossRow.profit_usd);
     // THE regression guard: pre-fix (Math.abs), this books +0.7821 — a

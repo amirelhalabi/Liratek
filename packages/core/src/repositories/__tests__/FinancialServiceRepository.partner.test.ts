@@ -1928,9 +1928,7 @@ describe("FinancialServiceRepository — partner mode", () => {
         generalLbpBefore,
         2,
       );
-      expect(drawerBalance(db, "Whish_System", "USD")).toBe(
-        whishSystemBefore,
-      );
+      expect(drawerBalance(db, "Whish_System", "USD")).toBe(whishSystemBefore);
       // Supplier ledger (the provider-obligation entity): empty before AND
       // after — never touched by either the original transaction or the void.
       expect(ledgerRowsForSupplier(db, whishId)).toHaveLength(0);

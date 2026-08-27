@@ -67,10 +67,12 @@ describe("Product Unit REST routes", () => {
 
   describe("POST /api/product-units/register", () => {
     it("admin can register units — validated payload passes through to the service", async () => {
-      const spy = jest.spyOn(productUnitService, "registerUnits").mockReturnValue({
-        units: [{ id: 1 } as any],
-        drift: { inStockUnits: 1, stockQuantity: 1, matches: true },
-      });
+      const spy = jest
+        .spyOn(productUnitService, "registerUnits")
+        .mockReturnValue({
+          units: [{ id: 1 } as any],
+          drift: { inStockUnits: 1, stockQuantity: 1, matches: true },
+        });
 
       const res = await request(app)
         .post("/api/product-units/register")

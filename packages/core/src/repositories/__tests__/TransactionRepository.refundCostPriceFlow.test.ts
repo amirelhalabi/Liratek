@@ -346,7 +346,12 @@ function txnIdForFsRow(db: Database.Database, fsId: number): number {
 function paymentsFor(
   db: Database.Database,
   transactionId: number,
-): Array<{ method: string; drawer_name: string; amount: number; note: string | null }> {
+): Array<{
+  method: string;
+  drawer_name: string;
+  amount: number;
+  note: string | null;
+}> {
   return db
     .prepare(
       `SELECT method, drawer_name, amount, note FROM payments WHERE transaction_id = ? ORDER BY id ASC`,

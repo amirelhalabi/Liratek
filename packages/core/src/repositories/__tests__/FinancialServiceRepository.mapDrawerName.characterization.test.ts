@@ -102,7 +102,13 @@ function seedServiceProviders(db: Database.Database): void {
     `INSERT INTO service_providers (tenant_id, code, label, drawer_name, is_system_provider, is_active, is_system, sort_order)
      VALUES (1, ?, ?, ?, ?, 1, 1, ?)`,
   );
-  for (const [code, label, drawerName, isSystemProvider, sortOrder] of SEED_ROWS) {
+  for (const [
+    code,
+    label,
+    drawerName,
+    isSystemProvider,
+    sortOrder,
+  ] of SEED_ROWS) {
     stmt.run(code, label, drawerName, isSystemProvider, sortOrder);
   }
 }
@@ -140,9 +146,9 @@ function mapDrawerName(
   repo: FinancialServiceRepository,
   provider: string,
 ): string {
-  return (repo as unknown as { mapDrawerName: (p: string) => string }).mapDrawerName(
-    provider,
-  );
+  return (
+    repo as unknown as { mapDrawerName: (p: string) => string }
+  ).mapDrawerName(provider);
 }
 
 describe("FinancialServiceRepository.mapDrawerName — provider-taxonomy characterization (plan §5b phase 2)", () => {
@@ -154,7 +160,8 @@ describe("FinancialServiceRepository.mapDrawerName — provider-taxonomy charact
 
   describe.each([
     {
-      label: "seeded (service_providers exists, seeded exactly like the migration)",
+      label:
+        "seeded (service_providers exists, seeded exactly like the migration)",
       buildDb: () => {
         const db = new Database(":memory:");
         db.exec(SERVICE_PROVIDERS_SCHEMA);
@@ -188,12 +195,14 @@ describe("FinancialServiceRepository.mapDrawerName — provider-taxonomy charact
   });
 
   it("resolves all 9 known providers + 1 unknown in a single pass (belt-and-suspenders — same assertions, one test)", () => {
-    setDb((() => {
-      const db = new Database(":memory:");
-      db.exec(SERVICE_PROVIDERS_SCHEMA);
-      seedServiceProviders(db);
-      return db;
-    })());
+    setDb(
+      (() => {
+        const db = new Database(":memory:");
+        db.exec(SERVICE_PROVIDERS_SCHEMA);
+        seedServiceProviders(db);
+        return db;
+      })(),
+    );
     initFixedTenantContext(1);
     const repo = new FinancialServiceRepository();
 

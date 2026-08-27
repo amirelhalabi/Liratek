@@ -174,7 +174,9 @@ describe("ServiceProviderService.createProvider -> usable as financial_services.
   });
 
   it("a provider created for tenant 1 is NOT usable for a different tenant (tenant-scoped FK, not global)", () => {
-    db.exec(`INSERT INTO tenants (id, name, slug, status) VALUES (2, 'Second Shop', 'second-shop', 'active');`);
+    db.exec(
+      `INSERT INTO tenants (id, name, slug, status) VALUES (2, 'Second Shop', 'second-shop', 'active');`,
+    );
 
     const service = new ServiceProviderService(new ServiceProviderRepository());
     const createResult = service.createProvider({

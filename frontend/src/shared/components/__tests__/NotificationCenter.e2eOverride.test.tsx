@@ -50,9 +50,7 @@ describe("NotificationCenter — __e2eNotificationDurationMs override", () => {
     act(() => {
       jest.advanceTimersByTime(4000);
     });
-    expect(
-      screen.queryByText("Default timing toast"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Default timing toast")).not.toBeInTheDocument();
   });
 
   it("__e2eNotificationDurationMs = 2: the toast is gone right after a ~10ms advance", () => {

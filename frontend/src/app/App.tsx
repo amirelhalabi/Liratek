@@ -14,9 +14,7 @@ import Dashboard from "@/features/dashboard/pages/Dashboard";
 const ProductList = lazy(
   () => import("@/features/inventory/pages/Inventory/ProductList"),
 );
-const PhoneUnits = lazy(
-  () => import("@/features/inventory/pages/PhoneUnits"),
-);
+const PhoneUnits = lazy(() => import("@/features/inventory/pages/PhoneUnits"));
 const ClientList = lazy(
   () => import("@/features/clients/pages/Clients/ClientList"),
 );
@@ -401,11 +399,18 @@ function App() {
           {/* HashRouter is recommended for Electron to avoid path issues in production */}
           <ApiProvider adapter={backendApiAdapter}>
             <ModuleProvider>
-              <CurrencyProvider>
-                <FeatureFlagProvider>
-                  <HashRouter>
-                    <ActiveModuleProvider>
-                      <AuthProvider>
+              <FeatureFlagProvider>
+                <HashRouter>
+                  <ActiveModuleProvider>
+                    <AuthProvider>
+                      {/* Mounted below AuthProvider so the currency load runs
+                        with an authenticated session — in web mode
+                        GET /api/currencies is JWT-gated, so a boot-time fetch
+                        (before login) 401ed, left `currencies` empty, and every
+                        amount rendered with its CODE instead of its SYMBOL
+                        ("300.00 EUR" instead of "€300.00"). Re-runs when the
+                        user logs in (see the auth gate inside CurrencyContext). */}
+                      <CurrencyProvider>
                         <SessionProvider>
                           {/* Mounted below AuthProvider so the catalog seed/load
                             runs with an authenticated session (seeding requires
@@ -414,11 +419,11 @@ function App() {
                             <AppRoutes />
                           </MobileServiceItemsProvider>
                         </SessionProvider>
-                      </AuthProvider>
-                    </ActiveModuleProvider>
-                  </HashRouter>
-                </FeatureFlagProvider>
-              </CurrencyProvider>
+                      </CurrencyProvider>
+                    </AuthProvider>
+                  </ActiveModuleProvider>
+                </HashRouter>
+              </FeatureFlagProvider>
             </ModuleProvider>
           </ApiProvider>
         </ThemeProvider>

@@ -259,7 +259,9 @@ describe("InventoryService — product delete cascades IN_STOCK units", () => {
         { imei: IMEI_SOLD, status: "SOLD" },
       ]);
       const sold = db
-        .prepare(`SELECT id, status, sale_item_id FROM product_units WHERE id = ?`)
+        .prepare(
+          `SELECT id, status, sale_item_id FROM product_units WHERE id = ?`,
+        )
         .get(soldUnitId) as {
         id: number;
         status: string;

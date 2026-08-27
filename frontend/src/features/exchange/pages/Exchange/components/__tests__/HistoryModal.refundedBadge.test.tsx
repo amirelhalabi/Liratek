@@ -104,9 +104,7 @@ describe("Exchange HistoryModal — refunded row display (LIRA-131)", () => {
   it("shows a Refunded badge on the refunded row and NOT on the live row", () => {
     renderModal();
 
-    const refundedRow = screen
-      .getByText(REFUNDED_AMOUNT_IN_TEXT)
-      .closest("tr");
+    const refundedRow = screen.getByText(REFUNDED_AMOUNT_IN_TEXT).closest("tr");
     const liveRow = screen.getByText(LIVE_AMOUNT_IN_TEXT).closest("tr");
     expect(refundedRow).not.toBeNull();
     expect(liveRow).not.toBeNull();
@@ -122,9 +120,7 @@ describe("Exchange HistoryModal — refunded row display (LIRA-131)", () => {
   it("does not present a live profit for the refunded row, while the live row's profit stays live", () => {
     renderModal();
 
-    const refundedRow = screen
-      .getByText(REFUNDED_AMOUNT_IN_TEXT)
-      .closest("tr");
+    const refundedRow = screen.getByText(REFUNDED_AMOUNT_IN_TEXT).closest("tr");
     const liveRow = screen.getByText(LIVE_AMOUNT_IN_TEXT).closest("tr");
 
     const refundedProfit = within(refundedRow as HTMLElement).getByText(

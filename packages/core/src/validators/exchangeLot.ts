@@ -59,12 +59,10 @@ export const adjustLotPositionSchema = z.object({
   currencyCode: currencyCodeSchema,
   /** Signed: positive adds to the position (requires `unitCostUsd`),
    *  negative writes it off (FIFO, at each lot's own cost — never 0). */
-  qty: z
-    .number()
-    .refine((v) => v !== 0, {
-      message:
-        "qty must not be 0 — pass a positive qty to add or a negative qty to write off",
-    }),
+  qty: z.number().refine((v) => v !== 0, {
+    message:
+      "qty must not be 0 — pass a positive qty to add or a negative qty to write off",
+  }),
   /** Required (and must be > 0) only when `qty > 0` — enforced by the
    *  repository, not re-checked here (that conditional-required shape isn't
    *  expressible as a single field constraint without a `.refine()` that

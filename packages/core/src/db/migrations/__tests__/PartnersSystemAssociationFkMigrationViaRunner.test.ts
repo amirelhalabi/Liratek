@@ -27,7 +27,12 @@
  */
 
 import Database from "better-sqlite3";
-import { runMigrations, rollbackTo, getCurrentVersion, MIGRATIONS } from "../index";
+import {
+  runMigrations,
+  rollbackTo,
+  getCurrentVersion,
+  MIGRATIONS,
+} from "../index";
 
 function createSchema(db: Database.Database): void {
   db.pragma("foreign_keys = OFF");
@@ -155,7 +160,9 @@ describe("v155 — via the real migration runner (runMigrations / rollbackTo)", 
 
     // The referencing rows survive untouched (same ids, same partner_id).
     expect(
-      db.prepare(`SELECT partner_id FROM financial_services WHERE id = 1`).get(),
+      db
+        .prepare(`SELECT partner_id FROM financial_services WHERE id = 1`)
+        .get(),
     ).toEqual({ partner_id: 3 });
     expect(
       db.prepare(`SELECT partner_id FROM partner_ledger WHERE id = 1`).get(),
@@ -183,7 +190,9 @@ describe("v155 — via the real migration runner (runMigrations / rollbackTo)", 
       .get() as { system_association: string };
     expect(partner.system_association).toBe("SYRIA");
     expect(
-      db.prepare(`SELECT partner_id FROM financial_services WHERE id = 1`).get(),
+      db
+        .prepare(`SELECT partner_id FROM financial_services WHERE id = 1`)
+        .get(),
     ).toEqual({ partner_id: 3 });
     expect(
       db.prepare(`SELECT partner_id FROM partner_ledger WHERE id = 1`).get(),

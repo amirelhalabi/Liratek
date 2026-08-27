@@ -428,9 +428,7 @@ test.describe("LIRA-089 — bill commission-at-settlement", () => {
     // ACTUAL mechanism the owner asked for ("katsh drawer should increase by
     // the payment"). ──────────────────────────────────────────────────────
     const drawerAfterSettle = await katshDrawer(appPage);
-    expect(drawerAfterSettle.lbp - drawerBeforeSettle.lbp).toBe(
-      COMMISSION_LBP,
-    );
+    expect(drawerAfterSettle.lbp - drawerBeforeSettle.lbp).toBe(COMMISSION_LBP);
     expect(drawerAfterSettle.usd - drawerBeforeSettle.usd).toBe(0);
 
     // ── Assert the supplier LEDGER has NO commission row at all — the

@@ -218,7 +218,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
 
     const pushIn = (expr: string, values?: string[]): void => {
       if (!values || values.length === 0) return;
-      clauses.push(`${expr} IN (${ProductRepository.placeholders(values.length)})`);
+      clauses.push(
+        `${expr} IN (${ProductRepository.placeholders(values.length)})`,
+      );
       params.push(...values);
     };
     const pushRange = (expr: string, min?: number, max?: number): void => {

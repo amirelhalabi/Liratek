@@ -297,9 +297,7 @@ describe("Exchange page — lot-tracked toCurrency with no rate anchor (NO_RATE_
     await waitFor(() => expect(mockPreview).toHaveBeenCalled());
 
     expect(
-      await screen.findByText(
-        /Cost-basis tracking unavailable for this pair/i,
-      ),
+      await screen.findByText(/Cost-basis tracking unavailable for this pair/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/FIFO vs cost basis/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Confirm Loss/i)).not.toBeInTheDocument();

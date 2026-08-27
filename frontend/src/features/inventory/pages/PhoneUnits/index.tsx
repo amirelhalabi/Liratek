@@ -180,7 +180,11 @@ export default function PhoneUnits() {
       // The SAME builder the on-screen query uses, so the export can never
       // apply a different filter set than the table it came from — only the
       // page size differs (200, the contract's ceiling).
-      const { limit: _limit, offset: _offset, ...base } = buildUnitListFilters({
+      const {
+        limit: _limit,
+        offset: _offset,
+        ...base
+      } = buildUnitListFilters({
         status,
         defectiveOnly,
         search,
@@ -446,7 +450,9 @@ export default function PhoneUnits() {
                   )}
                 </td>
                 <td className="p-3 text-slate-300">
-                  {unit.client_name ?? <span className="text-slate-600">—</span>}
+                  {unit.client_name ?? (
+                    <span className="text-slate-600">—</span>
+                  )}
                 </td>
                 <td className="p-3">
                   <span
@@ -483,7 +489,10 @@ export default function PhoneUnits() {
         {/* Server-side pagination — DataTable's own `paginate` only slices the
             array it was handed, which here is a single page. */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-slate-700 bg-slate-800/50">
-          <span className="text-sm text-slate-400" data-testid="phone-units-range">
+          <span
+            className="text-sm text-slate-400"
+            data-testid="phone-units-range"
+          >
             {range.label} units
           </span>
           <div className="flex items-center gap-2">

@@ -88,9 +88,7 @@ function insertProduct(
   opts: { name: string; barcode?: string | null; isActive?: boolean },
 ): number {
   const result = db
-    .prepare(
-      `INSERT INTO products (name, barcode, is_active) VALUES (?, ?, ?)`,
-    )
+    .prepare(`INSERT INTO products (name, barcode, is_active) VALUES (?, ?, ?)`)
     .run(opts.name, opts.barcode ?? null, opts.isActive === false ? 0 : 1);
   return Number(result.lastInsertRowid);
 }

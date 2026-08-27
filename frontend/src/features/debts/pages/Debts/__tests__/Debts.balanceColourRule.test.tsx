@@ -153,8 +153,18 @@ jest.mock("@/api/backendApi", () => ({
 
 jest.mock("@/utils/logger", () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
-  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+  default: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
+  logger: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 // `total_debt_usd`/`total_debt_lbp` (the debtor-SUMMARY fields, used only by

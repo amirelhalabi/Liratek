@@ -312,7 +312,11 @@ describe("getCashFlowDirection — DRAWER_TOPUP (Top-Up Cash-Flow Direction Audi
     expect(
       getCashFlowDirection(
         "DRAWER_TOPUP",
-        JSON.stringify({ drawer: "General", notes: null, extra_currencies: null }),
+        JSON.stringify({
+          drawer: "General",
+          notes: null,
+          extra_currencies: null,
+        }),
       ),
     ).toBe("in");
   });

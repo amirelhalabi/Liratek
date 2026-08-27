@@ -28,7 +28,10 @@
 import Database from "better-sqlite3";
 import { FinancialServiceRepository } from "../FinancialServiceRepository";
 import { resetServiceProviderRepository } from "../ServiceProviderRepository";
-import { initFixedTenantContext, resetTenantContext } from "../../db/tenantContext";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext";
 
 jest.mock("../../db/connection", () => {
   let _db: Database.Database | null = null;
@@ -141,7 +144,9 @@ describe("FinancialServiceRepository.assertValidProvider — provider-taxonomy m
     initFixedTenantContext(1); // tenant 1 is configured, but never got 'WHISH'
     const repo = new FinancialServiceRepository();
 
-    expect(() => assertValidProvider(repo, "WHISH")).toThrow(/Invalid provider/);
+    expect(() => assertValidProvider(repo, "WHISH")).toThrow(
+      /Invalid provider/,
+    );
   });
 
   it("does not reject anything when service_providers does not exist (pre-phase-1 DB / synthetic fixture — unchecked, matches mapDrawerName's own fallback)", () => {

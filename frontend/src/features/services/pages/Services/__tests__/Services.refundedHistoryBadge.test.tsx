@@ -26,7 +26,13 @@
  * reverted (see task report for the exact captured output).
  */
 
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import Services from "../index";
 
 const REFUNDED_CLIENT = "Refunded Client";

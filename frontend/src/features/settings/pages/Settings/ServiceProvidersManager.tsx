@@ -131,9 +131,7 @@ export default function ServiceProvidersManager() {
   };
 
   if (loading) {
-    return (
-      <div className="text-slate-400">Loading service providers...</div>
-    );
+    return <div className="text-slate-400">Loading service providers...</div>;
   }
 
   return (
@@ -143,8 +141,8 @@ export default function ServiceProvidersManager() {
           <h3 className="text-white font-semibold">Service Providers</h3>
           <p className="text-slate-400 text-sm">
             Provider taxonomy for financial services (OMT/Whish/recharge
-            transfers) and partner "System Association". New providers
-            always settle cash to the General drawer.
+            transfers) and partner "System Association". New providers always
+            settle cash to the General drawer.
           </p>
         </div>
         <button
@@ -270,8 +268,8 @@ export default function ServiceProvidersManager() {
 
           {!editingId && (
             <p className="text-xs text-slate-500 italic">
-              This provider's cash will settle to the General drawer. Only
-              OMT and Whish have their own dedicated system drawer.
+              This provider's cash will settle to the General drawer. Only OMT
+              and Whish have their own dedicated system drawer.
             </p>
           )}
 
@@ -293,8 +291,8 @@ export default function ServiceProvidersManager() {
       )}
 
       <p className="text-xs text-slate-500 italic">
-        System providers (🔒) cannot be deleted. A provider's code can never
-        be changed once created.
+        System providers (🔒) cannot be deleted. A provider's code can never be
+        changed once created.
       </p>
     </div>
   );

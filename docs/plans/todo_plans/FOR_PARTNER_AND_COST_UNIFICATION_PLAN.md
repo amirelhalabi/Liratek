@@ -16,10 +16,10 @@ this plan has been answered; see §2's answer list, §4's decision block, §5b, 
 > `SalesRepository.forPartnerLegacyAmounts.test.ts` pins the no-legs/non-zero-`payment_usd`
 > combination as already rejected. Do not "finish" slice 2 — it is finished.
 
-**Origin:** owner report 2026-08-08 (LIRA-114) → owner escalated 2026-08-09: *"We should write a
+**Origin:** owner report 2026-08-08 (LIRA-114) → owner escalated 2026-08-09: _"We should write a
 plan to unify this flow in the whole app… if the customer account payment method is disabled in the
 OMT/Whish page when the For Partner checkbox is true, I think we should apply this in all pages
-where we have a For Partner."*
+where we have a For Partner."_
 **Grounding:** 3-agent read-only survey of every partner-aware module at HEAD `a528042`
 (2026-08-09). Every claim below carries a file:line. Re-verify before building — this repo's plan
 docs go stale fast.
@@ -29,12 +29,12 @@ docs go stale fast.
 ## §1 What triggered this
 
 The owner entered a custom service: **For Partner ticked, cost $1008, price $1010, payment method
-"Customer Account"** — and saw **General drop by $1008**. Diagnosis found the money is *internally
-consistent* (partner owes $1010, no customer debt, no double-booking) but the owner's objection cut
+"Customer Account"** — and saw **General drop by $1008**. Diagnosis found the money is _internally
+consistent_ (partner owes $1010, no customer debt, no double-booking) but the owner's objection cut
 deeper:
 
-> *"As of business flow, we don't pay for the service and then get paid by the customer. I don't
-> understand that flow."*
+> _"As of business flow, we don't pay for the service and then get paid by the customer. I don't
+> understand that flow."_
 
 The survey confirms the objection is right, and that **Custom Services is the outlier**.
 
@@ -47,11 +47,11 @@ The survey confirms the objection is right, and that **Custom Services is the ou
 
 The app currently runs **three mutually inconsistent cost models at once**:
 
-| Model | Modules | What entering a cost does |
-| --- | --- | --- |
-| **A — CASH NOW** | **Custom Services only** | Immediately posts `−cost` from hardcoded `"CASH"`/`"General"`. Six byte-identical copies of the same template (`CustomServiceRepository.ts:236-245, 309-318, 428-437, 472-481, 534-543, 625-634`). No field, flag or branch exists to say the cost was already paid, is owned stock, or is owed to a supplier. |
-| **B — STOCK DRAW-DOWN** | OMT/Whish cost-price flow, Recharge/telecom | Draws down a **provider drawer funded earlier on credit**. `FinancialServiceRepository.ts:3312-3314`: *"the supplier debt was booked once at top-up time; the sale only draws down the provider drawer"*. `FEATURE_GUIDE.md:298` — prepaid-units model. Cash left the till at a **decoupled earlier top-up**, or leaves later at supplier settlement. |
-| **C — PROFIT ONLY** | POS Sales, Maintenance | Cost is read **only** to compute margin (`SalesRepository.ts:474-475`, `MaintenanceService.ts:119-121`). **No drawer row, ever.** Stock leaves via a `stock_quantity` decrement. No purchase/restock transaction exists anywhere in the codebase. |
+| Model                   | Modules                                     | What entering a cost does                                                                                                                                                                                                                                                                                                                             |
+| ----------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A — CASH NOW**        | **Custom Services only**                    | Immediately posts `−cost` from hardcoded `"CASH"`/`"General"`. Six byte-identical copies of the same template (`CustomServiceRepository.ts:236-245, 309-318, 428-437, 472-481, 534-543, 625-634`). No field, flag or branch exists to say the cost was already paid, is owned stock, or is owed to a supplier.                                        |
+| **B — STOCK DRAW-DOWN** | OMT/Whish cost-price flow, Recharge/telecom | Draws down a **provider drawer funded earlier on credit**. `FinancialServiceRepository.ts:3312-3314`: _"the supplier debt was booked once at top-up time; the sale only draws down the provider drawer"_. `FEATURE_GUIDE.md:298` — prepaid-units model. Cash left the till at a **decoupled earlier top-up**, or leaves later at supplier settlement. |
+| **C — PROFIT ONLY**     | POS Sales, Maintenance                      | Cost is read **only** to compute margin (`SalesRepository.ts:474-475`, `MaintenanceService.ts:119-121`). **No drawer row, ever.** Stock leaves via a `stock_quantity` decrement. No purchase/restock transaction exists anywhere in the codebase.                                                                                                     |
 
 **The owner's described flow ("we don't lay out cash") is models B and C — which the app already
 implements.** Custom Services is the anomaly that forces "cash now" on every entry.
@@ -72,9 +72,9 @@ implements.** Custom Services is the anomaly that forces "cash now" on every ent
 
 ### §2 answers so far (owner, 2026-08-09)
 
-- **Cost must NOT leave the drawer at submit time.** *"money should not leave the drawer at that
-  moment."* Custom Services stops being Model A.
-- **Inventory-backed custom service behaves like a POS sale**: *"yes"* — **stock decrements, no cash
+- **Cost must NOT leave the drawer at submit time.** _"money should not leave the drawer at that
+  moment."_ Custom Services stops being Model A.
+- **Inventory-backed custom service behaves like a POS sale**: _"yes"_ — **stock decrements, no cash
   row**, because the cost was already accounted for when the stock was bought (Model C).
 - ⚠ **Blocker discovered by the characterization matrix:** the three input paths (preset /
   inventory item / free-text) are **byte-identical by the time they reach the backend** — no
@@ -84,12 +84,12 @@ implements.** Custom Services is the anomaly that forces "cash now" on every ent
   prerequisite for this change, not an optional extra. It is also why an inventory-consuming
   custom service currently **does not decrement stock** — the backend never learns a product was
   involved.
-- **Presets**: cost is *"just a number i compute for my profit"* → Model C.
-- **Free-text**: same treatment as presets — *"since we will be paid cost+profit"* (the customer
+- **Presets**: cost is _"just a number i compute for my profit"_ → Model C.
+- **Free-text**: same treatment as presets — _"since we will be paid cost+profit"_ (the customer
   reimburses the cost) → Model C.
-- **No supplier link.** Owner reviewed a worked example and declined: *"the items that I select from
+- **No supplier link.** Owner reviewed a worked example and declined: _"the items that I select from
   the customer services page are already bought, and I don't owe Ali anything. So no we don't need
-  this."* → costs are never an unpaid payable; nothing to attach a supplier to.
+  this."_ → costs are never an unpaid payable; nothing to attach a supplier to.
 
 ### ✅ §2 SHIPPED (2026-08-09) — `d1a0ad2` (§2a) + `69c29e8` (§2b)
 
@@ -107,13 +107,13 @@ implements.** Custom Services is the anomaly that forces "cash now" on every ent
 
 **Cost never moves cash, on any of the three paths.** It is a profit input only — which is what the
 schema already says: `custom_services.profit_usd` is a GENERATED column
-`price_usd - cost_usd` (`create_db.sql:726-727`). Today's repository posts a cash outflow *on top
-of* that, contradicting its own schema. Remove it.
+`price_usd - cost_usd` (`create_db.sql:726-727`). Today's repository posts a cash outflow _on top
+of_ that, contradicting its own schema. Remove it.
 
-| Path | Cost behaviour | Extra |
-| --- | --- | --- |
-| Preset | profit math only | — |
-| Free-text | profit math only | — |
+| Path           | Cost behaviour   | Extra                                |
+| -------------- | ---------------- | ------------------------------------ |
+| Preset         | profit math only | —                                    |
+| Free-text      | profit math only | —                                    |
 | Inventory item | profit math only | **decrement stock**, like a POS sale |
 
 **Prerequisite (not optional):** the backend currently cannot tell the three paths apart — no
@@ -149,13 +149,13 @@ dead value (`LotoTicketRepository.ts:338-346, 353-360`).
 `assertNoCounterPayment` (`moneyPosting.ts:559-568`) takes a **boolean the caller computes**, and
 four of five callers compute it from the structured legs ONLY:
 
-| Module | Inspects | Misses |
-| --- | --- | --- |
-| Loto | legs **+ legacy `payment_method`** | — ✅ |
-| Custom Services | `data.payments` only (`:230-233`) | **`paid_by`** |
-| Financial Services | `inPayments` only (`:1804`) | **`paidByMethod` / `cashoutMethod`** |
-| Recharge | `inPayments` only (`:768`) | **`paid_by_method`** |
-| Sales | `inLegs` only (`:805`) | `payment_usd` / `payment_lbp` |
+| Module             | Inspects                           | Misses                               |
+| ------------------ | ---------------------------------- | ------------------------------------ |
+| Loto               | legs **+ legacy `payment_method`** | — ✅                                 |
+| Custom Services    | `data.payments` only (`:230-233`)  | **`paid_by`**                        |
+| Financial Services | `inPayments` only (`:1804`)        | **`paidByMethod` / `cashoutMethod`** |
+| Recharge           | `inPayments` only (`:768`)         | **`paid_by_method`**                 |
+| Sales              | `inLegs` only (`:805`)             | `payment_usd` / `payment_lbp`        |
 
 Consequence, confirmed in the owner's transaction: the legacy field is written to the source row
 **and** stamped into `metadata_json` **before** `isForPartner` is even computed — so **the audit
@@ -183,7 +183,7 @@ trail records a payment method that never executed.**
 Ten surfaces, four different behaviours. Ranked by money risk:
 
 1. 🔴 **Services / OMT/Whish (`Services/index.tsx`) is the worst offender** — and notably the page
-   the owner *assumed* was already strict. Its `MultiPaymentInput` is rendered **unconditionally**
+   the owner _assumed_ was already strict. Its `MultiPaymentInput` is rendered **unconditionally**
    (`:2075-2198`, no `forPartner` branch at all) with **unfiltered** methods (`:2162`), so
    CUSTOMER_ACCOUNT is selectable; for a For-Partner **SEND** that value is read straight into an
    OUT disbursement leg (`:1062-1076`). **It is honoured, not ignored.**
@@ -214,10 +214,10 @@ till.
 
 **Approved shape (owner, 2026-08-22):**
 
-| For Partner ON | Payment section |
-| --- | --- |
-| **SEND** | **Kept**, relabelled **"Paid from"**, list filtered to drawer-affecting methods only (`usePaymentMethods().drawerAffectingMethods`, `affects_drawer === 1` — the same predicate as the backend's `isDrawerAffectingMethod`). `autoDebtRemainder` off. `ForPartnerNotice` stating BOTH sides (payout **and** the partner's tab). |
-| **RECEIVE** | **Hidden** behind a `ForPartnerNotice` — the operator's choice was already being silently discarded (`:1085` sends `payments: []`). |
+| For Partner ON | Payment section                                                                                                                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **SEND**       | **Kept**, relabelled **"Paid from"**, list filtered to drawer-affecting methods only (`usePaymentMethods().drawerAffectingMethods`, `affects_drawer === 1` — the same predicate as the backend's `isDrawerAffectingMethod`). `autoDebtRemainder` off. `ForPartnerNotice` stating BOTH sides (payout **and** the partner's tab). |
+| **RECEIVE**    | **Hidden** behind a `ForPartnerNotice` — the operator's choice was already being silently discarded (`:1085` sends `payments: []`).                                                                                                                                                                                             |
 
 **Why it was only a UX defect, not a money bug** (verified 2026-08-22, worth not re-deriving): picking
 Customer Account on a For-Partner SEND made the OUT leg land in `returnLegs`
@@ -242,8 +242,8 @@ write**. So the symptom was a failed submit for a choice the UI offered — neve
 
 The Custom Services notice (`CustomServices/index.tsx:969-980`) reads:
 
-> *"No payment is collected for a partner service. The full price goes on the selected partner's
-> account, settled later"*
+> _"No payment is collected for a partner service. The full price goes on the selected partner's
+> account, settled later"_
 
 True of the **price**, silent about the **cost** — while $1008 in real cash leaves General at
 submit. **This is what actually misled the owner.** Every partner notice must state what happens to
@@ -255,15 +255,15 @@ BOTH sides. Services/OMT-Whish has no notice at all.
 
 > ## ✅ §5b IS COMPLETE (2026-08-10) — and its final phase was correctly CANCELLED
 >
-> | Phase | Status |
-> | --- | --- |
-> | 1 — `service_providers` table, seeded with the 9 existing codes | **SHIPPED** `180bccf` (v153) |
-> | 2 — `mapDrawerName` reads the table, switch as fallback | **SHIPPED** `180bccf` |
-> | 3 — `financial_services.provider` CHECK → composite FK | **SHIPPED** `9a8bd4a` (v154) |
-> | 4a — Partners dropdown lists real providers (dual-transport) | **SHIPPED** `7850657` |
-> | 4b — `partners.system_association` → composite FK + delete guard | **SHIPPED** `ac97df9` (v155) |
-> | enabler — provider CRUD in Settings (the plan never specified this, but phase 5 was impossible without it) | **SHIPPED** `fc319c8` |
-> | 5 — "Syria is a data entry, not a migration" | **DONE BY THE OWNER** — provider created, partner associated, real transaction routed |
+> | Phase                                                                                                      | Status                                                                                |
+> | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+> | 1 — `service_providers` table, seeded with the 9 existing codes                                            | **SHIPPED** `180bccf` (v153)                                                          |
+> | 2 — `mapDrawerName` reads the table, switch as fallback                                                    | **SHIPPED** `180bccf`                                                                 |
+> | 3 — `financial_services.provider` CHECK → composite FK                                                     | **SHIPPED** `9a8bd4a` (v154)                                                          |
+> | 4a — Partners dropdown lists real providers (dual-transport)                                               | **SHIPPED** `7850657`                                                                 |
+> | 4b — `partners.system_association` → composite FK + delete guard                                           | **SHIPPED** `ac97df9` (v155)                                                          |
+> | enabler — provider CRUD in Settings (the plan never specified this, but phase 5 was impossible without it) | **SHIPPED** `fc319c8`                                                                 |
+> | 5 — "Syria is a data entry, not a migration"                                                               | **DONE BY THE OWNER** — provider created, partner associated, real transaction routed |
 >
 > ### ⛔ "Derive THROUGH vs FOR from `system_association`" — DESIGNED, THEN REJECTED. Do not build it.
 >
@@ -279,10 +279,10 @@ BOTH sides. Services/OMT-Whish has no notice at all.
 > hardcoded `partnerMode: "THROUGH"` is correct **by construction**. Deriving it would add a DB lookup
 > and a new failure path to compute an answer that is already right.
 >
-> Owner, 2026-08-10 (correcting the orchestrator mid-build): *"you cannot select a serial partner for a
+> Owner, 2026-08-10 (correcting the orchestrator mid-build): _"you cannot select a serial partner for a
 > wish transaction ... These partners that appear in the wish system service should have the partner
 > association wish system ... For example, for Syria and the service we are giving, it's from within
-> the services page, the custom services."*
+> the services page, the custom services."_
 >
 > **Where Syria partners are actually served: Custom Services** — which is typed
 > `partnerMode?: "FOR"` and is therefore structurally on-behalf already. THROUGH exists in exactly ONE
@@ -300,7 +300,6 @@ BOTH sides. Services/OMT-Whish has no notice at all.
 > **Lesson for the next reader:** the orchestrator reasoned about the rule abstractly and never checked
 > whether the wrong input was reachable through the UI. A rule that cannot receive bad input needs no
 > enforcement — check reachability before building a guard.
-
 
 > ✅ **Phases 1-2 SHIPPED** (migration v153 / `ServiceProviderRepository` / `FinancialServiceRepository.mapDrawerName`).
 > `service_providers` exists, tenant-scoped, seeded with the 9 existing provider codes (drawer names
@@ -321,14 +320,14 @@ BOTH sides. Services/OMT-Whish has no notice at all.
 > **The owner's conclusion is still right, by a different mechanism:** a partner is only offered
 > when its provider tab is open, which forces `provider: "WHISH"` onto the transaction; the drawer
 > is then chosen by `resolveServiceCashDrawer` from `provider === shop_base_system`
-> (`utils/payments.ts:190-203`), whose doc comment states outright *"Partner involvement is NOT part
-> of this predicate — route by the system the transaction runs on, not the counterparty"*. So if the
+> (`utils/payments.ts:190-203`), whose doc comment states outright _"Partner involvement is NOT part
+> of this predicate — route by the system the transaction runs on, not the counterparty"_. So if the
 > shop's base system IS Whish, that cash lands in `Whish_System`; if the base is OMT, it falls to
 > General instead. **The contamination is real but conditional on the shop's own base-system
 > setting**, and it pollutes provider-keyed analytics either way.
 >
-> Lesson recorded: an owner's statement about *mechanism* is a hypothesis to verify, not a spec —
-> their statement about *intent* ("Syria must not touch Whish") is the requirement.
+> Lesson recorded: an owner's statement about _mechanism_ is a hypothesis to verify, not a spec —
+> their statement about _intent_ ("Syria must not touch Whish") is the requirement.
 
 Owner confirmed two things:
 
@@ -336,15 +335,15 @@ Owner confirmed two things:
    the intent stands, the mechanism was wrong.
 2. **Today you can only associate a partner with the Whish system** — so '7welet souria', a Syria
    remittance partner with nothing to do with Whish, is linked to Whish and therefore
-   **moves the Whish_System drawer**. Owner: *"7welet syria should not affect the whish system
+   **moves the Whish_System drawer**. Owner: _"7welet syria should not affect the whish system
    drawer, but it would be normal because currently we are only able to create a whish system
-   association for any partner created."*
+   association for any partner created."_
 
 ### The rule to build to (owner's words)
 
 > **"The partner settlement should affect the drawer of the system associated to it."**
 
-So a partner associated with a *'syria'* system must settle against a **Syria** drawer, not Whish.
+So a partner associated with a _'syria'_ system must settle against a **Syria** drawer, not Whish.
 
 ### The REAL blocker for a 'syria' system (from the investigation)
 
@@ -400,13 +399,14 @@ hardcodes the next system too, and every future partner system repeats the work.
 a stopgap if the owner needs Syria working before the phased change lands; it does not remove the
 need for the above.
 
-**ANSWERED (owner, 2026-08-09): no new drawers.** *"all of them if paid cash will affect general
-drawer. only the whish system association is linked to whish system drawer."*
+**ANSWERED (owner, 2026-08-09): no new drawers.** _"all of them if paid cash will affect general
+drawer. only the whish system association is linked to whish system drawer."_
 
 ⇒ A new system (Syria, etc.) resolves cash to **General**. Only the existing system associations
 keep their dedicated drawers (`Whish_System`, and `OMT_System` as the shop's own base/PCD).
 
 **This makes the phased plan materially cheaper and safer:**
+
 - `service_providers.drawer_name` is seeded `'General'` for every NEW provider, and only
   OMT/WHISH carry `OMT_System`/`Whish_System` — i.e. exactly today's `mapDrawerName` behaviour,
   which already routes unknown providers to `"General"` (its `default:` case).
@@ -424,7 +424,7 @@ keep their dedicated drawers (`Whish_System`, and `OMT_System` as the shop's own
   `Whish_System` drawers. This bullet was stale — it predated the owner's answer and
   contradicted it; corrected during §5b phases 1-2 implementation.
 - ⚠ This collides with existing assumptions: `shop_base_system` / Primary Cash Drawer (PCD, plan
-  #68) treats OMT_System as *the* primary cash drawer, and money paths contain hardcoded `'OMT'` /
+  #68) treats OMT_System as _the_ primary cash drawer, and money paths contain hardcoded `'OMT'` /
   `'WHISH'` literals. Any generalisation must enumerate and handle those.
 - **Data already in the field is wrong**, not just the schema: existing partners linked to Whish
   purely for lack of an alternative have been moving Whish_System. A cutover/repair decision is

@@ -118,8 +118,7 @@ Initial assumption was "From Client" === Whish App RECEIVE. Tracing the code sho
 
 ---
 
-
-> *(LIRA-058 — OMT App topup flow design, NEEDS INTERVIEW — moved to the live board, still open)*
+> _(LIRA-058 — OMT App topup flow design, NEEDS INTERVIEW — moved to the live board, still open)_
 
 ---
 
@@ -436,4 +435,3 @@ Beyond the directional arrow badges (LIRA-054), surface the actual **payment leg
 ---
 
 ---
-

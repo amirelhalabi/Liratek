@@ -112,7 +112,10 @@ describe("InventoryService", () => {
 
       const result = service.getProducts();
 
-      expect(mockRepo.findAllProducts).toHaveBeenCalledWith(undefined, undefined);
+      expect(mockRepo.findAllProducts).toHaveBeenCalledWith(
+        undefined,
+        undefined,
+      );
       expect(result).toEqual(mockProducts);
     });
 
@@ -494,9 +497,7 @@ describe("InventoryService", () => {
 
   describe("batchDeleteProducts", () => {
     it("cascades the IMEI units for every id in the batch", () => {
-      (
-        mockRepo.batchSoftDelete as unknown as jest.Mock
-      ).mockReturnValue(2);
+      (mockRepo.batchSoftDelete as unknown as jest.Mock).mockReturnValue(2);
       (
         mockUnitRepo.deleteInStockForProducts as unknown as jest.Mock
       ).mockReturnValue({ count: 3, imeis: ["a", "b", "c"] });

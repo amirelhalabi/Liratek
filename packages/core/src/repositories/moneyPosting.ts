@@ -950,7 +950,10 @@ export function postPayoutLegs(input: PostPayoutLegsInput): void {
  * partner/client top-up builders). Use this instead of a sixth hand-rolled
  * copy.
  */
-export function formatMoneyAmount(amount: number, currencyCode: string): string {
+export function formatMoneyAmount(
+  amount: number,
+  currencyCode: string,
+): string {
   if (currencyCode === "USD") return `$${amount.toLocaleString()}`;
   if (currencyCode === "LBP") return `${amount.toLocaleString()} LBP`;
   return `${amount.toLocaleString()} ${currencyCode}`;

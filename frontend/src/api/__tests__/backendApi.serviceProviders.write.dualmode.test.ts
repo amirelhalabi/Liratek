@@ -76,7 +76,10 @@ describe("backendApi service-provider WRITE path dual-mode routing (§5b phase 5
     it("in Web mode: fetches GET /api/service-providers and unwraps `providers` to the raw array", async () => {
       delete (globalThis as any).window.api;
       globalThis.fetch = jest.fn(async () =>
-        okJsonServiceProvidersWrite({ success: true, providers: WRITE_PATH_PROVIDERS }),
+        okJsonServiceProvidersWrite({
+          success: true,
+          providers: WRITE_PATH_PROVIDERS,
+        }),
       ) as any;
 
       const apiMod = await import("../backendApi");

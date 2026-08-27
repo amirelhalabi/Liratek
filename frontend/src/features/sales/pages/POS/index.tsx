@@ -147,8 +147,7 @@ export default function POS() {
       if (presetUnit) {
         setCartItems((prev) => {
           const duplicate = prev.some(
-            (p) =>
-              p.id === product.id && p.product_unit_id === presetUnit.id,
+            (p) => p.id === product.id && p.product_unit_id === presetUnit.id,
           );
           if (duplicate) {
             outcome = false;
@@ -204,9 +203,7 @@ export default function POS() {
         const existing = prev.find((p) => p.id === product.id);
         if (existing) {
           return prev.map((p) =>
-            p.id === product.id
-              ? { ...p, quantity: (p.quantity || 0) + 1 }
-              : p,
+            p.id === product.id ? { ...p, quantity: (p.quantity || 0) + 1 } : p,
           );
         }
         return [...prev, { ...product, quantity: 1 } as CartItem];
@@ -633,10 +630,7 @@ export default function POS() {
           }
           return enriched;
         } catch (err) {
-          logger.error(
-            "Failed to refresh product flags on draft resume:",
-            err,
-          );
+          logger.error("Failed to refresh product flags on draft resume:", err);
           return item;
         }
       }),

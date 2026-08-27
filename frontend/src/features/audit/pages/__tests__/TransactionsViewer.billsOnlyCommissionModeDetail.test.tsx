@@ -162,7 +162,13 @@ const plainLeglessRow = baseRow({
 async function renderRows(rows: unknown[]) {
   mockGetRecentTransactions.mockResolvedValue(rows as never);
   render(
-    <TransactionsViewer limit="50" selectedFilter="All" search="" from="" to="" />,
+    <TransactionsViewer
+      limit="50"
+      selectedFilter="All"
+      search=""
+      from=""
+      to=""
+    />,
   );
   await waitFor(() =>
     // Any one row's summary text proves the initial load settled.
@@ -185,7 +191,9 @@ describe("TransactionsViewer — bills-only commission mode in the payment detai
     fireEvent.click(toggle);
 
     const detail = await screen.findByTestId("payment-legs-detail-201");
-    const modeLine = detail.querySelector('[data-testid="commission-mode-201"]');
+    const modeLine = detail.querySelector(
+      '[data-testid="commission-mode-201"]',
+    );
     expect(modeLine).toBeTruthy();
     expect(modeLine!.textContent).toContain("Top-up");
     expect(modeLine!.textContent).toContain("Katsh");
@@ -202,7 +210,9 @@ describe("TransactionsViewer — bills-only commission mode in the payment detai
     fireEvent.click(toggle);
 
     const detail = await screen.findByTestId("payment-legs-detail-202");
-    const modeLine = detail.querySelector('[data-testid="commission-mode-202"]');
+    const modeLine = detail.querySelector(
+      '[data-testid="commission-mode-202"]',
+    );
     expect(modeLine).toBeTruthy();
     expect(modeLine!.textContent).toContain("Other payment");
     // The real leg's own line is still there, untouched.
@@ -211,9 +221,7 @@ describe("TransactionsViewer — bills-only commission mode in the payment detai
 
   it("leaves an ordinary legless row (e.g. a SALE with no payment legs) with NO disclosure at all — the widening is scoped to the bills-only commission row shape only", async () => {
     await renderRows([plainLeglessRow]);
-    await waitFor(() =>
-      screen.getByText(PLAIN_SALE_SUMMARY, { exact: false }),
-    );
+    await waitFor(() => screen.getByText(PLAIN_SALE_SUMMARY, { exact: false }));
 
     expect(screen.queryByTestId("toggle-legs-203")).toBeNull();
   });

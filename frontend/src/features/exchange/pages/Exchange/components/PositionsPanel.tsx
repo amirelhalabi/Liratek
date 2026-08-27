@@ -97,9 +97,7 @@ export function PositionsPanel({
             <thead>
               <tr className="text-slate-500 border-b border-slate-700/50">
                 <th className="text-left font-medium py-2 pr-3">Currency</th>
-                <th className="text-right font-medium py-2 pr-3">
-                  Open Qty
-                </th>
+                <th className="text-right font-medium py-2 pr-3">Open Qty</th>
                 <th className="text-right font-medium py-2 pr-3">
                   Avg Cost (USD)
                 </th>

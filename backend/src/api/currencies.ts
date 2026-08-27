@@ -164,7 +164,10 @@ router.get("/countable-drawer-currencies", (_req, res): void => {
     logger.error({ error }, "Get countable drawer currencies error");
     res
       .status(500)
-      .json({ success: false, error: "Failed to fetch countable drawer currencies" });
+      .json({
+        success: false,
+        error: "Failed to fetch countable drawer currencies",
+      });
   }
 });
 

@@ -207,94 +207,96 @@ export default function AdjustStockModal({
           </div>
 
           {step === "form" && (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                Adjustment mode
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMode("set")}
-                  className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    mode === "set"
-                      ? "bg-violet-600 text-white"
-                      : "bg-slate-900 text-slate-400 border border-slate-700 hover:bg-slate-700"
-                  }`}
-                >
-                  Set exact quantity
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("delta")}
-                  className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    mode === "delta"
-                      ? "bg-violet-600 text-white"
-                      : "bg-slate-900 text-slate-400 border border-slate-700 hover:bg-slate-700"
-                  }`}
-                >
-                  Add / remove (+/-)
-                </button>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  Adjustment mode
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMode("set")}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      mode === "set"
+                        ? "bg-violet-600 text-white"
+                        : "bg-slate-900 text-slate-400 border border-slate-700 hover:bg-slate-700"
+                    }`}
+                  >
+                    Set exact quantity
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode("delta")}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      mode === "delta"
+                        ? "bg-violet-600 text-white"
+                        : "bg-slate-900 text-slate-400 border border-slate-700 hover:bg-slate-700"
+                    }`}
+                  >
+                    Add / remove (+/-)
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                {mode === "set" ? "New quantity *" : "Delta (e.g. -5 or 10) *"}
-              </label>
-              <input
-                type="number"
-                step={1}
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                placeholder={mode === "set" ? "0" : "+10 or -5"}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-              />
-              {previewNewQuantity !== null && (
-                <p className="text-xs text-slate-500 mt-1">
-                  New stock: {currentStock} {mode === "set" ? "→" : "+"}{" "}
-                  {mode === "delta" ? quantity : ""}{" "}
-                  {mode === "delta" ? "=" : ""} {previewNewQuantity} units
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  {mode === "set"
+                    ? "New quantity *"
+                    : "Delta (e.g. -5 or 10) *"}
+                </label>
+                <input
+                  type="number"
+                  step={1}
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  placeholder={mode === "set" ? "0" : "+10 or -5"}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                />
+                {previewNewQuantity !== null && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    New stock: {currentStock} {mode === "set" ? "→" : "+"}{" "}
+                    {mode === "delta" ? quantity : ""}{" "}
+                    {mode === "delta" ? "=" : ""} {previewNewQuantity} units
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  Reason *
+                </label>
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="e.g. Physical recount, damaged goods, supplier correction…"
+                  rows={2}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 resize-none"
+                />
+              </div>
+
+              {formError && (
+                <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                  {formError}
                 </p>
               )}
-            </div>
 
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                Reason *
-              </label>
-              <textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. Physical recount, damaged goods, supplier correction…"
-                rows={2}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 resize-none"
-              />
-            </div>
-
-            {formError && (
-              <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-                {formError}
-              </p>
-            )}
-
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={adjustStock.isPending}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm disabled:opacity-50"
-              >
-                {adjustStock.isPending ? "Saving…" : "Apply Adjustment"}
-              </button>
-            </div>
-          </form>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={adjustStock.isPending}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  {adjustStock.isPending ? "Saving…" : "Apply Adjustment"}
+                </button>
+              </div>
+            </form>
           )}
 
           {step === "intake" && (

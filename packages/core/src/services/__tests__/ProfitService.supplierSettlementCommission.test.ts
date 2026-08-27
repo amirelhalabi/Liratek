@@ -387,13 +387,18 @@ describe("a bills-only settlement's commission appears in the profits aggregate"
 
 describe("reversing a bills-only settlement nets the profits aggregate back to zero", () => {
   it("VOID: status flips to VOIDED, excluded from every ACTIVE-only sum", () => {
-    const id = insertBillsCommissionSettlement({ sourceId: 1, profitLbp: 20000 });
+    const id = insertBillsCommissionSettlement({
+      sourceId: 1,
+      profitLbp: 20000,
+    });
 
     // Sanity — nonzero before reversal.
     expect(service.getSummary(FROM, TO).totals.gross_profit_lbp).toBe(20000);
 
     // TransactionRepository.voidTransaction's core effect: flip status.
-    db.prepare(`UPDATE transactions SET status = 'VOIDED' WHERE id = ?`).run(id);
+    db.prepare(`UPDATE transactions SET status = 'VOIDED' WHERE id = ?`).run(
+      id,
+    );
 
     const summary = service.getSummary(FROM, TO);
     expect(summary.supplier_commission.profit_lbp).toBe(0);
@@ -402,7 +407,10 @@ describe("reversing a bills-only settlement nets the profits aggregate back to z
   });
 
   it("REFUND: negated REFUND row (original stays ACTIVE) nets to 0", () => {
-    const id = insertBillsCommissionSettlement({ sourceId: 1, profitLbp: 20000 });
+    const id = insertBillsCommissionSettlement({
+      sourceId: 1,
+      profitLbp: 20000,
+    });
     expect(service.getSummary(FROM, TO).totals.gross_profit_lbp).toBe(20000);
 
     // TransactionRepository._refundTransactionInternal's core effect: a new
@@ -479,7 +487,11 @@ describe("an OMT/legacy (commission_model = 0) settlement contributes NOTHING ne
   it("a legacy settlement's profit stamp is 0/0 (SupplierRepository never sets it for this shape) — supplier_commission stays 0", () => {
     // Mirrors SupplierRepository.settleTransactions's real stamp for every
     // batch shape OTHER than isBillsOnlyBatch: profit_usd: 0, profit_lbp: 0.
-    insertBillsCommissionSettlement({ sourceId: 1, profitUsd: 0, profitLbp: 0 });
+    insertBillsCommissionSettlement({
+      sourceId: 1,
+      profitUsd: 0,
+      profitLbp: 0,
+    });
 
     const summary = service.getSummary(FROM, TO);
     expect(summary.supplier_commission.profit_usd).toBe(0);

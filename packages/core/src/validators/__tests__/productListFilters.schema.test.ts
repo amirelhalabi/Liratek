@@ -44,31 +44,52 @@ describe("productListFiltersSchema", () => {
   });
 
   it("rejects a date that is not YYYY-MM-DD", () => {
-    expect(productListFiltersSchema.safeParse({ addedFrom: "01/02/2026" }).success).toBe(false);
-    expect(productListFiltersSchema.safeParse({ addedTo: "2026-1-2" }).success).toBe(false);
+    expect(
+      productListFiltersSchema.safeParse({ addedFrom: "01/02/2026" }).success,
+    ).toBe(false);
+    expect(
+      productListFiltersSchema.safeParse({ addedTo: "2026-1-2" }).success,
+    ).toBe(false);
   });
 
   it("rejects negative cost/retail bounds but allows negative profit% and stock", () => {
-    expect(productListFiltersSchema.safeParse({ costMin: -1 }).success).toBe(false);
-    expect(productListFiltersSchema.safeParse({ retailMax: -1 }).success).toBe(false);
-    expect(productListFiltersSchema.safeParse({ profitPctMin: -100 }).success).toBe(true);
-    expect(productListFiltersSchema.safeParse({ stockMin: -100 }).success).toBe(true);
+    expect(productListFiltersSchema.safeParse({ costMin: -1 }).success).toBe(
+      false,
+    );
+    expect(productListFiltersSchema.safeParse({ retailMax: -1 }).success).toBe(
+      false,
+    );
+    expect(
+      productListFiltersSchema.safeParse({ profitPctMin: -100 }).success,
+    ).toBe(true);
+    expect(productListFiltersSchema.safeParse({ stockMin: -100 }).success).toBe(
+      true,
+    );
   });
 
   it("requires stock bounds to be integers", () => {
-    expect(productListFiltersSchema.safeParse({ stockMin: 1.5 }).success).toBe(false);
+    expect(productListFiltersSchema.safeParse({ stockMin: 1.5 }).success).toBe(
+      false,
+    );
   });
 
   it("rejects empty strings inside the category/supplier arrays", () => {
-    expect(productListFiltersSchema.safeParse({ categories: [""] }).success).toBe(false);
-    expect(productListFiltersSchema.safeParse({ suppliers: [""] }).success).toBe(false);
+    expect(
+      productListFiltersSchema.safeParse({ categories: [""] }).success,
+    ).toBe(false);
+    expect(
+      productListFiltersSchema.safeParse({ suppliers: [""] }).success,
+    ).toBe(false);
   });
 
   it("caps the array filters at 100 entries", () => {
     const under = Array.from({ length: 100 }, (_, i) => `c${i}`);
-    expect(productListFiltersSchema.safeParse({ categories: under }).success).toBe(true);
     expect(
-      productListFiltersSchema.safeParse({ categories: [...under, "c100"] }).success,
+      productListFiltersSchema.safeParse({ categories: under }).success,
+    ).toBe(true);
+    expect(
+      productListFiltersSchema.safeParse({ categories: [...under, "c100"] })
+        .success,
     ).toBe(false);
   });
 
@@ -77,8 +98,10 @@ describe("productListFiltersSchema", () => {
       productListFiltersSchema.safeParse({ costMin: 100, costMax: 1 }).success,
     ).toBe(true);
     expect(
-      productListFiltersSchema.safeParse({ addedFrom: "2026-12-31", addedTo: "2026-01-01" })
-        .success,
+      productListFiltersSchema.safeParse({
+        addedFrom: "2026-12-31",
+        addedTo: "2026-01-01",
+      }).success,
     ).toBe(true);
   });
 });
@@ -94,7 +117,10 @@ describe("productListQuerySchema", () => {
 
   describe("category / supplier — singular URL key, plural output key", () => {
     it("wraps a single occurrence into an array under the plural key", () => {
-      const parsed = productListQuerySchema.parse({ category: "Phones", supplier: "Acme" });
+      const parsed = productListQuerySchema.parse({
+        category: "Phones",
+        supplier: "Acme",
+      });
       expect(parsed.categories).toEqual(["Phones"]);
       expect(parsed.suppliers).toEqual(["Acme"]);
     });
@@ -105,14 +131,19 @@ describe("productListQuerySchema", () => {
     });
 
     it("does not leak the singular input keys into the output", () => {
-      const parsed = productListQuerySchema.parse({ category: "A", supplier: "B" });
+      const parsed = productListQuerySchema.parse({
+        category: "A",
+        supplier: "B",
+      });
       expect(parsed).not.toHaveProperty("category");
       expect(parsed).not.toHaveProperty("supplier");
     });
 
     it("caps repeated params at 100 entries", () => {
       const over = Array.from({ length: 101 }, (_, i) => `c${i}`);
-      expect(productListQuerySchema.safeParse({ category: over }).success).toBe(false);
+      expect(productListQuerySchema.safeParse({ category: over }).success).toBe(
+        false,
+      );
     });
   });
 
@@ -150,7 +181,10 @@ describe("productListQuerySchema", () => {
       "stockMin",
       "stockMax",
     ])("maps an empty '%s' to undefined, NEVER to 0", (key) => {
-      const parsed = productListQuerySchema.parse({ [key]: "" }) as Record<string, unknown>;
+      const parsed = productListQuerySchema.parse({ [key]: "" }) as Record<
+        string,
+        unknown
+      >;
       expect(parsed[key]).toBeUndefined();
       expect(parsed[key]).not.toBe(0);
     });
@@ -161,14 +195,24 @@ describe("productListQuerySchema", () => {
     });
 
     it("rejects an explicit NaN/Infinity spelling", () => {
-      expect(productListQuerySchema.safeParse({ costMin: "NaN" }).success).toBe(false);
-      expect(productListQuerySchema.safeParse({ costMax: "Infinity" }).success).toBe(false);
+      expect(productListQuerySchema.safeParse({ costMin: "NaN" }).success).toBe(
+        false,
+      );
+      expect(
+        productListQuerySchema.safeParse({ costMax: "Infinity" }).success,
+      ).toBe(false);
     });
 
     it("keeps the filter-schema bounds (no negative cost, integer stock)", () => {
-      expect(productListQuerySchema.safeParse({ costMin: "-1" }).success).toBe(false);
-      expect(productListQuerySchema.safeParse({ stockMin: "1.5" }).success).toBe(false);
-      expect(productListQuerySchema.safeParse({ profitPctMin: "-1" }).success).toBe(true);
+      expect(productListQuerySchema.safeParse({ costMin: "-1" }).success).toBe(
+        false,
+      );
+      expect(
+        productListQuerySchema.safeParse({ stockMin: "1.5" }).success,
+      ).toBe(false);
+      expect(
+        productListQuerySchema.safeParse({ profitPctMin: "-1" }).success,
+      ).toBe(true);
     });
   });
 
@@ -183,13 +227,18 @@ describe("productListQuerySchema", () => {
     });
 
     it("maps an empty date to undefined", () => {
-      const parsed = productListQuerySchema.parse({ addedFrom: "", addedTo: "" });
+      const parsed = productListQuerySchema.parse({
+        addedFrom: "",
+        addedTo: "",
+      });
       expect(parsed.addedFrom).toBeUndefined();
       expect(parsed.addedTo).toBeUndefined();
     });
 
     it("rejects a malformed date", () => {
-      expect(productListQuerySchema.safeParse({ addedFrom: "2026-13" }).success).toBe(false);
+      expect(
+        productListQuerySchema.safeParse({ addedFrom: "2026-13" }).success,
+      ).toBe(false);
     });
   });
 
@@ -210,12 +259,18 @@ describe("productListQuerySchema", () => {
     });
 
     it("decodes the string 'false' as false rather than truthy-coercing it", () => {
-      expect(productListQuerySchema.parse({ activeOnly: "false" }).activeOnly).toBe(false);
-      expect(productListQuerySchema.parse({ activeOnly: "0" }).activeOnly).toBe(false);
+      expect(
+        productListQuerySchema.parse({ activeOnly: "false" }).activeOnly,
+      ).toBe(false);
+      expect(productListQuerySchema.parse({ activeOnly: "0" }).activeOnly).toBe(
+        false,
+      );
     });
 
     it("strips unknown query params", () => {
-      expect(productListQuerySchema.parse({ page: "2" })).not.toHaveProperty("page");
+      expect(productListQuerySchema.parse({ page: "2" })).not.toHaveProperty(
+        "page",
+      );
     });
   });
 

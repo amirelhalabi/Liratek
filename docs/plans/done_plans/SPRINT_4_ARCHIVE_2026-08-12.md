@@ -70,8 +70,7 @@ chooses the return method(s), pre-filled with the original legs reversed as a sa
 
 ---
 
-
-> *(LIRA-079 — Refund Scope + Void Button Decision — moved to the live board, still open)*
+> _(LIRA-079 — Refund Scope + Void Button Decision — moved to the live board, still open)_
 
 ---
 
@@ -188,12 +187,11 @@ Enrich each with the relevant detail, appended to (not replacing) the existing s
 
 ---
 
-
-> *(LIRA-083 — Service Status Workflow for Custom Services — moved to the live board, still open)*
+> _(LIRA-083 — Service Status Workflow for Custom Services — moved to the live board, still open)_
 
 ---
 
-> *(LIRA-084 — Partial Keep-Change — moved to the live board, still open)*
+> _(LIRA-084 — Partial Keep-Change — moved to the live board, still open)_
 
 ---
 
@@ -234,30 +232,29 @@ The owner wants a mistake-undo path for these ledgers.
 
 ---
 
-
-> *(LIRA-086 — Dashboard Checkpoint Freshness Coloring — moved to the live board, still open)*
-
----
-
-> *(LIRA-087 — Product-Supplier: Record Debt Now, Attach Products Later — moved to the live board, still open)*
+> _(LIRA-086 — Dashboard Checkpoint Freshness Coloring — moved to the live board, still open)_
 
 ---
 
-> *(LIRA-088 — MTC/Alfa Provider-Balance Decrement Adjustment — moved to the live board, still open)*
+> _(LIRA-087 — Product-Supplier: Record Debt Now, Attach Products Later — moved to the live board, still open)_
+
+---
+
+> _(LIRA-088 — MTC/Alfa Provider-Balance Decrement Adjustment — moved to the live board, still open)_
 
 ---
 
 ## LIRA-089: iPick/Katsh Bills — Commission at Settlement, Not Per-Bill
 
-| Field                | Value                                                                       |
-| -------------------- | --------------------------------------------------------------------------- |
-| **Epic**             | Suppliers / Recharge                                                        |
-| **Type**             | Feature / Decision                                                          |
-| **Priority**         | Medium                                                                      |
+| Field                | Value                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| **Epic**             | Suppliers / Recharge                                                                 |
+| **Type**             | Feature / Decision                                                                   |
+| **Priority**         | Medium                                                                               |
 | **Status**           | DONE (2026-08-08, `1d498ff`) — Phase 1 of `COMMISSION_AT_SETTLEMENT_PLAN.md` shipped |
-| **Affected Modules** | Recharge > iPick, Katsh; Suppliers                                          |
-| **Assigned To**      | —                                                                           |
-| **Depends On**       | —                                                                           |
+| **Affected Modules** | Recharge > iPick, Katsh; Suppliers                                                   |
+| **Assigned To**      | —                                                                                    |
+| **Depends On**       | —                                                                                    |
 
 ### Summary
 
@@ -284,18 +281,17 @@ when the bills slice ships.
 
 ---
 
-
 ## LIRA-090: Telecom Days/Credit Model (MTC/Alfa)
 
-| Field                | Value                          |
-| -------------------- | ------------------------------ |
-| **Epic**             | Recharge                       |
-| **Type**             | Feature / Decision             |
-| **Priority**         | High                           |
+| Field                | Value                                                                    |
+| -------------------- | ------------------------------------------------------------------------ |
+| **Epic**             | Recharge                                                                 |
+| **Type**             | Feature / Decision                                                       |
+| **Priority**         | High                                                                     |
 | **Status**           | **DONE** (corrected 2026-08-12 — see below; was stale "NEEDS INTERVIEW") |
-| **Affected Modules** | Recharge > MTC, Alfa; Settings |
-| **Assigned To**      | —                              |
-| **Depends On**       | —                              |
+| **Affected Modules** | Recharge > MTC, Alfa; Settings                                           |
+| **Assigned To**      | —                                                                        |
+| **Depends On**       | —                                                                        |
 
 ### Summary
 
@@ -326,6 +322,7 @@ This ticket's own detail block still read `NEEDS INTERVIEW` while the feature ha
   plan's decisions (D12) — a decision from a plan that hadn't shipped could not be reversed.
 
 ---
+
 ## Summary (Sprint 4 — LIRA-078..090)
 
 | Priority  | Total  | Done  | Remaining |
@@ -416,23 +413,23 @@ undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2
 
 ### Sprint 4 board
 
-| ID       | Title                                                   | Priority | Status                                                 |
-| -------- | ------------------------------------------------------- | -------- | ------------------------------------------------------ |
-| LIRA-078 | Refund tender-selection modal                           | High     | DONE                                                   |
-| LIRA-079 | Refund scope + Void button decision                     | Medium   | NEEDS INTERVIEW                                        |
-| LIRA-080 | No-drawer paper credit/debt on Accounts + Supplier      | High     | DONE                                                   |
-| LIRA-081 | For-Partner toggle on Exchange + Custom Services        | Medium   | DONE                                                   |
-| LIRA-082 | Detailed summaries on all createTransaction call sites  | Medium   | DONE                                                   |
-| LIRA-083 | Custom Services status workflow                         | Medium   | TODO                                                   |
-| LIRA-084 | Partial keep-change                                     | Medium   | TODO                                                   |
-| LIRA-085 | Undo/reverse for partner & supplier ledger transactions | High     | DONE                                                   |
-| LIRA-086 | Dashboard checkpoint freshness coloring                 | Low      | TODO                                                   |
-| LIRA-087 | Product-supplier — debt now, attach products later      | Medium   | TODO                                                   |
-| LIRA-088 | MTC/Alfa provider-balance decrement                     | Medium   | NEEDS INTERVIEW                                        |
+| ID       | Title                                                   | Priority | Status                             |
+| -------- | ------------------------------------------------------- | -------- | ---------------------------------- |
+| LIRA-078 | Refund tender-selection modal                           | High     | DONE                               |
+| LIRA-079 | Refund scope + Void button decision                     | Medium   | NEEDS INTERVIEW                    |
+| LIRA-080 | No-drawer paper credit/debt on Accounts + Supplier      | High     | DONE                               |
+| LIRA-081 | For-Partner toggle on Exchange + Custom Services        | Medium   | DONE                               |
+| LIRA-082 | Detailed summaries on all createTransaction call sites  | Medium   | DONE                               |
+| LIRA-083 | Custom Services status workflow                         | Medium   | TODO                               |
+| LIRA-084 | Partial keep-change                                     | Medium   | TODO                               |
+| LIRA-085 | Undo/reverse for partner & supplier ledger transactions | High     | DONE                               |
+| LIRA-086 | Dashboard checkpoint freshness coloring                 | Low      | TODO                               |
+| LIRA-087 | Product-supplier — debt now, attach products later      | Medium   | TODO                               |
+| LIRA-088 | MTC/Alfa provider-balance decrement                     | Medium   | NEEDS INTERVIEW                    |
 | LIRA-089 | iPick/Katsh bills commission at settlement              | Medium   | DONE `1d498ff` (Phase 0+1 shipped) |
-| LIRA-090 | Telecom days/credit model                               | High     | NEEDS INTERVIEW                                        |
-| LIRA-091 | Void cascade for auto supplier-ledger siblings          | High     | DONE                                                   |
-| LIRA-094 | Carrier-legs void asymmetry (retroactive — shipped W5)  | High     | DONE                                                   |
+| LIRA-090 | Telecom days/credit model                               | High     | NEEDS INTERVIEW                    |
+| LIRA-091 | Void cascade for auto supplier-ledger siblings          | High     | DONE                               |
+| LIRA-094 | Carrier-legs void asymmetry (retroactive — shipped W5)  | High     | DONE                               |
 
 > Full per-note disposition (all 32 owner notes, including the ones that were INVALID/already
 > working, FIXED today, or already tracked under an existing ticket) is logged in
@@ -441,4 +438,3 @@ undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2
 ---
 
 ---
-

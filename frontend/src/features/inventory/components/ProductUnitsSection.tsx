@@ -42,7 +42,10 @@ export function ProductUnitsSection({
   const handleAddImei = async (imei: string): Promise<ImeiAddRowResult> => {
     const result = await registerUnits.mutateAsync([imei]);
     if (!result.success) {
-      return { success: false, error: result.error ?? "Failed to register unit" };
+      return {
+        success: false,
+        error: result.error ?? "Failed to register unit",
+      };
     }
     return { success: true };
   };
@@ -82,8 +85,8 @@ export function ProductUnitsSection({
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>
             {inStockCount} unit{inStockCount === 1 ? "" : "s"} registered
-            in-stock, but the product's stock quantity is {stockQuantity}.
-            This is a warning only — it never blocks saving.
+            in-stock, but the product's stock quantity is {stockQuantity}. This
+            is a warning only — it never blocks saving.
           </span>
         </div>
       )}
@@ -109,9 +112,7 @@ export function ProductUnitsSection({
               className="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2 text-sm"
             >
               <div className="flex items-center gap-2 min-w-0">
-                <span className="font-mono text-white truncate">
-                  {u.imei}
-                </span>
+                <span className="font-mono text-white truncate">{u.imei}</span>
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${
                     u.status === "IN_STOCK"

@@ -198,9 +198,9 @@ function unitRow(
   db: Database.Database,
   id: number,
 ): ProductUnitEntity | undefined {
-  return db
-    .prepare(`SELECT * FROM product_units WHERE id = ?`)
-    .get(id) as ProductUnitEntity | undefined;
+  return db.prepare(`SELECT * FROM product_units WHERE id = ?`).get(id) as
+    | ProductUnitEntity
+    | undefined;
 }
 
 describe("ProductUnitRepository", () => {
@@ -281,7 +281,9 @@ describe("ProductUnitRepository", () => {
         runWithTenant(1, () =>
           repo.addUnits(galaxyId, ["222222222222222", "111111111111111"]),
         ),
-      ).toThrow(/IMEI 111111111111111 is already registered in stock on product "iPhone 13"/);
+      ).toThrow(
+        /IMEI 111111111111111 is already registered in stock on product "iPhone 13"/,
+      );
 
       // The whole second batch rolled back — "222..." was never committed.
       const galaxyUnits = runWithTenant(1, () =>
@@ -342,7 +344,10 @@ describe("ProductUnitRepository", () => {
   describe("getSummaryForProducts", () => {
     it("returns undefined (no key) for a unit-less product, and correct counts otherwise", () => {
       const withUnits = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
-      const withoutUnits = insertProduct(db, { tenantId: 1, name: "Galaxy S23" });
+      const withoutUnits = insertProduct(db, {
+        tenantId: 1,
+        name: "Galaxy S23",
+      });
 
       const units = runWithTenant(1, () =>
         repo.addUnits(withUnits, [
@@ -415,9 +420,7 @@ describe("ProductUnitRepository", () => {
         repo.addUnits(productId, ["111111111111111"]),
       );
       runWithTenant(1, () => repo.markSold(unit.id, 777));
-      runWithTenant(1, () =>
-        repo.markInStock(unit.id, { isDefective: true }),
-      );
+      runWithTenant(1, () => repo.markInStock(unit.id, { isDefective: true }));
       runWithTenant(1, () => repo.markSold(unit.id, 778));
 
       const after = unitRow(db, unit.id)!;
@@ -713,7 +716,10 @@ describe("ProductUnitRepository", () => {
       );
       runWithTenant(1, () => repo.markSold(unit.id, 999));
 
-      const productId2 = insertProduct(db, { tenantId: 1, name: "iPhone 13 Refurb" });
+      const productId2 = insertProduct(db, {
+        tenantId: 1,
+        name: "iPhone 13 Refurb",
+      });
       const [unit2] = runWithTenant(1, () =>
         repo.addUnits(productId2, ["111111111111111"]),
       );
@@ -817,9 +823,9 @@ describe("ProductUnitRepository", () => {
       const units = runWithTenant(1, () =>
         repo.addUnits(productId, ["300000000000001", "300000000000002"]),
       );
-      db.prepare(
-        `UPDATE product_units SET is_defective = 1 WHERE id = ?`,
-      ).run(units[1].id);
+      db.prepare(`UPDATE product_units SET is_defective = 1 WHERE id = ?`).run(
+        units[1].id,
+      );
 
       const defective = runWithTenant(1, () =>
         repo.listUnits({ defectiveOnly: true, limit: 50, offset: 0 }),

@@ -195,7 +195,11 @@ function insertProduct(
   return Number(result.lastInsertRowid);
 }
 
-function insertUnit(db: Database.Database, productId: number, imei: string): number {
+function insertUnit(
+  db: Database.Database,
+  productId: number,
+  imei: string,
+): number {
   const result = db
     .prepare(
       `INSERT INTO product_units (tenant_id, product_id, imei, status) VALUES (1, ?, ?, 'IN_STOCK')`,
@@ -281,14 +285,27 @@ describe("TransactionRepository — product_units reversal owner (LIRA-143 phase
     unitB: number;
     txnId: number;
   } {
-    const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 5 });
+    const productId = insertProduct(db, {
+      name: "iPhone 13",
+      stockQuantity: 5,
+    });
     const unitA = insertUnit(db, productId, "AAAAAAAAAAAAAAA");
     const unitB = insertUnit(db, productId, "BBBBBBBBBBBBBBB");
     const result = salesRepo.processSale(
       baseSale({
         items: [
-          { product_id: productId, quantity: 1, price: 500, product_unit_id: unitA },
-          { product_id: productId, quantity: 1, price: 500, product_unit_id: unitB },
+          {
+            product_id: productId,
+            quantity: 1,
+            price: 500,
+            product_unit_id: unitA,
+          },
+          {
+            product_id: productId,
+            quantity: 1,
+            price: 500,
+            product_unit_id: unitB,
+          },
         ],
         total_amount: 1000,
         final_amount: 1000,
@@ -309,7 +326,11 @@ describe("TransactionRepository — product_units reversal owner (LIRA-143 phase
       const txnRepo = getTransactionRepository();
       txnRepo.refundTransaction(txnId, 1, {
         refundUnitExtras: [
-          { unit_id: unitA, is_defective: true, warranty_override_until: "2027-01-01" },
+          {
+            unit_id: unitA,
+            is_defective: true,
+            warranty_override_until: "2027-01-01",
+          },
         ],
       });
 
@@ -386,12 +407,20 @@ describe("TransactionRepository — product_units reversal owner (LIRA-143 phase
   // tenant_id, product_units.imei` instead of the named, actionable one.
   describe("whole-sale refund vs. a re-registered IMEI collision (adversarial-review finding 2)", () => {
     it("throws the named collision error and rolls back the WHOLE refund — sale stays completed, stock/units unchanged, no REFUND row", () => {
-      const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 5 });
+      const productId = insertProduct(db, {
+        name: "iPhone 13",
+        stockQuantity: 5,
+      });
       const unitA = insertUnit(db, productId, "CCCCCCCCCCCCCCC");
       const result = salesRepo.processSale(
         baseSale({
           items: [
-            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitA },
+            {
+              product_id: productId,
+              quantity: 1,
+              price: 500,
+              product_unit_id: unitA,
+            },
           ],
           total_amount: 500,
           final_amount: 500,
@@ -426,7 +455,9 @@ describe("TransactionRepository — product_units reversal owner (LIRA-143 phase
         .get(saleId) as { status: string };
       expect(saleStatus.status).toBe("completed");
       const refundRow = db
-        .prepare(`SELECT id FROM transactions WHERE type = 'REFUND' AND source_id = ?`)
+        .prepare(
+          `SELECT id FROM transactions WHERE type = 'REFUND' AND source_id = ?`,
+        )
         .get(saleId);
       expect(refundRow).toBeUndefined();
     });
@@ -449,7 +480,10 @@ describe("TransactionRepository — product_units reversal owner (LIRA-143 phase
      * — see its doc comment.
      */
     it("a whole-sale refund after a prior partial item refund is refused, and the per-item route restores stock to EXACTLY the original amount", () => {
-      const productId = insertProduct(db, { name: "Charger", stockQuantity: 10 });
+      const productId = insertProduct(db, {
+        name: "Charger",
+        stockQuantity: 10,
+      });
       const result = salesRepo.processSale(
         baseSale({
           items: [{ product_id: productId, quantity: 3, price: 10 }],
@@ -475,9 +509,9 @@ describe("TransactionRepository — product_units reversal owner (LIRA-143 phase
       expect(getStock(db, productId)).toBe(8); // 7 + 1 (partial restore)
 
       const txnId = getSaleTxnId(db, saleId);
-      expect(() => getTransactionRepository().refundTransaction(txnId, 1)).toThrow(
-        /This sale was partially refunded/,
-      );
+      expect(() =>
+        getTransactionRepository().refundTransaction(txnId, 1),
+      ).toThrow(/This sale was partially refunded/);
       // Refused before any write — stock unmoved by the rejected call.
       expect(getStock(db, productId)).toBe(8);
 

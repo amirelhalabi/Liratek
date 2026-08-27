@@ -36,7 +36,11 @@ export class DrawerCashoutService {
   ): DrawerCashoutResult {
     try {
       const hasExtra = (data.extra_currencies ?? []).some((e) => e.amount > 0);
-      if ((data.amount_usd ?? 0) <= 0 && (data.amount_lbp ?? 0) <= 0 && !hasExtra) {
+      if (
+        (data.amount_usd ?? 0) <= 0 &&
+        (data.amount_lbp ?? 0) <= 0 &&
+        !hasExtra
+      ) {
         return {
           success: false,
           error:

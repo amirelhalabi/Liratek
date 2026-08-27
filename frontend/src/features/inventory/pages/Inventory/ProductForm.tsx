@@ -492,10 +492,7 @@ ${labels}
           </div>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="flex flex-col flex-1 min-h-0"
-        >
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-4">
             {duplicateInfo && (
               <div className="bg-slate-950 border border-amber-500/40 rounded-lg p-4 text-sm">
@@ -607,7 +604,10 @@ ${labels}
                   list="category-options"
                   value={formData.category}
                   onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, category: e.target.value }))
+                    setFormData((prev) => ({
+                      ...prev,
+                      category: e.target.value,
+                    }))
                   }
                   placeholder="Select or type category name"
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
@@ -629,7 +629,10 @@ ${labels}
                   list="supplier-options"
                   value={formData.supplier ?? ""}
                   onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, supplier: e.target.value }))
+                    setFormData((prev) => ({
+                      ...prev,
+                      supplier: e.target.value,
+                    }))
                   }
                   placeholder="Select or type supplier name"
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"

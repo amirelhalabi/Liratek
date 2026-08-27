@@ -187,12 +187,8 @@ describe("StepDrawerAmounts — Carrier Lines section", () => {
 
       await screen.findByTestId("setup-amount-General-USD");
 
-      expect(screen.getAllByTestId("setup-amount-General-USD")).toHaveLength(
-        1,
-      );
-      expect(screen.getAllByTestId("setup-amount-General-LBP")).toHaveLength(
-        1,
-      );
+      expect(screen.getAllByTestId("setup-amount-General-USD")).toHaveLength(1);
+      expect(screen.getAllByTestId("setup-amount-General-LBP")).toHaveLength(1);
     });
   });
 });

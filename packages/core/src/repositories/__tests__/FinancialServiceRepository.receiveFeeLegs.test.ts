@@ -1028,19 +1028,17 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     const afterCreate = snapshot(db);
     // Sanity — money actually moved (General -95), so the void proof below
     // is a real reversal, not a no-op on an already-untouched drawer.
-    expect(drawerDelta(before, afterCreate, "General_USD")).toBeCloseTo(
-      -95,
-      5,
-    );
+    expect(drawerDelta(before, afterCreate, "General_USD")).toBeCloseTo(-95, 5);
 
     const txnId = txnIdForFsRow(db, fsId);
     txnRepo.voidTransaction(txnId, 1);
 
     const afterVoid = snapshot(db);
     for (const [name, currency] of DRAWERS) {
-      expect(
-        drawerDelta(before, afterVoid, `${name}_${currency}`),
-      ).toBeCloseTo(0, 5);
+      expect(drawerDelta(before, afterVoid, `${name}_${currency}`)).toBeCloseTo(
+        0,
+        5,
+      );
     }
   });
 

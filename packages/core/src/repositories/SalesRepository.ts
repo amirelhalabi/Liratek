@@ -817,10 +817,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // The sale-wide business date the warranty clock starts from (owner
         // decision #4): backdated `transaction_time` when set, else "now" —
         // the same convention the sale/transaction rows themselves use.
-        const saleDateIso = (sale.transaction_time ?? new Date().toISOString()).slice(
-          0,
-          10,
-        );
+        const saleDateIso = (
+          sale.transaction_time ?? new Date().toISOString()
+        ).slice(0, 10);
 
         sale.items.forEach((item, index) => {
           let imeiToWrite = item.imei || null;
@@ -831,10 +830,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               // Duplicate-claim detection now happens up front (see
               // `requestUnitIds` above) — reaching here means this id is
               // unique across the request.
-              const unit = findUnitStmt!.get(
-                item.product_unit_id,
-                tenantId,
-              ) as ProductUnitEntity | undefined;
+              const unit = findUnitStmt!.get(item.product_unit_id, tenantId) as
+                | ProductUnitEntity
+                | undefined;
               const productName = productMetaByIndex[index].name;
               if (!unit) {
                 throw new BusinessRuleError(

@@ -81,7 +81,12 @@ describe("ExchangeService.getHistory — lot summary enrichment", () => {
     const lotRepo = makeMockLotRepo();
 
     const buyRow = makeRow({ id: 1, type: "BUY" });
-    const sellRow = makeRow({ id: 2, type: "SELL", from_currency: "EUR", to_currency: "USD" });
+    const sellRow = makeRow({
+      id: 2,
+      type: "SELL",
+      from_currency: "EUR",
+      to_currency: "USD",
+    });
     (exchangeRepo.getHistory as jest.Mock).mockReturnValue([sellRow, buyRow]);
 
     (lotRepo.getSummaryForSources as jest.Mock).mockReturnValue({

@@ -161,7 +161,9 @@ describe("Service Providers REST routes — §5b phase 4a", () => {
           updated_at: "2026-08-01T00:00:00.000Z",
         },
       ];
-      const spy = jest.spyOn(service, "listAll").mockReturnValue(providers as any);
+      const spy = jest
+        .spyOn(service, "listAll")
+        .mockReturnValue(providers as any);
 
       const res = await request(app)
         .get("/api/service-providers")
@@ -284,7 +286,10 @@ describe("Service Providers REST routes — §5b phase 4a", () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true });
-      expect(spy).toHaveBeenCalledWith(7, { label: "Syria Remit", is_active: 0 });
+      expect(spy).toHaveBeenCalledWith(7, {
+        label: "Syria Remit",
+        is_active: 0,
+      });
     });
 
     it("rejects a non-admin (staff) with 403 before the service is ever called", async () => {
