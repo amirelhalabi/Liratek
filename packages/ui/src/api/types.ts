@@ -1532,6 +1532,7 @@ export type ApiAdapter = {
     create: (data: {
       amount_usd: number;
       amount_lbp: number;
+      extra_currencies?: { currency_code: string; amount: number }[];
       notes: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: (

@@ -35,10 +35,12 @@ export class DrawerCashoutService {
     userId: number,
   ): DrawerCashoutResult {
     try {
-      if ((data.amount_usd ?? 0) <= 0 && (data.amount_lbp ?? 0) <= 0) {
+      const hasExtra = (data.extra_currencies ?? []).some((e) => e.amount > 0);
+      if ((data.amount_usd ?? 0) <= 0 && (data.amount_lbp ?? 0) <= 0 && !hasExtra) {
         return {
           success: false,
-          error: "At least one amount (USD or LBP) must be greater than zero.",
+          error:
+            "At least one amount (USD, LBP, or another currency) must be greater than zero.",
         };
       }
 

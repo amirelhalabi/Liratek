@@ -64,6 +64,7 @@ router.post(
           metadata: {
             amount_usd: req.body.amount_usd,
             amount_lbp: req.body.amount_lbp,
+            extra_currencies: req.body.extra_currencies ?? null,
             notes: req.body.notes,
           },
         });

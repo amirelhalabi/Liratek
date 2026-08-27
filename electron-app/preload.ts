@@ -872,8 +872,12 @@ contextBridge.exposeInMainWorld("api", {
 
   // Drawer Cash-Out
   drawerCashout: {
-    create: (data: { amount_usd: number; amount_lbp: number; notes: string }) =>
-      ipcRenderer.invoke("drawer-cashout:create", data),
+    create: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      extra_currencies?: { currency_code: string; amount: number }[];
+      notes: string;
+    }) => ipcRenderer.invoke("drawer-cashout:create", data),
     getHistory: (limit?: number) =>
       ipcRenderer.invoke("drawer-cashout:history", { limit }),
   },

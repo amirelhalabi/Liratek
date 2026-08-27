@@ -98,6 +98,7 @@ import Database from "better-sqlite3";
 import { DrawerTopUpRepository } from "../DrawerTopUpRepository";
 import { DrawerTopUpService } from "../../services/DrawerTopUpService";
 import { TransactionRepository } from "../TransactionRepository";
+import { DrawerCashoutRepository } from "../DrawerCashoutRepository";
 import { resetCurrencyRepository } from "../CurrencyRepository";
 import { resetExchangeLotRepository } from "../ExchangeLotRepository";
 import { resetRateRepository } from "../RateRepository";
@@ -324,6 +325,7 @@ describe("Phase 4 rule-20 proof — EUR top-up into General, reversal symmetry",
   let repo: DrawerTopUpRepository;
   let service: DrawerTopUpService;
   let txnRepo: TransactionRepository;
+  let cashoutRepo: DrawerCashoutRepository;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { setDb } = require("../../db/connection");
 
@@ -337,6 +339,7 @@ describe("Phase 4 rule-20 proof — EUR top-up into General, reversal symmetry",
     repo = new DrawerTopUpRepository();
     service = new DrawerTopUpService(repo);
     txnRepo = new TransactionRepository();
+    cashoutRepo = new DrawerCashoutRepository();
   });
 
   afterEach(() => {
@@ -446,4 +449,70 @@ describe("Phase 4 rule-20 proof — EUR top-up into General, reversal symmetry",
     expect(balance(db, "General", "EUR")).toBeCloseTo(300, 2);
   });
 
+  it("FIX PROOF: DrawerCashoutRepository.extra_currencies is the rule-20 manual-correction owner — a EUR cash-out nets the mistaken top-up back to 0", () => {
+    // This test previously only proved, at compile time, that
+    // CreateDrawerCashoutData structurally could NOT carry a EUR amount
+    // (`@ts-expect-error` on an `extra_currencies` field that did not
+    // exist) — the review's actual finding: DRAWER_TOPUP is permanently
+    // non-reversible (see the test above) AND its documented rule-20 owner
+    // ("an opposite manual entry", transactionTypes.ts) could not express a
+    // non-USD/LBP amount either, so a mistaken EUR top-up had NO reversal
+    // path whatsoever. `DrawerCashoutRepository.CreateDrawerCashoutData` now
+    // has `extra_currencies` (mirrors Drawer Top-Up's inflow shape,
+    // sign-flipped, minus the lot cost-basis fields a cash-out never needs)
+    // — this proves the corrected path end to end: create the mistaken EUR
+    // top-up, then correct it with a EUR cash-out, and assert `payments` +
+    // `drawer_balances` net to exactly 0 in EUR.
+    enableDrawerCurrency(db, "General", "EUR");
+
+    const topUpResult = service.addTopUp(
+      {
+        amount_usd: 0,
+        amount_lbp: 0,
+        extra_currencies: [
+          { currency_code: "EUR", amount: 300, acquisition_usd_per_unit: 1.08 },
+        ],
+      },
+      1,
+    );
+    expect(topUpResult.success).toBe(true);
+    expect(balance(db, "General", "EUR")).toBeCloseTo(300, 2);
+    expect(paymentsFor(db, "EUR")).toHaveLength(1);
+
+    // The manual correction: an opposite Drawer Cash-Out for the same EUR
+    // amount, exactly as MTC_TOPUP/ALFA_TOPUP's documented "opposite manual
+    // top-up" pattern already works for other non-reversible types.
+    const cashoutId = cashoutRepo.createCashout(
+      {
+        amount_usd: 0,
+        amount_lbp: 0,
+        extra_currencies: [{ currency_code: "EUR", amount: 300 }],
+        notes: "Correcting a mistaken EUR 300 top-up",
+      },
+      1,
+    );
+    expect(cashoutId).toBeGreaterThan(0);
+
+    // Net to exactly 0 in EUR: the top-up's +300 leg and the cash-out's -300
+    // leg both landed as real `payments` rows against `drawer_balances`.
+    expect(balance(db, "General", "EUR")).toBeCloseTo(0, 2);
+    const eurPaymentsAfter = paymentsFor(db, "EUR");
+    expect(eurPaymentsAfter).toHaveLength(2);
+    const totalEur = eurPaymentsAfter.reduce(
+      (sum, p) => sum + (p.amount as number),
+      0,
+    );
+    expect(totalEur).toBeCloseTo(0, 2);
+
+    // The original DRAWER_TOPUP transaction itself is untouched (still
+    // ACTIVE, not voided) — this is a NEW opposite entry, not a reversal of
+    // the original row, exactly like every other NON_REVERSIBLE_TRANSACTION_
+    // TYPES type's documented manual-correction pattern.
+    const topUpTxn = db
+      .prepare(
+        "SELECT status FROM transactions WHERE source_table = 'drawer_topups' AND source_id = ?",
+      )
+      .get(topUpResult.id as number) as { status: string };
+    expect(topUpTxn.status).toBe("ACTIVE");
+  });
 });

@@ -39,6 +39,7 @@ export function registerDrawerCashoutHandlers(): void {
       data: {
         amount_usd: number;
         amount_lbp: number;
+        extra_currencies?: { currency_code: string; amount: number }[];
         notes: string;
         transaction_time?: string;
       },
@@ -62,6 +63,7 @@ export function registerDrawerCashoutHandlers(): void {
             metadata: {
               amount_usd: validation.data.amount_usd,
               amount_lbp: validation.data.amount_lbp,
+              extra_currencies: validation.data.extra_currencies ?? null,
               notes: validation.data.notes,
             },
           });

@@ -17,6 +17,17 @@ export interface DrawerCashoutEntity {
 export interface CreateDrawerCashoutData {
   amount_usd: number;
   amount_lbp: number;
+  /**
+   * GENERAL_DRAWER_UNRESTRICTED.md Phase 4 review finding — the rule-20
+   * manual-correction path (Cash Out is DRAWER_TOPUP's documented reversal
+   * owner) previously could only express USD/LBP. Each entry debits General
+   * for that currency, mirroring DrawerTopUpRepository's extra-currency
+   * inflow legs sign-flipped. No cost-basis fields: a cash-out never writes
+   * an `exchange_lots` row (unlike a top-up) and never touches an existing
+   * lot's `remaining_qty` — that stays Q15's (`ExchangeLotRepository.adjust`)
+   * job, kept deliberately separate and money-free.
+   */
+  extra_currencies?: { currency_code: string; amount: number }[];
   notes: string;
   transaction_time?: string;
 }
@@ -85,6 +96,16 @@ export class DrawerCashoutRepository extends BaseRepository<DrawerCashoutEntity>
           );
         }
       }
+      const extraEntries = data.extra_currencies ?? [];
+      for (const entry of extraEntries) {
+        const code = entry.currency_code.toUpperCase();
+        const balance = this.getGeneralBalance(code, tenantId);
+        if (entry.amount > balance) {
+          throw new Error(
+            `Insufficient funds in General drawer: requested ${entry.amount} ${code}, available ${balance} ${code}`,
+          );
+        }
+      }
 
       // 2. Insert into drawer_cashouts
       const insertCashout = this.db.prepare(`
@@ -114,6 +135,7 @@ export class DrawerCashoutRepository extends BaseRepository<DrawerCashoutEntity>
         metadata_json: {
           drawer: GENERAL_DRAWER,
           notes: data.notes,
+          extra_currencies: data.extra_currencies ?? null,
         },
         transaction_time: txTime,
       });
@@ -156,6 +178,28 @@ export class DrawerCashoutRepository extends BaseRepository<DrawerCashoutEntity>
           drawerName: GENERAL_DRAWER,
           currencyCode: "LBP",
           delta: -data.amount_lbp,
+          tenantId,
+        });
+      }
+
+      // 6. Extra-currency outflows — see CreateDrawerCashoutData.extra_currencies
+      // doc. Same posting pattern as the USD/LBP legs above, sign-flipped.
+      for (const entry of extraEntries) {
+        const code = entry.currency_code.toUpperCase();
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: CASHOUT_METHOD,
+          drawerName: GENERAL_DRAWER,
+          currencyCode: code,
+          amount: -entry.amount,
+          note,
+          createdBy: userId,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: GENERAL_DRAWER,
+          currencyCode: code,
+          delta: -entry.amount,
           tenantId,
         });
       }

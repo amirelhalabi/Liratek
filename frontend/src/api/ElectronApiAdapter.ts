@@ -790,8 +790,12 @@ export class ElectronApiAdapter implements ApiAdapter {
 
   // Nested namespace mirroring window.api.drawerCashout (dual-mode).
   drawerCashout = {
-    create: (data: { amount_usd: number; amount_lbp: number; notes: string }) =>
-      api.drawerCashoutCreate(data),
+    create: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      extra_currencies?: { currency_code: string; amount: number }[];
+      notes: string;
+    }) => api.drawerCashoutCreate(data),
     getHistory: (limit?: number) => api.drawerCashoutHistory(limit),
   };
 

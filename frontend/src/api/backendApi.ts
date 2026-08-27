@@ -3548,6 +3548,7 @@ export async function transferBetweenDrawers(data: {
 export async function drawerCashoutCreate(data: {
   amount_usd: number;
   amount_lbp: number;
+  extra_currencies?: { currency_code: string; amount: number }[];
   notes: string;
 }) {
   return ipcOrHttp(
