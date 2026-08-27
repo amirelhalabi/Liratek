@@ -209,34 +209,45 @@ test.describe("Wallet Exchange — OMT App / Whish App internal USD<->LBP", () =
     expect(after.omtAppUsd - before.omtAppUsd).toBeCloseTo(100, 2);
   });
 
-  test("rejects converting more than the wallet's available balance — shows an error, balances unchanged", async ({
-    appPage,
-  }) => {
-    // Fresh mount so this test doesn't inherit a prior test's swapped
-    // from/to direction (the panel's local state persists across a
-    // same-route navigateTo) — bounce through "/" first, same as the swap
-    // test above.
-    await navigateTo(appPage, "/");
-    await navigateTo(appPage, "/recharge");
-    await openOmtAppExchangeTab(appPage);
+  // Own describe (not the outer suite): this test asserts on the
+  // insufficient-funds error TOAST (WalletExchangePanel.handleSubmit emits
+  // it via appEvents "notification:show"), which the harness auto-dismisses
+  // after `notificationDurationMs` (fixtures.ts) — 2ms by default, a
+  // coin-flip against Playwright's poll interval. Opt out for just this
+  // test; the other two tests in this file don't assert on toast text and
+  // benefit from toasts not lingering over later clicks.
+  test.describe("insufficient balance", () => {
+    test.use({ notificationDurationMs: null });
 
-    const before = await drawers(appPage);
+    test("rejects converting more than the wallet's available balance — shows an error, balances unchanged", async ({
+      appPage,
+    }) => {
+      // Fresh mount so this test doesn't inherit a prior test's swapped
+      // from/to direction (the panel's local state persists across a
+      // same-route navigateTo) — bounce through "/" first, same as the swap
+      // test above.
+      await navigateTo(appPage, "/");
+      await navigateTo(appPage, "/recharge");
+      await openOmtAppExchangeTab(appPage);
 
-    const amountInput = appPage.getByTestId("wallet-exchange-amount");
-    await amountInput.fill("999999999");
+      const before = await drawers(appPage);
 
-    await appPage.getByTestId("wallet-exchange-confirm").click();
+      const amountInput = appPage.getByTestId("wallet-exchange-amount");
+      await amountInput.fill("999999999");
 
-    // Currency-agnostic: this test only cares that SOME insufficient-funds
-    // error surfaces, not which currency the panel happened to default to.
-    await expect(
-      appPage.getByText(/Insufficient (USD|LBP) balance/i),
-    ).toBeVisible({
-      timeout: 5_000,
+      await appPage.getByTestId("wallet-exchange-confirm").click();
+
+      // Currency-agnostic: this test only cares that SOME insufficient-funds
+      // error surfaces, not which currency the panel happened to default to.
+      await expect(
+        appPage.getByText(/Insufficient (USD|LBP) balance/i),
+      ).toBeVisible({
+        timeout: 5_000,
+      });
+
+      const after = await drawers(appPage);
+      expect(after.omtAppUsd).toBeCloseTo(before.omtAppUsd, 2);
+      expect(after.omtAppLbp).toBeCloseTo(before.omtAppLbp, 0);
     });
-
-    const after = await drawers(appPage);
-    expect(after.omtAppUsd).toBeCloseTo(before.omtAppUsd, 2);
-    expect(after.omtAppLbp).toBeCloseTo(before.omtAppLbp, 0);
   });
 });

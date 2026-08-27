@@ -140,6 +140,17 @@ export interface CreateExchangeData {
  */
 export interface CreateExchangeResult {
   id: number;
+  /**
+   * The FINAL `profit_usd` persisted on this exchange's
+   * `exchange_transactions` row — re-read from the row itself right before
+   * returning (never recomputed in memory), so it reflects the
+   * lot-adjusted UPDATE (`_applyExchangeLotEffects`) when one ran, or the
+   * client-submitted `totalProfitUsd` verbatim when it didn't. ALWAYS
+   * present, unlike `realizedProfitUsd` below (only set on a to-side FIFO
+   * consume) — this is the one number every caller should stamp as "what
+   * this exchange actually booked".
+   */
+  bookedProfitUsd: number;
   realizedProfitUsd?: number;
   lotCoveredQty?: number;
   lotMarketQty?: number;
@@ -581,6 +592,16 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         });
       }
 
+      // Re-read the row's profit_usd inside this SAME db.transaction, right
+      // before returning, rather than trusting the in-memory `profitUsd`
+      // variable — the robust choice: whatever is actually PERSISTED (the
+      // lot-adjusted UPDATE above when `lotEffects.touched`, or the
+      // client-inserted value verbatim when it didn't) is what every caller
+      // should treat as "what this exchange booked". `profit_usd` is always
+      // written by the INSERT above (never NULL), so the `?? profitUsd`
+      // fallback only guards the type, it never masks a real gap.
+      const bookedProfitUsd = this.findById(id)!.profit_usd ?? profitUsd;
+
       // EXCHANGE_LOT_SETTLEMENT.md Phase 3: the SERVER-computed realized
       // profit surfaces ONLY when a to-side consume actually happened —
       // `lotEffects.realizedProfitUsd` is `undefined` for a pure acquire
@@ -588,6 +609,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // spreads to nothing in both cases (CreateExchangeResult's doc).
       return {
         id,
+        bookedProfitUsd,
         ...(lotEffects.realizedProfitUsd !== undefined
           ? {
               realizedProfitUsd: lotEffects.realizedProfitUsd,

@@ -819,7 +819,10 @@ describe("ExchangeRepository.createTransaction() — lot settlement wiring (EXCH
         totalProfitUsd: 5,
       });
 
-      expect(result).toEqual({ id: result.id });
+      // bookedProfitUsd is ALWAYS present on success (re-read of the row's
+      // final persisted profit_usd) — here that's the client-sent
+      // leg1ProfitUsd (5) verbatim, since USD<->LBP is never lot-tracked.
+      expect(result).toEqual({ id: result.id, bookedProfitUsd: 5 });
 
       const ex = exchangeRow(db, result.id);
       expect(ex.leg1_profit_usd).toBe(5);

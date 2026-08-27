@@ -694,6 +694,11 @@ export type ApiAdapter = {
   addExchangeTransaction: (payload: any) => Promise<
     ApiResult & {
       id?: number;
+      /** The server-authoritative final `transactions.profit_usd` for this
+       *  exchange — ALWAYS present on success. The session-link profit
+       *  stamp (FEATURE_GUIDE §10/§11) must prefer this over both
+       *  `realizedProfitUsd` and the client's own pre-submit total. */
+      bookedProfitUsd?: number;
       /** EXCHANGE_LOT_SETTLEMENT.md Phase 3/5 — server-authoritative realized
        *  profit from the FIFO lot engine, present only when the toCurrency
        *  leg consumed lot(s). The frontend MUST prefer this over its own

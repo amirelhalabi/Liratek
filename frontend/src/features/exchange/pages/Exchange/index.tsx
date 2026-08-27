@@ -31,6 +31,7 @@ import { PositionsPanel } from "./components/PositionsPanel";
 import type { ExchangeRate } from "@/utils/currencyUtils";
 import {
   calculateExchange,
+  computeOverrideLegProfitUsd,
   convertFromUSD,
   TAKE_USD,
   isLotTrackedCurrency,
@@ -492,15 +493,18 @@ export default function Exchange() {
               ? leg.amountIn / cr.market_rate
               : leg.amountIn * cr.market_rate;
 
-        // Profit = difference between market and actual output, in USD.
-        // marketOut/amountOut are in leg.toCurrency — convert to USD accordingly.
-        const diffRaw = Math.abs(marketOut - amountOut);
-        const profitUsd =
-          leg.toCurrency === "USD"
-            ? diffRaw // already in USD
-            : cr.is_stronger === 1
-              ? diffRaw / cr.market_rate // LBP output → ÷ rate
-              : diffRaw * cr.market_rate; // EUR output → × rate
+        // Signed profit vs market, in USD — computeOverrideLegProfitUsd is
+        // the ONE definition of this math (rule 14, @liratek/core). NEVER
+        // wrap in Math.abs: a losing override (operator gives the customer
+        // BETTER than market) must book a real negative, not a phantom gain.
+        // marketOut/amountOut are already in leg.toCurrency; outCurrencyRate
+        // is null when that's USD (usdPerOutUnit=1), else the OUT currency's
+        // own rate row.
+        const profitUsd = computeOverrideLegProfitUsd(
+          marketOut,
+          amountOut,
+          leg.toCurrency === "USD" ? null : cr,
+        );
 
         return { ...leg, rate: customRate, amountOut, profitUsd };
       });
@@ -528,17 +532,19 @@ export default function Exchange() {
             cr.is_stronger === 1
               ? leg1Out * cr.market_rate
               : leg1Out / cr.market_rate;
-          const diffRaw2 = Math.abs(marketOut2 - amountOut2);
-          const diff2 =
-            cr.is_stronger === 1
-              ? diffRaw2 / cr.market_rate // LBP output → ÷ rate
-              : diffRaw2 * cr.market_rate; // EUR output → × rate
+          // Cross leg2 (USD → Y): OUT currency is Y (never USD here), so
+          // outCurrencyRate is always `cr` — signed, never Math.abs'd.
+          const profitUsd2 = computeOverrideLegProfitUsd(
+            marketOut2,
+            amountOut2,
+            cr,
+          );
           legs[1] = {
             ...leg2,
             amountIn: leg1Out,
             rate: rate2,
             amountOut: amountOut2,
-            profitUsd: diff2,
+            profitUsd: profitUsd2,
           };
         }
       }
@@ -976,11 +982,21 @@ export default function Exchange() {
                 fromCurrency === "USD" ? inp : toCurrency === "USD" ? out : 0,
               amountLbp:
                 fromCurrency === "LBP" ? inp : toCurrency === "LBP" ? out : 0,
-              // EXCHANGE_LOT_SETTLEMENT.md item 9 — the server-authoritative
-              // realized profit (present whenever the toCurrency leg
-              // consumed lot(s)) MUST win over the client's pre-submit
-              // preview/spread estimate.
-              profitUsd: result.realizedProfitUsd ?? effectiveResult.totalProfitUsd,
+              // FEATURE_GUIDE §10/§11 — the session stamp MUST equal what the
+              // transaction actually booked. `bookedProfitUsd` is the
+              // server-authoritative final `transactions.profit_usd`
+              // (always present on success — ExchangeService/ExchangeRepository),
+              // so it wins first. `realizedProfitUsd` (present only when a
+              // lot-tracked toCurrency leg consumed lot(s)) is kept as a
+              // fallback for older/partial responses. The client's own
+              // pre-submit total is the LAST resort — for an acquire-only
+              // cross (fromIsLotTracked buy leg) it double-counts the
+              // deferred leg1 profit the server zeroes, e.g. stamping $6.63
+              // while the transaction actually booked $0.63.
+              profitUsd:
+                result.bookedProfitUsd ??
+                result.realizedProfitUsd ??
+                effectiveResult.totalProfitUsd,
             });
           } catch (err) {
             logger.error("Failed to link exchange to session:", err);
@@ -1136,14 +1152,19 @@ export default function Exchange() {
                     ⚡ Cross-Currency via USD
                   </span>
                   <span
+                    data-testid="exchange-cross-total-profit"
                     className={`text-xs font-semibold whitespace-nowrap ${
                       displayTotalProfitUsd >= 0
                         ? "text-emerald-400"
                         : "text-red-400"
                     }`}
                   >
-                    Total {displayTotalProfitUsd >= 0 ? "+" : ""}$
-                    {displayTotalProfitUsd.toFixed(4)}
+                    {/* Sign BEFORE the "$" (matches the direct panel's
+                      lot-tracked "Realized profit" line) — `.toFixed(4)`
+                      already prints its own "-" for a negative number, which
+                      would otherwise land after the "$" as "$-0.6480". */}
+                    Total {displayTotalProfitUsd >= 0 ? "+" : "-"}$
+                    {Math.abs(displayTotalProfitUsd).toFixed(4)}
                   </span>
                 </div>
                 {effectiveResult.legs.map((leg, i) => {
@@ -1166,6 +1187,7 @@ export default function Exchange() {
                       </span>
                       <input
                         type="number"
+                        data-testid={`exchange-cross-rate-input-${i + 1}`}
                         value={customRates[i] ?? leg.rate}
                         onChange={(e) => handleRateChange(i, e.target.value)}
                         title={`Rate (${legRateUnit(leg.fromCurrency, leg.toCurrency, effectiveRates)})`}
@@ -1192,11 +1214,26 @@ export default function Exchange() {
                         </button>
                       )}
                       {isAcquireLeg ? (
+                        // Deferred-profit annotation (owner-reported
+                        // confusion: buying cheaper LOOKED like earning
+                        // less). `leg.profitUsd` here is the RAW,
+                        // non-zeroed leg-1 signed profit (displayLegProfits
+                        // zeroes it only for the booked/submitted total —
+                        // Q8, the server defers it to sale) — i.e. exactly
+                        // what WOULD book if this lot were sold today.
+                        // Display-only: never fed back into what's submitted.
                         <span
-                          className="text-[10px] text-slate-500 italic whitespace-nowrap shrink-0"
-                          title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold."
+                          data-testid="exchange-cross-deferred-1"
+                          className={`text-[10px] italic whitespace-nowrap shrink-0 ${
+                            leg.profitUsd >= 0
+                              ? "text-slate-500"
+                              : "text-red-400"
+                          }`}
+                          title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold. Shown here is what it would book if sold today at market."
                         >
-                          Buy · books at sale
+                          {leg.profitUsd >= 0 ? "+" : "-"}$
+                          {Math.abs(leg.profitUsd).toFixed(2)} books at sale
+                          {leg.profitUsd < 0 ? " (loss)" : ""}
                         </span>
                       ) : isConsumeLeg && lotPreviewLoading && !lotPreview ? (
                         <span className="text-[10px] text-slate-500 whitespace-nowrap shrink-0">
@@ -1204,11 +1241,13 @@ export default function Exchange() {
                         </span>
                       ) : (
                         <span
+                          data-testid={`exchange-cross-leg-profit-${i + 1}`}
                           className={`font-semibold whitespace-nowrap shrink-0 ${
                             legProfit >= 0 ? "text-emerald-400" : "text-red-400"
                           }`}
                         >
-                          {legProfit >= 0 ? "+" : ""}${legProfit.toFixed(4)}
+                          {legProfit >= 0 ? "+" : "-"}$
+                          {Math.abs(legProfit).toFixed(4)}
                         </span>
                       )}
                     </div>
@@ -1251,6 +1290,7 @@ export default function Exchange() {
                   <span className="text-xs text-slate-400 shrink-0">Rate:</span>
                   <input
                     type="number"
+                    data-testid="exchange-direct-rate-input"
                     value={
                       customRates[0] ?? effectiveResult.legs[0]?.rate ?? ""
                     }
@@ -1316,8 +1356,16 @@ export default function Exchange() {
                   ) : (
                     <span className="text-slate-400">
                       Profit:{" "}
-                      <span className="text-emerald-400 font-bold">
-                        ${effectiveResult.totalProfitUsd.toFixed(4)} USD
+                      <span
+                        data-testid="exchange-direct-total-profit"
+                        className={`font-bold ${
+                          displayTotalProfitUsd >= 0
+                            ? "text-emerald-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {displayTotalProfitUsd >= 0 ? "" : "-"}$
+                        {Math.abs(displayTotalProfitUsd).toFixed(4)} USD
                       </span>
                     </span>
                   )}

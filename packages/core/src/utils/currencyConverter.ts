@@ -10,6 +10,8 @@
  *   - Adding a new currency = adding 1 DB row, zero code changes
  */
 
+import { marketRateToUsdPerUnit } from "./lotMarketRate.js";
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const BASE_CURRENCY = "USD" as const;
@@ -167,6 +169,70 @@ export function computeLegProfitUsd(
       return amountIn * (spread / 2);
     }
   }
+}
+
+/**
+ * Calculate the SIGNED profit-vs-market on a single leg where the operator
+ * manually overrode the applied rate (the Exchange page's per-leg rate
+ * edit — `applyCustomRates`, `frontend/src/features/exchange/pages/Exchange
+ * /index.tsx`). This is the ONE definition of this math (rule 14),
+ * replacing a frontend-local `Math.abs(marketOut − amountOut)` copy that
+ * silently turned every below-market override (the shop giving the
+ * customer a BETTER deal than market) into a phantom POSITIVE profit.
+ *
+ *   profitUsd = (marketOut − actualOut) × usdPerOutUnit
+ *
+ * `marketOut`/`actualOut` are both denominated in the leg's OUT currency —
+ * what the customer would have received at the market rate vs what they
+ * actually received at the operator's applied rate. `outCurrencyRate` is
+ * `null` when the OUT currency IS USD (`usdPerOutUnit` = 1); otherwise pass
+ * the OUT currency's own rate row (only `market_rate`/`is_stronger` are
+ * read — delegates to `marketRateToUsdPerUnit`, `utils/lotMarketRate.ts`):
+ * `is_stronger = +1` (LBP-like, `market_rate` is units-per-USD) divides by
+ * `market_rate`; `is_stronger = -1` (EUR-like, `market_rate` is
+ * USD-per-unit) multiplies by it (i.e. IS the USD-per-unit rate already).
+ *
+ * SIGN CONVENTION — never wrap the result in `Math.abs`:
+ *   +ve → the shop keeps value vs market (pays out LESS than market, or
+ *         acquires the FROM currency CHEAPER than market) — a real gain.
+ *   −ve → the shop gave the customer BETTER than market — a real LOSS.
+ *    0  → applied rate === market rate.
+ *
+ * Worked anchors (see currencyConverter.test.ts):
+ *   USD→LBP payout of 116 USD, applied 89000 vs market 89500:
+ *     marketOut = 116×89500 = 10,382,000 LBP
+ *     actualOut = 116×89000 = 10,324,000 LBP  (customer got FEWER LBP)
+ *     → (10,382,000 − 10,324,000) × (1/89500) = +0.6480
+ *   Same payout at applied 90000 (customer gets MORE LBP):
+ *     actualOut = 116×90000 = 10,440,000
+ *     → (10,382,000 − 10,440,000) × (1/89500) = −0.6480
+ *   EUR→USD leg, shop buys 100 EUR at applied 1.12 vs market 1.18
+ *   (OUT currency is USD here, so `outCurrencyRate: null`, usdPerOutUnit=1):
+ *     marketOut = 100×1.18 = 118, actualOut = 100×1.12 = 112 → +6.00
+ *   Same buy at applied 1.20 (shop overpaid the customer in USD):
+ *     actualOut = 100×1.20 = 120 → (118 − 120) × 1 = −2.00
+ *   applied === market → 0 in every orientation.
+ *
+ * Callable for a direct-pair override (single leg, OUT = whichever side
+ * isn't USD) and for each leg of a cross override independently — cross
+ * leg1 (X→USD, OUT=USD → `outCurrencyRate: null`) and cross leg2 (USD→Y,
+ * OUT=Y → `outCurrencyRate` = Y's rate row). The caller only needs to hand
+ * in the two OUT-currency amounts it already computes for display
+ * (`marketOut`, `actualOut`) plus the rate row (or `null`) — no other
+ * local math required.
+ */
+export function computeOverrideLegProfitUsd(
+  marketOut: number,
+  actualOut: number,
+  outCurrencyRate: Pick<CurrencyRate, "market_rate" | "is_stronger"> | null,
+): number {
+  const usdPerOutUnit = outCurrencyRate
+    ? marketRateToUsdPerUnit(
+        outCurrencyRate.market_rate,
+        outCurrencyRate.is_stronger,
+      )
+    : 1;
+  return (marketOut - actualOut) * usdPerOutUnit;
 }
 
 // ─── Rate Lookup ──────────────────────────────────────────────────────────────

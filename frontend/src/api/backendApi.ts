@@ -966,6 +966,10 @@ export async function addExchangeTransaction(payload: any) {
     success: boolean;
     id?: number;
     error?: string;
+    // Server-authoritative final transactions.profit_usd — always present
+    // on success; the session-link profit stamp must prefer this over both
+    // realizedProfitUsd and the client's own pre-submit total.
+    bookedProfitUsd?: number;
     realizedProfitUsd?: number;
     lotCoveredQty?: number;
     lotMarketQty?: number;

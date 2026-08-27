@@ -75,55 +75,85 @@ export const createExchangeSchema = z
  * caller (the Exchange page, every e2e seed helper) already computes and
  * sends all four before submit.
  */
-export const exchangeSubmitSchema = z.object({
-  fromCurrency: z.string().min(1),
-  toCurrency: z.string().min(1),
-  amountIn: z.number().positive(),
-  amountOut: z.number().positive(),
-  leg1Rate: z.number(),
-  leg1MarketRate: z.number(),
-  leg1ProfitUsd: z.number(),
-  leg2Rate: z.number().optional(),
-  leg2MarketRate: z.number().optional(),
-  leg2ProfitUsd: z.number().optional(),
-  viaCurrency: z.string().optional(),
-  totalProfitUsd: z.number(),
-  clientName: z.string().optional(),
-  note: z.string().optional(),
-  fromCurrencyName: z.string().optional(),
-  toCurrencyName: z.string().optional(),
-  /**
-   * Owner decision 2026-08-23 (EXCHANGE_LOT_SETTLEMENT.md "NEW named
-   * follow-up"): backdating exchanges is ENABLED, trusted, no guard. Was
-   * missing from this schema even though `createExchangeSchema` above
-   * already had it via the same `transactionTimeSchema` — the Exchange
-   * page's backdate override field was silently stripped by
-   * validatePayload/validateRequest on BOTH transports before it ever
-   * reached ExchangeRepository.createTransaction (which already honors it
-   * correctly). Backdating a BUY affects FIFO lot-consumption order by
-   * design — see the plan doc's "Accepted behavior" section.
-   */
-  transaction_time: transactionTimeSchema,
-  // LIRA-081 (PFT-R): a "for partner" exchange — see
-  // ExchangeRepository.createTransaction. Kept in sync with
-  // createExchangeSchema's own partnerId/partnerMode fields above (same
-  // trap: a field missing from ONE of the two schemas is silently
-  // stripped on whichever transport calls that schema's endpoint).
-  partnerId: z.number().int().positive().optional(),
-  partnerMode: z.enum(["FOR"]).optional(),
-  /** Split payout — see createExchangeSchema's own `payments` doc above. */
-  payments: z
-    .array(
-      z.object({
-        method: z.string(),
-        currencyCode: z.string(),
-        amount: z.number().positive(),
-        direction: z.enum(["IN", "OUT"]).optional(),
-      }),
-    )
-    .optional(),
-  tender_exchange_rate: z.number().positive().optional(),
-});
+export const exchangeSubmitSchema = z
+  .object({
+    fromCurrency: z.string().min(1),
+    toCurrency: z.string().min(1),
+    amountIn: z.number().positive(),
+    amountOut: z.number().positive(),
+    leg1Rate: z.number(),
+    leg1MarketRate: z.number(),
+    leg1ProfitUsd: z.number(),
+    leg2Rate: z.number().optional(),
+    leg2MarketRate: z.number().optional(),
+    leg2ProfitUsd: z.number().optional(),
+    viaCurrency: z.string().optional(),
+    totalProfitUsd: z.number(),
+    clientName: z.string().optional(),
+    note: z.string().optional(),
+    fromCurrencyName: z.string().optional(),
+    toCurrencyName: z.string().optional(),
+    /**
+     * Owner decision 2026-08-23 (EXCHANGE_LOT_SETTLEMENT.md "NEW named
+     * follow-up"): backdating exchanges is ENABLED, trusted, no guard. Was
+     * missing from this schema even though `createExchangeSchema` above
+     * already had it via the same `transactionTimeSchema` — the Exchange
+     * page's backdate override field was silently stripped by
+     * validatePayload/validateRequest on BOTH transports before it ever
+     * reached ExchangeRepository.createTransaction (which already honors it
+     * correctly). Backdating a BUY affects FIFO lot-consumption order by
+     * design — see the plan doc's "Accepted behavior" section.
+     */
+    transaction_time: transactionTimeSchema,
+    // LIRA-081 (PFT-R): a "for partner" exchange — see
+    // ExchangeRepository.createTransaction. Kept in sync with
+    // createExchangeSchema's own partnerId/partnerMode fields above (same
+    // trap: a field missing from ONE of the two schemas is silently
+    // stripped on whichever transport calls that schema's endpoint).
+    partnerId: z.number().int().positive().optional(),
+    partnerMode: z.enum(["FOR"]).optional(),
+    /** Split payout — see createExchangeSchema's own `payments` doc above. */
+    payments: z
+      .array(
+        z.object({
+          method: z.string(),
+          currencyCode: z.string(),
+          amount: z.number().positive(),
+          direction: z.enum(["IN", "OUT"]).optional(),
+        }),
+      )
+      .optional(),
+    tender_exchange_rate: z.number().positive().optional(),
+  })
+  .superRefine((data, ctx) => {
+    // A cross exchange (viaCurrency set) needs a USD anchor for its
+    // internal "from -> USD -> to" passthrough — mirrors
+    // `ExchangeRepository._crossUsdNotional`'s anchor priority: when
+    // `toCurrency === 'LBP'` it anchors off `leg2Rate`; otherwise
+    // (`fromCurrency === 'LBP'`, or an exotic<->exotic pair) it anchors off
+    // `leg1Rate` FIRST, but for the exotic<->exotic case it falls back to
+    // `leg2Rate` at runtime if the FROM currency has no configured
+    // `exchange_rates` row. That fallback is a DB-state question this
+    // stateless validator cannot see — so rather than replicate
+    // `_crossUsdNotional`'s field selection (and risk drifting out of sync
+    // with it again), this requires BOTH leg1Rate and leg2Rate whenever
+    // `viaCurrency` is set, covering every anchor path the repository can
+    // take regardless of which one it picks at runtime. Before this check,
+    // a hand-built cross payload that omitted the anchor rate reached
+    // `data.leg2Rate as number` unchecked and divided 1/undefined inside
+    // `_usdPerUnitFromExecutedRate` -> a NaN `unit_cost_usd` lot.
+    if (!data.viaCurrency) return;
+    for (const field of ["leg1Rate", "leg2Rate"] as const) {
+      const value = data[field];
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${field} must be a finite positive number for a cross exchange (viaCurrency set)`,
+          path: [field],
+        });
+      }
+    }
+  });
 
 export type ExchangeSubmitInput = z.infer<typeof exchangeSubmitSchema>;
 

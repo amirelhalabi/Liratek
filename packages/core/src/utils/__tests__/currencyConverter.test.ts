@@ -10,6 +10,7 @@ import {
   convertToUSD,
   convertFromUSD,
   computeLegProfitUsd,
+  computeOverrideLegProfitUsd,
   calculateExchange,
   getDisplayRate,
   findCurrencyRate,
@@ -338,5 +339,69 @@ describe("getDisplayRate", () => {
   it("EUR→LBP: returns combined cross-currency rate", () => {
     const rate = getDisplayRate("EUR", "LBP", mockRates);
     expect(rate).toBeCloseTo(1.16 * 89000, 0); // 103,240
+  });
+});
+
+// ─── computeOverrideLegProfitUsd ────────────────────────────────────────────
+//
+// Anchors mirror the live-DB rates used throughout this file: LBP market
+// 89500 / buy 89000 / sell 90000 (is_stronger=+1); EUR market 1.18 / buy
+// 1.16 / sell 1.20 (is_stronger=-1). SIGN CONVENTION under test: +ve = the
+// shop keeps value vs market; −ve = the customer got better than market
+// (a real loss) — never wrapped in Math.abs.
+
+describe("computeOverrideLegProfitUsd", () => {
+  it("USD→LBP payout of 116 USD, applied 89000 vs market 89500: shop pays out FEWER LBP → +0.6480", () => {
+    const marketOut = 116 * 89500; // 10,382,000
+    const actualOut = 116 * 89000; // 10,324,000
+    const profit = computeOverrideLegProfitUsd(marketOut, actualOut, lbp);
+    expect(profit).toBeCloseTo(116 / 179, 10); // 58,000 / 89,500 = +0.6480...
+    expect(profit).toBeGreaterThan(0);
+  });
+
+  it("same payout at applied 90000 (customer gets MORE LBP) → −0.6480 (a real loss)", () => {
+    const marketOut = 116 * 89500;
+    const actualOut = 116 * 90000; // 10,440,000
+    const profit = computeOverrideLegProfitUsd(marketOut, actualOut, lbp);
+    expect(profit).toBeCloseTo(-(116 / 179), 10);
+    expect(profit).toBeLessThan(0);
+  });
+
+  it("EUR→USD leg (shop buys 100 EUR), applied 1.12 vs market 1.18 → +6.00 (OUT is USD, outCurrencyRate: null)", () => {
+    const marketOut = 100 * 1.18; // 118 USD
+    const actualOut = 100 * 1.12; // 112 USD
+    const profit = computeOverrideLegProfitUsd(marketOut, actualOut, null);
+    expect(profit).toBeCloseTo(6, 10);
+  });
+
+  it("same buy at applied 1.20 (shop overpaid the customer in USD) → −2.00", () => {
+    const marketOut = 100 * 1.18;
+    const actualOut = 100 * 1.2; // 120 USD
+    const profit = computeOverrideLegProfitUsd(marketOut, actualOut, null);
+    expect(profit).toBeCloseTo(-2, 10);
+  });
+
+  it("applied === market → 0, regardless of OUT currency", () => {
+    expect(computeOverrideLegProfitUsd(10_382_000, 10_382_000, lbp)).toBe(0);
+    expect(computeOverrideLegProfitUsd(118, 118, null)).toBe(0);
+    expect(computeOverrideLegProfitUsd(100, 100, eur)).toBe(0);
+  });
+
+  it("is_stronger orientation — EUR OUT (is_stronger=-1) multiplies by market_rate, not divides", () => {
+    // USD→EUR leg: 118 USD at market 1.18 -> 100 EUR; applied 1.20 gives the
+    // customer FEWER EUR (98.333...) — the shop keeps value → +profit.
+    const marketOut = 118 / 1.18; // 100 EUR
+    const actualOut = 118 / 1.2; // 98.3333... EUR
+    const profit = computeOverrideLegProfitUsd(marketOut, actualOut, eur);
+    expect(profit).toBeCloseTo(5.9 / 3, 10); // (100 - 118/1.2) EUR * 1.18 USD/EUR
+    expect(profit).toBeGreaterThan(0);
+  });
+
+  it("is_stronger orientation — LBP OUT (is_stronger=+1) divides by market_rate, at a different magnitude than the primary anchor", () => {
+    const marketOut = 50 * 89500; // 4,475,000
+    const actualOut = 50 * 89000; // 4,450,000
+    const profit = computeOverrideLegProfitUsd(marketOut, actualOut, lbp);
+    expect(profit).toBeCloseTo(25000 / 89500, 10);
+    expect(profit).toBeGreaterThan(0);
   });
 });

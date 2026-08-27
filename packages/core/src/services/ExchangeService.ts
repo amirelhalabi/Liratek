@@ -29,6 +29,17 @@ export interface ExchangeOpResult {
   id?: number;
   error?: string;
   /**
+   * The FINAL persisted `profit_usd` on the created exchange row —
+   * `ExchangeRepository.createTransaction`'s `bookedProfitUsd` (a re-read
+   * of the row, never a recomputation). ALWAYS present when `success` is
+   * true; absent on failure. Additive alongside `realizedProfitUsd` below —
+   * that field keeps its EXACT existing semantics (only set on a to-side
+   * FIFO consume; asserted by lira-web-022) and must not be conflated with
+   * this one: `bookedProfitUsd` is "what got booked" on every exchange,
+   * `realizedProfitUsd` is specifically "what FIFO realized on a consume".
+   */
+  bookedProfitUsd?: number;
+  /**
    * EXCHANGE_LOT_SETTLEMENT.md Phase 3 — the SERVER-computed realized profit
    * from `ExchangeRepository.createTransaction`'s lot engine, present ONLY
    * when a to-side FIFO consume happened (an exotic `toCurrency`). The
@@ -146,7 +157,7 @@ export class ExchangeService {
         tender_exchange_rate: input.tender_exchange_rate,
       };
 
-      const { id, realizedProfitUsd, lotCoveredQty, lotMarketQty } =
+      const { id, bookedProfitUsd, realizedProfitUsd, lotCoveredQty, lotMarketQty } =
         this.exchangeRepo.createTransaction(txData);
 
       exchangeLogger.info(
@@ -169,6 +180,7 @@ export class ExchangeService {
       return {
         success: true,
         id,
+        bookedProfitUsd,
         ...(realizedProfitUsd !== undefined
           ? { realizedProfitUsd, lotCoveredQty, lotMarketQty }
           : {}),
@@ -202,7 +214,7 @@ export class ExchangeService {
         }
       }
 
-      const { id, realizedProfitUsd, lotCoveredQty, lotMarketQty } =
+      const { id, bookedProfitUsd, realizedProfitUsd, lotCoveredQty, lotMarketQty } =
         this.exchangeRepo.createTransaction(data);
       exchangeLogger.info(
         {
@@ -219,6 +231,7 @@ export class ExchangeService {
       return {
         success: true,
         id,
+        bookedProfitUsd,
         ...(realizedProfitUsd !== undefined
           ? { realizedProfitUsd, lotCoveredQty, lotMarketQty }
           : {}),

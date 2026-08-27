@@ -1029,6 +1029,14 @@ export interface ElectronAPI {
       id?: number;
       error?: string;
       /**
+       * The server-authoritative final `transactions.profit_usd` for this
+       * exchange — ALWAYS present on success (mirrors `ExchangeOpResult` in
+       * packages/core/src/services/ExchangeService.ts). The session-link
+       * profit stamp (FEATURE_GUIDE §10/§11) must prefer this over both
+       * `realizedProfitUsd` and the client's own pre-submit total.
+       */
+      bookedProfitUsd?: number;
+      /**
        * EXCHANGE_LOT_SETTLEMENT.md Phase 3 — the SERVER-computed realized
        * profit for a lot-tracked toCurrency sell leg (mirrors
        * `ExchangeOpResult` in packages/core/src/services/ExchangeService.ts).
