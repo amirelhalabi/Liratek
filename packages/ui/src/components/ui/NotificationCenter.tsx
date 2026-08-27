@@ -51,8 +51,15 @@ const NotificationCenter: React.FC = () => {
       ].slice(-20);
       appEvents.emit("notification:history", window.notificationHistory);
 
-      // Auto-dismiss timer per notification
-      const ms = duration ?? (type === "error" ? 3000 : 5000);
+      // Auto-dismiss timer per notification. An explicit per-notification
+      // `duration` always wins; otherwise an e2e-only window override (see
+      // `__e2eNotificationDurationMs` in window-globals.d.ts) wins over the
+      // type defaults, so opted-in specs can collapse the dismiss timer and
+      // stop toasts from overlaying/intercepting clicks.
+      const ms =
+        duration ??
+        window.__e2eNotificationDurationMs ??
+        (type === "error" ? 3000 : 5000);
       const timer = setTimeout(() => {
         timersRef.current.delete(id);
         setNotifications((prev) => prev.filter((n) => n.id !== id));

@@ -252,6 +252,10 @@ test("Expenses: record an expense", async ({ appPage }) => {
 test.describe("Debts (self-seeded)", () => {
   test.describe.configure({ retries: 2 });
 
+  // This describe asserts on toast visibility — opt out of the harness's
+  // 2ms notification-duration override and keep the real dismiss timing.
+  test.use({ notificationDurationMs: null });
+
   test("Debts: add sale debt and settle", async ({ appPage }) => {
     const debtClientName = `DebtClient-${Date.now()}`;
     const debtProductName = `DebtWidget-${Date.now()}`;

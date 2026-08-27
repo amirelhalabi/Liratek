@@ -87,6 +87,10 @@ import { closeAllActiveSessions } from "./helpers/nav";
 
 test.describe.configure({ retries: 0 });
 
+// This spec asserts on toast visibility — opt out of the harness's 2ms
+// notification-duration override and keep the real dismiss timing.
+test.use({ notificationDurationMs: null });
+
 // Unique to this spec file — not reused by any other Katsh-bill spec
 // (lira-062: 50,000; lira-095: 130k/220k/140k/160k/111k/222k/250k/120k/180k).
 const BILL_AMOUNT_LBP = 486_000;

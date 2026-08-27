@@ -75,6 +75,17 @@ const WEB_BASE_URL = process.env.E2E_WEB_BASE_URL ?? "http://localhost:5174";
 const WEB_BACKEND_URL =
   process.env.E2E_WEB_BACKEND_URL ?? "http://127.0.0.1:3101";
 
+// One knob for the whole desktop harness: how long NotificationCenter's
+// toasts (fixed bottom-right, z-[1000]) stay on screen before auto-dismiss,
+// overriding its normal 3s/5s type defaults (see window-globals.d.ts's
+// `__e2eNotificationDurationMs`). Default 2ms so toasts stop
+// overlaying/intercepting clicks across the suite; override per run to watch
+// them while debugging a headed run, e.g.
+// `E2E_NOTIFICATION_MS=5000 node scripts/run-e2e.mjs electron --headed`.
+const E2E_NOTIFICATION_DURATION_MS = Number(
+  process.env.E2E_NOTIFICATION_MS ?? 2,
+);
+
 // Shared state across all tests in a worker
 let sharedApp: ElectronApplication | null = null;
 let sharedBrowser: Browser | null = null; // web mode only
@@ -176,6 +187,29 @@ export async function describeElectronDeath(): Promise<string> {
 export const test = base.extend<
   {
     appPage: Page;
+    /**
+     * Test-scoped OPTION (Playwright's `{ option: true }` fixture pattern —
+     * deliberately NOT worker-scoped: a worker-scoped option differing per
+     * file would force a worker restart per file, which breaks this suite's
+     * single accumulating DB/Electron instance). How long
+     * NotificationCenter's auto-dismiss timer runs for THIS test, in ms;
+     * `null` restores the app's real type defaults (3s error / 5s
+     * everything else). Defaults to the harness-wide
+     * `E2E_NOTIFICATION_DURATION_MS` below. A spec that asserts on
+     * `[role="alert"]` toast visibility opts out with
+     * `test.use({ notificationDurationMs: null })` at file or describe
+     * scope — declaring intent, not injecting an evaluate() per spec.
+     */
+    notificationDurationMs: number | null;
+    /**
+     * Test-scoped AUTO fixture: applies `notificationDurationMs` to the
+     * shared window before every test body — and every retry — runs. See
+     * the comment above the context-level `addInitScript` call below for
+     * the full split of responsibility between that init script (the
+     * harness default surviving a mid-test `reload()`) and this fixture
+     * (the per-test/per-file value).
+     */
+    _notificationDurationApplier: void;
   },
   {
     _appCleanup: void;
@@ -201,6 +235,20 @@ export const test = base.extend<
       }
     },
     { scope: "worker", auto: true },
+  ],
+  notificationDurationMs: [E2E_NOTIFICATION_DURATION_MS, { option: true }],
+  _notificationDurationApplier: [
+    async ({ appPage, notificationDurationMs }, use) => {
+      await appPage.evaluate((ms: number | null) => {
+        (
+          window as unknown as {
+            __e2eNotificationDurationMs: number | undefined;
+          }
+        ).__e2eNotificationDurationMs = ms === null ? undefined : ms;
+      }, notificationDurationMs);
+      await use();
+    },
+    { auto: true },
   ],
   appPage: async ({ playwright }, use) => {
     if (isWebMode) {
@@ -353,6 +401,55 @@ export const test = base.extend<
       sharedPage.on("crash", () => {
         pageCrashedAt = new Date().toISOString();
       });
+
+      // Harness-wide notification-dismiss CONFIGURATION (owner decision):
+      // collapse NotificationCenter's auto-dismiss so toasts (fixed
+      // bottom-right, z-[1000], default 3-5s) stop overlaying and
+      // intercepting clicks across the whole desktop suite. Owned by the
+      // fixture, not injected per spec — two layers split the work:
+      //
+      // 1. This CONTEXT-level init script stamps the harness default
+      //    (E2E_NOTIFICATION_DURATION_MS, 2ms — override per run with
+      //    E2E_NOTIFICATION_MS=<ms>, e.g. to watch toasts in a headed run)
+      //    onto every document this window EVER loads, including after
+      //    `appPage.reload()` (used mid-spec by
+      //    lira-123-auto-debt-scenarios.spec.ts,
+      //    lira-071-profits-admin-only.spec.ts and
+      //    lira-142-exchange-lot-settlement.spec.ts). Init scripts fire
+      //    "after the document was created but before any of its scripts
+      //    were run" (Playwright 1.58 `BrowserContext.addInitScript`,
+      //    available on the Electron window's page the same as any other
+      //    Page) — this is what survives a reload; a plain one-time
+      //    `evaluate()` cannot, because a bare `window` property does not
+      //    survive tearing down and recreating the document.
+      //
+      // 2. The test-scoped `notificationDurationMs` OPTION and its
+      //    `_notificationDurationApplier` auto fixture (both declared above
+      //    in this same `test.extend()` call) re-apply the PER-TEST value —
+      //    the harness default, or `null` from a spec's own
+      //    `test.use({ notificationDurationMs: null })` — before every test
+      //    body and every retry. No separate immediate evaluate() is needed
+      //    here for the FIRST test either: `_notificationDurationApplier`
+      //    depends on `appPage`, so it only runs once this whole `if
+      //    (!sharedApp)` block and `completeSetup()` below have both
+      //    finished, and it evaluates directly against whatever document is
+      //    then current — exactly what a same-block immediate evaluate did
+      //    before, just owned by the fixture instead of duplicated here.
+      //    (Toasts shown DURING setup/completeSetup, before any test's auto
+      //    fixture has run yet, use the real 3s/5s defaults — unchanged from
+      //    every run of this suite before this override existed.)
+      //
+      // Documented edge: a `reload()` inside an OPTED-OUT test (one using
+      // `test.use({ notificationDurationMs: null })`) reverts to the
+      // harness default until that file's NEXT test, because this
+      // context-level init script has no way to see a per-test option value
+      // — it can only ever stamp the one harness-wide default. None of the
+      // 11 current opt-out spec files calls reload() today.
+      await sharedPage.context().addInitScript((ms: number) => {
+        (
+          window as unknown as { __e2eNotificationDurationMs: number }
+        ).__e2eNotificationDurationMs = ms;
+      }, E2E_NOTIFICATION_DURATION_MS);
     }
 
     if (!setupDone) {

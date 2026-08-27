@@ -216,6 +216,10 @@ import {
 
 test.describe.configure({ retries: 0 });
 
+// This spec asserts on toast visibility — opt out of the harness's 2ms
+// notification-duration override and keep the real dismiss timing.
+test.use({ notificationDurationMs: null });
+
 const ts = Date.now();
 
 // Disjoint from every other Katsh-bill spec's own fixed offsets (see

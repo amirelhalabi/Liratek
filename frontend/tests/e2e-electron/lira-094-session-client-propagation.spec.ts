@@ -28,6 +28,10 @@ import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0, mode: "serial" });
 
+// This spec asserts on toast visibility — opt out of the harness's 2ms
+// notification-duration override and keep the real dismiss timing.
+test.use({ notificationDurationMs: null });
+
 const CLIENT_NAME = "E2E Session Client";
 const PRODUCT_NAME = "L094 Session Widget";
 

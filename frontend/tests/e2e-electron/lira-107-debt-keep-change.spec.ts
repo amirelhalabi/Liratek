@@ -23,6 +23,10 @@ import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
 
+// This spec asserts on toast visibility — opt out of the harness's 2ms
+// notification-duration override and keep the real dismiss timing.
+test.use({ notificationDurationMs: null });
+
 const FROM = "2000-01-01";
 const TO = "2099-12-31";
 

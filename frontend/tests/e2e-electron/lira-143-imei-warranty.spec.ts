@@ -114,6 +114,10 @@ import type { Page, Locator } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
 
+// This spec asserts on toast visibility — opt out of the harness's 2ms
+// notification-duration override and keep the real dismiss timing.
+test.use({ notificationDurationMs: null });
+
 // ─── Identity markers — unique per run; CATEGORY_NAME is the one
 // deliberately shared/idempotent resource (read-first, provisioned once). ──
 

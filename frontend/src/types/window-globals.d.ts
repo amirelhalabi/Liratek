@@ -24,6 +24,13 @@ declare global {
     /** Most recent notification history (limited to last N items by NotificationCenter) */
     notificationHistory?: UINotificationHistoryItem[];
 
+    /**
+     * e2e-only override: collapses NotificationCenter's auto-dismiss timer so
+     * toasts stop overlaying/intercepting clicks in specs that opt in. Must
+     * never be set by app code.
+     */
+    __e2eNotificationDurationMs?: number;
+
     /** Preload API (Electron only) */
     api?: ElectronAPI;
   }

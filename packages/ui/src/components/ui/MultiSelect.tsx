@@ -104,6 +104,9 @@ export default function MultiSelect({
               <ListboxOption
                 key={option}
                 value={option}
+                data-testid={
+                  testId ? `${testId}-option-${option}` : undefined
+                }
                 className={({ focus, selected }) =>
                   `relative cursor-pointer select-none py-2 pl-9 pr-4 ${
                     focus
@@ -115,11 +118,7 @@ export default function MultiSelect({
                 }
               >
                 {({ selected }) => (
-                  <span
-                    data-testid={
-                      testId ? `${testId}-option-${option}` : undefined
-                    }
-                  >
+                  <span>
                     <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5">
                       <span
                         className={`flex h-4 w-4 items-center justify-center rounded border ${

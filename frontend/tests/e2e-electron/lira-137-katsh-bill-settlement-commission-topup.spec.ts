@@ -71,6 +71,11 @@ import {
 
 test.describe.configure({ retries: 0 });
 
+// This spec consumes helpers/katshSettlement.ts's providerTabKatsh (waits on
+// [role="alert"] toast state) — opt out of the harness's 2ms
+// notification-duration override and keep the real dismiss timing.
+test.use({ notificationDurationMs: null });
+
 // Unique to this spec file -- not reused by any other Katsh-bill spec
 // (lira-062: 50,000; lira-089: 486,000; lira-095: 130k/220k/140k/160k/111k/
 // 222k/250k/120k/180k; the deleted characterization spec used
