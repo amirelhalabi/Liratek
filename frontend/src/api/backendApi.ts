@@ -2888,6 +2888,21 @@ export async function getAllDrawerCurrencies(): Promise<
   );
 }
 
+export async function getCountableDrawerCurrencies(): Promise<
+  Record<string, string[]>
+> {
+  return ipcOrHttp(
+    async () => getElectronApi().currencies.countableDrawerCurrencies(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        drawerCurrencies: Record<string, string[]>;
+      }>(`/api/currencies/countable-drawer-currencies`);
+      return res.drawerCurrencies;
+    },
+  );
+}
+
 export async function getCurrenciesForDrawer(
   drawerName: string,
 ): Promise<string[]> {

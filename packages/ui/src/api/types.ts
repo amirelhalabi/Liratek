@@ -1236,6 +1236,7 @@ export type ApiAdapter = {
     modules: string[],
   ) => Promise<ApiResult>;
   getAllDrawerCurrencies: () => Promise<Record<string, string[]>>;
+  getCountableDrawerCurrencies: () => Promise<Record<string, string[]>>;
   getCurrenciesForDrawer: (drawerName: string) => Promise<string[]>;
   getDrawersForCurrency: (code: string) => Promise<string[]>;
   setDrawerCurrencies: (

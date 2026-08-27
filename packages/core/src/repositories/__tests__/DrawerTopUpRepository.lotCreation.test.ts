@@ -477,12 +477,19 @@ describe("DrawerTopUpRepository/Service — exchange-lot creation on foreign-cur
      * `exchange_rates`. Restored immediately after confirming the failure;
      * see the task report for the exact before/after.
      */
-    it("unknown-code auto-registration creates currencies + currency_drawers rows and the lot lands (FK proof)", () => {
+    it("unknown-code auto-registration creates a currencies row (FK proof) and writes NO currency_drawers row", () => {
       // AED deliberately absent from `currencies`/`currency_drawers` — with
       // `PRAGMA foreign_keys = ON` and exchange_lots' composite FK to
       // currencies(tenant_id, code) (this file's schema), createLot's INSERT
-      // would fail outright if the repository didn't auto-register the code
-      // first.
+      // would fail outright if the repository didn't auto-register the
+      // `currencies` row first. The FK is to `currencies`, NOT
+      // `currency_drawers` — GENERAL_DRAWER_UNRESTRICTED.md item 9 removed
+      // the repository's `currency_drawers` write entirely, since General's
+      // countable set is DERIVED from `drawer_balances`
+      // (`CurrencyRepository.getCountableCurrenciesForDrawer`), never from
+      // that allowlist table (see
+      // `DrawerTopUpRepository.generalUnrestrictedPolicy.test.ts` for the
+      // dedicated end-to-end proof).
       const result = service.addTopUp(
         {
           amount_usd: 0,
@@ -512,7 +519,7 @@ describe("DrawerTopUpRepository/Service — exchange-lot creation on foreign-cur
           "SELECT * FROM currency_drawers WHERE currency_code = ? AND drawer_name = 'General' AND tenant_id = 1",
         )
         .get("AED");
-      expect(drawerRow).toBeTruthy();
+      expect(drawerRow).toBeUndefined();
 
       const lots = lotsFor(db, "AED");
       expect(lots).toHaveLength(1);

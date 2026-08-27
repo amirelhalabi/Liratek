@@ -7,6 +7,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import {
   UNRESTRICTED_DRAWERS,
+  UNRESTRICTED_DRAWER_BASE_CURRENCIES,
   isUnrestrictedDrawer,
 } from "../constants/drawerCurrencyPolicy.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
@@ -307,17 +308,81 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
     return result;
   }
 
-  /** Get currency codes enabled for a specific drawer */
-  getCurrenciesForDrawer(drawerName: string): string[] {
-    if (isUnrestrictedDrawer(drawerName)) {
-      return this.derivedCurrencyCodesForDrawer(drawerName);
-    }
+  /**
+   * The raw `currency_drawers` allowlist codes for a drawer, ordered by
+   * code. Private: this is the one place the table is queried directly so
+   * every caller that needs the CONFIGURED (as opposed to derived/countable)
+   * set shares it (rule 14) — `getCurrenciesForDrawer` and
+   * `getCountableCurrenciesForDrawer` both build on this for a restricted
+   * drawer.
+   */
+  private configuredAllowlistForDrawer(drawerName: string): string[] {
     const rows = this.db
       .prepare(
         `SELECT currency_code FROM currency_drawers WHERE drawer_name = ? AND tenant_id = ? ORDER BY currency_code`,
       )
       .all(drawerName, getCurrentTenantId()) as { currency_code: string }[];
     return rows.map((r) => r.currency_code);
+  }
+
+  /** Get currency codes enabled for a specific drawer */
+  getCurrenciesForDrawer(drawerName: string): string[] {
+    if (isUnrestrictedDrawer(drawerName)) {
+      return this.derivedCurrencyCodesForDrawer(drawerName);
+    }
+    return this.configuredAllowlistForDrawer(drawerName);
+  }
+
+  /**
+   * The COUNT-SHEET set for a drawer (plan §1a Layer 1, decisions D2 + D5):
+   * `base ∪ {currencies holding a non-zero balance}`, deduplicated.
+   *
+   * This is deliberately DIFFERENT from `getCurrenciesForDrawer` (the
+   * display/acceptance set — every active currency for an unrestricted
+   * drawer, the allowlist for a restricted one). The count sheet must never
+   * be smaller than the money a drawer actually holds, but it also must not
+   * grow just because a currency is merely *active* — an unrestricted
+   * drawer's countable set does not include a zero-balance exotic currency,
+   * only its two native currencies plus whatever it is genuinely holding.
+   *
+   * `base`:
+   *  - unrestricted drawer (General) → `UNRESTRICTED_DRAWER_BASE_CURRENCIES`
+   *    (USD, LBP) — the till's own currencies, counted even at zero;
+   *  - restricted drawer → its real `currency_drawers` allowlist, so a
+   *    drawer whose allowlist OMITS a currency it still holds (config drift,
+   *    D5) still gets a count field for it via the union below.
+   *
+   * Ordering is deterministic (tests depend on it): base codes first in
+   * their source order, then any additional non-zero-balance code not
+   * already in base, appended sorted ascending.
+   */
+  getCountableCurrenciesForDrawer(drawerName: string): string[] {
+    const base = isUnrestrictedDrawer(drawerName)
+      ? [...UNRESTRICTED_DRAWER_BASE_CURRENCIES]
+      : this.configuredAllowlistForDrawer(drawerName);
+
+    const baseSet = new Set(base);
+    const extra = this.getNonZeroBalancesForDrawer(drawerName)
+      .map((held) => held.currency_code)
+      .filter((code) => !baseSet.has(code))
+      .sort();
+
+    return [...base, ...extra];
+  }
+
+  /**
+   * `getCountableCurrenciesForDrawer` for every drawer in the registry.
+   * Keys off `getConfiguredDrawerNames()` — the same
+   * `currency_drawers ∪ drawer_balances ∪ UNRESTRICTED_DRAWERS` union that
+   * backs `getAllDrawerCurrencies()` — so a drawer that holds money but has
+   * an empty (or absent) allowlist still appears as a key here too.
+   */
+  getCountableCurrenciesByDrawer(): Record<string, string[]> {
+    const result: Record<string, string[]> = {};
+    for (const name of this.getConfiguredDrawerNames()) {
+      result[name] = this.getCountableCurrenciesForDrawer(name);
+    }
+    return result;
   }
 
   /** Get full active currency entities for a drawer (mirrors getCurrenciesForModule) */

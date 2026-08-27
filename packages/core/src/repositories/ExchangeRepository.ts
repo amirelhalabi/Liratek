@@ -254,25 +254,28 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id)
          VALUES (?, ?, ?, 2, 1, ?)`,
       );
-      const ensureDrawer = this.db.prepare(
-        `INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name, tenant_id)
-         VALUES (?, 'General', ?)`,
-      );
 
+      // GENERAL_DRAWER_UNRESTRICTED.md item 9: General's countable currency set
+      // is DERIVED (constants/drawerCurrencyPolicy.ts is the ONE owner — see
+      // `isUnrestrictedDrawer`/`UNRESTRICTED_DRAWER_BASE_CURRENCIES` there and
+      // `CurrencyRepository.getCountableCurrenciesForDrawer`), not read from
+      // `currency_drawers`. An `INSERT OR IGNORE INTO currency_drawers` used to
+      // live here as a second, redundant owner of that policy (rule 14) — the
+      // `drawer_balances` row `applyDrawerDelta` writes below is what makes a
+      // brand-new currency (e.g. GBP) countable/visible for General; no
+      // `currency_drawers` row is needed or written for it any more.
       ensureCurrency.run(
         data.fromCurrency,
         data.fromCurrencyName ?? data.fromCurrency,
         data.fromCurrency,
         tenantId,
       );
-      ensureDrawer.run(data.fromCurrency, tenantId);
       ensureCurrency.run(
         data.toCurrency,
         data.toCurrencyName ?? data.toCurrency,
         data.toCurrency,
         tenantId,
       );
-      ensureDrawer.run(data.toCurrency, tenantId);
 
       const result = this.db
         .prepare(
@@ -806,10 +809,13 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    * this is what lets a real everyday trade like LBP->GBP (customer pays
    * LBP for GBP) keep working when GBP is a feed-only currency
    * `ExchangeRepository.createTransaction`'s own `ensureCurrency` registers
-   * into `currencies`/`currency_drawers` but NEVER `exchange_rates` (that
-   * table only holds currencies an operator manually configured a buy/sell
-   * spread for) — the desktop form's main path, `addDirectTransaction`,
-   * computes such a currency's leg rates from a live feed, not this table.
+   * into `currencies` (General's drawer visibility comes from the
+   * `drawer_balances` row `applyDrawerDelta` writes, not from a
+   * `currency_drawers` row — see item 9's comment above) but NEVER
+   * `exchange_rates` (that table only holds currencies an operator manually
+   * configured a buy/sell spread for) — the desktop form's main path,
+   * `addDirectTransaction`, computes such a currency's leg rates from a live
+   * feed, not this table.
    *
    * This method's null-vs-non-null ANSWER (not its math — this stays the
    * one place that resolves the actual USD amount) is mirrored by the pure
@@ -867,7 +873,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    * connection, same defensive `sqlite_master` check `_marketUnitCostUsd`
    * uses). A feed-only exotic (e.g. an open.er-api.com currency) is NEVER
    * given a row by `createTransaction`'s own `ensureCurrency` (which only
-   * ever inserts into `currencies`/`currency_drawers`), so "no row" is a
+   * ever inserts into `currencies`), so "no row" is a
    * NORMAL, expected outcome for this method, not a data error — the
    * earlier claim that a cross leg's currency "MUST already exist" only
    * held for the server-recomputed path (`ExchangeService.addTransaction`);

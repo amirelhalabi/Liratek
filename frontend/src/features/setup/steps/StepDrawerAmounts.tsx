@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Wallet, Plus, X, Smartphone } from "lucide-react";
-import { DecimalInput } from "@liratek/ui";
+import { DecimalInput, useApi } from "@liratek/ui";
 import { useSetup } from "../context/SetupContext";
 import { DRAWER_ORDER, DRAWER_CONFIGS } from "../../closing/config/drawers";
 import type { DrawerType } from "../../closing/types";
@@ -64,18 +64,21 @@ const DRAWER_ACCENT: Record<string, string> = {
 
 export default function StepDrawerAmounts() {
   const { payload, updatePayload, setStep } = useSetup();
+  const api = useApi();
 
   // drawer → currency → numeric value
   const [amounts, setAmounts] = useState<
     Record<string, Record<string, number>>
   >({});
-  // drawer → currency_code[] — the configured currencies, read from the DB
-  // (currency_drawers) so this screen always matches the rest of the app.
+  // drawer → currency_code[] — the countable currencies (base allowlist ∪
+  // any currency holding a non-zero balance there —
+  // GENERAL_DRAWER_UNRESTRICTED.md D2/D5), so this screen always matches the
+  // rest of the app and never renders a duplicate or a zero-balance exotic.
   const [drawerCurrencies, setDrawerCurrencies] = useState<
     Record<string, string[]>
   >({});
   // drawer → extra currency_code[] the operator added here (e.g. EUR) on top of
-  // the configured set. Persisted to currency_drawers on completion.
+  // the countable set. Persisted to currency_drawers on completion.
   const [extraCurrencies, setExtraCurrencies] = useState<
     Record<string, string[]>
   >({});
@@ -96,21 +99,20 @@ export default function StepDrawerAmounts() {
   });
 
   useEffect(() => {
-    window.api?.currencies
-      .allDrawerCurrencies()
+    api
+      .getCountableDrawerCurrencies()
       .then((configured) => setDrawerCurrencies(configured ?? {}));
-    window.api?.currencies
-      .list()
-      .then((rows) =>
-        setAllCurrencies(
-          (Array.isArray(rows) ? rows : []).filter(
-            (c: CurrencyOption) => c.is_active,
-          ),
+    api.getCurrencies().then((rows) =>
+      setAllCurrencies(
+        (Array.isArray(rows) ? rows : []).filter(
+          (c: CurrencyOption) => c.is_active,
         ),
-      );
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Configured + operator-added currencies for a drawer, de-duplicated.
+  // Countable + operator-added currencies for a drawer, de-duplicated.
   function currenciesFor(drawer: string): string[] {
     return Array.from(
       new Set([

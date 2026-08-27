@@ -205,6 +205,16 @@ export class CurrencyService {
   getConfiguredDrawerNames(): string[] {
     return this.currencyRepo.getConfiguredDrawerNames();
   }
+
+  /**
+   * Count-sheet currency sets for every drawer (plan §1a Layer 1, decisions
+   * D2 + D5): `base ∪ {non-zero balances}` per drawer, never smaller than
+   * the money a drawer actually holds. Pure delegation — rule 13, no SQL
+   * lives in the service.
+   */
+  getCountableCurrenciesByDrawer(): Record<string, string[]> {
+    return this.currencyRepo.getCountableCurrenciesByDrawer();
+  }
 }
 
 // =============================================================================

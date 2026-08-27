@@ -13,7 +13,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { InitialDrawerAmountsModal } from "../InitialDrawerAmountsModal";
 
-const mockGetAllDrawerCurrencies = jest.fn();
+const mockGetCountableDrawerCurrencies = jest.fn();
 const mockGetSystemExpectedBalancesDynamic = jest.fn();
 const mockSetDrawerCurrencies = jest.fn();
 const mockCreateCheckpoint = jest.fn();
@@ -21,7 +21,7 @@ const mockCreateCheckpoint = jest.fn();
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
   useApi: () => ({
-    getAllDrawerCurrencies: mockGetAllDrawerCurrencies,
+    getCountableDrawerCurrencies: mockGetCountableDrawerCurrencies,
     getSystemExpectedBalancesDynamic: mockGetSystemExpectedBalancesDynamic,
     setDrawerCurrencies: mockSetDrawerCurrencies,
     createCheckpoint: mockCreateCheckpoint,
@@ -54,7 +54,7 @@ describe("InitialDrawerAmountsModal — Add currency scope", () => {
     // have an addable currency (EUR for General, LBP+EUR for OMT_App), so
     // a pre-fix "every drawer" gate and a post-fix "General only" gate are
     // actually distinguishable by this fixture.
-    mockGetAllDrawerCurrencies.mockResolvedValue({
+    mockGetCountableDrawerCurrencies.mockResolvedValue({
       General: ["USD", "LBP"],
       OMT_App: ["USD"],
     });

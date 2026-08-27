@@ -153,6 +153,21 @@ router.get("/drawer-currencies", (_req, res): void => {
   }
 });
 
+// GET /api/currencies/countable-drawer-currencies - Get the countable currency
+// set (allowlist ∪ non-zero balances) per drawer
+router.get("/countable-drawer-currencies", (_req, res): void => {
+  try {
+    const currencyService = getCurrencyService();
+    const drawerCurrencies = currencyService.getCountableCurrenciesByDrawer();
+    res.json({ success: true, drawerCurrencies });
+  } catch (error) {
+    logger.error({ error }, "Get countable drawer currencies error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch countable drawer currencies" });
+  }
+});
+
 // GET /api/currencies/by-drawer/:drawerName - Get full currencies for a drawer
 router.get("/by-drawer/:drawerName", (_req, res): void => {
   try {

@@ -2548,6 +2548,7 @@ export interface ElectronAPI {
       code: string,
     ) => Promise<{ code: string; name: string; is_active: number } | null>;
     allDrawerCurrencies: () => Promise<Record<string, string[]>>;
+    countableDrawerCurrencies: () => Promise<Record<string, string[]>>;
     setDrawerCurrencies: (
       drawerName: string,
       currencies: string[],

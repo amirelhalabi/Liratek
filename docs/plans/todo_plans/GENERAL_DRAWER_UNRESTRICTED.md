@@ -28,6 +28,99 @@ through those reads, so a policy there fixes all of them at once.
 
 ---
 
+## 0. NEXT SESSION — START HERE (handover, 2026-08-27)
+
+**Everything below is UNCOMMITTED.** The owner commits, and they edit this repo in **parallel
+sessions** — so an unexplained diff is theirs. Never `git checkout/reset/stash`. Their in-flight
+files as of this handover: `current_sprint.md`, `docs/plans/todo_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md`,
+`frontend/src/features/services/**`.
+
+**Done + verified:** Phase 1, Phase 2, Phase 3 item 7 (see the verification record above).
+**Outstanding, in priority order:** item 8 → item 9 → item 10 → Phase 4.
+
+> ⚠ **Do item 8 FIRST.** Phase 1 made General's set derive to *every active currency*, and the
+> closing screens still read that set raw — so **today the General count sheet is wrong** (§8).
+> It is the only user-visible regression left from this work.
+
+### Item 8 — the closing/opening count sheet (URGENT, biggest remaining item)
+
+**Goal (owner decisions D2 + D5):** for **every** drawer, the count sheet = **base ∪ {currencies
+with a non-zero balance}**, where base = the configured allowlist (restricted drawers) or
+**USD + LBP** (unrestricted, i.e. General). Deduplicated.
+
+**Two bugs it fixes** (both verified live, see §8 for the full trace):
+1. **USDT gets two input fields** for General. `Checkpoint/index.tsx:163-172` builds `coreCurrencies`
+   (derived ∩ {USD,LBP,EUR,USDT}) and `otherCurrencies` (derived − {USD,LBP,EUR}); USDT is in
+   **both**, and `DrawerCard.tsx:307,372` renders the two lists **independently with no dedup**.
+   `statusFields` double-counts it in the variance summary too.
+2. **EUR/USDT appear at zero balance** — the "all active currencies" option the owner explicitly
+   rejected.
+
+**Where the code goes (rule 13):** one named read in `ClosingRepository`, **not** in the page.
+`CurrencyRepository.getNonZeroBalancesForDrawer(drawerName)` already exists from Phase 1 — reuse
+it, do not write a second balance query (rule 14). `isUnrestrictedDrawer()` from
+`constants/drawerCurrencyPolicy.ts` picks the base set.
+
+**Consumers to migrate:** `frontend/src/features/closing/pages/Checkpoint/index.tsx` (kill the
+`coreCurrencies`/`otherCurrencies` split for General, or dedupe it), `InitialDrawerAmountsModal.tsx:149`,
+`StepDrawerAmounts.tsx:117` — all three iterate the same map.
+
+**Proof required:** failing-first (rule 17) — a drawer whose allowlist omits a currency it still
+holds **still gets a count field**; a zero-balance exotic does **not**; General shows no duplicate
+USDT field. Plus the `Binance → USDT only` guard must keep passing (it proves acceptance scope
+didn't widen).
+
+### Item 9 — drop the redundant exchange auto-register
+
+Remove the General `INSERT OR IGNORE INTO currency_drawers` in `ExchangeRepository`'s
+`_applyExchangeLotEffects` region so the policy has ONE owner. **Keep `ensureCurrency`** — it must
+still create the `currencies` row for API currencies (GBP, AED).
+⚠ **Line numbers in that file drifted ~+22** from the 2026-08-27 exchange-override work — find it
+by symbol (`ensureDrawer`), never by the line numbers quoted elsewhere in this doc.
+
+### Item 10 — delete a dead IPC round-trip
+
+`Dashboard.tsx:242` loads `_drawerCurrencyConfig` and never uses it — one wasted call per dashboard
+load. Pure deletion.
+
+### Phase 4 — the proof set
+
+- **Rule 20 reversal symmetry:** create a EUR top-up → void it → `payments` **and**
+  `drawer_balances` net to **0 in EUR**. Expected to pass (generic `_reversePayments` reverses per
+  currency) but it is an unproven path for a non-USD/LBP currency — assert it, don't assume.
+- Closing D2 test (non-zero EUR ⇒ count field; zero ⇒ none).
+- **E2E:** desktop — cash-in EUR from the dashboard modal → appears in Cash on Hand → appears in
+  the closing sheet. Web mirror per rule 19.
+- Then the **full** `yarn test` (root, not per-workspace — see the environment note below).
+
+### Environment notes that will save you time
+
+- **better-sqlite3 ABI:** left on the **Node** ABI (core jest works, desktop e2e does not).
+  `yarn dev` rebuilds it to Electron automatically. Root `yarn test` runs `rebuild:node` first, so
+  it self-corrects.
+- **Run the FULL core suite, never just your new files.** The exchange work's CI-red BLOCKER (a
+  strict `toEqual` pinning test broken by an added return field) was invisible until the full suite
+  finally ran: `cd packages/core && node ../../node_modules/cross-env/src/bin/cross-env.js TZ=Asia/Beirut node ../../node_modules/jest/bin/jest.js --config jest.config.cjs`
+  → baseline **230 suites / 2435 tests**.
+- After any `packages/core` edit: `cd packages/core && npm run build` (this IS core's typecheck+lint),
+  then from the repo root `cp -r packages/core/dist/. node_modules/@liratek/core/dist/`.
+  A symbol the renderer imports must also be exported from `packages/core/src/browser.ts` or the
+  renderer fails at load and **no typecheck catches it**.
+- Git Bash mangles `cmd /c` and long heredocs — use the Write/Edit tools; call `npm`/`npx`/`node`
+  directly.
+
+### Sibling workstream (separate, DONE but also uncommitted)
+
+The exchange rate-override fix (signed override profit, `bookedProfitUsd`, cross anchor schema
+guard, deferred-profit preview, `lira-146` e2e). Fully verified: core 230/2435, frontend exchange
+41/41, desktop e2e green, rule 17 executed. Two cosmetic residuals were deliberately left, if
+anyone wants consistency: `HistoryModal.tsx:174` and `PositionsPanel.tsx:153` render a negative as
+`$-X.XX` instead of `-$X.XX` (server-persisted values, already correctly signed — cosmetic only).
+Also `frontend/tests/e2e-electron/fixtures.ts`'s comment "None of the 11 current opt-out spec
+files…" is stale — it is **13** now.
+
+---
+
 ## 1. Diagnosis — two sources of truth that disagree
 
 |            | Table              | Semantics                                                          | Read by                                                                    |

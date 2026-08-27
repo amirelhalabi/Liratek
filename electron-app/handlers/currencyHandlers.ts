@@ -123,6 +123,11 @@ export function registerCurrencyHandlers(): void {
     return currencyService.getAllDrawerCurrencies();
   });
 
+  // Get the countable currency set (allowlist ∪ non-zero balances) per drawer
+  ipcMain.handle("currencies:countableDrawerCurrencies", () => {
+    return currencyService.getCountableCurrenciesByDrawer();
+  });
+
   // Get currencies enabled for a drawer
   ipcMain.handle("currencies:forDrawer", (_event, drawerName: string) => {
     return currencyService.getCurrenciesForDrawer(drawerName);

@@ -1244,6 +1244,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("currencies:setModules", code, modules),
     allDrawerCurrencies: () =>
       ipcRenderer.invoke("currencies:allDrawerCurrencies"),
+    countableDrawerCurrencies: () =>
+      ipcRenderer.invoke("currencies:countableDrawerCurrencies"),
     forDrawer: (drawerName: string) =>
       ipcRenderer.invoke("currencies:forDrawer", drawerName),
     fullForDrawer: (drawerName: string) =>

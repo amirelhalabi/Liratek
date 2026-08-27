@@ -53,8 +53,9 @@ export function InitialDrawerAmountsModal({
   const [amounts, setAmounts] = useState<
     Record<string, Record<string, number>>
   >({});
-  // Currencies shown per drawer. Seeded from currency_drawers (the source of
-  // truth) and grown when the operator adds a currency.
+  // Currencies shown per drawer. Seeded from the countable set (base
+  // allowlist ∪ non-zero-balance currencies) and grown when the operator
+  // adds a currency.
   const [drawerCurrencies, setDrawerCurrencyState] = useState<
     Record<string, string[]>
   >({});
@@ -73,11 +74,13 @@ export function InitialDrawerAmountsModal({
     return !required || isModuleEnabled(required);
   });
 
-  // Load the configured currencies per drawer + current balances so the
-  // operator sees existing state and the real per-drawer currency set.
+  // Load the countable currencies per drawer (base allowlist ∪ any currency
+  // holding a non-zero balance there — GENERAL_DRAWER_UNRESTRICTED.md D2/D5)
+  // + current balances so the operator sees existing state and the real
+  // per-drawer countable set.
   useEffect(() => {
     Promise.all([
-      api.getAllDrawerCurrencies(),
+      api.getCountableDrawerCurrencies(),
       api.getSystemExpectedBalancesDynamic(),
     ]).then(([configured, balances]) => {
       const initialCurrencies: Record<string, string[]> = {};

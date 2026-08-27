@@ -47,3 +47,18 @@ export type UnrestrictedDrawerName = (typeof UNRESTRICTED_DRAWERS)[number];
 export function isUnrestrictedDrawer(drawerName: string): boolean {
   return (UNRESTRICTED_DRAWERS as readonly string[]).includes(drawerName);
 }
+
+/**
+ * The COUNT-SHEET base for an unrestricted drawer (General): the shop's own
+ * till always counts its two native currencies, even at a zero balance. This
+ * is a **display floor**, not the acceptance policy above — General still
+ * accepts and derives every active currency (`isUnrestrictedDrawer`); this
+ * constant only answers "which currencies always get a count field", per
+ * decision D2 in `docs/plans/todo_plans/GENERAL_DRAWER_UNRESTRICTED.md`.
+ *
+ * Everything beyond USD/LBP is earned by holding money: a drawer's countable
+ * set is never smaller than the money it holds (§1a Layer 1 / D5), but it is
+ * also never required to show an exotic currency the till happens to hold
+ * zero of. See `CurrencyRepository.getCountableCurrenciesForDrawer`.
+ */
+export const UNRESTRICTED_DRAWER_BASE_CURRENCIES = ["USD", "LBP"] as const;

@@ -288,15 +288,23 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
   // guard (itself a fix for an earlier, still-more-restrictive
   // `currency_drawers` allowlist gate — see git history). The currency
   // picker now mirrors the Exchange page's own list (configured currencies +
-  // the live FX feed), and — like Exchange already does via
-  // `ensureCurrency` — the repository auto-registers an unknown code before
-  // opening its exchange lot. GBP below exists nowhere in `currencies`
-  // beforehand, proving the auto-registration (not merely "was already
-  // active somehow").
+  // the live FX feed), and the repository auto-registers an unknown code's
+  // `currencies` row before opening its exchange lot. GBP below exists
+  // nowhere in `currencies` beforehand, proving the auto-registration (not
+  // merely "was already active somehow").
   //
   // Rule 17: this test was run against the pre-refinement code (the
   // `allowed`/`getCurrenciesForDrawer` gate restored) and FAILED —
   // `result.success` was `false` with error "not an active currency".
+  //
+  // GENERAL_DRAWER_UNRESTRICTED.md item 9 (2026-08-27) — updated to drop the
+  // `currency_drawers` row expectation: that write was a second, now-removed
+  // owner of General's currency policy (rule 14). General's countable set is
+  // DERIVED from `drawer_balances` (`constants/drawerCurrencyPolicy.ts`,
+  // `CurrencyRepository.getCountableCurrenciesForDrawer`), so no
+  // `currency_drawers` row is written or needed for General — see
+  // `DrawerTopUpRepository.generalUnrestrictedPolicy.test.ts` for the
+  // dedicated regression proving that end-to-end.
   it("auto-registers a brand-new currency code (never active before) and opens its lot", () => {
     // GBP deliberately absent from `currencies`/`currency_drawers`.
     const result = service.addTopUp(
@@ -319,12 +327,14 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
     expect(currencyRow).toBeTruthy();
     expect(currencyRow!.is_active).toBe(1);
 
+    // No `currency_drawers` row for General — that allowlist table is never
+    // written for an unrestricted drawer (item 9).
     const drawerRow = db
       .prepare(
         "SELECT * FROM currency_drawers WHERE currency_code = ? AND drawer_name = ?",
       )
       .get("GBP", "General");
-    expect(drawerRow).toBeTruthy();
+    expect(drawerRow).toBeUndefined();
   });
 
   // The USD/LBP-in-extra_currencies guard is now explicit in the SERVICE

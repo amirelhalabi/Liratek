@@ -8,13 +8,10 @@
  * reset-to-expected affordance.
  */
 
-import { useState, useRef } from "react";
 import {
   DollarSign,
   Wallet,
   Phone,
-  Coins,
-  X,
   Check,
   AlertTriangle,
   RotateCcw,
@@ -71,8 +68,6 @@ interface DrawerCardProps {
   onAmountChange: (drawer: DrawerType, code: string, value: string) => void;
   disabled?: boolean;
   focusRingColor?: string;
-  /** Additional currencies (non-core) to show in the currencies popup */
-  otherCurrencies?: Currency[];
   /** When provided, enables per-field variance status against this expected value. */
   getExpectedValue?: (drawer: DrawerType, code: string) => number;
   /** Snap a field back to its expected value. */
@@ -91,16 +86,12 @@ export function DrawerCard({
   onAmountChange,
   disabled = false,
   focusRingColor = "violet-500",
-  otherCurrencies,
   getExpectedValue,
   onResetToExpected,
   carrierLine,
   currencyLabels,
 }: DrawerCardProps) {
   const config = DRAWER_CONFIGS[drawer];
-  const [showCurrencyPopup, setShowCurrencyPopup] = useState(false);
-  const [showTooltip, setShowTooltip] = useState(false);
-  const tooltipTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getIcon = () => {
     switch (config.icon) {
@@ -116,11 +107,7 @@ export function DrawerCard({
   };
 
   /** Render a single currency input row, optionally with variance status. */
-  const renderField = (
-    currency: Currency,
-    fieldKey: string,
-    size: "lg" | "sm",
-  ) => {
+  const renderField = (currency: Currency, fieldKey: string) => {
     const rawValue = getDisplayValue(drawer, currency.code);
     const showStatus = !!getExpectedValue;
     const expected = showStatus ? getExpectedValue!(drawer, currency.code) : 0;
@@ -149,9 +136,7 @@ export function DrawerCard({
             allowNegative
             disabled={disabled}
             placeholder="0"
-            className={`flex-1 min-w-0 bg-slate-900 border-2 ${borderClass} rounded-lg px-4 ${
-              size === "lg" ? "py-2.5 text-lg" : "py-2"
-            } text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 ${ringClass} transition cursor-text disabled:opacity-50 disabled:cursor-not-allowed`}
+            className={`flex-1 min-w-0 bg-slate-900 border-2 ${borderClass} rounded-lg px-4 py-2.5 text-lg text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 ${ringClass} transition cursor-text disabled:opacity-50 disabled:cursor-not-allowed`}
           />
           {info && (
             <div
@@ -258,8 +243,6 @@ export function DrawerCard({
     );
   };
 
-  const hasOtherCurrencies = otherCurrencies && otherCurrencies.length > 0;
-
   return (
     <div
       className={`border-2 rounded-xl p-5 transition-all hover:shadow-lg ${config.color.border} ${config.color.background}`}
@@ -275,62 +258,6 @@ export function DrawerCard({
               : config.description}
           </p>
         </div>
-        {hasOtherCurrencies && (
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowCurrencyPopup(true)}
-              onMouseEnter={() => {
-                tooltipTimeout.current = setTimeout(
-                  () => setShowTooltip(true),
-                  400,
-                );
-              }}
-              onMouseLeave={() => {
-                if (tooltipTimeout.current)
-                  clearTimeout(tooltipTimeout.current);
-                setShowTooltip(false);
-              }}
-              className="p-2 rounded-lg bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white transition-colors border border-slate-600/50"
-              title="Other currencies"
-            >
-              <Coins size={16} />
-            </button>
-
-            {/* Tooltip on hover */}
-            {showTooltip && !showCurrencyPopup && (
-              <div className="absolute right-0 top-full mt-2 z-50 bg-slate-800 border border-slate-600 rounded-lg p-3 shadow-xl min-w-48">
-                <p className="text-xs text-slate-400 uppercase tracking-wide mb-2">
-                  Other Currencies
-                </p>
-                <div className="space-y-1">
-                  {otherCurrencies!.map((c) => {
-                    const val =
-                      parseFloat(getDisplayValue(drawer, c.code)) || 0;
-                    return (
-                      <div
-                        key={c.code}
-                        className="flex justify-between text-sm"
-                      >
-                        <span className="text-slate-300">
-                          {c.name || c.code}
-                        </span>
-                        <span className="text-emerald-400 font-mono">
-                          {val === 0
-                            ? "0"
-                            : val.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Currency Inputs */}
@@ -339,51 +266,11 @@ export function DrawerCard({
           <p className="text-sm text-slate-300/80">No currencies to display.</p>
         ) : (
           currencies.map((currency) =>
-            renderField(currency, `${drawer}-${currency.code}`, "lg"),
+            renderField(currency, `${drawer}-${currency.code}`),
           )
         )}
         {carrierLine && renderValidityField(carrierLine)}
       </div>
-
-      {/* Other Currencies Popup */}
-      {showCurrencyPopup && hasOtherCurrencies && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setShowCurrencyPopup(false);
-          }}
-        >
-          <div
-            className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md p-5"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">
-                Other Currencies — {config.label}
-              </h3>
-              <button
-                onClick={() => setShowCurrencyPopup(false)}
-                className="p-1 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="space-y-3 max-h-80 overflow-y-auto">
-              {otherCurrencies!.map((currency) =>
-                renderField(currency, `${drawer}-${currency.code}-popup`, "sm"),
-              )}
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={() => setShowCurrencyPopup(false)}
-                className="px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm rounded-lg transition-colors"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -237,14 +237,26 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       // else). Since the currency picker now mirrors the Exchange page's
       // list (configured currencies + the live FX feed — see
       // useExchangeCurrencyList on the frontend), an entry's `currency_code`
-      // may be brand new to this shop: auto-register it exactly like
-      // `ExchangeRepository`'s own `ensureCurrency`/`ensureDrawer` pair
-      // (INSERT OR IGNORE, tenant-scoped) — duplicated here rather than
-      // extracted into a shared helper (ExchangeRepository's own call sites
-      // are out of scope for this change; cross-reference this comment if
-      // unifying later). This MUST run before `createLot` below: `exchange_lots`
-      // has a composite FK `(tenant_id, currency_code) REFERENCES
+      // may be brand new to this shop: auto-register its `currencies` row
+      // (INSERT OR IGNORE, tenant-scoped) before anything else touches it.
+      // This MUST run before `createLot` below: `exchange_lots` has a
+      // composite FK `(tenant_id, currency_code) REFERENCES
       // currencies(tenant_id, code)`.
+      //
+      // GENERAL_DRAWER_UNRESTRICTED.md item 9 — there is deliberately NO
+      // matching `currency_drawers` write here anymore. General's currency
+      // set is DERIVED, not configured (`constants/drawerCurrencyPolicy.ts`
+      // — `isUnrestrictedDrawer`/`UNRESTRICTED_DRAWER_BASE_CURRENCIES`):
+      // `CurrencyRepository.getCountableCurrenciesForDrawer("General")`
+      // returns the USD/LBP base unioned with every currency the drawer
+      // holds a non-zero `drawer_balances` row for. The `applyDrawerDelta`
+      // call below already writes that balance row, which is the only thing
+      // that makes an extra currency countable for General — a
+      // `currency_drawers` allowlist row would be inert for this drawer (it
+      // is never read as an allowlist for it — same doc) and was a second,
+      // now-removed owner of this policy (ExchangeRepository dropped its own
+      // copy in the same item; ExchangeRepository.ts still keeps its
+      // `ensureCurrency` for the identical FK reason as here).
       //
       // `acquiredAt` is read back from the top-up row itself (SQLite format)
       // rather than re-derived, mirroring `ExchangeRepository`'s
@@ -263,38 +275,37 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
 
       // Guarded on `extraEntries.length > 0` (not just each entry inside the
       // loop): `.prepare()` validates the SQL against the schema immediately,
-      // so preparing these unconditionally would require every OTHER
-      // top-up path (plain USD/LBP, no extra_currencies at all) to also
-      // carry a `currencies`/`currency_drawers` table — a real regression
-      // this exact guard fixes (caught by DrawerTopUpRepository.cashFlowLeak
-      // .test.ts's minimal fixture, which has neither table and never
-      // touches extra_currencies).
+      // so preparing this unconditionally would require every OTHER top-up
+      // path (plain USD/LBP, no extra_currencies at all) to also carry a
+      // `currencies` table — a real regression this exact guard fixes
+      // (caught by DrawerTopUpRepository.cashFlowLeak.test.ts's minimal
+      // fixture, which has no such table and never touches
+      // extra_currencies).
       if (extraEntries.length > 0) {
         const ensureCurrency = this.db.prepare(
           `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id)
            VALUES (?, ?, ?, 2, 1, ?)`,
         );
-        const ensureDrawer = this.db.prepare(
-          `INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name, tenant_id)
-           VALUES (?, 'General', ?)`,
-        );
 
         for (const entry of extraEntries) {
           if (!entry.amount || entry.amount <= 0) continue;
 
-          // Auto-register BEFORE anything else touches this currency_code —
-          // see the comment above the loop. Name/symbol default to the code
+          // Auto-register the `currencies` row BEFORE anything else touches
+          // this currency_code — see the comment above the loop for why
+          // (the `exchange_lots` FK below). Name/symbol default to the code
           // itself (no display metadata available at this layer), matching
           // ExchangeRepository.ensureCurrency's own fallback when no
           // *CurrencyName is supplied. INSERT OR IGNORE is a no-op for a
-          // currency that already exists.
+          // currency that already exists. No `currency_drawers` row is
+          // written — General's countable set is derived from
+          // `drawer_balances`, not from that allowlist table; see the
+          // comment above the loop.
           ensureCurrency.run(
             entry.currency_code,
             entry.currency_code,
             entry.currency_code,
             tenantId,
           );
-          ensureDrawer.run(entry.currency_code, tenantId);
 
           insertPaymentRow(this.db, {
             transactionId: txnId,

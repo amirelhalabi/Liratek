@@ -529,6 +529,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   setModulesForCurrency = (code: string, modules: string[]) =>
     api.setModulesForCurrency(code, modules);
   getAllDrawerCurrencies = () => api.getAllDrawerCurrencies();
+  getCountableDrawerCurrencies = () => api.getCountableDrawerCurrencies();
   getCurrenciesForDrawer = (drawerName: string) =>
     api.getCurrenciesForDrawer(drawerName);
   getDrawersForCurrency = (code: string) => api.getDrawersForCurrency(code);

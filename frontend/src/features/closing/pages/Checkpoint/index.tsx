@@ -106,7 +106,7 @@ export default function CheckpointModal({
   useEffect(() => {
     if (!isOpen) return;
     api
-      .getAllDrawerCurrencies()
+      .getCountableDrawerCurrencies()
       .then(setDrawerCurrencyConfig)
       .catch(() => {});
     fetchSystemExpected();
@@ -160,17 +160,32 @@ export default function CheckpointModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  // `drawerCurrencyConfig[drawerName]` is the server's already-deduplicated,
+  // already-ordered count-sheet set (base allowlist ∪ non-zero balances — see
+  // GENERAL_DRAWER_UNRESTRICTED.md item 8). It is rendered as ONE list: no
+  // re-filtering against a hardcoded currency whitelist, no special-casing
+  // "General" — that split is what produced the duplicate-field bug.
+  //
+  // Built by MAPPING the server's codes (never by intersecting against
+  // `currencies`, which is `useCurrencies()`'s ACTIVE-ONLY list): a currency
+  // deactivated in Settings while still holding cash keeps being reported as
+  // countable by getCountableDrawerCurrencies() (CurrencyRepository ignores
+  // is_active for held balances by design), and an intersection against the
+  // active-only list would silently drop its field — the exact "money
+  // exists, no count field" failure item 8 exists to close. `DrawerCard`
+  // only reads `.code` off each entry, so a synthetic fallback entry for a
+  // code not present in `currencies` is safe.
   const allowed = drawerCurrencyConfig[drawerName];
   const drawerCurrencies = allowed
-    ? currencies.filter((c) => allowed.includes(c.code))
+    ? allowed.map(
+        (code) =>
+          currencies.find((c) => c.code === code) ?? {
+            code,
+            name: code,
+            is_active: 0,
+          },
+      )
     : currencies;
-  const coreCurrencies = drawerCurrencies.filter((c) =>
-    ["USD", "LBP", "EUR", "USDT"].includes(c.code),
-  );
-  const otherCurrencies =
-    drawerName === "General"
-      ? drawerCurrencies.filter((c) => !["USD", "LBP", "EUR"].includes(c.code))
-      : undefined;
 
   const getExpectedValue = (_d: DrawerType, code: string): number =>
     systemExpected?.[drawerName]?.[code] ?? 0;
@@ -185,7 +200,7 @@ export default function CheckpointModal({
   };
 
   // Overall status across the editable fields, for the Save button summary.
-  const statusFields = [...coreCurrencies, ...(otherCurrencies ?? [])];
+  const statusFields = drawerCurrencies;
   let overallStatus: VarianceStatus = "match";
   const diffs: { code: string; variance: number }[] = [];
   for (const c of statusFields) {
@@ -419,7 +434,7 @@ export default function CheckpointModal({
                     currency in Settings → Currency Manager.
                   </p>
                 </div>
-              ) : coreCurrencies.length === 0 ? (
+              ) : drawerCurrencies.length === 0 ? (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
                   <p className="text-yellow-200 text-sm">
                     No currencies configured for this drawer.
@@ -444,8 +459,7 @@ export default function CheckpointModal({
                   )}
                   <DrawerCard
                     drawer={drawer}
-                    currencies={coreCurrencies}
-                    {...(otherCurrencies ? { otherCurrencies } : {})}
+                    currencies={drawerCurrencies}
                     getDisplayValue={(d, c) =>
                       drawerAmounts.getDisplayValue(d, c)
                     }
@@ -515,7 +529,7 @@ export default function CheckpointModal({
                 saving ||
                 currenciesLoading ||
                 isPartnerDrawerInactive ||
-                coreCurrencies.length === 0
+                drawerCurrencies.length === 0
               }
               className={`px-6 py-2 ${SAVE_STYLES[overallStatus]} text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed max-w-[70%] truncate`}
             >

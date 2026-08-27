@@ -238,10 +238,6 @@ export default function Dashboard() {
   const [drawerBalances, setDrawerBalances] = useState<
     Record<string, Record<string, number>>
   >({});
-  /** Configured currencies per drawer: drawer_name → currency_code[] */
-  const [_drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
-    Record<string, string[]>
-  >({});
   /** Last checkpoint timestamp per drawer: drawer_name → checked_at ISO */
   const [drawerStatuses, setDrawerStatuses] = useState<
     Record<string, { checked_at: string }>
@@ -372,7 +368,6 @@ export default function Dashboard() {
         debtData,
         stockStats,
         monthlyPL,
-        drawerCurrConfig,
         debtorsData,
       ] = await Promise.all([
         api.getDashboardStats(),
@@ -382,7 +377,6 @@ export default function Dashboard() {
         api.getDebtSummary(),
         api.getInventoryStockStats(),
         api.getMonthlyPL(localMonth()),
-        api.getAllDrawerCurrencies(),
         api.getDebtors(),
       ]);
 
@@ -404,9 +398,6 @@ export default function Dashboard() {
       setTodaysSales(salesTodayData);
       if (drawerData) {
         setDrawerBalances(drawerData);
-      }
-      if (drawerCurrConfig) {
-        setDrawerCurrencyConfig(drawerCurrConfig);
       }
       if (debtData) {
         setDebtSummary(debtData);
