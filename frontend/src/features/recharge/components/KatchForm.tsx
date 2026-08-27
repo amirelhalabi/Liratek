@@ -254,7 +254,7 @@ interface ItemCardProps {
   onCreditPriceLbpChange: (item: ServiceItem, value: number) => void;
   /** Carrier-lines-validity plan Phase 5 / D5: true when this item qualifies
    *  for the "Charge to shop line" self-charge action (see
-   *  `isSelfChargeEligible` — shared with CarrierLinesManager.tsx). */
+   *  `isSelfChargeEligible`). */
   selfChargeEligible: boolean;
   /** The carrier's current primary line (`getPrimary`), or null when the
    *  carrier has no active line yet — the button stays visible but disabled
@@ -777,10 +777,9 @@ function KatchFormInner({
   // ── Self-charge (LIRA-090 §5.2, carrier-lines-validity plan Phase 5 / D5) ──
   // Item-card entry point: charge an eligible iPick/Katsh item straight to
   // the shop's own primary MTC/Alfa line — no customer, no sale row, no
-  // profit row. Same repository call and confirm copy as
-  // CarrierLinesManager.tsx's Settings-side modal, but the target line is
-  // resolved automatically via getPrimary(carrier) (there is one line per
-  // carrier today — §0.5) instead of offered as a picker.
+  // profit row. The target line is resolved automatically via
+  // getPrimary(carrier) (there is one line per carrier today — §0.5)
+  // instead of offered as a picker.
   const [primaryLines, setPrimaryLines] = useState<
     Record<"alfa" | "mtc", CarrierLineEntity | null>
   >({ alfa: null, mtc: null });
@@ -2363,9 +2362,7 @@ function KatchFormInner({
       )}
 
       {/* Self-charge confirm modal (LIRA-090 §5.2, carrier-lines-validity
-          plan Phase 5 / D5) — same repository call and confirm copy as
-          CarrierLinesManager.tsx's Settings-side "Charge item to this line"
-          modal; the target line is resolved automatically via
+          plan Phase 5 / D5) — the target line is resolved automatically via
           getPrimary(carrier) instead of offered as a picker. */}
       {selfChargeItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
