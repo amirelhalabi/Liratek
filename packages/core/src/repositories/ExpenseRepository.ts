@@ -33,6 +33,25 @@ export interface ExpenseEntity {
   refunded_at: string | null;
 }
 
+/**
+ * Route this expense's single drawer leg to an EXPLICIT drawer/currency
+ * instead of the one `paymentMethodToDrawerName(paid_by_method)` resolves
+ * (LIRA-145 carrier-line usage).
+ *
+ * Exists because some expenses are paid out of a stock of value the shop
+ * already holds in a PROVIDER drawer, not out of a payment method at all:
+ * consuming an MTC/Alfa line's credits spends the carrier credit drawer
+ * (`CARRIER_DRAWER_NAMES`), and the documented invariant
+ * `drawer_balances[carrier].USD == getCarrierCreditsSum(carrier)` only holds
+ * if that exact drawer is the one debited. `paid_by_method` stays the
+ * audit/reporting label for HOW it was paid (`LINE_CREDIT`); this field says
+ * WHERE the value left from.
+ */
+export interface ExpenseDrawerOverride {
+  drawer_name: string;
+  currency_code: "USD" | "LBP";
+}
+
 export interface CreateExpenseData {
   description: string;
   category: string;
@@ -41,6 +60,21 @@ export interface CreateExpenseData {
   amount_lbp: number;
   expense_date: string;
   transaction_time?: string;
+  /**
+   * When set, `createExpense` posts EXACTLY ONE leg — the override
+   * drawer/currency, for that currency's amount, negated — and skips the
+   * whole `paid_by_method` → drawer mapping (including the BINANCE/USDT
+   * special case), so an override can never double-post. See
+   * {@link ExpenseDrawerOverride}.
+   */
+  drawer_override?: ExpenseDrawerOverride;
+  /**
+   * Extra keys merged into the unified transaction's `metadata_json`. The
+   * canonical `category`/`paid_by`/`expense_date` keys are written AFTER
+   * this spread and always win — an override can add context, never rewrite
+   * the row's own identity.
+   */
+  extra_metadata?: Record<string, unknown>;
 }
 
 export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
@@ -96,6 +130,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         amount_lbp: -(data.amount_lbp || 0),
         summary: `Expense: ${data.category} - ${data.description}`,
         metadata_json: {
+          ...(data.extra_metadata ?? {}),
           category: data.category,
           paid_by: paidBy,
           expense_date: data.expense_date,
@@ -103,31 +138,51 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         transaction_time: data.transaction_time,
       });
 
+      const note = `${data.category}: ${data.description}`;
+      const createdBy = userId;
+
+      const postOutflow = (
+        currency: string,
+        amount: number,
+        targetDrawer: string,
+      ) => {
+        const delta = -Math.abs(amount);
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: paidBy,
+          drawerName: targetDrawer,
+          currencyCode: currency,
+          amount: delta,
+          note,
+          createdBy,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: targetDrawer,
+          currencyCode: currency,
+          delta,
+          tenantId,
+        });
+      };
+
+      // Explicit drawer override (LIRA-145): ONE leg, on the caller's drawer
+      // and currency, and NONE of the paid-by-method mapping below — a
+      // second post here would double-debit and break the carrier-credit sum
+      // invariant this override exists to preserve. `isDrawerAffectingMethod`
+      // is deliberately NOT consulted: the override IS the statement that a
+      // drawer moves, and `LINE_CREDIT` is not a registered payment method.
+      if (data.drawer_override) {
+        const { drawer_name, currency_code } = data.drawer_override;
+        const amount =
+          currency_code === "USD" ? data.amount_usd : data.amount_lbp;
+        if (amount) {
+          postOutflow(currency_code, amount, drawer_name);
+        }
+        return expenseId;
+      }
+
       // All expenses affect drawer balances (unless paid by non-drawer-affecting method)
       if (isDrawerAffectingMethod(paidBy)) {
-        const note = `${data.category}: ${data.description}`;
-        const createdBy = userId;
-
-        const postOutflow = (currency: string, amount: number) => {
-          const delta = -Math.abs(amount);
-          insertPaymentRow(this.db, {
-            transactionId: txnId,
-            method: paidBy,
-            drawerName,
-            currencyCode: currency,
-            amount: delta,
-            note,
-            createdBy,
-            tenantId,
-          });
-          applyDrawerDelta(this.db, {
-            drawerName,
-            currencyCode: currency,
-            delta,
-            tenantId,
-          });
-        };
-
         // Binance is a USDT-denominated wallet: the shop pays the expense out
         // of its USDT balance. USDT is tracked 1:1 with USD across the app
         // (see FinancialServiceRepository wallet path / lira-098), so the
@@ -138,16 +193,16 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
 
         if (isUsdtWallet) {
           if (data.amount_usd && data.amount_usd !== 0) {
-            postOutflow("USDT", data.amount_usd);
+            postOutflow("USDT", data.amount_usd, drawerName);
           }
         } else {
           // USD outflow
           if (data.amount_usd && data.amount_usd !== 0) {
-            postOutflow("USD", data.amount_usd);
+            postOutflow("USD", data.amount_usd, drawerName);
           }
           // LBP outflow
           if (data.amount_lbp && data.amount_lbp !== 0) {
-            postOutflow("LBP", data.amount_lbp);
+            postOutflow("LBP", data.amount_lbp, drawerName);
           }
         }
       }

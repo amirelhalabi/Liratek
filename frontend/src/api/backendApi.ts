@@ -5229,6 +5229,55 @@ export async function toggleCarrierLineActive(
   );
 }
 
+/** LIRA-145 — payload for {@link recordCarrierLineUsage}. Runtime twin of
+ *  core's `recordCarrierLineUsageSchema` (validators/carrierLine.ts). */
+export type CarrierLineUsagePayload = {
+  carrierLineId: number;
+  /** The line's NEW credit balance, as read off the SIM. A "credits used"
+   *  input is resolved to a new balance before it gets here. */
+  newCredits: number;
+  /** Optimistic-concurrency guard: the balance the form was rendered
+   *  against. The server rejects when the stored balance has moved since. */
+  expectedCurrentCredits?: number;
+  note?: string;
+};
+
+/** LIRA-145 — envelope returned by {@link recordCarrierLineUsage}. */
+export type CarrierLineUsageResult = {
+  success: boolean;
+  data?: {
+    expenseId: number;
+    /** The unified EXPENSE `transactions` row; the `carrier_line_movements`
+     *  row hangs off it, which is what makes a void restore the line. */
+    transactionId: number;
+    /** BOOKED expense magnitude in USD (round2 of the raw delta). */
+    creditsUsed: number;
+    newCredits: number;
+  };
+  error?: string;
+};
+
+/** LIRA-145: book a shop line's consumed credits as a `Line_Usage` expense.
+ *  Everything happens server-side in ONE db transaction — the expense row,
+ *  the unified EXPENSE transaction, a single payment leg against the
+ *  carrier's credit drawer (no cash drawer moves), and the linked
+ *  `carrier_line_movements` row that decrements the line. Face value, USD
+ *  only ($1 per credit). Rejections (line missing/inactive, stale
+ *  `expectedCurrentCredits`, non-positive delta) come back as
+ *  `{ success: false, error }`, never as a throw. */
+export async function recordCarrierLineUsage(
+  data: CarrierLineUsagePayload,
+): Promise<CarrierLineUsageResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().carrierLines.recordUsage(data),
+    async () =>
+      requestJson<CarrierLineUsageResult>(`/api/carrier-lines/record-usage`, {
+        method: "POST",
+        body: data,
+      }),
+  );
+}
+
 // ==================== Mobile Service Item API — admin (LIRA W6.b) ====================
 // Scoped to the ops the Settings manager's validity-days/credits editing
 // exercises. create/delete/toggle/seed/public-list stay desktop-IPC-only

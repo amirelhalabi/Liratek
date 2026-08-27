@@ -13,6 +13,8 @@ import {
   type CreateCarrierLineData,
   type UpdateCarrierLineData,
   type UpdateBalanceData,
+  type RecordCarrierLineUsageData,
+  type RecordCarrierLineUsageResult,
 } from "../repositories/CarrierLineRepository.js";
 import {
   CarrierLineMovementRepository,
@@ -79,6 +81,13 @@ export interface ApplyMovementResult {
 export interface ReverseMovementResult {
   success: boolean;
   data?: ApplyMovementData;
+  error?: string;
+}
+
+/** Output of {@link CarrierLineService.recordUsage} (LIRA-145). */
+export interface RecordUsageResult {
+  success: boolean;
+  data?: RecordCarrierLineUsageResult;
   error?: string;
 }
 
@@ -325,6 +334,44 @@ export class CarrierLineService {
       financialLogger.error(
         { error, movementId },
         "Failed to reverse carrier line movement",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Record CONSUMPTION of a shop line's credits as a `Line_Usage` expense
+   * (LIRA-145). Thin orchestration only — every rule (line exists, line
+   * active, `expectedCurrentCredits` still matches, delta strictly positive)
+   * and every write live in `CarrierLineRepository.recordUsage`, inside one
+   * db transaction, so a rejection can never leave a partial expense behind.
+   * This method's job is the envelope and the log line.
+   */
+  recordUsage(
+    data: RecordCarrierLineUsageData,
+    userId: number,
+  ): RecordUsageResult {
+    try {
+      const result = this.repo.recordUsage(data, userId);
+      financialLogger.info(
+        {
+          carrierLineId: data.carrierLineId,
+          expenseId: result.expenseId,
+          transactionId: result.transactionId,
+          creditsUsed: result.creditsUsed,
+          newCredits: result.newCredits,
+          userId,
+        },
+        "Carrier line usage recorded",
+      );
+      return { success: true, data: result };
+    } catch (error) {
+      financialLogger.error(
+        { error, data, userId },
+        "Failed to record carrier line usage",
       );
       return {
         success: false,

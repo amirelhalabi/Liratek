@@ -52,8 +52,41 @@ export const carrierLineUpdateBalanceSchema = z
     },
   );
 
+/**
+ * Record CONSUMPTION of a shop line's credits as an expense (LIRA-145).
+ *
+ * The operator reads the line's NEW balance off the SIM (or types the amount
+ * used, which the UI resolves to a new balance before calling); the shop
+ * books the difference as a `Line_Usage` expense at face value — $1 per
+ * credit, USD only, paid out of the carrier's own credit drawer. No cash
+ * moves.
+ *
+ * Deliberately NOT a `.refine`d "newCredits < current" schema: the current
+ * balance is a SERVER fact (the `carrier_lines` row), so every
+ * delta/ordering rule — line exists, line is active, `newCredits` is
+ * strictly below the stored balance by at least the $0.01 epsilon — is
+ * enforced in `CarrierLineRepository.recordUsage`, inside the same db
+ * transaction that writes the rows. A client-side-checkable schema rule
+ * here would be a second, weaker copy of that (rule 14).
+ *
+ * `expectedCurrentCredits` is the optimistic-concurrency guard: the UI sends
+ * the balance it rendered the form against, and the server rejects if the
+ * line has moved since (a concurrent self-charge, Only-Days return, or a
+ * second operator's usage entry) rather than silently booking a
+ * differently-sized expense than the one the operator previewed.
+ */
+export const recordCarrierLineUsageSchema = z.object({
+  carrierLineId: z.number().int().positive(),
+  newCredits: z.number().min(0),
+  expectedCurrentCredits: z.number().min(0).optional(),
+  note: z.string().max(500).optional(),
+});
+
 export type CarrierLineCreateInput = z.infer<typeof carrierLineCreateSchema>;
 export type CarrierLineUpdateInput = z.infer<typeof carrierLineUpdateSchema>;
 export type CarrierLineUpdateBalanceInput = z.infer<
   typeof carrierLineUpdateBalanceSchema
+>;
+export type RecordCarrierLineUsageInput = z.infer<
+  typeof recordCarrierLineUsageSchema
 >;

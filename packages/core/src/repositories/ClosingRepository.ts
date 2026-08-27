@@ -10,6 +10,7 @@ import {
   carrierDrawerName,
   type CarrierKey,
 } from "./CarrierLineRepository.js";
+import { activeExpense } from "./ProfitRepository.js";
 
 /**
  * Payments-journal method used for the balance adjustment posted when a
@@ -659,14 +660,17 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       | { total_debt_payments_usd: number; total_debt_payments_lbp: number }
       | undefined;
 
-    // Expenses
+    // Expenses — gated to status='active' AND not-refunded (rule 14's shared
+    // `activeExpense` predicate), else a voided/refunded expense (either of
+    // the two doors — see `activeExpense`'s doc) keeps inflating today's
+    // closing total forever even after its drawer leg was reversed (rule 20).
     const expensesStats = this.db
       .prepare(
         `SELECT
           SUM(amount_usd) as total_expenses_usd,
           SUM(amount_lbp) as total_expenses_lbp
          FROM expenses
-         WHERE ${todayLocal("expense_date")} AND tenant_id = ?`,
+         WHERE ${todayLocal("expense_date")} AND tenant_id = ? AND ${activeExpense()}`,
       )
       .get(tenantId) as
       | { total_expenses_usd: number; total_expenses_lbp: number }

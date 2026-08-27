@@ -38,6 +38,7 @@ import {
   carrierLineCreateSchema,
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
+  recordCarrierLineUsageSchema,
   mobileServiceItemUpdateSchema,
   mobileServiceItemCreateSchema,
   mobileServiceItemSeedSchema,
@@ -73,6 +74,7 @@ import {
   type CarrierLineCreateInput,
   type CarrierLineUpdateInput,
   type CarrierLineUpdateBalanceInput,
+  type RecordCarrierLineUsageInput,
   type MobileServiceItemUpdateInput,
   type MobileServiceItemCreateInput,
   type VoucherCreateInput,
@@ -716,6 +718,14 @@ export const CarrierLineUpdateSchema =
   carrierLineUpdateSchema as unknown as z.ZodSchema<CarrierLineUpdateInput>;
 export const CarrierLineUpdateBalanceSchema =
   carrierLineUpdateBalanceSchema as unknown as z.ZodSchema<CarrierLineUpdateBalanceInput>;
+// LIRA-145: record CONSUMPTION of a line's credits as a `Line_Usage` expense.
+// Deliberately thin — every delta/ordering rule (line exists, line is active,
+// `newCredits` below the stored balance by the $0.01 epsilon,
+// `expectedCurrentCredits` still matching) is a SERVER fact enforced inside
+// `CarrierLineRepository.recordUsage`'s db transaction, not duplicated here
+// (rule 14). Same cast bridge as its siblings above.
+export const RecordCarrierLineUsageSchema =
+  recordCarrierLineUsageSchema as unknown as z.ZodSchema<RecordCarrierLineUsageInput>;
 export const MobileServiceItemUpdateSchema =
   mobileServiceItemUpdateSchema as unknown as z.ZodSchema<MobileServiceItemUpdateInput>;
 // LIRA-090: create path now has a schema (none existed before this ticket).

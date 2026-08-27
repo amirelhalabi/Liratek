@@ -314,7 +314,11 @@ export {
   getExpenseRepository,
   resetExpenseRepository,
 } from "./ExpenseRepository.js";
-export type { ExpenseEntity, CreateExpenseData } from "./ExpenseRepository.js";
+export type {
+  ExpenseEntity,
+  CreateExpenseData,
+  ExpenseDrawerOverride,
+} from "./ExpenseRepository.js";
 
 // Closing Repository
 export {
@@ -519,6 +523,10 @@ export {
   resetCarrierLineRepository,
   CARRIER_DRAWER_NAMES,
   carrierDrawerName,
+  LINE_USAGE_EXPENSE_CATEGORY,
+  LINE_USAGE_PAID_BY_METHOD,
+  LINE_USAGE_MOVEMENT_REASON,
+  LINE_USAGE_MIN_DELTA_USD,
 } from "./CarrierLineRepository.js";
 export type {
   CarrierKey,
@@ -526,6 +534,8 @@ export type {
   CreateCarrierLineData,
   UpdateCarrierLineData,
   UpdateBalanceData,
+  RecordCarrierLineUsageData,
+  RecordCarrierLineUsageResult,
 } from "./CarrierLineRepository.js";
 
 // Carrier Line Movement Repository (LIRA-090 §8 — rule-20 reversal owner)

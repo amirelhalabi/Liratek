@@ -1534,6 +1534,15 @@ contextBridge.exposeInMainWorld("api", {
       id: number,
       data: { credits?: number; validity_expires_at?: string | null },
     ) => ipcRenderer.invoke("carrier-lines:update-balance", id, data),
+    // LIRA-145: books the consumed credits as a `Line_Usage` expense — a
+    // money write, unlike `updateBalance` above which just overwrites the
+    // number. Every field the renderer sends is typed here (rule 12).
+    recordUsage: (data: {
+      carrierLineId: number;
+      newCredits: number;
+      expectedCurrentCredits?: number;
+      note?: string;
+    }) => ipcRenderer.invoke("carrier-lines:record-usage", data),
     archive: (id: number) => ipcRenderer.invoke("carrier-lines:archive", id),
     toggleActive: (id: number) =>
       ipcRenderer.invoke("carrier-lines:toggle-active", id),

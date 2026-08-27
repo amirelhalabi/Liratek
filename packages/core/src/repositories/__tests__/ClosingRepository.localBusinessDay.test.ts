@@ -46,7 +46,8 @@ function createSchema(d: Database.Database): void {
     CREATE TABLE expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       amount_usd REAL, amount_lbp REAL, expense_date TEXT
-    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL
+    , status TEXT NOT NULL DEFAULT 'active');
     CREATE TABLE financial_services (
       supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,

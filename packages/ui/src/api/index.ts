@@ -13,6 +13,8 @@ export type {
   StockAdjustmentEntity,
   CarrierLineEntity,
   CarrierLineWriteResult,
+  CarrierLineUsagePayload,
+  CarrierLineUsageResult,
   MobileServiceItemEntity,
   DashboardStats,
   ChartDataPoint,

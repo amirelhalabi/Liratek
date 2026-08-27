@@ -474,6 +474,13 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getPrimaryCarrierLine(carrier);
   /** LIRA-090: designate a line as the primary for its carrier (admin only). */
   setPrimaryCarrierLine = (id: number) => api.setPrimaryCarrierLine(id);
+  /** LIRA-145: book a line's consumed credits as a `Line_Usage` expense. */
+  recordCarrierLineUsage = (data: {
+    carrierLineId: number;
+    newCredits: number;
+    expectedCurrentCredits?: number;
+    note?: string;
+  }) => api.recordCarrierLineUsage(data);
 
   // ---------------------------------------------------------------------------
   // Mobile Service Items — admin (LIRA W6.b) + LIRA-090

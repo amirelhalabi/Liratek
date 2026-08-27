@@ -5,15 +5,23 @@ import {
   carrierLineCreateSchema,
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
+  recordCarrierLineUsageSchema,
 } from "@liratek/core";
+import type { RecordCarrierLineUsageInput } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
 
-// Carrier Lines (LIRA W6.a — shop SIM-line tracking). Informational only:
-// no drawer legs, no checkout/closing involvement. All routes require auth.
+// Carrier Lines (LIRA W6.a — shop SIM-line tracking).
+//
+// Every route here is informational — no drawer legs, no checkout/closing
+// involvement — with ONE exception: `POST /record-usage` (LIRA-145) is a
+// money write. It books a `Line_Usage` expense, moves the carrier's credit
+// drawer, and writes a linked `carrier_line_movements` row. Treat it under
+// the money rules (FEATURE_GUIDE §13), not as a balance edit. All routes
+// require auth.
 router.use(authenticateJWT);
 
 // GET /api/carrier-lines/active/:carrier — active lines for one carrier
@@ -79,6 +87,61 @@ router.get("/", requireRole(["admin"]), (_req, res): void => {
     res.status(500).json({ success: false, error: "Failed to get lines" });
   }
 });
+
+// POST /api/carrier-lines/record-usage (admin/staff — LIRA-145).
+//
+// Books CONSUMPTION of a shop line's credits as a `Line_Usage` expense: one
+// expenses row, its unified EXPENSE transaction, ONE payment leg against the
+// carrier credit drawer ("Alfa"/"MTC" — never cash), and the linked
+// `carrier_line_movements` row that makes the whole thing reversible through
+// the generic void path. Every rule and every write live in
+// `CarrierLineRepository.recordUsage` inside ONE db transaction (rule 13) —
+// this route is transport only.
+//
+// STATIC path, registered BEFORE the `POST /` sibling and ahead of any future
+// parameterized POST so `/record-usage` can never be swallowed by a `/:id`
+// route.
+//
+// Roles mirror the IPC channel `carrier-lines:record-usage`
+// (`requireRole(e.sender.id, ["admin", "staff"])`, itself matched to
+// dbHandlers.ts's `expenses:update-metadata`) — staff may record usage.
+router.post(
+  "/record-usage",
+  requireRole(["admin", "staff"]),
+  validateRequest(recordCarrierLineUsageSchema),
+  (req, res): void => {
+    try {
+      const data = req.body as RecordCarrierLineUsageInput;
+      const service = getCarrierLineService();
+      // Actor comes from the verified JWT ONLY — never from the body.
+      const result = service.recordUsage(data, req.user!.userId);
+      if (result.success) {
+        // Mirrors carrierLineHandlers.ts's carrier-lines:record-usage audit.
+        auditRest(req, {
+          action: "update",
+          entity_type: "carrier_line",
+          entity_id: String(data.carrierLineId),
+          summary: `Recorded $${result.data?.creditsUsed ?? 0} usage on carrier line #${data.carrierLineId}`,
+          metadata: {
+            expense_id: result.data?.expenseId,
+            transaction_id: result.data?.transactionId,
+            credits_used: result.data?.creditsUsed,
+            new_credits: result.data?.newCredits,
+          },
+        });
+      }
+      // HTTP 200 even on a business rejection (line not found/archived, stale
+      // `expectedCurrentCredits`, non-positive delta) — rule 19c: the frontend
+      // adapter branches on `result.success`, and `requestJson` THROWS on any
+      // non-2xx, which would swallow the envelope. The 400-on-failure siblings
+      // below predate that contract; do not copy them here.
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Record carrier line usage error");
+      res.status(500).json({ success: false, error: "Failed to record usage" });
+    }
+  },
+);
 
 // POST /api/carrier-lines (admin)
 router.post(

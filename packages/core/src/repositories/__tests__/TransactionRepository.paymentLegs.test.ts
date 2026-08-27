@@ -524,6 +524,27 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
     expect(row.payments.some((p) => p.method === "SMS_COST")).toBe(false);
   });
 
+  it("LINE_CREDIT (lira-145 carrier-line usage expense): the METHOD marker filters the leg even off a provider-stock drawer name", () => {
+    // Production's `recordUsage` always posts this leg's drawer as
+    // CARRIER_DRAWER_NAMES (Alfa/MTC), which PROVIDER_STOCK_DRAWERS already
+    // filters on its own — so a test that mirrors that exact leg can pass
+    // whether or not "LINE_CREDIT" is in INTERNAL_LEG_METHODS, proving
+    // nothing about the marker itself. This case isolates the marker by
+    // posting to "General" (NOT a provider-stock drawer) so ONLY
+    // `INTERNAL_LEG_METHODS.has("LINE_CREDIT")` can hide it.
+    insertTxn(db, { id: 1, type: "EXPENSE", summary: "Line usage: MTC" });
+    insertLeg(db, 1, {
+      method: "LINE_CREDIT",
+      currency: "USD",
+      amount: -37.5,
+      drawer: "General",
+      note: "Line_Usage: Line usage: MTC 03111111",
+    });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(row.payments).toHaveLength(0);
+  });
+
   it("keeps a legitimate customer wallet payment (WHISH → Whish_App)", () => {
     insertTxn(db, {
       id: 1,

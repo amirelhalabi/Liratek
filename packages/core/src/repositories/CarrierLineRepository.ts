@@ -15,6 +15,15 @@ import {
   getCarrierLineMovementRepository,
   type CarrierLineMovementEntity,
 } from "./CarrierLineMovementRepository.js";
+// Lazy singleton getters only — never a top-level instance. The module graph
+// here is cyclic by construction (CarrierLineRepository → ExpenseRepository →
+// TransactionRepository → CarrierLineService → CarrierLineRepository), and the
+// cycle is safe for exactly the same reason `FinancialServiceRepository`'s
+// mirror-image `getCarrierLineService()` import is: nothing is dereferenced at
+// module-evaluation time, only inside a method body. Do not "simplify" either
+// of these into a constructor-injected instance or a top-level `const`.
+import { getExpenseRepository } from "./ExpenseRepository.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
 
 // =============================================================================
 // Entity Types
@@ -42,6 +51,43 @@ export const CARRIER_DRAWER_NAMES: Record<CarrierKey, string> = {
  *  {@link CARRIER_DRAWER_NAMES}). */
 export function carrierDrawerName(carrier: CarrierKey): string {
   return CARRIER_DRAWER_NAMES[carrier];
+}
+
+// -----------------------------------------------------------------------------
+// Line-usage expense constants (LIRA-145) — rule 14: defined ONCE here and
+// imported by the handler/route/UI/tests, never re-spelled as a string literal
+// at a second call site.
+// -----------------------------------------------------------------------------
+
+/** `expenses.category` for a carrier-line credit consumption. */
+export const LINE_USAGE_EXPENSE_CATEGORY = "Line_Usage";
+
+/**
+ * `expenses.paid_by_method` for a carrier-line credit consumption. NOT a
+ * registered `payment_methods` row and deliberately so — no cash drawer, no
+ * wallet, no customer tender is involved; the value leaves the carrier's own
+ * credit drawer via `CreateExpenseData.drawer_override`, and this string is
+ * the audit label for that. Keep it out of `payment_methods`: registering it
+ * would make `paymentMethodToDrawerName` claim a drawer for it and invite the
+ * double-post the override exists to prevent.
+ */
+export const LINE_USAGE_PAID_BY_METHOD = "LINE_CREDIT";
+
+/** `carrier_line_movements.reason` for a carrier-line credit consumption. */
+export const LINE_USAGE_MOVEMENT_REASON = "LINE_USAGE";
+
+/**
+ * Smallest bookable consumption, in USD credits — one cent. Credits are
+ * face-value dollars, so a delta below this rounds to a $0.00 expense: a row
+ * that moves no money, debits no drawer, and can only add noise to the
+ * expense log. `newCredits >= line.credits` (nothing used, or a balance that
+ * went UP) fails the same check.
+ */
+export const LINE_USAGE_MIN_DELTA_USD = 0.01;
+
+/** Round a USD money magnitude to cents. */
+function round2(amount: number): number {
+  return Math.round(amount * 100) / 100;
 }
 
 export interface CarrierLineEntity {
@@ -183,6 +229,42 @@ export interface ApplyCarrierLineMovementInput {
 export interface CarrierLineMovementMutation {
   line: CarrierLineEntity;
   movement: CarrierLineMovementEntity;
+}
+
+// -----------------------------------------------------------------------------
+// Line-usage recording (LIRA-145)
+// -----------------------------------------------------------------------------
+
+/** Input to {@link CarrierLineRepository.recordUsage} — the runtime twin of
+ *  `recordCarrierLineUsageSchema` (validators/carrierLine.ts). */
+export interface RecordCarrierLineUsageData {
+  carrierLineId: number;
+  /** The line's NEW credit balance, as read off the SIM. The UI may let the
+   *  operator type "amount used" instead, but it resolves that to a new
+   *  balance before calling. */
+  newCredits: number;
+  /** Optimistic-concurrency guard: the balance the form was rendered
+   *  against. Rejected when the stored balance has moved since. */
+  expectedCurrentCredits?: number;
+  note?: string;
+}
+
+/** Output of {@link CarrierLineRepository.recordUsage}. */
+export interface RecordCarrierLineUsageResult {
+  expenseId: number;
+  /** The unified `transactions` row the expense created — the same id the
+   *  `carrier_line_movements` row hangs off, which is what makes the whole
+   *  thing reversible through the generic void path (rule 20). */
+  transactionId: number;
+  /** The BOOKED expense magnitude in USD. The operator's typed balance is
+   *  snapped to cents on entry and the delta is rounded ONCE from that, so
+   *  this is the SAME 2dp number as the drawer leg and the
+   *  `carrier_line_movements` delta — no drift between them. */
+  creditsUsed: number;
+  /** The line's balance after the write — the typed figure snapped to
+   *  cents (`round2`), which is exactly what the line's `credits` column
+   *  now holds. */
+  newCredits: number;
 }
 
 // =============================================================================
@@ -710,6 +792,168 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
       return {
         line: updatedLine,
         movement: { ...movement, is_reversed: 1 },
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Line usage → expense (LIRA-145)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Book the CONSUMPTION of a shop line's credits as an expense.
+   *
+   * The operator reads the line's new balance off the SIM; the difference is
+   * an `Line_Usage` expense at face value ($1 per credit, USD only). The
+   * operator's typed balance is snapped to cents ON ENTRY
+   * (`newCredits = round2(data.newCredits)`) and the delta is rounded ONCE
+   * from that (`delta = round2(currentCredits - newCredits)`) — so the
+   * expense, the drawer leg and the movement all move by the exact SAME 2dp
+   * number, which is what makes §0.1's invariant hold EXACTLY (not just to
+   * the nearest half-cent) for any input, including a sub-cent one. One db
+   * transaction writes all four rows:
+   *
+   *   1. `expenses` — category `Line_Usage`, `paid_by_method` `LINE_CREDIT`,
+   *      `amount_usd = delta`, `amount_lbp = 0`.
+   *   2. The unified `transactions` row (type EXPENSE), written by
+   *      `ExpenseRepository.createExpense`'s own existing path — negative
+   *      amounts, no profit stamp, no client. Reusing that path (rather than
+   *      hand-rolling a second EXPENSE writer here) is what keeps this flow
+   *      on the same void/refund, reporting and audit machinery every other
+   *      expense already uses.
+   *   3. ONE payment leg + drawer delta: `-delta` USD on the carrier's own
+   *      credit drawer (`CARRIER_DRAWER_NAMES`), via `createExpense`'s
+   *      `drawer_override`. NO cash drawer moves — the credits were bought
+   *      long ago; spending them moves no cash today. This is precisely what
+   *      preserves §0.1's invariant
+   *      `drawer_balances[CARRIER_DRAWER_NAMES[c]].USD == getCarrierCreditsSum(c)`:
+   *      the drawer and the line's `credits` column are decremented by the
+   *      same rounded `delta` in the same transaction.
+   *   4. A `carrier_line_movements` row via `applyMovement`, `creditsDelta =
+   *      -delta`, tied to the expense's transaction id.
+   *
+   * NO counterparty ledger row (rule 20 / §13 item 8): MTC/Alfa run on the
+   * prepaid-units model — the supplier debt was booked when the credits were
+   * topped up. Consuming stock the shop already owns changes no obligation to
+   * anyone, so there is nothing for a supplier/partner ledger to record.
+   * Likewise no client (`client_id`), no CUSTOMER_ACCOUNT and no session
+   * branch: this is shop-internal, never part of a customer basket.
+   *
+   * REVERSAL OWNER (rule 20): the generic path, entirely. `_reversePayments`
+   * restores the carrier drawer from the leg, `_markSourceRefunded` flags the
+   * `expenses` row, and `_reverseCarrierLineMovements` restores the line's
+   * credits from the movement — the movement's `transaction_id`, set in step
+   * 4 above, is the ONLY thing that makes that third one fire, which is why
+   * this method takes the transaction id from the expense rather than
+   * passing `null`.
+   *
+   * Throws on every rejection (line missing/archived, stale
+   * `expectedCurrentCredits`, non-positive delta); better-sqlite3 unwinds the
+   * whole savepoint, so a rejected call leaves no partial rows.
+   * `CarrierLineService.recordUsage` turns the throw into the
+   * `{ success: false, error }` envelope.
+   */
+  recordUsage(
+    data: RecordCarrierLineUsageData,
+    userId: number,
+  ): RecordCarrierLineUsageResult {
+    return this.transaction(() => {
+      const line = this.getById(data.carrierLineId);
+      if (!line) {
+        throw new Error(`Carrier line #${data.carrierLineId} not found`);
+      }
+      if (!line.is_active) {
+        throw new Error(
+          `Carrier line #${line.id} is archived — reactivate it before recording usage`,
+        );
+      }
+
+      const currentCredits = line.credits ?? 0;
+      // Snap the operator's typed balance to cents AT ENTRY, then round the
+      // delta ONCE from that — so the expense, the drawer leg and the
+      // movement all carry the exact same 2dp number (see the method's
+      // JSDoc for why this is what keeps §0.1's invariant exact).
+      const newCredits = round2(data.newCredits);
+      if (
+        data.expectedCurrentCredits !== undefined &&
+        // Sub-cent tolerance, not `!==`: the UI round-trips this figure
+        // through JSON and a number input, so an exact float comparison
+        // would reject a balance that has not actually moved.
+        Math.abs(data.expectedCurrentCredits - currentCredits) >= 0.005
+      ) {
+        throw new Error(
+          `Carrier line #${line.id} balance changed since the form was opened ` +
+            `(expected $${data.expectedCurrentCredits}, line now holds $${currentCredits}) — reload and try again`,
+        );
+      }
+
+      const delta = round2(currentCredits - newCredits);
+      if (!(delta >= LINE_USAGE_MIN_DELTA_USD)) {
+        throw new Error(
+          `New balance $${newCredits} must be below the line's current $${currentCredits} ` +
+            `by at least $${LINE_USAGE_MIN_DELTA_USD} — nothing was used`,
+        );
+      }
+
+      const description =
+        `Line usage: ${line.carrier.toUpperCase()} ${line.phone_number}` +
+        (line.label ? ` (${line.label})` : "") +
+        (data.note ? ` — ${data.note}` : "");
+
+      const expenseId = getExpenseRepository().createExpense(
+        {
+          description,
+          category: LINE_USAGE_EXPENSE_CATEGORY,
+          paid_by_method: LINE_USAGE_PAID_BY_METHOD,
+          amount_usd: delta,
+          amount_lbp: 0,
+          expense_date: new Date().toISOString(),
+          drawer_override: {
+            drawer_name: CARRIER_DRAWER_NAMES[line.carrier],
+            currency_code: "USD",
+          },
+          extra_metadata: {
+            carrier_line_id: line.id,
+            carrier: line.carrier,
+            credits_before: currentCredits,
+            credits_after: newCredits,
+          },
+        },
+        userId,
+      );
+
+      // `createExpense` returns only the expense id, and its call sites
+      // (ExpenseService) depend on that signature — so the transaction id is
+      // read back through the existing named lookup rather than widening the
+      // return type of a method three other layers already consume. Safe
+      // inside this same db transaction: the row was just written, is ACTIVE,
+      // and `source_id` is unique per expense row.
+      const txn = getTransactionRepository().getBySourceId(
+        "expenses",
+        expenseId,
+      );
+      if (!txn) {
+        throw new Error(
+          `Expense #${expenseId} was created without a unified transaction row — refusing to record an unreversible line usage`,
+        );
+      }
+
+      // The movement carries the SAME rounded `delta` as the expense and the
+      // drawer leg — see the method's JSDoc for why that (not the raw,
+      // un-rounded difference) is what keeps §0.1's invariant exact.
+      this.applyMovement({
+        carrierLineId: line.id,
+        creditsDelta: -delta,
+        validityDaysDelta: 0,
+        reason: LINE_USAGE_MOVEMENT_REASON,
+        transactionId: txn.id,
+      });
+
+      return {
+        expenseId,
+        transactionId: txn.id,
+        creditsUsed: delta,
+        newCredits,
       };
     });
   }

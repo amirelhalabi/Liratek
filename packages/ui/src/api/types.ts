@@ -288,6 +288,34 @@ export type CarrierLineWriteResult = {
   error?: string;
 };
 
+/** LIRA-145 — payload for `recordCarrierLineUsage`. Runtime twin of core's
+ *  `recordCarrierLineUsageSchema` (validators/carrierLine.ts). */
+export type CarrierLineUsagePayload = {
+  carrierLineId: number;
+  /** The line's NEW credit balance, as read off the SIM. A "credits used"
+   *  input is resolved to a new balance before it gets here. */
+  newCredits: number;
+  /** Optimistic-concurrency guard: the balance the form was rendered
+   *  against. The server rejects when the stored balance has moved since. */
+  expectedCurrentCredits?: number;
+  note?: string;
+};
+
+/** LIRA-145 — envelope returned by `recordCarrierLineUsage`. */
+export type CarrierLineUsageResult = {
+  success: boolean;
+  data?: {
+    expenseId: number;
+    /** The unified EXPENSE `transactions` row; the `carrier_line_movements`
+     *  row hangs off it, which is what makes a void restore the line. */
+    transactionId: number;
+    /** BOOKED expense magnitude in USD (round2 of the raw delta). */
+    creditsUsed: number;
+    newCredits: number;
+  };
+  error?: string;
+};
+
 /** LIRA W6.b — a mobile service catalog item (dynamic pricing catalog). */
 export type MobileServiceItemEntity = {
   id: number;
@@ -1118,6 +1146,14 @@ export type ApiAdapter = {
   /** LIRA-090: designate a line as the primary for its carrier (admin only).
    *  Atomically clears the previous holder. */
   setPrimaryCarrierLine: (id: number) => Promise<CarrierLineWriteResult>;
+  /** LIRA-145: book a shop line's consumed credits as a `Line_Usage` expense
+   *  (admin/staff). One server-side db transaction: expense row + unified
+   *  EXPENSE transaction + one payment leg on the carrier credit drawer + a
+   *  linked `carrier_line_movements` row. Face value, USD only. Rejections
+   *  come back as `{ success: false, error }`, never as a throw. */
+  recordCarrierLineUsage: (
+    data: CarrierLineUsagePayload,
+  ) => Promise<CarrierLineUsageResult>;
 
   // ---------------------------------------------------------------------------
   // Mobile Service Items — admin (LIRA W6.b) + LIRA-090

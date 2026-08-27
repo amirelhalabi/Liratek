@@ -331,6 +331,27 @@ export function notRefunded(alias: string): string {
 }
 
 /**
+ * The single definition of "this expense still counts" (rule 14). Both gates
+ * are required because an expense can be undone through two different doors,
+ * and each one flips a DIFFERENT column:
+ *   - `ExpenseRepository.deleteExpense` (the Expenses page) sets
+ *     `status = 'voided'` (and voids the unified transaction).
+ *   - A void/refund driven from the Transactions viewer runs the GENERIC
+ *     path, which reverses the drawer legs and sets `expenses.is_refunded = 1`
+ *     via `TransactionRepository._markSourceRefunded`, but never touches
+ *     `status`.
+ * Gating on either column alone leaves a reversed expense counted forever
+ * while its drawer leg has already been given back (rule 20). Reuses
+ * `notRefunded` rather than pasting a second copy of the is_refunded test.
+ * Callers: ProfitRepository.getExpenseTotals + getProfitByDate's
+ * `daily_expenses`, ClosingRepository.getDailyStatsSnapshot,
+ * FinancialRepository.getMonthlyPL.
+ */
+export function activeExpense(alias = "expenses"): string {
+  return `${alias}.status = 'active' AND ${notRefunded(alias)}`;
+}
+
+/**
  * Inclusive [from, to] date-range bound on a timestamp column (two bind params).
  *
  * The column is converted to machine-local wall-clock before comparison, so the
@@ -367,9 +388,19 @@ const COMMISSION_PROVIDERS =
  */
 const MOBILE_PROVIDERS = "'iPick', 'Katsh', 'BOB'";
 
-/** Internal/system payment flows excluded from the per-method profit view. */
+/**
+ * Internal/system payment flows excluded from the per-method profit view.
+ * `LINE_CREDIT` (LIRA-145) is here for a different reason than the rest: the
+ * ORIGINAL `Line_Usage` expense leg is already invisible to this view (it's
+ * negative, and `getPaymentMethodRows` filters `p.amount > 0`), but
+ * `TransactionRepository._reversePayments` mirrors every leg with `-p.amount`
+ * on void, so voiding a line-usage expense writes a POSITIVE `LINE_CREDIT`
+ * leg that WOULD otherwise surface as a bogus payment-method row.
+ * `LINE_CREDIT` is not a registered payment method — it's a bookkeeping
+ * label for credits the shop already owned.
+ */
 const INTERNAL_PAYMENT_METHODS =
-  "'OMT', 'WHISH', 'BOB', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE', 'RESERVE', 'COMMISSION'";
+  "'OMT', 'WHISH', 'BOB', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE', 'RESERVE', 'COMMISSION', 'LINE_CREDIT'";
 
 /**
  * Transaction types that count toward per-user / per-client profit.
@@ -884,7 +915,18 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       .get(fromDt, toDt, getCurrentTenantId()) as ExchangeTotalsRow;
   }
 
-  /** Active expenses totals in the date range. */
+  /**
+   * Active expenses totals in the date range.
+   *
+   * "Active" means both `status='active'` and not-refunded — see
+   * {@link activeExpense} for why both gates are required (an expense can be
+   * undone through two different doors, each flipping a different column).
+   * Gating on `status` alone kept a transaction-viewer-voided expense in the
+   * profit page's expense bucket forever, while its drawer leg had already
+   * been reversed — the reversal-symmetry hole (rule 20) that LIRA-145's
+   * `Line_Usage` netting proof surfaced. It was never specific to line usage:
+   * EVERY expense voided from the Transactions table hit it.
+   */
   getExpenseTotals(fromDt: string, toDt: string): ExpenseTotalsRow {
     return this.db
       .prepare(
@@ -893,7 +935,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(SUM(amount_lbp), 0) AS total_lbp,
           COUNT(*) AS count
         FROM expenses
-        WHERE status = 'active'
+        WHERE ${activeExpense()}
           AND ${dateRange("expense_date")}
           AND tenant_id = ?`,
       )
@@ -1176,7 +1218,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             COALESCE(SUM(amount_usd), 0) AS expenses_usd,
             COALESCE(SUM(amount_lbp), 0) AS expenses_lbp
           FROM expenses
-          WHERE status = 'active'
+          WHERE ${activeExpense()}
             AND ${dateRange("expense_date")}
             AND tenant_id = ?
           GROUP BY DATE(expense_date, 'localtime')

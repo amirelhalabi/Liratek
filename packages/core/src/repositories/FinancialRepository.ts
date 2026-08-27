@@ -7,6 +7,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { activeExpense } from "./ProfitRepository.js";
 
 export interface MonthlyPL {
   month: string;
@@ -94,7 +95,11 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
       const commissionUsd = serviceCommissionsByCurrency["USD"] || 0;
       const commissionLbp = serviceCommissionsByCurrency["LBP"] || 0;
 
-      // 3. Expenses
+      // 3. Expenses — gated to status='active' AND not-refunded (rule 14's
+      // shared `activeExpense` predicate), else a voided/refunded expense
+      // (either of the two doors — see `activeExpense`'s doc) keeps
+      // deflating this month's net profit forever even after its drawer leg
+      // was reversed (rule 20).
       const expensesResult = this.db
         .prepare(
           `
@@ -104,6 +109,7 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
         FROM expenses
         WHERE strftime('%Y-%m', expense_date, 'localtime') = ?
           AND tenant_id = ?
+          AND ${activeExpense()}
       `,
         )
         .get(month, tenantId) as { expenses_usd: number; expenses_lbp: number };

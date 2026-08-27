@@ -26,13 +26,28 @@ interface Expense {
   expense_date: string;
 }
 
+// LIRA-145: `CarrierLineRepository.recordUsage` writes this category itself
+// (`Line_Usage`, `paid_by_method` `LINE_CREDIT`) from the Recharge tab's
+// "Record usage" action. It stays in this list so an existing `Line_Usage`
+// row still resolves a label wherever the page displays a category — it is
+// deliberately withheld from the manual create form below: a hand-booked one
+// would move a cash drawer instead of the carrier's credit drawer, and no
+// carrier line at all.
+const LINE_USAGE_CATEGORY = "Line_Usage";
+
 const EXPENSE_CATEGORIES = [
   "Shop_Supply",
   "Bill",
   "Inventory_Loss",
   "Refund_Damaged",
+  LINE_USAGE_CATEGORY,
   "Other",
 ];
+
+// What the manual create-form's category picker actually offers.
+const MANUAL_EXPENSE_CATEGORIES = EXPENSE_CATEGORIES.filter(
+  (cat) => cat !== LINE_USAGE_CATEGORY,
+);
 
 export default function Expenses() {
   const api = useApi();
@@ -223,7 +238,7 @@ export default function Expenses() {
                 onChange={(value) =>
                   setFormData({ ...formData, category: value })
                 }
-                options={EXPENSE_CATEGORIES.map((cat) => ({
+                options={MANUAL_EXPENSE_CATEGORIES.map((cat) => ({
                   value: cat,
                   label: cat.replace(/_/g, " "),
                 }))}

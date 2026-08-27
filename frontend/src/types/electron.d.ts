@@ -273,6 +273,26 @@ export interface CarrierLine {
   updated_at: string;
 }
 
+/**
+ * What `window.api.carrierLines.recordUsage` returns on success (LIRA-145).
+ * Mirrors core's `RecordCarrierLineUsageResult`.
+ */
+export interface RecordCarrierLineUsageResult {
+  /** The `Line_Usage` expenses row that was written. */
+  expenseId: number;
+  /** The unified `transactions` row the expense created — the same id the
+   *  `carrier_line_movements` row hangs off, which is what makes the whole
+   *  thing reversible through the generic void path. */
+  transactionId: number;
+  /** The booked expense magnitude in USD — the delta rounded to cents,
+   *  identical to the drawer leg and the line movement (both are rounded
+   *  once, from the same snapped-to-cents balance, so there is no drift). */
+  creditsUsed: number;
+  /** The line's balance after the write — the sent figure snapped to
+   *  cents. */
+  newCredits: number;
+}
+
 /** An audit log entry */
 export interface AuditLogEntry {
   id: number;
@@ -2954,6 +2974,28 @@ export interface ElectronAPI {
       id: number,
       data: { credits?: number; validity_expires_at?: string | null },
     ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
+    /** LIRA-145: record CONSUMPTION of a line's credits as a `Line_Usage`
+     *  expense (admin + staff). NOT a balance edit — `updateBalance` above
+     *  overwrites `credits` and books nothing; this books the difference at
+     *  face value ($1/credit, USD), debits the carrier's credit drawer, and
+     *  links a `carrier_line_movements` row to the expense's transaction so
+     *  the generic void path restores the line.
+     *
+     *  `newCredits` is the line's NEW balance (the UI resolves an
+     *  "amount used" entry to this before calling). `expectedCurrentCredits`
+     *  is the optimistic-concurrency guard: send the balance the form was
+     *  rendered against and the server rejects if the line has moved since.
+     *  The server rejects a missing/archived line and any delta below $0.01. */
+    recordUsage: (data: {
+      carrierLineId: number;
+      newCredits: number;
+      expectedCurrentCredits?: number;
+      note?: string;
+    }) => Promise<{
+      success: boolean;
+      data?: RecordCarrierLineUsageResult;
+      error?: string;
+    }>;
     archive: (
       id: number,
     ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;

@@ -2,7 +2,7 @@
 
 **Purpose:** the single tracker for making every LiraTek module work in the **browser** (over REST), not just Electron (over IPC). This is the _execution_ companion to the exploratory `WEBAPP_MULTI_TENANT_PLAN.md`. Update the status columns here as modules land.
 
-**Last updated:** 2026-07-11 · **Branch of record:** `feat/multi-tenant-shared-db` (== `main` tip `ce45a2e`, v1.29.4 — the web-parity work and the multi-tenant work are now unified on this branch).
+**Last updated:** 2026-08-26 · **Branch of record:** `feat/multi-tenant-shared-db` (== `main` tip `ce45a2e`, v1.29.4 — the web-parity work and the multi-tenant work are now unified on this branch).
 
 ---
 
@@ -50,6 +50,7 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | Closing / checkpoint (createCheckpoint money write) | `57cfd6e`             | new `createCheckpointSchema` → core; `backend/src/api/closing.ts` +4 routes (POST /checkpoint admin money-write, POST /recalculate-drawer-balances [adapter already called it — route was 404], GET /checkpoint-timeline [fixed filter shape], GET /initial-checkpoint-date); adapter gained createCheckpoint/getCheckpointTimeline/getInitialCheckpointDate; migrated Checkpoint page + CheckpointTimeline + InitialDrawerAmountsModal; proof `lira-web-010` (drawer-balance +10 delta, rule 15). **Gotcha:** closing.ts has no router-level `authenticateJWT` — admin routes need explicit `requireAuth` BEFORE `requireRole`. Same desktop-ABI caveat.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Voucher codes (gift cards)                          | `ce10670`             | lifted `VoucherCreateSchema` → core (rule 14, cast re-export in electron); `backend/src/api/vouchers.ts` (create/get-all/validate/cancel; cancel admin-only); `vouchers` adapter namespace + `createClient` exposed on the adapter; Vouchers page migrated off `window.api.vouchers.*`/`window.api.clients.*`; proof `lira-web-009`. Money path (redeemByCode) stays internal to parent sale/session txns — not exposed. Same desktop-ABI caveat as partners.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Partners (config + partner_ledger)                  | `6338f6f`             | new `partner.ts` validators (no `userId` — injected from JWT; `transactionType` = full repo union); `backend/src/api/partners.ts` (all 11 channels); `partners` adapter namespace (reads raw, writes enveloped); migrated Partners page + **shared** PartnerSelector + Services + Checkpoint; proof `lira-web-008` (create → DEBIT ledger → settle → **page-level** getAllBalances round-trip through the adapter). ⚠️ Desktop harness NOT re-run to green — shared better-sqlite3 was at Node ABI (parallel-agent contention), so all desktop specs incl. partners-unrelated `app.spec` failed at Electron window-launch (environmental, not a regression).                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Carrier lines — record usage (LIRA-145)             | LIRA-145 (2026-08-26) | Shared `recordCarrierLineUsageSchema` lives in `packages/core/src/validators/carrierLine.ts`, re-exported by `electron-app/schemas/index.ts` and imported directly by backend; IPC `carrier-lines:record-usage` (admin+staff) and REST `POST /api/carrier-lines/record-usage` (`authenticateJWT` + `requireRole(["admin","staff"])`) both call the SAME `CarrierLineService.recordUsage` → `CarrierLineRepository.recordUsage`; the route returns HTTP 200 even on a business rejection (`{success:false,error}`) — unlike the older 400-on-failure siblings in the same file; frontend goes through the dual-mode adapter (`recordCarrierLineUsage` in `frontend/src/api/backendApi.ts`, exposed on `ElectronApiAdapter`, typed in `packages/ui/src/api/types.ts`); the UI is the dialog in `frontend/src/features/recharge/components/CarrierLinesPanel.tsx`; proof `frontend/tests/e2e-web/lira-web-025-carrier-line-usage-expense.spec.ts` — drives the REAL Recharge panel in a REAL browser (HTTP branch), asserting money deltas over REST plus envelope parity (HTTP 200 on rejection) and role parity (staff may record usage). Caveat: the desktop spec `frontend/tests/e2e-electron/lira-145-carrier-line-usage-expense.spec.ts` is NOT yet runnable over the phase-3 web shim (not in `SHARED_DESKTOP_SPECS`) — see §7b.|
 
 **Pending:** _none_ — **step-2 is complete.** Every money/config module the feature
 pages call is now reachable over REST. Next: **phase 3** (the `window.api`→REST shim to
@@ -166,6 +167,21 @@ the shim installed.
 checkout succeeds but the debtor doesn't surface (shared-DB/shared-page cross-spec state, NOT a
 shim/money bug). Its `session.getActive/cartAdd/checkout` mappings remain.
 **Remaining:** ~43 specs.
+
+**`lira-145` shim gap (2026-08-26):** the desktop spec `lira-145-carrier-line-usage-expense.spec.ts`
+calls six `window.api` methods not yet in `webApiShim.ts` — `carrierLines.create`,
+`carrierLines.getAllAdmin`, `carrierLines.recordUsage`, `recharge.getDrawerBalances`,
+`profits.summary`, `transactions.getById` (already mapped and NOT needed:
+`suppliers.getBalances`, `transactions.getRecent`). All six already have REST routes, so this
+is pure shim-mapping work, no phase-2 route-building: `GET /api/carrier-lines/` (admin),
+`POST /api/carrier-lines`, `POST /api/carrier-lines/record-usage`,
+`GET /api/recharge/drawer-balances`, `GET /api/profits/summary`, `GET /api/transactions/:id`.
+Observation: `GET /api/recharge/drawer-balances` and `GET /api/profits/summary` now EXIST —
+learning 1's "truly-missing" list above (`recharge.getDrawerBalances`/`profits.summary`) is
+stale for these two routes; noted here only, the old list is left as-is. The spec's void step
+needs no shim entry — it clicks the Transactions table's Void button, and `voidTransaction`
+(`frontend/src/api/backendApi.ts:2155`) is already dual-mode and takes the HTTP branch
+(`POST /api/transactions/:id/void`) since `isElectron()` is false under the shim.
 
 **Two learnings from this pass:**
 

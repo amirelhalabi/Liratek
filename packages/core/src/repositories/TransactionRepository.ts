@@ -145,6 +145,7 @@ const INTERNAL_LEG_METHODS = new Set([
   "CREDIT_RETURN", // returned telecom credits to a provider drawer
   "CREDIT_USED", // on-account charge (also lives in debt_ledger)
   "SMS_COST", // telecom SMS cost consumed from the provider stock drawer
+  "LINE_CREDIT", // carrier-line usage expense (LIRA-145): internal credit-stock consumption, no customer cash
 ]);
 // Provider stock / reserve drawers — value the SHOP holds with a provider
 // (telecom credit stock, app balance), never customer cash. Customer WALLET

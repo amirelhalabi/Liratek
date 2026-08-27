@@ -364,6 +364,8 @@ export type {
   ApplyMovementInput,
   ApplyMovementData,
   ApplyMovementResult,
+  ReverseMovementResult,
+  RecordUsageResult,
 } from "./CarrierLineService.js";
 
 // Audit Service
