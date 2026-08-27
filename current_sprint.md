@@ -2197,3 +2197,71 @@ no BLOCKER/MAJOR; cross-tenant canary held; 84-combo badge truth table exact.
   named owner wired there, same pattern as `_reverseExchangeLotEffects` (rule 20).
 - Warranty stamping at checkout must ride `sale_items` (per-line), NOT `products` — the sale is
   the event that starts the clock (owner decision #4).
+
+
+---
+
+## LIRA-146: Whole-refund block message is a dead end on a FULLY item-refunded sale — LOW (follow-up, verifier finding 2026-08-27)
+
+`TransactionRepository._assertNoPartialItemRefunds` fires for any sale with
+`refunded_quantity > 0` — including one where EVERY line is already fully item-refunded.
+The operator is told to "refund the remaining items individually" when nothing remains.
+Fix: when all lines are fully refunded, throw a distinct message ("This sale has already
+been fully refunded item-by-item — nothing remains to refund."). Repo-level test both ways.
+
+## LIRA-147: Per-item refunds have no undo — NEEDS OWNER DESIGN (raised 2026-08-27)
+
+An item refund books a REFUND transaction with no `reverses_id`, and REFUND is in
+`NON_REVERSIBLE_TRANSACTION_TYPES` — a mis-keyed per-item refund has no correction path
+short of re-selling the item. Pre-existing, but the LIRA-146 guard now makes per-item the
+ONLY route on partially-refunded sales, so the gap is more visible. Needs an owner
+decision on the correction mechanism (a compensating re-charge? an admin void of the item
+refund with stock/unit/debt symmetry per rule 20?). Do not build without the interview.
+
+## LIRA-148: deleteProduct cascade needs the product_units table-exists guard — LOW
+
+`InventoryService.deleteProduct`/`batchDeleteProducts` now hard-depend on `product_units`;
+on a pre-v157 DB (or a hand-built test schema without the table) ALL product deletion
+throws and nothing is deleted. Every OTHER product_units consumer uses the cached
+`_productUnitsTableExists()` sqlite_master guard — add the same here (skip the cascade,
+not the delete). Failing-first: schema without the table → delete succeeds, no cascade.
+
+## LIRA-149: Batch product delete has no REST twin; REST delete failures break envelope parity — MEDIUM (rule 19)
+
+(a) `inventory:batch-delete` (IPC) has no `backend/src/api/` route — in the browser the
+batch-delete button reports success having deleted nothing. Mirror it (same roles, same
+cascade, `{success,...}` envelope). (b) `DELETE /api/inventory/products/:id` answers a
+service failure with HTTP 400 instead of the IPC-identical HTTP-200 `{success:false}`
+envelope — newly reachable now that the cascade gives the delete a real failure path; the
+adapter branches on `result.success`, so align to 200 (CLAUDE.md envelope-parity rule).
+
+## LIRA-150: Delete-confirm IMEI dialog lacks a stale-response guard — LOW
+
+`ProductList`'s delete confirm fetches the product's IN_STOCK IMEIs asynchronously; fast
+clicking product A's delete then product B's can render A's IMEIs in B's destructive
+dialog. Guard with the house stale-response pattern (request id / abort / disable second
+click while the first fetch is in flight). Component test with two interleaved fetches.
+
+## LIRA-151: Wire the orphaned test suites into gates — MEDIUM (infrastructure)
+
+(a) `electron-app/handlers/__tests__/` (20+ suites incl. productUnitHandlers) runs under
+NO jest runner — `electron-app`'s jest config roots only `schemas/`; every handler test
+passes only when invoked by hand. (b) CI never runs `packages/core`'s jest suite (2400+
+tests) — `yarn test` does locally, but ci.yml lacks the job. Add the runner root + the CI
+job; budget for the runtime cost. Suite-count floors per the LIRA-123 lesson.
+
+## LIRA-152: Phone Units register — "product deleted" label on sold history rows — LOW (BLOCKED until LIRA-145's commit lands)
+
+Sold units of a soft-deleted product stay in the register (correct — history), but nothing
+says the product is gone. Add `p.is_deleted AS product_deleted` to the unit list/story
+reads (the shared UNIT_PROVENANCE_JOIN) and render a muted "product deleted" chip next to
+the product name. BLOCKED: needs the shared typing files (`electron.d.ts`,
+`backendApi.ts`, `packages/ui` types) currently carrying LIRA-145's uncommitted edits.
+
+## Backlog (parked ideas, owner to green-light)
+
+- Cart unit picker "register & select" for an unregistered scanned IMEI (merges intake
+  and sale for the drift case, keeps the unit tracked).
+- Wire ImeiStoryCard into POS search (today: Inventory + Phone Units only).
+- "Products | Units" tab toggle on the Inventory page (nicest UX; LIRA-144's filters have
+  landed so the collision risk is gone once LIRA-145 commits).
