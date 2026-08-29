@@ -45,8 +45,15 @@ export interface ApplyMovementInput {
   /** USD credit to add (Only-Days return) or subtract. Omit or 0 for a
    *  validity-only movement. */
   creditsDelta?: number;
-  /** Days to extend validity by (spec §5.2's `max(today, current_expiry) +
-   *  validity_days`). Omit or 0 for a credits-only movement. */
+  /** Days to move validity by. POSITIVE charges the line, NEGATIVE consumes
+   *  days off it; the rule that decides where the result lands (stack on a
+   *  live line, start from today inside the 5-day revival grace, refuse past
+   *  it, clip at 365 days) is `projectValidityExpiry` in
+   *  `utils/carrierLineValidity.ts` — LIRA-157, superseding spec §5.2's
+   *  `max(today, current_expiry) + validity_days`. A refused charge comes back
+   *  as `{success: false, error}` from {@link CarrierLineService.applyMovement},
+   *  carrying the operator-facing sentence verbatim. Omit or 0 for a
+   *  credits-only movement. */
   validityDaysDelta?: number;
   /** ABSOLUTE new expiry (`YYYY-MM-DD`) — the counted-date variant (Phase 3).
    *  Mutually exclusive with a non-zero `validityDaysDelta`; satisfies the

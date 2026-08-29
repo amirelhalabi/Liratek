@@ -1177,8 +1177,21 @@ export default function Profits() {
                   <td className="px-4 py-3 text-right text-emerald-400 font-medium">
                     {formatAmount(row.profit_usd, "USD")}
                   </td>
-                  <td className="px-4 py-3 text-right text-emerald-400">
-                    {row.profit_lbp > 0
+                  {/* LIRA-153 — a LOSS must be visible. This used to render
+                      any non-positive total as an em dash, which made a
+                      negative module profit indistinguishable from "no data":
+                      the owner watched Mobile Services go from "96,000 LBP" to
+                      "—" after one mis-stamped Only-Days sale and had no way to
+                      tell the figure had gone negative. Only an exact ZERO is
+                      an em dash now; negatives render in red, matching how the
+                      USD column has always behaved (formatAmount is
+                      unconditional there). */}
+                  <td
+                    className={`px-4 py-3 text-right ${
+                      row.profit_lbp < 0 ? "text-red-400" : "text-emerald-400"
+                    }`}
+                  >
+                    {row.profit_lbp !== 0
                       ? formatAmount(row.profit_lbp, "LBP")
                       : "—"}
                   </td>
@@ -1410,8 +1423,15 @@ export default function Profits() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right text-white">
-                      {row.total_lbp > 0
+                    {/* LIRA-153 — same fix as the By Module tab: a negative
+                        LBP total is real information (a commission row can go
+                        negative on a reversal) and must not read as "no data". */}
+                    <td
+                      className={`px-4 py-3 text-right ${
+                        row.total_lbp < 0 ? "text-red-400" : "text-white"
+                      }`}
+                    >
+                      {row.total_lbp !== 0
                         ? formatAmount(row.total_lbp, "LBP")
                         : "—"}
                     </td>

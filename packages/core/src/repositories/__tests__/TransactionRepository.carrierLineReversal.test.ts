@@ -46,7 +46,14 @@ import {
   resetTenantContext,
 } from "../../db/tenantContext.js";
 
-const FUTURE_EXPIRY = "2099-01-01"; // far enough out that it is never "already expired"
+// Far enough out that the line is never "already expired". NOTE (LIRA-157): a
+// +30-day charge on this date now CLIPS to today+365 (the ceiling in
+// `utils/carrierLineValidity.ts`) instead of landing on 2099-01-31. Every
+// assertion below only cares that the value CHANGED and then came back, so the
+// clip is immaterial here — and it is in fact the harder reversal case, since a
+// clip discards days that no `-validityDaysDelta` arithmetic could restore.
+// `previous_validity_expires_at` is what makes it work.
+const FUTURE_EXPIRY = "2099-01-01";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -271,7 +278,7 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
     expect(drawer(db, "MTC", "USD")).toBeCloseTo(77, 2);
     const afterSeed = lineRepo.getById(line.id)!;
     expect(afterSeed.credits).toBeCloseTo(97, 2); // 20 + 77
-    expect(afterSeed.validity_expires_at).not.toBe(FUTURE_EXPIRY); // extended by 30 days
+    expect(afterSeed.validity_expires_at).not.toBe(FUTURE_EXPIRY); // validity moved
 
     repo.voidTransaction(txnId, 1);
 

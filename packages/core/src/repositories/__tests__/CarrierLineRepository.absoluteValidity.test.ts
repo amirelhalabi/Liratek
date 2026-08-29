@@ -2,11 +2,17 @@
  * `applyMovement`'s ABSOLUTE-date variant (carrier-lines-validity Phase 3).
  *
  * The checkpoint needs "the operator read this expiry off the SIM", which the
- * day-delta form cannot express: `computeAppliedState` rebases a delta onto
- * `max(today, current_expiry)`, so on an already-expired line the delta lands
- * relative to TODAY. The first test below CHARACTERISES that rebasing (it is
- * correct behaviour for "extend by N days" and must not change), and the rest
- * pin the absolute variant that Phase 3 added alongside it.
+ * day-delta form cannot express. Under spec §5.2 a delta was rebased onto
+ * `max(today, current_expiry)`, so on an already-expired line it landed
+ * relative to TODAY rather than on the counted date. LIRA-157 made that worse
+ * for this use case, not better: past the 5-day revival grace a positive delta
+ * is REFUSED outright, so the lines a checkpoint most needs to correct cannot
+ * be expressed as a delta at all.
+ *
+ * The absolute variant is therefore exempt from the whole rule — no ceiling,
+ * no burned check. It records what the carrier actually says (evidence), where
+ * a delta projects what a charge would do. The first test below pins that
+ * refusal; the rest pin the absolute variant Phase 3 added alongside it.
  */
 
 import Database from "better-sqlite3";
@@ -81,26 +87,38 @@ describe("CarrierLineRepository — absolute validity date (Phase 3)", () => {
     resetCarrierLineMovementRepository();
   });
 
-  it("CHARACTERISATION: a day-delta on an EXPIRED line rebases onto today", () => {
+  // LIRA-157 rewrote this case. It used to be a CHARACTERISATION of the §5.2
+  // rebasing ("a day-delta on an EXPIRED line rebases onto today"), asserting
+  // the result landed in the future rather than on 2020-01-11. Under the
+  // owner's real rule a line six years lapsed is BURNED, so the day-delta form
+  // now REFUSES outright.
+  //
+  // The point this test exists to make is unchanged and, if anything, stronger:
+  // a day-delta cannot express "the operator read this date off the SIM", which
+  // is precisely why the checkpoint needs the absolute-date variant. Before
+  // LIRA-157 a delta landed on the WRONG date; now it cannot be used at all on
+  // the very lines a checkpoint most needs to correct.
+  it("a day-delta CANNOT record a counted date on a long-expired line — it is refused", () => {
     const line = repo.createLine({
       carrier: "mtc",
       phone_number: "03111111",
       validity_expires_at: "2020-01-01",
     });
 
-    repo.applyMovement({
-      carrierLineId: line.id,
-      creditsDelta: 0,
-      validityDaysDelta: 10,
-      reason: "SELF_CHARGE",
-      transactionId: null,
-    });
+    expect(() =>
+      repo.applyMovement({
+        carrierLineId: line.id,
+        creditsDelta: 0,
+        validityDaysDelta: 10,
+        reason: "SELF_CHARGE",
+        transactionId: null,
+      }),
+    ).toThrow(/burned/i);
 
-    // NOT 2020-01-11 — the §5.2 rule extends from today for a lapsed line.
-    // This is exactly why the checkpoint cannot use a day-delta to land on a
-    // counted date.
-    expect(repo.getById(line.id)!.validity_expires_at).not.toBe("2020-01-11");
-    expect(repo.getById(line.id)!.validity_expires_at! > localDay()).toBe(true);
+    // Unchanged — and still nowhere near the 2020-01-11 a naive
+    // `stored + delta` reading would have produced.
+    expect(repo.getById(line.id)!.validity_expires_at).toBe("2020-01-01");
+    expect(localDay() > "2020-01-01").toBe(true);
   });
 
   it("an absolute date is stored verbatim on an expired line", () => {

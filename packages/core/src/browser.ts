@@ -19,6 +19,16 @@ export * from "./utils/currencyConverter.js";
 // load with "does not provide an export named 'deliveredCostLbp'".
 export * from "./utils/telecomCredit.js";
 
+// Carrier-line validity rule (LIRA-157) — pure calendar-date arithmetic over
+// `YYYY-MM-DD` strings plus `localDay()`, no Node.js deps. KatchForm imports
+// `projectValidityExpiry`/`MAX_LINE_VALIDITY_DAYS` to warn before a self-charge
+// that the rule would clip or refuse, and CarrierLinesPanel imports
+// `classifyLineValidity` for the "burned" badge — the SAME rule the repository
+// enforces on write, never a second copy of the comparison (rule 14). Must be
+// exported HERE, not only from index.ts — see the telecomCredit note above for
+// the exact failure mode this avoids.
+export * from "./utils/carrierLineValidity.js";
+
 // Validators — zod schemas, no Node.js deps
 export * from "./validators/index.js";
 

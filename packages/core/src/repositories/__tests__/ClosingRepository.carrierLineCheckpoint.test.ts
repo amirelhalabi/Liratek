@@ -21,13 +21,16 @@
  *  (d) `daily_closing_carrier_lines.counted_credits` equals the provider
  *      drawer's USD row for the SAME closing — nothing in the schema enforces
  *      that duplicate, only the single write path does.
- *  (e) THE EXPIRED-LINE CASE — the one the naive approach gets wrong. A
- *      day-delta is rebased by `computeAppliedState` onto
- *      `max(today, current_expiry)`, so on an expired line "counted − stored"
- *      days lands N days from TODAY rather than on the counted date. Proven
- *      by swapping `validityExpiresAt` for the equivalent `validityDaysDelta`
- *      in ClosingRepository: the stored expiry came back as a date years past
- *      the counted one.
+ *  (e) THE EXPIRED-LINE CASE — the one the naive approach gets wrong. Under
+ *      spec §5.2 a day-delta was rebased onto `max(today, current_expiry)`, so
+ *      on an expired line "counted − stored" days landed N days from TODAY
+ *      rather than on the counted date. Proven by swapping `validityExpiresAt`
+ *      for the equivalent `validityDaysDelta` in ClosingRepository: the stored
+ *      expiry came back as a date years past the counted one. LIRA-157 only
+ *      strengthens the case for the absolute form — a positive delta on a line
+ *      lapsed past the 5-day grace is now REFUSED, so a count on a burned line
+ *      could not be recorded as a delta at all. The absolute variant is
+ *      deliberately exempt from that refusal and from the 365-day ceiling.
  *
  * There is deliberately NO create-plus-reverse assertion: CHECKPOINT is in
  * NON_REVERSIBLE_TRANSACTION_TYPES, a re-count is not a reversal, and nothing

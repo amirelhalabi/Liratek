@@ -38,8 +38,12 @@ export interface CarrierLineMovementEntity {
    *  restores this value VERBATIM instead of subtracting `validity_days_delta`
    *  off whatever the line's CURRENT expiry happens to be — a naive
    *  subtraction silently drops the restore when the current expiry is null,
-   *  and even when non-null it cannot undo the §5.2 "already-expired lines
-   *  extend from today" rebasing (both measured, pre-fix, 2026-07-30). Null
+   *  and even when non-null it cannot undo a forward step that DISCARDED
+   *  days. Originally that was §5.2's "already-expired lines extend from
+   *  today" rebasing (measured, pre-fix, 2026-07-30); since LIRA-157 it is the
+   *  5-day grace rebase and the 365-day ceiling clip. The column outlives
+   *  every one of those rules precisely because it stores a fact rather than
+   *  re-deriving one. Null
    *  is a legitimate stored value (the line genuinely had no expiry before
    *  this movement) — not a sentinel for "not tracked". */
   previous_validity_expires_at: string | null;

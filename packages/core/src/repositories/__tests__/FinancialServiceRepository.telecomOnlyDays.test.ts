@@ -56,6 +56,7 @@ import { resetCarrierLineService } from "../../services/CarrierLineService.js";
 import {
   maxReturnableCredits,
   deriveItemEconomics,
+  TELECOM_CREDIT_COST_RATE_LBP,
 } from "../../utils/telecomCredit.js";
 import {
   TransactionRepository,
@@ -270,6 +271,17 @@ function createTestDb(): Database.Database {
       is_reversed                   INTEGER NOT NULL DEFAULT 0,
       created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- LIRA-153: the Only-Days profit stamp reads the tenant's own credit cost
+    -- rate from here. Present but EMPTY by default, so most tests exercise the
+    -- documented fallback to TELECOM_CREDIT_COST_RATE_LBP.
+    CREATE TABLE system_settings (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id  INTEGER,
+      key_name   TEXT NOT NULL,
+      value      TEXT,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     -- Provider drawers for the cost/price flow. MTC/Alfa are USD-only (spec §4).
@@ -779,6 +791,267 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
   });
 
   // ── The carrier-line movement (spec §5.1/§8) ───────────────────────────────
+
+  // =========================================================================
+  // LIRA-153 - the Only-Days PROFIT stamp
+  // =========================================================================
+  //
+  // RULE 17 - every assertion in this block was watched failing against the
+  // pre-LIRA-153 margin (`commission = price - cost`, with the returned credit
+  // reaching the drawer but never the profit). Pre-fix, the headline case
+  // stamped -6,300,000 LBP where it should stamp -95,000: the whole card
+  // counted as spent, none of the $73 that came back counted as recovered.
+  // That single row was enough to drag the Profits page's Mobile Services LBP
+  // total negative, where the By Module cell rendered it as an em dash (owner
+  // report, 2026-08-29).
+  //
+  // WHY THE HEADLINE NUMBER IS STILL NEGATIVE. It is genuinely a small loss on
+  // this fixture, and that is the point: the fix makes the figure TRUE, not
+  // flattering. CART_77 sells its days for 1,300,000 while the days plus the
+  // 4 credits the SMS haircut eats cost 1,395,000. The old behaviour was wrong
+  // by 6.2 MILLION; the new one is right, and says the price is 95,000 short.
+  describe("LIRA-153 - profit stamp nets the returned credit off the gross cost", () => {
+    /** What the fix says the margin must be, derived from first principles
+     *  rather than from the production helper (so this is a real cross-check,
+     *  not the code agreeing with itself). */
+    function expectedProfitLbp(
+      priceLbp: number,
+      grossCostLbp: number,
+      returnedCreditsUsd: number,
+      rateLbp: number = TELECOM_CREDIT_COST_RATE_LBP,
+    ): number {
+      return priceLbp - grossCostLbp + returnedCreditsUsd * rateLbp;
+    }
+
+    function stampedProfit(fsId: number): {
+      profit_usd: number;
+      profit_lbp: number;
+    } {
+      return db
+        .prepare(
+          "SELECT profit_usd, profit_lbp FROM transactions WHERE source_table = 'financial_services' AND source_id = ?",
+        )
+        .get(fsId) as { profit_usd: number; profit_lbp: number };
+    }
+
+    function storedCommission(fsId: number): number {
+      return (
+        db
+          .prepare("SELECT commission FROM financial_services WHERE id = ?")
+          .get(fsId) as { commission: number }
+      ).commission;
+    }
+
+    /** The CART_77 Only-Days sale used by most cases below. */
+    function sellCart77OnlyDays(overrides: Record<string, unknown> = {}) {
+      const item = itemRepo.createItem(CART_77);
+      const line = lineRepo.createLine({
+        carrier: "mtc",
+        phone_number: "71100001",
+      });
+      lineRepo.setPrimary(line.id);
+      const result = repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: CART_77.sell_days_lbp as number,
+        currency: "LBP",
+        commission: 0,
+        cost: CART_77.cost_lbp,
+        price: CART_77.sell_days_lbp as number,
+        paidByMethod: "CASH",
+        itemCategory: "mtc",
+        mobileServiceItemId: item.id,
+        ...overrides,
+      });
+      return { item, line, result };
+    }
+
+    it("HEADLINE: the stamp counts the $73 that came back - -95,000, not -6,300,000", () => {
+      const { result } = sellCart77OnlyDays();
+
+      const expected = expectedProfitLbp(
+        CART_77.sell_days_lbp as number,
+        CART_77.cost_lbp,
+        73, // maxReturnableCredits(77), pinned by the drawer-delta suite above
+      );
+      expect(expected).toBe(-95_000); // 1,300,000 - 7,600,000 + 73*85,000
+
+      const { profit_lbp, profit_usd } = stampedProfit(result.id as number);
+      expect(profit_lbp).toBeCloseTo(expected, 2);
+      expect(profit_usd).toBe(0);
+
+      // The pre-fix value, named explicitly so a regression is unmistakable.
+      expect(profit_lbp).not.toBeCloseTo(-6_300_000, 2);
+    });
+
+    it("the stored commission and the stamped profit are the SAME number", () => {
+      // They are two copies of one figure; a fix that moved only the stamp
+      // would leave the financial_services row telling a different story to
+      // getRealizedCommissionTotals.
+      const { result } = sellCart77OnlyDays();
+      const { profit_lbp } = stampedProfit(result.id as number);
+      expect(storedCommission(result.id as number)).toBeCloseTo(profit_lbp, 2);
+    });
+
+    it("the GROSS cost still leaves the provider drawer - the fix moves the margin, not the money", () => {
+      const before = drawerBalance(db, "iPick", "LBP");
+      sellCart77OnlyDays();
+      // Unchanged from the drawer-delta suite: the shop really did pay iPick
+      // the whole card price. Only what we CALL profit changed.
+      expect(drawerBalance(db, "iPick", "LBP")).toBeCloseTo(
+        before - CART_77.cost_lbp,
+        2,
+      );
+    });
+
+    it("the credit valued in the profit is exactly the credit booked to the drawer", () => {
+      // The invariant the single-resolution refactor exists to protect: if the
+      // stamp and the leg ever resolved separately they could disagree.
+      const mtcBefore = drawerBalance(db, "MTC", "USD");
+      const { result } = sellCart77OnlyDays();
+      const creditedUsd = drawerBalance(db, "MTC", "USD") - mtcBefore;
+
+      const { profit_lbp } = stampedProfit(result.id as number);
+      const impliedCredit =
+        (profit_lbp - ((CART_77.sell_days_lbp as number) - CART_77.cost_lbp)) /
+        TELECOM_CREDIT_COST_RATE_LBP;
+      expect(impliedCredit).toBeCloseTo(creditedUsd, 6);
+    });
+
+    it("an operator override of the returned credit flows into the profit", () => {
+      const { result } = sellCart77OnlyDays({ returnedCreditsUsd: 50 });
+      expect(stampedProfit(result.id as number).profit_lbp).toBeCloseTo(
+        expectedProfitLbp(
+          CART_77.sell_days_lbp as number,
+          CART_77.cost_lbp,
+          50,
+        ),
+        2,
+      );
+    });
+
+    it("an override of exactly 0 returns the margin to the bare price - cost", () => {
+      // Nothing came back, so there is nothing to offset: this is a real loss
+      // and must be stamped as one.
+      const { result } = sellCart77OnlyDays({ returnedCreditsUsd: 0 });
+      expect(stampedProfit(result.id as number).profit_lbp).toBeCloseTo(
+        (CART_77.sell_days_lbp as number) - CART_77.cost_lbp,
+        2,
+      );
+    });
+
+    it("NO REGRESSION: an ordinary (non-Only-Days) catalog sale is unchanged", () => {
+      // A full-price card sale returns no credit, so the margin is untouched
+      // by this change.
+      const item = itemRepo.createItem(CART_77);
+      const result = repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: CART_77.sell_lbp as number,
+        currency: "LBP",
+        commission: 0,
+        cost: CART_77.cost_lbp,
+        price: CART_77.sell_lbp as number,
+        paidByMethod: "CASH",
+        itemCategory: "mtc",
+        mobileServiceItemId: item.id,
+        returnedCreditsUsd: 0,
+      });
+      expect(stampedProfit(result.id as number).profit_lbp).toBeCloseTo(
+        (CART_77.sell_lbp as number) - CART_77.cost_lbp,
+        2,
+      );
+      expect(stampedProfit(result.id as number).profit_lbp).toBeGreaterThan(0);
+    });
+
+    it("NO REGRESSION: a non-reseller provider never gets a credit offset", () => {
+      const result = repo.createTransaction({
+        provider: "OMT_APP",
+        serviceType: "SEND",
+        amount: 100_000,
+        currency: "LBP",
+        commission: 0,
+        cost: 90_000,
+        price: 100_000,
+        paidByMethod: "CASH",
+        itemCategory: "mtc",
+        returnedCreditsUsd: 73,
+      });
+      expect(stampedProfit(result.id as number).profit_lbp).toBeCloseTo(
+        10_000,
+        2,
+      );
+    });
+
+    it("uses the TENANT's own credit cost rate when one is configured", () => {
+      // The rate is a per-tenant setting (v144, re-anchored by v148). A shop
+      // that customised it must be valued at ITS number, never the constant.
+      const customRate = 90_000;
+      db.prepare(
+        "INSERT INTO system_settings (tenant_id, key_name, value) VALUES (1, 'telecom_credit_cost_rate_lbp', ?)",
+      ).run(String(customRate));
+
+      const { result } = sellCart77OnlyDays();
+      expect(stampedProfit(result.id as number).profit_lbp).toBeCloseTo(
+        expectedProfitLbp(
+          CART_77.sell_days_lbp as number,
+          CART_77.cost_lbp,
+          73,
+          customRate,
+        ),
+        2,
+      );
+    });
+
+    it("falls back to the constant when the setting is absent or unusable", () => {
+      db.prepare(
+        "INSERT INTO system_settings (tenant_id, key_name, value) VALUES (1, 'telecom_credit_cost_rate_lbp', ?)",
+      ).run("not-a-number");
+
+      const { result } = sellCart77OnlyDays();
+      expect(stampedProfit(result.id as number).profit_lbp).toBeCloseTo(
+        expectedProfitLbp(
+          CART_77.sell_days_lbp as number,
+          CART_77.cost_lbp,
+          73,
+        ),
+        2,
+      );
+    });
+
+    it("a multi-line walk-in cart offsets EVERY line's returned credit", () => {
+      const item = itemRepo.createItem(CART_77);
+      const line = lineRepo.createLine({
+        carrier: "mtc",
+        phone_number: "71100001",
+      });
+      lineRepo.setPrimary(line.id);
+
+      const result = repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: 2 * (CART_77.sell_days_lbp as number),
+        currency: "LBP",
+        commission: 0,
+        cost: 2 * CART_77.cost_lbp,
+        price: 2 * (CART_77.sell_days_lbp as number),
+        paidByMethod: "CASH",
+        telecomCreditReturns: [
+          { itemCategory: "mtc", mobileServiceItemId: item.id },
+          { itemCategory: "mtc", mobileServiceItemId: item.id },
+        ],
+      });
+
+      expect(stampedProfit(result.id as number).profit_lbp).toBeCloseTo(
+        expectedProfitLbp(
+          2 * (CART_77.sell_days_lbp as number),
+          2 * CART_77.cost_lbp,
+          2 * 73,
+        ),
+        2,
+      );
+    });
+  });
 
   describe("Carrier-line movement (spec §5.1/§8, rule 20 reversal owner)", () => {
     it("credits the shop's PRIMARY mtc line and ties the movement to this transaction", () => {

@@ -26,12 +26,18 @@ import { getVoucherRepository } from "./VoucherRepository.js";
 import { getMobileServiceItemRepository } from "./MobileServiceItemRepository.js";
 import {
   getCarrierLineRepository,
+  carrierDrawerName,
   type CarrierKey,
 } from "./CarrierLineRepository.js";
 import { getCarrierLineService } from "../services/CarrierLineService.js";
 import {
-  maxReturnableCredits,
-  isTelecomSplitComplete,
+  // LIRA-153 — Only-Days credit returns are resolved ONCE, up front, because
+  // both the profit stamp and the drawer leg need the same number.
+  // `maxReturnableCredits`/`isTelecomSplitComplete` are no longer called here:
+  // `resolveTelecomCreditReturns` owns that decision now.
+  resolveTelecomCreditReturns,
+  telecomCreditReturnValueLbp,
+  TELECOM_CREDIT_COST_RATE_LBP,
 } from "../utils/telecomCredit.js";
 import {
   reconcileLegs,
@@ -1284,7 +1290,112 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         }
       }
 
-      const commission = useCostPriceFlow ? price - cost : calculatedCommission;
+      // ═══════════════════════════════════════════════════════════════════════
+      // LIRA-153 — Only-Days credit returns, resolved BEFORE the margin
+      // ═══════════════════════════════════════════════════════════════════════
+      // An Only-Days sale charges the customer for the card's VALIDITY DAYS
+      // only and SMSes the card's credit back to the shop's own line. The shop
+      // pays the card's full price to iPick/Katsh, so `cost` below is (and must
+      // stay) the GROSS card cost — it is what debits the provider drawer a few
+      // hundred lines down, and the shop really did hand over that much.
+      //
+      // But the credit that comes back is an ASSET the shop keeps. Before this
+      // change the margin was a bare `price - cost`, which counted the whole
+      // card as spent and none of the credit as recovered: a Katsh mtc 7.58
+      // sold for its days booked roughly −570,000 LBP. Owner report
+      // 2026-08-29: the Profits page's Mobile Services line went from
+      // "96,000 LBP" to "—" after one such sale (the by-module row sums the
+      // stamped `transactions.profit_lbp`, and the cell renders any
+      // non-positive total as an em dash).
+      //
+      // So the margin nets the returned credit off the gross cost, valued at R
+      // — the shop's cost of $1 of card-embedded credit. Owner decision D2.1
+      // (2026-08-29): value the credit ACTUALLY recovered, not the card's face
+      // value. The two differ by the SMS transfer haircut, which is a genuine
+      // cost of extracting the credit and belongs on this sale.
+      //
+      // Resolved HERE rather than inside `processTelecomCreditReturn` (which
+      // books the drawer leg much later) so both use ONE number — see
+      // `resolveTelecomCreditReturns`' doc for why two resolutions would be two
+      // chances to disagree. `cost`, the drawer leg and the supplier payable
+      // are all untouched by this: only the margin moves.
+      const telecomCreditReturnLines: TelecomCreditReturnLine[] =
+        data.telecomCreditReturns && data.telecomCreditReturns.length > 0
+          ? data.telecomCreditReturns
+          : [
+              {
+                ...(data.itemCategory !== undefined
+                  ? { itemCategory: data.itemCategory }
+                  : {}),
+                ...(data.mobileServiceItemId !== undefined
+                  ? { mobileServiceItemId: data.mobileServiceItemId }
+                  : {}),
+                ...(data.returnedCreditsUsd !== undefined
+                  ? { returnedCreditsUsd: data.returnedCreditsUsd }
+                  : {}),
+              },
+            ];
+
+      const isTelecomResellerApp =
+        data.provider === "Katsh" || data.provider === "iPick";
+
+      const telecomCreditReturns = isTelecomResellerApp
+        ? resolveTelecomCreditReturns(telecomCreditReturnLines, (id) =>
+            getMobileServiceItemRepository().getById(id),
+          )
+        : { resolved: [], skipped: [] };
+
+      for (const line of telecomCreditReturns.skipped) {
+        financialLogger.warn(
+          { line },
+          "Only-Days credit return: could not resolve alfa/mtc category — skipping this line",
+        );
+      }
+
+      const telecomCreditReturnUsd = telecomCreditReturns.resolved.reduce(
+        (sum, r) => sum + r.credits,
+        0,
+      );
+
+      // R is a per-tenant setting (v144, re-anchored to 85,000 by v148's
+      // `reanchor_telecom_credit_cost_rate`). Read the tenant's OWN value —
+      // never the constant — so a shop that customised it gets its own number;
+      // the constant is only the fallback for a minimal/test schema with no
+      // `system_settings` table.
+      let telecomCreditCostRateLbp = TELECOM_CREDIT_COST_RATE_LBP;
+      if (telecomCreditReturnUsd > 0) {
+        try {
+          const rateRow = this.db
+            .prepare(
+              "SELECT value FROM system_settings WHERE key_name = 'telecom_credit_cost_rate_lbp' AND tenant_id = ?",
+            )
+            .get(tenantId) as { value: string } | undefined;
+          const parsed = rateRow ? Number(rateRow.value) : NaN;
+          if (Number.isFinite(parsed) && parsed > 0) {
+            telecomCreditCostRateLbp = parsed;
+          }
+        } catch {
+          // system_settings may be absent in minimal/test schemas — the
+          // constant default already covers that.
+        }
+      }
+
+      // Valued in the transaction's OWN currency. Every live caller sends LBP
+      // (KatchForm hard-codes it), but a USD catalog sale would credit USD to
+      // the drawer, so converting it to LBP there would be wrong.
+      const telecomCreditReturnCredit =
+        telecomCreditReturnUsd > 0
+          ? currency === "LBP"
+            ? telecomCreditReturnValueLbp(
+                telecomCreditReturnUsd,
+                telecomCreditCostRateLbp,
+              )
+            : telecomCreditReturnUsd
+          : 0;
+
+      const commission = useCostPriceFlow
+        ? price - cost + telecomCreditReturnCredit
+        : calculatedCommission;
 
       // COMMISSION_AT_SETTLEMENT_PLAN.md D3 — commission_model is stamped per
       // row at creation, gated on `service_type` (rule 14 — service_type is
@@ -1958,86 +2069,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // second one beside it — there is still exactly one `insertPayment`
       // call for the credit-return leg below).
       const processTelecomCreditReturn = () => {
-        const isTelecomResellerApp =
-          data.provider === "Katsh" || data.provider === "iPick";
-        if (!isTelecomResellerApp) return;
-
-        // Bug 2 groundwork (spec §6, walk-in aggregated payload): a walk-in
-        // checkout that bundles several Only-Days lines into ONE
-        // transaction sends `telecomCreditReturns`, one entry per line.
-        // Every other caller (today's session-cart path — one transaction
-        // per line — and every existing test) instead sends the single
-        // scalar fields, normalized here into the same one-element shape
-        // so ONE loop books both shapes (rule 14).
-        const lines: TelecomCreditReturnLine[] =
-          data.telecomCreditReturns && data.telecomCreditReturns.length > 0
-            ? data.telecomCreditReturns
-            : [
-                {
-                  itemCategory: data.itemCategory,
-                  mobileServiceItemId: data.mobileServiceItemId,
-                  returnedCreditsUsd: data.returnedCreditsUsd,
-                },
-              ];
-
-        for (const line of lines) {
-          // The catalog item this line is selling — resolved so the
-          // split-completeness gate and the computed default (spec §2/
-          // §5.1) can both read its cost_lbp/days_cost_lbp/credits. Absent
-          // for every caller that hasn't been migrated to send
-          // `mobileServiceItemId` yet (no regression, spec §9).
-          const item =
-            line.mobileServiceItemId != null
-              ? getMobileServiceItemRepository().getById(
-                  line.mobileServiceItemId,
-                )
-              : null;
-
-          // spec §2/§5.1: an explicitly supplied value (including 0 — the
-          // operator dialing the return down to nothing) is an override
-          // that ALWAYS wins; omitted means "compute the default" — but
-          // ONLY when the item's split is complete (rule 14: the ONE
-          // shared gate predicate, imported, never re-derived). A
-          // split-incomplete item (the default state today) has no default
-          // to fall back to and keeps today's fully-manual behavior.
-          let resolvedCredits: number;
-          if (line.returnedCreditsUsd !== undefined) {
-            resolvedCredits = line.returnedCreditsUsd;
-          } else if (item && isTelecomSplitComplete(item)) {
-            resolvedCredits = maxReturnableCredits(item.credits as number);
-          } else {
-            resolvedCredits = 0;
-          }
-          if (!(resolvedCredits > 0)) continue;
-
-          const categoryRaw = line.itemCategory ?? item?.category;
-          const isAlfa = categoryRaw === "alfa" || categoryRaw === "Alfa";
-          const isMtc =
-            categoryRaw === "mtc" ||
-            categoryRaw === "Mtc" ||
-            categoryRaw === "MTC";
-          if (!isAlfa && !isMtc) {
-            // No way to tell which drawer/carrier this belongs to —
-            // nothing safe to book. Should not happen for a real telecom
-            // sale (itemCategory is always sent today); defensive only.
-            financialLogger.warn(
-              { line },
-              "processTelecomCreditReturn: could not resolve alfa/mtc category — skipping this line",
-            );
-            continue;
-          }
-          const creditDrawer = isAlfa ? "Alfa" : "MTC";
+        // LIRA-153 — resolution moved OUT of this closure and up to the margin
+        // computation (`telecomCreditReturns`, above): the profit stamp and
+        // these legs must credit the SAME number, and the stamp is computed
+        // long before this runs. This function now only BOOKS what was already
+        // decided, which is also why it no longer needs the provider gate or
+        // the payload-shape normalisation — both happened at resolution time.
+        for (const { carrier, credits } of telecomCreditReturns.resolved) {
+          // rule 14 — the carrier -> provider-drawer map has one definition in
+          // CarrierLineRepository; this call site used to spell it inline.
+          const creditDrawer = carrierDrawerName(carrier);
 
           insertPayment.run(
             txnId,
             "CREDIT_RETURN",
             creditDrawer,
             "USD",
-            resolvedCredits,
-            `Returned credits: ${resolvedCredits} USD`,
+            credits,
+            `Returned credits: ${credits} USD`,
             createdBy,
           );
-          upsertBalanceDelta.run(creditDrawer, "USD", resolvedCredits);
+          upsertBalanceDelta.run(creditDrawer, "USD", credits);
 
           // spec §5.1/§8: the return also lands on the shop's primary line
           // for this carrier, tied to THIS transaction (rule 20 reversal
@@ -2049,12 +2101,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // the sale (Phase 3b explicitly left this empty-state UX
           // decision to Phase 4 — see CarrierLineRepository.getPrimary's
           // doc).
-          const carrier: CarrierKey = isAlfa ? "alfa" : "mtc";
+          //
+          // `validityDaysDelta` is 0 here, so LIRA-157's burned-line refusal
+          // never fires on this path: returning credit to a lapsed line is
+          // always allowed, only CHARGING one is refused.
           const primaryLine = getCarrierLineRepository().getPrimary(carrier);
           if (primaryLine) {
             const movement = getCarrierLineService().applyMovement({
               carrierLineId: primaryLine.id,
-              creditsDelta: resolvedCredits,
+              creditsDelta: credits,
               reason: "ONLY_DAYS_RETURN",
               transactionId: txnId,
             });
@@ -4012,8 +4067,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         transactionId: txnId,
       });
       if (!movement.success) {
+        // LIRA-157 — pass the movement's own message through UNDECORATED. It
+        // is the operator-facing refusal for a burned line
+        // (`burnedLineMessage`, which names the lapse and the grace window)
+        // and travels straight to the form via the IPC/REST envelope. The old
+        // `Failed to apply carrier line movement: …` prefix added nothing the
+        // operator could act on and buried the sentence that mattered.
         throw new Error(
-          `Failed to apply carrier line movement: ${movement.error}`,
+          movement.error ?? "Failed to apply carrier line movement",
         );
       }
 

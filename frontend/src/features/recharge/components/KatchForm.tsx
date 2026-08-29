@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback, memo, startTransition } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  memo,
+  startTransition,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Phone, Plus, X } from "lucide-react";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -18,6 +25,11 @@ import {
   maxReturnableCredits,
   isTelecomSplitComplete,
   resolveCreditSellPriceLbp,
+  // LIRA-157 — the SAME rule the repository applies on write. Imported, never
+  // re-implemented: a second copy here would drift and promise the operator
+  // days the backend then refuses or clips.
+  projectValidityExpiry,
+  MAX_LINE_VALIDITY_DAYS,
 } from "@liratek/core";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -1044,6 +1056,39 @@ function KatchFormInner({
     }
   }, [selfChargeItem, primaryLines, api, loadPrimaryLines]);
 
+  // LIRA-157 — what the charge would ACTUALLY do to the line, computed with the
+  // repository's own rule so the dialog cannot promise something the write path
+  // refuses. Three outcomes matter to the operator:
+  //   burned  → the line is past the 5-day revival grace; the charge is refused
+  //             server-side, so the button is disabled rather than failing late
+  //   capped  → part of the card's days are lost to the 365-day ceiling
+  //   GRACE   → the line is lapsed but revivable; the new validity starts today
+  //
+  // Lives ABOVE the early return, with the other hooks, and therefore derives
+  // the carrier and target line itself instead of reusing the `selfCharge*`
+  // locals below (rules-of-hooks: a hook after a conditional return is called
+  // conditionally). Same two values, same source state.
+  const selfChargeValidityProjection = useMemo(() => {
+    const requestedDays = selfChargeItem?.validityDays;
+    if (!selfChargeItem || requestedDays == null || requestedDays <= 0) {
+      return null;
+    }
+    const carrier = selfChargeItem.category.toLowerCase() as "alfa" | "mtc";
+    const targetLine = primaryLines[carrier];
+    if (!targetLine) return null;
+
+    const projection = projectValidityExpiry(
+      targetLine.validity_expires_at,
+      requestedDays,
+    );
+    return {
+      ...projection,
+      requestedDays,
+      /** Days the line actually gains once the ceiling has taken its cut. */
+      appliedDays: requestedDays - projection.daysLostToCap,
+    };
+  }, [selfChargeItem, primaryLines]);
+
   if (!activeConfig || !activeProvider) return null;
 
   const billAccent =
@@ -1060,6 +1105,8 @@ function KatchFormInner({
   const selfChargeTargetLine = selfChargeCarrier
     ? primaryLines[selfChargeCarrier]
     : null;
+
+  const selfChargeBlocked = selfChargeValidityProjection?.burned === true;
 
   const filterItemsBySearch = (items: ServiceItem[]): ServiceItem[] => {
     if (!searchQuery.trim()) return items;
@@ -2441,7 +2488,14 @@ function KatchFormInner({
                   </p>
                   <p>
                     Add{" "}
-                    <span className="text-emerald-400 font-mono">
+                    <span
+                      className={
+                        selfChargeValidityProjection?.capped ||
+                        selfChargeBlocked
+                          ? "text-amber-400 font-mono line-through"
+                          : "text-emerald-400 font-mono"
+                      }
+                    >
                       +{selfChargeItem.validityDays} days
                     </span>{" "}
                     validity to{" "}
@@ -2456,13 +2510,55 @@ function KatchFormInner({
                       one in Settings → Carrier Lines first.
                     </p>
                   )}
+                  {/* LIRA-157 — say what the rule will really do, before the
+                      operator spends the card. */}
+                  {selfChargeBlocked && (
+                    <p
+                      className="text-red-400 text-xs pt-1"
+                      data-testid="self-charge-burned-warning"
+                    >
+                      This line expired{" "}
+                      {selfChargeValidityProjection?.lapseDays} days ago and is
+                      burned — it can no longer be revived by a charge.
+                      Register a new line in Settings → Carrier Lines.
+                    </p>
+                  )}
+                  {!selfChargeBlocked &&
+                    selfChargeValidityProjection?.capped && (
+                      <p
+                        className="text-amber-400 text-xs pt-1"
+                        data-testid="self-charge-capped-warning"
+                      >
+                        Only {selfChargeValidityProjection.appliedDays} of
+                        these {selfChargeValidityProjection.requestedDays} days
+                        will apply —
+                        a line holds at most {MAX_LINE_VALIDITY_DAYS} days, and
+                        this one already has validity left.
+                      </p>
+                    )}
+                  {!selfChargeBlocked &&
+                    selfChargeValidityProjection?.state === "GRACE" && (
+                      <p
+                        className="text-amber-400 text-xs pt-1"
+                        data-testid="self-charge-grace-warning"
+                      >
+                        This line expired{" "}
+                        {selfChargeValidityProjection.lapseDays} days ago — the
+                        new validity starts from today, so the lapsed days are
+                        not recovered.
+                      </p>
+                    )}
                 </div>
 
                 <div className="flex gap-2 pt-2">
                   <button
                     type="button"
                     onClick={handleConfirmSelfCharge}
-                    disabled={selfChargeSubmitting || !selfChargeTargetLine}
+                    disabled={
+                      selfChargeSubmitting ||
+                      !selfChargeTargetLine ||
+                      selfChargeBlocked
+                    }
                     className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded text-sm"
                   >
                     {selfChargeSubmitting ? "Charging..." : "Confirm Charge"}

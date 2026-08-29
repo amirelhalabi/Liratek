@@ -3834,8 +3834,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * expiry happens to be. That closes two bugs the old direct
    * `reverseDelta` call had: (a) it silently skipped the validity restore
    * whenever the current expiry was null, with no error and no log, and
-   * (b) even when non-null, a naive subtraction could not undo the §5.2
-   * "already-expired lines extend from today" rebasing. `reverseMovement`
+   * (b) even when non-null, a naive subtraction could not undo a forward step
+   * that discarded days — §5.2's "already-expired lines extend from today"
+   * rebasing then, the LIRA-157 grace rebase and 365-day clip now.
+   * `reverseMovement`
    * also marks the movement `is_reversed = 1` itself, atomically with the
    * line update — this method no longer touches either table directly.
    *

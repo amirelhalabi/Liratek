@@ -10,6 +10,16 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { localDay } from "../utils/localDate.js";
+// LIRA-157 — the ONE carrier-line validity rule (grace window, stacking,
+// 365-day ceiling) and the calendar-date helpers that used to be private to
+// this file. Moved out so the pre-submit UI projection computes the SAME
+// answer as this write path instead of a second copy (rule 14).
+import {
+  burnedLineMessage,
+  daysBetweenDateStrings,
+  projectValidityExpiry,
+} from "../utils/carrierLineValidity.js";
+import type { TelecomCarrierKey } from "../utils/telecomCredit.js";
 import {
   CarrierLineMovementRepository,
   getCarrierLineMovementRepository,
@@ -29,7 +39,11 @@ import { getTransactionRepository } from "./TransactionRepository.js";
 // Entity Types
 // =============================================================================
 
-export type CarrierKey = "alfa" | "mtc";
+/** The carrier union, defined once in `utils/telecomCredit.ts` (a util cannot
+ *  import a repository, so the shared definition has to live there). Aliased
+ *  rather than re-declared so the two can never drift apart, and kept exported
+ *  under this name because ~40 call sites import `CarrierKey` from here. */
+export type CarrierKey = TelecomCarrierKey;
 
 /**
  * The carrier → provider-drawer name map, defined ONCE (rule 14). The
@@ -140,43 +154,12 @@ export interface UpdateBalanceData {
 }
 
 // -----------------------------------------------------------------------------
-// Date helpers (LIRA-090 §5.2 validity extension)
+// Date helpers and the validity rule itself now live in
+// `utils/carrierLineValidity.ts` (LIRA-157). They were module-private here,
+// which meant the only way to know where a charge would land was to perform
+// it — the UI could not warn, and the rule could not be unit-tested without a
+// database. Persistence stays in this file; the policy is imported.
 // -----------------------------------------------------------------------------
-
-/**
- * Add (or, for a negative `days`, subtract) whole days to a `YYYY-MM-DD`
- * calendar-date string. Parsed/formatted entirely in UTC — a calendar date
- * has no timezone of its own, so doing this arithmetic in UTC sidesteps any
- * local-timezone month/day-rollover bug entirely (contrast `utils/localDate.ts`,
- * which deliberately uses local getters because IT is answering "what day is
- * it on the shop's clock right now" — a different question from "what date is
- * N days after this stored calendar date").
- */
-function addDaysToDateString(dateStr: string, days: number): string {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  date.setUTCDate(date.getUTCDate() + days);
-  const y = date.getUTCFullYear();
-  const m = (date.getUTCMonth() + 1).toString().padStart(2, "0");
-  const d = date.getUTCDate().toString().padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-/**
- * Whole-day difference `toStr - fromStr` between two `YYYY-MM-DD` calendar
- * dates, computed in UTC (a fixed 86,400,000ms/day — no DST ambiguity ever
- * applies to a pure calendar date). Used ONLY by `updateBalance`'s manual
- * hand-edit path (H3 fix) to record an audit-trail `validity_days_delta` on
- * its movement row; the reversal path never re-derives a date from this
- * value (see `previous_validity_expires_at` / M2).
- */
-function daysBetweenDateStrings(fromStr: string, toStr: string): number {
-  const [fy, fm, fd] = fromStr.split("-").map(Number);
-  const [ty, tm, td] = toStr.split("-").map(Number);
-  const fromMs = Date.UTC(fy, fm - 1, fd);
-  const toMs = Date.UTC(ty, tm - 1, td);
-  return Math.round((toMs - fromMs) / 86_400_000);
-}
 
 // -----------------------------------------------------------------------------
 // Movement-paired mutation types (LIRA-090 §5.2, §8 — H3 fix)
@@ -187,8 +170,11 @@ export interface ApplyCarrierLineMovementInput {
   carrierLineId: number;
   /** USD credit to add (or subtract). 0 for a validity-only movement. */
   creditsDelta: number;
-  /** Days to extend validity by (§5.2's `max(today, current_expiry) +
-   *  validity_days`). 0 for a credits-only movement. */
+  /** Days to move validity by. POSITIVE charges the line (see
+   *  `projectValidityExpiry` for the grace/stacking/ceiling rule — a charge on
+   *  a line lapsed beyond {@link LINE_REVIVAL_GRACE_DAYS} is REFUSED);
+   *  NEGATIVE consumes days off it and is never refused. 0 for a credits-only
+   *  movement. */
   validityDaysDelta: number;
   /**
    * ABSOLUTE new expiry (`YYYY-MM-DD`) — the counted-date variant added for
@@ -198,11 +184,16 @@ export interface ApplyCarrierLineMovementInput {
    * only honour one.
    *
    * WHY IT EXISTS: `validityDaysDelta` cannot express "the operator read
-   * this date off the SIM". `computeAppliedState` REBASES a day-delta onto
-   * `max(today, current_expiry)`, so on an ALREADY-EXPIRED line a delta
-   * derived as `counted − stored` lands N days from TODAY, not on the
-   * counted date — the checkpoint would silently store an expiry the
-   * operator never counted. An absolute date has no rebasing to get wrong.
+   * this date off the SIM". A positive delta anchors on today whenever the
+   * line is lapsed (LIRA-157's grace rule), so a delta derived as
+   * `counted − stored` would land N days from TODAY, not on the counted
+   * date — the checkpoint would silently store an expiry the operator never
+   * counted. Worse since LIRA-157: a line lapsed past the grace window
+   * REFUSES a positive delta outright, so a count on a burned line could not
+   * be recorded at all. An absolute date has neither problem, and is
+   * deliberately exempt from the ceiling and the burned check — it is
+   * evidence of what the carrier did, not a projection of what a charge
+   * would do.
    *
    * The movement row still snapshots `previous_validity_expires_at`
    * verbatim, so `reverseMovement` restores the exact pre-count value.
@@ -664,19 +655,24 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
    * `FinancialServiceRepository`, via `CarrierLineService.applyMovement`)
    * should use to touch a carrier line's credits/validity.
    *
-   * Validity extension rule: `new_expiry = max(today, current_expiry) +
-   * validity_days` — an already-expired line extends from TODAY, not the
-   * stale date, so "10 more days" on a line that lapsed three months ago
-   * lands 10 days from now, not 10 days after a date already in the past.
+   * Validity rule: delegated in full to `projectValidityExpiry`
+   * (`utils/carrierLineValidity.ts`) — a charge stacks on a live line, starts
+   * from today inside the {@link LINE_REVIVAL_GRACE_DAYS} window, is clipped
+   * at {@link MAX_LINE_VALIDITY_DAYS} from today, and is REFUSED on a line
+   * lapsed beyond the grace window. Selling days (negative delta) subtracts
+   * from the line's own expiry and is never refused.
    *
    * Captures the line's `validity_expires_at` AS IT STOOD IMMEDIATELY
    * BEFORE this mutation onto the movement row
    * (`previous_validity_expires_at`, v141, M2 fix) — `reverseMovement`
-   * restores that value verbatim rather than re-deriving it via day-math,
-   * which is the only way to correctly undo the "already-expired extends
-   * from today" rebasing above.
+   * restores that value verbatim rather than re-deriving it via day-math.
+   * That snapshot is what makes the rule above reversal-safe for free: a
+   * grace rebase and a ceiling clip both LOSE information (the days the
+   * charge did not buy), so no `-validityDaysDelta` arithmetic could ever
+   * undo them — only the snapshot can.
    *
-   * Throws if `carrierLineId` does not resolve to a row — the caller
+   * Throws when the line is burned (message from `burnedLineMessage`, surfaced
+   * verbatim to the operator) and when `carrierLineId` does not resolve — the caller
    * (`CarrierLineService.applyMovement`) catches it and returns
    * `{success: false}`; better-sqlite3's `transaction()` rolls back the
    * whole savepoint on throw, so no orphan movement row is ever left behind.
@@ -754,9 +750,10 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
    * manual edit had cleared it) — with no error, no log, and the movement
    * still flipped to `is_reversed = 1`. Keying off the movement's OWN
    * recorded delta instead of the line's current state closes that hole,
-   * and also fixes the separate "already-expired line" drift: a naive
-   * `-validityDaysDelta` cannot undo the `applyMovement` "extend from today"
-   * rebasing, but restoring the exact pre-mutation snapshot always can.
+   * and also fixes the separate lapsed-line drift: a naive
+   * `-validityDaysDelta` cannot undo `applyMovement`'s grace rebase or its
+   * 365-day clip (both discard days), but restoring the exact pre-mutation
+   * snapshot always can.
    */
   reverseMovement(movementId: number): CarrierLineMovementMutation | null {
     return this.transaction(() => {
@@ -960,39 +957,63 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
 }
 
 /**
- * The §5.2 extension-rule math, factored out as a plain module-level
- * function (NOT a class method — see the H3 doc block above for why that
- * matters): computes the next `{credits, validity_expires_at}` state for
- * `applyMovement`, but is not itself reachable from outside this module, so
- * it cannot be called without also going through `applyMovement`'s paired
- * movement write.
+ * Computes the next `{credits, validity_expires_at}` state for
+ * `applyMovement`, as a plain module-level function (NOT a class method — see
+ * the H3 doc block above for why that matters): it is not reachable from
+ * outside this module, so it cannot be called without also going through
+ * `applyMovement`'s paired movement write.
+ *
+ * LIRA-157 — this used to *contain* the extension rule (`max(today, expiry) +
+ * days`). It now only assembles a state from two decisions made elsewhere:
+ * credits are a plain sum, and the expiry comes from `projectValidityExpiry`
+ * (`utils/carrierLineValidity.ts`), which owns the grace window, the stacking
+ * behaviour and the 365-day ceiling. Keeping the rule here made it impossible
+ * to ask "where would this land?" without performing the write.
+ *
+ * `today` is a parameter, not a `localDay()` call inside the rule, so the
+ * whole projection is testable across a date boundary without mocking a clock.
+ *
+ * Throws {@link burnedLineMessage} when the projection refuses the charge —
+ * `applyMovement` runs this inside its db transaction, so better-sqlite3 rolls
+ * the savepoint back and no partial movement row survives.
  */
 function computeAppliedState(
   line: CarrierLineEntity,
   creditsDelta: number,
   validityDaysDelta: number,
-  /** Absolute counted expiry — wins outright over the day-delta rebasing
+  /** Absolute counted expiry — wins outright over the day-delta projection
    *  when supplied (Phase 3; see the input type's doc for why the delta form
    *  cannot express a counted date on an expired line). */
   validityExpiresAt?: string,
+  today: string = localDay(),
 ): Pick<UpdateCarrierLineData, "credits" | "validity_expires_at"> {
   const newCredits = (line.credits ?? 0) + creditsDelta;
 
+  // The counted-date variant is the operator recording what the carrier
+  // actually says. It deliberately bypasses the rule below — including the
+  // ceiling and the burned check — because it is evidence, not a projection.
+  // This is the documented escape hatch for a line the rule would refuse.
   if (validityExpiresAt !== undefined) {
     return { credits: newCredits, validity_expires_at: validityExpiresAt };
   }
 
-  let newExpiry = line.validity_expires_at;
-  if (validityDaysDelta !== 0) {
-    const today = localDay();
-    const base =
-      line.validity_expires_at && line.validity_expires_at > today
-        ? line.validity_expires_at
-        : today;
-    newExpiry = addDaysToDateString(base, validityDaysDelta);
+  if (validityDaysDelta === 0) {
+    return {
+      credits: newCredits,
+      validity_expires_at: line.validity_expires_at,
+    };
   }
 
-  return { credits: newCredits, validity_expires_at: newExpiry };
+  const projection = projectValidityExpiry(
+    line.validity_expires_at,
+    validityDaysDelta,
+    today,
+  );
+  if (projection.burned) {
+    throw new Error(burnedLineMessage(projection.lapseDays));
+  }
+
+  return { credits: newCredits, validity_expires_at: projection.expiry };
 }
 
 // =============================================================================

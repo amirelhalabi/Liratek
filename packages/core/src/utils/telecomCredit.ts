@@ -683,3 +683,167 @@ export function deriveSellDaysLbp(
   }
   return TELECOM_DAYS_SELL_PRICE_LBP[validityDays] ?? null;
 }
+
+// =============================================================================
+// §5.1 — Only-Days credit returns: resolution, shared by TWO consumers
+// =============================================================================
+
+/**
+ * The two carriers the telecom catalog covers.
+ *
+ * Defined HERE, in the util layer, rather than in `CarrierLineRepository`
+ * where it used to live alone: this module cannot import a repository without
+ * inverting the dependency direction (utils are the layer repositories build
+ * ON). `CarrierLineRepository.CarrierKey` is now an alias of this type, so
+ * every existing import of either name keeps compiling and there is still
+ * exactly one definition of what a carrier is.
+ */
+export type TelecomCarrierKey = "alfa" | "mtc";
+
+/**
+ * One Only-Days line as the frontend sends it. Structural on purpose — the
+ * repository's own `TelecomCreditReturnLine` satisfies it without importing
+ * anything from here.
+ */
+export interface TelecomCreditReturnLineInput {
+  itemCategory?: string | null;
+  mobileServiceItemId?: number;
+  /** Operator override. `undefined` means "compute the default". */
+  returnedCreditsUsd?: number;
+}
+
+/** The catalog fields resolution needs. Any `mobile_service_items` row fits. */
+export interface TelecomCreditReturnItem extends TelecomSplitCandidate {
+  category?: string | null;
+}
+
+export interface ResolvedTelecomCreditReturn {
+  carrier: TelecomCarrierKey;
+  /** USD credit the shop gets back on this line. Always > 0. */
+  credits: number;
+}
+
+/**
+ * Normalise the many spellings of a carrier that reach this layer
+ * (`alfa`/`Alfa`, `mtc`/`Mtc`/`MTC`). Returns null for anything else — a line
+ * whose carrier cannot be identified has no drawer and no line to credit, so
+ * there is nothing safe to book for it.
+ */
+export function parseCarrierKey(
+  raw: string | null | undefined,
+): TelecomCarrierKey | null {
+  const normalised = (raw ?? "").trim().toLowerCase();
+  if (normalised === "alfa") return "alfa";
+  if (normalised === "mtc") return "mtc";
+  return null;
+}
+
+/**
+ * How much credit this line actually returns (spec §2/§5.1).
+ *
+ * An explicitly supplied value — **including 0**, the operator dialing the
+ * return down to nothing — is an override that ALWAYS wins. Omitted means
+ * "compute the default", but only when the item's split is complete (rule 14:
+ * the ONE shared gate, {@link isTelecomSplitComplete}, never re-derived). A
+ * split-incomplete item has no default to fall back to and keeps the fully
+ * manual behaviour.
+ */
+export function resolveReturnedCredits(
+  line: TelecomCreditReturnLineInput,
+  item: TelecomCreditReturnItem | null | undefined,
+): number {
+  if (line.returnedCreditsUsd !== undefined) return line.returnedCreditsUsd;
+  if (item && isTelecomSplitComplete(item)) {
+    return maxReturnableCredits(item.credits as number);
+  }
+  return 0;
+}
+
+/**
+ * Resolve every Only-Days line of a transaction into `{carrier, credits}`.
+ *
+ * **Why this is a separate function (LIRA-153).** Two things need the answer,
+ * at two different moments in `FinancialServiceRepository.createTransaction`:
+ *
+ *  1. the PROFIT STAMP, computed near the top — the returned credit is an
+ *     asset the shop gets back, so it offsets the card's gross cost. Before
+ *     LIRA-153 the stamp ignored it entirely and every Only-Days sale booked a
+ *     loss of roughly the whole card (owner report 2026-08-29: the Profits
+ *     page's Mobile Services LBP total went from 96,000 to `—`).
+ *  2. the DRAWER LEG + carrier-line movement, booked much later.
+ *
+ * Resolving twice would be two chances to disagree — and the two numbers MUST
+ * agree, or the profit stamp would claim an offset the drawer never received.
+ * One resolution, two consumers (rule 14).
+ *
+ * Lines whose carrier cannot be identified, or that return nothing, are
+ * dropped: `skipped` carries them back so the caller can log without this
+ * function needing a logger (it stays pure).
+ *
+ * @param lines every Only-Days line on the transaction, already normalised to
+ *   the array shape by the caller
+ * @param lookupItem resolves a catalog item by id — injected rather than
+ *   imported so this stays pure and unit-testable without a database
+ */
+export function resolveTelecomCreditReturns(
+  lines: readonly TelecomCreditReturnLineInput[],
+  lookupItem: (id: number) => TelecomCreditReturnItem | null | undefined,
+): {
+  resolved: ResolvedTelecomCreditReturn[];
+  skipped: TelecomCreditReturnLineInput[];
+} {
+  const resolved: ResolvedTelecomCreditReturn[] = [];
+  const skipped: TelecomCreditReturnLineInput[] = [];
+
+  for (const line of lines) {
+    const item =
+      line.mobileServiceItemId != null
+        ? lookupItem(line.mobileServiceItemId)
+        : null;
+
+    const credits = resolveReturnedCredits(line, item);
+    if (!(credits > 0)) continue;
+
+    const carrier = parseCarrierKey(line.itemCategory ?? item?.category);
+    if (!carrier) {
+      // Should not happen for a real telecom sale (itemCategory is always
+      // sent today); defensive only.
+      skipped.push(line);
+      continue;
+    }
+    resolved.push({ carrier, credits });
+  }
+
+  return { resolved, skipped };
+}
+
+/**
+ * The value, in LBP, of credit returned to the shop on an Only-Days sale —
+ * the cost the shop does NOT bear because the credit came back.
+ *
+ * Valued at `R`, the shop's cost of $1 of card-embedded credit
+ * ({@link TELECOM_CREDIT_COST_RATE_LBP} / the per-tenant
+ * `telecom_credit_cost_rate_lbp` setting), because that is exactly what the
+ * returned credit is worth to the shop: it displaces credit that would
+ * otherwise have to be bought at R.
+ *
+ * **Owner decision D2.1 (2026-08-29): the ACTUAL credit recovered, never the
+ * card's face value.** The two differ by the SMS transfer haircut
+ * ({@link maxReturnableCredits} — a $7.58 card yields $7.00), and that haircut
+ * is a real cost the shop pays to extract the credit. Valuing the return at
+ * face would book a profit the shop never made and would leave the credit
+ * sitting in the drawer at an implied cost basis above R.
+ *
+ * NOT the same question as {@link deriveDaysCostLbp}, which deliberately uses
+ * face credits: that function allocates a CATALOG item's purchase cost between
+ * its days and its credit before any sale happens, when no haircut has been
+ * paid yet. This one prices what actually came back from a specific sale.
+ */
+export function telecomCreditReturnValueLbp(
+  creditsUsd: number,
+  rateLbp: number = TELECOM_CREDIT_COST_RATE_LBP,
+): number {
+  if (!Number.isFinite(creditsUsd) || creditsUsd <= 0) return 0;
+  if (!Number.isFinite(rateLbp) || rateLbp <= 0) return 0;
+  return Math.round(creditsUsd * rateLbp);
+}

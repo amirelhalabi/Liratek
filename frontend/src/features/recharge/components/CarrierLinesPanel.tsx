@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { useApi } from "@liratek/ui";
 import type { CarrierLineEntity } from "@liratek/ui";
 import { daysRemaining } from "@/shared/utils/daysRemaining";
+// LIRA-157 — "expired" and "burned" are different facts: a line lapsed inside
+// the revival grace can still be charged, one past it cannot. Classified with
+// the SAME rule the write path enforces, never a local `> 5` comparison.
+import { classifyLineValidity } from "@liratek/core";
 import logger from "@/utils/logger";
 
 interface CarrierLinesPanelProps {
@@ -431,6 +435,8 @@ export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
             line.validity_expires_at != null
               ? daysRemaining(line.validity_expires_at)
               : null;
+          const isBurned =
+            classifyLineValidity(line.validity_expires_at).state === "BURNED";
           const isEditing = editingId === line.id;
           const isRecordingUsage = usageLineId === line.id;
           const currentCredits = line.credits ?? 0;
@@ -573,6 +579,15 @@ export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
                         {remaining < 0
                           ? `expired ${Math.abs(remaining)}d ago`
                           : `${remaining}d left`}
+                      </span>
+                    )}
+                    {isBurned && (
+                      <span
+                        className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-300"
+                        title="Past the revival window — a charge will be refused. Register a new line."
+                        data-testid={`carrier-line-burned-${line.id}`}
+                      >
+                        burned
                       </span>
                     )}
                   </button>

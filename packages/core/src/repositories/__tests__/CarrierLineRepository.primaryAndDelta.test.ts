@@ -23,6 +23,15 @@
  *    "already-expired lines extend from today" rebasing via naive day
  *    subtraction. `reverseMovement` now restores `validity_expires_at` from
  *    the movement's own stored `previous_validity_expires_at` VERBATIM.
+ *
+ * ⚠ LIRA-157 (2026-08-29) SUPERSEDED the §5.2 extension rule these tests were
+ * written against. "Already-expired lines extend from today" now holds only
+ * inside a 5-day revival grace window; beyond it a charge is REFUSED, and every
+ * charge is clipped at 365 days from today. M2's conclusion survives intact and
+ * matters MORE under the new rule — a grace rebase and a ceiling clip both
+ * discard days, so only the `previous_validity_expires_at` snapshot can undo
+ * them. The rule itself lives in `utils/carrierLineValidity.ts`; its boundary
+ * matrix in `CarrierLineRepository.validityRule.test.ts`.
  */
 
 import Database from "better-sqlite3";
@@ -451,7 +460,14 @@ describe("CarrierLineRepository — applyMovement/reverseMovement (LIRA-090 §5.
     expect(updated.validity_expires_at).toBe(addDays(future, 10));
   });
 
-  it("§5.2 load-bearing case: validity movement on an ALREADY-EXPIRED line extends from TODAY, not the stale date", () => {
+  // LIRA-157 REPLACES the old §5.2 case here, which asserted that a validity
+  // movement on an ALREADY-EXPIRED line "extends from TODAY, not the stale
+  // date" — i.e. that a 90-day lapse was silently forgiven. The owner's real
+  // carrier rule (interview 2026-08-29) is a 5-day revival grace and then the
+  // line is gone, so the same input is now REFUSED. The full boundary matrix
+  // lives in `CarrierLineRepository.validityRule.test.ts`; this one case stays
+  // here so anyone reading this file for the §5.2 rule finds the correction.
+  it("LIRA-157: a validity movement on a line lapsed WAY past the grace window is refused", () => {
     const stale = addDays(localDay(), -90);
     const line = repo.createLine({
       carrier: "mtc",
@@ -459,14 +475,19 @@ describe("CarrierLineRepository — applyMovement/reverseMovement (LIRA-090 §5.
       validity_expires_at: stale,
     });
 
-    const { line: updated } = repo.applyMovement({
-      carrierLineId: line.id,
-      creditsDelta: 0,
-      validityDaysDelta: 10,
-      reason: "SELF_CHARGE",
-      transactionId: null,
-    });
-    expect(updated.validity_expires_at).toBe(addDays(localDay(), 10));
+    expect(() =>
+      repo.applyMovement({
+        carrierLineId: line.id,
+        creditsDelta: 0,
+        validityDaysDelta: 10,
+        reason: "SELF_CHARGE",
+        transactionId: null,
+      }),
+    ).toThrow(/burned/i);
+
+    // …and the line is untouched by the refusal.
+    expect(repo.getById(line.id)!.validity_expires_at).toBe(stale);
+    expect(movementCount(db)).toBe(0);
   });
 
   it("combined credits + validity movement applies both in one call", () => {
@@ -652,8 +673,14 @@ describe("CarrierLineRepository — applyMovement/reverseMovement (LIRA-090 §5.
     expect(reversed.validity_expires_at).toBe(originalExpiry);
   });
 
-  it("M2 fix (expired-line drift): reversing a movement applied to an ALREADY-EXPIRED line restores the EXACT original stale date, not a day-subtracted approximation", () => {
-    const staleExpiry = "2020-01-01"; // long expired
+  it("M2 fix (expired-line drift): reversing a movement applied to a LAPSED line restores the EXACT original stale date, not a day-subtracted approximation", () => {
+    // LIRA-157: this used to use "2020-01-01". A line that far gone is BURNED
+    // now and refuses the charge, so the fixture could never reach the code
+    // this test guards. A 3-day lapse sits inside the revival grace, where the
+    // forward step STILL rebases onto today and still discards the prior date
+    // — which is the whole property under test. The burned case is covered by
+    // CarrierLineRepository.validityRule.test.ts.
+    const staleExpiry = addDays(localDay(), -3);
     const line = repo.createLine({
       carrier: "mtc",
       phone_number: "03111111",
@@ -661,9 +688,8 @@ describe("CarrierLineRepository — applyMovement/reverseMovement (LIRA-090 §5.
       validity_expires_at: staleExpiry,
     });
 
-    // applyMovement's extension rule rebases an already-expired line from
-    // TODAY, not the stale date — so the forward result is "today + 30",
-    // nowhere near staleExpiry.
+    // Inside the grace window the charge starts from TODAY, not the stale
+    // date — so the forward result is "today + 30", nowhere near staleExpiry.
     const { movement, line: afterApply } = repo.applyMovement({
       carrierLineId: line.id,
       creditsDelta: 0,
@@ -676,7 +702,7 @@ describe("CarrierLineRepository — applyMovement/reverseMovement (LIRA-090 §5.
 
     // Pre-fix, `reverseDelta` would subtract 30 days off whatever the
     // CURRENT value is (today + 30 -> today) — landing on TODAY, not the
-    // true original staleExpiry ("2020-01-01"). That is the drift bug: a
+    // true original staleExpiry (today - 3). That is the drift bug: a
     // naive day-subtraction can never undo the "extend from today" rebasing
     // because the forward computation never actually used staleExpiry as
     // its base. The fix restores the EXACT stored previous value.
@@ -685,7 +711,9 @@ describe("CarrierLineRepository — applyMovement/reverseMovement (LIRA-090 §5.
   });
 
   it("M2: the movement row itself stores the pre-mutation previous_validity_expires_at snapshot", () => {
-    const staleExpiry = "2020-01-01";
+    // LIRA-157: inside the revival grace, for the same reason as the test
+    // above — a 2020 expiry would now be refused before a movement row exists.
+    const staleExpiry = addDays(localDay(), -3);
     const line = repo.createLine({
       carrier: "mtc",
       phone_number: "03111111",

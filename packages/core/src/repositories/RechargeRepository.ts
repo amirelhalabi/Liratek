@@ -966,17 +966,23 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // `RechargeData.type` sends USD credit face value and never touches
         // validity (see `telecomStockLeg`'s doc).
         //
-        // Reuses `CarrierLineService.applyMovement`/`CarrierLineRepository
-        // .computeAppliedState` — the SAME days→date math already exercised
-        // by the self-charge ADD path and the absolute-expiry checkpoint
-        // (rule 14, no second date computation) — with a NEGATIVE
-        // `validityDaysDelta`. `computeAppliedState` rebases onto
-        // `max(today, current_expiry)` before applying the delta, so a
-        // still-valid line (the normal case) subtracts from its own current
-        // expiry unchanged; it never re-derives "today" with new code, so no
-        // new timezone surface is introduced here — `localDay()` (already
-        // timezone-reviewed for the ClosingRepository checkpoint) is the only
-        // "what day is it" call in the whole path.
+        // Reuses `CarrierLineService.applyMovement` → the ONE validity rule
+        // in `utils/carrierLineValidity.ts` (rule 14, no second date
+        // computation) with a NEGATIVE `validityDaysDelta`.
+        //
+        // LIRA-157 — a negative delta is a CONSUMPTION record, and the rule
+        // treats it accordingly: it subtracts from the line's OWN expiry and
+        // is never refused, so neither the 5-day revival grace nor the
+        // burned-line block applies here. Selling days must always be
+        // recordable; only CHARGING a dead line is refused.
+        //
+        // This is a deliberate behaviour change from the pre-LIRA-157 code,
+        // which rebased every lapsed line onto `max(today, current_expiry)`
+        // first: selling 10 days off a line 22 days dead used to store
+        // `today − 10`, reporting it as LESS expired than it really was.
+        // Still-valid lines (the normal case) are unaffected — they always
+        // subtracted from their own expiry. No new timezone surface either:
+        // `localDay()` remains the only "what day is it" call in the path.
         //
         // Tied to `txnId`, so void/refund's type-agnostic
         // `TransactionRepository._reverseCarrierLineMovements` restores
