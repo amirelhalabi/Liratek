@@ -15,6 +15,10 @@
  * Pre-feature: POST /api/closing/checkpoint + the timeline/initial-date GETs
  * 404'd (no routes), so this spec cannot pass without the new REST surface.
  */
+// Same convention other e2e-web specs already rely on (lira-web-019/022/025
+// import `hashPassword` from the same package): this suite runs under the
+// Node ABI (rebuild:node), so `@liratek/core` loads cleanly in-process.
+import { localDay } from "@liratek/core";
 import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
 
 const DRAWER = "General";
@@ -65,7 +69,12 @@ test("checkpoint reconciles General/USD by +10 over REST + timeline renders", as
   expect(after - before).toBeCloseTo(10, 2);
 
   // Timeline read: our checkpoint (matched by unique note) is present today.
-  const today = new Date().toISOString().split("T")[0];
+  // `closing_date` is stamped server-side by `localDay()` (the LOCAL/Beirut
+  // calendar day), not `toISOString()`'s UTC day — those disagree for 3
+  // hours every night (00:00–03:00 Beirut, UTC+3), which silently drops this
+  // filter's window. Reuse the same function rather than re-deriving it so
+  // there is exactly one owner for the convention (rule 14).
+  const today = localDay();
   const timeline = await (
     await page.request.get(
       `${BACKEND_URL}/api/closing/checkpoint-timeline?date_from=${today}&date_to=${today}&type=ALL`,

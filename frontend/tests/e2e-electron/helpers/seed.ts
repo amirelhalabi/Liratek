@@ -42,6 +42,29 @@ function seedId(res: SeedResponse, name: string): number {
 }
 
 /**
+ * Local (machine-timezone) calendar day as `YYYY-MM-DD`, mirroring
+ * `localDay()` in `packages/core/src/utils/localDate.ts` — the convention
+ * columns like `expenses.expense_date` are read back with (e.g.
+ * `ClosingRepository`/`ProfitRepository`/`FinancialRepository`'s
+ * `'localtime'`-qualified date filters). `new Date().toISOString().slice(0,
+ * 10)` gives the UTC calendar day instead, which disagrees with the local
+ * day for 3 hours every night (00:00–03:00 Beirut, UTC+3) and can seed an
+ * expense that a same-day report then misses.
+ *
+ * Hand-rolled rather than `import { localDay } from "@liratek/core"`: this
+ * file's top-level (non-`page.evaluate`) code also runs under the pure
+ * Electron-suite project, where `@liratek/core` transitively resolves
+ * `better-sqlite3` — built to the ELECTRON ABI there, not the Node ABI this
+ * Playwright test process runs under (see other specs' "a test may not
+ * import from `@liratek/core`" notes). e2e-web specs import it directly
+ * instead (that suite runs entirely under the Node ABI).
+ */
+function localDayKey(date: Date = new Date()): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
  * Seed a client via window.api.clients.create (or REST in web mode).
  * Returns the created client's id.
  */
@@ -208,7 +231,7 @@ export async function seedExpense(
   page: Page,
   data: { description: string; amount_usd: number },
 ): Promise<number> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDayKey();
   if (IS_WEB) {
     const res = await webPost(page, "/api/expenses", {
       description: data.description,
