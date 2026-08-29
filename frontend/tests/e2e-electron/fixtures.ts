@@ -443,8 +443,11 @@ export const test = base.extend<
       // `test.use({ notificationDurationMs: null })`) reverts to the
       // harness default until that file's NEXT test, because this
       // context-level init script has no way to see a per-test option value
-      // — it can only ever stamp the one harness-wide default. None of the
-      // 11 current opt-out spec files calls reload() today.
+      // — it can only ever stamp the one harness-wide default. No opt-out
+      // test calls `reload()` within its own opted-out scope today (grep
+      // `notificationDurationMs: null` across this directory, excluding
+      // this file's definition and README.md) — recheck this note if one
+      // starts to.
       await sharedPage.context().addInitScript((ms: number) => {
         (
           window as unknown as { __e2eNotificationDurationMs: number }
