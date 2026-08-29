@@ -1006,30 +1006,97 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   }
 
   /**
-   * Get the most recent checkpoint for each drawer (excluding AGGREGATED rows).
+   * Get the most recent checkpoint for each drawer.
    * Returns Record<drawerName, DrawerCheckpointStatus>
+   *
+   * LIRA-156 — the dashboard's per-drawer chip showed the right AMOUNTS but a
+   * frozen TIME. Root cause was this query's `IN`-list:
+   *
+   *   WHERE dca.closing_id IN (
+   *     SELECT MAX(dca2.closing_id) FROM daily_closing_amounts dca2
+   *     WHERE dca2.tenant_id = ? GROUP BY dca2.drawer_name
+   *   )
+   *
+   * `GROUP BY drawer_name` computes the right MAX(closing_id) *per drawer*,
+   * but the result is flattened into one bare id list before it reaches the
+   * outer `WHERE` — so the outer filter can no longer tell WHICH drawer each
+   * id belongs to. Any row whose closing_id happens to appear anywhere in
+   * that list passes, including a drawer's own STALE rows from a closing
+   * that is only "latest" for some OTHER drawer. On top of that the query had
+   * no time ordering at all (`ORDER BY drawer_name, currency_code` only), so
+   * which of a drawer's surviving rows the JS loop below saw *first* (and
+   * therefore took `checked_at` from) was scan-order luck, not recency.
+   *
+   * This bites in practice because most checkpoints are single-drawer, but
+   * TWO paths (`InitialDrawerAmountsModal.tsx`, `StepComplete.tsx` — the
+   * setup wizard, which runs on every fresh install) write ONE multi-drawer
+   * checkpoint tagged `drawer_name: 'AGGREGATED'` with an amount row per
+   * drawer. So every shop has at least one closing spanning every drawer,
+   * and the moment an operator checkpoints a single drawer on its own, that
+   * drawer has rows in TWO closings — the old aggregated one and the new
+   * individual one — which is exactly the shape the old query got wrong.
+   *
+   * The fix does two things, both required:
+   *   1. CORRELATE per drawer: rank each drawer's closings by recency and
+   *      keep only rank 1, instead of computing a tenant-wide id set with no
+   *      per-drawer link back to the outer query.
+   *   2. ORDER BY TIME, not id: `dc.created_at DESC, dc.id DESC` — `id DESC`
+   *      is only the tiebreak (created_at is second-granular; see
+   *      FEATURE_GUIDE.md's timestamp-tie convention), never the primary
+   *      sort. Ranking by id alone would pick whichever checkpoint happened
+   *      to insert last, not whichever happened chronologically last — the
+   *      two are normally the same, but nothing in the schema guarantees it.
+   *
+   * The ranking runs over a `SELECT DISTINCT drawer_name, closing_id`
+   * derived table — i.e. one row per (drawer, closing), not one row per
+   * (drawer, closing, currency) — before joining back to
+   * `daily_closing_amounts` for the full currency breakdown. Ranking
+   * directly over the currency-level rows would tie every currency of the
+   * SAME closing on `(created_at, id)` and let `ROW_NUMBER()` arbitrarily
+   * keep only one currency of the winning closing (e.g. General/USD but not
+   * General/LBP) — silently dropping a currency whenever a drawer's
+   * checkpoint covers more than one, which is the common case.
+   *
+   * Both tenant_id filters (on the derived `daily_closing_amounts` scan and
+   * on the `daily_closings` join) are preserved in every place they appear
+   * below — dropping either is the exact class of bug
+   * `scripts/check-tenant-scoping.mjs` exists to catch.
+   *
+   * Owner decision (2026-08-29): the AGGREGATED setup baseline DOES count as
+   * a real checkpoint for the dashboard's staleness dot — it is a real
+   * physical count, just of every drawer at once. Do not add a
+   * `drawer_name != 'AGGREGATED'` filter here; that was considered and
+   * deliberately rejected, not overlooked.
    */
   getLastCheckpointPerDrawer(): Record<string, DrawerCheckpointStatus> {
-    // Checkpoints are stored as AGGREGATED rows in daily_closings, with
-    // per-drawer amounts in daily_closing_amounts. Group by the amounts
-    // table's drawer_name to find the latest checkpoint per drawer.
     const tenantId = getCurrentTenantId();
     const rows = this.db
       .prepare(
-        `SELECT dc.created_at as checked_at,
+        `WITH latest_closing_per_drawer AS (
+           SELECT dca.drawer_name, dca.closing_id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY dca.drawer_name
+                    ORDER BY dc.created_at DESC, dc.id DESC
+                  ) AS rn
+           FROM (
+             SELECT DISTINCT drawer_name, closing_id
+             FROM daily_closing_amounts
+             WHERE tenant_id = ?
+           ) dca
+           JOIN daily_closings dc ON dc.id = dca.closing_id AND dc.tenant_id = ?
+         )
+         SELECT dc.created_at as checked_at,
                 dca.drawer_name, dca.currency_code, dca.physical_amount, dca.opening_amount
          FROM daily_closing_amounts dca
          JOIN daily_closings dc ON dc.id = dca.closing_id AND dc.tenant_id = ?
-         WHERE dca.closing_id IN (
-           SELECT MAX(dca2.closing_id)
-           FROM daily_closing_amounts dca2
-           WHERE dca2.tenant_id = ?
-           GROUP BY dca2.drawer_name
-         )
-           AND dca.tenant_id = ?
+         JOIN latest_closing_per_drawer lcd
+           ON lcd.drawer_name = dca.drawer_name
+          AND lcd.closing_id = dca.closing_id
+          AND lcd.rn = 1
+         WHERE dca.tenant_id = ?
          ORDER BY dca.drawer_name, dca.currency_code`,
       )
-      .all(tenantId, tenantId, tenantId) as {
+      .all(tenantId, tenantId, tenantId, tenantId) as {
       drawer_name: string;
       checked_at: string;
       currency_code: string;

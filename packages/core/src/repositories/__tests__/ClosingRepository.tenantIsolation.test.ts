@@ -19,8 +19,14 @@
  *   - getCheckpointAmounts() (a get-by-id-style lookup by closing_id) cannot
  *     return tenant 2's checkpoint amounts even when given tenant 2's real
  *     closing_id.
- *   - getLastCheckpointPerDrawer() (a correlated MAX(closing_id) subquery +
- *     join) reflects ONLY tenant 1's exact physical/opening amounts.
+ *   - getLastCheckpointPerDrawer() (a per-drawer ROW_NUMBER() window over
+ *     daily_closings, LIRA-156) reflects ONLY tenant 1's exact
+ *     physical/opening amounts. NB: this used to read "a correlated
+ *     MAX(closing_id) subquery" — it was never correlated, and that was
+ *     exactly the LIRA-156 bug: the subquery returned every drawer's max
+ *     closing id as a flat set, so a drawer present in an earlier
+ *     multi-drawer (AGGREGATED) closing took its checked_at from that older
+ *     row while its amounts came from the newer one.
  *   - getCheckpointTimeline() (the main checkpoint list/history read) lists
  *     ONLY tenant 1's checkpoint for the date.
  *
