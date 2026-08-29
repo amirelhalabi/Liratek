@@ -1,35 +1,47 @@
 import {
-  useEffect,
   useState,
   useCallback,
   useMemo,
   Fragment,
-  type CSSProperties,
   type ReactElement,
 } from "react";
 import {
-  getRecentTransactions,
   voidTransaction,
   refundTransaction,
   voidCheckoutGroup,
   getSaleItems,
   getProductUnitsForSaleItems,
-  type TransactionFiltersParam,
   type ProductUnitDto,
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
 import logger from "@/utils/logger";
-import { FILTER_GROUPS, isSupplierPaymentVisible } from "../auditConstants";
-import { isReceiptableRow } from "../receiptGating";
-import { isReversibleRow } from "../actionGating";
+import { formatLegAmount } from "../cashFlow";
 import {
-  getCashFlowDirection,
-  isCashTransaction,
-  saleTenderTotals,
-  formatPaymentLegs,
-  formatLegAmount,
-  type TransactionPaymentLeg,
-} from "../cashFlow";
+  billsCommissionModeLine,
+  billsOnlyCommissionAmount,
+  fallbackMethodLabel,
+  formatPaymentMethods,
+  methodLegsFor,
+  sessionVars,
+} from "../transactionDisplay";
+import {
+  ActionsCell,
+  AmountCell,
+  ClientCell,
+  MethodCell,
+  ReversesCell,
+  StatusCell,
+  SummaryCell,
+  TimeCell,
+  TypeCell,
+  UserCell,
+  type RowActionHandlers,
+} from "../components/TransactionCells";
+import { deriveRow } from "../rowDerived";
+import {
+  useTransactionRows,
+  type TransactionRow,
+} from "../hooks/useTransactionRows";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
@@ -37,7 +49,6 @@ import {
   buildServiceReceiptTextByTransaction,
   getConfiguredReceiptPrinter,
 } from "@/shared/utils/serviceReceipt";
-import { RECHARGE_SUBTYPE_LABELS } from "@/shared/utils/rechargeLabels";
 import { appEvents } from "@liratek/ui";
 import { ReceiptPreviewModal } from "@/shared/components/ReceiptPreviewModal";
 import { RefundMethodModal } from "../components/RefundMethodModal";
@@ -46,736 +57,14 @@ import type {
   RefundUnitExtraOverride,
 } from "../refundLegOverride";
 
-// LIRA-064: structured in/out payment leg joined from the payments table.
-// Type + formatting now live in ../cashFlow (Payment-Legs Integrity plan S3 —
-// pure logic exported so it's unit-testable without importing this page).
-
-type TransactionRow = {
-  id: number;
-  type: string;
-  status: string;
-  source_table: string;
-  source_id: number;
-  user_id: number;
-  amount_usd: number;
-  amount_lbp: number;
-  exchange_rate: number | null;
-  client_id: number | null;
-  reverses_id: number | null;
-  summary: string | null;
-  metadata_json: string | null;
-  device_id: string | null;
-  created_at: string;
-  username: string;
-  client_name: string | null;
-  // WS8: set when the row belongs to a customer-session basket. Drives the
-  // per-session colored left-border accent below. Null for non-session rows.
-  session_id: number | null;
-  // note 21d: the ACTIVE REFUND row's id that reverses THIS row, or null.
-  // The original row stays status=ACTIVE/reverses_id=null after a refund
-  // (deliberate — see TransactionRepository), so this is the ONLY signal
-  // that tells the UI "already refunded" without the REFUND row itself
-  // being loaded on the same page/filter. See actionGating.ts.
-  reversed_by_id?: number | null;
-  // LIRA-064: structured payment breakdown (may be absent on legacy rows).
-  payments?: TransactionPaymentLeg[];
-  // CUSTOMER_ACCOUNT settlement of a session basket, sourced from debt_ledger
-  // (never written to `payments` — see TransactionWithUser in the backend for
-  // why). Kept separate so the cash-only Summary in:/out: line is unaffected;
-  // only the Method column should read this.
-  account_payments?: TransactionPaymentLeg[];
-};
-
-const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
-
-// Transaction types blanket-hidden from the table regardless of any per-row
-// metadata: client-activity log noise (CLIENT_CREATED), not useful in the
-// operator-facing list by default.
-//
-// SUPPLIER_PAYMENT used to blanket-hide here too. D2 (CQ-8) replaced that:
-// a manual supplier payment is now a first-class visible row and only the
-// auto-generated ledger siblings (metadata.is_auto === true) stay hidden by
-// default — see isSupplierPaymentVisible (auditConstants.ts), applied
-// per-row below since the SQL-level `excludeTypes` can only exclude by
-// type, not by metadata.
-const HIDDEN_TRANSACTION_TYPES = new Set(["CLIENT_CREATED"]);
+// This file is now the COMPONENT only. Its former contents live in:
+//   ../hooks/useTransactionRows  — the query, the client-side filters and the
+//                                  window-widening loop (+ the TransactionRow shape)
+//   ../transactionDisplay        — every pure row-rendering helper + CashFlowBadge
+//   ../transactionPresentation   — the one per-type label/colour/direction registry
+//   ../cashFlow                  — payment-leg formatting and badge direction
 
 // ---------------------------------------------------------------------------
-// Type label helpers
-// ---------------------------------------------------------------------------
-
-const PROVIDER_LABELS: Record<string, string> = {
-  // OMT / WHISH: the classic FINANCIAL_SERVICE provider (SEND/RECEIVE run on
-  // that system), as opposed to the app wallet below — unaffected by the
-  // Primary Cash Drawer relabel.
-  OMT: "OMT System",
-  WHISH: "Whish System",
-  OMT_APP: "OMT App",
-  WHISH_APP: "Whish App",
-  // OMT_SYSTEM / WHISH_SYSTEM: the RECHARGE_TOPUP provider that tops up the
-  // OMT_System/Whish_System drawer — under the Primary Cash Drawer model
-  // (plan §1) that drawer is the physical cash till, not a provider system
-  // balance, so the label follows the "Cash Drawer" wording used elsewhere
-  // (auditConstants.ts FILTER_GROUPS).
-  OMT_SYSTEM: "OMT Cash Drawer",
-  WHISH_SYSTEM: "Whish Cash Drawer",
-  iPick: "iPick",
-  Katsh: "Katsh",
-  BINANCE: "Binance",
-  MTC: "MTC",
-  Alfa: "Alfa",
-};
-
-const STATIC_TYPE_LABELS: Record<string, string> = {
-  LOTO: "Loto",
-  LOTO_CASH_PRIZE: "Loto Prize",
-  LOTO_MONTHLY_FEE: "Loto Monthly Fee",
-  LOTO_SETTLEMENT: "Loto Settlement",
-  MTC_TOPUP: "MTC Top-up",
-  ALFA_TOPUP: "Alfa Top-up",
-  DRAWER_TOPUP: "General Top-up",
-  DRAWER_CASHOUT: "General Cash-Out",
-  CHECKPOINT: "Checkpoint",
-  SUPPLIER_SETTLEMENT: "Supplier Settlement",
-  HOLD_MONEY: "Money Held",
-  HOLD_MONEY_COLLECT: "Hold Returned",
-  CREDIT_CASH_IN: "Account Credit",
-  DEBT_CASH_OUT: "Cash Advance",
-  PARTNER_SETTLEMENT: "Partner Settlement",
-  PARTNER_PAYMENT: "Partner Payment",
-  // LIRA-066: the paper (no-cash) "Record Tx" entry.
-  PARTNER_ADJUSTMENT: "Partner Adjustment",
-  // LIRA-080: the paper (no-cash) Accounts-page "Add Credit / Debt" entry.
-  ACCOUNT_ADJUSTMENT: "Account Adjustment",
-  // LIRA-080: the paper (no-cash) Suppliers-page "Add Credit / Debt" entry.
-  SUPPLIER_ADJUSTMENT: "Supplier Adjustment",
-  // CQ-10: one label for all three counterparty kinds (debt/supplier/
-  // partner) — the row's metadata.counterparty identifies which.
-  COUNTERPARTY_DISCOUNT: "Discount",
-};
-
-function getTypeLabel(row: TransactionRow): string {
-  try {
-    const meta = JSON.parse(row.metadata_json ?? "{}") as Record<
-      string,
-      unknown
-    >;
-    const p = meta.provider as string | undefined;
-    const st = meta.service_type as string | undefined;
-    const ik = meta.item_key;
-
-    if (row.type === "FINANCIAL_SERVICE") {
-      const base = (p && PROVIDER_LABELS[p]) ?? "Financial Service";
-      if (p === "OMT_APP" || p === "BINANCE" || (p === "WHISH_APP" && !ik)) {
-        if (st === "SEND") return `${base} Send`;
-        if (st === "RECEIVE") return `${base} Recv`;
-      }
-      if (p === "WHISH_APP" && ik) return "Whish App Bills";
-      if ((p === "iPick" || p === "Katsh") && st === "BILL")
-        return `${base} Bill`;
-      return base;
-    }
-
-    if (row.type === "RECHARGE") {
-      const provLabel = (p && PROVIDER_LABELS[p]) ?? p ?? "Recharge";
-      const subLabel =
-        (meta.type && RECHARGE_SUBTYPE_LABELS[meta.type as string]) ?? "";
-      return subLabel ? `${provLabel} ${subLabel}` : provLabel;
-    }
-
-    if (row.type === "RECHARGE_TOPUP") {
-      const provLabel = (p && PROVIDER_LABELS[p]) ?? p ?? "Recharge";
-      return `${provLabel} Top-up`;
-    }
-
-    if (row.type === "WALLET_EXCHANGE") {
-      const drawerName = meta.drawer_name as string | undefined;
-      const drawerLabel =
-        drawerName === "Whish_App"
-          ? "Whish App"
-          : drawerName === "OMT_App"
-            ? "OMT App"
-            : "Wallet";
-      return `${drawerLabel} Exchange`;
-    }
-
-    // A cashless supplier credit (e.g. bill commission) — distinct from a real
-    // "Supplier Payment" (cash we pay them / they pay us).
-    if (row.type === "SUPPLIER_PAYMENT" && meta.is_credit === true) {
-      return "Supplier Credit";
-    }
-
-    if (row.type === "CHECKPOINT") {
-      const notes = meta.notes as string | undefined;
-      if (
-        notes &&
-        (notes.toLowerCase().includes("initial") ||
-          notes.toLowerCase().includes("setup"))
-      ) {
-        return "Initial Setup";
-      }
-    }
-  } catch {
-    // fall through
-  }
-
-  return STATIC_TYPE_LABELS[row.type] ?? row.type.replace(/_/g, " ");
-}
-
-// ---------------------------------------------------------------------------
-// Type color helpers
-// ---------------------------------------------------------------------------
-
-const TYPE_COLORS: Record<string, string> = {
-  SALE: "text-green-400",
-  FINANCIAL_SERVICE: "text-blue-400",
-  EXCHANGE: "text-yellow-400",
-  WALLET_EXCHANGE: "text-yellow-300",
-  RECHARGE: "text-purple-400",
-  RECHARGE_TOPUP: "text-purple-300",
-  MTC_TOPUP: "text-violet-400",
-  ALFA_TOPUP: "text-violet-300",
-  CUSTOM_SERVICE: "text-cyan-400",
-  MAINTENANCE: "text-amber-400",
-  EXPENSE: "text-red-400",
-  DEBT_REPAYMENT: "text-emerald-400",
-  CREDIT_CASH_IN: "text-emerald-400",
-  DEBT_CASH_OUT: "text-rose-400",
-  SUPPLIER_PAYMENT: "text-indigo-400",
-  SUPPLIER_SETTLEMENT: "text-indigo-300",
-  // LIRA-080: paper (no-cash) supplier adjustment — one shade lighter than the
-  // supplier-payment family (mirrors PARTNER_ADJUSTMENT's sky-200 approach).
-  SUPPLIER_ADJUSTMENT: "text-indigo-200",
-  // LIRA-080: paper (no-cash) account adjustment — muted emerald, the Accounts
-  // family colour (CREDIT_CASH_IN emerald-400) one shade lighter.
-  ACCOUNT_ADJUSTMENT: "text-emerald-300",
-  // Partners get their own family — teal/cyan are already taken by
-  // CLIENT_* (teal) and CUSTOM_SERVICE (cyan), so "sky" keeps them visually
-  // distinct while staying in the same cool-hue neighbourhood.
-  PARTNER_SETTLEMENT: "text-sky-400",
-  PARTNER_PAYMENT: "text-sky-300",
-  // LIRA-066: same sky family, one shade lighter — a paper (no-cash) entry.
-  PARTNER_ADJUSTMENT: "text-sky-200",
-  // CQ-10: fuchsia is otherwise unused — keeps "Discount" visually distinct
-  // from every other family (green/blue/purple/indigo/sky/lime/rose/teal…).
-  COUNTERPARTY_DISCOUNT: "text-fuchsia-400",
-  CHECKPOINT: "text-slate-400",
-  LOTO: "text-lime-500",
-  LOTO_CASH_PRIZE: "text-lime-400",
-  LOTO_MONTHLY_FEE: "text-lime-400",
-  LOTO_SETTLEMENT: "text-lime-300",
-  DRAWER_TOPUP: "text-slate-300",
-  DRAWER_CASHOUT: "text-rose-300",
-  HOLD_MONEY: "text-orange-400",
-  HOLD_MONEY_COLLECT: "text-orange-300",
-  REFUND: "text-rose-400",
-  CLIENT_CREATED: "text-teal-400",
-  CLIENT_UPDATED: "text-teal-300",
-  CLIENT_DELETED: "text-teal-500",
-};
-
-function getTypeColor(row: TransactionRow): string {
-  if (
-    row.type === "FINANCIAL_SERVICE" ||
-    row.type === "RECHARGE" ||
-    row.type === "RECHARGE_TOPUP"
-  ) {
-    try {
-      const meta = JSON.parse(row.metadata_json ?? "{}") as Record<
-        string,
-        unknown
-      >;
-      switch (meta.provider) {
-        case "OMT":
-        case "OMT_APP":
-        case "OMT_SYSTEM":
-          return "text-blue-400";
-        case "WHISH":
-        case "WHISH_APP":
-        case "WHISH_SYSTEM":
-          return "text-cyan-400";
-        case "iPick":
-          return "text-orange-300";
-        case "Katsh":
-          return "text-orange-400";
-        case "BINANCE":
-          return "text-yellow-400";
-        case "MTC":
-          return "text-purple-400";
-        case "Alfa":
-          return "text-purple-300";
-      }
-    } catch {
-      // fall through
-    }
-  }
-  if (row.type === "CHECKPOINT") {
-    try {
-      const meta = JSON.parse(row.metadata_json ?? "{}") as { notes?: string };
-      if (
-        meta.notes &&
-        (meta.notes.toLowerCase().includes("initial") ||
-          meta.notes.toLowerCase().includes("setup"))
-      ) {
-        return "text-orange-400";
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-  return TYPE_COLORS[row.type] ?? "text-slate-300";
-}
-
-// ---------------------------------------------------------------------------
-// Amount formatter
-// ---------------------------------------------------------------------------
-
-function formatAmount(
-  usd: number,
-  lbp: number,
-  metaJson?: string | null,
-): string {
-  const parts: string[] = [];
-  if (usd) parts.push(`$${usd.toLocaleString()}`);
-  if (lbp) parts.push(`${lbp.toLocaleString()} LBP`);
-  if (!parts.length && metaJson) {
-    try {
-      const meta = JSON.parse(metaJson) as Record<string, unknown>;
-      const amt = meta.amount;
-      const cur = meta.currency;
-      if (
-        typeof amt === "number" &&
-        amt &&
-        typeof cur === "string" &&
-        cur !== "USD"
-      ) {
-        parts.push(`${amt.toFixed(2)} ${cur}`);
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  return parts.join(" + ") || "—";
-}
-
-// ---------------------------------------------------------------------------
-// Structured payment legs (LIRA-064) — formatPaymentLegs now lives in
-// ../cashFlow (imported above).
-// ---------------------------------------------------------------------------
-
-/** Title-cases an unmapped method code as a fallback, e.g. "PM_FEE" → "Pm Fee". */
-function fallbackMethodLabel(method: string): string {
-  return method
-    .toLowerCase()
-    .split("_")
-    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
-    .join(" ");
-}
-
-/**
- * How the transaction was paid, for the Method column. Prefers "in" legs
- * (what the customer paid with) over "out" legs (change/return) when both
- * exist on the same row. But sole-payout flows — EXPENSE, SUPPLIER_PAYMENT,
- * CREDIT_CASH_OUT, LOTO_CASH_PRIZE, etc. — only ever write an "out" leg (no
- * customer paid-in side), so falling back to "out" when there's no "in" leg
- * is required or those rows would render blank despite clearly having a
- * method. Split payments join distinct methods, e.g. "Cash + OMT Wallet".
- */
-function formatPaymentMethods(
-  legs: TransactionPaymentLeg[] | undefined,
-  labelByCode: Map<string, string>,
-): string {
-  if (!legs || legs.length === 0) return "—";
-  const hasInLeg = legs.some((leg) => leg.direction === "in");
-  const relevant = hasInLeg
-    ? legs.filter((leg) => leg.direction === "in")
-    : legs;
-  const labels = new Set<string>();
-  for (const leg of relevant) {
-    labels.add(labelByCode.get(leg.method) ?? fallbackMethodLabel(leg.method));
-  }
-  return labels.size ? [...labels].join(" + ") : "—";
-}
-
-/**
- * Legs for the Method column only: cash/wallet `payments` legs plus any
- * CUSTOMER_ACCOUNT settlement from `account_payments` (debt_ledger). Kept out
- * of `row.payments` itself so the Summary column's cash-only in:/out: line is
- * unaffected — see the `account_payments` field doc on TransactionRow.
- */
-function methodLegsFor(row: TransactionRow): TransactionPaymentLeg[] {
-  return [...(row.payments ?? []), ...(row.account_payments ?? [])];
-}
-
-// ---------------------------------------------------------------------------
-// Checkpoint drawer-amount breakdown (shown in the summary column)
-// ---------------------------------------------------------------------------
-
-type CheckpointAmountEntry = {
-  drawer_name: string;
-  currency_code: string;
-  physical_amount: number;
-};
-
-function formatCheckpointAmounts(metaJson: string | null): string | null {
-  if (!metaJson) return null;
-  try {
-    const meta = JSON.parse(metaJson) as { amounts?: CheckpointAmountEntry[] };
-    if (!meta.amounts || meta.amounts.length === 0) return null;
-
-    // Group non-zero amounts by drawer
-    const byDrawer = new Map<string, CheckpointAmountEntry[]>();
-    for (const entry of meta.amounts) {
-      if (entry.physical_amount === 0) continue;
-      if (!byDrawer.has(entry.drawer_name)) byDrawer.set(entry.drawer_name, []);
-      byDrawer.get(entry.drawer_name)!.push(entry);
-    }
-    if (byDrawer.size === 0) return null;
-
-    return [...byDrawer.entries()]
-      .map(([drawer, entries]) => {
-        const amtStr = entries
-          .map((e) => {
-            if (e.currency_code === "USD")
-              return `$${e.physical_amount.toLocaleString()}`;
-            if (e.currency_code === "LBP")
-              return `${e.physical_amount.toLocaleString()} L`;
-            return `${e.physical_amount.toLocaleString()} ${e.currency_code}`;
-          })
-          .join(" + ");
-        return `${drawer}: ${amtStr}`;
-      })
-      .join(" · ");
-  } catch {
-    return null;
-  }
-}
-
-function checkpointPhysicalTotals(
-  metaJson: string | null,
-): { usd: number; lbp: number } | null {
-  if (!metaJson) return null;
-  try {
-    const meta = JSON.parse(metaJson) as { amounts?: CheckpointAmountEntry[] };
-    if (!meta.amounts) return null;
-    let usd = 0,
-      lbp = 0;
-    for (const e of meta.amounts) {
-      if (e.currency_code === "USD") usd += e.physical_amount;
-      else if (e.currency_code === "LBP") lbp += e.physical_amount;
-    }
-    return { usd, lbp };
-  } catch {
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Cash flow direction
-// ---------------------------------------------------------------------------
-
-/**
- * A supplier credit booked in our favour with NO cash movement — e.g. the fixed
- * commission earned when selling an iPick/Katsh bill. The supplier_ledger stores
- * it as a negative (credit) entry so its running balance stays valid; the journal
- * mirrors it as a positive magnitude flagged `is_credit`. This is a receivable,
- * not drawer cash, so it must not render with the green "cash in" arrow used for
- * real receipts (recordSupplierCashflow's RECEIVE — which has no `is_credit`).
- */
-function isSupplierCredit(type: string, metaJson?: string | null): boolean {
-  if (type !== "SUPPLIER_PAYMENT" || !metaJson) return false;
-  try {
-    const m = JSON.parse(metaJson) as { is_credit?: boolean };
-    return m.is_credit === true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * PARTNER_SETTLEMENT/PARTNER_PAYMENT store SIGNED amount_usd/amount_lbp
- * (positive = cash in, negative = cash out) instead of the unsigned
- * magnitude every other transaction type uses — see
- * PartnerRepository.recordSettlementMoneyMovement. The sign itself is read
- * by cashFlow.ts's historical-row fallback; display always wants the plain
- * magnitude (same treatment as the supplier-credit case above).
- */
-function isSignedPartnerType(type: string): boolean {
-  return type === "PARTNER_SETTLEMENT" || type === "PARTNER_PAYMENT";
-}
-
-/**
- * LIRA-137 residual (BILL_COMMISSION_SETTLEMENT_PLAN.md): a bills-only
- * commission settlement stores `amount_usd`/`amount_lbp` as a contractual
- * 0/0 — a bill's principal already left at creation, so there is no gross
- * amount owed to net. The real money is the commission credited into the
- * provider's own drawer (`SupplierRepository._bookBillsCommissionDrawerTopUp`)
- * — but that leg's `drawer_name` ("Katsh"/"iPick") is in
- * `TransactionRepository`'s `PROVIDER_STOCK_DRAWERS`, so `isInternalLegJs`
- * strips it out of `row.payments` entirely, one layer before the array
- * this page receives is even built (`_attachPaymentLegs`'s `toLeg`, which
- * returns null for it) — there is no leg to read here, by design, and this
- * function does not touch that filter.
- *
- * The SAME commission figure is also stamped onto `metadata_json` —
- * `commission_usd`/`commission_lbp`, sourced from the identical settlement
- * input that funded the drawer leg (SupplierRepository.ts's own doc comment
- * calls these "the real money-bearing totals" for exactly this batch shape)
- * — so this reads THAT field instead of inventing a new one.
- *
- * DISPLAY ONLY: returns a value for the Amount column alone. The row's own
- * `amount_usd`/`amount_lbp` are never touched — they keep meaning "cash
- * through a till" for receipts, the refund-override candidate set, and
- * ProfitRepository's own queries.
- *
- * Gated narrowly: only a bills-only batch (`commission_model === 1` AND
- * `counterparty.flow === "IN"`) with the contractual 0/0 stored amount.
- * Returns null for a legacy OMT/WHISH settlement (`commission_model` 0 or
- * absent) and for every other row type, which keep rendering exactly as
- * before. Parses defensively — a null/absent/malformed `metadata_json`, a
- * missing `counterparty`, or a non-numeric commission field all degrade to
- * null (today's $0.00), never a thrown error or a blanked row.
- */
-function billsOnlyCommissionAmount(
-  row: TransactionRow,
-): { usd: number; lbp: number } | null {
-  if (row.type !== "SUPPLIER_SETTLEMENT") return null;
-  if (row.amount_usd !== 0 || row.amount_lbp !== 0) return null;
-  if (!row.metadata_json) return null;
-  try {
-    const meta = JSON.parse(row.metadata_json) as {
-      commission_model?: unknown;
-      commission_usd?: unknown;
-      commission_lbp?: unknown;
-      counterparty?: { flow?: unknown } | null;
-    };
-    if (meta.commission_model !== 1) return null;
-    if (meta.counterparty?.flow !== "IN") return null;
-    const usd =
-      typeof meta.commission_usd === "number" ? meta.commission_usd : 0;
-    const lbp =
-      typeof meta.commission_lbp === "number" ? meta.commission_lbp : 0;
-    if (!usd && !lbp) return null;
-    return { usd, lbp };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * LIRA-137 owner follow-up (2026-08-15) — "either method picked, should
- * appear in the payment detail in the transaction metadata": names WHICH
- * collection mode a bills-only settlement used, reading the SAME
- * `metadata_json.commission_collection_mode` field `SupplierRepository`
- * stamps (rule 14 — never re-derived here). Only ever called for a row
- * `billsOnlyCommissionAmount` already accepted (the caller gates on that),
- * so this never re-derives that predicate either.
- *
- *   - TOP_UP: `methodLegsFor(row)` is empty for this mode — the drawer
- *     top-up leg's `drawer_name` ("Katsh"/"iPick") is a
- *     `PROVIDER_STOCK_DRAWERS` member, stripped from `row.payments` one
- *     layer before this page ever sees the row (same fact
- *     `billsOnlyCommissionAmount`'s own doc comment explains) — so this
- *     line IS the entire disclosure: names the destination drawer (reading
- *     `metadata_json.counterparty.method`, the real provider per the
- *     SupplierRepository fix — no longer the generic literal "CASH") and
- *     the credited amount.
- *   - OTHER_PAYMENT: a real leg already renders via `methodLegsFor` — this
- *     just names the mode alongside it, never repeating the leg's own
- *     drawer/amount.
- *
- * Returns null for any other/malformed `commission_collection_mode` so the
- * caller degrades to "no line" rather than a thrown error or a half-built
- * disclosure — defensive only; every REAL bills-only row always carries one
- * of the two literal modes (SupplierRepository defaults the field to
- * "TOP_UP" whenever it stamps it at all).
- */
-function billsCommissionModeLine(
-  row: TransactionRow,
-  commissionAmount: { usd: number; lbp: number },
-  labelByCode: Map<string, string>,
-): string | null {
-  if (!row.metadata_json) return null;
-  try {
-    const meta = JSON.parse(row.metadata_json) as {
-      commission_collection_mode?: unknown;
-      counterparty?: { method?: unknown } | null;
-    };
-    const mode = meta.commission_collection_mode;
-    if (mode === "OTHER_PAYMENT") return "Other payment";
-    if (mode !== "TOP_UP") return null;
-    const providerMethod =
-      typeof meta.counterparty?.method === "string"
-        ? meta.counterparty.method
-        : null;
-    const drawerLabel = providerMethod
-      ? (labelByCode.get(providerMethod) ?? fallbackMethodLabel(providerMethod))
-      : "provider";
-    const leg: TransactionPaymentLeg =
-      Math.abs(commissionAmount.usd) > 0.005
-        ? {
-            direction: "in",
-            amount: commissionAmount.usd,
-            signed_amount: commissionAmount.usd,
-            currency_code: "USD",
-            method: providerMethod ?? "",
-          }
-        : {
-            direction: "in",
-            amount: commissionAmount.lbp,
-            signed_amount: commissionAmount.lbp,
-            currency_code: "LBP",
-            method: providerMethod ?? "",
-          };
-    return `Top-up → ${drawerLabel} drawer  ${formatLegAmount(leg)}`;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): a row stamped with
- * `split_group` is one unit of a multi-unit split-payment checkout
- * (KatchForm bills / FinancialForm catalog units). Voiding a single member
- * alone is refused by the repository guard — the operator must void the
- * whole checkout via `voidCheckoutGroup`. Returns null for ordinary rows and
- * for legacy pre-fix split rows that predate this marker (undetectable by
- * design — see the doc).
- */
-function getSplitGroupInfo(
-  metaJson: string | null,
-): { groupId: string; units: number | null } | null {
-  if (!metaJson) return null;
-  try {
-    const m = JSON.parse(metaJson) as {
-      split_group?: unknown;
-      split_units?: unknown;
-    };
-    if (typeof m.split_group !== "string" || m.split_group.length === 0) {
-      return null;
-    }
-    return {
-      groupId: m.split_group,
-      units: typeof m.split_units === "number" ? m.split_units : null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-interface CashFlowBadgeProps {
-  type: string;
-  amountUsd: number;
-  amountLbp: number;
-  metaJson?: string | null;
-  /** BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md owner decision #10: the row's
-   *  structured payment legs (already loaded by the caller for the
-   *  payment-legs subtext) — lets getCashFlowDirection detect a fee-on-top
-   *  RECEIVE's customer-paid-IN leg alongside the payout-OUT leg and render
-   *  "both" instead of a plain "out". */
-  legs?: TransactionPaymentLeg[] | undefined;
-}
-
-function CashFlowBadge({
-  type,
-  amountUsd,
-  amountLbp,
-  metaJson,
-  legs,
-}: CashFlowBadgeProps) {
-  // Supplier credit (e.g. a bill commission owed to us): a receivable, not drawer
-  // cash. Show a distinct amber "credit" marker instead of the green cash-in
-  // arrow, and a positive magnitude (defensive abs for any legacy signed rows).
-  if (isSupplierCredit(type, metaJson)) {
-    const amountStr = formatAmount(
-      Math.abs(amountUsd),
-      Math.abs(amountLbp),
-      metaJson,
-    );
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-mono">
-        <span className="text-amber-400">+</span>
-        <span className="text-amber-400">{amountStr}</span>
-      </span>
-    );
-  }
-
-  const direction = getCashFlowDirection(
-    type,
-    metaJson,
-    {
-      usd: amountUsd,
-      lbp: amountLbp,
-    },
-    legs,
-  );
-  if (!direction) return null;
-
-  // Partner rows carry a signed magnitude (see isSignedPartnerType) — the
-  // sign was only needed above to resolve direction; show the plain amount.
-  const amountStr = isSignedPartnerType(type)
-    ? formatAmount(Math.abs(amountUsd), Math.abs(amountLbp), metaJson)
-    : formatAmount(amountUsd, amountLbp, metaJson);
-
-  if (direction === "both") {
-    return (
-      <span
-        data-testid="cash-flow-badge"
-        data-direction="both"
-        className="inline-flex items-center gap-1 text-[11px] font-mono"
-      >
-        <span className="text-emerald-400">↓</span>
-        <span className="text-emerald-400">/</span>
-        <span className="text-red-400">↑</span>
-        <span className="text-slate-300">{amountStr}</span>
-      </span>
-    );
-  }
-
-  if (direction === "in") {
-    return (
-      <span
-        data-testid="cash-flow-badge"
-        data-direction="in"
-        className="inline-flex items-center gap-1 text-[11px] font-mono"
-      >
-        <span className="text-emerald-400">↓</span>
-        <span className="text-emerald-400">{amountStr}</span>
-      </span>
-    );
-  }
-
-  return (
-    <span
-      data-testid="cash-flow-badge"
-      data-direction="out"
-      className="inline-flex items-center gap-1 text-[11px] font-mono"
-    >
-      <span className="text-red-400">↑</span>
-      <span className="text-red-400">{amountStr}</span>
-    </span>
-  );
-}
-
-// Void/refund + receipt gating sets live in auditConstants.ts (shared with
-// the actionGating guard test that ties them to core's NON_REVERSIBLE set).
-
-// ---------------------------------------------------------------------------
-// Per-session left-border accent (WS8)
-// ---------------------------------------------------------------------------
-
-/** Maps session ID → hue (0–359) via the golden angle (~137.5°) so any two
- *  sessions stay maximally separated in colour space — no palette cap. */
-function sessionHue(sessionId: number): number {
-  return Math.round(Math.abs(sessionId * 137.508)) % 360;
-}
-
-/** Inline style carrying the CSS custom property consumed by
- *  `tr[data-session]` rules in index.css. */
-function sessionVars(sessionId: number): CSSProperties {
-  return { "--session-hue": sessionHue(sessionId) } as CSSProperties;
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -795,8 +84,18 @@ export default function TransactionsViewer({
   from,
   to,
 }: TransactionsViewerProps) {
-  const [rows, setRows] = useState<TransactionRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const {
+    rows,
+    filteredRows,
+    loading,
+    reload: load,
+  } = useTransactionRows({
+    limit,
+    selectedFilter,
+    search,
+    from,
+    to,
+  });
   const shopInfo = useShopInfo();
 
   const { methods: paymentMethods, drawerAffectingMethods } =
@@ -807,123 +106,23 @@ export default function TransactionsViewer({
     return map;
   }, [paymentMethods]);
 
-  const filteredData = useMemo(() => {
-    if (!from && !to) return rows;
-    return rows.filter((row) => {
-      const dateVal = (row.created_at ?? "").slice(0, 10);
-      if (from && dateVal < from) return false;
-      if (to && dateVal > to) return false;
-      return true;
-    });
-  }, [rows, from, to]);
-
-  // Detect rows that are "sandwiched" between the first and last row of the
-  // same session. These are auto-generated system transactions (e.g.
-  // SUPPLIER_PAYMENT) that have no session_id of their own but logically belong
-  // to the session. Detection is order-independent: a non-session row is
-  // sandwiched when its id falls strictly between the min and max id of any
-  // session's rows.
-  // The "System Transactions" fold/button is disabled: the system rows it
-  // used to collapse (chiefly auto-generated SUPPLIER_PAYMENT siblings) are
-  // hidden by default via the per-row D2 rule (see isSupplierPaymentVisible/
-  // filterVisible below) or CLIENT_CREATED's blanket HIDDEN_TRANSACTION_TYPES
-  // hide, so any remaining non-session rows just render inline. An empty map
-  // means no row is treated as sandwiched, so the ⚙ toggle never appears in
-  // the session-grouped view.
-  const sandwichedMap = useMemo(() => new Map<number, number>(), []);
-
-  // For each session's sandwiched group: how many rows, and which has the
-  // highest id (= the one shown first in the default created_at DESC sort,
-  // where we render the fold toggle).
-  const sandwichMeta = useMemo(() => {
-    const firstId = new Map<number, number>(); // sessionId → max rowId
-    const count = new Map<number, number>(); // sessionId → count
-    for (const [rowId, sessionId] of sandwichedMap) {
-      count.set(sessionId, (count.get(sessionId) ?? 0) + 1);
-      const cur = firstId.get(sessionId);
-      if (cur === undefined || rowId > cur) firstId.set(sessionId, rowId);
-    }
-    return { firstId, count };
-  }, [sandwichedMap]);
-
-  const [expandedSessions, setExpandedSessions] = useState<Set<number>>(
-    new Set(),
-  );
+  // The "System Transactions" sandwich fold — a ⚙ toggle that collapsed the
+  // auto-generated system rows (chiefly SUPPLIER_PAYMENT siblings) sitting
+  // between the first and last row of a session — was DELETED here, along
+  // with the ~155 lines of renderRow/state that served it. It had already
+  // been disabled by pinning its lookup map permanently empty, which made
+  // every branch that read it unreachable: the rows it existed to collapse
+  // are now hidden one layer earlier, either by the per-row D2 rule
+  // (isSupplierPaymentVisible, in filterVisible below) or by
+  // HIDDEN_TRANSACTION_TYPES' blanket exclusion, so nothing is left to fold.
+  // Session ACCENT styling is unaffected and still live — see sessionVars in
+  // buildTr.
 
   // LIRA-067: per-row expand/collapse for the structured payment-leg detail
-  // (distinct from expandedSessions above, which groups multiple ROWS under
-  // one session sandwich — this expands a SINGLE row's own leg breakdown).
+  // (expands a SINGLE row's own leg breakdown).
   const [expandedLegRows, setExpandedLegRows] = useState<Set<number>>(
     new Set(),
   );
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const activeOption = ALL_OPTIONS.find((o) => o.label === selectedFilter);
-      const filters: TransactionFiltersParam = {};
-      if (activeOption?.type) filters.type = activeOption.type;
-      if (activeOption?.provider) filters.provider = activeOption.provider;
-      if (activeOption?.service_type)
-        filters.service_type = activeOption.service_type;
-      if (activeOption?.has_item_key !== undefined)
-        filters.has_item_key = activeOption.has_item_key;
-      if (search) filters.search = search;
-
-      // Exclude the always-hidden types at the SQL level so LIMIT is applied
-      // to already-filtered rows — a burst of hidden-type rows (e.g. hundreds
-      // of CLIENT_CREATED from a bulk import) can no longer crowd genuinely
-      // visible rows out of the result window. CLIENT_CREATED is the only
-      // type that's safe to exclude here: its hide/show is never conditional
-      // on per-row metadata. SUPPLIER_PAYMENT (D2) is NOT excluded — whether
-      // a given row shows depends on metadata.is_auto, which the SQL filter
-      // can't see, so that decision is made entirely client-side below.
-      filters.excludeTypes = Array.from(HIDDEN_TRANSACTION_TYPES);
-
-      const requested = Number(limit) || 50;
-      const filterVisible = (rows: TransactionRow[]) => {
-        let vis = rows.filter((r) => {
-          if (HIDDEN_TRANSACTION_TYPES.has(r.type)) return false;
-          if (r.type === "SUPPLIER_PAYMENT") {
-            return isSupplierPaymentVisible(r.metadata_json, activeOption);
-          }
-          return true;
-        });
-        // B6: "Cash only (till)" — keep transactions with a CASH payment leg.
-        if (activeOption?.cash_only) {
-          vis = vis.filter((r) => isCashTransaction(r.payments));
-        }
-        return vis;
-      };
-
-      // The SQL exclusion only covers CLIENT_CREATED now. The per-row
-      // JS-only filters above (SUPPLIER_PAYMENT's is_auto/is_credit checks,
-      // Cash Only's joined payment legs) can under-fill a window — a run of
-      // auto-generated supplier rows is the same "crowds out real rows"
-      // risk CLIENT_CREATED bulk-imports posed pre-D2 — so keep widening the
-      // fetch until it's satisfied or the table is exhausted (raw came back
-      // shorter than what we asked for).
-      let fetchSize = requested * 3;
-      const FETCH_CAP = Math.max(fetchSize, 5000);
-      let visible: TransactionRow[] = [];
-      for (;;) {
-        const raw = ((await getRecentTransactions(fetchSize, filters)) ||
-          []) as TransactionRow[];
-        visible = filterVisible(raw);
-        if (
-          visible.length >= requested ||
-          raw.length < fetchSize ||
-          fetchSize >= FETCH_CAP
-        ) {
-          break;
-        }
-        fetchSize *= 3;
-      }
-      setRows(visible.slice(0, requested));
-    } finally {
-      setLoading(false);
-    }
-  }, [limit, selectedFilter, search]);
 
   // Print button opens an in-app preview first (same UX as the POS
   // CheckoutModal's "Receipt Preview") instead of invoking the OS print
@@ -1109,18 +308,18 @@ export default function TransactionsViewer({
     [load],
   );
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  function toggleSandwich(sessionId: number) {
-    setExpandedSessions((prev) => {
-      const next = new Set(prev);
-      if (next.has(sessionId)) next.delete(sessionId);
-      else next.add(sessionId);
-      return next;
-    });
-  }
+  // One stable object for every row's ActionsCell — the four handlers are
+  // already memoised individually, so this only re-creates when one of them
+  // genuinely changes.
+  const rowActionHandlers: RowActionHandlers = useMemo(
+    () => ({
+      onPrintReceipt: handlePrintReceipt,
+      onVoid: handleVoid,
+      onRefund: handleRefund,
+      onVoidCheckoutGroup: handleVoidCheckoutGroup,
+    }),
+    [handlePrintReceipt, handleVoid, handleRefund, handleVoidCheckoutGroup],
+  );
 
   function toggleLegExpand(rowId: number) {
     setExpandedLegRows((prev) => {
@@ -1178,251 +377,44 @@ export default function TransactionsViewer({
   // Renders a full data <tr> for a transaction row. Pass sessionId to apply
   // the session accent (data-session + --session-hue); pass null for plain rows.
   // isSystem=true applies muted styling for collapsed system sub-rows.
-  function buildTr(
-    row: TransactionRow,
-    sessionId: number | null,
-    trKey?: string | number,
-    isSystem?: boolean,
-  ) {
-    const credit = isSupplierCredit(row.type, row.metadata_json);
-    const partnerSigned = isSignedPartnerType(row.type);
-    const tender = saleTenderTotals(row.type, row.payments);
-    const splitGroup = getSplitGroupInfo(row.metadata_json);
-    const commissionAmount = billsOnlyCommissionAmount(row);
+  /**
+   * One transaction row. Every cell is its own component (see
+   * `../components/TransactionCells`) so the ten of them stay independently
+   * readable; this function's only job is the `<tr>` itself — the session
+   * accent, the voided/refunded row tint — and passing each cell what it
+   * needs. `deriveRow` parses the row's metadata ONCE for the cells that
+   * share those facts.
+   */
+  function buildTr(row: TransactionRow, sessionId: number | null) {
+    const derived = deriveRow(row);
     return (
       <tr
-        key={trKey ?? row.id}
+        key={row.id}
         data-session={sessionId != null ? "" : undefined}
         style={sessionId != null ? sessionVars(sessionId) : undefined}
-        className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : isSystem ? "bg-slate-900/40 opacity-75" : ""}`}
+        className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : ""}`}
       >
-        <td className="p-2 truncate" style={{ width: 160 }}>
-          {row.created_at
-            ? (() => {
-                try {
-                  return parseDbDate(row.created_at).toLocaleString("en-GB", {
-                    day: "2-digit",
-                    month: "short",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  });
-                } catch {
-                  return row.created_at;
-                }
-              })()
-            : ""}
-        </td>
-        <td className="p-2">
-          <div className="flex flex-col gap-0.5">
-            <CashFlowBadge
-              type={row.type}
-              amountUsd={commissionAmount?.usd ?? tender?.usd ?? row.amount_usd}
-              amountLbp={commissionAmount?.lbp ?? tender?.lbp ?? row.amount_lbp}
-              metaJson={row.metadata_json}
-              legs={row.payments}
-            />
-            {row.summary && (
-              <span className="text-slate-400 truncate max-w-[480px]">
-                {row.summary}
-              </span>
-            )}
-            {row.type === "CHECKPOINT" &&
-              (() => {
-                const amountDetail = formatCheckpointAmounts(row.metadata_json);
-                if (!amountDetail) return null;
-                return (
-                  <span className="text-[10px] font-mono text-slate-500 truncate max-w-[480px]">
-                    {amountDetail}
-                  </span>
-                );
-              })()}
-            {row.type !== "CHECKPOINT" &&
-              (() => {
-                const legs = formatPaymentLegs(row.payments);
-                const rate = row.exchange_rate
-                  ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
-                  : null;
-                const text = [legs, rate].filter(Boolean).join(" · ");
-                if (!text) return null;
-                return (
-                  <span
-                    data-testid="payment-legs"
-                    className="text-[11px] font-mono text-slate-500 truncate max-w-[480px]"
-                  >
-                    {text}
-                  </span>
-                );
-              })()}
-            {(methodLegsFor(row).length > 0 || commissionAmount !== null) && (
-              <button
-                onClick={() => toggleLegExpand(row.id)}
-                data-testid={`toggle-legs-${row.id}`}
-                className="self-start text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
-                title={
-                  expandedLegRows.has(row.id)
-                    ? "Hide payment detail"
-                    : "Show payment detail"
-                }
-              >
-                {expandedLegRows.has(row.id)
-                  ? "▾ payment detail"
-                  : "▸ payment detail"}
-              </button>
-            )}
-          </div>
-        </td>
-        <td className="p-2 truncate" style={{ width: 160 }}>
-          <span
-            className={`${getTypeColor(row)} ${row.status === "VOIDED" ? "line-through opacity-60" : ""}`}
-          >
-            {getTypeLabel(row)}
-          </span>
-        </td>
-        <td className="p-2 truncate" style={{ width: 140 }}>
-          {row.client_name || "—"}
-        </td>
-        <td className="p-2 truncate" style={{ width: 160 }}>
-          <span
-            className={row.status === "VOIDED" ? "line-through opacity-60" : ""}
-          >
-            {row.type === "CHECKPOINT"
-              ? (() => {
-                  const totals = checkpointPhysicalTotals(row.metadata_json);
-                  return formatAmount(
-                    totals?.usd ?? row.amount_usd,
-                    totals?.lbp ?? row.amount_lbp,
-                    null,
-                  );
-                })()
-              : formatAmount(
-                  commissionAmount?.usd ??
-                    tender?.usd ??
-                    (credit || partnerSigned
-                      ? Math.abs(row.amount_usd)
-                      : row.amount_usd),
-                  commissionAmount?.lbp ??
-                    tender?.lbp ??
-                    (credit || partnerSigned
-                      ? Math.abs(row.amount_lbp)
-                      : row.amount_lbp),
-                  row.metadata_json,
-                )}
-          </span>
-        </td>
-        <td className="p-2 truncate" style={{ width: 120 }}>
-          {row.type === "CHECKPOINT"
-            ? "—"
-            : formatPaymentMethods(methodLegsFor(row), methodLabelByCode)}
-        </td>
-        <td className="p-2 truncate" style={{ width: 90 }}>
-          {row.username || `#${row.user_id}`}
-        </td>
-        <td className="p-2" style={{ width: 80 }}>
-          {row.status === "VOIDED" ? (
-            <span className="bg-red-900/50 text-red-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
-              VOIDED
-            </span>
-          ) : row.reversed_by_id ? (
-            // note 21d: an ACTIVE original that has already been refunded —
-            // gets the same small badge treatment as VOIDED (and, below,
-            // loses its Void/Refund buttons the same way), but deliberately
-            // NOT the line-through styling VOIDED rows get on the
-            // type/summary cells: a void means "this transaction is
-            // cancelled, its amount doesn't count" (the source record itself
-            // is voided), whereas a refunded row's sale/service genuinely
-            // happened — the amount stays real history, only the money was
-            // reversed via a separate REFUND row. Badge-only, distinct color
-            // so the two states still read apart.
-            <span className="bg-rose-900/50 text-rose-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
-              REFUNDED
-            </span>
-          ) : (
-            <span className="text-green-500/80 text-[10px] font-medium">
-              ACTIVE
-            </span>
-          )}
-        </td>
-        <td className="p-2" style={{ width: 60 }}>
-          {row.reverses_id ? `#${row.reverses_id}` : "—"}
-        </td>
-        <td className="p-2" style={{ width: 110 }}>
-          <div className="flex items-center gap-1">
-            {/* Reprint a detailed service receipt (RCP-3) — available on any
-                service transaction, including voided/older ones. Provider-
-                aware gate (LIRA-069 W1.a) — excludes OMT/Whish System,
-                OMT App / Whish App transfers, and Binance even though
-                they're FINANCIAL_SERVICE rows. */}
-            {isReceiptableRow(row) && (
-              <button
-                onClick={() => handlePrintReceipt(row.id)}
-                title="Print receipt"
-                className="px-1.5 py-0.5 text-[10px] rounded bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
-              >
-                Print
-              </button>
-            )}
-            {isReversibleRow(row) ? (
-              splitGroup ? (
-                // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): this row is one
-                // unit of a multi-unit split checkout — a lone void/refund is
-                // blocked by the repository guard (the customer's full
-                // tender/debt books against only ONE unit, the carrier).
-                // Offer the whole-checkout action instead of a button that
-                // would just surface the guard's error.
-                <button
-                  onClick={() =>
-                    handleVoidCheckoutGroup(
-                      splitGroup.groupId,
-                      splitGroup.units,
-                    )
-                  }
-                  title="This transaction is part of a multi-unit checkout — void them all together"
-                  className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
-                >
-                  Void entire checkout
-                  {splitGroup.units ? ` (${splitGroup.units} units)` : ""}
-                </button>
-              ) : sessionId != null ? (
-                // LIRA-115: this row's customer-cash leg (and/or its
-                // CUSTOMER_ACCOUNT charge) is POOLED across every item in the
-                // session basket — a lone void/refund can only ever reverse
-                // this item's OWN legs (e.g. a cost outflow), never the
-                // pooled customer money, so the repository now hard-refuses
-                // it (`TransactionRepository._assertReversible`). Tell the
-                // operator why up front instead of offering a button that
-                // would just surface that guard's error after the fact —
-                // mirrors the split_group treatment above, but there is no
-                // basket-level reversal action wired up here yet (follow-up;
-                // the repository method exists — `voidSessionBasket`/
-                // `refundSessionBasket` — it is not yet exposed via IPC/REST).
-                <span
-                  title="This transaction is part of a session-basket payment — the customer's cash/on-account charge is pooled across every item in the basket, not tied to this one row. Voiding or refunding it alone would lose track of that money, so it's blocked. Ask an admin to reverse it directly until a whole-basket action ships here."
-                  className="px-1.5 py-0.5 text-[10px] rounded bg-amber-900/40 text-amber-300"
-                >
-                  Basket item — see admin to reverse
-                </span>
-              ) : (
-                <>
-                  <button
-                    onClick={() => handleVoid(row.id)}
-                    className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
-                  >
-                    Void
-                  </button>
-                  <button
-                    onClick={() => handleRefund(row)}
-                    disabled={refundLookupRowId === row.id}
-                    className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors disabled:opacity-50"
-                  >
-                    {refundLookupRowId === row.id ? "…" : "Refund"}
-                  </button>
-                </>
-              )
-            ) : isReceiptableRow(row) ? null : (
-              "—"
-            )}
-          </div>
-        </td>
+        <TimeCell row={row} />
+        <SummaryCell
+          row={row}
+          derived={derived}
+          isLegDetailExpanded={expandedLegRows.has(row.id)}
+          onToggleLegDetail={toggleLegExpand}
+        />
+        <TypeCell row={row} />
+        <ClientCell row={row} />
+        <AmountCell row={row} derived={derived} />
+        <MethodCell row={row} methodLabelByCode={methodLabelByCode} />
+        <UserCell row={row} />
+        <StatusCell row={row} />
+        <ReversesCell row={row} />
+        <ActionsCell
+          row={row}
+          derived={derived}
+          sessionId={sessionId}
+          refundLookupRowId={refundLookupRowId}
+          handlers={rowActionHandlers}
+        />
       </tr>
     );
   }
@@ -1505,7 +497,7 @@ export default function TransactionsViewer({
             className: "p-2 text-xs font-semibold uppercase text-slate-400",
           },
         ]}
-        data={filteredData}
+        data={filteredRows}
         loading={loading}
         emptyMessage="No transactions found"
         defaultSortKey="created_at"
@@ -1528,7 +520,6 @@ export default function TransactionsViewer({
           return String((row as Record<string, unknown>)[key] ?? "");
         }}
         exportRow={(row) => {
-          if (sandwichedMap.has(row.id)) return null;
           // LIRA-067: the printed/exported report always includes the leg
           // detail (unconditionally — a static export has no "expand" state),
           // indented one column in under the transaction row.
@@ -1542,138 +533,6 @@ export default function TransactionsViewer({
           );
         }}
         renderRow={(row) => {
-          const sandwichedSession = sandwichedMap.get(row.id);
-
-          if (sandwichedSession != null) {
-            const isExpanded = expandedSessions.has(sandwichedSession);
-            const isFirst =
-              row.id === sandwichMeta.firstId.get(sandwichedSession);
-            const cnt = sandwichMeta.count.get(sandwichedSession) ?? 0;
-
-            if (!isExpanded) {
-              // First sandwiched row in collapsed group →
-              // 1px spacer row; badge floats absolutely at the left border.
-              if (isFirst) {
-                return (
-                  <tr
-                    key={row.id}
-                    data-session=""
-                    style={sessionVars(sandwichedSession)}
-                  >
-                    <td
-                      colSpan={10}
-                      style={{
-                        padding: 0,
-                        height: "1px",
-                        lineHeight: "1px",
-                        overflow: "visible",
-                        position: "relative",
-                        borderTop: "1px solid rgba(30,41,59,0.35)",
-                      }}
-                    >
-                      <button
-                        onClick={() => toggleSandwich(sandwichedSession)}
-                        style={{
-                          position: "absolute",
-                          left: "6px",
-                          top: 0,
-                          transform: "translateY(-50%)",
-                          zIndex: 10,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "3px",
-                          padding: "1px 6px",
-                          borderRadius: "9999px",
-                          background:
-                            "hsla(var(--session-hue), 78%, 62%, 0.15)",
-                          border:
-                            "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
-                          color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
-                          fontSize: "9px",
-                          fontFamily: "monospace",
-                          cursor: "pointer",
-                          lineHeight: "1.4",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        <span>⚙</span>
-                        <span>+{cnt}</span>
-                      </button>
-                    </td>
-                  </tr>
-                );
-              }
-              // Other sandwiched rows in collapsed group → invisible placeholder
-              return (
-                <tr key={row.id} style={{ display: "none" }}>
-                  <td />
-                </tr>
-              );
-            }
-
-            // Expanded — same 1px spacer with a "collapse" badge, then the data rows
-            if (isFirst) {
-              return (
-                <Fragment key={row.id}>
-                  <tr
-                    key={`stoggle-${sandwichedSession}`}
-                    data-session=""
-                    style={sessionVars(sandwichedSession)}
-                  >
-                    <td
-                      colSpan={10}
-                      style={{
-                        padding: 0,
-                        height: "1px",
-                        lineHeight: "1px",
-                        overflow: "visible",
-                        position: "relative",
-                        borderTop: "1px solid rgba(30,41,59,0.35)",
-                      }}
-                    >
-                      <button
-                        onClick={() => toggleSandwich(sandwichedSession)}
-                        style={{
-                          position: "absolute",
-                          left: "6px",
-                          top: 0,
-                          transform: "translateY(-50%)",
-                          zIndex: 10,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "3px",
-                          padding: "1px 6px",
-                          borderRadius: "9999px",
-                          background:
-                            "hsla(var(--session-hue), 78%, 62%, 0.15)",
-                          border:
-                            "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
-                          color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
-                          fontSize: "9px",
-                          fontFamily: "monospace",
-                          cursor: "pointer",
-                          lineHeight: "1.4",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        <span>⚙</span>
-                        <span>-{cnt}</span>
-                      </button>
-                    </td>
-                  </tr>
-                  {buildTr(row, sandwichedSession, `data-${row.id}`, true)}
-                  {expandedLegRows.has(row.id) &&
-                    buildLegDetailTr(row, "screen")}
-                </Fragment>
-              );
-            }
-            // Other expanded sandwiched rows → full data row with system mute styling
-            return withLegDetail(
-              row,
-              buildTr(row, sandwichedSession, undefined, true),
-            );
-          }
-
           // Regular row — session accent applied if it belongs to a session
           return withLegDetail(row, buildTr(row, row.session_id));
         }}

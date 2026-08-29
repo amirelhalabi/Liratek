@@ -2,6 +2,17 @@
 //
 // Lives in a non-component module (same rationale as auditConstants.ts) so the
 // pure logic can be unit-tested without importing the TransactionsViewer page.
+//
+// The per-type direction now comes from `transactionPresentation.ts` — one
+// exhaustive `Record<TransactionType, …>` shared with the viewer's label and
+// colour lookups, so a new transaction type cannot silently render with no
+// badge. Only metadata-dependent types keep a branch below. That module is
+// itself dependency-free (its core import is `import type`, erased at
+// compile time), so this one stays unit-testable without the DB stack.
+import {
+  presentationFor,
+  type CashFlowDirection,
+} from "./transactionPresentation";
 
 /**
  * Which way cash physically moved for a transaction type, driving the
@@ -49,7 +60,15 @@ export function getCashFlowDirection(
   metaJson?: string | null,
   signedAmounts?: { usd: number; lbp: number },
   legs?: Array<{ direction: "in" | "out" }>,
-): "in" | "out" | "both" | null {
+): CashFlowDirection | null {
+  // Types whose direction follows from the type ALONE now live in the one
+  // exhaustive presentation registry, so a newly added TransactionType can no
+  // longer slip through with no badge — the record won't compile until it is
+  // classified (DRAWER_TOPUP silently did exactly that, see the module doc).
+  // Only the genuinely metadata-dependent types fall through to the switch.
+  const { direction } = presentationFor(type);
+  if (direction !== "dynamic") return direction;
+
   switch (type) {
     case "FINANCIAL_SERVICE": {
       if (metaJson) {
@@ -80,16 +99,6 @@ export function getCashFlowDirection(
       }
       return "in";
     }
-    case "SALE":
-    case "RECHARGE":
-    case "CUSTOM_SERVICE":
-    case "MAINTENANCE":
-    case "DEBT_REPAYMENT":
-    case "MTC_TOPUP":
-    case "ALFA_TOPUP":
-    case "CREDIT_CASH_IN": // customer hands the shop cash for account credit
-    case "LOTO": // ticket sale: customer cash in (B7 — was unmapped, blank badge)
-      return "in";
     // RECHARGE_TOPUP covers four funding/destination shapes (Top-Up
     // Cash-Flow Direction Audit, TOPUP_CASHFLOW_DIRECTION_AUDIT.md — owner-
     // approved rule: "in" when no cash-equivalent drawer is actually
@@ -199,30 +208,6 @@ export function getCashFlowDirection(
       }
       return null;
     }
-    // LIRA-066: a paper (no-cash) manual partner_ledger correction — the
-    // general Partners-page "Record Tx" entry with "Cash moved" OFF. Unlike
-    // PARTNER_SETTLEMENT/PARTNER_PAYMENT (which always move a real drawer),
-    // this type never does — an explicit null here (rather than falling
-    // through to default) is the deliberate choice, same treatment as
-    // COUNTERPARTY_DISCOUNT: a green/red cash arrow would misrepresent a row
-    // where no cash moved.
-    case "PARTNER_ADJUSTMENT":
-      return null;
-    // LIRA-080: a paper (no-cash) manual debt_ledger correction — the
-    // Accounts-page "Add Credit / Debt" entry with "Cash moved" OFF. Unlike
-    // CREDIT_CASH_IN/DEBT_CASH_OUT (which always move a real drawer), this
-    // type never does — same deliberate blank-badge treatment as
-    // PARTNER_ADJUSTMENT/COUNTERPARTY_DISCOUNT.
-    case "ACCOUNT_ADJUSTMENT":
-      return null;
-    // LIRA-080: a paper (no-cash) manual supplier_ledger correction — the
-    // Suppliers-page "Add Credit / Debt" entry with "Cash moved" OFF. Its
-    // cash-moved counterpart is a SUPPLIER_PAYMENT (which has its own "in"
-    // mapping above); this paper variant never moves a drawer, so the badge is
-    // deliberately blank — same treatment as PARTNER_ADJUSTMENT/
-    // ACCOUNT_ADJUSTMENT.
-    case "SUPPLIER_ADJUSTMENT":
-      return null;
     // SUPPLIER_SETTLEMENT is "out" almost always (the shop pays a supplier's
     // net amount out of a drawer) — EXCEPT a bills-only commission-at-
     // settlement batch (BILL_COMMISSION_SETTLEMENT_PLAN.md, LIRA-137), where
@@ -249,31 +234,12 @@ export function getCashFlowDirection(
       }
       return "out";
     }
-    case "EXPENSE":
-    case "LOTO_MONTHLY_FEE":
-    case "LOTO_SETTLEMENT":
-    case "LOTO_CASH_PRIZE": // prize payout: shop cash out (B7 — was unmapped)
-    case "CREDIT_CASH_OUT": // shop pays the client their credit
-    case "DEBT_CASH_OUT": // shop hands the client a cash advance (new debt)
-    case "DRAWER_CASHOUT": // owner's draw — cash physically leaves the General drawer
-    case "TELECOM_CREDIT_BUYBACK": // shop pays the customer cash for their credits (Phase 6, D7)
-      return "out";
-    // DRAWER_TRANSFER: renamed from SYSTEM_FLOAT_TOPUP (Primary Cash Drawer
-    // plan §8.6) — a generic, reversible General <-> primary-cash-drawer
-    // (OMT_System/Whish_System) transfer, now bidirectional (either drawer
-    // can be the funding side), still a same-shop transfer with one leg
-    // each way. (Comment placed above this case group, not between the
-    // grouped case labels below — a standalone multi-line comment sitting
-    // between two grouped `case` labels defeats eslint's no-fallthrough
-    // empty-case detection even though nothing executes there.)
-    case "EXCHANGE":
-    case "WALLET_EXCHANGE": // same-drawer USD<->LBP wallet conversion (OMT App / Whish App)
-    case "DRAWER_TRANSFER":
-      return "both";
     // DRAWER_TOPUP was entirely absent from this switch (rendered NO badge
     // at all — Top-Up Cash-Flow Direction Audit, TOPUP_CASHFLOW_DIRECTION_
     // AUDIT.md finding #4) despite covering two shapes, both always into the
-    // General drawer (cash-equivalent):
+    // General drawer (cash-equivalent). That class of miss is what the
+    // presentation registry now makes impossible; this branch survives only
+    // because the choice between the two shapes needs the row's metadata:
     //  - "External (Cash In)" (`DrawerTopUpRepository.createTopUp`):
     //    genuinely NEW money entering from outside the system, no source
     //    drawer debited at all — metadata has no `source_drawer` key → "in".
@@ -412,4 +378,80 @@ export function formatPaymentLegs(
   if (outParts.length) segments.push(`out: ${outParts.join(" + ")}`);
 
   return segments.length ? segments.join(" · ") : null;
+}
+
+/** The two General-drawer money moves that can carry currencies other than
+ *  USD/LBP, both stamping the same `metadata_json.extra_currencies` shape:
+ *  DRAWER_TOPUP's External (Cash In) mode (`DrawerTopUpRepository.createTopUp`)
+ *  and its sign-flipped sibling `DrawerCashoutRepository.createCashout`.
+ *  DRAWER_TOPUP's From-Drawer mode never populates that key (see the
+ *  `extra_currencies` doc on `CreateDrawerTopUpData` for why), so it falls
+ *  through this map untouched. */
+const EXTRA_CURRENCY_DRAWER_MOVES: Record<string, "in" | "out"> = {
+  DRAWER_TOPUP: "in",
+  DRAWER_CASHOUT: "out",
+};
+
+/** Both repositories post these legs with the fixed CASH method — an
+ *  owner deposit / owner draw of physical money at the till. Mirrors
+ *  `TOPUP_METHOD` / `CASHOUT_METHOD` in core (restated, not imported, for
+ *  the same reason `PROVIDER_STOCK_DRAWERS` above is). */
+const DRAWER_MOVE_METHOD = "CASH";
+
+type ExtraCurrencyEntry = { currency_code?: unknown; amount?: unknown };
+
+/**
+ * Owner report 2026-08-28: a €100 General top-up rendered with no amount, no
+ * currency and no method — `↓ —  Drawer Top-Up: General  @ 89,500`.
+ *
+ * A top-up/cash-out in a currency other than USD/LBP keeps its money OUT of
+ * the transaction row's `amount_usd`/`amount_lbp` (those stay USD/LBP-only by
+ * design) and in `metadata_json.extra_currencies`. Its real `payments` leg is
+ * written — method CASH, drawer General — but never reaches this page:
+ * `TransactionRepository.isInternalLegJs` classifies every non-USD/LBP leg as
+ * internal (`CUSTOMER_CASH_CURRENCIES`), which is exactly what keeps USDT and
+ * other crypto legs out of the D1 cash-flow report and the in/out summary.
+ * That filter must not be loosened for a display bug.
+ *
+ * So this rebuilds the missing legs for DISPLAY ONLY, from the same metadata
+ * the repository already stamped — identical remedy to the bills-only
+ * commission amount (`billsOnlyCommissionAmount`), which is unreachable in
+ * `row.payments` for the same upstream reason. Nothing here is ever written
+ * back, summed into a drawer, or fed to a void/refund path.
+ *
+ * Amounts in metadata are POSITIVE for both flows (the cash-out repository
+ * negates only when it posts), so the direction comes from the type, not the
+ * sign. Returns [] for every other type, for absent/malformed metadata, and
+ * for entries that aren't a positive amount with a currency code.
+ */
+export function extraCurrencyLegs(
+  type: string,
+  metaJson: string | null | undefined,
+): TransactionPaymentLeg[] {
+  const direction = EXTRA_CURRENCY_DRAWER_MOVES[type];
+  if (!direction || !metaJson) return [];
+  try {
+    const meta = JSON.parse(metaJson) as {
+      extra_currencies?: ExtraCurrencyEntry[] | null;
+    };
+    const entries = meta.extra_currencies;
+    if (!Array.isArray(entries)) return [];
+    const legs: TransactionPaymentLeg[] = [];
+    for (const entry of entries) {
+      const { currency_code, amount } = entry ?? {};
+      if (typeof currency_code !== "string" || !currency_code) continue;
+      if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0)
+        continue;
+      legs.push({
+        direction,
+        amount,
+        signed_amount: direction === "out" ? -amount : amount,
+        currency_code,
+        method: DRAWER_MOVE_METHOD,
+      });
+    }
+    return legs;
+  } catch {
+    return [];
+  }
 }
