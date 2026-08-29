@@ -988,6 +988,7 @@ export default function Dashboard() {
                 return (
                   <div
                     key={key}
+                    data-testid={`cash-on-hand-${key}`}
                     className={`px-5 py-3 ${i < 1 ? "border-r border-slate-700/60" : ""}`}
                   >
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-1">
