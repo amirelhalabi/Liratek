@@ -1,31 +1,31 @@
 # General Drawer — Unrestricted Currencies
 
 **Status: ✅ SHIPPED AND PUSHED — 2026-08-29.** All phases complete, all gates green. This is a
-completion record, not a plan; nothing here is outstanding. Follow-ups this work *spawned* are in
+completion record, not a plan; nothing here is outstanding. Follow-ups this work _spawned_ are in
 §7 and are deliberately NOT part of it.
 
 **Created:** 2026-08-22 · **Base:** `main` @ `0eb34ba2` (v1.30.2)
 
 ## Commits
 
-| Commit     | Date       | What                                                                          |
-| ---------- | ---------- | ----------------------------------------------------------------------------- |
-| `5a4df632` | 2026-08-22 | Phase 1 (core policy) + Phase 2 (the gate) + Phase 3 item 7 (Settings)        |
-| `ceca680d` | 2026-08-28 | Items 8, 9, 10 + Phase 4 — the count sheet, both auto-registers, dead call    |
-| `5dc343e4` | 2026-08-28 | Extra-currency cash-out — the reversal owner a review found missing (§6)      |
+| Commit     | Date       | What                                                                           |
+| ---------- | ---------- | ------------------------------------------------------------------------------ |
+| `5a4df632` | 2026-08-22 | Phase 1 (core policy) + Phase 2 (the gate) + Phase 3 item 7 (Settings)         |
+| `ceca680d` | 2026-08-28 | Items 8, 9, 10 + Phase 4 — the count sheet, both auto-registers, dead call     |
+| `5dc343e4` | 2026-08-28 | Extra-currency cash-out — the reversal owner a review found missing (§6)       |
 | `35308852` | 2026-08-28 | Owner's repo-wide format pass; also carries the web currency-provider fix (§6) |
-| `526eba3f` | 2026-08-29 | e2e local-day convention fix (§6)                                             |
+| `526eba3f` | 2026-08-29 | e2e local-day convention fix (§6)                                              |
 
 ## Final verification (re-run on the committed HEAD, not taken from agent reports)
 
-| Gate                  | Result                                          |
-| --------------------- | ----------------------------------------------- |
-| Core jest             | **234 suites / 2454 tests** — all pass          |
-| Frontend jest         | **166 suites / 1275 tests** (1274 pass, 1 skip) |
-| Backend jest          | 45 suites / 622 tests — all pass                |
-| Typecheck             | frontend, electron-app, backend, packages/ui — clean |
-| Tenant-scoping linter | 0 violations / 747 statements                   |
-| Desktop e2e           | green (owner-run)                               |
+| Gate                  | Result                                                                        |
+| --------------------- | ----------------------------------------------------------------------------- |
+| Core jest             | **234 suites / 2454 tests** — all pass                                        |
+| Frontend jest         | **166 suites / 1275 tests** (1274 pass, 1 skip)                               |
+| Backend jest          | 45 suites / 622 tests — all pass                                              |
+| Typecheck             | frontend, electron-app, backend, packages/ui — clean                          |
+| Tenant-scoping linter | 0 violations / 747 statements                                                 |
+| Desktop e2e           | green (owner-run)                                                             |
 | Web e2e               | green apart from a pre-existing `lira-web-010` clock bug, fixed in `526eba3f` |
 
 Baseline before this work was 230 suites / 2435 tests.
@@ -48,7 +48,7 @@ Two layers shipped, on different axes:
 - **Acceptance** — General's currency set is now DERIVED, never configured (`isUnrestrictedDrawer`
   in `constants/drawerCurrencyPolicy.ts` is the single owner).
 - **Countability** — for **every** drawer, the count sheet is `base ∪ {currencies holding a
-  non-zero balance}`. A drawer's countable set is never smaller than the money it holds, so config
+non-zero balance}`. A drawer's countable set is never smaller than the money it holds, so config
   drift can no longer hide cash.
 
 `getCountableCurrenciesForDrawer` / `getCountableCurrenciesByDrawer` in `CurrencyRepository` are the
@@ -60,14 +60,14 @@ purpose — Settings still needs the CONFIGURED allowlist for its checkbox grid.
 
 ## 2. Owner decisions (2026-08-22) — all honoured as written
 
-| #   | Decision                                                                           | Rationale / consequence                                                                                                                                                                    |
-| --- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| D1  | **General only** is unrestricted — OMT_System / Whish_System stay restricted       | Narrowest change. Verified to have **zero residual gap** — see §4.                                                                                                                         |
-| D2  | Count sheet = **base set, plus any currency with a non-zero balance**              | You count exactly what is physically in the till; the sheet shrinks again once an exotic currency is spent to zero.                                                                        |
-| D3  | **EUR stays `exchange`-only** in `currency_modules`                                | EUR can be exchanged, held, cashed in, and counted — but not tendered in POS/services. Reconfirmed by the owner 2026-08-28: tender stays USD + LBP; Binance/USDT settles 1 USDT = 1 USD; an EUR special case is possible later, other currencies are not. |
-| D4  | Plan doc first, then implement                                                     | This document.                                                                                                                                                                             |
-| D5  | Layer 1 applies to **all** drawers, not just General                               | Widens D1 on a **different axis**. It does not let other drawers _accept_ new currencies; it only makes money they already hold _countable_. Acceptance stays General-only.                |
-| D6  | Settings shows **no General card at all**                                          | Grid = configurable drawers only, plus a footnote so the omission does not read as a missing drawer.                                                                                       |
+| #   | Decision                                                                     | Rationale / consequence                                                                                                                                                                                                                                   |
+| --- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | **General only** is unrestricted — OMT_System / Whish_System stay restricted | Narrowest change. Verified to have **zero residual gap** — see §4.                                                                                                                                                                                        |
+| D2  | Count sheet = **base set, plus any currency with a non-zero balance**        | You count exactly what is physically in the till; the sheet shrinks again once an exotic currency is spent to zero.                                                                                                                                       |
+| D3  | **EUR stays `exchange`-only** in `currency_modules`                          | EUR can be exchanged, held, cashed in, and counted — but not tendered in POS/services. Reconfirmed by the owner 2026-08-28: tender stays USD + LBP; Binance/USDT settles 1 USDT = 1 USD; an EUR special case is possible later, other currencies are not. |
+| D4  | Plan doc first, then implement                                               | This document.                                                                                                                                                                                                                                            |
+| D5  | Layer 1 applies to **all** drawers, not just General                         | Widens D1 on a **different axis**. It does not let other drawers _accept_ new currencies; it only makes money they already hold _countable_. Acceptance stays General-only.                                                                               |
+| D6  | Settings shows **no General card at all**                                    | Grid = configurable drawers only, plus a footnote so the omission does not read as a missing drawer.                                                                                                                                                      |
 
 **The principle, encoded as a named constant:**
 
@@ -135,7 +135,7 @@ whole class item 8 was built to close. Core's `getNonZeroBalancesForDrawer` deli
 `is_active`; the client threw that away.
 
 It is now built by **mapping** the server's codes, with a synthetic fallback entry for a code not in
-the active list. Two independent reviewers found it, both by *executing* a scratch test rather than
+the active list. Two independent reviewers found it, both by _executing_ a scratch test rather than
 by reading — reasoning alone had passed it.
 
 **The generalisable lesson:** a correct server-side policy read can be silently undone by a

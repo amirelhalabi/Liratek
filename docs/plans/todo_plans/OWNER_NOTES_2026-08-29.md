@@ -8,12 +8,12 @@
 
 **Next free identifiers (verified 2026-08-29):**
 
-| Thing              | Current tail                                                | Next free      |
-| ------------------ | ----------------------------------------------------------- | -------------- |
-| LIRA ticket        | LIRA-152 (`current_sprint.md:2254`)                         | **LIRA-153**   |
-| Migration version  | v157 `add_product_imei_units_and_warranty` (`index.ts:8980`) | **v158**       |
-| Desktop e2e spec   | `lira-148-omt-system-account-settlement-routing.spec.ts`     | **lira-149**   |
-| Web e2e spec       | `lira-web-026-general-drawer-foreign-currency.spec.ts`       | **lira-web-027** |
+| Thing             | Current tail                                                 | Next free        |
+| ----------------- | ------------------------------------------------------------ | ---------------- |
+| LIRA ticket       | LIRA-152 (`current_sprint.md:2254`)                          | **LIRA-153**     |
+| Migration version | v157 `add_product_imei_units_and_warranty` (`index.ts:8980`) | **v158**         |
+| Desktop e2e spec  | `lira-148-omt-system-account-settlement-routing.spec.ts`     | **lira-149**     |
+| Web e2e spec      | `lira-web-026-general-drawer-foreign-currency.spec.ts`       | **lira-web-027** |
 
 ---
 
@@ -23,14 +23,14 @@
 every decision is recorded in §7 and reflected in the sections below. Notes #1, #3, #4 and #5 are
 designed but NOT built.
 
-| Note | Ticket   | State                                                                             |
-| ---- | -------- | --------------------------------------------------------------------------------- |
+| Note | Ticket   | State                                                                                   |
+| ---- | -------- | --------------------------------------------------------------------------------------- |
 | #6   | LIRA-157 | ✅ **Implemented** — new validity rule + grace window + 365 ceiling + burned-line block |
 | #2   | LIRA-153 | ✅ **Implemented** — credit-return now offsets the margin; negative LBP profits visible |
-| #5   | LIRA-156 | Designed only. Smallest remaining item.                                           |
-| #1   | LIRA-095 | Designed only — execute `COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 2.               |
-| #3   | LIRA-154 | Designed only. Owner picked "add a second mode" (D4.1).                           |
-| #4   | LIRA-155 | Designed only. Status set decided (D4.2); money-on-cancel still open.             |
+| #5   | LIRA-156 | ✅ **Implemented** — per-drawer checkpoint time; commit `066786e1`                      |
+| #1   | LIRA-095 | Designed only — execute `COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 2.                     |
+| #3   | LIRA-154 | **In progress** — migration v158 + VIA mode; ledger `THROUGH_CUSTOM_SERVICE`            |
+| #4   | LIRA-155 | Designed only. Statuses decided (D4.2); cancel-as-refund decided (D4.2b).               |
 
 **What LIRA-157 changed**
 
@@ -55,14 +55,14 @@ designed but NOT built.
 
 ## 0. Verdict first — the six notes, ranked
 
-| #   | Note                                       | What it really is                                                                     | Ticket   | Size      | Order |
-| --- | ------------------------------------------ | ------------------------------------------------------------------------------------- | -------- | --------- | ----- |
-| 1   | OMT transactions saved net of fees         | **Already designed.** `COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 2 (D1), never started  | LIRA-095 | L (3–5 d) | 3rd   |
-| 2   | Only-Days profit shows `—`                 | **Real money bug** — profit stamped against the GROSS card cost + a UI that hides `<0` | LIRA-153 | M (1–2 d) | 1st   |
-| 3   | Service via partner: payment in, owe cost  | **New flow.** A third partner mode Custom Services does not have                      | LIRA-154 | M (2–3 d) | 4th   |
-| 4   | Rename + "insurance" category with statuses | **New feature**, builds on #3. Needs owner input on the status set                    | LIRA-155 | L (3–4 d) | 5th   |
-| 5   | Dashboard last-checkpoint time never moves | **Real query bug** — one uncorrelated subquery                                        | LIRA-156 | S (2–4 h) | 2nd   |
-| 6   | Validity math: 22d lapse eaten; 395d > max | **Real money-adjacent bug** — two independent defects in one 6-line function          | LIRA-157 | S (4–6 h) | 1st   |
+| #   | Note                                        | What it really is                                                                      | Ticket   | Size      | Order |
+| --- | ------------------------------------------- | -------------------------------------------------------------------------------------- | -------- | --------- | ----- |
+| 1   | OMT transactions saved net of fees          | **Already designed.** `COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 2 (D1), never started   | LIRA-095 | L (3–5 d) | 3rd   |
+| 2   | Only-Days profit shows `—`                  | **Real money bug** — profit stamped against the GROSS card cost + a UI that hides `<0` | LIRA-153 | M (1–2 d) | 1st   |
+| 3   | Service via partner: payment in, owe cost   | **New flow.** A third partner mode Custom Services does not have                       | LIRA-154 | M (2–3 d) | 4th   |
+| 4   | Rename + "insurance" category with statuses | **New feature**, builds on #3. Needs owner input on the status set                     | LIRA-155 | L (3–4 d) | 5th   |
+| 5   | Dashboard last-checkpoint time never moves  | **Real query bug** — one uncorrelated subquery                                         | LIRA-156 | S (2–4 h) | 2nd   |
+| 6   | Validity math: 22d lapse eaten; 395d > max  | **Real money-adjacent bug** — two independent defects in one 6-line function           | LIRA-157 | S (4–6 h) | 1st   |
 
 **Recommended order:** #6 and #2 first (small, self-contained, both currently produce wrong numbers
 the owner is reading off a screen today), then #5 (smallest of all), then #1 (largest, and its plan
@@ -182,14 +182,14 @@ same PR. **→ Decision D1.1 (§7).**
 An Only-Days sale of one Katsh **mtc 7.58** card (`cost_lbp` 765,007 · `credits` 7.58 ·
 `validity_days` 30 — `TELECOM_DAYS_COST_PLAN.md` §1.2):
 
-| Step | Where                                                                                                                             | What is sent / booked                                                    |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| 1    | `KatchForm.tsx:1420` (session) / `:1547` (walk-in)                                                                                | `cost` = **GROSS** `catalogCost` = 765,007 LBP. Deliberate — see §2.2.     |
-| 2    | `KatchForm.tsx:1405-1416`                                                                                                         | `price` = `sell_days_lbp + kept_credits × credit_price` (the days price)  |
-| 3    | [FinancialServiceRepository.ts:1058](packages/core/src/repositories/FinancialServiceRepository.ts#L1058)                           | `cost = data.cost ?? 0` — the gross, unchanged                            |
-| 4    | [FinancialServiceRepository.ts:1287](packages/core/src/repositories/FinancialServiceRepository.ts#L1287)                           | `commission = price − cost` ← **the sent commission is ignored and re-derived** |
-| 5    | [FinancialServiceRepository.ts:1666-1669](packages/core/src/repositories/FinancialServiceRepository.ts#L1666-L1669)                | `profit_lbp = commission` → stamped on the transaction                    |
-| 6    | [FinancialServiceRepository.ts:1960-2080](packages/core/src/repositories/FinancialServiceRepository.ts#L1960-L2080) `processTelecomCreditReturn` | credits the **MTC drawer +$7.00 USD** and moves the carrier line          |
+| Step | Where                                                                                                                                            | What is sent / booked                                                           |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| 1    | `KatchForm.tsx:1420` (session) / `:1547` (walk-in)                                                                                               | `cost` = **GROSS** `catalogCost` = 765,007 LBP. Deliberate — see §2.2.          |
+| 2    | `KatchForm.tsx:1405-1416`                                                                                                                        | `price` = `sell_days_lbp + kept_credits × credit_price` (the days price)        |
+| 3    | [FinancialServiceRepository.ts:1058](packages/core/src/repositories/FinancialServiceRepository.ts#L1058)                                         | `cost = data.cost ?? 0` — the gross, unchanged                                  |
+| 4    | [FinancialServiceRepository.ts:1287](packages/core/src/repositories/FinancialServiceRepository.ts#L1287)                                         | `commission = price − cost` ← **the sent commission is ignored and re-derived** |
+| 5    | [FinancialServiceRepository.ts:1666-1669](packages/core/src/repositories/FinancialServiceRepository.ts#L1666-L1669)                              | `profit_lbp = commission` → stamped on the transaction                          |
+| 6    | [FinancialServiceRepository.ts:1960-2080](packages/core/src/repositories/FinancialServiceRepository.ts#L1960-L2080) `processTelecomCreditReturn` | credits the **MTC drawer +$7.00 USD** and moves the carrier line                |
 
 Step 6 books the returned credit as a **drawer asset**. It never touches `cost`, `commission`, or
 the profit stamp. So the stamped profit counts the whole 765,007 LBP outflow and **none** of the
@@ -223,7 +223,9 @@ LBP and the Katsh drawer really must fall by that. The bug is entirely in what g
 `Profits.tsx:1181-1185` (**By Module** tab):
 
 ```tsx
-{row.profit_lbp > 0 ? formatAmount(row.profit_lbp, "LBP") : "—"}
+{
+  row.profit_lbp > 0 ? formatAmount(row.profit_lbp, "LBP") : "—";
+}
 ```
 
 `ProfitRepository.getFinancialSettledByProvider`
@@ -277,10 +279,10 @@ colour negatives red. A loss must be visible.
 
 Two defensible cost bases disagree by the SMS transfer burn:
 
-| Basis                                                          | Cost of days   | Profit on the example | Notes                                                                       |
-| -------------------------------------------------------------- | -------------- | --------------------- | --------------------------------------------------------------------------- |
-| (i) catalog `days_cost_lbp` = `round(cost_lbp − credits × R)`   | **120,707 LBP** | **+74,293**           | Uses **face** credits 7.58. Ignores the $0.58 burned by SMS fees.            |
-| (ii) actual return: `gross_cost − returned_credits × R`         | **170,007 LBP** | **+24,993**           | Uses the **$7.00 actually recovered**. Same number the drawer leg was given. |
+| Basis                                                         | Cost of days    | Profit on the example | Notes                                                                        |
+| ------------------------------------------------------------- | --------------- | --------------------- | ---------------------------------------------------------------------------- |
+| (i) catalog `days_cost_lbp` = `round(cost_lbp − credits × R)` | **120,707 LBP** | **+74,293**           | Uses **face** credits 7.58. Ignores the $0.58 burned by SMS fees.            |
+| (ii) actual return: `gross_cost − returned_credits × R`       | **170,007 LBP** | **+24,993**           | Uses the **$7.00 actually recovered**. Same number the drawer leg was given. |
 
 Difference: `0.58 × 85,000 = 49,300 LBP` per card — the SMS transfer loss.
 
@@ -325,13 +327,13 @@ Custom Services has exactly one partner mode, `partnerMode: "FOR"`
 That models **"the partner is the customer"**. The owner's Syria case is the mirror image: **"the
 partner performs the service, the customer pays us."**
 
-| Axis                | FOR partner (today)          | VIA partner (asked for)      |
-| ------------------- | ---------------------------- | ---------------------------- |
-| Who pays the shop   | nobody now; the partner later | the walk-in customer, now    |
-| Payment form        | hidden                       | **shown**                    |
-| Drawer              | untouched                    | **+ price** (normal legs)    |
-| `partner_ledger`    | **DEBIT** price (they owe us) | **CREDIT cost** (we owe them) |
-| Shop profit         | price − cost                 | price − cost (same)          |
+| Axis              | FOR partner (today)           | VIA partner (asked for)       |
+| ----------------- | ----------------------------- | ----------------------------- |
+| Who pays the shop | nobody now; the partner later | the walk-in customer, now     |
+| Payment form      | hidden                        | **shown**                     |
+| Drawer            | untouched                     | **+ price** (normal legs)     |
+| `partner_ledger`  | **DEBIT** price (they owe us) | **CREDIT cost** (we owe them) |
+| Shop profit       | price − cost                  | price − cost (same)           |
 
 The naming already exists elsewhere in the codebase and matches: `FinancialServiceRepository` uses
 `partner_mode: 'THROUGH' | 'FOR'` where THROUGH = _"we use their system"_
@@ -438,11 +440,20 @@ proposal to react to (not to adopt silently):
 | `ISSUED`    | policy/document exists, not yet in the shop's hands | no        |
 | `RECEIVED`  | in the shop, ready for the customer                 | no        |
 | `DELIVERED` | handed to the customer                              | **yes**   |
-| `CANCELLED` | order withdrawn — needs its own money answer        | **yes**   |
 
-**→ Decision D4.2 (§7)**, and specifically: what happens to money on `CANCELLED` when the price was
-already collected? Refund to the customer, or hold as credit? That answer decides whether
-`CANCELLED` needs a reversal owner under rule 20 or is a pure label.
+> ✅ **`CANCELLED` is NOT a stored status** (owner decision D4.2b, 2026-08-29). Cancel and
+> Refund are ONE operation with two doors: the insurance page’s Cancel button calls the SAME
+> generic refund path the Transactions table uses, and the page renders "Cancelled" when
+> `custom_services.is_refunded = 1` — a flag the generic refund already stamps
+> (`TransactionRepository._markSourceRefunded`’s whitelist includes `custom_services`).
+> Deriving it means the two pages cannot disagree, because there is only one fact. A stored
+> `CANCELLED` alongside `is_refunded` would be the same truth in two columns, and those drift.
+>
+> Two consequences, both accepted: cancelling an UNPAID insurance still writes a zero-value
+> REFUND row (correct — it is still a reversal, and it is the most common cancel), and
+> cancelling is NOT undoable, matching the repo’s additive-only reversal convention.
+
+**✅ Both answered (D4.2, D4.2b)** — see §7.
 
 **Category.** Add `{ value: "insurance", label: "Insurance", icon: "shield" }` to `SERVICE_CATEGORIES`
 (`CustomServices/index.tsx:77-87`). It follows the `hold_money` precedent at `:88-89`: a category
@@ -482,7 +493,7 @@ ORDER BY dca.drawer_name, dca.currency_code                -- ← no time orderi
 ```
 
 The `IN` list is a flat set of closing ids. It is never re-checked that the row's own closing is
-*that drawer's* latest. Then the JS loop
+_that drawer's_ latest. Then the JS loop
 ([:1040-1052](packages/core/src/repositories/ClosingRepository.ts#L1040-L1052)) sets `checked_at`
 from the **first** row it sees for a drawer, while `amounts[currency]` is **overwritten** by every
 later row.
@@ -578,17 +589,17 @@ if (validityDaysDelta !== 0) {
   const base =
     line.validity_expires_at && line.validity_expires_at > today
       ? line.validity_expires_at
-      : today;                                   // ← bug (a): the lapse is discarded
+      : today; // ← bug (a): the lapse is discarded
   newExpiry = addDaysToDateString(base, validityDaysDelta);
-}                                                // ← bug (b): nothing caps the result
+} // ← bug (b): nothing caps the result
 ```
 
 Both of the owner's numbers fall straight out of it:
 
-| Case                              | `base`      | Result          | Displayed (`daysRemaining`) | Owner expects |
-| --------------------------------- | ----------- | --------------- | --------------------------- | ------------- |
-| expired 22d ago, +30 days         | `today`     | `today + 30`    | **30 d**                    | **8 d**       |
-| 30 d left, + a 77.28 card (365 d) | `today+30`  | `today + 395`   | **395 d**                   | **365 d max** |
+| Case                              | `base`     | Result        | Displayed (`daysRemaining`) | Owner expects |
+| --------------------------------- | ---------- | ------------- | --------------------------- | ------------- |
+| expired 22d ago, +30 days         | `today`    | `today + 30`  | **30 d**                    | **8 d**       |
+| 30 d left, + a 77.28 card (365 d) | `today+30` | `today + 395` | **395 d**                   | **365 d max** |
 
 The display side is innocent: `daysRemaining` (`frontend/src/shared/utils/daysRemaining.ts:14-20`)
 is a single shared definition and reports the stored date faithfully.
@@ -611,11 +622,14 @@ export const MAX_LINE_VALIDITY_DAYS = 365;
 export const LINE_REVIVAL_GRACE_DAYS = 5;
 
 // charge (daysDelta > 0)
-if (state === "BURNED") return { burned: true };          // refuse — D6.4
-const base = state === "VALID" ? expiry : today;          // stack, or start today in GRACE
+if (state === "BURNED") return { burned: true }; // refuse — D6.4
+const base = state === "VALID" ? expiry : today; // stack, or start today in GRACE
 const extended = addDaysToDateString(base, daysDelta);
 const ceiling = addDaysToDateString(today, MAX_LINE_VALIDITY_DAYS);
-return { expiry: extended > ceiling ? ceiling : extended, capped: extended > ceiling };
+return {
+  expiry: extended > ceiling ? ceiling : extended,
+  capped: extended > ceiling,
+};
 
 // sell (daysDelta < 0) — consumption, never refused, no grace, no ceiling
 return { expiry: addDaysToDateString(expiry ?? today, daysDelta) };
@@ -647,11 +661,11 @@ re-implements the comparison.
 
 ### 6.3 Three callers share this function — check each
 
-| Caller                                                                                      | Delta      | Effect of the change                                                                          |
-| ------------------------------------------------------------------------------------------- | ---------- | --------------------------------------------------------------------------------------------- |
-| Self-charge ADD ([FinancialServiceRepository.ts:4007-4011](packages/core/src/repositories/FinancialServiceRepository.ts#L4007-L4011)) | positive   | **The fixed case.** Both of the owner's reports come from here.                                |
-| DAYS sale SUBTRACT ([RechargeRepository.ts:1000-1006](packages/core/src/repositories/RechargeRepository.ts#L1000-L1006), LIRA-113) | negative   | Selling 10 days off an already-lapsed line now reads `expiry − 10` instead of `today − 10`. More truthful; **must be re-pinned**, its comment at `:973-976` explicitly documents the old rebasing and becomes stale. |
-| Checkpoint counted date ([ClosingRepository.ts:546](packages/core/src/repositories/ClosingRepository.ts#L546))                        | **0**      | Unaffected — takes the `validityExpiresAt` absolute branch at `:981-983`, which returns before this code. |
+| Caller                                                                                                                                | Delta    | Effect of the change                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Self-charge ADD ([FinancialServiceRepository.ts:4007-4011](packages/core/src/repositories/FinancialServiceRepository.ts#L4007-L4011)) | positive | **The fixed case.** Both of the owner's reports come from here.                                                                                                                                                      |
+| DAYS sale SUBTRACT ([RechargeRepository.ts:1000-1006](packages/core/src/repositories/RechargeRepository.ts#L1000-L1006), LIRA-113)    | negative | Selling 10 days off an already-lapsed line now reads `expiry − 10` instead of `today − 10`. More truthful; **must be re-pinned**, its comment at `:973-976` explicitly documents the old rebasing and becomes stale. |
+| Checkpoint counted date ([ClosingRepository.ts:546](packages/core/src/repositories/ClosingRepository.ts#L546))                        | **0**    | Unaffected — takes the `validityExpiresAt` absolute branch at `:981-983`, which returns before this code.                                                                                                            |
 
 **Reversal (rule 20) is already safe — say so, don't rebuild it.** `applyMovement` snapshots
 `previous_validity_expires_at` **before** mutating
@@ -664,14 +678,14 @@ string, including a movement that was capped.
 
 The owner's answers (interview 2026-08-29) replaced the proposal above with a sharper rule. Note
 that **D6.2 supersedes note #6's own "8 (30−22)" expectation**: a line 22 days lapsed is not
-short-changed, it is *dead*, so the subtraction never arises.
+short-changed, it is _dead_, so the subtraction never arises.
 
-| Decision | Question                                    | Answer                                                                             |
-| -------- | ------------------------------------------- | ---------------------------------------------------------------------------------- |
-| D6.1     | Deep lapse (400 days), +30                  | Not chargeable at all — beyond 5 days the line is burned                          |
-| D6.2     | Lapsed 3 days, +30                          | **today + 30** — inside the grace the lapse is forgiven, days start today        |
-| D6.3     | Live line, 30 left + 30                     | **60** — charges STACK, then the ceiling applies                                  |
-| D6.4     | Charging a burned line                      | **Hard block** with an explanation; the absolute-date path stays open as the escape hatch |
+| Decision | Question                   | Answer                                                                                    |
+| -------- | -------------------------- | ----------------------------------------------------------------------------------------- |
+| D6.1     | Deep lapse (400 days), +30 | Not chargeable at all — beyond 5 days the line is burned                                  |
+| D6.2     | Lapsed 3 days, +30         | **today + 30** — inside the grace the lapse is forgiven, days start today                 |
+| D6.3     | Live line, 30 left + 30    | **60** — charges STACK, then the ceiling applies                                          |
+| D6.4     | Charging a burned line     | **Hard block** with an explanation; the absolute-date path stays open as the escape hatch |
 
 The rule as implemented (`projectValidityExpiry`):
 
@@ -691,7 +705,7 @@ Two deliberate asymmetries, both tested:
 
 - **Selling days is never refused.** Consumption is a record, not a revival. Before this change the
   sale path rebased a lapsed line onto today, so selling 10 days off a line 22 days dead stored
-  `today − 10` — reporting it as *less* expired than it really was.
+  `today − 10` — reporting it as _less_ expired than it really was.
 - **The absolute counted-date path is exempt** from both the ceiling and the burned check. A
   checkpoint count is evidence of what the carrier did, not a projection of what a charge would do,
   and it is the only way to record the state of a burned line.
@@ -716,27 +730,24 @@ both DISCARD days, so no `-validityDaysDelta` arithmetic could undo either — o
 Every decision this document raised has been answered in interview. Recorded here so the reasoning
 survives; the sections above are written against these answers.
 
-| ID       | Question                                                     | Answer                                                                                                     |
-| -------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| **D2.1** | Only-Days cost basis                                         | **Actual credits recovered.** Catalog `days_cost_lbp` prices the days at 120,707 against a real 170,007, overstating every card by 49,300 LBP. Built. |
-| **D4.1** | "Via partner": replace or add?                               | **Add as a second mode.** The FOR flow is shipped and has live ledger rows. Not yet built (LIRA-154).      |
-| **D4.2** | Insurance statuses                                           | **ORDERED → ISSUED → RECEIVED → DELIVERED**, plus CANCELLED. Payment stays an independent axis. Not yet built (LIRA-155). |
-| **D6.1** | Deep lapse (400 days), +30                                   | **Not chargeable** — beyond 5 days the line is burned. Built.                                          |
-| **D6.2** | Lapsed 3 days, +30                                           | **today + 30** — inside the grace the lapse is forgiven. Built.                                        |
-| **D6.3** | Live line, 30 left + a 30-day card                           | **60** — charges stack, then the ceiling applies. Built.                                               |
-| **D6.4** | Charging a burned line                                       | **Hard block** with an explanation; the absolute counted-date path stays open. Built.                      |
+| ID       | Question                           | Answer                                                                                                                                                |
+| -------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **D2.1** | Only-Days cost basis               | **Actual credits recovered.** Catalog `days_cost_lbp` prices the days at 120,707 against a real 170,007, overstating every card by 49,300 LBP. Built. |
+| **D4.1** | "Via partner": replace or add?     | **Add as a second mode.** The FOR flow is shipped and has live ledger rows. Not yet built (LIRA-154).                                                 |
+| **D4.2** | Insurance statuses                 | **ORDERED → ISSUED → RECEIVED → DELIVERED**. Payment is an independent axis. NO stored `CANCELLED` — see D4.2b. Not yet built (LIRA-155).             |
+| **D6.1** | Deep lapse (400 days), +30         | **Not chargeable** — beyond 5 days the line is burned. Built.                                                                                         |
+| **D6.2** | Lapsed 3 days, +30                 | **today + 30** — inside the grace the lapse is forgiven. Built.                                                                                       |
+| **D6.3** | Live line, 30 left + a 30-day card | **60** — charges stack, then the ceiling applies. Built.                                                                                              |
+| **D6.4** | Charging a burned line             | **Hard block** with an explanation; the absolute counted-date path stays open. Built.                                                                 |
 
-### Still open
+### ✅ D1.1 and D4.2b — answered 2026-08-29
 
-- **D1.1** — whether the OMT transaction ROW should also show the gross `x + f` on a fee-included
-  transfer, or only the supplier payable goes gross (§1.6). The owner asked to see the two options
-  rendered as UI before deciding. **Blocks nothing** — note #1 is not scheduled yet, and the
-  ledger flip is right either way.
-- **D4.2b** — what happens to money on `CANCELLED` when the price was already collected: refund, or
-  hold as customer credit? Decides whether CANCELLED needs a rule-20 reversal owner or is a pure
-  label. Blocks the back half of LIRA-155 only.
+| ID        | Question                                     | Answer                                                                                                                                                                                                                                                                                                                                           |
+| --------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **D1.1**  | OMT row on a fee-included transfer           | **Show the cash that crossed the counter.** The row amount becomes the total the customer handed over, with the split in the summary, so the row, the drawer and the payable all carry ONE number. Today they carry three, and the fee is invisible on plain OMT/WHISH rows (the `(+fee)` suffix is wallet-providers-only). Ships with LIRA-095. |
+| **D4.2b** | Money on a cancelled, already-paid insurance | **Cancel ≡ Refund — one operation, two doors.** No stored `CANCELLED`; derived from `is_refunded`. See §4.2.                                                                                                                                                                                                                                     |
 
----
+## **Nothing is blocked on an owner answer any more.**
 
 ## 8. Cross-cutting notes for whoever builds these
 

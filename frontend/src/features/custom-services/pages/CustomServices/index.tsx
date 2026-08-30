@@ -22,6 +22,7 @@ import {
   Tag,
   Settings,
   Wallet,
+  Shield,
 } from "lucide-react";
 import {
   appEvents,
@@ -30,6 +31,7 @@ import {
   useApi,
   DecimalInput,
 } from "@liratek/ui";
+import type { FulfillmentStatus } from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
@@ -83,10 +85,27 @@ const SERVICE_CATEGORIES = [
   // Special category — selecting it swaps the form for the Hold Money UI
   // (no presets / product search / cost-price; cash held in the General drawer).
   { value: "hold_money", label: "Hold Money", icon: "wallet" },
+  // LIRA-155 — insurance: unlike Hold Money, this is NOT a self-contained
+  // section with its own table. It is an ordinary custom service that takes
+  // the standard submit path, but selecting it swaps in two pieces of
+  // behaviour (mirrors the hold_money precedent's "category selection swaps
+  // form behaviour" mechanism, applied more narrowly here): (1) pre-selects
+  // "Via Partner" — the insurer is normally the partner performing the
+  // service (owner decision, item 2; see the category button's onClick
+  // below) — and (2) stamps `fulfillment_status: "ORDERED"` on submit so the
+  // row starts fulfilment-tracked (see handleSubmit). The operator can still
+  // switch to "For Partner" or back to no partner; nothing here forces VIA.
+  { value: "insurance", label: "Insurance", icon: "shield" },
 ] as const;
 
 /** The category that swaps the custom-service form for the Hold Money UI. */
 const HOLD_MONEY_CATEGORY = "hold_money";
+
+/** LIRA-155 — the category that starts fulfilment tracking at ORDERED and
+ *  pre-selects "Via Partner". See `insuranceFulfillment.ts` (imported below)
+ *  for the ONE definition of the status list/transition rule this page never
+ *  re-spells. */
+export const INSURANCE_CATEGORY = "insurance";
 
 interface ServicePreset {
   id: number;
@@ -127,6 +146,9 @@ export default function CustomServices() {
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [note, setNote] = useState("");
   const [category, setCategory] = useState("");
+  // LIRA-155: derived, not its own state — resets for free whenever
+  // `category` resets on submit/switch, same as HOLD_MONEY_CATEGORY's check.
+  const isInsurance = category === INSURANCE_CATEGORY;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
@@ -139,9 +161,26 @@ export default function CustomServices() {
     lbp: number;
   } | null>(null);
 
-  // LIRA-081 (PFT-R): "For Partner" — no counter payment; the FULL price
-  // (per currency) books to the selected partner's tab instead.
-  const [forPartner, setForPartner] = useState(false);
+  // LIRA-081 (PFT-R) / LIRA-154: partner involvement is now a 3-way mode,
+  // not a boolean —
+  //   "none" — no partner, the ordinary walk-in flow.
+  //   "FOR"  — no counter payment; the FULL price (per currency) books to
+  //            the selected partner's tab instead (unchanged from PFT-R).
+  //   "VIA"  — the MIRROR of FOR: the partner performs the service, the
+  //            walk-in customer pays US now through the normal payment
+  //            section, and we owe the partner the COST (not the price).
+  // The mode control itself is built locally in this page (two independent
+  // <ForPartnerToggle> instances below, driven off this single piece of
+  // state so they're mutually exclusive) rather than teaching the shared
+  // ForPartnerToggle component a 3rd state — that component is boolean-only
+  // and shared by 7 call sites; widening its `checked`/`onChange` contract
+  // to a mode enum would ripple into all of them for one caller's needs.
+  const [partnerMode, setPartnerMode] = useState<"none" | "FOR" | "VIA">(
+    "none",
+  );
+  const isForPartner = partnerMode === "FOR";
+  const isViaPartner = partnerMode === "VIA";
+  const hasPartnerMode = partnerMode !== "none";
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
     null,
   );
@@ -272,12 +311,23 @@ export default function CustomServices() {
     const hasDebtLine = paymentLines.some(
       (l) => l.method === "CUSTOMER_ACCOUNT",
     );
-    if (!forPartner && hasDebtLine && !clientId) {
+    // FOR takes no counter payment at all, so this guard never applies to
+    // it. VIA is a normal walk-in payment (just with an extra partner-cost
+    // ledger booking underneath) so it's treated exactly like "none" here.
+    if (!isForPartner && hasDebtLine && !clientId) {
       alert("Please select a client for debt payment.");
       return;
     }
-    if (forPartner && !selectedPartnerId) {
+    if (hasPartnerMode && !selectedPartnerId) {
       alert("Select a partner for this service.");
+      return;
+    }
+    // LIRA-154 VIA submit guard: a walk-in customer is actually paying, so
+    // VIA (unlike FOR) additionally requires at least one payment leg —
+    // a CUSTOMER_ACCOUNT (debt) leg counts too, it's still a paymentLines
+    // entry, just settled later instead of collected now.
+    if (isViaPartner && paymentLines.length === 0) {
+      alert("Add at least one payment method for this service.");
       return;
     }
 
@@ -285,7 +335,7 @@ export default function CustomServices() {
     try {
       // Auto-create client if "Save as client" is checked and no existing client selected
       let finalClientId = clientId;
-      if (!forPartner && !clientId && clientName.trim()) {
+      if (!isForPartner && !clientId && clientName.trim()) {
         const result = await trySaveAsClient();
         if (result.clientId) finalClientId = result.clientId;
       }
@@ -307,7 +357,23 @@ export default function CustomServices() {
           ? resolvedRate
           : undefined;
 
-      const payload: Parameters<typeof api.addCustomService>[0] = {
+      // LIRA-155: `fulfillment_status` is intersected in locally rather than
+      // added to `addCustomService`'s own param type — that type lives in
+      // the dual-transport files (backendApi.ts/ElectronApiAdapter.ts/
+      // electron.d.ts/packages/ui's ApiAdapter), which this ticket's own
+      // scope excludes from this pass. The field is already accepted by
+      // `createCustomServiceSchema` (packages/core/src/validators/
+      // customService.ts) end-to-end on the web/REST path; the desktop/IPC
+      // path's local duplicate schema (electron-app/schemas/index.ts's
+      // `CustomServiceCreateSchema`) still needs the same one-line addition
+      // every other LIRA-154/155 field got there (partnerId/partnerMode/
+      // product_id) before this reaches the repository over IPC — until
+      // then Zod's default "strip unknown keys" behaviour just drops it
+      // silently on desktop, matching this repo's usual only-partially-wired
+      // failure mode for an unfinished transport pass, not a new one.
+      const payload: Parameters<typeof api.addCustomService>[0] & {
+        fulfillment_status?: FulfillmentStatus;
+      } = {
         description: description.trim(),
         cost_usd: costUsdVal,
         cost_lbp: costLbpVal,
@@ -317,12 +383,14 @@ export default function CustomServices() {
         ...(exchangeRateForPayload !== undefined
           ? { exchange_rate: exchangeRateForPayload }
           : {}),
-        // LIRA-081: a for-partner service takes NO counter payment at all —
-        // never forward payment legs even if stale state lingers from before
-        // the toggle was checked (PartnerRepository/CustomServiceRepository
-        // reject any leg in partner mode; this keeps the payload consistent
-        // with what the UI actually shows).
-        ...(!forPartner && (paymentLines.length > 0 || returnLegs.length > 0)
+        // LIRA-081/LIRA-154: FOR takes NO counter payment at all — never
+        // forward payment legs even if stale state lingers from before the
+        // toggle was checked (PartnerRepository/CustomServiceRepository
+        // reject any leg in FOR mode; this keeps the payload consistent
+        // with what the UI actually shows). VIA is the opposite of FOR
+        // here — it's a real walk-in payment, so it forwards legs exactly
+        // like the no-partner case (`!isForPartner` is true for VIA too).
+        ...(!isForPartner && (paymentLines.length > 0 || returnLegs.length > 0)
           ? { payments: toSnakeLegs(paymentLines, returnLegs) }
           : {}),
         // Voucher code for the GIFT_CARD leg (custom services use one primary method)
@@ -330,12 +398,14 @@ export default function CustomServices() {
           const voucherLeg = paymentLines.find(
             (p) => p.method === "GIFT_CARD" && p.voucherCode,
           );
-          return !forPartner && voucherLeg?.voucherCode
+          return !isForPartner && voucherLeg?.voucherCode
             ? { voucher_code: voucherLeg.voucherCode }
             : {};
         })(),
         // T3 keep-change: kept amounts join the service's profit stamp.
-        ...(!forPartner &&
+        // Applies to VIA too — profit is still price - cost regardless of
+        // who performed the service.
+        ...(!isForPartner &&
         keptChange &&
         (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
@@ -343,8 +413,14 @@ export default function CustomServices() {
               kept_change_lbp: keptChange.lbp,
             }
           : {}),
-        ...(forPartner && selectedPartnerId
-          ? { partnerId: selectedPartnerId, partnerMode: "FOR" as const }
+        // LIRA-154: unlike every gate above (where VIA aligns with "none"),
+        // this one is where VIA aligns WITH FOR — both are partner modes
+        // and both need partnerId/partnerMode sent. The literal mode value
+        // ("FOR" | "VIA") is forwarded as-is; TransactionRepository/
+        // CustomServiceRepository/PartnerRepository decide what to do with
+        // each (FOR = DEBIT the price, VIA = CREDIT the cost).
+        ...(partnerMode !== "none" && selectedPartnerId
+          ? { partnerId: selectedPartnerId, partnerMode }
           : {}),
       };
       if (finalClientId) payload.client_id = finalClientId;
@@ -359,11 +435,24 @@ export default function CustomServices() {
       // free-text never set selectedProduct, so this stays omitted -> NULL
       // -> unchanged (no stock movement).
       if (selectedProduct) payload.product_id = selectedProduct.id;
+      // LIRA-155 (owner decision, item 2): an insurance sale starts
+      // fulfilment-tracked at ORDERED — the paperwork was just placed with
+      // the partner/insurer, nothing exists yet. Every other category omits
+      // the field entirely -> NULL -> not tracked (unchanged behaviour).
+      // Set before the session-cart branch below so a session-basket
+      // insurance item carries it too — both branches read this SAME
+      // `payload` object.
+      if (isInsurance) payload.fulfillment_status = "ORDERED";
 
-      // If session is active, add to cart instead of submitting — never for a
-      // for-partner service (no walk-in customer, mirrors every other FOR_%
-      // form: TelecomForm/KatchForm/etc. all bypass the session entirely).
-      if (activeSession && !forPartner) {
+      // If session is active, add to cart instead of submitting — never for
+      // a FOR-partner service (no walk-in customer, mirrors every other
+      // FOR_% form: TelecomForm/KatchForm/etc. all bypass the session
+      // entirely). LIRA-154: VIA is the one gate where this is INVERTED
+      // relative to FOR — VIA has a real walk-in customer paying now, so
+      // it goes THROUGH the session cart exactly like a plain service
+      // (`!isForPartner` is true for VIA). Do not widen this to
+      // `!hasPartnerMode` — that would wrongly bypass the session for VIA.
+      if (activeSession && !isForPartner) {
         const amountLabel =
           priceUsdVal > 0
             ? `$${priceUsdVal.toFixed(2)}`
@@ -401,6 +490,12 @@ export default function CustomServices() {
         setPaymentLines([]);
         setReturnLegs([]);
         setKeptChange(null);
+        // LIRA-154: unlike FOR (which never reaches this branch), a VIA
+        // item CAN land here now that the session cart is open to it —
+        // reset the partner mode so it doesn't silently carry over onto
+        // the next, unrelated cart line.
+        setPartnerMode("none");
+        setSelectedPartnerId(null);
         clearProduct();
         clearClient();
         setIsSubmitting(false);
@@ -433,7 +528,7 @@ export default function CustomServices() {
         setReturnLegs([]);
         setKeptChange(null);
         setTransactionTime(undefined);
-        setForPartner(false);
+        setPartnerMode("none");
         setSelectedPartnerId(null);
         clearProduct();
         clearClient();
@@ -509,6 +604,11 @@ export default function CustomServices() {
                 <Wallet className="text-orange-400" size={20} />
                 Hold Money
               </>
+            ) : isInsurance ? (
+              <>
+                <Shield className="text-sky-400" size={20} />
+                New Insurance
+              </>
             ) : (
               <>
                 <Plus className="text-teal-400" size={20} />
@@ -537,6 +637,18 @@ export default function CustomServices() {
                         setDescription("");
                         setCostUsd("");
                         setPriceUsd("");
+                      }
+                      // LIRA-155 (owner decision, item 2): selecting Insurance
+                      // pre-selects "Via Partner" — the insurer is normally
+                      // the partner performing the service. Only when no
+                      // partner mode is active yet, so re-clicking Insurance
+                      // never stomps an operator who already deliberately
+                      // chose "For Partner" or turned VIA back off.
+                      if (
+                        cat.value === INSURANCE_CATEGORY &&
+                        partnerMode === "none"
+                      ) {
+                        setPartnerMode("VIA");
                       }
                     }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
@@ -948,30 +1060,62 @@ export default function CustomServices() {
                   </div>
                 </div>
 
-                {/* LIRA-081 (PFT-R): "For Partner" — no counter payment; the
-                    FULL price (per currency) books to the selected partner's
-                    tab instead. Hides the Payment Method section below. */}
-                <div>
+                {/* LIRA-081 (PFT-R) / LIRA-154: two independent, mutually
+                    exclusive toggles sharing one `partnerMode` state (each
+                    setting it to its own value turning on, and back to
+                    "none" turning off — so checking one implicitly
+                    unchecks the other). Both reuse the shared, unmodified
+                    ForPartnerToggle component as plain boolean widgets;
+                    the mode concept lives entirely here, not in the
+                    shared component (which stays untouched — it's boolean
+                    -only and shared by 6 other call sites). */}
+                <div className="flex flex-wrap items-start gap-6">
+                  {/* "For Partner" — no counter payment; the FULL price (per
+                      currency) books to the selected partner's tab instead.
+                      Hides the Payment Method section below. Unchanged from
+                      pre-LIRA-154 behavior. */}
                   <ForPartnerToggle
                     testId="custom-service-for-partner-toggle"
-                    checked={forPartner}
+                    checked={isForPartner}
                     onChange={(next) => {
-                      setForPartner(next);
                       if (next) {
+                        setPartnerMode("FOR");
                         // Clear any lingering payment state so a leftover
                         // leg from before toggling on is never submitted.
                         setPaymentLines([]);
                         setReturnLegs([]);
                         setKeptChange(null);
+                      } else {
+                        setPartnerMode("none");
                       }
                     }}
                     selectedPartnerId={selectedPartnerId}
                     onPartnerChange={setSelectedPartnerId}
                     checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
                   />
+                  {/* "Via Partner" (LIRA-154) — the mirror of "For Partner":
+                      the partner performs the service, the walk-in customer
+                      still pays US now via the normal Payment Method section
+                      below (kept mounted — NOT cleared), and we owe the
+                      partner the COST instead of the price. */}
+                  <ForPartnerToggle
+                    testId="custom-service-via-partner-toggle"
+                    label="Via Partner"
+                    checked={isViaPartner}
+                    onChange={(next) => {
+                      // Deliberately does NOT clear paymentLines/returnLegs/
+                      // keptChange — unlike FOR, VIA keeps the payment
+                      // section live and submitting, so clearing here would
+                      // wipe an operator's in-progress payment lines.
+                      setPartnerMode(next ? "VIA" : "none");
+                    }}
+                    selectedPartnerId={selectedPartnerId}
+                    onPartnerChange={setSelectedPartnerId}
+                    checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  />
                 </div>
 
-                {/* Payment Method — replaced by a notice in for-partner mode.
+                {/* Payment Method — replaced by a notice in FOR mode only.
                     FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5 originally
                     added a cost sentence here describing the PRE-§2a
                     behaviour (cost posted a real General-drawer cash
@@ -981,8 +1125,13 @@ export default function CustomServices() {
                     delta on any branch, including for-partner. The old
                     "still leaves the General drawer" sentence became false
                     the moment §2a shipped and was left un-updated
-                    (LIRA-121) — this now states the current truth. */}
-                {forPartner ? (
+                    (LIRA-121) — this now states the current truth.
+                    LIRA-154: VIA is NOT an alternative branch of this
+                    ternary — it keeps the Payment Method section mounted
+                    (a real walk-in customer is paying through it) and adds
+                    an informational notice ABOVE it instead of replacing
+                    it. */}
+                {isForPartner ? (
                   <ForPartnerNotice
                     testId="custom-service-partner-no-payment-notice"
                     className="text-sm text-teal-200 bg-teal-500/10 border border-teal-500/30 rounded-xl px-4 py-4"
@@ -1007,53 +1156,72 @@ export default function CustomServices() {
                     )}
                   </ForPartnerNotice>
                 ) : (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-                      Payment Method
-                    </label>
-                    <MultiPaymentInput
-                      // Currency in the key: the seeded line currency is
-                      // mount-only, so toggling USD/LBP must remount the widget.
-                      key={`${paymentInputKey}-${currency}`}
-                      // Single-currency model: the toggle clears the other
-                      // currency's fields, so the owed total lives entirely in
-                      // the active currency. Hardcoding the USD pair here made
-                      // an LBP-priced service show a $0 payment total.
-                      totals={[
-                        currency === "USD"
-                          ? {
-                              amount: priceUsdVal || costUsdVal,
-                              currency: "USD",
-                            }
-                          : {
-                              amount: priceLbpVal || costLbpVal,
-                              currency: "LBP",
-                            },
-                      ]}
-                      currency={currency}
-                      totalAmountCurrency={currency}
-                      onChange={setPaymentLines}
-                      onReturnChange={setReturnLegs}
-                      onKeptChange={setKeptChange}
-                      requiresClientForDebt={true}
-                      hasClient={!!clientId || !!clientName}
-                      // Auto-debt needs a RESOLVED client here: the submit
-                      // guard rejects debt legs without clientId (name-only
-                      // would auto-split and then dead-end at that alert).
-                      autoDebtRemainder={!!clientId}
-                      paymentMethods={methods}
-                      currencies={[
-                        { code: "USD", symbol: "$" },
-                        { code: "LBP", symbol: "LBP" },
-                      ]}
-                      exchangeRate={exchangeRate}
-                      onExchangeRateChange={setEffectiveRate}
-                      clientId={clientId}
-                      fetchClientVouchers={fetchClientVouchers}
-                      {...(paymentInitialMethod
-                        ? { initialMethod: paymentInitialMethod }
-                        : {})}
-                    />
+                  <div className="space-y-4">
+                    {isViaPartner && (
+                      <ForPartnerNotice
+                        testId="custom-service-via-partner-notice"
+                        className="text-sm text-sky-200 bg-sky-500/10 border border-sky-500/30 rounded-xl px-4 py-4"
+                      >
+                        The customer pays the full{" "}
+                        <span className="font-bold">
+                          {formatCurrency(priceUsdVal, priceLbpVal)}
+                        </span>{" "}
+                        now, through the payment method below. You will owe the
+                        selected partner the cost,{" "}
+                        <span className="font-bold">
+                          {formatCurrency(costUsdVal, costLbpVal)}
+                        </span>
+                        , settled later on the Partners page.
+                      </ForPartnerNotice>
+                    )}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
+                        Payment Method
+                      </label>
+                      <MultiPaymentInput
+                        // Currency in the key: the seeded line currency is
+                        // mount-only, so toggling USD/LBP must remount the widget.
+                        key={`${paymentInputKey}-${currency}`}
+                        // Single-currency model: the toggle clears the other
+                        // currency's fields, so the owed total lives entirely in
+                        // the active currency. Hardcoding the USD pair here made
+                        // an LBP-priced service show a $0 payment total.
+                        totals={[
+                          currency === "USD"
+                            ? {
+                                amount: priceUsdVal || costUsdVal,
+                                currency: "USD",
+                              }
+                            : {
+                                amount: priceLbpVal || costLbpVal,
+                                currency: "LBP",
+                              },
+                        ]}
+                        currency={currency}
+                        totalAmountCurrency={currency}
+                        onChange={setPaymentLines}
+                        onReturnChange={setReturnLegs}
+                        onKeptChange={setKeptChange}
+                        requiresClientForDebt={true}
+                        hasClient={!!clientId || !!clientName}
+                        // Auto-debt needs a RESOLVED client here: the submit
+                        // guard rejects debt legs without clientId (name-only
+                        // would auto-split and then dead-end at that alert).
+                        autoDebtRemainder={!!clientId}
+                        paymentMethods={methods}
+                        currencies={[
+                          { code: "USD", symbol: "$" },
+                          { code: "LBP", symbol: "LBP" },
+                        ]}
+                        exchangeRate={exchangeRate}
+                        onExchangeRateChange={setEffectiveRate}
+                        clientId={clientId}
+                        fetchClientVouchers={fetchClientVouchers}
+                        {...(paymentInitialMethod
+                          ? { initialMethod: paymentInitialMethod }
+                          : {})}
+                      />
+                    </div>
                   </div>
                 )}
               </>
@@ -1070,7 +1238,16 @@ export default function CustomServices() {
               {/* Submit */}
               <button
                 onClick={handleSubmit}
-                disabled={isSubmitting || (forPartner && !selectedPartnerId)}
+                disabled={
+                  isSubmitting ||
+                  (hasPartnerMode && !selectedPartnerId) ||
+                  // LIRA-154: VIA additionally needs a real payment leg —
+                  // the alert-based guard in handleSubmit is the source of
+                  // truth (mirrors the cost/price and debt-client guards,
+                  // which are alert-only too); disabling the button here
+                  // is a pre-emptive UX nicety, not a second guard.
+                  (isViaPartner && paymentLines.length === 0)
+                }
                 className="w-full py-4 mt-6 rounded-xl font-bold text-lg bg-teal-600 hover:bg-teal-500 text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
@@ -1081,7 +1258,7 @@ export default function CustomServices() {
                 ) : (
                   <>
                     <Plus size={18} />{" "}
-                    {forPartner ? "Submit to Partner" : "Submit Service"}
+                    {isForPartner ? "Submit to Partner" : "Submit Service"}
                   </>
                 )}
               </button>

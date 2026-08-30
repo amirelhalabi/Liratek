@@ -166,7 +166,9 @@ describe("resolveTelecomCreditReturns", () => {
 
 describe("telecomCreditReturnValueLbp", () => {
   it("values the credit at the shop's own cost of credit", () => {
-    expect(telecomCreditReturnValueLbp(73)).toBe(73 * TELECOM_CREDIT_COST_RATE_LBP);
+    expect(telecomCreditReturnValueLbp(73)).toBe(
+      73 * TELECOM_CREDIT_COST_RATE_LBP,
+    );
     expect(telecomCreditReturnValueLbp(73)).toBe(6_205_000);
   });
 

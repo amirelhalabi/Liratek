@@ -286,7 +286,10 @@ export {
   getCustomServiceService,
   resetCustomServiceService,
 } from "./CustomServiceService.js";
-export type { CustomServiceResult } from "./CustomServiceService.js";
+export type {
+  CustomServiceResult,
+  FulfillmentUpdateResult,
+} from "./CustomServiceService.js";
 
 // Hold Money Service
 export {

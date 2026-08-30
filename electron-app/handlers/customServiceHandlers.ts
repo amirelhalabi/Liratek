@@ -17,9 +17,11 @@ import type { CreateCustomServiceInput } from "@liratek/core";
 import type {
   CreateServicePresetInput,
   UpdateServicePresetInput,
+  UpdateCustomServiceFulfillmentInput,
 } from "@liratek/core";
 import {
   CustomServiceCreateSchema,
+  CustomServiceUpdateFulfillmentSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -142,6 +144,42 @@ export function registerCustomServiceHandlers(): void {
           summary: `Edited custom service #${data.id} metadata`,
           old_values: result.oldValues,
           new_values: data,
+        });
+      }
+
+      return result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error };
+    },
+  );
+
+  // LIRA-155 — advance a custom service's fulfilment status (staff and
+  // admin: this is a day-to-day operational step at the counter — "the
+  // policy arrived", "handed it over" — not a financial action, so it
+  // follows update-metadata's role gate above rather than add/delete's
+  // admin-only gate). Moves no money; the transition legality check
+  // (forward-only, single-step) lives server-side in
+  // CustomServiceService.advanceFulfillmentStatus, not here (rule 13).
+  ipcMain.handle(
+    "custom-services:advance-fulfillment",
+    (event: IpcMainInvokeEvent, data: UpdateCustomServiceFulfillmentInput) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(CustomServiceUpdateFulfillmentSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = service.advanceFulfillmentStatus(
+        v.data.id,
+        v.data.fulfillment_status,
+      );
+
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "advance_fulfillment",
+          entity_type: "custom_service",
+          entity_id: String(v.data.id),
+          summary: `Custom service #${v.data.id} fulfilment -> ${v.data.fulfillment_status}`,
         });
       }
 

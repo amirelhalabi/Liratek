@@ -2519,8 +2519,8 @@ function KatchFormInner({
                     >
                       This line expired{" "}
                       {selfChargeValidityProjection?.lapseDays} days ago and is
-                      burned — it can no longer be revived by a charge.
-                      Register a new line in Settings → Carrier Lines.
+                      burned — it can no longer be revived by a charge. Register
+                      a new line in Settings → Carrier Lines.
                     </p>
                   )}
                   {!selfChargeBlocked &&
@@ -2529,11 +2529,10 @@ function KatchFormInner({
                         className="text-amber-400 text-xs pt-1"
                         data-testid="self-charge-capped-warning"
                       >
-                        Only {selfChargeValidityProjection.appliedDays} of
-                        these {selfChargeValidityProjection.requestedDays} days
-                        will apply —
-                        a line holds at most {MAX_LINE_VALIDITY_DAYS} days, and
-                        this one already has validity left.
+                        Only {selfChargeValidityProjection.appliedDays} of these{" "}
+                        {selfChargeValidityProjection.requestedDays} days will
+                        apply — a line holds at most {MAX_LINE_VALIDITY_DAYS}{" "}
+                        days, and this one already has validity left.
                       </p>
                     )}
                   {!selfChargeBlocked &&

@@ -906,13 +906,19 @@ export class ElectronApiAdapter implements ApiAdapter {
      *  transaction; omitted falls back to a live snapshot rate. */
     exchange_rate?: number;
     partnerId?: number;
-    partnerMode?: "FOR";
+    /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
+     *  service and we owe them the cost instead. */
+    partnerMode?: "FOR" | "VIA";
     /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
      *  operator picked a product from the inventory SearchBar; decrements 1
      *  unit of stock. */
     product_id?: number;
   }) => api.addCustomService(data);
   deleteCustomService = (id: number) => api.deleteCustomService(id);
+  advanceCustomServiceFulfillment = (data: {
+    id: number;
+    fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
+  }) => api.advanceCustomServiceFulfillment(data);
 
   // ---------------------------------------------------------------------------
   // Loto

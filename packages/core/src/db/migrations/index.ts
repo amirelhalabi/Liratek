@@ -7713,7 +7713,7 @@ export const MIGRATIONS: Migration[] = [
     version: 147,
     name: "seed_sell_days_lbp_from_validity_days",
     description:
-      "TELECOM_CREDIT_RATE_PLAN.md (owner-confirmed 2026-08-05): populates mobile_service_items.sell_days_lbp — the customer price for a days-only sale — from the item's validity_days, using the shared TELECOM_DAYS_SELL_PRICE_LBP table (10d 100,000 / 30d 250,000 / 60d 500,000 / 90d 750,000 / 365d 2,300,000). Keyed on the DAY COUNT and not the card, because the customer is buying days: two cards granting 30 days sell those days for the same price even though they cost the shop different amounts, so five numbers populate all 39 Only-Days candidates. The curve is exactly linear at 8,333 LBP/day from 30 through 90 days and then 6,301 LBP/day for the year, a ~24% annual bulk discount; the 10-day figure is the catalog's own long-standing validity sell price (100,000) rather than the strict linear 83,333, because at 83,333 the alfa 4.5 card (days_cost 83,500) would sell its days at a 167 LBP loss and 10-day validity is rarely sold anyway. REJECTED ALTERNATIVE: a single observed sale (the 7.58 card at 300,000 for '1 month + $1.5 kept') implies 30d = 150,000 once the kept credit is priced at 100,000/$, i.e. card-derived days priced below a standalone validity charge — but that prices a month at 5,000/day while still pricing three months at 8,333/day (more per day for a longer commitment) and lands on EXACTLY zero margin for both 10-face cards, whose days_cost is precisely 150,000; under the shipped table that sale reads instead as a 100,000 discount off 400,000, consistent with the shop's habit of discounting (the annual goes $23 -> $20 as an offer). Scoped to genuine Only-Days candidates (credits > 0 AND validity_days > 0), which excludes both the standalone Validity products (days but no credit, nothing to return) and the credit-only cards (credit but no days, nothing to sell). Only ever fills a NULL, so any price an operator has already typed is preserved without needing an override marker. A day count absent from the table is SKIPPED rather than interpolated — the curve is discounted at the annual, so interpolating would invent a price the owner never agreed to; the catalog's 20/120/180/360-day validity products need an owner price, not arithmetic.",
+      "TELECOM_CREDIT_RATE_PLAN.md (owner-confirmed 2026-08-05): populates mobile_service_items.sell_days_lbp — the customer price for a days-only sale — from the item's validity_days, using the shared TELECOM_DAYS_SELL_PRICE_LBP table (10d 100,000 / 30d 250,000 / 60d 500,000 / 90d 750,000 / 365d 2,300,000). SUPERSEDED FIGURE — the annual was repriced to 1,780,000 on 2026-08-29 (v159). This migration reads the LIVE table rather than a pinned literal, so on a database created after that date it seeds 1,780,000 for 365 days, NOT the 2,300,000 written above. Read telecomCredit.ts for the current curve; never quote a price out of a migration description. Keyed on the DAY COUNT and not the card, because the customer is buying days: two cards granting 30 days sell those days for the same price even though they cost the shop different amounts, so five numbers populate all 39 Only-Days candidates. The curve is exactly linear at 8,333 LBP/day from 30 through 90 days and then 6,301 LBP/day for the year, a ~24% annual bulk discount; the 10-day figure is the catalog's own long-standing validity sell price (100,000) rather than the strict linear 83,333, because at 83,333 the alfa 4.5 card (days_cost 83,500) would sell its days at a 167 LBP loss and 10-day validity is rarely sold anyway. REJECTED ALTERNATIVE: a single observed sale (the 7.58 card at 300,000 for '1 month + $1.5 kept') implies 30d = 150,000 once the kept credit is priced at 100,000/$, i.e. card-derived days priced below a standalone validity charge — but that prices a month at 5,000/day while still pricing three months at 8,333/day (more per day for a longer commitment) and lands on EXACTLY zero margin for both 10-face cards, whose days_cost is precisely 150,000; under the shipped table that sale reads instead as a 100,000 discount off 400,000, consistent with the shop's habit of discounting (the annual goes $23 -> $20 as an offer). Scoped to genuine Only-Days candidates (credits > 0 AND validity_days > 0), which excludes both the standalone Validity products (days but no credit, nothing to return) and the credit-only cards (credit but no days, nothing to sell). Only ever fills a NULL, so any price an operator has already typed is preserved without needing an override marker. A day count absent from the table is SKIPPED rather than interpolated — the curve is discounted at the annual, so interpolating would invent a price the owner never agreed to; the catalog's 20/120/180/360-day validity products need an owner price, not arithmetic.",
     type: "typescript" as const,
     up(db: Database.Database) {
       const rows = db
@@ -9174,6 +9174,220 @@ export const MIGRATIONS: Migration[] = [
         "Migration v157 rolled back: product_units table dropped; " +
           "products.warranty_months, product_categories.tracks_imei_units, " +
           "sale_items.warranty_until columns dropped (where their base tables exist)",
+      );
+    },
+  },
+  {
+    version: 158,
+    name: "add_custom_services_partner_mode_and_fulfillment",
+    description:
+      "D4.1 (owner-decided 2026-08-29) — schema for the NEW 'Via partner' custom-service mode, " +
+      "an ADDITIONAL second mode alongside the existing 'For Partner' flow (unchanged: no " +
+      "payment collected, full price booked to partner_ledger as a FOR_CUSTOM_SERVICE debit — " +
+      "the partner owes us). In the new 'Via partner' mode the PARTNER performs the service: " +
+      "the walk-in customer pays US, now, through the normal payment form exactly like a " +
+      "non-partner custom service (money moves into our drawer as usual), and we owe the " +
+      "PARTNER the COST (not the price) — shop profit is unchanged: price - cost. This " +
+      "migration is schema only, zero behaviour change: nothing reads or writes these columns " +
+      "yet (repository/service/UI wiring is a follow-up change) and every existing row reads " +
+      "NULL, which keeps today's behaviour exactly. Adds three nullable columns to " +
+      "custom_services: partner_mode ('FOR' | 'VIA') is the UI-facing label only — 'FOR' names " +
+      "the existing flow for symmetry, 'VIA' the new one. This is DELIBERATELY NOT the same " +
+      "string as the partner_ledger transaction_type the follow-up change will book for the " +
+      "'VIA' mode, which is 'THROUGH_CUSTOM_SERVICE': PartnerRepository.getBalanceBreakdown " +
+      "buckets ledger rows by `LIKE 'FOR_%'` / `LIKE 'THROUGH_%'` with an explicit 'neither' " +
+      "fallback (~PartnerRepository.ts:834-845) — a 'VIA_' ledger prefix would silently fall " +
+      "into that fallback and mis-report the partner balance. It is also semantically correct: " +
+      "this repo already uses THROUGH = 'we use THEIR system' and FOR = 'they use OUR system' " +
+      "(FinancialServiceRepository partner_mode, migration v83), and via-partner is exactly " +
+      "THROUGH. Two different strings ON PURPOSE — column value 'VIA', ledger transaction_type " +
+      "'THROUGH_CUSTOM_SERVICE' — do not 'fix' one to match the other. fulfillment_status " +
+      "('ORDERED'|'ISSUED'|'RECEIVED'|'DELIVERED') deliberately has NO 'CANCELLED' value: " +
+      "cancellation is DERIVED from the existing custom_services.is_refunded, already stamped " +
+      "by the generic refund path via TransactionRepository._markSourceRefunded's " +
+      "'custom_services' whitelist entry. fulfillment_status/fulfilled_at are UNUSED by this " +
+      "change — they belong to the follow-up LIRA-155 fulfillment-tracking ticket and ship now " +
+      "only so there is one migration instead of two. All three columns are defaultless/" +
+      "DEFAULT NULL ALTERs (v104 prod-brick lesson: SQLite rejects a non-constant default such " +
+      "as CURRENT_TIMESTAMP on ADD COLUMN — NULL is a constant default, and a NULL-valued " +
+      "column passes its own CHECK per SQLite's NULL-is-not-a-violation rule, same precedent as " +
+      "v83's financial_services.partner_mode). Each ALTER is guarded by a sqlite_master " +
+      "table-existence check plus a PRAGMA table_info column-existence check (v152/v157 house " +
+      "pattern) so a minimal migration-runner test DB without custom_services yet does not " +
+      "throw, and re-running up() is a clean no-op.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasCustomServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'custom_services'`,
+        )
+        .get();
+      if (!hasCustomServices) {
+        console.log(
+          "Migration v158 skipped: 'custom_services' table not present",
+        );
+        return;
+      }
+
+      const cols = db.prepare("PRAGMA table_info(custom_services)").all() as {
+        name: string;
+      }[];
+
+      if (!cols.some((c) => c.name === "partner_mode")) {
+        db.exec(
+          `ALTER TABLE custom_services ADD COLUMN partner_mode TEXT DEFAULT NULL CHECK(partner_mode IN ('FOR', 'VIA'));`,
+        );
+      }
+      if (!cols.some((c) => c.name === "fulfillment_status")) {
+        db.exec(
+          `ALTER TABLE custom_services ADD COLUMN fulfillment_status TEXT DEFAULT NULL CHECK(fulfillment_status IN ('ORDERED', 'ISSUED', 'RECEIVED', 'DELIVERED'));`,
+        );
+      }
+      if (!cols.some((c) => c.name === "fulfilled_at")) {
+        db.exec(
+          `ALTER TABLE custom_services ADD COLUMN fulfilled_at TEXT DEFAULT NULL;`,
+        );
+      }
+
+      console.log(
+        "Migration v158: custom_services.partner_mode, fulfillment_status, fulfilled_at " +
+          "added (all nullable, existing rows NULL -> unchanged behaviour)",
+      );
+    },
+    down(db: Database.Database) {
+      const hasCustomServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'custom_services'`,
+        )
+        .get();
+      if (!hasCustomServices) {
+        console.log(
+          "Migration v158 rollback skipped: 'custom_services' table not present",
+        );
+        return;
+      }
+
+      const cols = db.prepare("PRAGMA table_info(custom_services)").all() as {
+        name: string;
+      }[];
+
+      if (cols.some((c) => c.name === "fulfilled_at")) {
+        db.exec(`ALTER TABLE custom_services DROP COLUMN fulfilled_at;`);
+      }
+      if (cols.some((c) => c.name === "fulfillment_status")) {
+        db.exec(`ALTER TABLE custom_services DROP COLUMN fulfillment_status;`);
+      }
+      if (cols.some((c) => c.name === "partner_mode")) {
+        db.exec(`ALTER TABLE custom_services DROP COLUMN partner_mode;`);
+      }
+
+      console.log(
+        "Migration v158 rolled back: custom_services.partner_mode, fulfillment_status, " +
+          "fulfilled_at columns dropped",
+      );
+    },
+  },
+  {
+    version: 159,
+    name: "reprice_annual_sell_days_lbp",
+    description:
+      "Owner-confirmed 2026-08-29: reprices the 365-day days-only sale from 2,300,000 to " +
+      "1,780,000 LBP, deepening the annual bulk discount from ~24% to ~41% off the 8,333 " +
+      "LBP/day rate the 30/60/90-day tiers run at (4,877 LBP/day for the year). This is a " +
+      "PRICING decision, not a correction: v147's 2,300,000 was arithmetically fine, the shop " +
+      "simply charges less for the year. Only the days SELL line moves — cost_lbp, credits, " +
+      "days_cost_lbp and the credit-cost rate R are all untouched, so what a card costs the " +
+      "shop is unchanged and only the reported days margin shrinks (by 520,000 per card). " +
+      "Verified against the live catalog before shipping: all six 365-day credit-bearing rows " +
+      "(the 77.28 card across iPick, Katsh and WHISH_APP) still price days ABOVE days_cost_lbp " +
+      "at the new price, thinnest margin +620,800 on the iPick 7,728,000 row — no 365-day card " +
+      "sells its days at a loss, which is the same guard rail v147's 10-day price was chosen " +
+      "for. Scoped narrowly on purpose: it rewrites ONLY rows still holding EXACTLY the old " +
+      "2,300,000 table price on a 365-day credit-bearing item, mirroring v147's down(), so any " +
+      "annual price an operator has already hand-tuned is preserved rather than stomped. " +
+      "Fresh databases never run this path — create_db.sql seeds sell_days_lbp as NULL and " +
+      "v147 fills it from TELECOM_DAYS_SELL_PRICE_LBP, which now carries the new figure " +
+      "(rule 14: the curve stays defined once, in telecomCredit.ts).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Pinned LITERALS, deliberately not TELECOM_DAYS_SELL_PRICE_LBP[365]
+      // (v146's OLD_RATE convention). A migration must keep doing the same
+      // thing forever; reading the live table would silently re-target this
+      // UPDATE the next time the owner reprices the year, so an old database
+      // catching up would rewrite rows this migration never meant to touch.
+      // House pattern (every other migration does this): a migration must be a
+      // no-op on a database that has no such table, or it throws and takes the
+      // whole runner down with it. Added 2026-08-30 after this migration broke
+      // PartnersSystemAssociationFkMigrationViaRunner's rollback round-trip
+      // with "no such table: mobile_service_items".
+      const hasItems = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='mobile_service_items'",
+        )
+        .get();
+      if (!hasItems) {
+        console.log(
+          "Migration v159: mobile_service_items not present - repricing skipped",
+        );
+        return;
+      }
+
+      const OLD_ANNUAL_LBP = 2_300_000; // v147's price
+      const NEW_ANNUAL_LBP = 1_780_000; // owner-confirmed 2026-08-29
+
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+              SET sell_days_lbp = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE sell_days_lbp = ?
+              AND validity_days = 365
+              AND credits > 0`,
+        )
+        .run(NEW_ANNUAL_LBP, OLD_ANNUAL_LBP);
+
+      console.log(
+        `Migration v159: annual sell_days_lbp repriced ${OLD_ANNUAL_LBP} -> ` +
+          `${NEW_ANNUAL_LBP} on ${result.changes} row(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      // Symmetric to up(): only rows still holding exactly the new price go
+      // back, so a price edited after this ran survives the rollback.
+      // Pinned LITERALS, deliberately not TELECOM_DAYS_SELL_PRICE_LBP[365]
+      // (v146's OLD_RATE convention). A migration must keep doing the same
+      // thing forever; reading the live table would silently re-target this
+      // UPDATE the next time the owner reprices the year, so an old database
+      // catching up would rewrite rows this migration never meant to touch.
+      // Same no-op guard as up() - see there for why a migration must be
+      // inert on a database that lacks the table.
+      const hasItems = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='mobile_service_items'",
+        )
+        .get();
+      if (!hasItems) {
+        console.log(
+          "Migration v159 rollback: mobile_service_items not present - skipped",
+        );
+        return;
+      }
+
+      const OLD_ANNUAL_LBP = 2_300_000; // v147's price
+      const NEW_ANNUAL_LBP = 1_780_000; // owner-confirmed 2026-08-29
+
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+              SET sell_days_lbp = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE sell_days_lbp = ?
+              AND validity_days = 365
+              AND credits > 0`,
+        )
+        .run(OLD_ANNUAL_LBP, NEW_ANNUAL_LBP);
+
+      console.log(
+        `Migration v159 rolled back: annual sell_days_lbp restored to ` +
+          `${OLD_ANNUAL_LBP} on ${result.changes} row(s)`,
       );
     },
   },

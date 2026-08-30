@@ -90,7 +90,9 @@ const ITEM = {
 };
 const RETURNABLE_CREDITS = 9; // maxReturnableCredits(10)
 const EXPECTED_ONLY_DAYS_PROFIT_LBP =
-  ITEM.sell_days_lbp - ITEM.cost_lbp + RETURNABLE_CREDITS * CREDIT_COST_RATE_LBP;
+  ITEM.sell_days_lbp -
+  ITEM.cost_lbp +
+  RETURNABLE_CREDITS * CREDIT_COST_RATE_LBP;
 const PRE_FIX_ONLY_DAYS_PROFIT_LBP = ITEM.sell_days_lbp - ITEM.cost_lbp;
 
 type Api = {

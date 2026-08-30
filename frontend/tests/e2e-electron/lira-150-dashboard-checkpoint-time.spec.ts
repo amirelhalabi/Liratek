@@ -138,7 +138,11 @@ test.describe("Dashboard — per-drawer checkpoint time (LIRA-156)", () => {
             },
           ],
         });
-        return { ok: res.success, id: res.id ?? null, error: res.error ?? null };
+        return {
+          ok: res.success,
+          id: res.id ?? null,
+          error: res.error ?? null,
+        };
       },
       { note: NOTE },
     );
@@ -206,7 +210,9 @@ test.describe("Dashboard — per-drawer checkpoint time (LIRA-156)", () => {
 
     const card = appPage
       .locator("div.bg-slate-800.rounded-xl")
-      .filter({ has: appPage.getByRole("heading", { name: "General", exact: true }) })
+      .filter({
+        has: appPage.getByRole("heading", { name: "General", exact: true }),
+      })
       .first();
     await expect(card).toBeVisible();
     const chip = card.locator("span.truncate");

@@ -1721,15 +1721,24 @@ export type ApiAdapter = {
      *  transaction; omitted falls back to a live snapshot rate. */
     exchange_rate?: number;
     /** LIRA-081: for-partner custom service — no counter payment, the FULL
-     *  price books to the partner's tab instead. */
+     *  price books to the partner's tab instead. LIRA-154: "VIA" is the
+     *  mirror — the partner performs the service and we owe them the cost
+     *  instead. */
     partnerId?: number;
-    partnerMode?: "FOR";
+    partnerMode?: "FOR" | "VIA";
     /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
      *  operator picked a product from the inventory SearchBar; decrements 1
      *  unit of stock. Omitted (preset/free-text) -> NULL -> no stock move. */
     product_id?: number;
   }) => Promise<ApiResult & { id?: number }>;
   deleteCustomService: (id: number) => Promise<ApiResult>;
+  /** LIRA-155 — advance an insurance-style custom service's fulfilment
+   *  status (ORDERED -> ISSUED -> RECEIVED -> DELIVERED). Moves no money;
+   *  an illegal/not-found transition answers { success: false, error }. */
+  advanceCustomServiceFulfillment: (data: {
+    id: number;
+    fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
+  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Unified Transactions

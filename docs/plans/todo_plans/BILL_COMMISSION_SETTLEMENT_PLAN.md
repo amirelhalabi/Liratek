@@ -70,9 +70,9 @@ matter which/how many bills are selected. `settleNetPayUsd`/`Lbp` is then
 any RATE. This is not a stray bug that fires only in an edge case — for a bills-only batch it fires
 **every single time**, unconditionally.
 
-`:762`'s comment ("Net you pay = supplier_owed itself, NOT owed − commission again") is about the
+`:762`'s comment ("Net you pay = supplier*owed itself, NOT owed − commission again") is about the
 **LEGACY** (`commission_model = 0`, OMT/WHISH float model) branch a few lines above (`:758-769`) — it
-explains why the _old_ math doesn't double-subtract, not why the _new-model_ clamp floors bills to
+explains why the \_old* math doesn't double-subtract, not why the _new-model_ clamp floors bills to
 zero. The comment that actually explains today's bill behaviour is the one immediately above the
 clamp itself, `:856-860`, quoted above — and it is written as **a known, intended consequence**
 ("clamped at 0 … only the commission credit moves"), not an oversight. The code's own author already

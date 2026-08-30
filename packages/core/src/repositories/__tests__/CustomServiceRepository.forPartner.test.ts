@@ -47,7 +47,10 @@ function createTestDb(): Database.Database {
       is_refunded INTEGER DEFAULT 0,
       refunded_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      product_id INTEGER
+      product_id INTEGER,
+      partner_mode TEXT,
+      fulfillment_status TEXT,
+      fulfilled_at TEXT
     );
 
     CREATE TABLE partners (

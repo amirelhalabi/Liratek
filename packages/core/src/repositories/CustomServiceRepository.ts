@@ -15,6 +15,10 @@ import {
   isDrawerAffectingMethod,
 } from "../utils/payments.js";
 import type { CreateCustomServiceInput } from "../validators/customService.js";
+import {
+  TERMINAL_FULFILLMENT_STATUS,
+  type FulfillmentStatus,
+} from "../utils/insuranceFulfillment.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
@@ -63,6 +67,24 @@ export interface CustomServiceEntity {
    * to these two fields) never received them. */
   is_refunded: number;
   refunded_at: string | null;
+  /** LIRA-154 — 'FOR' (existing "For Partner": partner uses OUR system, full
+   * price books to their tab) or 'VIA' (new "Via Partner": partner PERFORMS
+   * the service, we owe them the cost) or NULL (ordinary walk-in). See
+   * `PartnerRepository`'s doc comment above `CreateLedgerEntryData` for why
+   * this column's 'VIA' value and the `THROUGH_CUSTOM_SERVICE` ledger type
+   * are two deliberately different strings. */
+  partner_mode: string | null;
+  /** LIRA-155 — where this insurance-style service's paperwork currently
+   * sits: 'ORDERED' | 'ISSUED' | 'RECEIVED' | 'DELIVERED', or NULL for a
+   * non-insurance custom service (not fulfilment-tracked at all). See
+   * `utils/insuranceFulfillment.ts` for the ONE definition of the status
+   * list and the legal-transition rule — never re-typed here. */
+  fulfillment_status: FulfillmentStatus | null;
+  /** Stamped to CURRENT_TIMESTAMP only when fulfillment_status becomes
+   * 'DELIVERED' (the document was physically handed to the customer);
+   * cleared back to NULL for every other status. See
+   * `updateFulfillmentStatus` below. */
+  fulfilled_at: string | null;
 }
 
 export interface CustomServiceSummary {
@@ -92,7 +114,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     // was never told). Both transports (IPC + REST) share this method via
     // CustomServiceService.getServices -> repo.getAll(), so this one change
     // fixes the read path identically for desktop and web (rule 19).
-    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at";
+    // LIRA-155: fulfillment_status/fulfilled_at follow the exact same
+    // "add-a-nullable-column, project-it-here" shape LIRA-154 used for
+    // partner_mode just above — every existing row reads NULL for both,
+    // unchanged behaviour for every non-insurance custom service.
+    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at, partner_mode, fulfillment_status, fulfilled_at";
   }
 
   /**
@@ -118,8 +144,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         const insertService = this.db.prepare(`
           INSERT INTO custom_services (
             tenant_id, description, cost_usd, cost_lbp, price_usd, price_lbp,
-            paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, product_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)
+            paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, product_id, partner_mode, fulfillment_status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
         `);
         const serviceResult = insertService.run(
           tenantId,
@@ -138,6 +164,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           createdBy,
           data.transaction_time ?? null,
           data.product_id ?? null,
+          data.partnerMode ?? null,
+          // LIRA-155: NULL for every non-insurance service (unchanged
+          // behaviour). `fulfilled_at` is never set on create — it is only
+          // ever stamped by updateFulfillmentStatus, on reaching DELIVERED.
+          data.fulfillment_status ?? null,
         );
         const serviceId = Number(serviceResult.lastInsertRowid);
 
@@ -185,6 +216,26 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         // Computed before the unified transaction row so the client_name
         // stamp below can label it, mirroring Recharge/Loto.
         const isForPartner = data.partnerMode === "FOR";
+
+        // LIRA-154 — "Via partner" (owner decision D4.1): the MIRROR of
+        // "For partner". Here the PARTNER performs the service, not us: the
+        // walk-in customer still pays US, now, through the completely
+        // unforked normal payment path below (isForPartner is false, so none
+        // of the branches change) — money moves into our drawer exactly like
+        // any non-partner custom service, and shop profit is unchanged
+        // (price - cost, already stamped above). The ONLY addition is that
+        // we now owe the PARTNER the COST instead of it being a pure
+        // profit-computation input — booked once, after the normal payment
+        // branches, as a THROUGH_CUSTOM_SERVICE partner_ledger CREDIT (see
+        // below). Guarded here, before any row is written, same shape as
+        // `assertPartnerIdRequired` (moneyPosting.ts) — not reusing that
+        // helper directly because its message is hardcoded to mention `"FOR"`
+        // and widening its signature to parameterize the mode would be
+        // changing a shared interface to suit this one new caller.
+        const isViaPartner = data.partnerMode === "VIA";
+        if (isViaPartner && !data.partnerId) {
+          throw new Error('partnerId is required when partnerMode is "VIA"');
+        }
 
         // Blank/whitespace-only descriptions must not produce a dangling
         // "Custom Service: " (colon, nothing after it) — degrade to the bare
@@ -524,6 +575,45 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // here, always from General; removed 2026-08-09.)
         }
 
+        // LIRA-154 — "Via partner": the branches above already collected the
+        // price from the walk-in customer exactly like an ordinary custom
+        // service (isForPartner is false, so nothing above forked). The only
+        // remaining step is booking what the SHOP now owes the PARTNER for
+        // performing the service — the COST, per currency component, never a
+        // converted sum (mirrors the FOR_CUSTOM_SERVICE per-leg-currency
+        // booking above). Direction CREDIT: we owe the partner (owner
+        // decision). Ledger type is `THROUGH_CUSTOM_SERVICE` — see
+        // PartnerRepository's doc comment above `CreateLedgerEntryData` for
+        // why that differs from this row's own `partner_mode` value ('VIA').
+        if (isViaPartner) {
+          if ((data.cost_usd ?? 0) > 0) {
+            getPartnerRepository().addLedgerEntry({
+              partner_id: data.partnerId as number,
+              transaction_type: "THROUGH_CUSTOM_SERVICE",
+              reference_table: "custom_services",
+              reference_id: serviceId,
+              amount: data.cost_usd!,
+              currency: "USD",
+              direction: "CREDIT",
+              user_id: createdBy,
+              notes: noteText,
+            });
+          }
+          if ((data.cost_lbp ?? 0) > 0) {
+            getPartnerRepository().addLedgerEntry({
+              partner_id: data.partnerId as number,
+              transaction_type: "THROUGH_CUSTOM_SERVICE",
+              reference_table: "custom_services",
+              reference_id: serviceId,
+              amount: data.cost_lbp!,
+              currency: "LBP",
+              direction: "CREDIT",
+              user_id: createdBy,
+              notes: noteText,
+            });
+          }
+        }
+
         return serviceId;
       })();
 
@@ -741,6 +831,42 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
       )
       .run(...values);
 
+    return this.findById(id);
+  }
+
+  /**
+   * LIRA-155 — mechanically WRITE a fulfilment status. Rule 13: this method
+   * carries NO transition policy — it does not check whether `from -> to` is
+   * a legal step. `CustomServiceService.advanceFulfillmentStatus` is the
+   * ONE caller that decides legality (via `isValidFulfillmentTransition`)
+   * before ever reaching here; calling this directly bypasses that check by
+   * design, the same separation `updateMetadata` above already draws
+   * between "is this allowed" and "write it".
+   *
+   * Stamps `fulfilled_at` to the SQL clock (`CURRENT_TIMESTAMP` — never a
+   * JS `new Date()` inside logic) exactly when the status being written is
+   * the terminal one (`DELIVERED`), and clears it to NULL for every other
+   * status — mirrors every other timestamp column in this repository
+   * (`edited_at`, `refunded_at`), which all use the database's own clock,
+   * not the application's.
+   *
+   * Moves NO money and touches NO drawer/ledger — fulfilment is tracked on
+   * its own column, entirely independent of payment (see the module doc
+   * comment in `utils/insuranceFulfillment.ts`).
+   */
+  updateFulfillmentStatus(
+    id: number,
+    status: FulfillmentStatus,
+  ): CustomServiceEntity | null {
+    const tenantId = getCurrentTenantId();
+    this.db
+      .prepare(
+        `UPDATE custom_services
+         SET fulfillment_status = ?,
+             fulfilled_at = CASE WHEN ? = ? THEN CURRENT_TIMESTAMP ELSE NULL END
+         WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(status, status, TERMINAL_FULFILLMENT_STATUS, id, tenantId);
     return this.findById(id);
   }
 }

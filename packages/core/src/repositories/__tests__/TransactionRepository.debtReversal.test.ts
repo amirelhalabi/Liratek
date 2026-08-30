@@ -186,7 +186,10 @@ function createTestDb(): Database.Database {
       edited_by    TEXT,
       edited_at    TEXT,
       created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
-      product_id   INTEGER
+      product_id   INTEGER,
+      partner_mode TEXT,
+      fulfillment_status TEXT,
+      fulfilled_at TEXT
     );
   `);
   return db;

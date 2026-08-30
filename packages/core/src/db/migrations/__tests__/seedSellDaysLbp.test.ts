@@ -9,9 +9,16 @@
  *    either one a `sell_days_lbp` advertises a price for a sale that cannot
  *    happen.
  * 2. **No interpolation.** The price curve is linear at 8,333 LBP/day from 30
- *    through 90 days and then discounted to 6,301 for the year. Any day count
+ *    through 90 days and then discounted to 4,877 for the year. Any day count
  *    absent from the table must be SKIPPED, never interpolated — interpolating
  *    would invent a price the owner never approved, and it would look correct.
+ *
+ * The annual figure the assertions below expect is 1,780,000, NOT the 2,300,000
+ * v147 originally shipped: v147 reads the live `TELECOM_DAYS_SELL_PRICE_LBP`
+ * rather than a pinned literal, so repricing the table (v159, 2026-08-29)
+ * changes what v147 seeds into a fresh database. That coupling is intentional —
+ * one definition of the curve (rule 14) — and this test is the thing that
+ * catches it drifting.
  */
 
 import Database from "better-sqlite3";
@@ -111,7 +118,7 @@ describe("migration v147 — seed_sell_days_lbp_from_validity_days", () => {
     expect(sellDaysOf(db, "30d")).toBe(250_000);
     expect(sellDaysOf(db, "60d")).toBe(500_000);
     expect(sellDaysOf(db, "90d")).toBe(750_000);
-    expect(sellDaysOf(db, "365d")).toBe(2_300_000);
+    expect(sellDaysOf(db, "365d")).toBe(1_780_000);
   });
 
   it("SKIPS a day count absent from the table — never interpolates", () => {
@@ -147,7 +154,7 @@ describe("migration v147 — seed_sell_days_lbp_from_validity_days", () => {
     addItem(db, "365d", { validityDays: 365, credits: 77.28 });
     V147.up(db);
     V147.up(db);
-    expect(sellDaysOf(db, "365d")).toBe(2_300_000);
+    expect(sellDaysOf(db, "365d")).toBe(1_780_000);
   });
 
   it("down() clears table prices but leaves an operator's price alone", () => {

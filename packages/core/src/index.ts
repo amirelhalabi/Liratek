@@ -22,6 +22,7 @@ export * from "./utils/tenantSlug.js";
 export * from "./utils/localDate.js";
 export * from "./utils/telecomCredit.js";
 export * from "./utils/carrierLineValidity.js";
+export * from "./utils/insuranceFulfillment.js";
 export * from "./utils/phoneNumber.js";
 export * from "./utils/lotMarketRate.js";
 export * from "./utils/sqlLike.js";

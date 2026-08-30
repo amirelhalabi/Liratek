@@ -1586,7 +1586,9 @@ contextBridge.exposeInMainWorld("api", {
         direction?: "IN" | "OUT";
       }>;
       partnerId?: number;
-      partnerMode?: "FOR";
+      /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
+       *  service and we owe them the cost instead. */
+      partnerMode?: "FOR" | "VIA";
       /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
        *  operator picked a product from the inventory SearchBar; decrements
        *  1 unit of stock. Omitted (preset/free-text) -> NULL -> no stock
@@ -1602,6 +1604,15 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
       category?: string;
     }) => ipcRenderer.invoke("custom-services:update-metadata", data),
+    // LIRA-155 — advance an insurance-style custom service's fulfilment
+    // status. `fulfillment_status` mirrors FULFILLMENT_STATUSES in
+    // packages/core/src/utils/insuranceFulfillment.ts (rule 14 — inlined
+    // here rather than imported since this whole block is a hand-maintained
+    // duplicate, same as partnerMode above).
+    advanceFulfillment: (data: {
+      id: number;
+      fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
+    }) => ipcRenderer.invoke("custom-services:advance-fulfillment", data),
   },
 
   // Hold Money (cash held on behalf of a client)

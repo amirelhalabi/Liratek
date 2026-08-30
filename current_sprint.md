@@ -381,7 +381,7 @@ This ticket was itself only caught because the log was inspected rather than the
 - [x] **ROOT CAUSE (db149e6):** the failure is above Node's own `child_process` layer (a
       `--require` spawn hook never fired), i.e. inside yarn's script-dispatch/spawn path when
       the script would spawn Playwright. A direct invocation with no `yarn run`/`yarn
-    workspace` hop never exhibits it. **Windows dev-machine only.**
+  workspace` hop never exhibits it. **Windows dev-machine only.**
 
 ### CORRECTION - CI was NOT affected (verified 2026-08-10)
 
@@ -643,7 +643,7 @@ things the operator reads say opposite things:
   "debt going DOWN"
 
 Reading it correctly requires already knowing the C5 signed-`TOP_UP` convention, where a RECEIVE
-books a negative TOP_UP because it _reduces_ what the shop owes the provider (`grossOwedDelta`).
+books a negative TOP*UP because it \_reduces* what the shop owes the provider (`grossOwedDelta`).
 
 **NOT partner-specific.** A plain walk-in OMT/WHISH RECEIVE produces the identical row, so this
 is on the OMT supplier page during ordinary daily trading - not an edge case.
@@ -1039,9 +1039,9 @@ Owner: _"a service for partner called '7welet souria' and payment method debt; i
 general drawer."_
 
 **The literal scenario does NOT reproduce.** In `FinancialServiceRepository`, a FOR-partner service
-carrying a CUSTOMER_ACCOUNT leg is **rejected before any drawer write**
-(`assertNoCustomerAccountLeg` → _"A partner financial service cannot carry a CUSTOMER_ACCOUNT
-leg"_), and the whole transaction rolls back. 8 new tests + 27 existing partner tests + 5
+carrying a CUSTOMER*ACCOUNT leg is **rejected before any drawer write**
+(`assertNoCustomerAccountLeg` → *"A partner financial service cannot carry a CUSTOMER*ACCOUNT
+leg"*), and the whole transaction rolls back. 8 new tests + 27 existing partner tests + 5
 custom-service partner tests all confirm General delta = 0. (Note: the `DEBT` payment code was
 renamed `CUSTOMER_ACCOUNT` in migration v86; the UI label is still "Customer Account (Debt)".)
 
@@ -1146,10 +1146,10 @@ the code is behaving as designed — confirmed with a new regression test, no mo
 `FinancialServiceRepository.forPartnerDebtDrawer.test.ts` gained a `"LIRA-114"` describe block
 (2 new tests) with the owner's EXACT figures (iPick, cost 1008, price 1010, partner "7welet souria"):
 
-1. Attaching a CUSTOMER_ACCOUNT leg (any IN-direction payment leg, in fact — see below) to a
+1. Attaching a CUSTOMER*ACCOUNT leg (any IN-direction payment leg, in fact — see below) to a
    FOR-partner cost/price sale throws **before any drawer write** — General/iPick delta 0, zero rows
-   written. The rejecting guard is actually `assertNoCounterPayment` (_"a partner financial service
-   takes no counter payment"_), not `assertNoCustomerAccountLeg` — a FOR-partner cost/price sale
+   written. The rejecting guard is actually `assertNoCounterPayment` (*"a partner financial service
+   takes no counter payment"\_), not `assertNoCustomerAccountLeg` — a FOR-partner cost/price sale
    rejects the customer "paying" via ANY method at all (there is no walk-in customer on a partner
    sale), so the operator's payment-method choice is never even evaluated. This is a MORE total
    rejection than the ticket's original hypothesis, not a narrower one.

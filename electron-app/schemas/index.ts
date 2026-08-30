@@ -108,6 +108,8 @@ import {
   type UpdateServiceProviderInput,
   updateExchangeMetadataSchema,
   type UpdateExchangeMetadataInput,
+  updateCustomServiceFulfillmentSchema,
+  type UpdateCustomServiceFulfillmentInput,
   exchangeSubmitSchema,
   type ExchangeSubmitInput,
   refundUnitExtrasSchema,
@@ -791,7 +793,10 @@ export const CustomServiceCreateSchema = z.object({
   // (rule-14 debt, same trap documented elsewhere in this file): fields must
   // exist in BOTH or the desktop path silently strips them.
   partnerId: z.number().int().positive().optional(),
-  partnerMode: z.enum(["FOR"]).optional(),
+  // LIRA-154: widened to include "VIA" (partner performs the service; we owe
+  // the partner the cost). Kept in sync with the core createCustomServiceSchema
+  // enum — same rule-14 local-duplicate trap noted above.
+  partnerMode: z.enum(["FOR", "VIA"]).optional(),
   // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — LOCAL duplicate of the
   // core createCustomServiceSchema field (same rule-14 trap): an
   // inventory-backed service must decrement stock like a POS sale; omitting
@@ -799,6 +804,17 @@ export const CustomServiceCreateSchema = z.object({
   // repository would never learn a product was involved.
   product_id: z.coerce.number().int().positive().optional(),
 });
+
+// LIRA-155 — advance an existing custom service's fulfilment status
+// (ORDERED -> ISSUED -> RECEIVED -> DELIVERED). Lifted from
+// packages/core/src/validators/customService.ts (rule 14) rather than
+// hand-duplicated like CustomServiceCreateSchema above — this is a brand
+// new schema with no pre-existing local copy, so casting the shared
+// definition (same pattern as HoldMoneyCreateSchema) is the correct choice,
+// not the trap. The cast bridges the zod-major mismatch between this
+// workspace's zod and core's; runtime shape is identical.
+export const CustomServiceUpdateFulfillmentSchema =
+  updateCustomServiceFulfillmentSchema as unknown as z.ZodSchema<UpdateCustomServiceFulfillmentInput>;
 
 // =============================================================================
 // Hold Money

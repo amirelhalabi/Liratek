@@ -11,17 +11,74 @@ import {
   Tag,
   Printer,
 } from "lucide-react";
-import { DataTable } from "@liratek/ui";
+import { DataTable, useApi } from "@liratek/ui";
+import {
+  FULFILLMENT_STATUSES,
+  TERMINAL_FULFILLMENT_STATUS,
+  type FulfillmentStatus,
+} from "@liratek/core";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useShopInfo } from "@/hooks/useShopName";
-import { getTransactionBySource } from "@/api/backendApi";
+import { getTransactionBySource, refundTransaction } from "@/api/backendApi";
 import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
 import { isReceiptableTransaction } from "@/features/audit/receiptGating";
+import logger from "@/utils/logger";
 import type { CustomServiceEntry } from "../../../hooks/useCustomServices";
+
+/** LIRA-155 — the category that is fulfilment-tracked. Matches
+ *  `INSURANCE_CATEGORY` in `../index.tsx` (kept as a local literal, not an
+ *  import, to avoid a circular import between the two — the same choice
+ *  already made here for "hold_money"/"digital_account" below). */
+const INSURANCE_CATEGORY = "insurance";
+
+/** Display label + badge styling for a fulfilment status — mirrors
+ *  Maintenance's `statusBadge` (`features/maintenance/pages/Maintenance/
+ *  index.tsx`), same 4-step shape (not-yet-physical -> physical ->
+ *  handed-over), one color per step. */
+function fulfillmentBadge(status: FulfillmentStatus): {
+  label: string;
+  className: string;
+} {
+  switch (status) {
+    case "ORDERED":
+      return {
+        label: "Ordered",
+        className: "bg-blue-500/10 text-blue-400 border border-blue-500/30",
+      };
+    case "ISSUED":
+      return {
+        label: "Issued",
+        className: "bg-amber-500/10 text-amber-400 border border-amber-500/30",
+      };
+    case "RECEIVED":
+      return {
+        label: "Received",
+        className:
+          "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30",
+      };
+    case "DELIVERED":
+      return {
+        label: "Delivered",
+        className: "bg-slate-500/10 text-slate-300 border border-slate-500/30",
+      };
+  }
+}
+
+/** The single legal next step, or null when `status` is terminal. STRICT
+ *  forward-only single-step (see `@liratek/core`'s `insuranceFulfillment.ts`)
+ *  — there is never more than one option to offer, so "an illegal transition
+ *  is offered" cannot arise here: there is no menu, only this one button. */
+function nextFulfillmentStatus(
+  status: FulfillmentStatus,
+): FulfillmentStatus | null {
+  if (status === TERMINAL_FULFILLMENT_STATUS) return null;
+  const idx = FULFILLMENT_STATUSES.indexOf(status);
+  return FULFILLMENT_STATUSES[idx + 1] ?? null;
+}
 
 function formatTime(dateStr: string): string {
   const d = parseDbDate(dateStr);
@@ -63,10 +120,20 @@ export function HistoryModal({
   onVoid,
 }: HistoryModalProps) {
   useModalFocusFix(true);
+  const api = useApi();
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
     history,
     "created_at",
   );
+  // LIRA-155 — "a way to filter to insurance", mirroring Maintenance's
+  // status-tab pill bar (just two options here, since this filters by
+  // category, not by fulfilment status — the Status column below covers
+  // that independently, per row).
+  const [categoryTab, setCategoryTab] = useState<"All" | "Insurance">("All");
+  const scopedData =
+    categoryTab === "Insurance"
+      ? filteredData.filter((tx) => tx.category === INSURANCE_CATEGORY)
+      : filteredData;
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({
@@ -76,7 +143,76 @@ export function HistoryModal({
     note: "",
   });
   const [editSaving, setEditSaving] = useState(false);
+  // LIRA-155 — per-row in-flight guards for the two new row actions, mirrors
+  // `editSaving`/`collectingId` (HoldMoneySection) above.
+  const [advancingId, setAdvancingId] = useState<number | null>(null);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const shopInfo = useShopInfo();
+
+  /** LIRA-155, item 5 — advance one legal step via the fulfilment endpoint.
+   *  Only ever called with the single next status `nextFulfillmentStatus`
+   *  computed (see the Status column below), so there is no illegal
+   *  transition to guard against here — the server enforces it anyway
+   *  (`CustomServiceService.advanceFulfillmentStatus`), this is just the
+   *  one legal call this UI ever makes. */
+  async function handleAdvanceFulfillment(
+    tx: CustomServiceEntry,
+    next: FulfillmentStatus,
+  ) {
+    setAdvancingId(tx.id);
+    try {
+      const result = await api.advanceCustomServiceFulfillment({
+        id: tx.id,
+        fulfillment_status: next,
+      });
+      if (result.success) {
+        onRefresh();
+      } else {
+        alert(result.error ?? "Failed to update status.");
+      }
+    } catch (error) {
+      logger.error("Advance fulfilment status failed:", error);
+      alert("Failed to update status.");
+    } finally {
+      setAdvancingId(null);
+    }
+  }
+
+  /** LIRA-155, item 6 (D4.2b) — Cancel is Refund through the SAME generic
+   *  path the Transactions table uses (`refundTransaction`, looked up via
+   *  `getTransactionBySource` exactly like `handlePrint` above already
+   *  does for this same source table) — never `deleteCustomService`, which
+   *  hard-sets status='voided' and vanishes the row from `getAll` (that
+   *  would contradict "Cancelled" as a visible, derived label). */
+  async function handleCancel(tx: CustomServiceEntry) {
+    if (
+      !confirm(
+        "Cancel this insurance? Any payment already collected will be refunded.",
+      )
+    ) {
+      return;
+    }
+    setCancellingId(tx.id);
+    try {
+      const txn = await getTransactionBySource("custom_services", tx.id);
+      const txnId = (txn as { id?: number } | null)?.id;
+      if (!txnId) {
+        alert("Could not find the transaction for this insurance.");
+        return;
+      }
+      const result = await refundTransaction(txnId);
+      if (result.success) {
+        onRefresh();
+      } else {
+        alert(result.error ?? "Failed to cancel insurance.");
+      }
+    } catch (error) {
+      logger.error("Cancel insurance failed:", error);
+      alert("Failed to cancel insurance.");
+    } finally {
+      setCancellingId(null);
+    }
+  }
 
   async function handlePrint(tx: CustomServiceEntry) {
     try {
@@ -141,10 +277,29 @@ export function HistoryModal({
             <History className="text-slate-400" size={18} />
             Service History
             <span className="text-xs text-slate-500 font-normal ml-1">
-              ({filteredData.length} records)
+              ({scopedData.length} records)
             </span>
           </h2>
           <div className="flex items-center gap-2">
+            {/* LIRA-155 — "a way to filter to insurance" (item 4), mirroring
+                Maintenance's status-tab pill bar styling. */}
+            <div className="flex items-center gap-1 bg-slate-800/60 rounded-lg border border-slate-700 p-0.5">
+              {(["All", "Insurance"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  data-testid={`custom-service-history-tab-${tab.toLowerCase()}`}
+                  onClick={() => setCategoryTab(tab)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    categoryTab === tab
+                      ? "bg-sky-600 text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
             <DateRangeFilter
               from={from}
               to={to}
@@ -192,6 +347,13 @@ export function HistoryModal({
                   sortKey: "category",
                 },
                 {
+                  // LIRA-155, item 4 — insurance fulfilment status, derived
+                  // "Cancelled" on a refund. Blank for every non-insurance
+                  // row (untracked).
+                  header: "Status",
+                  className: "px-4 py-3",
+                },
+                {
                   header: "Customer",
                   className: "px-4 py-3",
                   sortKey: "client_name",
@@ -218,7 +380,7 @@ export function HistoryModal({
                 },
                 { header: "", className: "px-4 py-3 w-16" },
               ]}
-              data={filteredData}
+              data={scopedData}
               paginate
               exportExcel
               exportPdf
@@ -286,6 +448,51 @@ export function HistoryModal({
                           </span>
                         ) : (
                           <span className="text-xs text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {tx.category !== INSURANCE_CATEGORY ? (
+                          <span className="text-xs text-slate-600">—</span>
+                        ) : isRefunded ? (
+                          // D4.2b — derived, never a stored status: a
+                          // cancelled insurance IS a refunded insurance,
+                          // there is only one fact.
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/30">
+                            Cancelled
+                          </span>
+                        ) : !tx.fulfillment_status ? (
+                          <span className="text-xs text-slate-600">—</span>
+                        ) : (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-xs font-medium ${fulfillmentBadge(tx.fulfillment_status).className}`}
+                            >
+                              {fulfillmentBadge(tx.fulfillment_status).label}
+                            </span>
+                            {(() => {
+                              const next = nextFulfillmentStatus(
+                                tx.fulfillment_status,
+                              );
+                              if (!next) return null;
+                              const nextLabel = fulfillmentBadge(next).label;
+                              return (
+                                <button
+                                  type="button"
+                                  data-testid={`custom-service-advance-fulfillment-${tx.id}`}
+                                  onClick={() =>
+                                    handleAdvanceFulfillment(tx, next)
+                                  }
+                                  disabled={advancingId === tx.id}
+                                  className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap disabled:opacity-50"
+                                  title={`Mark ${nextLabel}`}
+                                >
+                                  {advancingId === tx.id
+                                    ? "..."
+                                    : `Mark ${nextLabel}`}
+                                </button>
+                              );
+                            })()}
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -375,13 +582,31 @@ export function HistoryModal({
                               <Pencil size={13} />
                             </button>
                           )}
-                          <button
-                            onClick={() => onVoid(tx.id)}
-                            className="text-slate-600 hover:text-red-400 transition-colors p-1"
-                            title="Void service"
-                          >
-                            <Ban size={14} />
-                          </button>
+                          {tx.category === INSURANCE_CATEGORY ? (
+                            // LIRA-155, item 6 (D4.2b) — Cancel ≡ Refund via
+                            // the GENERIC path, never deleteCustomService.
+                            // Hidden once already refunded: cancelling is
+                            // not undoable (matches the repo's
+                            // additive-only reversal convention).
+                            !isRefunded && (
+                              <button
+                                onClick={() => handleCancel(tx)}
+                                disabled={cancellingId === tx.id}
+                                className="text-slate-600 hover:text-red-400 transition-colors p-1 disabled:opacity-50"
+                                title="Cancel insurance (refund)"
+                              >
+                                <Ban size={14} />
+                              </button>
+                            )
+                          ) : (
+                            <button
+                              onClick={() => onVoid(tx.id)}
+                              className="text-slate-600 hover:text-red-400 transition-colors p-1"
+                              title="Void service"
+                            >
+                              <Ban size={14} />
+                            </button>
+                          )}
                           {isReceiptableTransaction({
                             type: "CUSTOM_SERVICE",
                           }) && (
@@ -398,7 +623,7 @@ export function HistoryModal({
                     </tr>
                     {isEditing && (
                       <tr className="bg-slate-800/60 border-b border-slate-700/50">
-                        <td colSpan={9} className="px-4 py-3">
+                        <td colSpan={10} className="px-4 py-3">
                           <div className="flex items-end gap-3 flex-wrap">
                             <div className="flex-1 min-w-[140px]">
                               <label className="text-xs text-slate-400 block mb-1">

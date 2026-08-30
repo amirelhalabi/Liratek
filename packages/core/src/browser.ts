@@ -75,6 +75,15 @@ export * from "./constants/exchangeLotPolicy.js";
 // above for the exact failure mode this avoids.
 export * from "./utils/lotMarketRate.js";
 
+// Custom-service fulfilment status model (LIRA-155) — pure string-literal
+// list + type + transition predicate, no Node.js deps. The insurance
+// fulfilment UI (a follow-up frontend change) and CustomServiceService both
+// import FULFILLMENT_STATUSES/isValidFulfillmentTransition from here rather
+// than re-spelling the four status strings a second time (rule 14). Must be
+// exported HERE, not only from index.ts — see the telecomCredit.js note
+// above for the exact failure mode this avoids.
+export * from "./utils/insuranceFulfillment.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

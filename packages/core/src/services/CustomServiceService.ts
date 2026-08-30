@@ -13,6 +13,10 @@ import {
 import type { CreateCustomServiceInput } from "../validators/customService.js";
 import { customServiceLogger } from "../utils/logger.js";
 import { getSettingsService } from "./SettingsService.js";
+import {
+  isValidFulfillmentTransition,
+  type FulfillmentStatus,
+} from "../utils/insuranceFulfillment.js";
 
 // =============================================================================
 // Types
@@ -21,6 +25,12 @@ import { getSettingsService } from "./SettingsService.js";
 export interface CustomServiceResult {
   success: boolean;
   id?: number;
+  error?: string;
+}
+
+export interface FulfillmentUpdateResult {
+  success: boolean;
+  entity?: CustomServiceEntity;
   error?: string;
 }
 
@@ -170,6 +180,51 @@ export class CustomServiceService {
     );
 
     return { success: true, entity: updated, oldValues };
+  }
+
+  /**
+   * LIRA-155 — advance a custom service's fulfilment status. This is the
+   * ONE place the transition rule is enforced server-side (rule 13's
+   * policy-belongs-in-the-service split, and the ticket's explicit
+   * instruction not to copy maintenance_jobs' `isPaidStatus` gate, which
+   * only validates client-side). The repository's `updateFulfillmentStatus`
+   * is a mechanical write with no opinion on legality — this method is the
+   * only caller allowed to reach it for an existing row.
+   *
+   * Payment is a fully independent axis (owner decision): this method never
+   * inspects `paid_by`/payments/drawers, and never will — an insurance can
+   * be fully paid while still ORDERED.
+   */
+  advanceFulfillmentStatus(
+    id: number,
+    status: FulfillmentStatus,
+  ): FulfillmentUpdateResult {
+    const existing = this.repo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Custom service not found" };
+    }
+
+    const current = existing.fulfillment_status;
+    if (!isValidFulfillmentTransition(current, status)) {
+      return {
+        success: false,
+        error: current
+          ? `Cannot move fulfilment status from '${current}' to '${status}' — only the next step forward is allowed`
+          : "This custom service is not fulfilment-tracked",
+      };
+    }
+
+    const updated = this.repo.updateFulfillmentStatus(id, status);
+    if (!updated) {
+      return { success: false, error: "Failed to update fulfilment status" };
+    }
+
+    customServiceLogger.info(
+      { id, from: current, to: status },
+      "Custom service fulfilment status advanced",
+    );
+
+    return { success: true, entity: updated };
   }
 }
 

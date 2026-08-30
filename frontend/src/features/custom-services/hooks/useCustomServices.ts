@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useApi } from "@liratek/ui";
+import type { FulfillmentStatus } from "@liratek/core";
 import logger from "@/utils/logger";
 
 export interface CustomServiceEntry {
@@ -30,6 +31,15 @@ export interface CustomServiceEntry {
   refunded_at?: string | null;
   edited_by?: string | null;
   edited_at?: string | null;
+  /** LIRA-154 — 'FOR' | 'VIA' | null (ordinary walk-in, unaffected). */
+  partner_mode?: "FOR" | "VIA" | null;
+  /** LIRA-155 — where an insurance-style service's paperwork currently
+   *  sits, or null/undefined for a non-insurance service (not
+   *  fulfilment-tracked). Imports the ONE type definition (rule 14) from
+   *  `@liratek/core` rather than re-typing the four literals here. */
+  fulfillment_status?: FulfillmentStatus | null;
+  /** Stamped only when fulfillment_status reaches 'DELIVERED'. */
+  fulfilled_at?: string | null;
 }
 
 export interface CustomServiceSummary {

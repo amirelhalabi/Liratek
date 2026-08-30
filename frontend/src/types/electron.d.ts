@@ -3065,6 +3065,16 @@ export interface ElectronAPI {
         note: string | null;
         created_by: number | null;
         created_at: string;
+        /** LIRA-155 — where an insurance-style service's paperwork sits, or
+         *  null for a non-insurance service (not fulfilment-tracked). */
+        fulfillment_status:
+          | "ORDERED"
+          | "ISSUED"
+          | "RECEIVED"
+          | "DELIVERED"
+          | null;
+        /** Stamped only when fulfillment_status reaches 'DELIVERED'. */
+        fulfilled_at: string | null;
       }>
     >;
     get: (id: number) => Promise<{
@@ -3084,6 +3094,16 @@ export interface ElectronAPI {
       note: string | null;
       created_by: number | null;
       created_at: string;
+      /** LIRA-155 — where an insurance-style service's paperwork sits, or
+       *  null for a non-insurance service (not fulfilment-tracked). */
+      fulfillment_status:
+        | "ORDERED"
+        | "ISSUED"
+        | "RECEIVED"
+        | "DELIVERED"
+        | null;
+      /** Stamped only when fulfillment_status reaches 'DELIVERED'. */
+      fulfilled_at: string | null;
     } | null>;
     summary: () => Promise<{
       count: number;
@@ -3120,7 +3140,9 @@ export interface ElectronAPI {
        *  CustomServiceRepository; omitted falls back to a live snapshot rate. */
       exchange_rate?: number;
       partnerId?: number;
-      partnerMode?: "FOR";
+      /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
+       *  service and we owe them the cost instead. */
+      partnerMode?: "FOR" | "VIA";
       /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 (rule 12: preload type
        *  completeness) — set only when the operator picked a product from
        *  the inventory SearchBar; decrements 1 unit of stock. */
@@ -3134,6 +3156,14 @@ export interface ElectronAPI {
       phone_number?: string;
       note?: string;
       category?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    /** LIRA-155 — advance an insurance-style custom service's fulfilment
+     *  status. Moves no money; a request whose transition isn't the single
+     *  legal next step (or targets a non-tracked/not-found row) answers
+     *  { success: false, error } — enforced server-side, not by this type. */
+    advanceFulfillment: (data: {
+      id: number;
+      fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 

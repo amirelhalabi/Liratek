@@ -199,7 +199,10 @@ function createTestDb(): Database.Database {
       edited_at    TEXT DEFAULT NULL,
       is_refunded  INTEGER DEFAULT 0,
       refunded_at  TEXT DEFAULT NULL,
-      product_id   INTEGER
+      product_id   INTEGER,
+      partner_mode TEXT,
+      fulfillment_status TEXT,
+      fulfilled_at TEXT
     );
   `);
   return db;

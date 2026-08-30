@@ -164,7 +164,7 @@ describe("parseCatalogToSeedData — days_cost_lbp (TELECOM_DAYS_COST_PLAN.md §
       30: 250_000,
       60: 500_000,
       90: 750_000,
-      365: 2_300_000,
+      365: 1_780_000,
     };
     let checked = 0;
     for (const item of items) {

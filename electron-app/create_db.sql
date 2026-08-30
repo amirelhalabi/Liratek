@@ -897,6 +897,18 @@ CREATE TABLE IF NOT EXISTS custom_services (
     -- for preset/free-text paths). Exactly 1 unit is decremented/restored —
     -- no `quantity` column; the form never lets the operator choose one.
     product_id INTEGER DEFAULT NULL REFERENCES products(id),
+    -- v158 (D4.1): 'FOR' = existing For-Partner flow (no payment collected,
+    -- full price booked to partner_ledger as a debit); 'VIA' = new
+    -- Via-Partner flow (customer pays us normally, we owe the partner the
+    -- COST — booked to partner_ledger as transaction_type
+    -- 'THROUGH_CUSTOM_SERVICE', a DIFFERENT string on purpose, see the v158
+    -- migration description). NULL = neither (today's non-partner service).
+    partner_mode TEXT DEFAULT NULL CHECK(partner_mode IN ('FOR', 'VIA')),
+    -- v158: unused by this change — reserved for the LIRA-155 fulfillment-
+    -- tracking follow-up. No 'CANCELLED' value: cancellation is derived from
+    -- is_refunded below, already stamped by the generic refund path.
+    fulfillment_status TEXT DEFAULT NULL CHECK(fulfillment_status IN ('ORDERED', 'ISSUED', 'RECEIVED', 'DELIVERED')),
+    fulfilled_at TEXT DEFAULT NULL,
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
@@ -1944,4 +1956,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (154, 'financial_services_provider_check_to_fk'),
     (155, 'partners_system_association_to_fk'),
     (156, 'add_exchange_lot_settlement_tables'),
-    (157, 'add_product_imei_units_and_warranty');
+    (157, 'add_product_imei_units_and_warranty'),
+    (158, 'add_custom_services_partner_mode_and_fulfillment'),
+    (159, 'reprice_annual_sell_days_lbp');

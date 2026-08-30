@@ -424,7 +424,7 @@ keep their dedicated drawers (`Whish_System`, and `OMT_System` as the shop's own
   `Whish_System` drawers. This bullet was stale — it predated the owner's answer and
   contradicted it; corrected during §5b phases 1-2 implementation.
 - ⚠ This collides with existing assumptions: `shop_base_system` / Primary Cash Drawer (PCD, plan
-  #68) treats OMT_System as _the_ primary cash drawer, and money paths contain hardcoded `'OMT'` /
+  #68) treats OMT*System as \_the* primary cash drawer, and money paths contain hardcoded `'OMT'` /
   `'WHISH'` literals. Any generalisation must enumerate and handle those.
 - **Data already in the field is wrong**, not just the schema: existing partners linked to Whish
   purely for lack of an alternative have been moving Whish_System. A cutover/repair decision is

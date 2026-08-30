@@ -458,7 +458,13 @@ function buildSchema(db: Database.Database): void {
       created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
       edited_by   TEXT,
       edited_at   TEXT,
-      product_id  INTEGER
+      product_id  INTEGER,
+      -- v158 (LIRA-154/155): the INSERT column list grew, so this schema must
+      -- carry the new columns or every addService() here fails with
+      -- SQLITE_ERROR before any assertion runs.
+      partner_mode        TEXT,
+      fulfillment_status  TEXT,
+      fulfilled_at        TEXT
     );
 
     -- ══════════════════════════════════════════
@@ -1273,20 +1279,21 @@ describe("Post-Refactor Verification", () => {
         | { is_settled: number; commission_model: number }
         | undefined;
 
-      // Post-review correction (2-reviewer FIX_FIRST, critical money bug):
-      // `commission_model` is gated to BILL rows ONLY at creation — an OMT
-      // SEND is born `commission_model = 0` (legacy EMBEDDED), NOT 1
-      // (AT_SETTLEMENT), because Phase 2's gross-payable flip (D1) hasn't
-      // shipped: `grossOwedDelta`/`SUPPLIER_OWED_EXPR` still NET this row's
-      // auto-calculated commission out of `supplier_owed` at creation.
-      // `is_settled = 0` here is achieved via the PRESERVED LEGACY marker
-      // (commission_model = 0 AND provider IN OMT/WHISH AND commission > 0)
-      // — exactly the pre-Phase-0 behavior — which is why this transaction
-      // needs a nonzero commission; a commission = 0 legacy OMT SEND is
-      // born is_settled = 1 (see
-      // FinancialServiceRepository.pendingSettlementPredicate.test.ts's
-      // "legacy OMT SEND with commission = 0 is NOT picked up").
-      expect(row!.commission_model).toBe(0);
+      // UPDATED 2026-08-29 — COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2
+      // (D1, shipped): an OMT SEND is now born `commission_model = 1`
+      // (AT_SETTLEMENT), same as a BILL — `grossOwedDelta`/`SUPPLIER_OWED_EXPR`
+      // no longer net the auto-calculated commission out of `supplier_owed`
+      // at creation, so the double-subtraction the OLD gate prevented no
+      // longer applies (see `FinancialServiceRepository
+      // .omtCommissionModelGate.test.ts`, re-derived in the same change).
+      // `is_settled = 0` is now achieved via the NEW model's own predicate
+      // (`isPendingSupplierSettlement`'s model=1 branch, unconditional for
+      // OMT/WHISH — no commission check at all), so this row would be born
+      // pending EVEN with commission = 0 (unlike the OLD legacy marker this
+      // test used to exercise, which required commission > 0 — see
+      // FinancialServiceRepository.pendingSettlementPredicate.test.ts's own
+      // re-derivation). OLD -> NEW: commission_model 0 -> 1.
+      expect(row!.commission_model).toBe(1);
       expect(row!.is_settled).toBe(0);
     });
 

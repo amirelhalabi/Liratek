@@ -602,13 +602,27 @@ export function deriveDaysCostLbp(
  * ### The curve
  *
  *   10d → 100,000 · 30d → 250,000 · 60d → 500,000 · 90d → 750,000
- *   365d → 2,300,000
+ *   365d → 1,780,000
  *
- * Exactly linear at **8,333 LBP/day** from 30 through 90 days, then **6,301
- * LBP/day** for the year — a ~24% annual bulk discount. The 10-day price is
+ * Exactly linear at **8,333 LBP/day** from 30 through 90 days, then **4,877
+ * LBP/day** for the year — a ~41% annual bulk discount. The 10-day price is
  * the catalog's own long-standing validity sell price (100,000) rather than the
  * strict linear 83,333: at 83,333 the alfa 4.5 card (days_cost 83,500) would
  * sell its days at a 167 LBP LOSS, and 10-day validity is rarely sold anyway.
+ *
+ * ### The annual: 2,300,000 → 1,780,000 (owner-confirmed 2026-08-29)
+ *
+ * The year shipped at 2,300,000 (v147) and was repriced DOWN to 1,780,000.
+ * Deepening the annual discount from ~24% to ~41% is a deliberate pricing
+ * decision, not a correction to a miscalculation — the old figure was never
+ * wrong arithmetically. Verified against the live catalog before the change:
+ * all six 365-day credit-bearing rows (the 77.28 card across iPick, Katsh and
+ * WHISH_APP) still price their days ABOVE `days_cost_lbp` at the new price,
+ * with the thinnest margin +620,800 on the iPick 7,728,000 row. No 365-day
+ * card sells its days at a loss.
+ *
+ * This moves REPORTED margin only on the days line; it does not change what
+ * a card costs. Migration v159 repriced the existing rows.
  *
  * ### The alternative that was rejected
  *
@@ -658,7 +672,7 @@ export const TELECOM_DAYS_SELL_PRICE_LBP: Readonly<Record<number, number>> =
     30: 250_000,
     60: 500_000,
     90: 750_000,
-    365: 2_300_000,
+    365: 1_780_000,
   });
 
 /**

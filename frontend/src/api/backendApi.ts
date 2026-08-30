@@ -4361,7 +4361,9 @@ export async function addCustomService(data: {
    *  transaction; omitted falls back to a live snapshot rate. */
   exchange_rate?: number;
   partnerId?: number;
-  partnerMode?: "FOR";
+  /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
+   *  service and we owe them the cost instead. */
+  partnerMode?: "FOR" | "VIA";
   /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
    *  operator picked a product from the inventory SearchBar; decrements 1
    *  unit of stock. Omitted (preset/free-text) -> NULL -> no stock movement. */
@@ -4390,6 +4392,27 @@ export async function deleteCustomService(
         `/api/custom-services/${id}`,
         {
           method: "DELETE",
+        },
+      ),
+  );
+}
+
+// LIRA-155 — advance an insurance-style custom service's fulfilment status
+// (ORDERED -> ISSUED -> RECEIVED -> DELIVERED). Moves no money; a rejected
+// transition (illegal step, not-found, non-tracked row) answers
+// { success: false, error } from the server, not a thrown exception.
+export async function advanceCustomServiceFulfillment(data: {
+  id: number;
+  fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
+}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.advanceFulfillment(data),
+    async () =>
+      requestJson<{ success: boolean; data?: unknown; error?: string }>(
+        `/api/custom-services/fulfillment`,
+        {
+          method: "POST",
+          body: data,
         },
       ),
   );

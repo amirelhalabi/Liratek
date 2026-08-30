@@ -68,17 +68,15 @@ const mockCreate = jest.fn().mockResolvedValue({ success: true });
 // EUR has a configured `exchange_rates` row (market_rate 1.16, is_stronger
 // -1 => already USD-per-unit, so marketRateToUsdPerUnit returns 1.16
 // unchanged). GBP deliberately has none — it only exists in the feed below.
-const mockGetRates = jest
-  .fn()
-  .mockResolvedValue([
-    {
-      to_code: "EUR",
-      market_rate: 1.16,
-      buy_rate: 1.1601,
-      sell_rate: 1.17,
-      is_stronger: -1,
-    },
-  ]);
+const mockGetRates = jest.fn().mockResolvedValue([
+  {
+    to_code: "EUR",
+    market_rate: 1.16,
+    buy_rate: 1.1601,
+    sell_rate: 1.17,
+    is_stronger: -1,
+  },
+]);
 
 const mockApi = {
   drawerTopUp: {

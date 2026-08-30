@@ -122,6 +122,23 @@ export interface UpdatePartnerData {
  * match, not an AST) without needing an UNUSED_ALLOWLIST entry. (The union's
  * own regex parser requires the `| "LITERAL"` lines below to stay
  * contiguous, so this explanation lives here, not inline in the union.)
+ *
+ * LIRA-154 addition — "THROUGH_CUSTOM_SERVICE": the "Via Partner" custom
+ * service (owner decision D4.1) — the MIRROR of "FOR_CUSTOM_SERVICE". FOR =
+ * the partner uses OUR system (no counter payment; the full price books to
+ * their tab). THROUGH = we use THEIR system — here, the partner PERFORMS the
+ * service: the walk-in customer still pays US through the normal payment
+ * path, and the shop books what it now owes the partner — the COST, not the
+ * price — as a CREDIT, per currency component. See
+ * CustomServiceRepository.createService's `isViaPartner` block, which is
+ * where "THROUGH_CUSTOM_SERVICE" is used as a real (non-template) literal.
+ * NOTE — two deliberately different strings: this ledger classification is
+ * `THROUGH_CUSTOM_SERVICE`, but `custom_services.partner_mode`'s stored/
+ * UI-facing value for this same mode is the string `'VIA'` (migration v158's
+ * CHECK constraint). Do not "fix" one to match the other — `'VIA'` is the
+ * operator-facing label; `THROUGH_CUSTOM_SERVICE` is this ledger's FOR_%/
+ * THROUGH_% classification prefix, which `getBalanceBreakdown()` and
+ * `getLedgerEntries()`'s `mode` filter both key off of.
  */
 export interface CreateLedgerEntryData {
   partner_id: number;
@@ -138,6 +155,7 @@ export interface CreateLedgerEntryData {
     | "THROUGH_BINANCE_RECEIVE"
     | "THROUGH_IPICK_SEND"
     | "THROUGH_KATSH_SEND"
+    | "THROUGH_CUSTOM_SERVICE"
     | "FOR_OMT_SEND"
     | "FOR_OMT_RECEIVE"
     | "FOR_WHISH_SEND"

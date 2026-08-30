@@ -42,13 +42,13 @@ WHISH, OMT_APP, WHISH_APP, BINANCE, iPick, Katsh).
 **A second, load-bearing correction to the orchestrator's anchors:** `isForPartner` triggers an
 **unconditional early return** in `FinancialServiceRepository.createTransaction`
 (`:1867` `if (isForPartner) { … return { id, drawer: legacyDrawerLabel }; }` at `:2188`) that
-exhaustively handles every service type (cost/price catalog, BINANCE SEND, OMT/WHISH/OMT_APP/WHISH_APP
+exhaustively handles every service type (cost/price catalog, BINANCE SEND, OMT/WHISH/OMT*APP/WHISH_APP
 SEND, RECEIVE for every provider, and an explicit throw for BILL). **By the time execution reaches
 line 2191 or later — including the `skipGeneralDrawer`/`skipSystemDrawer` checks at `:3253-3276` the
 orchestrator cited — `isForPartner` is always `false`.** `skipGeneralDrawer` (`= isForPartner`,
 `:908`) is therefore **dead** at every site after `:2189`. This flips the anchor's framing: the
-"FOR-partner mode" comment on the CASH-cashout branch (`:3277-3279`, _"Skipped for FOR-partner mode
-(partner handles the payout, not our cash)"_) is describing an **unreachable** condition — the code
+"FOR-partner mode" comment on the CASH-cashout branch (`:3277-3279`, *"Skipped for FOR-partner mode
+(partner handles the payout, not our cash)"\_) is describing an **unreachable** condition — the code
 that actually executes there is gated on `skipSystemDrawer` (`= isThroughPartner`, `:909`), i.e. this
 is a **THROUGH**-mode bug wearing a FOR-mode comment. That distinction is the single most important
 finding in this document — see §1.2.
@@ -302,12 +302,12 @@ orchestrator, independently re-derived.
 Both partners' `system_association = 'WHISH'`. If the derivation rule (`transaction.system ===
 partner.system_association ⇒ THROUGH`) were implemented literally today, **any WHISH or WHISH_APP
 transaction attached to hwelet souria would be classified THROUGH** — and per Part A.2/A.5, THROUGH
-mode on WHISH/WHISH_APP runs the transaction through the **real** `Whish_System`/`Whish_App` drawer
+mode on WHISH/WHISH*APP runs the transaction through the **real** `Whish_System`/`Whish_App` drawer
 (rows 2, 17, 20 — no partner-mode gating suppresses it in the app-wallet branch, and where it IS
 gated (legacy RECEIVE) it fails the OTHER way). The owner has separately and explicitly said hwelet
 souria (a Syria remittance partner with nothing to do with Whish) **must not** touch the Whish
-drawer (`FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md:238-243`, owner quote: _"7welet syria should not
-affect the whish system drawer"_). **The derivation rule, implemented naively against today's data,
+drawer (`FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md:238-243`, owner quote: *"7welet syria should not
+affect the whish system drawer"\_). **The derivation rule, implemented naively against today's data,
 would do exactly the thing the owner has said must not happen** — not because the rule is wrong, but
 because `system_association='WHISH'` is a lie of convenience for hwelet souria (she has no real WHISH
 relationship; WHISH is simply the only non-OMT value the `system_association` dropdown currently

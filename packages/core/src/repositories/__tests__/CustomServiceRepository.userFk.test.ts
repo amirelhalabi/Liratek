@@ -91,6 +91,9 @@ function createTestDb(): Database.Database {
       created_by INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       product_id INTEGER,
+      partner_mode TEXT,
+      fulfillment_status TEXT,
+      fulfilled_at TEXT,
       FOREIGN KEY (client_id) REFERENCES clients(id),
       FOREIGN KEY (created_by) REFERENCES users(id)
     );
