@@ -12,7 +12,12 @@ import {
   type CreateMobileServiceItemData,
   type UpdateMobileServiceItemData,
 } from "../repositories/MobileServiceItemRepository.js";
-import { isTelecomSplitComplete } from "../utils/telecomCredit.js";
+import {
+  isTelecomSplitComplete,
+  isValidMaxReturnedOverride,
+  maxReturnableCredits,
+  MAX_RETURNED_OVERRIDE_HEADROOM_USD,
+} from "../utils/telecomCredit.js";
 import { financialLogger } from "../utils/logger.js";
 
 // =============================================================================
@@ -69,6 +74,58 @@ function daysCostLbpConsistencyError(candidate: {
     return (
       `days_cost_lbp must be a positive number less than cost_lbp ` +
       `(cost_lbp=${candidate.cost_lbp ?? "unset"}, days_cost_lbp=${candidate.days_cost_lbp})`
+    );
+  }
+
+  return null;
+}
+
+/**
+ * v160 — the write-path guard for `max_returned_credits_usd` (owner decision
+ * 2026-08-30: a save that strands an override is REJECTED, never silently
+ * auto-cleared).
+ *
+ * **Checks BOTH directions from one call.** The pairing breaks from either
+ * side: setting an override too high for the card's `credits`, or editing
+ * `credits` downward underneath an override already stored. Callers pass the
+ * EFFECTIVE values (this call's value when sent, else what is stored), so a
+ * single check covers both — which is why `update` must resolve the existing
+ * row first. Guarding only the field being written is how the second direction
+ * ships as a bug.
+ *
+ * A NULL override is always valid: that is "clear it, go back to computed".
+ *
+ * The cap arithmetic itself is NOT re-encoded here (rule 14) —
+ * `isValidMaxReturnedOverride` owns it; this function only decides which values
+ * to feed it and how to word the refusal.
+ */
+function maxReturnedOverrideError(candidate: {
+  credits: number | null | undefined;
+  max_returned_credits_usd: number | null | undefined;
+}): string | null {
+  const override = candidate.max_returned_credits_usd;
+  if (override === null || override === undefined) {
+    return null; // clearing back to the computed value is always allowed
+  }
+
+  const { credits } = candidate;
+  if (
+    typeof credits !== "number" ||
+    !Number.isFinite(credits) ||
+    credits <= 0
+  ) {
+    return (
+      `max_returned_credits_usd needs the card's credits to bound it — ` +
+      `set credits first (max_returned_credits_usd=${override})`
+    );
+  }
+
+  if (!isValidMaxReturnedOverride(override, credits)) {
+    const computed = maxReturnableCredits(credits);
+    return (
+      `max_returned_credits_usd must be between ${computed} and ` +
+      `${computed + MAX_RETURNED_OVERRIDE_HEADROOM_USD} for a $${credits} card ` +
+      `(got ${override})`
     );
   }
 
@@ -215,6 +272,14 @@ export class MobileServiceItemService {
         return { success: false, error: splitError };
       }
 
+      const overrideError = maxReturnedOverrideError({
+        credits: data.credits,
+        max_returned_credits_usd: data.max_returned_credits_usd,
+      });
+      if (overrideError) {
+        return { success: false, error: overrideError };
+      }
+
       const item = this.repo.createItem(data);
       financialLogger.info(
         { itemId: item.id, provider: data.provider, label: data.label },
@@ -255,6 +320,21 @@ export class MobileServiceItemService {
       });
       if (splitError) {
         return { success: false, error: splitError };
+      }
+
+      // Effective values, exactly as the split check above does it: this call's
+      // value when it sent one, else what is stored. That is what makes the
+      // reverse direction (editing `credits` under a stored override) fail here
+      // instead of silently stranding the override.
+      const overrideError = maxReturnedOverrideError({
+        credits: data.credits !== undefined ? data.credits : existing.credits,
+        max_returned_credits_usd:
+          data.max_returned_credits_usd !== undefined
+            ? data.max_returned_credits_usd
+            : existing.max_returned_credits_usd,
+      });
+      if (overrideError) {
+        return { success: false, error: overrideError };
       }
 
       const item = this.repo.updateItem(id, data);

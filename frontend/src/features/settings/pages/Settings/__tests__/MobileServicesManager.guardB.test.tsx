@@ -86,6 +86,8 @@ const ITEM_SPLIT_WITH_PRICE: MobileServiceItem = {
   days_cost_lbp: 1_162_000,
   sell_days_lbp: 1_200_000,
   sell_credit_lbp: 100_000,
+  /** v160 — null = use the computed maxReturnableCredits(credits). */
+  max_returned_credits_usd: null,
   created_at: "2026-07-01 00:00:00",
   updated_at: "2026-07-01 00:00:00",
 };
@@ -107,6 +109,8 @@ const ITEM_SPLIT_NO_PRICE: MobileServiceItem = {
   days_cost_lbp: 490_218,
   sell_days_lbp: null,
   sell_credit_lbp: null,
+  /** v160 — null = use the computed maxReturnableCredits(credits). */
+  max_returned_credits_usd: null,
   created_at: "2026-07-01 00:00:00",
   updated_at: "2026-07-01 00:00:00",
 };
@@ -127,6 +131,8 @@ const ITEM_NO_SPLIT: MobileServiceItem = {
   days_cost_lbp: null,
   sell_days_lbp: null,
   sell_credit_lbp: null,
+  /** v160 — null = use the computed maxReturnableCredits(credits). */
+  max_returned_credits_usd: null,
   created_at: "2026-07-01 00:00:00",
   updated_at: "2026-07-01 00:00:00",
 };

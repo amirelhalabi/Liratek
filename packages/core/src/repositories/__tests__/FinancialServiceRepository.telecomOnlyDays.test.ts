@@ -236,6 +236,7 @@ function createTestDb(): Database.Database {
       days_cost_lbp    REAL,
       sell_days_lbp    REAL,
       sell_credit_lbp  REAL,
+      max_returned_credits_usd REAL,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at       TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(tenant_id, provider, category, subcategory, label)
@@ -1536,6 +1537,161 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
       expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(mtcUsdAfterVoid, 4);
       expect(lineRepo.getById(line.id)!.credits).toBeCloseTo(
         lineCreditsAfterVoid,
+        4,
+      );
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // v160 — per-card max-returned override (owner interview 2026-08-30)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * `maxReturnableCredits(77)` is 73.00 for CART_77, so 73.5 is exactly one
+   * transfer step above it — the legal override, and the shape of the owner's
+   * real 77.28 card.
+   *
+   * Rule 17 failure evidence: with `resolveReturnedCredits` left on
+   * `maxReturnableCredits(item.credits)` (the pre-v160 line),
+   * "books the override..." fails with
+   *   Expected: 73.5   Received: 73
+   * and the reversal test below still passes — which is the point of splitting
+   * them: the reversal is guarded by a DIFFERENT mechanism (the stored
+   * movement delta) and must keep working no matter what the resolver does.
+   */
+  describe("v160 — max_returned_credits_usd override", () => {
+    const CART_77_WITH_OVERRIDE: CreateMobileServiceItemData = {
+      ...CART_77,
+      label: "77$ Cart (override)",
+      max_returned_credits_usd: 73.5,
+    };
+
+    it("books the override, not the bare-card maximum, when no per-sale value is sent", () => {
+      const item = itemRepo.createItem(CART_77_WITH_OVERRIDE);
+      const before = drawerBalance(db, "MTC", "USD");
+
+      const result = repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: CART_77.sell_days_lbp as number,
+        currency: "LBP",
+        commission: 0,
+        cost: CART_77.cost_lbp,
+        price: CART_77.sell_days_lbp as number,
+        paidByMethod: "CASH",
+        itemCategory: "mtc",
+        mobileServiceItemId: item.id,
+        // returnedCreditsUsd omitted — the override is the default.
+      });
+
+      expect(maxReturnableCredits(CART_77.credits as number)).toBeCloseTo(
+        73,
+        4,
+      );
+      expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(before + 73.5, 4);
+
+      const legs = creditReturnPayments(db, txnIdForFsRow(db, result.id));
+      expect(legs).toHaveLength(1);
+      expect(legs[0]!.amount).toBeCloseTo(73.5, 4);
+    });
+
+    it("still lets a per-sale value win over the override (the short-transfer case)", () => {
+      const item = itemRepo.createItem(CART_77_WITH_OVERRIDE);
+      const before = drawerBalance(db, "MTC", "USD");
+
+      repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: CART_77.sell_days_lbp as number,
+        currency: "LBP",
+        commission: 0,
+        cost: CART_77.cost_lbp,
+        price: CART_77.sell_days_lbp as number,
+        paidByMethod: "CASH",
+        itemCategory: "mtc",
+        mobileServiceItemId: item.id,
+        returnedCreditsUsd: 73, // customer's line was empty
+      });
+
+      expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(before + 73, 4);
+    });
+
+    it("ignores a stale out-of-range override rather than booking it", () => {
+      const item = itemRepo.createItem({
+        ...CART_77,
+        label: "77$ Cart (stale)",
+        max_returned_credits_usd: 83,
+      });
+      const before = drawerBalance(db, "MTC", "USD");
+
+      repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: CART_77.sell_days_lbp as number,
+        currency: "LBP",
+        commission: 0,
+        cost: CART_77.cost_lbp,
+        price: CART_77.sell_days_lbp as number,
+        paidByMethod: "CASH",
+        itemCategory: "mtc",
+        mobileServiceItemId: item.id,
+      });
+
+      expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(before + 73, 4);
+    });
+
+    /**
+     * **Rule 20.** The claim being pinned: a refund reverses what the sale
+     * ACTUALLY booked, read back from `carrier_line_movements.credits_delta`
+     * by transaction_id — never recomputed from the catalog item. If the
+     * reversal ever recomputed, editing a card's override between the sale and
+     * the refund would leave 0.5 credits stranded on the carrier line forever,
+     * and nothing would report an error.
+     */
+    it("reverses the credit the SALE booked even after the override changes underneath it", () => {
+      const item = itemRepo.createItem(CART_77_WITH_OVERRIDE);
+      const line = lineRepo.createLine({
+        carrier: "mtc",
+        phone_number: "72100160",
+        credits: 5,
+        validity_expires_at: "2099-12-31",
+      });
+      lineRepo.setPrimary(line.id);
+
+      const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
+      const mtcUsdBefore = drawerBalance(db, "MTC", "USD");
+      const lineCreditsBefore = lineRepo.getById(line.id)!.credits;
+
+      const result = repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: CART_77.sell_days_lbp as number,
+        currency: "LBP",
+        commission: 0,
+        cost: CART_77.cost_lbp,
+        price: CART_77.sell_days_lbp as number,
+        paidByMethod: "CASH",
+        itemCategory: "mtc",
+        mobileServiceItemId: item.id,
+      });
+
+      // The sale booked 73.5.
+      expect(lineRepo.getById(line.id)!.credits).toBeCloseTo(
+        lineCreditsBefore + 73.5,
+        4,
+      );
+
+      // Someone now clears the override — the catalog would recompute 73.
+      itemRepo.updateItem(item.id, { max_returned_credits_usd: null });
+      expect(itemRepo.getById(item.id)!.max_returned_credits_usd).toBeNull();
+
+      txnRepo.voidTransaction(txnIdForFsRow(db, result.id), 1);
+
+      // Every ledger nets to exactly 0 — 73.5 out, 73.5 back, not 73.
+      expect(drawerBalance(db, "iPick", "LBP")).toBeCloseTo(iPickLbpBefore, 2);
+      expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(mtcUsdBefore, 4);
+      expect(lineRepo.getById(line.id)!.credits).toBeCloseTo(
+        lineCreditsBefore,
         4,
       );
     });

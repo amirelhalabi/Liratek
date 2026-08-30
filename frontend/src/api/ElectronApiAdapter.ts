@@ -501,6 +501,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     days_cost_lbp?: number | null;
     sell_days_lbp?: number | null;
     sell_credit_lbp?: number | null;
+    /** v160: per-card override of the returnable credit maximum; null = computed. */
+    max_returned_credits_usd?: number | null;
   }) => api.createMobileServiceItem(data);
   updateMobileServiceItem = (
     id: number,
@@ -515,6 +517,8 @@ export class ElectronApiAdapter implements ApiAdapter {
       days_cost_lbp?: number | null;
       sell_days_lbp?: number | null;
       sell_credit_lbp?: number | null;
+      /** v160: per-card override of the returnable credit maximum; null = computed. */
+      max_returned_credits_usd?: number | null;
     },
   ) => api.updateMobileServiceItem(id, data);
 

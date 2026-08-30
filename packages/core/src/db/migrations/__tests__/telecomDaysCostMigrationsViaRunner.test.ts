@@ -62,6 +62,7 @@ function createSchema(db: Database.Database): void {
       days_cost_lbp REAL,
       sell_days_lbp REAL,
       sell_credit_lbp REAL,
+      max_returned_credits_usd REAL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(tenant_id, provider, category, subcategory, label)

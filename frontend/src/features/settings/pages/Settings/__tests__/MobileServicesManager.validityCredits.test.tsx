@@ -48,6 +48,8 @@ const ITEM: MobileServiceItem = {
   days_cost_lbp: null,
   sell_days_lbp: null,
   sell_credit_lbp: null,
+  /** v160 — null = use the computed maxReturnableCredits(credits). */
+  max_returned_credits_usd: null,
   created_at: "2026-07-01 00:00:00",
   updated_at: "2026-07-01 00:00:00",
 };

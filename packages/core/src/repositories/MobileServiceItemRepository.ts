@@ -48,6 +48,13 @@ export interface MobileServiceItemEntity {
    * completeness input.
    */
   sell_credit_lbp: number | null;
+  /**
+   * v160: per-card override of the returnable credit maximum. NULL means "use
+   * the computed `maxReturnableCredits(credits)`", which is every card's
+   * default. Read through `resolveMaxReturnedCredits` — never `?? computed`
+   * at a call site (rule 14).
+   */
+  max_returned_credits_usd: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -69,6 +76,8 @@ export interface CreateMobileServiceItemData {
   sell_days_lbp?: number | null;
   /** LIRA-090 (v140) — see `MobileServiceItemEntity.sell_credit_lbp`. */
   sell_credit_lbp?: number | null;
+  /** v160 — see `MobileServiceItemEntity.max_returned_credits_usd`. */
+  max_returned_credits_usd?: number | null;
 }
 
 export interface UpdateMobileServiceItemData {
@@ -85,6 +94,8 @@ export interface UpdateMobileServiceItemData {
   sell_days_lbp?: number | null;
   /** LIRA-090 (v140) — see `MobileServiceItemEntity.sell_credit_lbp`. */
   sell_credit_lbp?: number | null;
+  /** v160 — see `MobileServiceItemEntity.max_returned_credits_usd`. */
+  max_returned_credits_usd?: number | null;
 }
 
 // =============================================================================
@@ -97,7 +108,7 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
   }
 
   protected getColumns(): string {
-    return "id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, days_cost_lbp, sell_days_lbp, sell_credit_lbp, created_at, updated_at";
+    return "id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, days_cost_lbp, sell_days_lbp, sell_credit_lbp, max_returned_credits_usd, created_at, updated_at";
   }
 
   /**
@@ -195,8 +206,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
   createItem(data: CreateMobileServiceItemData): MobileServiceItemEntity {
     const stmt = this.db.prepare(
       `INSERT INTO mobile_service_items
-       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, days_cost_lbp, sell_days_lbp, sell_credit_lbp, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, days_cost_lbp, sell_days_lbp, sell_credit_lbp, max_returned_credits_usd, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
     const result = stmt.run(
       data.provider,
@@ -212,6 +223,7 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
       data.days_cost_lbp ?? null,
       data.sell_days_lbp ?? null,
       data.sell_credit_lbp ?? null,
+      data.max_returned_credits_usd ?? null,
       getCurrentTenantId(),
     );
     return this.getById(result.lastInsertRowid as number)!;
@@ -267,6 +279,10 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
       sets.push("sell_credit_lbp = ?");
       values.push(data.sell_credit_lbp);
     }
+    if (data.max_returned_credits_usd !== undefined) {
+      sets.push("max_returned_credits_usd = ?");
+      values.push(data.max_returned_credits_usd);
+    }
 
     if (sets.length === 0) return this.getById(id);
 
@@ -316,8 +332,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     const tenantId = getCurrentTenantId();
     const stmt = this.db.prepare(
       `INSERT OR IGNORE INTO mobile_service_items
-       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, days_cost_lbp, sell_days_lbp, sell_credit_lbp, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, days_cost_lbp, sell_days_lbp, sell_credit_lbp, max_returned_credits_usd, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
 
     let inserted = 0;
@@ -338,6 +354,7 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
             item.days_cost_lbp ?? null,
             item.sell_days_lbp ?? null,
             item.sell_credit_lbp ?? null,
+            item.max_returned_credits_usd ?? null,
             tenantId,
           );
           if (result.changes > 0) inserted++;

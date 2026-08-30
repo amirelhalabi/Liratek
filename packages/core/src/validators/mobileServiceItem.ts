@@ -45,6 +45,19 @@ export const mobileServiceItemUpdateSchema = z.object({
    * credit (spec §2.4). Nullable to allow clearing.
    */
   sell_credit_lbp: z.number().nonnegative().nullable().optional(),
+  /**
+   * v160: per-card override of the returnable credit maximum. Nullable to
+   * allow clearing back to the computed value.
+   *
+   * Shape only. The real constraint is a CROSS-FIELD one —
+   * `isValidMaxReturnedOverride(value, credits)` — and it cannot live here:
+   * an update carrying only this field has no `credits` to bound against, so
+   * a schema check would pass anything on the exact payload the Settings
+   * screen sends most often. `MobileServiceItemService` reads the stored row
+   * and enforces the bound in BOTH directions (rule 14 — the cap arithmetic
+   * itself is never re-encoded, only called).
+   */
+  max_returned_credits_usd: z.number().positive().nullable().optional(),
 });
 
 export type MobileServiceItemUpdateInput = z.infer<
@@ -88,6 +101,8 @@ export const mobileServiceItemCreateSchema = z.object({
   sell_days_lbp: z.number().nonnegative().nullable().optional(),
   /** LIRA-090 (v140) — see `mobileServiceItemUpdateSchema.sell_credit_lbp`. */
   sell_credit_lbp: z.number().nonnegative().nullable().optional(),
+  /** v160 — see `mobileServiceItemUpdateSchema.max_returned_credits_usd`. */
+  max_returned_credits_usd: z.number().positive().nullable().optional(),
 });
 
 export type MobileServiceItemCreateInput = z.infer<

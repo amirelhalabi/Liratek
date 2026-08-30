@@ -78,6 +78,8 @@ const mockCatalogRows: Array<{
   id: number;
   sell_days_lbp: number | null;
   sell_credit_lbp: number | null;
+  /** v160 — omitted on most rows, which is the "no override" default. */
+  max_returned_credits_usd?: number | null;
 }> = [];
 const mockGetActiveMobileServiceItems = jest
   .fn()
@@ -567,5 +569,157 @@ describe("Only-Days owner pricing model (TELECOM_CREDIT_RATE_PLAN.md §Q4)", () 
     // Gross catalogCost, untouched by the owner pricing model — the model
     // changes only what the customer pays (`amount`), never the card cost.
     expect(payload.cost).toBe(1_000_000);
+  });
+});
+
+// ── v160: the per-card max-returned override ────────────────────────────────
+
+/**
+ * The owner's alfa 77.28 card. A bare card returns $73.00
+ * (24 messages x $3.16 = $75.84 spent, $1.44 left, a final $1.50 needs $1.66),
+ * but with $0.22 of the customer's own credit the shop gets $73.50 back —
+ * which is what `max_returned_credits_usd` records.
+ */
+const ITEM_77_28: ServiceItem = {
+  key: "iPick/alfa/Prepaid/77.28",
+  id: 210,
+  provider: "iPick",
+  category: "alfa",
+  subcategory: "Prepaid",
+  label: "77.28",
+  catalogCost: 7_728_000,
+  catalogSellPrice: 8_000_000,
+  sortOrder: 0,
+  credits: 77.28,
+  validityDays: 365,
+  days_cost_lbp: 1_159_200,
+};
+
+/**
+ * Rule 17 — failure evidence for this block. With `keptCredits` left on
+ * `maxReturnableCredits(faceCredits)` (i.e. the pre-v160 line, ignoring the
+ * override) and the toggle autofill left on the same:
+ *
+ *   ● autofills the override, not the bare-card maximum
+ *       Expected: "73.5"   Received: "73"
+ *   ● a short transfer is billed to the customer (owner decision 2026-08-30)
+ *       Expected: 1830000  Received: 1780000
+ *
+ * The third test passes either way — it exists to prove a card WITHOUT an
+ * override is unaffected, not to guard the change.
+ */
+describe("v160 — max_returned_credits_usd override", () => {
+  beforeEach(() => {
+    mockAddOMTTransaction.mockClear();
+    mockCatalogRows.length = 0;
+    mockGetAllSettings.mockClear();
+    mockGetAllSettings.mockResolvedValue([]);
+  });
+
+  /** The Credits box is the only number input on the Only-Days row. */
+  const creditsInput = () => screen.getByRole("spinbutton");
+
+  it("autofills the override, not the bare-card maximum", async () => {
+    mockCatalogRows.push({
+      id: 210,
+      sell_days_lbp: 1_780_000,
+      sell_credit_lbp: 100_000,
+      max_returned_credits_usd: 73.5,
+    });
+    renderWithItem(ITEM_77_28);
+    await addItemToCart("77.28");
+    await enableOnlyDays();
+
+    await waitFor(() => expect(creditsInput()).toHaveValue(73.5));
+  });
+
+  it("charges only the days price when the full override comes back", async () => {
+    mockCatalogRows.push({
+      id: 210,
+      sell_days_lbp: 1_780_000,
+      sell_credit_lbp: 100_000,
+      max_returned_credits_usd: 73.5,
+    });
+    renderWithItem(ITEM_77_28);
+    await addItemToCart("77.28");
+    await enableOnlyDays();
+    await waitFor(() => expect(creditsInput()).toHaveValue(73.5));
+
+    await openSheet();
+    await submitWithCash();
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    // kept = 73.5 - 73.5 = 0
+    expect(payload.amount).toBe(1_780_000);
+  });
+
+  it("bills a short transfer to the customer (owner decision 2026-08-30)", async () => {
+    mockCatalogRows.push({
+      id: 210,
+      sell_days_lbp: 1_780_000,
+      sell_credit_lbp: 100_000,
+      max_returned_credits_usd: 73.5,
+    });
+    renderWithItem(ITEM_77_28);
+    await addItemToCart("77.28");
+    await enableOnlyDays();
+    await waitFor(() => expect(creditsInput()).toHaveValue(73.5));
+
+    // The customer's line was empty, so the last $1.50 SMS could not be sent
+    // and only $73 came back. The operator corrects the box.
+    fireEvent.change(creditsInput(), { target: { value: "73" } });
+
+    await openSheet();
+    await submitWithCash();
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    // kept = 73.5 - 73 = 0.5, charged at 100,000/$ on top of the days price.
+    expect(payload.amount).toBe(1_830_000);
+  });
+
+  it("leaves a card WITHOUT an override on the bare-card maximum", async () => {
+    mockCatalogRows.push({
+      id: 210,
+      sell_days_lbp: 1_780_000,
+      sell_credit_lbp: 100_000,
+    });
+    renderWithItem(ITEM_77_28);
+    await addItemToCart("77.28");
+    await enableOnlyDays();
+
+    await waitFor(() => expect(creditsInput()).toHaveValue(73));
+
+    await openSheet();
+    await submitWithCash();
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    // kept = 73 - 73 = 0 — the override must not leak into an unset card.
+    expect(payload.amount).toBe(1_780_000);
+  });
+
+  it("ignores an out-of-range override, matching the core resolver", async () => {
+    // A stored override goes stale when someone edits `credits`. The write path
+    // refuses that save, but the sale screen must keep pricing correctly in the
+    // meantime rather than autofilling 83.
+    mockCatalogRows.push({
+      id: 210,
+      sell_days_lbp: 1_780_000,
+      sell_credit_lbp: 100_000,
+      max_returned_credits_usd: 83,
+    });
+    renderWithItem(ITEM_77_28);
+    await addItemToCart("77.28");
+    await enableOnlyDays();
+
+    await waitFor(() => expect(creditsInput()).toHaveValue(73));
   });
 });

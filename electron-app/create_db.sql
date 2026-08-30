@@ -995,6 +995,13 @@ CREATE TABLE IF NOT EXISTS mobile_service_items (
     days_cost_lbp REAL,
     sell_days_lbp REAL,
     sell_credit_lbp REAL,
+    -- v160: per-card override of the returnable credit maximum. NULL = use the
+    -- computed maxReturnableCredits(credits), which is the default for every
+    -- card. Set only where a customer's own line balance reliably buys one more
+    -- half-dollar in the final SMS (the alfa 77.28 card returns 73.5, not 73).
+    -- Upward-only and capped at one transfer step above computed; the bound is
+    -- enforced by MobileServiceItemService, not by SQL.
+    max_returned_credits_usd REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tenant_id, provider, category, subcategory, label)
@@ -1958,4 +1965,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (156, 'add_exchange_lot_settlement_tables'),
     (157, 'add_product_imei_units_and_warranty'),
     (158, 'add_custom_services_partner_mode_and_fulfillment'),
-    (159, 'reprice_annual_sell_days_lbp');
+    (159, 'reprice_annual_sell_days_lbp'),
+    (160, 'add_max_returned_credits_override');

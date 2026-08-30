@@ -30,6 +30,9 @@ import {
   deliveredCostLbp,
   resolveCreditSellPriceLbp,
   deriveDaysCostLbp,
+  maxReturnableCredits,
+  isValidMaxReturnedOverride,
+  MAX_RETURNED_OVERRIDE_HEADROOM_USD,
 } from "@liratek/core";
 
 /** Tenant setting key for the resale table's reference sell price (LBP per
@@ -97,6 +100,11 @@ interface EditingState {
   days_cost_lbp: string;
   sell_days_lbp: string;
   sell_credit_lbp: string;
+  /**
+   * v160: per-card override of the returnable credit maximum. Empty string =
+   * null = "use the computed value" (the default for every card).
+   */
+  max_returned_credits_usd: string;
 }
 
 interface NewItemForm {
@@ -113,6 +121,11 @@ interface NewItemForm {
   days_cost_lbp: string;
   sell_days_lbp: string;
   sell_credit_lbp: string;
+  /**
+   * v160: per-card override of the returnable credit maximum. Empty string =
+   * null = "use the computed value" (the default for every card).
+   */
+  max_returned_credits_usd: string;
 }
 
 const EMPTY_NEW_ITEM: NewItemForm = {
@@ -128,6 +141,7 @@ const EMPTY_NEW_ITEM: NewItemForm = {
   days_cost_lbp: "",
   sell_days_lbp: "",
   sell_credit_lbp: "",
+  max_returned_credits_usd: "",
 };
 
 /** Grouped data structure */
@@ -352,6 +366,12 @@ export default function MobileServicesManager() {
       editing.sell_credit_lbp.trim() === ""
         ? null
         : parseInt(editing.sell_credit_lbp, 10);
+    // parseFloat, NOT parseInt: this one is USD with cents (73.5), unlike every
+    // LBP field around it. parseInt would silently store 73.
+    const maxReturnedCreditsUsd =
+      editing.max_returned_credits_usd.trim() === ""
+        ? null
+        : parseFloat(editing.max_returned_credits_usd);
     try {
       const res = await api.updateMobileServiceItem(editing.id, {
         label: editing.label.trim(),
@@ -367,6 +387,7 @@ export default function MobileServicesManager() {
         days_cost_lbp: daysCostLbp,
         sell_days_lbp: sellDaysLbp,
         sell_credit_lbp: sellCreditLbp,
+        max_returned_credits_usd: maxReturnedCreditsUsd,
       });
       if (!res.success) {
         setError(res.error ?? "Failed to update");
@@ -473,6 +494,12 @@ export default function MobileServicesManager() {
       newItemForm.sell_credit_lbp.trim() === ""
         ? null
         : parseInt(newItemForm.sell_credit_lbp, 10);
+    // parseFloat, NOT parseInt: this one is USD with cents (73.5), unlike every
+    // LBP field around it. parseInt would silently store 73.
+    const maxReturnedCreditsUsd =
+      newItemForm.max_returned_credits_usd.trim() === ""
+        ? null
+        : parseFloat(newItemForm.max_returned_credits_usd);
     try {
       const res = await api.createMobileServiceItem({
         provider: newItemForm.provider,
@@ -493,6 +520,7 @@ export default function MobileServicesManager() {
         days_cost_lbp: daysCostLbp,
         sell_days_lbp: sellDaysLbp,
         sell_credit_lbp: sellCreditLbp,
+        max_returned_credits_usd: maxReturnedCreditsUsd,
       });
       if (!res.success) {
         setError(res.error ?? "Failed to create item");
@@ -1095,6 +1123,50 @@ export default function MobileServicesManager() {
                                                   tenantCostRateLbp,
                                                 )
                                               : null;
+                                          // v160 bounds for the "Max returned"
+                                          // input. Derived from the credits
+                                          // being TYPED, like the days-cost
+                                          // suggestion above — editing credits
+                                          // must move the bound with them, or
+                                          // the hint contradicts the save.
+                                          const editCreditsValue =
+                                            editing.credits.trim() === ""
+                                              ? null
+                                              : parseFloat(editing.credits);
+                                          const editComputedMaxReturned =
+                                            editCreditsValue != null &&
+                                            Number.isFinite(editCreditsValue) &&
+                                            editCreditsValue > 0
+                                              ? maxReturnableCredits(
+                                                  editCreditsValue,
+                                                )
+                                              : null;
+                                          const editMaxReturnedValue =
+                                            editing.max_returned_credits_usd.trim() ===
+                                            ""
+                                              ? null
+                                              : parseFloat(
+                                                  editing.max_returned_credits_usd,
+                                                );
+                                          // Mid-typing "73." parses to 73 and a
+                                          // lone "." to NaN; only flag a value
+                                          // that is a real number AND out of
+                                          // range, so the field does not go red
+                                          // while the operator is still typing.
+                                          const editMaxReturnedInvalid =
+                                            editMaxReturnedValue != null &&
+                                            Number.isFinite(
+                                              editMaxReturnedValue,
+                                            ) &&
+                                            editCreditsValue != null &&
+                                            !isValidMaxReturnedOverride(
+                                              editMaxReturnedValue,
+                                              editCreditsValue,
+                                            );
+                                          const canResetMaxReturned =
+                                            editComputedMaxReturned != null &&
+                                            editMaxReturnedValue !==
+                                              editComputedMaxReturned;
                                           const editDaysCostValue =
                                             editing.days_cost_lbp.trim() === ""
                                               ? null
@@ -1395,6 +1467,89 @@ export default function MobileServicesManager() {
                                                     className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
                                                   />
                                                 </div>
+                                                {/* v160 — the per-card
+                                                    returnable override. USD
+                                                    with cents, unlike every LBP
+                                                    field beside it. */}
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[10px] text-slate-500">
+                                                    Max returned ($):
+                                                  </span>
+                                                  <DecimalInput
+                                                    value={
+                                                      parseFloat(
+                                                        editing.max_returned_credits_usd,
+                                                      ) || 0
+                                                    }
+                                                    onChange={(n) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        max_returned_credits_usd:
+                                                          n ? String(n) : "",
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    placeholder={
+                                                      editComputedMaxReturned !=
+                                                      null
+                                                        ? String(
+                                                            editComputedMaxReturned,
+                                                          )
+                                                        : "-"
+                                                    }
+                                                    className={`w-20 bg-slate-800 border rounded px-2 py-0.5 text-white text-xs focus:outline-none ${
+                                                      editMaxReturnedInvalid
+                                                        ? "border-red-500 focus:border-red-400"
+                                                        : "border-slate-600 focus:border-violet-500"
+                                                    }`}
+                                                  />
+                                                  {/* type="button" is
+                                                      load-bearing - a bare
+                                                      button inside a form
+                                                      defaults to submit. */}
+                                                  {canResetMaxReturned && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        setEditing({
+                                                          ...editing,
+                                                          max_returned_credits_usd:
+                                                            String(
+                                                              editComputedMaxReturned,
+                                                            ),
+                                                        })
+                                                      }
+                                                      title={`Reset to the computed bare-card value: ${editComputedMaxReturned}`}
+                                                      className="text-[9px] px-1 py-px rounded bg-slate-700/60 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors"
+                                                    >
+                                                      ={" "}
+                                                      {editComputedMaxReturned}
+                                                    </button>
+                                                  )}
+                                                  {/* Show the legal range
+                                                      BEFORE the save is
+                                                      rejected, so the bound is
+                                                      learnable at the keyboard
+                                                      rather than from an error
+                                                      toast. */}
+                                                  {editMaxReturnedInvalid &&
+                                                    editComputedMaxReturned !=
+                                                      null && (
+                                                      <span className="text-[9px] text-red-400 font-mono">
+                                                        {
+                                                          editComputedMaxReturned
+                                                        }
+                                                        {"-"}
+                                                        {editComputedMaxReturned +
+                                                          MAX_RETURNED_OVERRIDE_HEADROOM_USD}
+                                                      </span>
+                                                    )}
+                                                </div>
                                                 <span
                                                   className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                                                     editSplitComplete
@@ -1424,11 +1579,31 @@ export default function MobileServicesManager() {
                                         // and returns an all-null shape when
                                         // the split is incomplete, so no
                                         // separate ternary is needed here.
+                                        // v160: the override feeds the whole
+                                        // economics block, so Recovered/Rate-$
+                                        // and the resale table show the SAME
+                                        // recovery the sale books (owner
+                                        // decision 2026-08-30).
                                         const economics = deriveItemEconomics({
                                           costLbp: item.cost_lbp,
                                           daysCostLbp: item.days_cost_lbp,
                                           creditsUsd: item.credits,
+                                          maxReturnedOverrideUsd:
+                                            item.max_returned_credits_usd,
                                         });
+                                        // What the bare card would return, for
+                                        // the derived/override marker beside
+                                        // "Recovered".
+                                        const computedMaxReturned =
+                                          item.credits != null
+                                            ? maxReturnableCredits(item.credits)
+                                            : null;
+                                        const maxReturnedIsOverride =
+                                          item.max_returned_credits_usd !=
+                                            null &&
+                                          computedMaxReturned != null &&
+                                          item.max_returned_credits_usd !==
+                                            computedMaxReturned;
                                         // sell_credit_lbp is the reference price for profit calc.
                                         // 3-level fallback (per-item -> tenant
                                         // setting -> named default) lives in ONE
@@ -1639,6 +1814,13 @@ export default function MobileServicesManager() {
                                                               item.sell_credit_lbp,
                                                             )
                                                           : "",
+                                                      max_returned_credits_usd:
+                                                        item.max_returned_credits_usd !=
+                                                        null
+                                                          ? String(
+                                                              item.max_returned_credits_usd,
+                                                            )
+                                                          : "",
                                                     })
                                                   }
                                                   className="text-slate-500 hover:text-blue-400 p-1 transition-colors"
@@ -1778,6 +1960,21 @@ export default function MobileServicesManager() {
                                                       ? `$${economics.maxReturnedUsd}`
                                                       : "—"}
                                                   </span>
+                                                  {/* v160: says WHY this is not
+                                                      the bare-card number.
+                                                      Without it an override and
+                                                      a computed value look
+                                                      identical, and the resale
+                                                      table below silently
+                                                      shifts with it. */}
+                                                  {maxReturnedIsOverride && (
+                                                    <span
+                                                      title={`Hand-set. A bare card returns $${computedMaxReturned}.`}
+                                                      className="ml-1 px-1 py-px rounded text-[9px] font-medium bg-sky-600/20 text-sky-400"
+                                                    >
+                                                      override
+                                                    </span>
+                                                  )}
                                                 </span>
                                                 <span>
                                                   Rate/$:{" "}

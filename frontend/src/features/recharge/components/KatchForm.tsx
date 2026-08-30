@@ -3,6 +3,7 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   memo,
   startTransition,
 } from "react";
@@ -23,6 +24,7 @@ import {
 } from "@liratek/ui";
 import {
   maxReturnableCredits,
+  resolveMaxReturnedCredits,
   isTelecomSplitComplete,
   resolveCreditSellPriceLbp,
   // LIRA-157 — the SAME rule the repository applies on write. Imported, never
@@ -88,6 +90,13 @@ const TELECOM_CREDIT_SELL_PRICE_SETTING_KEY = "telecom_credit_sell_price_lbp";
 interface CatalogPricingRow {
   sell_days_lbp: number | null;
   sell_credit_lbp: number | null;
+  /**
+   * v160: the per-card returnable override. Lives here rather than on
+   * `ServiceItem` for the same reason the two prices do — it is a
+   * `mobile_service_items` column the shared context type does not map
+   * through.
+   */
+  max_returned_credits_usd: number | null;
 }
 
 /** Result of {@link resolveOnlyDaysPricing}. */
@@ -165,8 +174,19 @@ function resolveOnlyDaysPricing(
   // charge came out at exactly the days price).
   const faceCredits = line.item.credits ?? null;
   const hasFaceCredits = typeof faceCredits === "number" && faceCredits > 0;
+  // v160: the base is the card's OVERRIDE when set, else the computed bare-card
+  // maximum (rule 14 — `resolveMaxReturnedCredits` owns `override ?? computed`).
+  // This is the line that decides what the customer pays: owner decision
+  // 2026-08-30 is that a short transfer IS billed, so returning 73 against a
+  // 73.5 base bills the 0.5 difference rather than the shop absorbing it.
   const keptCredits = hasFaceCredits
-    ? Math.max(0, maxReturnableCredits(faceCredits) - line.returnedCreditsUsd)
+    ? Math.max(
+        0,
+        resolveMaxReturnedCredits(
+          faceCredits,
+          entity?.max_returned_credits_usd,
+        ) - line.returnedCreditsUsd,
+      )
     : 0;
 
   // `applies` gates the MODEL, not the input. It reads the CATALOG value, never
@@ -752,6 +772,14 @@ function KatchFormInner({
   const [tenantCreditSellPriceLbp, setTenantCreditSellPriceLbp] = useState<
     number | null
   >(null);
+  // v160: the Only-Days toggle callback needs the catalog override, but it is
+  // memoised with an empty dep array (a stable identity every item card depends
+  // on). Adding `catalogPricing` to its deps would rebuild every card on load;
+  // a ref gives the callback the latest map without touching its identity.
+  const catalogPricingRef = useRef(catalogPricing);
+  useEffect(() => {
+    catalogPricingRef.current = catalogPricing;
+  }, [catalogPricing]);
 
   useEffect(() => {
     let cancelled = false;
@@ -767,6 +795,7 @@ function KatchFormInner({
           map.set(it.id, {
             sell_days_lbp: it.sell_days_lbp,
             sell_credit_lbp: it.sell_credit_lbp,
+            max_returned_credits_usd: it.max_returned_credits_usd,
           });
         }
         setCatalogPricing(map);
@@ -912,11 +941,24 @@ function KatchFormInner({
               credits: item.credits,
             })
           ) {
-            // Split-complete: computed default from the item's own credits field.
-            returnedCredits = maxReturnableCredits(item.credits as number);
+            // Split-complete: the item's own credits field, through the v160
+            // resolver so a configured override autofills instead of the
+            // bare-card number (the 77.28 card prefills 73.5, not 73).
+            returnedCredits = resolveMaxReturnedCredits(
+              item.credits as number,
+              item.id != null
+                ? catalogPricingRef.current.get(item.id)
+                    ?.max_returned_credits_usd
+                : undefined,
+            );
           } else {
             // Split-incomplete: legacy fallback — parse the label as denomination
             // (e.g. "77" → 77), floor to 0.5$ step with the SMS-cap formula.
+            //
+            // Deliberately NOT routed through resolveMaxReturnedCredits: this
+            // branch has no catalog row (that is what makes it the fallback),
+            // so there is no override to apply and nothing to resolve against.
+            // Leave it computing.
             const denomination = parseFloat(item.label);
             if (!isNaN(denomination)) {
               returnedCredits = maxReturnableCredits(denomination);

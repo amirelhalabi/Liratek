@@ -9391,6 +9391,118 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 160,
+    name: "add_max_returned_credits_override",
+    description:
+      "Owner interview 2026-08-30 — per-card override of the returnable credit maximum. " +
+      "maxReturnableCredits() models a BARE card (nothing on the line but the card's own " +
+      "credit) and for the alfa 77.28 card that yields $73.00: 24 messages x $3.16 spends " +
+      "$75.84, leaves $1.44, and a final $1.50 message needs $1.66. In practice the " +
+      "customer's line holds a little of their own credit, and $0.22 of it closes that gap, " +
+      "so the shop gets $73.50 back. The computed figure is right about the physics and " +
+      "wrong about the shop, hence a per-card override rather than a change to the formula. " +
+      "Adds mobile_service_items.max_returned_credits_usd (nullable REAL): NULL means 'use " +
+      "the computed value', which is every row's behaviour today and stays the default. The " +
+      "override is UPWARD-ONLY and capped at one CREDIT_TRANSFER_STEP_USD above the computed " +
+      "maximum — the catalog-wide shortfall runs $0.03 (iPick mtc 3.79) to $0.49 (iPick " +
+      "1.67), all within a single step, and the cap blocks the typo class (83 for 73.5) that " +
+      "would otherwise book $9.50 of credit the shop never received on every sale of a card. " +
+      "The bound is enforced on the WRITE path (MobileServiceItemService rejects a save that " +
+      "strands an override, in EITHER direction — editing the override, or editing `credits` " +
+      "underneath a stored one); the READ path (resolveMaxReturnedCredits) ignores an " +
+      "out-of-range value rather than trusting it, so a row that went stale still prices " +
+      "sales correctly. BACKFILL IS DELIBERATELY NARROW: only the six 365-day 77.28 rows " +
+      "(iPick x2, Katsh x2, WHISH_APP x2) get 73.5, because that is the only card with " +
+      "counter experience behind it. Every other card computes bare until an operator sets " +
+      "it by hand, even though all 12 catalog card types would gain half a dollar from a " +
+      "plausible customer balance. NOT retroactive: profit is stamped at sale time, so " +
+      "existing Only-Days sales keep the figure they booked; only sales made after this " +
+      "book the higher recovery (+0.5 x R = +42,500 LBP on the 77.28 card).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // The table is not guaranteed to exist. Migration tests build minimal
+      // databases holding only the tables their own migration touches, and the
+      // runner walks EVERY migration over them — so a bare ALTER TABLE here
+      // fails an unrelated test (v155's round-trip runner test caught exactly
+      // that). Same shape as v157/v158, which skip when their base table is
+      // absent rather than assuming a full schema.
+      const hasTable = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mobile_service_items'`,
+        )
+        .get();
+      if (!hasTable) {
+        console.log(
+          "Migration v160 skipped: 'mobile_service_items' table not present",
+        );
+        return;
+      }
+
+      // Pinned LITERALS, not the catalog constants (v146 OLD_RATE / v159
+      // convention): a migration must keep doing the same thing forever, and
+      // both the card and its override are historical facts about THIS change.
+      const CARD_FACE_CREDITS = 77.28;
+      const CARD_VALIDITY_DAYS = 365;
+      const BACKFILL_RETURNED_USD = 73.5;
+
+      const cols = db
+        .prepare("PRAGMA table_info(mobile_service_items)")
+        .all() as { name: string }[];
+
+      if (!cols.some((c) => c.name === "max_returned_credits_usd")) {
+        db.exec(
+          `ALTER TABLE mobile_service_items ADD COLUMN max_returned_credits_usd REAL`,
+        );
+      }
+
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+              SET max_returned_credits_usd = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE credits = ?
+              AND validity_days = ?
+              AND max_returned_credits_usd IS NULL`,
+        )
+        .run(BACKFILL_RETURNED_USD, CARD_FACE_CREDITS, CARD_VALIDITY_DAYS);
+
+      console.log(
+        `Migration v160: max_returned_credits_usd added; backfilled ` +
+          `${BACKFILL_RETURNED_USD} on ${result.changes} row(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      // Symmetric to up(): a database that never had the table has nothing to
+      // roll back. PRAGMA on a missing table returns an empty list rather than
+      // throwing, so this would already be a no-op — the explicit guard is here
+      // so the two halves read the same and neither drifts.
+      const hasTable = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mobile_service_items'`,
+        )
+        .get();
+      if (!hasTable) {
+        console.log(
+          "Migration v160 rollback skipped: 'mobile_service_items' table not present",
+        );
+        return;
+      }
+
+      const cols = db
+        .prepare("PRAGMA table_info(mobile_service_items)")
+        .all() as { name: string }[];
+
+      if (cols.some((c) => c.name === "max_returned_credits_usd")) {
+        db.exec(
+          `ALTER TABLE mobile_service_items DROP COLUMN max_returned_credits_usd`,
+        );
+      }
+
+      console.log(
+        "Migration v160 rolled back: mobile_service_items.max_returned_credits_usd dropped",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

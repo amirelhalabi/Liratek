@@ -1464,6 +1464,8 @@ contextBridge.exposeInMainWorld("api", {
       days_cost_lbp?: number | null;
       sell_days_lbp?: number | null;
       sell_credit_lbp?: number | null;
+      /** v160: per-card override of the returnable credit maximum; null = computed. */
+      max_returned_credits_usd?: number | null;
     }) => ipcRenderer.invoke("mobile-service-items:create", data),
     update: (
       id: number,
@@ -1480,6 +1482,8 @@ contextBridge.exposeInMainWorld("api", {
         days_cost_lbp?: number | null;
         sell_days_lbp?: number | null;
         sell_credit_lbp?: number | null;
+        /** v160: per-card override of the returnable credit maximum; null = computed. */
+        max_returned_credits_usd?: number | null;
       },
     ) => ipcRenderer.invoke("mobile-service-items:update", id, data),
     toggleActive: (id: number) =>

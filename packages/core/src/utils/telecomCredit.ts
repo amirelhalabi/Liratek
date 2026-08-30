@@ -166,6 +166,128 @@ export function maxReturnableCredits(balanceUsd: number): number {
 }
 
 // =============================================================================
+// Max returned credits — the per-card override (owner interview 2026-08-30)
+// =============================================================================
+
+/**
+ * How far above the computed maximum a per-card override may reach: exactly one
+ * transfer step.
+ *
+ * {@link maxReturnableCredits} models a BARE card — nothing on the line but the
+ * card's own credit. In practice the customer's line usually holds a little of
+ * their own, and that closes the gap to one more half-dollar in the final SMS.
+ * The alfa 77.28 card is the worked case: 24 messages x $3.16 spends $75.84 and
+ * leaves $1.44, while a final $1.50 message needs $1.66 — so $0.22 of the
+ * customer's own credit buys the shop $73.50 back instead of $73.00.
+ *
+ * ONE step, not an arbitrary tolerance: the shortfall across the whole catalog
+ * runs $0.03 (iPick mtc 3.79) to $0.49 (iPick 1.67), every one of which lands
+ * within a single {@link CREDIT_TRANSFER_STEP_USD}. A second step would require
+ * the customer to fund a whole extra message, which is a different transaction,
+ * not a rounding allowance. The cap also blocks the typo class that makes this
+ * dangerous — an operator typing 83 for 73.5 would otherwise book $9.50 of
+ * credit the shop never received, on every sale of that card.
+ */
+export const MAX_RETURNED_OVERRIDE_HEADROOM_USD = CREDIT_TRANSFER_STEP_USD;
+
+/**
+ * Whether `override` is a legal per-card "max returned credits" value for a
+ * card of `faceCredits`:
+ *
+ *   maxReturnableCredits(face) <= override <= maxReturnableCredits(face) + 0.5
+ *
+ * **Upward only** (owner decision, 2026-08-30). An override BELOW the computed
+ * maximum is rejected rather than honoured: the computed figure is what SMS
+ * transfer can always deliver, so a lower number is either a typo or an attempt
+ * to encode a one-off failed transfer as a permanent property of the card. A
+ * short transfer is a per-sale fact — the operator edits it on the sale line,
+ * where it belongs — never a catalog setting.
+ *
+ * Equality is legal at both ends: `override === computed` is a harmless no-op,
+ * and `computed + 0.5` is the whole point of the field.
+ *
+ * Never throws. A non-finite or non-positive input is invalid, as is a card
+ * with no usable `faceCredits` — there is nothing to bound the override
+ * against, so nothing can be validated.
+ */
+export function isValidMaxReturnedOverride(
+  override: number,
+  faceCredits: number | null | undefined,
+): boolean {
+  if (!Number.isFinite(override) || override <= 0) return false;
+  if (
+    typeof faceCredits !== "number" ||
+    !Number.isFinite(faceCredits) ||
+    faceCredits <= 0
+  ) {
+    return false;
+  }
+
+  const computed = maxReturnableCredits(faceCredits);
+  if (computed <= 0) return false;
+
+  // Compared in integer cents for the same reason every other figure in this
+  // file is: `73 + 0.5` is exact, but a hand-typed 73.5 arriving as
+  // 73.50000000000001 through JSON would fail a raw `<=` against it.
+  const overrideCents = Math.round(override * USD_CENTS_SCALE);
+  const computedCents = Math.round(computed * USD_CENTS_SCALE);
+  const ceilingCents =
+    computedCents +
+    Math.round(MAX_RETURNED_OVERRIDE_HEADROOM_USD * USD_CENTS_SCALE);
+
+  return overrideCents >= computedCents && overrideCents <= ceilingCents;
+}
+
+/**
+ * **The ONE definition of "how much credit does this card return" (rule 14).**
+ *
+ * Every consumer goes through here — the sale form's autofill, the kept-credits
+ * base that decides what the customer is charged, the profit stamp, the
+ * carrier-line credit, and the Settings economics block. Writing
+ * `override ?? maxReturnableCredits(face)` at a call site instead is how the
+ * Settings screen and the sale screen end up disagreeing about what a card
+ * returns, which is the exact failure {@link resolveCreditSellPriceLbp} was
+ * extracted to prevent.
+ *
+ * An override that fails {@link isValidMaxReturnedOverride} is IGNORED rather
+ * than trusted or thrown on. A stored value can go stale without anyone
+ * touching it — editing a card's `credits` moves the bound underneath it — and
+ * the read path must keep pricing sales correctly while that is true. The
+ * WRITE path is where a bad pairing is refused (the service rejects the save),
+ * so falling back here is a safety net, not the enforcement point.
+ *
+ * @param faceCredits - the card's `credits` column (face USD value)
+ * @param override - the card's `max_returned_credits_usd`, if configured
+ * @returns the credit the shop gets back, in USD; 0 when there is no face value
+ *
+ * @example
+ * resolveMaxReturnedCredits(77.28)        // 73.0  — bare card
+ * resolveMaxReturnedCredits(77.28, 73.5)  // 73.5  — customer had $0.22 spare
+ * resolveMaxReturnedCredits(77.28, 83)    // 73.0  — over the cap, ignored
+ */
+export function resolveMaxReturnedCredits(
+  faceCredits: number | null | undefined,
+  override?: number | null,
+): number {
+  if (
+    typeof faceCredits !== "number" ||
+    !Number.isFinite(faceCredits) ||
+    faceCredits <= 0
+  ) {
+    return 0;
+  }
+
+  if (
+    typeof override === "number" &&
+    isValidMaxReturnedOverride(override, faceCredits)
+  ) {
+    return override;
+  }
+
+  return maxReturnableCredits(faceCredits);
+}
+
+// =============================================================================
 // §5.1 — isTelecomSplitComplete (the single definition, rule 14)
 // =============================================================================
 
@@ -223,13 +345,25 @@ export interface TelecomItemEconomicsInput {
   daysCostLbp: number | null | undefined;
   /** The item's face USD credit value (the `credits` column). */
   creditsUsd: number | null | undefined;
+  /**
+   * The item's `max_returned_credits_usd` override, if configured. Feeds
+   * {@link resolveMaxReturnedCredits}, so Settings shows the SAME recovery the
+   * sale books (owner decision 2026-08-30: one number everywhere). Leaving it
+   * out keeps the bare-card computation, which is what every non-telecom
+   * caller wants.
+   */
+  maxReturnedOverrideUsd?: number | null;
 }
 
 /** Output of {@link deriveItemEconomics}. */
 export interface TelecomItemEconomics {
   /** `costLbp - daysCostLbp` — the LBP cost attributable to the credit alone. */
   creditCostLbp: number | null;
-  /** `maxReturnableCredits(creditsUsd)` — the default returned-credit default. */
+  /**
+   * `resolveMaxReturnedCredits(creditsUsd, maxReturnedOverrideUsd)` — the credit
+   * the shop actually gets back, override included. Drives `recoveredRateLbp`
+   * and therefore the whole resale decision table.
+   */
   maxReturnedUsd: number | null;
   /** Cost (LBP) per $1 the shop actually gets back via SMS transfer. */
   recoveredRateLbp: number | null;
@@ -261,7 +395,7 @@ const INCOMPLETE_ECONOMICS: TelecomItemEconomics = {
 export function deriveItemEconomics(
   input: TelecomItemEconomicsInput,
 ): TelecomItemEconomics {
-  const { costLbp, daysCostLbp, creditsUsd } = input;
+  const { costLbp, daysCostLbp, creditsUsd, maxReturnedOverrideUsd } = input;
 
   if (
     !isTelecomSplitComplete({
@@ -276,7 +410,12 @@ export function deriveItemEconomics(
   // isTelecomSplitComplete guarantees all three are finite numbers, credits > 0,
   // and daysCostLbp < costLbp — so creditCostLbp is guaranteed > 0 here too.
   const creditCostLbp = costLbp - (daysCostLbp as number);
-  const maxReturnedUsd = maxReturnableCredits(creditsUsd as number);
+  // rule 14 — the override is resolved in exactly one place, never re-tested
+  // (`override ?? computed`) here.
+  const maxReturnedUsd = resolveMaxReturnedCredits(
+    creditsUsd as number,
+    maxReturnedOverrideUsd,
+  );
 
   const recoveredRateLbp =
     maxReturnedUsd > 0 ? creditCostLbp / maxReturnedUsd : null;
@@ -729,6 +868,8 @@ export interface TelecomCreditReturnLineInput {
 /** The catalog fields resolution needs. Any `mobile_service_items` row fits. */
 export interface TelecomCreditReturnItem extends TelecomSplitCandidate {
   category?: string | null;
+  /** Per-card override of the returnable maximum (v160). */
+  max_returned_credits_usd?: number | null;
 }
 
 export interface ResolvedTelecomCreditReturn {
@@ -768,7 +909,11 @@ export function resolveReturnedCredits(
 ): number {
   if (line.returnedCreditsUsd !== undefined) return line.returnedCreditsUsd;
   if (item && isTelecomSplitComplete(item)) {
-    return maxReturnableCredits(item.credits as number);
+    // rule 14 — one resolver owns `override ?? computed` (v160).
+    return resolveMaxReturnedCredits(
+      item.credits as number,
+      item.max_returned_credits_usd,
+    );
   }
   return 0;
 }

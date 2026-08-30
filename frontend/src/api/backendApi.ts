@@ -5346,6 +5346,8 @@ export type MobileServiceItemEntity = {
   /** LIRA-090 (v140): decision-aid display price for resold recovered credit
    *  (spec §2.4). Null until configured. */
   sell_credit_lbp: number | null;
+  /** v160: per-card override of the returnable credit maximum; null = computed. */
+  max_returned_credits_usd: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -5401,6 +5403,8 @@ export async function createMobileServiceItem(data: {
   days_cost_lbp?: number | null;
   sell_days_lbp?: number | null;
   sell_credit_lbp?: number | null;
+  /** v160: per-card override of the returnable credit maximum; null = computed. */
+  max_returned_credits_usd?: number | null;
 }): Promise<{
   success: boolean;
   data?: MobileServiceItemEntity;
@@ -5431,6 +5435,8 @@ export async function updateMobileServiceItem(
     days_cost_lbp?: number | null;
     sell_days_lbp?: number | null;
     sell_credit_lbp?: number | null;
+    /** v160: per-card override of the returnable credit maximum; null = computed. */
+    max_returned_credits_usd?: number | null;
   },
 ): Promise<{
   success: boolean;
