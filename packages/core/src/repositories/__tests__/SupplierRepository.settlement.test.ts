@@ -4,14 +4,38 @@
  * Primary-cash-drawer model (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md
  * §1/§8, superseding the float model the day after it shipped, 2026-07-30):
  * `supplier_ledger` TOP_UP rows for OMT/WHISH are booked GROSS
- * (`grossOwedDelta` — SEND `+(x+f−c)`, RECEIVE `−(x−(f−c))`,
- * FinancialServiceRepository.ts) — the shop's commission is embedded in
- * what's owed, not carved out separately. `OMT_System`/`Whish_System` is no
- * longer a provider float — it IS the shop's physical primary cash drawer
- * (PCD), so a CASH settlement leg paid to the shop's PRIMARY-system
- * supplier (`supplier.provider === shop_base_system`) resolves to the PCD
- * (decision #10, via `resolveServiceCashDrawer`); a non-primary supplier's
- * settlement is unaffected and keeps paying out of General.
+ * (`grossOwedDelta` — see FinancialServiceRepository.ts for the CURRENT
+ * formula) — the shop's commission is embedded in what's owed, not carved
+ * out separately. `OMT_System`/`Whish_System` is no longer a provider float
+ * — it IS the shop's physical primary cash drawer (PCD), so a CASH
+ * settlement leg paid to the shop's PRIMARY-system supplier
+ * (`supplier.provider === shop_base_system`) resolves to the PCD (decision
+ * #10, via `resolveServiceCashDrawer`); a non-primary supplier's settlement
+ * is unaffected and keeps paying out of General.
+ *
+ * SCOPE NOTE (2026-08-29, COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2, D1):
+ * this file's in-memory `financial_services` schema (below) deliberately
+ * predates migration v150 — it has NO `commission_model` column and neither
+ * `supplier_settlements` nor `settlement_commission_allocations` exists.
+ * `SupplierRepository._hasCommissionAtSettlementSchema()` therefore reads
+ * this connection as "not fully v150-upgraded" on every test in this file,
+ * so `_resolveSettlementBatchModel` always short-circuits to the LEGACY
+ * no-op shape (`{ model: 0, rows: [] }`), regardless of what Phase 2 changed
+ * in `grossOwedDelta`/`SUPPLIER_OWED_EXPR`/the `commission_model` stamp —
+ * none of which this file's fixtures ever go through anyway (rows are
+ * seeded directly via raw SQL, never `FinancialServiceRepository
+ * .createTransaction`). This file is therefore STRUCTURALLY INSULATED from
+ * the Phase 2 gross-payable flip: every `amount_usd`/`commission_usd` value
+ * below is a caller-supplied test input to `settleTransactions()`'s generic
+ * legacy mechanics, not an assertion that reproduces the real production
+ * formula — so nothing here needed re-deriving for Phase 2. (This is why the
+ * OmtSystemFeeCharacterization.test.ts file's own history notes "all 28 of
+ * its tests stayed green" when `grossOwedDelta`'s sign was sabotaged during
+ * an earlier investigation — same reason.) A handful of comments below still
+ * narrate the CURRENT (now Phase-2, gross-of-commission) production formula
+ * as illustrative color for where these hand-picked numbers came from
+ * historically; read FinancialServiceRepository.ts's `grossOwedDelta` doc
+ * comment for what production actually computes today.
  *
  * Tests the atomic settleTransactions() method, which:
  * 1. Creates a SETTLEMENT supplier_ledger entry (negative = paying out the
@@ -506,12 +530,16 @@ describe("SupplierRepository.settleTransactions()", () => {
   // settlement pays off the GROSS TOP_UP directly — still no separate
   // "realize the commission" step, but now for a different reason.
   //
-  // An OMT SEND books the auto TOP_UP as `x + f − c` (grossOwedDelta,
-  // FinancialServiceRepository.ts) — the shop's commission is embedded in
-  // the gross figure, not carved out. Settlement pays EXACTLY that figure
-  // and the ledger nets to 0 with ONE entry. `OMT_System` is no longer a
-  // dormant float this settlement bypasses — it IS the shop's PCD, so the
-  // CASH settlement leg debits it directly (decision #10).
+  // This test hand-seeds its own TOP_UP row (below) rather than going
+  // through `FinancialServiceRepository.createTransaction`, so it is
+  // insulated from COMMISSION_AT_SETTLEMENT_PLAN.md Phase 2's gross-payable
+  // flip (see this file's SCOPE NOTE at the top) — the `104.5` figure is
+  // this test's OWN fixture input (historically chosen to mirror what the
+  // PRE-Phase-2 `grossOwedDelta` — `x + f − c` — would have booked for
+  // x=100/f=5/c=0.5), not a value re-derived from current production code.
+  // `OMT_System` is no longer a dormant float this settlement bypasses — it
+  // IS the shop's PCD, so the CASH settlement leg debits it directly
+  // (decision #10).
   //
   // Rule 17: this exact scenario (x=100, f=5, c=0.5) is the plan's own
   // worked example (§8.3): SEND books +104.5 owed. Verified failing
@@ -523,8 +551,14 @@ describe("SupplierRepository.settleTransactions()", () => {
     const supplierId = seedSupplier(db);
     // $100 SEND with $5 provider fee, $0.50 commission (shop's cut of the fee).
     const txnId = seedUnsettledTransaction(db, "OMT", 100, 0.5);
-    // The auto ledger entry the repository books at transaction time
-    // (gross model, plan §8.3 worked example): x + f − c = 100 + 5 − 0.5 = 104.5.
+    // Hand-seeded ledger entry (this file's schema predates v150 and never
+    // routes through the real grossOwedDelta — see the file's SCOPE NOTE):
+    // historically chosen to equal the PRE-Phase-2 formula x + f − c =
+    // 100 + 5 − 0.5 = 104.5. Phase 2 (D1) changed production's OWN formula
+    // to x + f = 105 for a REAL OMT/WHISH row, but that change is untestable
+    // through this fixture (no `commission_model` column exists here) — this
+    // number is intentionally left as-is; it is simply this test's chosen
+    // input, not an assertion about today's `grossOwedDelta`.
     db.prepare(
       `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto, note)
        VALUES (?, 'TOP_UP', 104.5, 0, 1, 'Auto: SEND via OMT (gross)')`,

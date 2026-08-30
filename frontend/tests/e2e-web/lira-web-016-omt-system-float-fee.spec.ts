@@ -50,7 +50,9 @@
  * `ctx.provider === ctx.baseSystem` (`shop_base_system` defaults to OMT —
  * migration v80 — so this walk-in transaction with no partnerId qualifies).
  * supplier_ledger books the GROSS amount owed the provider, `grossOwedDelta`
- * (`FinancialServiceRepository.ts`): SEND → +(x+f−c), RECEIVE → −(x−f+c).
+ * (`FinancialServiceRepository.ts`): SEND → +(x+f), RECEIVE → −(x−f) — as of
+ * COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1, shipped 2026-08-29), no
+ * commission netted (was: SEND +(x+f−c), RECEIVE −(x−f+c)).
  *
  * Covered, both directions, over the shared base-system OMT provider:
  *
@@ -59,12 +61,17 @@
  *     - customer pays the gross x+f = $54 cash → the CASH leg routes to the
  *       PCD (`OMT_System`), NOT `General`: General +$0, OMT_System +$54
  *     - commission auto-computes from the fee table: c = calculateCommission
- *       ("INTRA", 4) = 4 × 10% = 0.4 (packages/core/src/utils/omtFees.ts)
- *     - supplier_ledger TOP_UP books the GROSS x+f−c = 50+4−0.4 = +$53.6
- *       (never the bare fee-net 3.6 — the superseded float model's answer)
- *     - invariant check (§8.1 / Characterization CASE 3 shape):
- *       PCDΣ(54) − Δowed(53.6) = 0.4 = c ✓ — empirically confirmed via
- *       `page.request` + direct SQLite inspection of the test DB, 2026-08-07
+ *       ("INTRA", 4) = 4 × 10% = 0.4 (packages/core/src/utils/omtFees.ts) —
+ *       still stored on the row as an at-settlement estimate (Phase 2, D1),
+ *       no longer subtracted from the payable
+ *     - supplier_ledger TOP_UP books the GROSS x+f = 50+4 = +$54 (Phase 2,
+ *       D1 — OLD pre-Phase-2: x+f−c = 53.6; never the bare fee-net 3.6, the
+ *       superseded float model's answer)
+ *     - invariant check (§8.1 / Characterization CASE 3 shape, re-derived for
+ *       Phase 2): PCDΣ(54) − Δowed(54) = 0 (was: 0.4 = c, pre-Phase-2) ✓ —
+ *       empirically confirmed via `page.request` + direct SQLite inspection
+ *       of the test DB, 2026-08-07 (pre-Phase-2 numbers); re-derived by hand
+ *       for Phase 2, not re-run (see file header)
  *
  *  2. RECEIVE $30 (x), omtServiceType INTRA, omtFee $1.5 (f, fee ON TOP),
  *     cashoutMethod CASH:
@@ -74,11 +81,14 @@
  *       on top, not netted out of the payout since `includingFees` is false)
  *     - net OMT_System delta for this action: +1.5 − 30 = −$28.5; General
  *       delta = $0 (no leg touches it at all)
- *     - c = calculateCommission("INTRA", 1.5) = 1.5 × 10% = 0.15
- *     - supplier_ledger books the GROSS −(x−f+c) = −(30−1.5+0.15) = −$28.65
- *       — the SAME grossOwedDelta shape as SEND, signed negative
- *     - invariant check (Characterization CASE 1 shape):
- *       PCDΣ(−28.5) − Δowed(−28.65) = 0.15 = c ✓ — empirically confirmed
+ *     - c = calculateCommission("INTRA", 1.5) = 1.5 × 10% = 0.15 (estimate
+ *       only, Phase 2 D1 — not subtracted here)
+ *     - supplier_ledger books the GROSS −(x−f) = −(30−1.5) = −$28.5 (Phase 2,
+ *       D1 — OLD pre-Phase-2: −(x−f+c) = −28.65) — the SAME grossOwedDelta
+ *       shape as SEND, signed negative
+ *     - invariant check (Characterization CASE 1 shape, re-derived for
+ *       Phase 2): PCDΣ(−28.5) − Δowed(−28.5) = 0 (was: 0.15 = c,
+ *       pre-Phase-2) ✓
  *
  * Identity + delta asserts only (rule 15) — the e2e DB accumulates across
  * runs; the OMT provider/supplier row is shared, so every assertion is a
@@ -93,6 +103,14 @@
  * console.log in place of the assertions, then cross-checked against direct
  * SQLite queries against the suite's own test DB) before being written back
  * as the asserted values.
+ *
+ * RE-DERIVED 2026-08-29 — COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1,
+ * shipped): `grossOwedDelta` no longer nets the shop's commission `c` out of
+ * the payable at all — the whole fee is owed to the provider; the shop's
+ * commission is paid separately at settlement. Every `supplier_ledger`
+ * (`.owed`) expectation below moves by exactly the case's own `c` (OLD -> NEW
+ * called out inline); every drawer expectation is unaffected (real cash
+ * flows didn't change).
  */
 import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
 
@@ -181,9 +199,11 @@ test("OMT system SEND and RECEIVE with a fee book the Primary Cash Drawer shape 
   // superseded float model's "-x reserve" shape).
   expect(afterSend.drawers.omt - beforeSend.drawers.omt).toBeCloseTo(54, 2);
   // supplier_ledger books the GROSS amount owed the provider (grossOwedDelta,
-  // SEND): x + f - c = 50 + 4 - 0.4 = 53.6 — never the bare fee-net 3.6 (the
-  // superseded float model's `feeOwedDelta`), never the bare principal.
-  expect(afterSend.owed - beforeSend.owed).toBeCloseTo(53.6, 2);
+  // SEND), Phase 2 D1 — no commission netted: x + f = 50 + 4 = 54. OLD
+  // (pre-Phase-2): x + f - c = 50 + 4 - 0.4 = 53.6. Never the bare fee-net
+  // 3.6 (the superseded float model's `feeOwedDelta`), never the bare
+  // principal.
+  expect(afterSend.owed - beforeSend.owed).toBeCloseTo(54, 2);
 
   // ── 2. RECEIVE $30, fee $1.5 on top, CASH cashout ───────────────────────
   const beforeReceive = {
@@ -228,8 +248,10 @@ test("OMT system SEND and RECEIVE with a fee book the Primary Cash Drawer shape 
     afterReceive.drawers.general - beforeReceive.drawers.general,
   ).toBeCloseTo(0, 2);
   // supplier_ledger books the GROSS amount owed BACK by the provider
-  // (grossOwedDelta, RECEIVE): -(x - f + c) = -(30 - 1.5 + 0.15) = -28.65 —
-  // the same gross shape as SEND, signed negative (entry_type TOP_UP, not
-  // PAYMENT — PAYMENT force-negates and would flip this positive again).
-  expect(afterReceive.owed - beforeReceive.owed).toBeCloseTo(-28.65, 2);
+  // (grossOwedDelta, RECEIVE), Phase 2 D1 — no commission netted:
+  // -(x - f) = -(30 - 1.5) = -28.5. OLD (pre-Phase-2): -(x-f+c) =
+  // -(30-1.5+0.15) = -28.65. The same gross shape as SEND, signed negative
+  // (entry_type TOP_UP, not PAYMENT — PAYMENT force-negates and would flip
+  // this positive again).
+  expect(afterReceive.owed - beforeReceive.owed).toBeCloseTo(-28.5, 2);
 });

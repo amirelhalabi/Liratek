@@ -35,6 +35,18 @@
  * `createFinancialServiceSchema` for the schema-level case (f). See the
  * task's final report for the exact revert/observed-failure/restore
  * transcript — this file's production code is the POST-fix state.
+ *
+ * RE-DERIVED 2026-08-29 — COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1,
+ * shipped): every OMT/WHISH-SYSTEM case in this file (a, b, c, d, h — the
+ * ones sharing OmtSystemFeeCharacterization CASE 1's x=100/f=5/c=1 numbers)
+ * has its `supplierUsd` delta and `assertInvariant` commission term
+ * re-derived the SAME way that file's header explains: `supplier_owed` no
+ * longer nets `c`, so each owed delta moves by exactly `c` (OLD -> NEW called
+ * out inline) and the invariant's RHS drops the `c` term (now 0 for every
+ * case here — none keep change). The WHISH_APP/OMT_APP mode-C cases (p1-p3,
+ * s) and the BINANCE cases are OUT of Phase 2 scope (plan §0 — app-wallet
+ * spread fees are realized immediately, never supplier-settled) and are
+ * UNCHANGED.
  */
 
 import Database from "better-sqlite3";
@@ -469,8 +481,14 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     // OmtSystemFeeCharacterization CASE 1 (implicit leg) — the collection
     // METHOD must not change the drawer math.
     expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5);
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-96, 5);
-    assertInvariant(before, after, { commission: 1 });
+    // Phase 2 (D1, COMMISSION_AT_SETTLEMENT_PLAN.md §4, shipped 2026-08-29):
+    // grossOwedDelta(RECEIVE) = -(x-f) = -(100-5) = -95 — commission no
+    // longer netted here. OLD -> NEW: -96 -> -95.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
+    // Invariant RHS drops the `c` term too (nothing kept at transaction time
+    // anymore) — OLD -> NEW: commission 1 -> 0, see
+    // OmtSystemFeeCharacterization.test.ts's header for the full re-derivation.
+    assertInvariant(before, after, { commission: 0 });
 
     const legs = feeLegRows(db, fsId);
     expect(legs).toHaveLength(1);
@@ -503,8 +521,9 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
     expect(drawerDelta(before, after, "Whish_App_USD")).toBeCloseTo(5, 5);
     expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5); // payout only, no fee leg here
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-96, 5);
-    assertInvariant(before, after, { commission: 1 });
+    // Phase 2 (D1): -(x-f) = -(100-5) = -95. OLD -> NEW: -96 -> -95.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
+    assertInvariant(before, after, { commission: 0 }); // OLD -> NEW: 1 -> 0
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -534,8 +553,9 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(3, 5);
     // PCD: +2 (CASH fee leg) - 100 (payout) = -98
     expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-98, 5);
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-96, 5);
-    assertInvariant(before, after, { commission: 1 });
+    // Phase 2 (D1): -(x-f) = -(100-5) = -95. OLD -> NEW: -96 -> -95.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
+    assertInvariant(before, after, { commission: 0 }); // OLD -> NEW: 1 -> 0
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -566,9 +586,10 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     // PCD: only the payout (-100) — the fee never touches a drawer.
     expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5);
     expect(after.debtUsd - before.debtUsd).toBeCloseTo(5, 5);
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-96, 5);
+    // Phase 2 (D1): -(x-f) = -(100-5) = -95. OLD -> NEW: -96 -> -95.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
     assertInvariant(before, after, {
-      commission: 1,
+      commission: 0, // OLD -> NEW: 1 -> 0
       debtDeltaUsd: after.debtUsd - before.debtUsd,
     });
 
@@ -1063,7 +1084,7 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     const after = snapshot(db);
 
     expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // +5 - 100, same drawer as (a)
-    assertInvariant(before, after, { commission: 1 });
+    assertInvariant(before, after, { commission: 0 }); // Phase 2 (D1) OLD -> NEW: 1 -> 0
 
     const legs = feeLegRows(db, fsId);
     expect(legs).toHaveLength(1);

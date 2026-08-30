@@ -1,56 +1,57 @@
 /**
  * COMMISSION_AT_SETTLEMENT_PLAN.md Phase 0 — CRITICAL regression guard
  * (2-reviewer FIX_FIRST): the `commission_model` stamp at creation
- * (`FinancialServiceRepository.createTransaction`) must be gated to BILL
- * rows ONLY. Phase 2 (the OMT/WHISH gross-payable flip, D1) has NOT
- * shipped — `grossOwedDelta`/`SUPPLIER_OWED_EXPR` still NET the auto-
- * calculated commission out of `supplier_owed` for OMT/WHISH SEND/RECEIVE
- * (`calculateCommission` fires for real OMT service types with a real fee).
- * If those rows were ALSO born `commission_model = 1` (as an earlier draft
- * of this file did — hardcoded, no service_type gate), `settleTransactions`
- * would route them into the NEW-MODEL settlement path
- * (`_resolveSettlementBatchModel` / `_bookCommissionAtSettlement`), which
- * books the operator's entered commission as a SECOND `SUPPLIER_PAYS_US`
- * ledger credit — on top of the commission ALREADY netted out of
- * `supplier_owed` at creation. Net effect: the provider is paid twice as
- * little of their cut re-collected as the shop's "profit" for the exact
- * same commission dollar.
+ * (`FinancialServiceRepository.createTransaction`) and the
+ * `grossOwedDelta`/`SUPPLIER_OWED_EXPR` payable formula are TWO HALVES OF
+ * ONE INVARIANT that must always move TOGETHER (rule 14's hazard, made
+ * concrete): stamping a row `commission_model = 1` (AT_SETTLEMENT) routes it
+ * into the settlement path that books the operator's entered commission as
+ * a real `SUPPLIER_PAYS_US` credit — correct ONLY if the payable formula
+ * ITSELF no longer netted that same commission out at creation. Landing
+ * either half without the other double-subtracts (or never subtracts) the
+ * shop's cut. Originally (Phase 0) this meant: BILL got both halves (its
+ * formula never included commission to begin with), OMT/WHISH got NEITHER
+ * (their formula still netted `c`, so the stamp had to stay 0 or a
+ * double-subtraction resulted) — see this file's `git blame` / the plan's
+ * own boxed warning for that shape, still true of any FUTURE money type this
+ * repo adds under the same discipline.
  *
- * Every pre-existing suite that exercises `createTransaction` for OMT/WHISH
- * hand-picks `commission: 0` (or lets WHISH's own force-to-0 branch fire),
- * which never observably diverges under the double-subtraction bug (0 - 0
- * is still 0) — exactly why none of them caught this. This file is
- * deliberately a REALISTIC OMT SEND: a real `omtServiceType` ("INTRA") with
- * a real `omtFee` (10), so `calculateCommission` fires and stores a
- * genuinely nonzero `commission` (1.0 = 10% of the $10 fee).
+ * UPDATED 2026-08-29 — COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1,
+ * shipped): BOTH halves for OMT/WHISH landed in the SAME change —
+ * `grossOwedDelta`/`SUPPLIER_OWED_EXPR` no longer net `c` out of
+ * `supplier_owed` at all, AND the `commission_model` stamp now covers
+ * OMT/WHISH SEND/RECEIVE too (`isOmtWhishTransfer`, same predicate
+ * `isPendingSupplierSettlement` already used). This file's fixture — a
+ * REALISTIC OMT SEND with a real `omtServiceType` ("INTRA") and a real
+ * `omtFee` (10), so `calculateCommission` fires and stores a genuinely
+ * nonzero `commission` (1.0 = 10% of the $10 fee) — is exactly what a
+ * fixture using `commission: 0` structurally cannot exercise (0 minus 0 is
+ * still 0; no double-subtraction would ever show), which is why the ticket
+ * that shipped Phase 2 named THIS file's fixture as the one to re-derive,
+ * not replace.
  *
- * Rule 17 — observed FAILING pre-fix (commission_model hardcoded to 1 for
- * every row, the exact pre-fix code at
- * FinancialServiceRepository.ts:1028 `const commissionModel: number = 1;`):
+ * The test below is re-derived to the POST-Phase-2 invariant: a realistic
+ * OMT SEND is now born `commission_model = 1`, `supplier_owed` is the TRUE
+ * gross (100 + 10 = 110, no commission netted), and settling it takes the
+ * NEW-MODEL path — a real `supplier_settlements` row, one allocation, and a
+ * `SUPPLIER_PAYS_US` credit for the entered commission — netting
+ * TOP_UP(110) + SETTLEMENT(-109) + SUPPLIER_PAYS_US(-1) to exactly 0. This
+ * is a STATIC re-derivation from the shipped production code (read, not
+ * executed — this task ran no tests/builds per its own instructions); the
+ * owner's next full `yarn test` pass is the first actual execution of these
+ * numbers and is the authoritative check.
  *
- *   FAIL src/repositories/__tests__/FinancialServiceRepository.omtCommissionModelGate.test.ts
- *     ● COMMISSION_AT_SETTLEMENT_PLAN.md Phase 0 double-subtraction guard ›
- *       a realistic OMT SEND (real omtServiceType+omtFee, nonzero commission)
- *       is born commission_model = 0 (legacy) — NOT routed into the new-model
- *       settlement path — settling it nets to 0 exactly like before Phase 0
- *
- *       expect(received).toBe(expected) // Object.is equality
- *       Expected: 0
- *       Received: 1
- *
- *         at Object.<anonymous> (.../FinancialServiceRepository.omtCommissionModelGate.test.ts:NN:NN)
- *
- *   (a second assertion in the same test, had the first one been skipped,
- *   would also have failed on the ledger net-zero check: the pre-fix code
- *   books an EXTRA -1 USD `SUPPLIER_PAYS_US` credit on top of the $109
- *   TOP_UP/-$109 SETTLEMENT pair, leaving the supplier_ledger sum at -1
- *   instead of 0 — the double-subtraction made real.)
- *
- * Reproduced by temporarily reverting FinancialServiceRepository.ts's
- * `commissionModel` stamp to the pre-fix `const commissionModel: number = 1;`
- * (removing the `data.serviceType === "BILL" ? 1 : 0` gate) — re-ran this
- * file, watched it FAIL with exactly that output, then restored the gate and
- * re-ran green.
+ * The drift this file guards against, going forward: if `grossOwedDelta`'s
+ * `- commission` term (or `SUPPLIER_OWED_EXPR`'s) is ever reintroduced
+ * WITHOUT reverting the `commission_model` stamp back to 0 for OMT/WHISH (or
+ * vice versa — the stamp reverted without the formula), THIS row would
+ * double-subtract the shop's cut again — `supplier_owed` would read 109
+ * (commission netted) yet still route into the new-model settlement path
+ * and book a SECOND `-1` `SUPPLIER_PAYS_US` credit, landing the ledger sum
+ * at -1 instead of 0 (see the second assertion group below). A companion
+ * file, `FinancialServiceRepository.grossOwedDeltaSqlJsParity.test.ts`,
+ * guards the narrower JS-vs-SQL arithmetic agreement directly, independent
+ * of any specific settlement shape.
  */
 
 import Database from "better-sqlite3";
@@ -349,8 +350,8 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md Phase 0 double-subtraction guard", ()
 
   it(
     "a realistic OMT SEND (real omtServiceType+omtFee, nonzero commission) is born " +
-      "commission_model = 0 (legacy) — NOT routed into the new-model settlement " +
-      "path — settling it nets to 0 exactly like before Phase 0",
+      "commission_model = 1 (AT_SETTLEMENT) — routed into the new-model settlement " +
+      "path — settling it books a real commission credit and nets to 0 (Phase 2, D1)",
     () => {
       const omtId = supplierIdByProvider(db, "OMT");
 
@@ -379,30 +380,39 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md Phase 0 double-subtraction guard", ()
         is_settled: number;
       };
 
-      // The auto-calc branch genuinely fired.
+      // The auto-calc branch genuinely fired — commission is still computed
+      // and stored (an at-settlement DISPLAY ESTIMATE, D1), just no longer
+      // subtracted from the payable.
       expect(row.commission).toBeCloseTo(1, 4);
 
-      // THE FIX: born commission_model = 0 (legacy EMBEDDED), not 1
-      // (AT_SETTLEMENT) — Phase 2's gross flip hasn't shipped, so this row's
-      // supplier_owed is STILL commission-netted at creation time (see the
-      // ledger assertion below); flagging it 1 would double-net it at
-      // settlement.
-      expect(row.commission_model).toBe(0);
-      // Still pending settlement via the preserved LEGACY marker
-      // (commission_model=0 AND OMT/WHISH AND commission>0) — unaffected by
-      // this fix, exactly the pre-Phase-0 behavior.
+      // THE INVARIANT (Phase 2, D1 — OLD -> NEW: 0 -> 1): born
+      // commission_model = 1 (AT_SETTLEMENT), same as a BILL. Correct ONLY
+      // because grossOwedDelta/SUPPLIER_OWED_EXPR ALSO stopped netting this
+      // row's commission out of supplier_owed in the SAME change (see the
+      // ledger assertion below) — the two halves of this invariant, landed
+      // together (this file's own header explains the hazard if they ever
+      // drift apart again).
+      expect(row.commission_model).toBe(1);
+      // Unconditionally pending settlement now — the model=1 OMT/WHISH
+      // branch of isPendingSupplierSettlement never checks `commission` at
+      // all (unlike the legacy marker it replaces for this row).
       expect(row.is_settled).toBe(0);
 
-      // Gross TOP_UP booked at creation (grossOwedDelta): principal(100) +
-      // fee(10) - commission(1) = 109 — the commission is ALREADY netted out
-      // here. supplier_owed (SUPPLIER_OWED_EXPR) reads the same 109.
+      // Gross TOP_UP booked at creation (grossOwedDelta), Phase 2 (D1) — no
+      // commission netted: principal(100) + fee(10) = 110. OLD (pre-Phase-2):
+      // 109 (=100+10-1). supplier_owed (SUPPLIER_OWED_EXPR) reads the same 110.
       const fs = fsRepo.findById(fsId)!;
-      expect(fs.supplier_owed).toBeCloseTo(109, 4);
-      expect(ledgerSum(db, omtId)).toBeCloseTo(109, 4);
+      expect(fs.supplier_owed).toBeCloseTo(110, 4);
+      expect(ledgerSum(db, omtId)).toBeCloseTo(110, 4);
 
-      // Settle exactly like the pre-Phase-0 UI would: net pay = the full
-      // supplier_owed (no further deduction — the shop's cut is already
-      // embedded), commission_usd carried along informationally.
+      // Settle exactly like the NEW-model UI would: net pay = gross MINUS the
+      // entered commission (the commission itself is booked separately, step
+      // 5 below) — OLD -> NEW: amount_usd 109 -> 109 stays numerically the
+      // SAME here (110 gross - 1 commission = 109, same net-pay figure the
+      // pre-Phase-2 UI happened to compute a different way), but it is no
+      // longer "the full supplier_owed with nothing further deducted" — it
+      // is now "gross minus commission," and the commission is a REAL
+      // second ledger entry (assertions below), not implicit.
       supplierRepo.settleTransactions({
         supplier_id: omtId,
         financial_service_ids: [fsId],
@@ -414,22 +424,24 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md Phase 0 double-subtraction guard", ()
         payments: [{ method: "CASH", currency_code: "USD", amount: 109 }],
       });
 
-      // THE ASSERTION THAT CATCHES THE DOUBLE-SUBTRACTION BUG: with
-      // commission_model correctly 0, `_resolveSettlementBatchModel` reads
-      // this batch as LEGACY and never calls `_bookCommissionAtSettlement` —
-      // no second SUPPLIER_PAYS_US credit is booked on top of the commission
-      // already netted into the 109 TOP_UP. TOP_UP(109) + SETTLEMENT(-109)
-      // nets to EXACTLY 0.
+      // THE ASSERTION THAT WOULD CATCH A REINTRODUCED DOUBLE-SUBTRACTION: with
+      // commission_model correctly 1, `_resolveSettlementBatchModel` reads
+      // this batch as NEW-MODEL and calls `_bookCommissionAtSettlement`,
+      // which books a SECOND ledger row — a `SUPPLIER_PAYS_US` credit for
+      // the entered $1 commission (assertions below) — on top of the
+      // TOP_UP(110)/SETTLEMENT(-109) pair. TOP_UP(110) + SETTLEMENT(-109) +
+      // SUPPLIER_PAYS_US(-1) nets to EXACTLY 0.
       //
-      // Pre-fix (commission_model hardcoded to 1 on every row), this same
-      // call would have booked an EXTRA -1 USD SUPPLIER_PAYS_US credit —
-      // leaving this sum at -1, not 0 — because the settlement path treated
-      // an already-commission-netted legacy row as a new-model one and
-      // subtracted the same dollar of commission a second time.
+      // If `grossOwedDelta`/`SUPPLIER_OWED_EXPR` ever regressed to netting
+      // `c` out again WITHOUT reverting this stamp to 0, this same call would
+      // book the SAME dollar of commission twice — once inside a
+      // (regressed) 109 TOP_UP, once again as this -1 credit — landing the
+      // ledger sum at -1, not 0.
       expect(ledgerSum(db, omtId)).toBeCloseTo(0, 4);
 
-      // No new-model audit records exist for this settlement — confirms the
-      // batch was never routed into `_bookCommissionAtSettlement` at all.
+      // New-model audit records DO exist for this settlement (Phase 2, D1 —
+      // OLD -> NEW: was asserted absent/undefined/length 0, now present) —
+      // confirms the batch WAS routed into `_bookCommissionAtSettlement`.
       const settlementLedgerRow = db
         .prepare(
           `SELECT id FROM supplier_ledger WHERE supplier_id = ? AND entry_type = 'SETTLEMENT'`,
@@ -437,20 +449,32 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md Phase 0 double-subtraction guard", ()
         .get(omtId) as { id: number };
       const settlementRecord = db
         .prepare(`SELECT * FROM supplier_settlements WHERE ledger_entry_id = ?`)
-        .get(settlementLedgerRow.id);
-      expect(settlementRecord).toBeUndefined();
+        .get(settlementLedgerRow.id) as
+        | { model: number; commission_usd: number; gross_usd: number }
+        | undefined;
+      expect(settlementRecord).toBeDefined();
+      expect(settlementRecord!.model).toBe(1);
+      expect(settlementRecord!.commission_usd).toBeCloseTo(1, 4);
+      expect(settlementRecord!.gross_usd).toBeCloseTo(110, 4);
       const allocations = db
         .prepare(
           `SELECT * FROM settlement_commission_allocations WHERE settlement_ledger_id = ?`,
         )
-        .all(settlementLedgerRow.id);
-      expect(allocations).toHaveLength(0);
+        .all(settlementLedgerRow.id) as Array<{
+        financial_service_id: number;
+        commission_usd: number;
+      }>;
+      expect(allocations).toHaveLength(1);
+      expect(allocations[0].financial_service_id).toBe(fsId);
+      expect(allocations[0].commission_usd).toBeCloseTo(1, 4);
       const commissionCredit = db
         .prepare(
           `SELECT * FROM supplier_ledger WHERE supplier_id = ? AND entry_type = 'SUPPLIER_PAYS_US'`,
         )
-        .get(omtId);
-      expect(commissionCredit).toBeUndefined();
+        .get(omtId) as { amount_usd: number; is_auto: number } | undefined;
+      expect(commissionCredit).toBeDefined();
+      expect(commissionCredit!.amount_usd).toBeCloseTo(-1, 4);
+      expect(commissionCredit!.is_auto).toBe(1);
     },
   );
 

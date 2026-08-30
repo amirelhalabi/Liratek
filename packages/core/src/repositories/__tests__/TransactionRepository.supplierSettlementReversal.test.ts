@@ -50,6 +50,23 @@
  *     - double-void/refund guards, unaffected
  *     - LIRA-091's settled-sibling void block, still protecting the OTHER
  *       direction (an individual FS row can't be voided while settled)
+ *
+ * SCOPE NOTE (2026-08-29, COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2, D1
+ * shipped): the "OMT settlement with commission" describe block below
+ * hand-seeds its `financial_services`/`supplier_ledger` rows via raw SQL —
+ * never `FinancialServiceRepository.createTransaction` — and never sets
+ * `commission_model` on the INSERT, so those rows default to 0 (legacy).
+ * Its `104.5 = x + f − c` fixture value (x=100/f=5/c=0.5) is this file's OWN
+ * chosen test input, historically matching the PRE-Phase-2 `grossOwedDelta`
+ * formula — it is NOT re-derived from current production code (a REAL fresh
+ * OMT SEND is now born `commission_model = 1` and its `grossOwedDelta` would
+ * compute 105, not 104.5 — see OmtSystemFeeCharacterization.test.ts). This
+ * describe block is testing the LEGACY reversal mechanics (still needed for
+ * pre-cutover data, D3's whole reason for a per-row flag), not the current
+ * gross-payable formula, so nothing here needed re-deriving. The dedicated
+ * "new-model (commission_model = 1) settlement" describe block further down
+ * DOES exercise the live `commission_model = 1` path, and its own fixture
+ * commission values are all 0 either way, so it is unaffected too.
  */
 
 import Database from "better-sqlite3";

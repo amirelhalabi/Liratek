@@ -32,15 +32,18 @@
  *   PCD (omtDrawer)     = +4 (fee's charge-side PCD share) − 50 (payout) = −46
  *   General             = +30 (custom_services' charge-side General share)
  * supplier_ledger (item B's own booking, gross model — FinancialServiceRepository's
- * `grossOwedDelta` for RECEIVE): −(x − f + c) = −(50 − 4 + 0.4) = −46.4
+ * `grossOwedDelta` for RECEIVE), as of COMMISSION_AT_SETTLEMENT_PLAN.md §4
+ * Phase 2 (D1, shipped 2026-08-29) — no commission netted:
+ * −(x − f) = −(50 − 4) = −46 (was: −(x−f+c) = −(50−4+0.4) = −46.4)
  *
  * §8.4 invariant (docs/FEATURE_GUIDE.md §8.4, extended by the plan's §1.3),
  * checked against ONLY the RECEIVE item's own attributable drawer deltas
  * (the +4 fee share and the −50 payout share — the custom_services item's
  * +30 General share is a different item and excluded from this per-item
- * check):
- *   Σ(drawer deltas) + Σ(receivable deltas) − Δ(owed) = c
- *   (4 − 50) + 0 − (−46.4) = −46 + 46.4 = 0.4 = c ✓
+ * check). Phase 2 (D1) drops the `c` term from the RHS too — nothing is kept
+ * at transaction time anymore:
+ *   Σ(drawer deltas) + Σ(receivable deltas) − Δ(owed) = 0   (was: = c)
+ *   (4 − 50) + 0 − (−46) = −46 + 46 = 0 ✓ (was: −46 + 46.4 = 0.4 = c)
  *
  * Identity note (rule 15): as in lira-web-017, there is no REST route
  * exposing individual session-basket payment-leg rows (method/note), so
@@ -211,17 +214,19 @@ test("mixed charge + fee-on-top RECEIVE payout basket checks out over REST with 
   expect(after.d.general - before.d.general).toBeCloseTo(30, 2);
   expect(after.d.pcd - before.d.pcd).toBeCloseTo(-46, 2);
 
-  // supplier_ledger booked by the RECEIVE item alone (gross model):
-  // -(50 - 4 + 0.4) = -46.4.
-  expect(after.o - before.o).toBeCloseTo(-46.4, 2);
+  // supplier_ledger booked by the RECEIVE item alone (gross model), Phase 2
+  // (D1) — no commission netted: -(50 - 4) = -46. OLD (pre-Phase-2): -46.4.
+  expect(after.o - before.o).toBeCloseTo(-46, 2);
 
   // §8.4 invariant, RECEIVE item's own attributable ledgers only:
-  // Σdrawer(+4 fee share, -50 payout) + Σreceivable(0) - Δowed(-46.4) = c.
+  // Σdrawer(+4 fee share, -50 payout) + Σreceivable(0) - Δowed(-46) = 0
+  // (was: = c = 0.4, pre-Phase-2 — nothing is kept at transaction time
+  // anymore; the commission settles separately).
   const itemBDrawerDelta = 4 + -50;
   const itemBReceivableDelta = 0;
   const itemBOwedDelta = after.o - before.o;
   expect(itemBDrawerDelta + itemBReceivableDelta - itemBOwedDelta).toBeCloseTo(
-    0.4,
+    0,
     2,
   );
 

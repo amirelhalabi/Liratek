@@ -675,13 +675,17 @@ describe("FinancialServiceRepository — partner mode", () => {
           partnerMode: "FOR",
         });
 
-        // grossOwedDelta(RECEIVE) = -(x - f + c) = -(100 - 5 + 0.5) = -95.5.
-        // Matches PRIMARY_CASH_DRAWER_PLAN.md §8.3's worked example exactly
-        // (x=100, f=5, c=0.5 → RECEIVE books -95.5).
+        // grossOwedDelta(RECEIVE) = -(x - f) = -(100 - 5) = -95 as of
+        // COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1, shipped
+        // 2026-08-29) — the shop's commission is no longer netted out of the
+        // supplier payable; it settles separately. `commission: 0.5` is
+        // still stored on the row as an at-settlement estimate, just not
+        // subtracted here. OLD -> NEW: -95.5 -> -95 (PRIMARY_CASH_DRAWER_PLAN
+        // .md §8.3's pre-Phase-2 worked example, x=100/f=5/c=0.5, booked -95.5).
         const entries = ledgerRowsForSupplier(db, omtId);
         expect(entries).toHaveLength(1);
         expect(entries[0].entry_type).toBe("TOP_UP"); // never PAYMENT — addLedgerEntry force-negates only PAYMENT
-        expect(entries[0].amount_usd).toBeCloseTo(-95.5, 2);
+        expect(entries[0].amount_usd).toBeCloseTo(-95, 2);
         expect(entries[0].amount_lbp).toBe(0);
         // Tenant-scoped: booked under initFixedTenantContext(1) — must carry
         // that tenant, not a default/null/other tenant's row.
@@ -721,12 +725,15 @@ describe("FinancialServiceRepository — partner mode", () => {
           partnerMode: "FOR",
         });
 
-        // grossOwedDelta(RECEIVE) = -(x - f + c)
-        //                         = -(1,000,000 - 50,000 + 5,000) = -955,000.
+        // grossOwedDelta(RECEIVE) = -(x - f) as of Phase 2 (D1) — commission
+        // no longer netted here:
+        //                         = -(1,000,000 - 50,000) = -950,000.
+        // OLD -> NEW: -955,000 -> -950,000 (pre-Phase-2 also subtracted
+        // c=5,000).
         const entries = ledgerRowsForSupplier(db, omtId);
         expect(entries).toHaveLength(1);
         expect(entries[0].entry_type).toBe("TOP_UP");
-        expect(entries[0].amount_lbp).toBeCloseTo(-955_000, 2);
+        expect(entries[0].amount_lbp).toBeCloseTo(-950_000, 2);
         // Currency-column routing: an LBP transaction must not also post to
         // amount_usd (the two columns are mutually exclusive per row, never
         // "the same figure twice").
@@ -750,8 +757,10 @@ describe("FinancialServiceRepository — partner mode", () => {
         });
 
         // Sanity: the entry exists and books the gross amount before void.
+        // Phase 2 (D1): -(x-f) = -(100-5) = -95 (OLD -> NEW: -95.5 -> -95,
+        // commission 0.5 no longer netted here — see the dedicated test above).
         const balanceBefore = getSupplierRepository().getSupplierBalance(omtId);
-        expect(balanceBefore.balance_usd).toBeCloseTo(-95.5, 2);
+        expect(balanceBefore.balance_usd).toBeCloseTo(-95, 2);
 
         const parentTxn = getTransactionRepository().getBySourceId(
           "financial_services",
@@ -793,7 +802,7 @@ describe("FinancialServiceRepository — partner mode", () => {
         expect(drawerBalance(db, "General")).toBe(before);
       });
 
-      it("creates a CREDIT ledger entry for amount only (commission kept by shop)", () => {
+      it("creates a CREDIT ledger entry for amount only (commission is never part of the partner credit)", () => {
         const partnerId = seedPartner(db);
 
         repo.createTransaction({
@@ -801,7 +810,11 @@ describe("FinancialServiceRepository — partner mode", () => {
           serviceType: "RECEIVE",
           amount: 100,
           currency: "USD",
-          commission: 1, // shop keeps this — NOT included in partner credit
+          // Phase 2 (D1) note: the shop no longer "keeps" this at transaction
+          // time either (it settles separately with the provider) — but
+          // either way it was never part of the PARTNER credit, which is the
+          // one thing this test pins. Unaffected by Phase 2.
+          commission: 1,
           cashoutMethod: "CASH",
           partnerId,
           partnerMode: "FOR",

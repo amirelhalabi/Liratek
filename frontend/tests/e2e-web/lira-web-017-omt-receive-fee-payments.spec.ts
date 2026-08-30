@@ -15,13 +15,15 @@
  * the plan's §1.3/§1.4): x = principal, f = the provider's customer-facing
  * fee (omtFee), c = the shop's commission (calculateCommission("INTRA", f) =
  * f × 10% — packages/core/src/utils/omtFees.ts). supplier_ledger books the
- * GROSS `grossOwedDelta` shape for a RECEIVE: `-(x - f + c)`
- * (FinancialServiceRepository.ts's `grossOwedDelta`) — algebraically the same
- * number as the plan's §1.4 "−(x − (f−c))" (distribute the fee/commission
- * bracket and they're identical). The float drawer is now the Primary Cash
- * Drawer (PCD, `OMT_System` when OMT is `shop_base_system`, migration v80's
- * default) per PRIMARY_CASH_DRAWER_PLAN.md (PR #68) — every cash-family leg
- * of a primary-system RECEIVE (payout AND fee) lands there, not General.
+ * GROSS `grossOwedDelta` shape for a RECEIVE: `-(x - f)`
+ * (FinancialServiceRepository.ts's `grossOwedDelta`) as of
+ * COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1, shipped 2026-08-29) — `c`
+ * is no longer netted out here at all; it settles separately (was: `-(x - f
+ * + c)`, algebraically the plan's §1.4 pre-Phase-2 "−(x − (f−c))"). The float
+ * drawer is now the Primary Cash Drawer (PCD, `OMT_System` when OMT is
+ * `shop_base_system`, migration v80's default) per PRIMARY_CASH_DRAWER_PLAN.md
+ * (PR #68) — every cash-family leg of a primary-system RECEIVE (payout AND
+ * fee) lands there, not General; drawer deltas are unaffected by Phase 2.
  *
  * NOTE on lira-web-016: that spec's own SEND/RECEIVE assertions predate the
  * PR #68 primary-cash-drawer rewrite and the later gross-supplier-ledger
@@ -153,8 +155,9 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
     // Payout ($100, CASH fallback) debits the PCD, never General.
     expect(after.d.pcd - before.d.pcd).toBeCloseTo(-100, 2);
     expect(after.d.general - before.d.general).toBeCloseTo(0, 2);
-    // supplier_ledger: -(x - f + c) = -(100 - 5 + 0.5) = -95.5.
-    expect(after.o - before.o).toBeCloseTo(-95.5, 2);
+    // supplier_ledger: Phase 2 (D1) -(x - f) = -(100 - 5) = -95.
+    // OLD (pre-Phase-2): -(x - f + c) = -(100 - 5 + 0.5) = -95.5.
+    expect(after.o - before.o).toBeCloseTo(-95, 2);
   });
 
   test("(b) split fee CASH 2 + OMT-wallet 3 — both drawers move", async ({
@@ -202,8 +205,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
     // appWalletDrawer) — the ONLY thing moving it in this action.
     expect(after.d.appWallet - before.d.appWallet).toBeCloseTo(3, 2);
     expect(after.d.general - before.d.general).toBeCloseTo(0, 2);
-    // supplier_ledger: -(60 - 5 + 0.5) = -55.5 (commission unaffected by the split).
-    expect(after.o - before.o).toBeCloseTo(-55.5, 2);
+    // supplier_ledger: Phase 2 (D1) -(60 - 5) = -55 (commission no longer
+    // netted, unaffected by the split either way). OLD (pre-Phase-2):
+    // -(60 - 5 + 0.5) = -55.5.
+    expect(after.o - before.o).toBeCloseTo(-55, 2);
   });
 
   test("(c) partnerId + feePayments is rejected — the partner handles the fee", async ({

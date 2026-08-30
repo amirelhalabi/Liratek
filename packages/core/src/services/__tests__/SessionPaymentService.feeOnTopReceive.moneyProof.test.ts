@@ -20,11 +20,17 @@
  * Numbers deliberately match `FinancialServiceRepository.receiveFeeLegs
  * .test.ts` case (a) (OMT/USD/x=100/f=5/c=1, fee via a single CASH leg) so
  * the two are directly diffable: the STANDALONE flow posts the fee/payout as
- * its own implicit legs and gets OMT_System delta -95 / supplier delta -96 /
- * commission 1; this SESSION flow posts the SAME two legs via the basket
+ * its own implicit legs and gets OMT_System delta -95 / supplier delta -95 /
+ * commission 0; this SESSION flow posts the SAME two legs via the basket
  * recorder instead and must land on the identical numbers — proving
  * deferPayment + recordBasketPayment reconstructs the same money movement,
  * not a different (phantom or short) one.
+ *
+ * RE-DERIVED 2026-08-29 — COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1,
+ * shipped): `grossOwedDelta` no longer nets the shop's commission `c` out of
+ * the supplier payable at all. Supplier delta OLD -> NEW: -96 -> -95;
+ * invariant commission term OLD -> NEW: 1 -> 0. See receiveFeeLegs.test.ts's
+ * own re-derivation for the identical case this file mirrors.
  *
  * Harness: reuses `getDatabase()`'s native `__LIRATEK_TEST_DB__` test hook
  * (no `jest.mock` needed — `BaseRepository.db` is a live getter, so
@@ -508,8 +514,9 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
     // receiveFeeLegs.test.ts case (a)'s implicit-leg number.
     expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5);
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-96, 5);
-    assertInvariant(before, after, { commission: 1 });
+    // Phase 2 (D1): -(x-f) = -(100-5) = -95. OLD -> NEW: -96 -> -95.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
+    assertInvariant(before, after, { commission: 0 }); // OLD -> NEW: 1 -> 0
 
     // Payout/change are distinguishable in the result (no consumer mistakes
     // the $100 payout for change).
@@ -575,6 +582,6 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
     // between PCD/General) — the invariant sums ALL drawers, so it cannot
     // see a routing bug on its own; this is exactly why the PCD-specific
     // assertions above (not just the invariant) are the regression guard.
-    assertInvariant(before, after, { commission: 1 });
+    assertInvariant(before, after, { commission: 0 }); // Phase 2 (D1) OLD -> NEW: 1 -> 0
   });
 });

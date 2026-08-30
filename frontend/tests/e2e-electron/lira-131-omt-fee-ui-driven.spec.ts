@@ -41,6 +41,12 @@
  * balances it is the supplier ledger (`Σ drawer − Δ owed = commission`,
  * guarded with the ledger in view by lira-076). Asserting a drawer-only sum
  * here would be asserting half an equation.
+ * UPDATE (2026-08-29, COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2, D1): the
+ * ledger-side identity above is now `Σ drawer − Δ owed = 0` — `Δ owed` no
+ * longer nets the shop's commission out at all, so nothing is left over to
+ * balance (the commission settles separately, later). See lira-076 and
+ * OmtSystemFeeCharacterization.test.ts for the re-derived numbers; this
+ * spec's own assertions are drawer-only and unaffected either way.
  *
  * Rule 15 discipline: every assertion is a DELTA snapshotted immediately
  * before the action, matched by drawer NAME. No absolute totals, no row

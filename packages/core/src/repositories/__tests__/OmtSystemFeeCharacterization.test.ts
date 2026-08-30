@@ -26,30 +26,57 @@
  * the predicate). App wallets/Binance and non-primary-system flows are
  * untouched (General / their own wallet drawer, same as before #66).
  *
- * Target drawer table (plan §1 / FEATURE_GUIDE §8.1) — every case nets to
- * exactly the shop's own commission `c`, not `f` like the superseded float
- * model's table did:
+ * ─────────────────────────────────────────────────────────────────────────
+ * RE-DERIVED AGAIN 2026-08-29 — COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2
+ * (D1, shipped in `FinancialServiceRepository.ts`'s `grossOwedDelta`/
+ * `SUPPLIER_OWED_EXPR`). Owner: "the amount is owed fully to the supplier,
+ * the commission is paid separately based on the fee." `supplier_owed` no
+ * longer nets `c` out AT ALL (previously it netted the shop's commission
+ * out of the payable, so the shop effectively kept `c` at transaction time,
+ * shorting the provider by exactly its own cut); `c` is now realized
+ * exclusively at supplier settlement (`SupplierRepository
+ * ._bookCommissionAtSettlement`, the same AT_SETTLEMENT machinery Phase 0/1
+ * built for BILLs — `commission_model` is now born `1` for OMT/WHISH SEND/
+ * RECEIVE too, see that stamp's own doc comment in FinancialServiceRepository
+ * .ts). The real cash movements this file characterizes (who gets how much
+ * in which drawer) are UNCHANGED by Phase 2 — only the supplier-ledger
+ * payable formula moved — so every drawer-delta expectation below is
+ * unchanged from the pre-Phase-2 version of this file; only the
+ * supplier-ledger-delta and invariant expectations move by exactly `c`.
+ * OLD -> NEW values are called out per case below (old value first).
+ * ─────────────────────────────────────────────────────────────────────────
  *
- *   SEND,    fee on top   : PCD +(x+f)             Δowed +(x+f−c)   PCDΣ−Δowed = +c
- *   SEND,    fee included : PCD +x                 Δowed +(x−c)     PCDΣ−Δowed = +c
- *   RECEIVE, fee on top   : PCD −x, +f (net −(x−f)) Δowed −(x−f+c)  PCDΣ−Δowed = +c
- *   RECEIVE, fee included : PCD −(x−f)             Δowed −(x−f+c)   PCDΣ−Δowed = +c
+ * Target drawer table (plan §1 / FEATURE_GUIDE §8.1, re-derived for Phase 2):
+ * every case now nets to ZERO kept at transaction time — the shop's
+ * commission `c` no longer shows up in the drawer/payable spread at all;
+ * it is entirely deferred to settlement:
  *
- * The invariant every case below asserts (plan §8.4 / FEATURE_GUIDE §8.1):
+ *   SEND,    fee on top   : PCD +(x+f)             Δowed +(x+f)   PCDΣ−Δowed = 0
+ *   SEND,    fee included : PCD +x                 Δowed +(x)     PCDΣ−Δowed = 0
+ *   RECEIVE, fee on top   : PCD −x, +f (net −(x−f)) Δowed −(x−f)  PCDΣ−Δowed = 0
+ *   RECEIVE, fee included : PCD −(x−f)             Δowed −(x−f)   PCDΣ−Δowed = 0
+ *
+ * The invariant every case below asserts (plan §8.4 / FEATURE_GUIDE §8.1) is
+ * unchanged in SHAPE, but its right-hand side no longer includes `c` — the
+ * commission term drops out because nothing is kept at transaction time
+ * anymore:
  *
  *   Σ(drawer deltas) + Σ(receivable deltas) − Δ(supplier_ledger owed)
- *     = c + kept_change
+ *     = kept_change            (was: = c + kept_change, pre-Phase-2)
  *
  * (the debt_ledger receivable term covers the CUSTOMER_ACCOUNT-funded SEND
  * case, where the "payment" leg is a receivable instead of a drawer credit —
  * see `assertInvariant`'s `debtDeltaUsd` param. That modeling predates this
- * re-derivation and is preserved unchanged — it was already correct.)
+ * re-derivation and is preserved unchanged — it was already correct.) None
+ * of the cases in this file keep change, so every `assertInvariant` call
+ * below now passes `commission: 0` and the computed `lhs` is exactly 0.
  *
- * Supplier ledger is GROSS again (plan §8.3, `grossOwedDelta()` in
- * `FinancialServiceRepository.ts`, replacing #66's fee-only `feeOwedDelta`):
+ * Supplier ledger is TRULY GROSS as of Phase 2 (plan §4 Phase 2 D1,
+ * `grossOwedDelta()` in `FinancialServiceRepository.ts` — supersedes the
+ * "gross-of-drawer, net-of-commission" formula the PCD plan (§8.3) shipped):
  *
- *   SEND    → +(principal + fee − commission)
- *   RECEIVE → −(principal − fee + commission)
+ *   SEND    → +(principal + fee)            [was: +(principal + fee − commission)]
+ *   RECEIVE → −(principal − fee)            [was: −(principal − fee + commission)]
  *
  * This is NOT a return of the pre-#66 gross-reserve bug: that bug
  * double-counted `x` because the drawer ALSO carried it as a provider-side
@@ -495,11 +522,13 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
     // baseSystem "OMT", so both the fee leg and the payout route through
     // resolveServiceCashDrawer to the PCD instead of General.
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General anymore
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // PCD: +5 (fee) - 100 (payout) = -95
-    // Gross supplier ledger (grossOwedDelta, RECEIVE): -(x - f + c) = -(100 - 5 + 1) = -96
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-96, 5);
-    // PCDΣ(-95) - Δowed(-96) = 1 = c(1)
-    assertInvariant(before, after, { commission: 1 });
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // PCD: +5 (fee) - 100 (payout) = -95 (unchanged by Phase 2 — cash flow, not payable, moved)
+    // Phase 2 (D1): gross supplier ledger (grossOwedDelta, RECEIVE) no longer
+    // nets commission: -(x - f) = -(100 - 5) = -95. OLD (pre-Phase-2): -(x-f+c) = -96.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
+    // PCDΣ(-95) - Δowed(-95) = 0 (was: 1 = c(1), pre-Phase-2 — the shop no
+    // longer keeps its commission at transaction time; it settles later)
+    assertInvariant(before, after, { commission: 0 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -542,11 +571,12 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
     // No separate fee leg (fee-included nets it out of the payout instead).
     // The single payout leg routes to the PCD, not General.
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // PCD: -(x-f) = -95
-    // Gross supplier ledger is unaffected by fee mode — same -(x-f+c) as CASE 1.
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-96, 5); // -(100-5+1)
-    // PCDΣ(-95) - Δowed(-96) = 1 = c(1)
-    assertInvariant(before, after, { commission: 1 });
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // PCD: -(x-f) = -95 (unchanged by Phase 2)
+    // Gross supplier ledger is unaffected by fee mode — same -(x-f) as CASE 1.
+    // Phase 2 (D1): -(100-5) = -95. OLD (pre-Phase-2): -(100-5+1) = -96.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
+    // PCDΣ(-95) - Δowed(-95) = 0 (was: 1 = c(1), pre-Phase-2)
+    assertInvariant(before, after, { commission: 0 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -581,11 +611,12 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
     // PCD (OMT_System) — the old float model's separate "-x reserve" leg is
     // deleted, so General never sees this money at all.
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(105, 5); // PCD: +(x+f) = +105
-    // Gross supplier ledger (grossOwedDelta, SEND): +(x + f - c) = 100 + 5 - 1 = 104
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(104, 5);
-    // PCDΣ(105) - Δowed(104) = 1 = c(1)
-    assertInvariant(before, after, { commission: 1 });
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(105, 5); // PCD: +(x+f) = +105 (unchanged by Phase 2)
+    // Phase 2 (D1): gross supplier ledger (grossOwedDelta, SEND) no longer
+    // nets commission: +(x + f) = 100 + 5 = 105. OLD (pre-Phase-2): 104 (=100+5-1).
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(105, 5);
+    // PCDΣ(105) - Δowed(105) = 0 (was: 1 = c(1), pre-Phase-2)
+    assertInvariant(before, after, { commission: 0 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -637,11 +668,12 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
     // Customer's cash lands in the PCD (OMT_System), not General — the whole
     // $100 budget is real cash on a primary-system SEND.
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(100, 5); // PCD: +budget = +100
-    // Gross supplier ledger (grossOwedDelta, SEND): principal(95) + fee(5) - commission(1) = 99
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(99, 5);
-    // PCDΣ(100) - Δowed(99) = 1 = c(1)
-    assertInvariant(before, after, { commission: 1 });
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(100, 5); // PCD: +budget = +100 (unchanged by Phase 2)
+    // Phase 2 (D1): gross supplier ledger (grossOwedDelta, SEND) no longer
+    // nets commission: principal(95) + fee(5) = 100. OLD (pre-Phase-2): 99 (=95+5-1).
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(100, 5);
+    // PCDΣ(100) - Δowed(100) = 0 (was: 1 = c(1), pre-Phase-2)
+    assertInvariant(before, after, { commission: 0 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -677,11 +709,12 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
 
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
     expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(-40, 5); // wallet leg unchanged
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-60, 5); // PCD: -(CASH leg) = -60
-    // Gross supplier ledger (grossOwedDelta, RECEIVE): -(x - f + c) = -(100 - 0 + 1) = -101
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-101, 5);
-    // PCDΣ(-60 - 40 = -100) - Δowed(-101) = 1 = c(1)
-    assertInvariant(before, after, { commission: 1 });
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-60, 5); // PCD: -(CASH leg) = -60 (unchanged by Phase 2)
+    // Phase 2 (D1): gross supplier ledger (grossOwedDelta, RECEIVE) no longer
+    // nets commission: -(x - f) = -(100 - 0) = -100. OLD (pre-Phase-2): -101 (=-(100-0+1)).
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-100, 5);
+    // PCDΣ(-60 - 40 = -100) - Δowed(-100) = 0 (was: 1 = c(1), pre-Phase-2)
+    assertInvariant(before, after, { commission: 0 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -721,11 +754,12 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
 
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
     expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(45, 5); // wallet leg unchanged
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(60, 5); // PCD: +(CASH leg) = +60, NOT -100+leftover
-    // Gross supplier ledger (grossOwedDelta, SEND): 100 + 5 - 1 = 104
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(104, 5);
-    // PCDΣ(60 + 45 = 105) - Δowed(104) = 1 = c(1)
-    assertInvariant(before, after, { commission: 1 });
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(60, 5); // PCD: +(CASH leg) = +60, NOT -100+leftover (unchanged by Phase 2)
+    // Phase 2 (D1): gross supplier ledger (grossOwedDelta, SEND) no longer
+    // nets commission: 100 + 5 = 105. OLD (pre-Phase-2): 104 (=100+5-1).
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(105, 5);
+    // PCDΣ(60 + 45 = 105) - Δowed(105) = 0 (was: 1 = c(1), pre-Phase-2)
+    assertInvariant(before, after, { commission: 0 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -775,17 +809,21 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
     // The PCD does NOT move either: no real cash physically moved (the
     // float-model's automatic "-x" draw-down leg is deleted).
     expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(0, 5);
-    // debt_ledger carries the full customer-owed total (x + f = 105).
+    // debt_ledger carries the full customer-owed total (x + f = 105) — unaffected
+    // by Phase 2 (customer's payable, not the supplier's).
     expect(after.debtUsd - before.debtUsd).toBeCloseTo(105, 5);
-    // Gross supplier ledger (grossOwedDelta, SEND): 100 + 5 - 1 = 104
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(104, 5);
+    // Phase 2 (D1): gross supplier ledger (grossOwedDelta, SEND) no longer
+    // nets commission: 100 + 5 = 105. OLD (pre-Phase-2): 104 (=100+5-1).
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(105, 5);
 
     // Extended invariant: the debt receivable stands in for the missing
     // drawer credit (no drawer moved for the customer's payment, and now no
     // drawer moved for the shop's own cash either — the invariant's
-    // receivable term carries the entire customer-facing total).
+    // receivable term carries the entire customer-facing total). Phase 2:
+    // commission is 0 here too (was 1, pre-Phase-2) — nothing is kept at
+    // transaction time anymore.
     assertInvariant(before, after, {
-      commission: 1,
+      commission: 0,
       debtDeltaUsd: after.debtUsd - before.debtUsd,
     });
   });

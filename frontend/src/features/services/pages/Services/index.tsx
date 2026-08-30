@@ -1928,10 +1928,18 @@ export default function Services() {
                           based on amount
                         </p>
                       )}
-                      {/* Live profit preview */}
+                      {/* Live profit preview — DISPLAY ESTIMATE ONLY
+                          (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2, D1):
+                          the whole OMT fee is now owed to OMT in full; the
+                          shop's cut is no longer withheld here — it is
+                          entered by the operator at supplier settlement.
+                          This figure (and the value this form submits, which
+                          never includes a commission field — the backend's
+                          own auto-calc stamps the SAME estimate onto the row
+                          for display purposes) is not money kept today. */}
                       {feeVal > 0 && (
                         <p className="text-sm text-emerald-400 mt-1 font-medium">
-                          Your profit:{" "}
+                          Estimated commission (settled with OMT later):{" "}
                           <span className="font-mono">
                             {isLbp
                               ? Math.round(profit).toLocaleString() + " LBP"
@@ -1941,7 +1949,8 @@ export default function Services() {
                           {isLbp
                             ? feeVal.toLocaleString() + " LBP"
                             : "$" + feeVal.toFixed(2)}{" "}
-                          OMT fee)
+                          OMT fee) — the full fee is owed to OMT now; your cut
+                          is paid out at settlement.
                         </p>
                       )}
                     </div>
@@ -1951,25 +1960,27 @@ export default function Services() {
               {/* WHISH Fee Input — shown for WHISH SEND */}
               {/* WHISH Fee Input — hidden per LIRA-023 (Whish System has no fees) */}
 
-              {/* Online Brokerage — Flat $3 Profit */}
+              {/* Online Brokerage — Flat $3 estimated commission (DISPLAY
+                  ESTIMATE ONLY, Phase 2 D1 — see the OMT Fee preview above) */}
               {provider === "OMT" && omtServiceType === "ONLINE_BROKERAGE" && (
                 <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
                     <div>
                       <h4 className="text-sm font-semibold text-emerald-400 mb-1">
-                        Online Brokerage — Flat $3 Profit
+                        Online Brokerage — Estimated $3.00 Commission
                       </h4>
                       <p className="text-xs text-slate-400">
-                        Shop earns a flat $3.00 commission per transaction
-                        (UNICEF, etc.)
+                        A flat $3.00 estimate per transaction (UNICEF, etc.) —
+                        owed to OMT in full for now; your cut is entered and
+                        paid out at settlement.
                       </p>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* OMT Wallet Zero-Fee Alert */}
+              {/* OMT Wallet Zero-Fee Alert — DISPLAY ESTIMATE ONLY (Phase 2 D1) */}
               {provider === "OMT" && omtServiceType === "OMT_WALLET" && (
                 <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
                   <div className="flex items-start gap-3">
@@ -1979,8 +1990,9 @@ export default function Services() {
                         OMT Wallet - No Fees to Customer
                       </h4>
                       <p className="text-xs text-blue-300/80">
-                        No fee charged to customer. Shop earns 0.1% of transfer
-                        amount as commission.
+                        No fee charged to customer. Estimated shop cut: 0.1% of
+                        transfer amount — owed to OMT in full for now, entered
+                        and paid out at settlement.
                       </p>
                     </div>
                   </div>

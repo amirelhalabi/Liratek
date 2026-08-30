@@ -739,6 +739,18 @@ describe("SupplierRepository.settleTransactions() — commission-at-settlement (
   });
 
   // ── Legacy (commission_model = 0) batches — byte-for-byte unchanged ──────
+  //
+  // NOTE (2026-08-29, COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2, D1
+  // shipped): `seedFs` stamps `commission_model` directly, bypassing
+  // `FinancialServiceRepository.createTransaction`'s own stamp logic — a
+  // REAL OMT/WHISH SEND/RECEIVE row is now born `commission_model = 1`
+  // (AT_SETTLEMENT), same as a BILL. Every "legacy" OMT fixture below
+  // therefore no longer represents a row a fresh transaction can produce —
+  // it stands in for a PRE-CUTOVER row created before this deploy (D3's
+  // whole reason for a per-row flag instead of a date cutoff: those rows
+  // must keep settling exactly as they always did). The mechanism under
+  // test — `settleTransactions`'s legacy no-op branch — is unaffected by
+  // Phase 2 either way, so nothing here needed re-deriving.
 
   it("legacy batch (commission_model = 0): writes NO supplier_settlements/allocations/commission-credit rows — informational commission only", () => {
     const supplierId = seedSupplier(db, "OMT");
@@ -881,7 +893,10 @@ describe("SupplierRepository.settleTransactions() — bills-only commission draw
     expect(drawerBalance("Katsh", "LBP")).toBe(20000);
   });
 
-  it("REGRESSION — an OMT (legacy, commission_model = 0) batch is byte-for-byte untouched: no drawer top-up, no profit stamp, unchanged SUPPLIER_SETTLEMENT metadata flow", () => {
+  it("REGRESSION — a PRE-CUTOVER OMT (legacy, commission_model = 0) batch is byte-for-byte untouched: no drawer top-up, no profit stamp, unchanged SUPPLIER_SETTLEMENT metadata flow", () => {
+    // Phase 2 (D1): a FRESH OMT row is now born commission_model = 1 — this
+    // fixture (seedFs bypasses createTransaction's stamp) stands in for a
+    // row created before the cutover, per this suite's section-header note.
     const supplierId = seedSupplier(db, "OMT");
     const fsId = seedFs(db, {
       provider: "OMT",

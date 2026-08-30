@@ -377,18 +377,25 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     });
 
     // Auto TOP_UP sibling books the GROSS amount owed (primary-cash-drawer
-    // model, 2026-07-30, grossOwedDelta): principal + fee − commission.
-    // omtServiceType "INTRA" auto-computes commission from the $5 fee (10%
-    // tier → $0.50), overriding the explicit `commission: 0` param — so
-    // owed = 100 + 5 − 0.5 = 104.5. (Was, float model, superseded: fee-only
-    // = |fee| − |commission| = 4.5 — the $100 principal used to move through
-    // the OMT_System FLOAT instead of the ledger; there is no float anymore,
-    // so the ledger carries the whole transfer again.)
+    // model, 2026-07-30, grossOwedDelta): principal + fee, no commission
+    // netted (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 D1, shipped
+    // 2026-08-29 — the shop's commission is no longer carved out of the
+    // supplier payable; it settles separately). omtServiceType "INTRA"
+    // still auto-computes commission from the $5 fee (10% tier → $0.50,
+    // overriding the explicit `commission: 0` param) and stores it on the
+    // row as an at-settlement estimate, but it is NOT subtracted here
+    // anymore — owed = 100 + 5 = 105.
+    // OLD -> NEW: 104.5 -> 105 (Phase 2 D1 dropped the `− commission(0.5)`
+    // term). (Before that, float model, superseded: fee-only = |fee| −
+    // |commission| = 4.5 — the $100 principal used to move through the
+    // OMT_System FLOAT instead of the ledger; there is no float anymore, so
+    // the ledger carries the whole transfer again.)
     const before = ledgerRowsForSupplier(db, omtId);
     expect(before).toHaveLength(1);
     expect(before[0].entry_type).toBe("TOP_UP");
-    // 104.5 = principal(100) + fee(5) - commission(0.5); float model read 4.5
-    expect(before[0].amount_usd).toBeCloseTo(104.5, 2);
+    // 105 = principal(100) + fee(5); OLD (pre-Phase-2) read 104.5 (commission
+    // 0.5 netted out); float model before that read 4.5 (fee-only).
+    expect(before[0].amount_usd).toBeCloseTo(105, 2);
     expect(before[0].is_refunded).toBe(0);
     expect(before[0].source_ref_table).toBe("financial_services");
     const siblingTxnId = before[0].transaction_id!;
@@ -396,7 +403,7 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     expect(txnStatus(db, siblingTxnId)).toBe("ACTIVE");
 
     const balanceBefore = getSupplierRepository().getSupplierBalance(omtId);
-    expect(balanceBefore.balance_usd).toBeCloseTo(104.5, 2);
+    expect(balanceBefore.balance_usd).toBeCloseTo(105, 2);
 
     // Void the PARENT financial_services transaction.
     const parentTxn = txnRepo.getBySourceId("financial_services", 1)!;
@@ -454,9 +461,10 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     expect(ledgerAfterMarkOnly[0].is_refunded).toBe(0); // sibling untouched
     const balanceStillOverstated =
       getSupplierRepository().getSupplierBalance(omtId);
-    // 104.5 = principal(100) + fee(5) - commission(0.5), same gross TOP_UP as
-    // the main (a) test above — un-cascaded, so it still stands (bug shape).
-    expect(balanceStillOverstated.balance_usd).toBeCloseTo(104.5, 2); // bug shape
+    // 105 = principal(100) + fee(5) (Phase 2 D1 — no commission netted), same
+    // gross TOP_UP as the main (a) test above — un-cascaded, so it still
+    // stands (bug shape). OLD -> NEW: 104.5 -> 105.
+    expect(balanceStillOverstated.balance_usd).toBeCloseTo(105, 2); // bug shape
   });
 
   // ── (b) RECHARGE path (synthetic — proves genericity, see header doc) ─────
@@ -531,15 +539,23 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
       exchangeRate: 90000,
     });
 
+    // Phase 2 (D1): TOP_UP is now the pure gross principal(100) + fee(0) =
+    // 100, no commission netted out — so the settlement pays the FULL 100
+    // (commission_usd is carried along informationally only; this fixture's
+    // schema predates v150's supplier_settlements/allocations tables, so no
+    // separate commission credit is ever booked here either way — see the
+    // FAILING-FIRST test below for the worked-out ledger math).
+    // OLD -> NEW: amount_usd/payment leg 95 -> 100 (was owed(100)-commission(5)
+    // under the pre-Phase-2 netted formula).
     const settlement = getSupplierRepository().settleTransactions({
       supplier_id: omtId,
       financial_service_ids: [1],
-      amount_usd: 95, // owed(100) - commission(5)
+      amount_usd: 100,
       amount_lbp: 0,
       commission_usd: 5,
       commission_lbp: 0,
       created_by: 1,
-      payments: [{ method: "CASH", currency_code: "USD", amount: 95 }],
+      payments: [{ method: "CASH", currency_code: "USD", amount: 100 }],
     });
     expect(settlement.id).toBeTruthy();
 
@@ -571,12 +587,12 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     getSupplierRepository().settleTransactions({
       supplier_id: omtId,
       financial_service_ids: [1],
-      amount_usd: 95,
+      amount_usd: 100,
       amount_lbp: 0,
       commission_usd: 5,
       commission_lbp: 0,
       created_by: 1,
-      payments: [{ method: "CASH", currency_code: "USD", amount: 95 }],
+      payments: [{ method: "CASH", currency_code: "USD", amount: 100 }],
     });
 
     const balanceAtSettlement =
@@ -585,12 +601,19 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     // block's `resolvedFee > 0` guard never fires (FinancialServiceRepository.ts
     // :685), so the explicit `commission: 5` param is NOT overridden this
     // time (unlike test (a), where a nonzero fee DOES trigger the
-    // auto-recalculation) — TOP_UP = principal(100) + fee(0) − commission(5)
-    // = 95. SETTLEMENT(-95) is the only other ledger movement: 95 − 95 = 0
-    // (this settlement was never meant to be "correct" money — just
-    // realistic enough to prove the void-block guard below). (Was, float
-    // model, superseded: TOP_UP = |fee(0)| − |commission(5)| = −5, so
-    // −5 − 95 = −100 — the principal never appeared in the ledger at all.)
+    // auto-recalculation) — but as of Phase 2 (D1) it is no longer subtracted
+    // from the payable either way: TOP_UP = principal(100) + fee(0) = 100.
+    // SETTLEMENT(-100) is the only other ledger movement (this fixture's
+    // schema predates v150's supplier_settlements/allocations tables, so no
+    // separate commission credit is ever booked — commission_usd stays
+    // purely informational metadata here, same as always for this file):
+    // 100 − 100 = 0 (this settlement was never meant to be "correct" money —
+    // just realistic enough to prove the void-block guard below).
+    // OLD -> NEW: TOP_UP/settlement amount 95 -> 100, net still 0 either way
+    // (pre-Phase-2: TOP_UP = principal(100) + fee(0) − commission(5) = 95,
+    // settled with a matching 95 net-pay). (Before that, float model,
+    // superseded: TOP_UP = |fee(0)| − |commission(5)| = −5, so −5 − 95 = −100
+    // — the principal never appeared in the ledger at all.)
     expect(balanceAtSettlement.balance_usd).toBeCloseTo(0, 2);
 
     // Bypass the guard directly (the exact code path _assertSupplierSiblingsVoidable
@@ -604,11 +627,11 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
 
     const balanceIfCascadedAnyway =
       getSupplierRepository().getSupplierBalance(omtId);
-    // Without the TOP_UP(95) counted, only SETTLEMENT(-95) remains: 0 - 95 =
-    // -95 — the balance shifts by exactly the un-counted TOP_UP,
+    // Without the TOP_UP(100) counted, only SETTLEMENT(-100) remains: 0 - 100
+    // = -100 — the balance shifts by exactly the un-counted TOP_UP,
     // desyncing from the already-computed settlement math. This is exactly
-    // the corruption the guard prevents.
-    expect(balanceIfCascadedAnyway.balance_usd).toBeCloseTo(-95, 2);
+    // the corruption the guard prevents. OLD -> NEW: -95 -> -100.
+    expect(balanceIfCascadedAnyway.balance_usd).toBeCloseTo(-100, 2);
   });
 
   // ── (d) Katsh BILL inside a split group ────────────────────────────────────
@@ -652,8 +675,8 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     // COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1 cut over the live BILL
     // auto-booking: every BILL row `createTransaction` creates today (both
     // fixtures above are BILLs) is born `commission_model = 1` — the stamp
-    // is gated to `service_type === "BILL"` specifically, not every new row
-    // (OMT/WHISH stay `commission_model = 0` until Phase 2 ships; see
+    // is gated to `service_type === "BILL"` OR an OMT/WHISH SEND/RECEIVE
+    // (Phase 2, D1, shipped 2026-08-29 — see
     // FinancialServiceRepository.omtCommissionModelGate.test.ts) — which
     // books NOTHING at creation (commission is entered at settlement
     // instead — see

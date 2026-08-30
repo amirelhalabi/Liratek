@@ -13,6 +13,13 @@
  * `amount + fee` (gross) and RECEIVE at the bare `amount` — both wrong under
  * the float model, since `x` is now the float's job, not the ledger's.
  *
+ * RE-DERIVED AGAIN 2026-08-29 — COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2
+ * (D1, shipped): `grossOwedDelta` no longer nets the shop's commission `c`
+ * out of the payable at all (the whole fee is owed to the provider; the
+ * shop's commission is paid separately at settlement — owner). Every
+ * expected delta below moves by exactly the case's own `c` (OLD -> NEW
+ * called out inline).
+ *
  * The RECEIVE case below now passes an EXPLICIT `omtFee` (it didn't before).
  * Reason: `FinancialServiceRepository`'s `resolvedProviderFee` (the `f` that
  * feeds this exact booking) reads ONLY `data.omtFee ?? 0` — it does NOT fall
@@ -104,8 +111,10 @@ test.describe("LIRA-076 (primary cash drawer model) — supplier ledger = GROSS 
     // table regardless of the `commission` field sent — so this test does
     // NOT pass `commission` at all; it lets the real auto-calc run:
     //   c = calculateCommission("INTRA", f=5) = 5 × OMT_COMMISSION_RATES.INTRA
-    //     = 5 × 0.10 = 0.5
-    //   ledger delta = grossOwedDelta(SEND) = x + f − c = 80 + 5 − 0.5 = 84.5
+    //     = 5 × 0.10 = 0.5 (still auto-computed and stored — an at-settlement
+    //     estimate, D1 — just no longer subtracted here)
+    //   ledger delta = grossOwedDelta(SEND) = x + f = 80 + 5 = 85
+    //   (OLD, pre-Phase-2: x + f − c = 80 + 5 − 0.5 = 84.5)
     // The principal is BACK in the ledger, and that is the model change: with
     // no provider-side float to hold it, the 80 the shop owes OMT has nowhere
     // else to live. It is not the old double-count — the drawer holds that 80
@@ -130,9 +139,10 @@ test.describe("LIRA-076 (primary cash drawer model) — supplier ledger = GROSS 
     expect(res.success).toBe(true);
 
     const after = await omtBalance(appPage);
-    // TOP_UP is positive (shop owes OMT): exactly +84.5 = x + f − c.
-    // Read 4.5 under the superseded fee-only float model.
-    expect(after.usd - before.usd).toBeCloseTo(84.5, 2);
+    // TOP_UP is positive (shop owes OMT): exactly +85 = x + f (Phase 2, D1 —
+    // no commission netted). OLD -> NEW: 84.5 -> 85. Read 4.5 under the
+    // superseded fee-only float model before that.
+    expect(after.usd - before.usd).toBeCloseTo(85, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(0, 2);
   });
 
@@ -145,9 +155,10 @@ test.describe("LIRA-076 (primary cash drawer model) — supplier ledger = GROSS 
     // auto-looked-up, because `resolvedProviderFee` (the `f` that feeds this
     // booking) reads ONLY `data.omtFee`, never the fee-table lookup (see
     // file header). With f=2 explicit:
-    //   c = calculateCommission("INTRA", f=2) = 2 × 0.10 = 0.2
-    //   ledger delta = grossOwedDelta(RECEIVE) = −(x − f + c)
-    //                = −(40 − 2 + 0.2) = −38.2
+    //   c = calculateCommission("INTRA", f=2) = 2 × 0.10 = 0.2 (still
+    //     auto-computed and stored, no longer subtracted here — Phase 2, D1)
+    //   ledger delta = grossOwedDelta(RECEIVE) = −(x − f) = −(40 − 2) = −38
+    //   (OLD, pre-Phase-2: −(x − f + c) = −(40 − 2 + 0.2) = −38.2)
     // The SIGN is the point: on a RECEIVE the shop paid the customer out of
     // its own drawer, so the PROVIDER now owes the shop. Booked as a signed
     // TOP_UP (never "PAYMENT", which force-negates and would silently flip
@@ -169,9 +180,10 @@ test.describe("LIRA-076 (primary cash drawer model) — supplier ledger = GROSS 
     expect(res.success).toBe(true);
 
     const after = await omtBalance(appPage);
-    // −38.2: the provider owes the shop. Read +1.8 (fee-only) under the
-    // superseded float model and −40.4 under the pre-float model before that.
-    expect(after.usd - before.usd).toBeCloseTo(-38.2, 2);
+    // −38: the provider owes the shop (Phase 2, D1 — no commission netted).
+    // OLD -> NEW: -38.2 -> -38. Read +1.8 (fee-only) under the superseded
+    // float model and −40.4 under the pre-float model before that.
+    expect(after.usd - before.usd).toBeCloseTo(-38, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(0, 2);
   });
 });

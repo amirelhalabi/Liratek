@@ -29,22 +29,23 @@
  * predicate-swap fix and re-run green before this file was finalized.
  *
  * IMPORTANT — post-review correction (2-reviewer FIX_FIRST, critical money
- * bug): `commission_model` is gated to BILL rows ONLY at creation
- * (`FinancialServiceRepository.createTransaction`) — OMT/WHISH SEND/RECEIVE
- * stay `commission_model = 0` (legacy EMBEDDED) until Phase 2's gross-payable
- * flip (D1) actually ships, because `grossOwedDelta`/`SUPPLIER_OWED_EXPR`
- * still NET their auto-calculated commission out of `supplier_owed` today.
- * Stamping them `commission_model = 1` (an earlier draft of this file's own
- * assertions did, before this correction) routes them into the new-model
- * settlement path, which books the entered commission as a SECOND
- * `SUPPLIER_PAYS_US` credit on top of the commission already netted at
- * creation — a real double subtraction from what the provider is paid (see
+ * bug), UPDATED 2026-08-29 for Phase 2 (D1, shipped): `commission_model` was
+ * gated to BILL rows ONLY at creation while Phase 2 was unshipped, because
+ * stamping OMT/WHISH SEND/RECEIVE `commission_model = 1` before
+ * `grossOwedDelta`/`SUPPLIER_OWED_EXPR` stopped netting their auto-calculated
+ * commission out of `supplier_owed` would have double-subtracted it (see
  * `FinancialServiceRepository.omtCommissionModelGate.test.ts`, which guards
  * this specific defect end-to-end with a realistic nonzero-commission OMT
- * SEND). The "is_settled at creation" describe block below tests each
- * kind's CORRECT behavior under that gate: BILL is the only kind actually
- * born commission_model = 1 today; OMT/WHISH/BINANCE all stay 0 and follow
- * the preserved legacy marker.
+ * SEND). COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1) has now shipped —
+ * BOTH halves landed together (the gross-payable flip AND widening this
+ * stamp) — so OMT/WHISH SEND/RECEIVE are now ALSO born `commission_model =
+ * 1`, same as BILL. The "is_settled at creation" describe block below tests
+ * each kind's CORRECT (POST-Phase-2) behavior: BILL and OMT/WHISH are both
+ * born commission_model = 1 (and therefore unconditionally PENDING —
+ * `isPendingSupplierSettlement`'s model=1 branch returns `true` for either
+ * kind with no commission check at all, unlike the legacy marker it
+ * replaces); BINANCE (out of §0 scope) is the only kind still born
+ * commission_model = 0, following the preserved legacy marker.
  *
  * LIRA-112 (2026-08-09, D12) update: `isPendingSupplierSettlement` gained a
  * required `supplierCommissionEligible` field and the BILL branch dropped
@@ -402,17 +403,22 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md D2 — is_settled at creation", () =>
     },
   );
 
-  // ── OMT/WHISH stay LEGACY (commission_model = 0) at creation ────────────
+  // ── OMT/WHISH are NOW AT_SETTLEMENT (commission_model = 1) at creation ──
   //
-  // Post-review correction: Phase 2's gross-payable flip (D1) hasn't
-  // shipped, so OMT/WHISH SEND/RECEIVE must NOT be stamped commission_model
-  // = 1 at creation — see this file's header doc comment and
-  // FinancialServiceRepository.omtCommissionModelGate.test.ts for the money
-  // bug this gate prevents. These rows keep following the preserved LEGACY
-  // marker (commission_model = 0 AND provider IN OMT/WHISH AND commission >
-  // 0), exactly their pre-Phase-0 behavior.
+  // COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1, shipped 2026-08-29):
+  // OMT/WHISH SEND/RECEIVE are now stamped `commission_model = 1`, same as
+  // BILL — see this file's header doc comment and
+  // FinancialServiceRepository.omtCommissionModelGate.test.ts (re-derived in
+  // the same change) for why the gross-payable flip and this stamp widening
+  // had to land together. A model=1 OMT/WHISH row is UNCONDITIONALLY
+  // pending settlement (`isPendingSupplierSettlement`'s model=1 branch never
+  // checks `commission` at all) — unlike the legacy marker it replaces
+  // (which required `commission > 0`), so a zero-commission row is now
+  // BORN PENDING too (`is_settled = 0`), the OPPOSITE of pre-Phase-2.
 
-  it("an OMT SEND row with commission = 0 at creation is born commission_model = 0, is_settled = 1 (legacy marker: zero-commission legacy rows are NOT pending)", () => {
+  it("an OMT SEND row is born commission_model = 1, is_settled = 0 (unconditionally pending, even with commission = 0 at creation)", () => {
+    // OLD -> NEW (pre-Phase-2, this file's own prior assertions):
+    // commission_model 0 -> 1, is_settled 1 -> 0.
     const { id } = repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
@@ -433,14 +439,15 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md D2 — is_settled at creation", () =>
     };
 
     expect(row.commission).toBe(0);
-    expect(row.commission_model).toBe(0);
-    expect(row.is_settled).toBe(1);
+    expect(row.commission_model).toBe(1);
+    expect(row.is_settled).toBe(0);
   });
 
-  it("a WHISH RECEIVE (WHISH always forces commission to 0 — 'no commission' business rule) is born commission_model = 0, is_settled = 1", () => {
+  it("a WHISH RECEIVE (WHISH always forces commission to 0 — 'no commission' business rule) is born commission_model = 1, is_settled = 0", () => {
     // Base system is OMT (seeded above) — WHISH is the SECONDARY system here,
     // so a walk-in WHISH transaction must route THROUGH a partner (unrelated
     // to this predicate; just satisfying that separate guard).
+    // OLD -> NEW (pre-Phase-2): commission_model 0 -> 1, is_settled 1 -> 0.
     const partnerId = Number(
       db.prepare("INSERT INTO partners (name) VALUES ('P')").run()
         .lastInsertRowid,
@@ -463,8 +470,8 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md D2 — is_settled at creation", () =>
       )
       .get(id) as { is_settled: number; commission_model: number };
 
-    expect(row.commission_model).toBe(0);
-    expect(row.is_settled).toBe(1);
+    expect(row.commission_model).toBe(1);
+    expect(row.is_settled).toBe(0);
   });
 
   it("a NEW-model provider OUT of §0 scope (BINANCE) is unaffected — commission_model = 0, born is_settled = 1 same as before", () => {
@@ -501,11 +508,16 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md D2 — legacy-model (commission_model
 
   /**
    * Simulates rows that existed BEFORE the v150 migration — inserted
-   * directly (bypassing the repository, which only stamps
-   * commission_model = 1 on BILL rows — see the header comment above) with
-   * commission_model = 0, exactly what the migration's `ALTER ... DEFAULT 0`
-   * leaves pre-existing rows at, and exactly what the repository itself
-   * stamps on a freshly-created OMT/WHISH row today too.
+   * directly (bypassing the repository), with commission_model = 0, exactly
+   * what the migration's `ALTER ... DEFAULT 0` leaves pre-existing rows at.
+   *
+   * UPDATED for Phase 2 (D1, shipped 2026-08-29): a FRESHLY-CREATED OMT/WHISH
+   * row is NO LONGER born commission_model = 0 (see the describe block
+   * above) — these `insertLegacyRow` fixtures now stand in specifically for
+   * PRE-CUTOVER data (created before this deploy), the whole reason D3 chose
+   * a per-row flag over a date cutoff. The mechanism under test
+   * (`getUnsettledBySupplier`'s legacy-marker branch) is itself unaffected by
+   * Phase 2 either way, so nothing in this describe block needed re-deriving.
    */
   function insertLegacyRow(opts: {
     provider: string;

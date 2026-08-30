@@ -50,6 +50,7 @@ import {
   assertNoCustomerAccountLeg,
   postPayoutLegs,
   resolveStampedExchangeRate,
+  formatMoneyAmount,
 } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
@@ -168,9 +169,10 @@ export interface FinancialServiceEntity {
    * 1`) and 0 for a post-C5 one (LIRA-122 — `supplier_debt_booked = 0`, the
    * default since migration v115: the debt already lives in the TOP_UP entry
    * booked at top-up time, so a per-sale row owes nothing on its own),
-   * `+(amount + fee − commission)` for OMT/WHISH SEND, `−(amount − fee +
-   * commission)` for OMT/WHISH RECEIVE (a signed negative — reduces what the
-   * shop owes), bare amount otherwise.
+   * `+(amount + fee)` for OMT/WHISH SEND, `−(amount − fee)` for OMT/WHISH
+   * RECEIVE (a signed negative — reduces what the shop owes; the shop's
+   * commission is no longer netted in here as of Phase 2, D1 — it settles
+   * separately), bare amount otherwise.
    */
   supplier_owed: number;
   /**
@@ -628,24 +630,34 @@ function walletSendDebtNote(
  * book the auto supplier_ledger TOP_UP entry (createTransaction, "Auto-record
  * supplier debt" below).
  *
- * Owner verdict 2026-07-30: OMT_System/Whish_System is NOT a spendable float
- * inside the provider's own books — it is the shop's physical cash drawer.
- * No leg tracks a principal balance there anymore, so the supplier ledger
- * goes back to the GROSS amount owed the provider on each transfer:
- * principal `x`, customer fee `f`, shop commission `c` (`c ≤ f`, `c = 0` for
- * WHISH):
+ * COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1, shipped): the whole fee
+ * is owed to the provider — the shop's commission `c` is no longer netted
+ * out of the payable here. It is settled separately, entered by the
+ * operator at settlement time and booked by
+ * `SupplierRepository._bookCommissionAtSettlement` (the same AT_SETTLEMENT
+ * machinery Phase 0/1 already built for BILLs — see the `commission_model`
+ * stamp in `createTransaction` below, which now born-flags these rows `1`
+ * for exactly this reason). Owner: "the amount is owed fully to the
+ * supplier, the commission is paid separately based on the fee."
  *
- *   SEND    → +(x + f − c)   (the shop drew x+f in cash, owes the provider
- *                              everything except its own cut)
- *   RECEIVE → −(x − f + c)   (the shop paid out x−f in cash, is owed back
- *                              everything except its own cut — a negative
- *                              entry, reducing what the shop owes)
+ * Owner verdict 2026-07-30 (Primary Cash Drawer plan): OMT_System/
+ * Whish_System is NOT a spendable float inside the provider's own books —
+ * it is the shop's physical cash drawer. No leg tracks a principal balance
+ * there anymore, so the supplier ledger carries the GROSS amount owed the
+ * provider on each transfer: principal `x`, customer fee `f` (`f` is
+ * always 0 for WHISH):
+ *
+ *   SEND    → +(x + f)   (the shop drew x+f in cash, owes the provider all
+ *                          of it — its own commission cut settles later)
+ *   RECEIVE → −(x − f)   (the shop paid out x−f in cash, is owed back all
+ *                          of it — a negative entry, reducing what the shop
+ *                          owes)
  *
  * `amount` is the repo's existing bare principal (`data.amount` — the
  * frontend pre-nets fee-included SEND/RECEIVE before this repo ever sees it,
  * so no fee-mode branch is needed here; see the doc comments on `sentAmount`/
- * `receiveAmount` below). Worked example (USD, x=100, f=5, c=0.5): SEND
- * +104.5, RECEIVE −95.5 (§8.3).
+ * `receiveAmount` below). Worked example (USD, x=100, f=5): SEND +105,
+ * RECEIVE −95 (§8.3).
  *
  *  - Wallet-provider transfers (OMT_APP / WHISH_APP / BINANCE, prepaid
  *    balance the shop owns) owe NOTHING — Fix B, unchanged.
@@ -657,24 +669,41 @@ function grossOwedDelta(params: {
   serviceType: CreateFinancialServiceData["serviceType"];
   provider: CreateFinancialServiceData["provider"];
   fee: number;
-  commission: number;
   cost: number;
   amount: number;
+  /**
+   * D3 per-row cutover. 1 = AT_SETTLEMENT (Phase 2): the payable is GROSS and
+   * the shop's cut is settled separately. 0 = legacy EMBEDDED: the payable was
+   * booked NET of commission at creation.
+   *
+   * Every row this function writes today is model 1 — the caller stamps it —
+   * so the parameter exists for ONE reason: to keep this definition and its SQL
+   * twin `SUPPLIER_OWED_EXPR` structurally identical (rule 14). The SQL side
+   * genuinely needs it, because it is a READ projection over history and must
+   * describe rows written before the flip. A JS function that could not express
+   * a legacy row would make the two definitions silently incomparable, which is
+   * exactly what the parity guard exists to prevent.
+   */
+  commissionModel: number;
+  /** The shop's cut. Only consulted for legacy (model 0) rows. */
+  commission: number;
 }): number {
   if (isWalletProvider(params.provider) && params.cost <= 0) return 0;
   if (params.serviceType === "SEND" && params.cost > 0) return params.cost;
   if (params.provider === "OMT" || params.provider === "WHISH") {
     const principal = Math.abs(params.amount);
     const fee = Math.abs(params.fee);
-    const commission = Math.abs(params.commission);
-    if (params.serviceType === "SEND") return principal + fee - commission;
-    if (params.serviceType === "RECEIVE")
-      return -(principal - fee + commission);
+    // Legacy rows were booked NET at creation and must be READ net, or
+    // settlement pays the provider the commission the shop already kept.
+    const embedded = params.commissionModel === 0;
+    const c = embedded ? Math.abs(params.commission) : 0;
+    if (params.serviceType === "SEND") return principal + fee - c;
+    if (params.serviceType === "RECEIVE") return -(principal - fee + c);
     // BILL/other on an OMT/WHISH supplier never reaches this booking site
     // today (the BILL branch below books a hardcoded LBP entry instead) —
     // kept structurally close to the old fee-only fallback in case a future
     // caller adds one.
-    return fee - commission;
+    return fee;
   }
   return Math.abs(params.amount);
 }
@@ -721,9 +750,19 @@ const SUPPLIER_OWED_EXPR = `CASE
   WHEN service_type = 'SEND' AND cost > 0 AND supplier_debt_booked = 1 THEN cost
   WHEN service_type = 'SEND' AND cost > 0 THEN 0
   WHEN service_type = 'BILL' THEN 0
+  -- LIRA-095 D3 per-row cutover. A row must be READ with the formula that
+  -- WROTE it. Phase 2 rows (commission_model = 1) are GROSS; rows created
+  -- before the flip (0) were booked NET of commission and stay net here, or
+  -- settlement hands the provider the cut the shop already stamped as profit
+  -- (measured: OMT SEND x=100 f=5 c=0.5 booked 104.50, would settle 105.00,
+  -- leaving the ledger at -0.50 and the cash really gone).
+  WHEN provider = 'OMT' AND service_type = 'SEND' AND commission_model = 1 THEN ABS(amount) + ABS(COALESCE(omt_fee, 0))
   WHEN provider = 'OMT' AND service_type = 'SEND' THEN ABS(amount) + ABS(COALESCE(omt_fee, 0)) - ABS(COALESCE(commission, 0))
+  WHEN provider = 'OMT' AND service_type = 'RECEIVE' AND commission_model = 1 THEN -(ABS(amount) - ABS(COALESCE(omt_fee, 0)))
   WHEN provider = 'OMT' AND service_type = 'RECEIVE' THEN -(ABS(amount) - ABS(COALESCE(omt_fee, 0)) + ABS(COALESCE(commission, 0)))
+  WHEN provider = 'WHISH' AND service_type = 'SEND' AND commission_model = 1 THEN ABS(amount) + ABS(COALESCE(whish_fee, 0))
   WHEN provider = 'WHISH' AND service_type = 'SEND' THEN ABS(amount) + ABS(COALESCE(whish_fee, 0)) - ABS(COALESCE(commission, 0))
+  WHEN provider = 'WHISH' AND service_type = 'RECEIVE' AND commission_model = 1 THEN -(ABS(amount) - ABS(COALESCE(whish_fee, 0)))
   WHEN provider = 'WHISH' AND service_type = 'RECEIVE' THEN -(ABS(amount) - ABS(COALESCE(whish_fee, 0)) + ABS(COALESCE(commission, 0)))
   ELSE ABS(amount)
 END`;
@@ -764,6 +803,22 @@ END`;
 // commission_eligible = 0, Katsh's is 1; a hypothetical future bill
 // provider inherits whatever ITS OWN supplier row says, correct by default,
 // no repository edit required.
+//
+// COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1) — the ONE definition
+// (rule 14) of "this row is a primary OMT/WHISH cash transfer" (as opposed
+// to a wallet-provider transfer, a BILL, or anything else). Shared by the
+// `commission_model` stamp in `createTransaction` and by
+// `isPendingSupplierSettlement`'s own `commission_model = 1` branch just
+// below — before Phase 2 those were two independent copies of the same
+// `provider IN (OMT, WHISH) AND service_type IN (SEND, RECEIVE)` check;
+// widening the stamp without extracting this would have made it three.
+function isOmtWhishTransfer(provider: string, serviceType: string): boolean {
+  return (
+    (provider === "OMT" || provider === "WHISH") &&
+    (serviceType === "SEND" || serviceType === "RECEIVE")
+  );
+}
+
 export function isPendingSupplierSettlement(row: {
   commission_model: number;
   provider: string;
@@ -772,10 +827,7 @@ export function isPendingSupplierSettlement(row: {
   supplierCommissionEligible: boolean;
 }): boolean {
   if (row.commission_model === 1) {
-    if (
-      (row.provider === "OMT" || row.provider === "WHISH") &&
-      (row.service_type === "SEND" || row.service_type === "RECEIVE")
-    ) {
+    if (isOmtWhishTransfer(row.provider, row.service_type)) {
       return true;
     }
     return row.service_type === "BILL" && row.supplierCommissionEligible;
@@ -1398,31 +1450,47 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         : calculatedCommission;
 
       // COMMISSION_AT_SETTLEMENT_PLAN.md D3 — commission_model is stamped per
-      // row at creation, gated on `service_type` (rule 14 — service_type is
-      // ALSO what identifies a BILL everywhere else in this file: the
-      // isPendingSupplierSettlement BILL branch, SUPPLIER_OWED_EXPR's
-      // `service_type = 'BILL'` WHEN, and the -20,000 legacy gate below all
-      // key off it).
+      // row at creation, gated on `service_type`/`provider` (rule 14 —
+      // `isOmtWhishTransfer` above is the ONE definition of "OMT/WHISH
+      // SEND/RECEIVE"; `service_type = 'BILL'` is ALSO what identifies a
+      // bill everywhere else in this file: the isPendingSupplierSettlement
+      // BILL branch, SUPPLIER_OWED_EXPR's `service_type = 'BILL'` WHEN, and
+      // the -20,000 legacy gate below all key off it).
       //
-      // Only Phase 1 (bills) has actually shipped the AT_SETTLEMENT booking
-      // path (the -20,000 legacy credit is skipped below and the row instead
-      // joins the unsettled queue for a real commission entered at
-      // settlement). Phase 2 (OMT/WHISH gross-payable flip, D1) has NOT
-      // shipped: `grossOwedDelta`/`SUPPLIER_OWED_EXPR` above still NET the
-      // commission auto-calculated a few lines up
-      // (`calculatedCommission`/`commission`) out of the supplier_owed
-      // figure for OMT/WHISH SEND/RECEIVE — i.e. those rows are still
-      // EMBEDDED in every sense that matters to settlement math. Stamping
-      // commission_model = 1 on them here (as an earlier draft of this file
-      // did) would make `isPendingSupplierSettlement` route them into the
-      // new-model settlement path, which subtracts the operator's entered
-      // commission AGAIN on top of the commission already netted out of
-      // supplier_owed — a double subtraction from what's paid to the
-      // provider. So: BILL is born commission_model = 1 (AT_SETTLEMENT);
-      // every other service_type (OMT/WHISH SEND/RECEIVE, BINANCE, BOB, app
-      // wallets, ...) is born commission_model = 0 (legacy EMBEDDED) until
-      // Phase 2 actually ships the gross flip for them.
-      const commissionModel: number = data.serviceType === "BILL" ? 1 : 0;
+      // Phase 2 (OMT/WHISH gross-payable flip, D1) SHIPPED in this change,
+      // in lockstep with the `grossOwedDelta`/`SUPPLIER_OWED_EXPR` flip
+      // above: both no longer NET the commission auto-calculated a few
+      // lines up (`calculatedCommission`/`commission`) out of the
+      // supplier_owed figure for OMT/WHISH SEND/RECEIVE — those rows now
+      // owe the provider the GROSS amount (principal + fee), same as a
+      // BILL owes nothing until its commission is entered at settlement.
+      // So OMT/WHISH SEND/RECEIVE are born commission_model = 1
+      // (AT_SETTLEMENT) here too, routing them into the same
+      // `_bookCommissionAtSettlement` machinery Phase 0/1 already built for
+      // BILLs (`isPendingSupplierSettlement`'s `commission_model = 1`
+      // branch already covered this kind generically — see its own doc
+      // comment — so no change was needed there, only here and in the two
+      // gross-payable definitions).
+      //
+      // Stamping commission_model = 1 WITHOUT the gross flip (or the flip
+      // without widening this stamp) double-subtracts the commission — once
+      // inside the payable, once again at settlement. Both halves landed in
+      // this one change; see
+      // `FinancialServiceRepository.omtCommissionModelGate.test.ts` for the
+      // guard (that file's expectations describe the PRE-Phase-2 shape and
+      // are stale after this change — a Phase 2 follow-up must re-derive
+      // them to the new invariant, rule 17).
+      //
+      // Every OTHER service_type/provider (BINANCE, BOB, app wallets, OTHER)
+      // is still born commission_model = 0 (legacy EMBEDDED) — their
+      // commission, if any, is realized immediately at transaction time
+      // (spread fees, etc.) and is explicitly OUT of this plan's scope
+      // (plan §0).
+      const commissionModel: number =
+        data.serviceType === "BILL" ||
+        isOmtWhishTransfer(data.provider, data.serviceType)
+          ? 1
+          : 0;
 
       // LIRA-112 (D12) — the row's OWN supplier's commission_eligible bit
       // (v151), looked up ONLY for BILL rows (the one kind the predicate's
@@ -1750,9 +1818,45 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const isAppWalletSend =
         (data.provider === "OMT_APP" || data.provider === "WHISH_APP") &&
         data.serviceType === "SEND";
+
+      // D1.1 (owner decision 2026-08-29, "show the cash that crossed the
+      // counter"): a plain OMT/WHISH SEND's row must carry the GROSS the
+      // customer handed over — principal + the provider's customer fee `f`
+      // (`resolvedProviderFee`, resolved once above and reused here, rule 14
+      // — the SAME term the SEND cash leg's `totalCollected` and
+      // `grossOwedDelta`'s supplier-ledger booking below both use) — never
+      // the bare transfer principal alone. `useCostPriceFlow` is excluded:
+      // those rows stamp `price`, not `unifiedAmount`, a few lines down.
+      //
+      // Both fee modes reduce to the IDENTICAL expression, so no
+      // `includingFees` branch is needed here (mirrors the SEND branch's own
+      // `totalCollected` comment a few hundred lines down, which this must
+      // stay in lockstep with):
+      //   fee ON TOP  (customer hands x+f): `data.amount` IS the transfer
+      //     principal x (nothing pre-netted) → x + f = the gross handed over.
+      //   fee INCLUDED (customer hands x; transfer nets to x−f): the
+      //     frontend pre-nets `data.amount` to the transfer principal (x−f)
+      //     before this repository ever sees it → (x−f) + f = x = the gross
+      //     handed over.
+      // Worked example (x=100, f=5): fee-included → data.amount=95, row=100;
+      // fee-on-top → data.amount=100, row=105 — matching the ticket exactly.
+      //
+      // RECEIVE is DELIBERATELY left untouched here: the owner's "cash the
+      // customer handed over" language describes a SEND. A RECEIVE customer
+      // receives a payout and (fee-on-top only) hands over just the fee, not
+      // the transfer — grossing it up the same way would SHRINK a
+      // fee-included RECEIVE's row (net of the fee) instead of growing it, a
+      // materially different, un-requested change. Flagged as an open
+      // question in this ticket's report, not decided here.
+      const isPlainSystemSend =
+        (data.provider === "OMT" || data.provider === "WHISH") &&
+        data.serviceType === "SEND" &&
+        !useCostPriceFlow;
       const unifiedAmount = isAppWalletSend
         ? data.amount + Math.abs(commission)
-        : data.amount;
+        : isPlainSystemSend
+          ? data.amount + resolvedProviderFee
+          : data.amount;
 
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.FINANCIAL_SERVICE,
@@ -1809,12 +1913,41 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // Friendly provider label for the item/bill lines only; the generic
           // transfer line below keeps the raw enum (see providerDisplayLabel).
           const providerLabel = providerDisplayLabel(data.provider);
+          // D1.1 (owner: "show the cash that crossed the counter"): a plain
+          // OMT/WHISH SEND's summary spells out the split the gross row
+          // amount (`unifiedAmount`, set above) now folds together — e.g.
+          // "OMT SEND: <name> — $100 (95 transfer + 5 fee)" for the
+          // fee-included worked example (ticket's own illustration wrote the
+          // headline as "100 USD"; this reuses `formatMoneyAmount`
+          // (moneyPosting.ts's shared stored-summary-string formatter, rule
+          // 14 — its own doc comment: "use this instead of a Nth hand-rolled
+          // copy") for the headline figure instead of a fourth hand-rolled
+          // `$${n}` / `${n.toLocaleString()} LBP` ternary in this same
+          // function, so the "$100" vs "100 USD" surface form is a
+          // deliberate, flagged deviation from the ticket's literal string —
+          // see this ticket's report). `data.amount` is always the
+          // transfer-only portion in both fee modes (see `unifiedAmount`'s
+          // doc comment above), so the breakdown needs no `includingFees`
+          // branch either. Gated on `resolvedProviderFee > 0` — a zero-fee
+          // transfer keeps the plain pre-existing line, matching every
+          // fee-less test fixture in this file untouched.
+          const genericTransferLine = (): string => {
+            const namePrefix = primaryName ? `${primaryName} — ` : "";
+            if (isPlainSystemSend && resolvedProviderFee > 0) {
+              return (
+                `${data.provider} ${data.serviceType}: ${namePrefix}` +
+                `${formatMoneyAmount(unifiedAmount, currency)} ` +
+                `(${data.amount.toLocaleString()} transfer + ${resolvedProviderFee.toLocaleString()} fee)`
+              );
+            }
+            return `${data.provider} ${data.serviceType}: ${namePrefix}${data.amount} ${currency}`;
+          };
           let head =
             isKatchLike && data.serviceType === "BILL"
               ? `${providerLabel} Bill: ${data.amount} ${currency}`
               : (isKatchLike || isItemSale) && note
                 ? `${providerLabel}: ${note} — ${data.amount} ${currency}`
-                : `${data.provider} ${data.serviceType}: ${primaryName ? `${primaryName} — ` : ""}${data.amount} ${currency}`;
+                : genericTransferLine();
 
           // Wallet transfers (Binance / OMT App / Whish App): the fee the shop
           // charges on top is the commission — surface it, otherwise the audit
@@ -2415,9 +2548,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   serviceType: "RECEIVE",
                   provider: data.provider,
                   fee: resolvedProviderFee,
-                  commission: calculatedCommission,
                   cost: 0,
                   amount: data.amount,
+                  // Creation path: this row's own stamp, never a hardcoded 1 —
+                  // the two must not be able to disagree.
+                  commissionModel,
+                  commission,
                 });
                 supplierRepo.addLedgerEntry({
                   supplier_id: supplier.id,
@@ -3723,7 +3859,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           );
         } else {
           // Ledger amount — grossOwedDelta (rule 14, see its doc comment):
-          // gross principal+fee-commission for OMT/WHISH (plan §8.3).
+          // gross principal+fee for OMT/WHISH (plan §8.3, Phase 2 D1 — the
+          // whole fee is owed to the provider; the shop's commission is no
+          // longer netted out here, it settles separately).
           // resolvedProviderFee is the same `f` the SEND cash leg, the
           // RECEIVE fee leg, and this booking share (hoisted earlier
           // alongside storedWhishFee) — one resolution, several consumers.
@@ -3731,9 +3869,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             serviceType: data.serviceType,
             provider: data.provider,
             fee: resolvedProviderFee,
-            commission: calculatedCommission,
             cost,
             amount: data.amount,
+            // Creation path: this row's own stamp (see the RECEIVE site above).
+            commissionModel,
+            commission,
           });
 
           // Ledger entry_type (C5 prepaid-units model):
@@ -4129,13 +4269,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    *     of commission (COMMISSION_AT_SETTLEMENT_PLAN.md §3/Phase 0 — commission is entered
    *     AT settlement for these, so it's 0 at creation and can't be the
    *     marker anymore). Owed = the GROSS amount (SUPPLIER_OWED_EXPR /
-   *     grossOwedDelta, plan §8.3): SEND owes +(x+f−c), RECEIVE owes
-   *     −(x−f+c). OMT_System/
-   *     Whish_System is the shop's physical cash drawer (owner verdict
-   *     2026-07-30), not a balance tracked inside the provider's own books —
-   *     so the provider relationship covers the full transfer, net of the
-   *     shop's own commission cut, exactly as it did before PR #66's float
-   *     model (which this supersedes).
+   *     grossOwedDelta, plan §8.3/§4 Phase 2 D1): SEND owes +(x+f), RECEIVE
+   *     owes −(x−f) — the WHOLE fee, no commission netted out; the shop's
+   *     commission settles separately. OMT_System/Whish_System is the
+   *     shop's physical cash drawer (owner verdict 2026-07-30), not a
+   *     balance tracked inside the provider's own books — so the provider
+   *     relationship covers the full transfer, and the shop's commission
+   *     cut is a separate fact settled at settlement time, not netted here.
    *
    *  2. LEGACY cost/price-flow sale costs — SEND rows written through a cost/price
    *     provider (iPick / Katsh / Whish App / OMT App) BEFORE the C5 prepaid-units
@@ -4337,10 +4477,21 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
            -- BILL rows only, so RATE-mode settlement (rate × unit_count) has
            -- a count to read without pulling the full unsettled row array.
            COALESCE(SUM(CASE WHEN service_type = 'BILL' THEN 1 ELSE 0 END), 0) as bill_count,
+           -- Plan §4 Phase 2 D1: for OMT/WHISH SEND/RECEIVE the 'commission'
+           -- column is still auto-populated (createTransaction's
+           -- calculatedCommission) but is now an ESTIMATE ONLY — it is no
+           -- longer netted into supplier_owed below, and the REAL commission
+           -- for these rows is entered at settlement (same as a BILL, whose
+           -- own 'commission' is always 0 here). Summing it is display-only
+           -- and will double-count against the settlement booking's
+           -- own entered figure once a batch actually settles; Phase 3
+           -- (profits/reporting repoint) owns reconciling this projection to
+           -- the allocations table, not this query.
            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_usd,
            COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_lbp,
            -- total_owed per row = SUPPLIER_OWED_EXPR = the GROSS amount owed
-           -- the provider (plan §8.3): SEND +(x+f−c), RECEIVE −(x−f+c).
+           -- the provider (plan §8.3/§4 Phase 2 D1): SEND +(x+f), RECEIVE
+           -- −(x−f) — the whole fee, no commission netted out.
            -- Same single definition grossOwedDelta() uses at write time.
            -- BILL rows contribute 0 (SUPPLIER_OWED_EXPR's BILL branch) — a
            -- bill's principal never reaches the ledger (plan's "Bills
