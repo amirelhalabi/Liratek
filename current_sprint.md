@@ -2266,3 +2266,75 @@ the product name. BLOCKED: needs the shared typing files (`electron.d.ts`,
 - Wire ImeiStoryCard into POS search (today: Inventory + Phone Units only).
 - "Products | Units" tab toggle on the Inventory page (nicest UX; LIRA-144's filters have
   landed so the collision risk is gone once LIRA-145 commits).
+
+## LIRA-158: Profits & Closing still report the commission ESTIMATE, not the settled figure — MEDIUM
+
+**Origin:** fallout of LIRA-095 (commit `43948a35`), found by the adversarial reporting pass and
+verified against source before filing. Nothing here is a money bug — the ledger and drawers are
+correct. It is entirely what the reports DISPLAY.
+
+### Root cause, one sentence
+
+`financial_services.commission` is written ONCE at creation with the auto-calculated **estimate**
+and never updated; the real commission the operator types at settlement lands only in
+`supplier_settlements`, `settlement_commission_allocations` and the `SUPPLIER_PAYS_US` ledger
+credit — and not one Profits or Closing query reads any of those.
+
+Before Phase 2 that was harmless: the estimate WAS the number. Now it is a guess that settlement
+overrides, so every consumer of `fs.commission` reports a figure that is simply out of date.
+
+### The symptom, concretely
+
+OMT SEND, x=100, f=5. App estimates the shop's cut at $0.50. At settlement the operator enters the
+real $2.00.
+
+| Surface | Shows | Should show |
+| ------- | ----- | ----------- |
+| Suppliers page | **$2.00** on settlement day | — correct today |
+| Profits → Commission | **$0.50**, on the transaction day | $2.00, on settlement day |
+| Closing → daily commission | **$0.50**, on the transaction day | $2.00, on settlement day |
+| Dashboard analytics | **$0.50** | $2.00 |
+
+**The asymmetry is the point:** Suppliers and Profits now permanently disagree about how much
+commission the shop made, and nothing reconciles them.
+
+### Surfaces, each verified against source
+
+| # | Surface | Location | Verdict |
+| - | ------- | -------- | ------- |
+| 1 | `getRealizedCommissionTotals` | `ProfitRepository.ts` ~:1367 | BROKEN — sums the stale creation-time estimate |
+| 2 | `getPendingCommissionTotals` / `ByProvider` | `ProfitRepository.ts` ~:1407 | BROKEN — shows a dollar figure settlement can override outright |
+| 3 | `getFinancialSettledByCurrency` / `PendingByCurrency` | `ProfitRepository.ts` ~:647 | BROKEN — same cause, one hop away via stamped `t.profit_*` |
+| 4 | `getUnsettledSummaryByProvider` | `FinancialServiceRepository.ts` ~:4430 | ACCEPTABLE — same number as #2 but self-documented inline as an estimate |
+| 5 | `getAnalytics` (Dashboard) | `FinancialServiceRepository.ts` ~:4481 | BROKEN — `is_settled = 1` gate does not fix a stale number underneath |
+| 6 | Closing daily commission (`finProfit`) | `ClosingRepository.ts` ~:693 | **BROKEN, most owner-visible** — verified NOT gated on `is_settled` at all; sums every row's estimate on the transaction day |
+| 7 | Suppliers Outstanding / FIFO / settle tab | `SupplierRepository.ts` ~:1071, ~:1917 | CORRECT — reads the real entered figure from the ledger credit |
+| 8 | D1.1 gross transaction row | transactions consumers | CORRECT — no query sums `t.amount_*` for FINANCIAL_SERVICE; all read `fs.*` |
+
+Item 6 also contradicts owner decision **D10** (cash basis: commission recognised on the day it is
+SETTLED, not the day the transaction happened), which is currently implemented nowhere.
+
+### The work
+
+1. One named SQL fragment per query (rule 14, never a copy-paste) that UNIONs:
+   - legacy rows (`commission_model = 0`) — keep reading `fs.commission`, unchanged; this is a
+     cutover, not a restatement of history;
+   - new rows (`commission_model = 1`) — read `settlement_commission_allocations`.
+2. Repoint surfaces 1, 2, 3, 5 to it.
+3. Closing (#6): switch to settlement-day cash basis per D10, and gate it.
+4. Pending surfaces become **"N transactions awaiting settlement"** rather than a dollar amount
+   settlement can override — `COMMISSION_AT_SETTLEMENT_PLAN.md` §4 Phase 3 already specifies this.
+5. Extend `profitRecognition.guard.test.ts` to the new allocation queries + `ClosingRepository`.
+
+### THE test this needs (it does not exist, and its absence is why this shipped)
+
+Settle a batch whose entered commission is **deliberately ≠ the auto-calc estimate**, then assert
+Profits AND Closing both track the ENTERED value, on the SETTLEMENT day. Every existing test uses
+fixtures where the two happen to coincide, so the whole class is invisible today.
+
+### Not in scope
+
+The ledger, drawers and settlement math — all verified correct and untouched by this ticket.
+
+**Refs:** `COMMISSION_AT_SETTLEMENT_PLAN.md` §4 Phase 3 (designed, never executed);
+`docs/plans/todo_plans/OWNER_NOTES_2026-08-29.md` §1; commit `43948a35`.
