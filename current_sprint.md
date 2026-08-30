@@ -2336,5 +2336,96 @@ fixtures where the two happen to coincide, so the whole class is invisible today
 
 The ledger, drawers and settlement math — all verified correct and untouched by this ticket.
 
-**Refs:** `COMMISSION_AT_SETTLEMENT_PLAN.md` §4 Phase 3 (designed, never executed);
-`docs/plans/todo_plans/OWNER_NOTES_2026-08-29.md` §1; commit `43948a35`.
+### More details — context for a cold start
+
+Written 2026-08-30 by the session that shipped LIRA-095, while the reasoning was still fresh.
+Everything below was verified against source, not inferred.
+
+#### 1. The estimate propagates TWO ways, not one — this is the part that doubles the ticket
+
+`commission` is copied into the unified transaction's profit stamp at creation
+(`FinancialServiceRepository.ts` ~:1881, `profit_usd: currency === "USD" ? commission : 0`).
+So the stale estimate reaches reporting by two independent routes:
+
+  a. **`fs.commission`** — the column. Read by `getRealizedCommissionTotals`,
+     `getPendingCommissionTotals`, `getUnsettledSummaryByProvider`, `getAnalytics`, and the
+     Closing screen's `finProfit`.
+  b. **`t.profit_usd` / `t.profit_lbp`** — the STAMP, which is just a copy of (a). Read by at
+     least seven more sites in `ProfitRepository.ts`: ~:656, ~:687, ~:725, ~:1011 (Profits
+     by-module), ~:1123 (by-user / by-client), and the deferred-profit queries ~:1503-1530.
+
+**Fixing only (a) leaves (b) stale.** The by-module Profits row, the per-cashier and per-client
+figures all read the stamp. The original triage listed 8 surfaces because it only traced (a).
+
+#### 2. The design question this forces — answer it FIRST
+
+Should a `commission_model = 1` row stamp profit AT CREATION at all?
+
+Owner decision **D7** says commission is recognised in the SETTLEMENT's period, not the
+transaction's. If that is honoured, a new-model row should stamp **profit 0** at creation and the
+profit should appear at settlement instead. That is a bigger change than repointing queries — it
+alters what is written, not just what is read — and it decides whether route (b) above needs
+fixing at all, or simply stops carrying the estimate.
+
+Do NOT start repointing queries before settling this. The two answers lead to different work.
+
+#### 3. The pattern to copy (and the trap that just bit us)
+
+There is already a JS/SQL twin pair gated on `commission_model` in this exact file:
+`isPendingSupplierSettlement` (JS) and `pendingSettlementSql()` (SQL). Copy that shape — same
+branch order, same terms, changed in lockstep.
+
+**The trap:** LIRA-095 shipped with `SUPPLIER_OWED_EXPR` reading EVERY row as gross, including
+rows written before the cutover. A legacy OMT SEND booked at `x+f-c` read back as `x+f`, so
+settlement would have overpaid the provider by exactly `c` (measured: booked 104.50, would settle
+105.00, ledger left at -0.50, cash gone). Caught pre-merge and fixed by gating both definitions.
+
+The same trap applies here in mirror image: a query that reads
+`settlement_commission_allocations` for a LEGACY row finds nothing and reports zero commission.
+Every repointed query must UNION legacy (`commission_model = 0` → `fs.commission`) with new
+(`= 1` → allocations). **Read a row with the formula that WROTE it.**
+
+#### 4. Constraints that will bite
+
+- **Rule 14.** One named SQL fragment reused by all five queries, never five copies. The whole
+  reason this bug exists is that "what is the commission" was expressed in several places.
+- **`profitRecognition.guard.test.ts`** statically scans `ProfitRepository` for `profit|commission`
+  queries and FAILS the build on a new ungated one (plan §5 risk 7). Every query added here ships
+  gated or with a documented exclusion. Note it currently PASSES and proves nothing about this bug
+  — it checks that gates exist, and the bug is stale data flowing through a gate that is correct.
+- **LIRA-108's divergence class.** `getRealizedCommissionTotals` (reads `fs.commission`) and
+  `getFinancialSettledByCurrency` (reads the stamp) were aligned by LIRA-108 after they disagreed
+  by 18 USD. Any redesign must keep them consistent or that class returns.
+- **Cutover, not restatement (D3).** Do NOT backfill or recompute history. Legacy rows keep the
+  embedded model forever. This is per-row, never a date cutoff.
+- **No stamp-back (D6).** The allocations table exists precisely so settlement does NOT mutate
+  already-posted rows. Do not "simplify" by writing the settled commission back onto
+  `fs.commission` — that retroactively rewrites closed-period reports and breaks the
+  additive-only reversal convention.
+- **FOR-partner rows need a second gate.** Allocated shares still gate on `notPartnerPending` per
+  row: supplier-settled ≠ partner-settled. Two independent gates, both required.
+- **Largest-remainder rounding.** Allocations are written so the per-row shares sum to EXACTLY the
+  entered amount. Do not re-derive shares at read time or they will not add up.
+
+#### 5. Test-schema trap (cost three separate failures in the LIRA-095 session)
+
+Any new in-memory test must CREATE `supplier_settlements` and
+`settlement_commission_allocations`. A missing table makes the repository catch the SQLite error
+and return `{success:false}`, so every test in the file dies in SETUP before a single assertion —
+which reads like a broken assertion, not a schema gap. Enumerate every table the method under test
+touches before writing the schema.
+
+#### 6. Reproducing it by hand
+
+1. OMT SEND, x=100, f=5 — the app estimates the cut at 0.50.
+2. Note Profits → Commission and the Closing daily commission for TODAY.
+3. Settle that row on the Suppliers page, entering **2.00** (deliberately ≠ the estimate).
+4. Suppliers now shows 2.00. Profits and Closing still show 0.50, still dated to step 1's day.
+
+That divergence is the bug, and step 3's "deliberately ≠ the estimate" is the thing no existing
+fixture does — which is exactly why the whole class was invisible.
+
+**Refs:** `COMMISSION_AT_SETTLEMENT_PLAN.md` §4 Phase 3 + §5 (risk register) + §6 (D6/D7/D10);
+`docs/FEATURE_GUIDE.md` §8/§8.1 (corrected for Phase 2 in `a47db530`);
+commits `43948a35` (the flip) and `a47db530` (docs + this ticket).
+
