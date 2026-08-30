@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSetup } from "../context/SetupContext";
 import { useApi } from "@liratek/ui";
 import { Lock } from "lucide-react";
@@ -52,6 +52,16 @@ export default function Step2Modules() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodRow[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Everything starts switched on. The module/payment-method lists come from
+  // the DB, so the defaults are seeded from the loaded rows rather than a
+  // hard-coded list that would drift. Seeded once (the flag lives in the
+  // persisted payload) so returning to this step never re-enables what the
+  // operator turned off. `updatePayload` is a functional setState wrapper, so
+  // the mount-time copy held in the ref stays correct.
+  const seededRef = useRef(payload.modules_defaults_applied === true);
+  const payloadAtMountRef = useRef(payload);
+  const updatePayloadRef = useRef(updatePayload);
+
   useEffect(() => {
     (async () => {
       try {
@@ -61,6 +71,27 @@ export default function Step2Modules() {
         ]);
         setModules(mods);
         setPaymentMethods(pms);
+        if (!seededRef.current) {
+          seededRef.current = true;
+          const current = payloadAtMountRef.current;
+          updatePayloadRef.current({
+            enabled_modules: [
+              ...new Set([
+                ...current.enabled_modules,
+                ...mods.map((m) => m.key),
+              ]),
+            ],
+            enabled_payment_methods: [
+              ...new Set([
+                ...current.enabled_payment_methods,
+                ...pms.map((pm) => pm.code),
+              ]),
+            ],
+            session_management_enabled: true,
+            customer_sessions_enabled: true,
+            modules_defaults_applied: true,
+          });
+        }
       } finally {
         setLoading(false);
       }

@@ -1419,8 +1419,51 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           user_id: data.created_by,
           amount_usd: data.amount_usd,
           amount_lbp: data.amount_lbp,
-          profit_usd: isBillsOnlyBatch ? data.commission_usd : 0,
-          profit_lbp: isBillsOnlyBatch ? data.commission_lbp : 0,
+          // LIRA-158_COMMISSION_REPORTING_PLAN.md §2/§3 Phase 1 (D14, option
+          // C) — widened from `isBillsOnlyBatch` to `batchModel === 1` so
+          // EVERY new-model settlement (not just a bills-only one) stamps the
+          // operator's ENTERED commission onto this SUPPLIER_SETTLEMENT
+          // transaction, dated to the settlement day and read by
+          // `ProfitRepository.getSupplierCommissionTotals` (D7 — recognition
+          // moves to the settlement's own period). This is one half of an
+          // interlock with `FinancialServiceRepository.ts`'s profit stamp,
+          // which zeroes the commission TERM for the same `commissionModel
+          // === 1` rows at creation time — widening this half alone, without
+          // that zeroing, would double-count (the FS row's stale estimate
+          // stamp AND this settlement stamp both landing in the same total).
+          //
+          // `batchModel === 1`, not `isBillsOnlyBatch`: a LEGACY (model-0)
+          // batch already has its commission embedded in `fs.commission` and
+          // stamped at CREATION time (D3 cutover) — stamping it again here
+          // would double-count a legacy batch's own commission against
+          // itself. `isBillsOnlyBatch` keeps gating everything it gated
+          // before this change (`settlementSummary`, `flow`, the metadata
+          // block, and — above all — which branch of
+          // `_bookCommissionAtSettlement` runs below): that MONEY path
+          // (provider-drawer top-up / OTHER_PAYMENT legs vs. the legacy
+          // cashless SUPPLIER_PAYS_US ledger credit) is untouched by this
+          // change — generalising it past bills-only is LIRA-138, a
+          // different ticket (see the doc comment at :1178-1185). LIRA-158 is
+          // a reporting fix, not a money fix.
+          //
+          // This cannot double-count against the SUPPLIER_PAYS_US cashless
+          // credit for a non-bills-only new-model batch either:
+          // `addLedgerEntry`'s own `createTransaction` call above (see the
+          // ORIGINAL cashless-credit path a few lines down) passes no
+          // `profit_usd`/`profit_lbp` — they default to 0 — and its
+          // transaction `type` is not SUPPLIER_SETTLEMENT, so the two rows
+          // never sum into the same bucket.
+          //
+          // Not fixed here, deliberately: the validator allows a NEGATIVE
+          // `commission_usd`/`commission_lbp` (`validators/supplier.ts`'s
+          // `commission_usd: z.number()` carries no `.nonnegative()`), and
+          // the SUPPLIER_PAYS_US ledger credit below normalises with
+          // `-Math.abs(...)` while this stamp uses the raw entered value.
+          // Not reachable through the UI today, and using the raw value here
+          // keeps ONE convention shared with the bills-only path that already
+          // ships — silently "fixing" it would change shipped behaviour.
+          profit_usd: batchModel === 1 ? data.commission_usd : 0,
+          profit_lbp: batchModel === 1 ? data.commission_lbp : 0,
           summary: settlementSummary,
           metadata_json: {
             supplier_id: data.supplier_id,

@@ -170,7 +170,15 @@ interface PaymentMethodRow {
   total_usd: number;
   total_lbp: number;
   count: number;
+  /** Dollar pending amount — commission_model = 0 legacy rows only (D15). */
   pending_commission_usd?: number;
+  /** LBP counterpart of pending_commission_usd (commission_model = 0 legacy
+   *  rows only). */
+  pending_commission_lbp?: number;
+  /** LIRA-158 D15: count of commission_model = 1 rows awaiting settlement —
+   *  their commission is unknowable until entered at settlement, so they
+   *  are surfaced as a count, never a dollar figure. */
+  awaiting_settlement_count?: number;
   is_settled?: number;
   is_debt_repayment_only?: number;
 }
@@ -1377,6 +1385,16 @@ export default function Profits() {
                 const isCommission = row.method.startsWith("Commission");
                 const isPmFee = row.method === "PM_FEE";
                 const isDebtRepayment = !!row.is_debt_repayment_only;
+                // D15: model-0 legacy pending commission keeps a dollar
+                // figure; model-1 pending commission is unknowable until
+                // settlement, so it is a count instead ("N transactions
+                // awaiting settlement"). A row can carry both at once (a
+                // mixed legacy + new-model period), so neither may hide
+                // the other.
+                const pendingUsd = row.pending_commission_usd ?? 0;
+                const pendingLbp = row.pending_commission_lbp ?? 0;
+                const awaitingCount = row.awaiting_settlement_count ?? 0;
+                const displayLbp = isPending ? pendingLbp : row.total_lbp;
                 return (
                   <tr
                     key={row.method}
@@ -1405,10 +1423,30 @@ export default function Profits() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right font-mono">
-                      {isPending && (row.pending_commission_usd ?? 0) > 0 ? (
-                        <span className="text-amber-400">
-                          ${(row.pending_commission_usd ?? 0).toFixed(4)}
-                        </span>
+                      {isPending ? (
+                        <div className="flex flex-col items-end gap-0.5">
+                          {pendingUsd > 0 && (
+                            <span className="text-amber-400">
+                              ${pendingUsd.toFixed(4)}
+                            </span>
+                          )}
+                          {awaitingCount > 0 && (
+                            <span
+                              className={
+                                pendingUsd > 0
+                                  ? "text-[11px] text-amber-500/70"
+                                  : "text-amber-400"
+                              }
+                            >
+                              {awaitingCount} transaction
+                              {awaitingCount === 1 ? "" : "s"} awaiting
+                              settlement
+                            </span>
+                          )}
+                          {pendingUsd === 0 && awaitingCount === 0 && (
+                            <span className="text-slate-500">—</span>
+                          )}
+                        </div>
                       ) : (
                         <span
                           className={
@@ -1425,15 +1463,20 @@ export default function Profits() {
                     </td>
                     {/* LIRA-153 — same fix as the By Module tab: a negative
                         LBP total is real information (a commission row can go
-                        negative on a reversal) and must not read as "no data". */}
+                        negative on a reversal) and must not read as "no data".
+                        For a pending row, the LBP figure comes from
+                        pending_commission_lbp (D15 fix) — total_lbp stays 0
+                        by design ("not yet in hand"). */}
                     <td
                       className={`px-4 py-3 text-right ${
-                        row.total_lbp < 0 ? "text-red-400" : "text-white"
+                        displayLbp < 0
+                          ? "text-red-400"
+                          : isPending
+                            ? "text-amber-400"
+                            : "text-white"
                       }`}
                     >
-                      {row.total_lbp !== 0
-                        ? formatAmount(row.total_lbp, "LBP")
-                        : "—"}
+                      {displayLbp !== 0 ? formatAmount(displayLbp, "LBP") : "—"}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-300">
                       {row.count}
@@ -1758,6 +1801,15 @@ export default function Profits() {
                       );
                       const pendingUsd =
                         providerUnsettled?.pending_commission_usd ?? 0;
+                      // LIRA-158 Phase 2a made this endpoint's per-provider
+                      // `commission` commission_model=0-only while `count`
+                      // stayed unrestricted, so a provider whose today's
+                      // traffic is all model-1 (e.g. new-model OMT) now
+                      // reads "10 / $0.00" — indistinguishable from "10
+                      // transactions that genuinely earned nothing". Label
+                      // the zero honestly instead of leaving it bare.
+                      const noRealizedCommissionYet =
+                        p.commission === 0 && p.count > 0;
                       return (
                         <tr
                           key={p.provider}
@@ -1769,8 +1821,18 @@ export default function Profits() {
                           <td className="py-4 text-right text-slate-400">
                             {p.count}
                           </td>
-                          <td className="py-4 text-right text-emerald-400 font-mono font-medium">
-                            ${p.commission.toFixed(4)}
+                          <td className="py-4 text-right font-mono font-medium">
+                            {p.commission > 0 ? (
+                              <span className="text-emerald-400">
+                                ${p.commission.toFixed(4)}
+                              </span>
+                            ) : noRealizedCommissionYet ? (
+                              <span className="text-slate-500 text-xs italic font-normal">
+                                Awaiting settlement
+                              </span>
+                            ) : (
+                              <span className="text-slate-600">$0.00</span>
+                            )}
                           </td>
                           <td className="py-4 text-right text-amber-400 font-mono">
                             {pendingUsd > 0 ? `$${pendingUsd.toFixed(4)}` : "—"}
@@ -1783,6 +1845,10 @@ export default function Profits() {
                             ) : p.commission > 0 ? (
                               <span className="text-xs font-medium text-emerald-400">
                                 Settled
+                              </span>
+                            ) : noRealizedCommissionYet ? (
+                              <span className="text-xs font-medium text-slate-400">
+                                Awaiting Settlement
                               </span>
                             ) : (
                               <span className="text-slate-600 text-xs">—</span>

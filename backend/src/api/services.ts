@@ -16,6 +16,34 @@ const router = express.Router();
 // All services routes require auth
 router.use(authenticateJWT);
 
+// Normalise the `providers` query param to `string[] | undefined`, matching
+// the desktop IPC handler's `providers?: string[]` (electron-app/handlers/
+// omtHandlers.ts's `omt:get-analytics`). Express can hand this value to us
+// in three shapes:
+//   - absent                                → undefined
+//   - a single value ("OMT" or "OMT,WHISH") → the frontend adapter
+//     (`frontend/src/api/backendApi.ts`'s `getOMTAnalytics`) joins the array
+//     with commas into ONE query value, so this is the shape actually used
+//     today — split on comma.
+//   - a repeated param (?providers=a&providers=b) → Express gives an array;
+//     handled too, so either wire convention works.
+// Absent/empty MUST resolve to `undefined`, not `[]`: FinancialServiceRepository
+// .getAnalytics() treats a non-empty array as an IN(...) filter but only
+// skips the filter when `providers` is falsy/empty (`providers && providers
+// .length > 0`), so an accidental `[]` here would not merely "match nothing"
+// by SQL semantics — it's guarded on the JS side before it ever reaches
+// SQL — but we still normalise to `undefined` to keep the "no filter"
+// intent explicit and match the IPC handler's passthrough exactly.
+function parseProvidersQuery(raw: unknown): string[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const values = Array.isArray(raw) ? raw : [raw];
+  const providers = values
+    .flatMap((v) => (typeof v === "string" ? v.split(",") : []))
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  return providers.length > 0 ? providers : undefined;
+}
+
 // GET /api/services/history - Get transaction history
 router.get(
   "/history",
@@ -35,11 +63,19 @@ router.get(
   },
 );
 
-// GET /api/services/analytics - Get analytics (today & month totals)
-router.get("/analytics", (_req, res): void => {
+// GET /api/services/analytics?providers=OMT,WHISH - Get analytics (today &
+// month totals), optionally filtered to a set of providers. Mirrors the
+// desktop `omt:get-analytics` IPC handler
+// (electron-app/handlers/omtHandlers.ts), which forwards its optional
+// `providers?: string[]` straight through to the same
+// `FinancialService.getAnalytics(providers?)` — LIRA-158 Phase 5a / D16: this
+// route previously ignored the query entirely (`_req`) and always returned
+// unfiltered analytics, unlike desktop.
+router.get("/analytics", (req, res): void => {
   try {
+    const providers = parseProvidersQuery(req.query.providers);
     const financialService = getFinancialService();
-    const analytics = financialService.getAnalytics();
+    const analytics = financialService.getAnalytics(providers);
     res.json({ success: true, analytics });
   } catch (error) {
     logger.error({ error }, "Get services analytics error");

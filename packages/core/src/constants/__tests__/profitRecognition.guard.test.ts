@@ -1,5 +1,6 @@
 /**
- * ProfitRepository profit-recognition-gate drift guard (CQ-1, LIRA-098).
+ * Profit-recognition-gate drift guard (CQ-1, LIRA-098; extended to
+ * ClosingRepository under LIRA-158 Phase 5).
  *
  * `ProfitRepository.ts`'s "Rule 14" section defines the domain rule "profit is
  * real only when money is real" as four owner-facing fragments —
@@ -19,15 +20,15 @@
  * these — this is that scan (COUNTERPARTY_CONSOLIDATION_PLAN.md CQ-1's
  * second, never-built guard; see its "Left TODO" note).
  *
- * Mechanism: parse ProfitRepository.ts source into "query units" — one per
- * `.prepare(\`...\`)` call, further split into one unit per CTE (plus a
- * trailing "final select" unit) for the single query that uses `WITH`
- * (`getByDate`) — then assert every unit whose SQL text contains `profit`
- * (case-insensitive; every profit column is
- * `profit_usd`/`profit_lbp`/`potential_profit_usd`/etc.) also textually calls
- * one of the six gate fragments. Text-based, not AST-based (mirrors
- * `moduleDebtTypes.guard.test.ts` / `partnerLedgerTypes.guard.test.ts`) —
- * cheap, survives formatting changes, and catches the actual failure mode: a
+ * Mechanism: parse each file in {@link SCANNED_FILES} into "query units" — one
+ * per `.prepare(\`...\`)` call, further split into one unit per CTE (plus a
+ * trailing "final select" unit) for a query that uses `WITH`
+ * (`ProfitRepository.getByDate` is the only one today) — then assert every
+ * unit whose SQL text contains `profit` (case-insensitive; every profit
+ * column is `profit_usd`/`profit_lbp`/`potential_profit_usd`/etc.) also
+ * textually calls one of the six gate fragments. Text-based, not AST-based
+ * (mirrors `moduleDebtTypes.guard.test.ts` / `partnerLedgerTypes.guard.test.ts`)
+ * — cheap, survives formatting changes, and catches the actual failure mode: a
  * new query, or a new CTE added to `getByDate`, that computes profit from
  * sales/debt/partner data without wiring in the gate. Splitting `getByDate`
  * into per-CTE units (instead of treating its whole ~200-line prepare() call
@@ -67,15 +68,70 @@
  * `ExchangeRepository.createTransaction` before either column is ever
  * written, not inside one of these already-gated queries. USD<->LBP legs are
  * completely untouched (still the pre-existing spread stamp).
+ *
+ * LIRA-158 Phase 5 — scan extended to `ClosingRepository.ts`. Three mechanism
+ * changes, all required so the extension does not silently corrupt the
+ * existing ProfitRepository coverage:
+ *
+ * 1. **Keys are now `<file>:<method>:<unit>`.** `EXCLUDED_UNITS` keys for
+ *    ProfitRepository gained a `ProfitRepository:` prefix (every entry
+ *    updated in this same change; the SET of excluded queries and their
+ *    rationale is otherwise byte-for-byte unchanged) so a same-named method
+ *    in a different scanned file can never collide with one here.
+ * 2. **A method with more than one non-`WITH` `.prepare()` call is now
+ *    disambiguated by the local `const`/`let` name each query is assigned
+ *    to**, instead of every such query collapsing onto the identical bare
+ *    `"(query)"` label. `ClosingRepository.getDailyStatsSnapshot` is why:
+ *    it has NINE `.prepare()` calls in one method (no CTEs), six of them
+ *    profit-bearing — under the old one-label-per-method-shape rule they
+ *    would all key as `getDailyStatsSnapshot:(query)`, so excluding ONE of
+ *    them (say, a correct one) would silently exclude ALL SIX, including
+ *    the ones that are genuine gaps. A method with exactly one non-`WITH`
+ *    prepare is completely unaffected — it still gets the bare `"(query)"`
+ *    label unconditionally, which is what every pre-existing ProfitRepository
+ *    `EXCLUDED_UNITS` key assumes (verified: `getDeferredProfit` is the only
+ *    ProfitRepository method with 2+ non-`WITH` prepares, and it was never in
+ *    `EXCLUDED_UNITS` — its two units silently relabel from `(query)`/`(query)`
+ *    to `partnerRow`/`clientDebtRow`, which changes nothing observable since
+ *    neither key was ever referenced and both units still pass on their own
+ *    merits). See {@link precedingVarName}.
+ * 3. **`findMethodBoundaries` now also recognizes top-level `function NAME(`
+ *    declarations**, not just 2-space class methods — see that function's
+ *    own doc comment for the pre-existing mis-attribution bug this closes
+ *    (`ProfitRepository`'s private `_hasSettlementAllocationsTable` schema
+ *    probe was silently attributing to "constructor" and escaping this
+ *    guard entirely, an UNEXCLUDED violation that predates this Phase 5
+ *    extension — see the new `hasSettlementAllocationsTable:(query)`
+ *    EXCLUDED_UNITS entry).
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 const SRC_ROOT = path.join(__dirname, "..", "..");
-const REPO_PATH = path.join(SRC_ROOT, "repositories", "ProfitRepository.ts");
 
-/** The recognition-gate fragment family (Rule 14) — see file header. */
+/**
+ * Every repository file this guard scans for profit/commission-bearing SQL.
+ * `tag` prefixes every unit key parsed from that file (see header note 1)
+ * so the two files' methods can never collide even if a name is reused.
+ */
+const SCANNED_FILES: { tag: string; path: string }[] = [
+  {
+    tag: "ProfitRepository",
+    path: path.join(SRC_ROOT, "repositories", "ProfitRepository.ts"),
+  },
+  {
+    tag: "ClosingRepository",
+    path: path.join(SRC_ROOT, "repositories", "ClosingRepository.ts"),
+  },
+];
+
+/**
+ * The recognition-gate fragment family (Rule 14) — see file header. Defined
+ * (as `function <name>(`) exclusively in `ProfitRepository.ts`; the other
+ * scanned file only ever IMPORTS a subset of them, so the "still exists as a
+ * callable function" sanity check below reads ProfitRepository's own source.
+ */
 const GATE_FRAGMENTS = [
   "notDebtPending",
   "notPartnerPending",
@@ -97,9 +153,17 @@ const GATE_CALL_REGEX = new RegExp(`\\b(?:${GATE_FRAGMENTS.join("|")})\\(`);
 const PROFIT_TOKEN_REGEX = /profit|commission/i;
 
 interface QueryUnit {
+  /** Which {@link SCANNED_FILES} entry this unit came from (its `tag`). */
+  file: string;
   /** Enclosing repository method, resolved from the nearest preceding `  name(` boundary. */
   methodName: string;
-  /** CTE name for a `WITH`-based query, `"(final select)"` for its trailing SELECT, or `"(query)"` for a plain single-statement query. */
+  /**
+   * CTE name for a `WITH`-based query, `"(final select)"` for its trailing
+   * SELECT, `"(query)"` for a method with exactly one non-`WITH` prepare, or
+   * (a method with 2+ non-`WITH` prepares) the local `const`/`let` variable
+   * name that specific query is assigned to — falling back to `"(query #N)"`
+   * if no such assignment can be found. See {@link precedingVarName}.
+   */
   unitLabel: string;
   sql: string;
   /** 1-based source line where this unit's enclosing `.prepare(` call starts (for error messages). */
@@ -111,11 +175,33 @@ function findMethodBoundaries(
   source: string,
 ): { name: string; index: number }[] {
   const boundaries: { name: string; index: number }[] = [];
-  const re = /^ {2}(\w+)\(/gm;
+  const methodRe = /^ {2}(\w+)\(/gm;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(source)) !== null) {
+  while ((m = methodRe.exec(source)) !== null) {
     boundaries.push({ name: m[1], index: m.index });
   }
+  // Top-level (module-scope, 0-indent) `function NAME(` declarations — the
+  // free Rule 14 helpers (e.g. `hasCommissionModelColumn`,
+  // `hasSettlementAllocationsTable`) declared before the class. Needed so a
+  // `.prepare(` call INSIDE one of these attributes to the function's own
+  // name instead of silently falling through to whatever class method (or
+  // "(module scope)") happens to be the nearest OTHER boundary. This closes
+  // a real, latent mis-attribution the LIRA-158 Phase 5 extension found:
+  // `private`/`protected` class methods don't match `methodRe` either (the
+  // modifier keyword sits where the name would), so a schema-probe method
+  // like `_hasSettlementAllocationsTable` (private) used to have its inline
+  // `.prepare(` silently attributed to "constructor" — the nearest PUBLIC
+  // method boundary — and, because its SQL names a table containing the
+  // substring "commission" (`settlement_commission_allocations`), that was
+  // an UNEXCLUDED violation nobody had caught. Moving the probe into an
+  // exported free function (LIRA-158 Phase 5 item 2's de-duplication) plus
+  // this boundary fix relocates it to a clean, honestly-excluded
+  // `hasSettlementAllocationsTable:(query)` key instead (see EXCLUDED_UNITS).
+  const functionRe = /^(?:export )?function (\w+)\(/gm;
+  while ((m = functionRe.exec(source)) !== null) {
+    boundaries.push({ name: m[1], index: m.index });
+  }
+  boundaries.sort((a, b) => a.index - b.index);
   return boundaries;
 }
 
@@ -163,8 +249,9 @@ function findMatchingParen(str: string, openIndex: number): number {
   }
   throw new Error(
     "profitRecognition.guard.test.ts: unbalanced parentheses while splitting " +
-      "a WITH-query into CTE units — ProfitRepository.ts's getByDate query " +
-      "shape changed; update splitCteUnits() in this guard.",
+      "a WITH-query into CTE units — a scanned file's getByDate-shaped query " +
+      "(originally only ProfitRepository.ts's) changed shape; update " +
+      "splitCteUnits() in this guard.",
   );
 }
 
@@ -204,40 +291,149 @@ function splitCteUnits(sql: string): { label: string; body: string }[] {
   return units;
 }
 
-function collectQueryUnits(source: string): QueryUnit[] {
+/**
+ * For a query unit inside a method with MORE THAN ONE non-`WITH`
+ * `.prepare(` call, resolve the local `const`/`let` variable name that
+ * specific call is assigned to — e.g. `const salesProfit = this.db.prepare(...)`
+ * resolves to `"salesProfit"` for the `.prepare(` inside it, even when (as
+ * with `ClosingRepository`'s `finProfitSettlement`) the assignment and the
+ * `.prepare(` call are separated by an intervening ternary/parens:
+ * `const finProfitSettlement = cond ? (this.db.prepare(...)...) : ...`.
+ *
+ * Scans from `windowStart` (the enclosing method's own boundary — see
+ * {@link findMethodBoundaries} — never earlier, so a variable from a
+ * DIFFERENT method can never leak in) up to `prepareIndex` and keeps the
+ * LAST `const`/`let NAME =` match found — by construction, the assignment
+ * for THIS query is always the closest one preceding its own `.prepare(`
+ * call (every case in both scanned files declares the query's own variable
+ * immediately before opening `.prepare(`, even through a ternary), so "last
+ * in the window" is equivalent to "this query's own declaration" without
+ * needing to understand the expression shape in between.
+ *
+ * Returns `null` if no `const`/`let` declaration is found in the window (a
+ * bare `return this.db.prepare(...)` with no intermediate variable) — the
+ * caller falls back to numbered `"(query #N)"` labels in that case.
+ */
+function precedingVarName(
+  source: string,
+  prepareIndex: number,
+  windowStart: number,
+): string | null {
+  const slice = source.slice(windowStart, prepareIndex);
+  const re = /\b(?:const|let)\s+(\w+)\s*[:=]/g;
+  let last: string | null = null;
+  let mm: RegExpExecArray | null;
+  while ((mm = re.exec(slice)) !== null) {
+    last = mm[1];
+  }
+  return last;
+}
+
+function collectQueryUnits(source: string, file: string): QueryUnit[] {
   const boundaries = findMethodBoundaries(source);
-  const units: QueryUnit[] = [];
-  // Optional trailing comma: every `.prepare(\`sql\`)` call in this file is
+  // Optional trailing comma: every `.prepare(\`sql\`)` call in these files is
   // formatted with a dangling comma before the closing paren.
-  const prepareRe = /\.prepare\(\s*`([\s\S]*?)`\s*,?\s*\)/g;
+  const prepareSource = "\\.prepare\\(\\s*`([\\s\\S]*?)`\\s*,?\\s*\\)";
+
+  // Pass 1: count non-WITH ("bare query") prepares per method. A method with
+  // exactly one keeps the original bare "(query)" label (every pre-existing
+  // EXCLUDED_UNITS key assumes this); a method with more than one needs the
+  // per-query disambiguation this pass makes possible (see header note 2).
+  const nonWithCountByMethod = new Map<string, number>();
+  {
+    const counter = new RegExp(prepareSource, "g");
+    let mm: RegExpExecArray | null;
+    while ((mm = counter.exec(source)) !== null) {
+      const methodName = methodNameAt(boundaries, mm.index);
+      const cleaned = stripSqlLineComments(mm[1]);
+      if (!/^\s*WITH\b/i.test(cleaned)) {
+        nonWithCountByMethod.set(
+          methodName,
+          (nonWithCountByMethod.get(methodName) ?? 0) + 1,
+        );
+      }
+    }
+  }
+
+  const units: QueryUnit[] = [];
+  const unnamedSeenByMethod = new Map<string, number>();
+  const iter = new RegExp(prepareSource, "g");
   let m: RegExpExecArray | null;
-  while ((m = prepareRe.exec(source)) !== null) {
+  while ((m = iter.exec(source)) !== null) {
     const methodName = methodNameAt(boundaries, m.index);
     const line = lineAt(source, m.index);
     const cleaned = stripSqlLineComments(m[1]);
-    for (const u of splitCteUnits(cleaned)) {
-      units.push({ methodName, unitLabel: u.label, sql: u.body, line });
+    const cteUnits = splitCteUnits(cleaned);
+    const isBareQuery =
+      cteUnits.length === 1 && cteUnits[0].label === "(query)";
+
+    if (!isBareQuery) {
+      for (const u of cteUnits) {
+        units.push({ file, methodName, unitLabel: u.label, sql: u.body, line });
+      }
+      continue;
+    }
+
+    const totalInMethod = nonWithCountByMethod.get(methodName) ?? 1;
+    if (totalInMethod <= 1) {
+      units.push({
+        file,
+        methodName,
+        unitLabel: "(query)",
+        sql: cteUnits[0].body,
+        line,
+      });
+      continue;
+    }
+
+    const methodStart =
+      boundaries.find((b) => b.name === methodName)?.index ?? 0;
+    const varName = precedingVarName(source, m.index, methodStart);
+    if (varName) {
+      units.push({
+        file,
+        methodName,
+        unitLabel: varName,
+        sql: cteUnits[0].body,
+        line,
+      });
+    } else {
+      const seen = (unnamedSeenByMethod.get(methodName) ?? 0) + 1;
+      unnamedSeenByMethod.set(methodName, seen);
+      units.push({
+        file,
+        methodName,
+        unitLabel: `(query #${seen})`,
+        sql: cteUnits[0].body,
+        line,
+      });
     }
   }
   return units;
 }
 
+function unitKey(u: { file: string; methodName: string; unitLabel: string }): string {
+  return `${u.file}:${u.methodName}:${u.unitLabel}`;
+}
+
 /**
  * Query units that legitimately contain a "profit" column/alias but do NOT
  * reference a recognition-gate fragment, each with its verified reason.
+ * Keys are `<file>:<method>:<unit>` (see header note 1) — `file` matches a
+ * {@link SCANNED_FILES} `tag`.
  */
 const EXCLUDED_UNITS: Record<string, string> = {
-  "getDebtRepaymentProfit:(query)":
+  "ProfitRepository:getDebtRepaymentProfit:(query)":
     "Recognition-by-construction: DEBT_REPAYMENT/KEPT_CHANGE rows ARE the " +
     "recognition event (kept change collected AT the repayment) — there is " +
     "no counterparty-pending state left to gate against; the repayment " +
     "happening now is what 'money is real' means for this row.",
-  "getCounterpartyDiscountTotals:(query)":
+  "ProfitRepository:getCounterpartyDiscountTotals:(query)":
     "Owner decision D1 (COUNTERPARTY_CONSOLIDATION_PLAN.md): " +
     "COUNTERPARTY_DISCOUNT carries a signed profit stamp with amount_usd/lbp " +
     "always 0 (no cash moved) and is NON_REVERSIBLE_TRANSACTION_TYPES — " +
     "immediate recognition by design, nothing left to defer.",
-  "getSupplierCommissionTotals:(query)":
+  "ProfitRepository:getSupplierCommissionTotals:(query)":
     "LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md): recognition-by-" +
     "construction, same reasoning as getDebtRepaymentProfit/" +
     "getCounterpartyDiscountTotals above. A bills-only settlement's " +
@@ -253,24 +449,24 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "separately via rule 20 (void status-excludes; refund's negated stamp " +
     "nets the pair to 0) — see ProfitService.supplierSettlementCommission" +
     ".test.ts.",
-  "getFinancialPendingByCurrency:(query)":
+  "ProfitRepository:getFinancialPendingByCurrency:(query)":
     "Deliberately the PRE-recognition bucket (is_settled = 0), surfaced as " +
     "its own 'pending' line (ProfitService.getByPaymentMethod) and never " +
     "summed into a realized total. The gate applies when/if the row moves " +
     "to the settled bucket (getFinancialSettledByCurrency, which DOES carry " +
     "notPartnerPending + notDebtPending).",
-  "getByDate:daily_pmfee":
+  "ProfitRepository:getByDate:daily_pmfee":
     "Payment-method fee is realized wallet-drawer cash the instant it's " +
     "collected (getPmFeeTotals's own doc comment: 'immediate shop profit ... " +
     "NOT gated by is_settled') — it is never part of a counterparty-financed " +
     "principal, so it cannot be partner- or debt-pending by construction.",
-  "getByDate:(final select)":
+  "ProfitRepository:getByDate:(final select)":
     "Pure re-aggregation: sums CTE aliases (dsp.profit_usd, dc.profit_usd, " +
     "dr.profit_usd, ...) that were each already gated inside their own CTE " +
     "(checked as independent units by this guard) — the gate lives in the " +
     "CTE, not in the COALESCE(...) + that recombines already-gated numbers.",
   // --- commission-token exclusions (LIRA-108 scan widening) ---
-  "getPendingCommissionTotals:(query)":
+  "ProfitRepository:getPendingCommissionTotals:(query)":
     "LIRA-108 deliberate: the PRE-recognition bucket keyed purely on " +
     "is_settled = 0, mirroring getFinancialPendingByCurrency's exclusion " +
     "above — a supplier-unsettled row awaits settlement regardless of " +
@@ -279,37 +475,162 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "since LIRA-108). Gating this too would double-hide a settled-but-" +
     "pending row (already withheld from realized AND from pending's " +
     "is_settled = 0), breaking the realized/pending/deferred partition.",
-  "getPendingCommissionByProvider:(query)":
+  "ProfitRepository:getPendingCommissionByProvider:(query)":
     "Same predicate as getPendingCommissionTotals by design — it only " +
     "breaks that row's total down per provider for the pending-row label " +
     "(ProfitService.getByPaymentMethod). Must stay predicate-identical to " +
     "it or the label total diverges from the row total; same PRE-" +
     "recognition-bucket reasoning.",
-  "getUnsettledCommissions:(query)":
+  "ProfitRepository:getUnsettledCommissions:(query)":
     "Not an aggregation at all — a row LIST of unsettled (is_settled = 0) " +
     "commission rows for the supplier-settlement work queue. Pre-" +
     "recognition by construction (same bucket as the two pending entries " +
     "above); a partner/debt gate here would hide rows the operator still " +
     "needs to settle with the supplier.",
-  "getPaymentMethodRows:(query)":
+  "ProfitRepository:getPaymentMethodRows:(query)":
     "Trips the commission token only via its literal '0 AS " +
     "pending_commission_usd' padding column (payments-table view; sums " +
     "p.amount, never commission or profit). Its ungated state is the " +
     "documented v1 gap (COUNTERPARTY_LEDGERS.md §6 'Documented v1 gaps') — " +
     "explicitly out of LIRA-108's scope, which closed the commission ROWS " +
     "of the same view, not the per-payment-method rows.",
+  "ProfitRepository:hasSettlementAllocationsTable:(query)":
+    "False-positive token match, not a recognition question at all: this is " +
+    "a schema-introspection probe (`SELECT 1 FROM sqlite_master WHERE " +
+    "type = 'table' AND name = 'settlement_commission_allocations'`, LIRA-158 " +
+    "Phase 3/5 item 2's shared free function) that trips the 'commission' " +
+    "token purely because the TABLE NAME it checks for contains that " +
+    "substring — there is no revenue, profit, or commission dollar figure " +
+    "anywhere in this query. Same class as {@link hasCommissionModelColumn}'s " +
+    "own `PRAGMA table_info(financial_services)` probe immediately above it " +
+    "(which doesn't need an entry only because 'financial_services' doesn't " +
+    "happen to spell 'commission'). Found while extending this guard's " +
+    "boundary detection to free (module-scope) functions (LIRA-158 Phase 5, " +
+    "see {@link findMethodBoundaries}'s doc comment) — before that fix this " +
+    "probe's `.prepare(` lived inline in the PRIVATE class method " +
+    "`_hasSettlementAllocationsTable`, which `methodRe` cannot see (the " +
+    "`private` keyword sits where the name would), so it silently " +
+    "attributed to 'constructor' and was an UNEXCLUDED violation nobody had " +
+    "caught — pre-existing, unrelated to ClosingRepository, discovered as a " +
+    "side effect of this same extension.",
+  // --- ClosingRepository.getDailyStatsSnapshot (LIRA-158 Phase 5) ---
+  // `totalProfitUSD` is an INFORMATIONAL, same-day snapshot: its only
+  // consumer is the generated closing PDF's "Total Profit (USD)" line
+  // (LIRA-158_COMMISSION_REPORTING_PLAN.md §1.3 — no dashboard tile, no
+  // ledger of record), scoped by `todayLocal(...)` to TODAY only. That
+  // narrower purpose is why several entries below accept a same-day
+  // cash/refund check instead of the Profits page's full partner-/debt-
+  // pending machinery — but where a query is missing even ITS OWN module's
+  // existing `is_refunded` gate (a gap this same LIRA-158 phase already
+  // fixed for the sibling `finProfitLegacy` query, per §1.3's "bonus
+  // defect"), that is called out honestly as a known gap, not papered over.
+  "ClosingRepository:getDailyStatsSnapshot:salesProfit":
+    "Same-day cash-in-hand check: reproduces saleFullyPaid's formula " +
+    "inline (paid_usd + paid_lbp/rate >= final_amount - 0.05), restricted " +
+    "to todayLocal(s.created_at), and DOES carry its own refund gate " +
+    "(si.is_refunded = 0) — a same-day void nets to 0 correctly. " +
+    "Deliberately omits salePaidOrPartnerSettled's partner-covered OR-" +
+    "branch: unlike financial-service commission (which this same LIRA-158 " +
+    "phase gave a dedicated settlement-day source read off `transactions`, " +
+    "see finProfitSettlement below), Closing has no equivalent path that " +
+    "ever recognizes a for-partner SALE's profit on the day the partner " +
+    "actually settles — such a sale's profit never reaches this snapshot, " +
+    "on any day. That is a real completeness gap (worth its own ticket), " +
+    "but it is a gap of OMISSION, not of over-recognition: it can only " +
+    "under-count today's total, never claim a cash event that has not " +
+    "happened, so it does not violate the 'profit is real only when money " +
+    "is real' rule this guard enforces.",
+  "ClosingRepository:getDailyStatsSnapshot:finProfitLegacy":
+    "D10/D14 (LIRA-158_COMMISSION_REPORTING_PLAN.md §1.3, Phase 4): " +
+    "legacy (commission_model = 0) financial-service commission, UNCHANGED " +
+    "pre-existing behavior — recognized on the row's own transaction day " +
+    "(todayLocal(created_at)), not gated by is_settled at all, because for " +
+    "a legacy embedded-commission row the `commission` column IS the real, " +
+    "already-true figure the instant the transaction is created (D3 " +
+    "cutover) — there is no separate settlement event to wait for, unlike " +
+    "an AT_SETTLEMENT (commission_model = 1) row. Gated by " +
+    "embeddedCommission (model-0 only) and notRefunded (the §1.3 'bonus " +
+    "defect' this same LIRA-158 phase added). KNOWN GAP, not fixed here: " +
+    "unlike this same commission's getFinancialSettledByCurrency/" +
+    "getRealizedCommissionTotals siblings in ProfitRepository, this query " +
+    "carries no notPartnerPending/notDebtPending — a for-partner or " +
+    "CUSTOMER_ACCOUNT-charged legacy commission can appear in today's " +
+    "closing total before the partner/client has actually paid. " +
+    "Pre-existing (not introduced by this LIRA-158 phase, which only added " +
+    "the is_refunded gate and the settlement-day source below) — worth its " +
+    "own ticket.",
+  "ClosingRepository:getDailyStatsSnapshot:finProfitSettlement":
+    "Recognition-by-construction, identical reasoning to " +
+    "getSupplierCommissionTotals:(query) above (LIRA-137 fix) transplanted " +
+    "to Closing's todayLocal window (LIRA-158 Phase 4, D10): a " +
+    "SUPPLIER_SETTLEMENT transaction's profit_usd is the operator's " +
+    "entered commission, a real provider-drawer top-up funded BY the " +
+    "supplier AT settlement — no partner_ledger row is ever created with " +
+    "reference_table = 'supplier_ledger' and no debt_ledger module-debt " +
+    "row is ever keyed to a SUPPLIER_SETTLEMENT transaction id, so both " +
+    "gates would always no-op here. REFUND on the same source_table nets a " +
+    "same-day void to 0 (rule 20), matching the ProfitRepository sibling " +
+    "exactly.",
+  "ClosingRepository:getDailyStatsSnapshot:rechargeProfit":
+    "KNOWN GAP, not correct-by-design — found during this LIRA-158 guard " +
+    "extension, out of that ticket's scope (Phase 4 targeted only the " +
+    "financial-services commission source). Unlike salesProfit above " +
+    "(which carries si.is_refunded = 0, the exact class of 'bonus defect' " +
+    "this same plan fixed for finProfitLegacy), this query has NO refund " +
+    "gate on `recharges` at all — a same-day refunded recharge still adds " +
+    "its (price - cost) margin to totalProfitUSD. It also carries neither " +
+    "notPartnerPending nor notDebtPending, so a for-partner or " +
+    "CUSTOMER_ACCOUNT-charged recharge counts before any cash has actually " +
+    "moved. Excluded here (mirroring getPaymentMethodRows:(query)'s " +
+    "'documented v1 gap' precedent) so the guard states the gap explicitly " +
+    "instead of silently passing OR fabricating a gate that isn't there; " +
+    "recommend filing as its own ticket.",
+  "ClosingRepository:getDailyStatsSnapshot:customProfit":
+    "Same class of KNOWN GAP as rechargeProfit immediately above — sums " +
+    "custom_services.profit_usd directly with no refund gate " +
+    "(custom_services.is_refunded exists and is used by notRefunded " +
+    "everywhere else this table is read, e.g. " +
+    "ProfitRepository.getCustomServicesTotals), and no " +
+    "notPartnerPending/notDebtPending. A same-day refunded, for-partner, " +
+    "or debt-charged custom service order still inflates today's closing " +
+    "total. Documented, not fixed, here — recommend its own ticket " +
+    "(can likely be batched with rechargeProfit's).",
+  "ClosingRepository:getDailyStatsSnapshot:maintProfit":
+    "KNOWN BUG, the most severe of the three module gaps here: " +
+    "`LOWER(status) = 'completed'` never matches any row — " +
+    "maintenance.status's real values are Received/In_Progress/Ready/" +
+    "Delivered/Delivered_Paid (no 'completed' state ever exists). This is " +
+    "the EXACT B5 defect ProfitRepository.MAINTENANCE_COMPLETED was " +
+    "introduced to fix ('the old lowercase equality predicate matched " +
+    "nothing, so maintenance profit was always zero in every profits " +
+    "view') — that fix was never carried over to ClosingRepository, so " +
+    "maintenance profit is unconditionally $0 in every daily closing " +
+    "snapshot. Also carries no refund gate (same class as recharge/custom " +
+    "above) and no notDebtPending, though both are moot while the status " +
+    "predicate matches zero rows. Excluded here as a documented, tracked " +
+    "gap (not a fabricated gate) — recommend filing as its own ticket; " +
+    "swapping in MAINTENANCE_COMPLETED is a one-line fix once someone owns " +
+    "verifying the closing-report semantics change a nonzero figure would " +
+    "introduce.",
 };
 
-describe("ProfitRepository — profit-recognition-gate drift guard (CQ-1, LIRA-098)", () => {
-  const source = fs.readFileSync(REPO_PATH, "utf8");
-  const units = collectQueryUnits(source);
+describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)", () => {
+  const sources = new Map(
+    SCANNED_FILES.map((f) => [f.tag, fs.readFileSync(f.path, "utf8")] as const),
+  );
+  const units = SCANNED_FILES.flatMap((f) =>
+    collectQueryUnits(sources.get(f.tag)!, f.tag),
+  );
   const profitUnits = units.filter((u) => PROFIT_TOKEN_REGEX.test(u.sql));
 
   it("sanity: every named recognition-gate fragment still exists as a callable function", () => {
     // If one of these were ever renamed, every check below would silently
-    // stop finding it — prove the names this guard depends on are still real.
+    // stop finding it — prove the names this guard depends on are still
+    // real. Defined exclusively in ProfitRepository.ts (see GATE_FRAGMENTS'
+    // own doc comment).
+    const profitRepoSource = sources.get("ProfitRepository")!;
     for (const fragment of GATE_FRAGMENTS) {
-      expect(source).toContain(`function ${fragment}(`);
+      expect(profitRepoSource).toContain(`function ${fragment}(`);
     }
   });
 
@@ -320,18 +641,17 @@ describe("ProfitRepository — profit-recognition-gate drift guard (CQ-1, LIRA-0
 
   it("every profit-bearing query unit references a recognition-gate fragment (or is a named, justified exclusion)", () => {
     const violations = profitUnits.filter((u) => {
-      const key = `${u.methodName}:${u.unitLabel}`;
-      if (key in EXCLUDED_UNITS) return false;
+      if (unitKey(u) in EXCLUDED_UNITS) return false;
       return !GATE_CALL_REGEX.test(u.sql);
     });
     if (violations.length > 0) {
       const message = violations
         .map(
           (v) =>
-            `'${v.methodName}:${v.unitLabel}' (line ${v.line}) — SQL references ` +
+            `'${unitKey(v)}' (line ${v.line}) — SQL references ` +
             `'profit'/'commission' but calls none of ${GATE_FRAGMENTS.join(", ")}. If this ` +
             `query genuinely doesn't need a recognition gate, add ` +
-            `'${v.methodName}:${v.unitLabel}' to EXCLUDED_UNITS here with a ` +
+            `'${unitKey(v)}' to EXCLUDED_UNITS here with a ` +
             `verified reason; otherwise wire in the correct gate fragment ` +
             `(rule 14, docs/COUNTERPARTY_LEDGERS.md).`,
         )
@@ -342,7 +662,7 @@ describe("ProfitRepository — profit-recognition-gate drift guard (CQ-1, LIRA-0
 
   it("EXCLUDED_UNITS carries no stale entries (every entry still matches an unguarded profit-bearing unit)", () => {
     const stale = Object.keys(EXCLUDED_UNITS).filter((key) => {
-      const unit = units.find((u) => `${u.methodName}:${u.unitLabel}` === key);
+      const unit = units.find((u) => unitKey(u) === key);
       if (!unit) return true; // key no longer matches any parsed unit
       if (!PROFIT_TOKEN_REGEX.test(unit.sql)) return true; // no longer mentions "profit"
       if (GATE_CALL_REGEX.test(unit.sql)) return true; // now gated — exclusion is dead weight

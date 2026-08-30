@@ -15,8 +15,11 @@
  *   - usdBucket / lbpBucket      USD-vs-LBP currency bucketing CASE fragments
  *   - EXCHANGE_LEG_PROFIT        leg1 + leg2 exchange profit (v30+) sum
  *   - FS_REVENUE                 financial-service revenue (price when cost>0 else amount)
+ *   - EMBEDDED_COMMISSION(alias) `fs.commission` column is settled truth only for
+ *                                a legacy (commission_model = 0) row — LIRA-158 Phase 2a
  */
 
+import type Database from "better-sqlite3";
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 
@@ -151,10 +154,31 @@ export interface CommissionTotalsRow {
   count: number;
 }
 
+/**
+ * LIRA-158 Phase 3 (D15) — {@link ProfitRepository.getPendingCommissionTotals}'s
+ * return shape. `total_usd`/`total_lbp`/`count` keep their PRE-existing
+ * meaning unchanged (legacy `commission_model = 0` rows only — the dollar
+ * figure). `awaiting_settlement_count` is NEW: the number of
+ * `commission_model = 1` rows pending settlement in range, for which the
+ * commission is unknowable until settlement (a count, never a dollar
+ * figure — see {@link atSettlementCommission}). A separate interface from
+ * {@link CommissionTotalsRow} (which `getRealizedCommissionTotals` also
+ * returns and does NOT gain this field) rather than widening that shared
+ * shape.
+ */
+export interface PendingCommissionTotalsRow {
+  total_usd: number;
+  total_lbp: number;
+  count: number;
+  awaiting_settlement_count: number;
+}
+
 export interface PendingCommissionByProviderRow {
   provider: string;
   total_usd: number;
   count: number;
+  /** @see PendingCommissionTotalsRow.awaiting_settlement_count */
+  awaiting_settlement_count: number;
 }
 
 export interface ProfitByUserRow {
@@ -371,6 +395,144 @@ function fsRevenue(alias: string): string {
   return `CASE WHEN ${alias}.cost > 0 THEN ${alias}.price ELSE ${alias}.amount END`;
 }
 
+/**
+ * Rule 14 — the ONE definition of "this row's own `commission` column is the
+ * settled truth" (legacy EMBEDDED, D3 cutover: `commission_model = 0`).
+ *
+ * LIRA-158 (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2a) — the row's own
+ * `commission` column is the settled truth ONLY for a legacy EMBEDDED row
+ * (`commission_model = 0`, D3 cutover). An AT_SETTLEMENT row
+ * (`commission_model = 1`) has this same column auto-populated with an
+ * ESTIMATE at creation time (`FinancialServiceRepository.ts` — the
+ * `calculatedCommission` ternary feeding the INSERT) that is NEVER corrected
+ * back — the real, operator-entered commission is recognised later on the
+ * SUPPLIER_SETTLEMENT transaction instead (settlement-day, see
+ * {@link ProfitRepository.getSupplierCommissionTotals}). Reading `commission`
+ * directly for a model-1 row would report a number that was never true (OMT/
+ * WHISH SEND/RECEIVE) or is force-zeroed and never becomes true here at all
+ * (WHISH/BILL — their real commission is entered at settlement, off this
+ * column entirely; see LIRA-158_COMMISSION_REPORTING_PLAN.md §1.1).
+ *
+ * `alias` is the table alias/prefix this predicate is embedded under — some
+ * call sites are aliased (`fs`, `fs2`) and some read the bare table name
+ * (`financial_services`), so the parameter handles both; there is no second
+ * copy of this fragment for the unaliased case. `supported` is
+ * {@link hasCommissionModelColumn}'s schema-drift guard: `"1 = 1"` on a
+ * fixture that pre-dates `commission_model` deliberately reproduces today's
+ * (pre-LIRA-158) behavior unchanged — the same degradation strategy
+ * `pendingSettlementSql` already uses for its own schema-drift guard
+ * (`FinancialServiceRepository.ts`, `commission_eligible`).
+ *
+ * Exported (same precedent as {@link notRefunded}, reused across repository
+ * files) because `FinancialServiceRepository.getAnalytics` embeds this SAME
+ * rule inside its five `CASE WHEN` sub-queries. Before this export,
+ * `getAnalytics` carried a second, hand-copied ternary (`modelZeroOnly`) that
+ * encoded the identical rule — there is now exactly one text of this
+ * predicate in the codebase (rule 14).
+ */
+export function embeddedCommission(alias: string, supported: boolean): string {
+  return supported ? `${alias}.commission_model = 0` : "1 = 1";
+}
+
+/**
+ * Rule 14 — the ONE place that knows the `financial_services.commission_model`
+ * column name and runs the PRAGMA to detect it. Feeds {@link
+ * embeddedCommission}'s `supported` argument everywhere the predicate is used
+ * (this repository's six commission queries and
+ * `FinancialServiceRepository.getAnalytics`) so the rule and its schema-drift
+ * guard cannot drift apart.
+ *
+ * This is a plain, uncached probe — each class wraps it in its OWN private
+ * `_hasCommissionModelColumn()` method (kept private/per-class, matching
+ * `_suppliersHasCommissionEligibleColumn()`'s precedent of not sharing
+ * schema-introspection wrappers across repositories) so call sites keep
+ * reading `this._hasCommissionModelColumn()` unchanged; only this repository's
+ * wrapper adds memoization (see `_hasCommissionModelColumnCache`) —
+ * `FinancialServiceRepository`'s wrapper already only calls this once per
+ * `getAnalytics` invocation, so it doesn't need one.
+ */
+export function hasCommissionModelColumn(db: Database.Database): boolean {
+  const cols = db.prepare(`PRAGMA table_info(financial_services)`).all() as {
+    name: string;
+  }[];
+  return cols.some((c) => c.name === "commission_model");
+}
+
+/**
+ * Rule 14 — the ONE place that knows the `settlement_commission_allocations`
+ * table name and runs the `sqlite_master` probe to detect it (LIRA-158
+ * Phase 3). Feeds both this repository's and `FinancialServiceRepository`'s
+ * own private, per-class memoized `_hasSettlementAllocationsTable()`
+ * wrappers — mirrors {@link hasCommissionModelColumn}'s own precedent
+ * immediately above, replacing what used to be two independent copies of
+ * the identical `sqlite_master` query (one per class) with a single shared
+ * definition. The table only exists from migration v150 onward, and jest
+ * fixtures in both files' own test suites (and `ProfitService`'s) hand-roll
+ * fresh in-memory schemas that predate it — an unguarded reference throws
+ * "no such table" and kills every test in that file's SETUP (the exact trap
+ * `reference_test_schema_completeness` names).
+ *
+ * This is a plain, uncached probe, matching {@link hasCommissionModelColumn}'s
+ * own shape — each class wraps it in its OWN private memoized method (same
+ * precedent as that function's doc comment) rather than sharing a cache
+ * across repository instances, so call sites in both classes keep reading
+ * `this._hasSettlementAllocationsTable()` unchanged.
+ */
+export function hasSettlementAllocationsTable(db: Database.Database): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settlement_commission_allocations'`,
+    )
+    .get();
+  return !!row;
+}
+
+/**
+ * Rule 14 — complement of {@link embeddedCommission}: the row IS a genuine
+ * AT_SETTLEMENT row (`commission_model = 1`), so its own `commission` column
+ * is NOT the truth (see {@link embeddedCommission}'s doc comment for the
+ * full rationale) — the real, operator-entered commission does not exist
+ * until settlement. D15 (LIRA-158_COMMISSION_REPORTING_PLAN.md §8): a
+ * model-1 row's pending commission is UNKNOWABLE until settlement, so the
+ * pending surfaces ({@link ProfitRepository.getPendingCommissionTotals},
+ * {@link ProfitRepository.getPendingCommissionByProvider}) report a COUNT of
+ * these rows instead of a dollar figure — this predicate is what that count
+ * filters on.
+ *
+ * `supported` mirrors {@link embeddedCommission}'s `supported` argument
+ * (fed by the same {@link hasCommissionModelColumn} probe), but the
+ * degradation is the OPPOSITE literal: a pre-v150 fixture (no
+ * `commission_model` column at all) has NO model-1 rows by construction — it
+ * predates the column entirely — so the correct degradation is "match
+ * nothing" (`"1 = 0"`), not `"1 = 1"`. Returning `"1 = 1"` here would count
+ * EVERY pending row on such a fixture as "awaiting settlement", the wrong
+ * direction from `embeddedCommission`'s own degradation.
+ */
+export function atSettlementCommission(alias: string, supported: boolean): string {
+  return supported ? `${alias}.commission_model = 1` : "1 = 0";
+}
+
+/**
+ * Rule 14 — the ONE join shape linking an fs row to ITS current settlement
+ * allocation, copied verbatim from `FinancialServiceRepository
+ * .getAllByProvider`'s LEFT JOIN (LIRA-158_COMMISSION_REPORTING_PLAN.md
+ * §1.4 — "the join shape to extract and reuse"; that method is the one place
+ * in the codebase that already reads these two tables together correctly).
+ * Matches BOTH `sca.financial_service_id = fs.id` AND
+ * `sca.settlement_ledger_id = fs.settlement_id` so a voided-then-resettled
+ * fs row can never surface a stale allocation from a settlement it is no
+ * longer attached to — matching only the id would let an orphaned old
+ * allocation row leak back in. `fsAlias`/`scaAlias` are the aliases used for
+ * `financial_services` / `settlement_commission_allocations` in the
+ * surrounding query. Callers still need their OWN `sca.tenant_id = ?` bind
+ * (tenant scoping is not baked into this shared fragment, matching how
+ * every other rule-14 fragment in this file leaves tenant binds to the
+ * caller).
+ */
+function currentSettlementAllocation(fsAlias: string, scaAlias: string): string {
+  return `${scaAlias}.financial_service_id = ${fsAlias}.id AND ${scaAlias}.settlement_ledger_id = ${fsAlias}.settlement_id`;
+}
+
 /** Exchange leg profit (v30+): leg1 + leg2, NULL-safe. */
 const EXCHANGE_LEG_PROFIT =
   "COALESCE(leg1_profit_usd, 0) + COALESCE(leg2_profit_usd, 0)";
@@ -465,6 +627,72 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
 
   protected getColumns(): string {
     return "id";
+  }
+
+  /**
+   * Memoized result of {@link _hasCommissionModelColumn} — the schema cannot
+   * change mid-process, so (mirroring `FinancialServiceRepository`'s own
+   * `_hasSettlementAllocationsTableCache`) it is checked once per repository
+   * instance rather than once per query. Several of this repo's queries
+   * ({@link getRealizedCommissionTotals}, {@link getPendingCommissionTotals},
+   * {@link getPendingCommissionByProvider}, {@link getByUser},
+   * {@link getByClient}, {@link getUnsettledCommissions}) all embed
+   * {@link embeddedCommission} and would otherwise each re-run the PRAGMA.
+   */
+  private _hasCommissionModelColumnCache: boolean | null = null;
+
+  /**
+   * Schema-drift guard (LIRA-158_COMMISSION_REPORTING_PLAN.md §5) — ~30 jest
+   * fixtures across this repo (and `ProfitService`'s) build `financial_services`
+   * WITHOUT a `commission_model` column, because they pre-date migration v148
+   * (e.g. `ProfitRepository.commissionGates.test.ts`,
+   * `ProfitRepository.tenantIsolation.test.ts`,
+   * `ProfitRepository.partnerPendingCorrelation.test.ts`,
+   * `ProfitService.transactionBased.test.ts`). Naming that column unguarded in
+   * a WHERE clause makes every one of those fixtures throw "no such column"
+   * and die in SETUP — which reads like a broken assertion, not a schema gap
+   * (this exact trap has cost three separate failures in this repo; see
+   * `reference_test_schema_completeness`). Rule 14 — the PRAGMA itself now
+   * lives in the single exported {@link hasCommissionModelColumn} free
+   * function above (shared with `FinancialServiceRepository`'s own wrapper of
+   * the same name); this method only adds this repository's per-instance
+   * memoization on top of it.
+   */
+  private _hasCommissionModelColumn(): boolean {
+    if (this._hasCommissionModelColumnCache === null) {
+      this._hasCommissionModelColumnCache = hasCommissionModelColumn(this.db);
+    }
+    return this._hasCommissionModelColumnCache;
+  }
+
+  /**
+   * Memoized result of {@link hasSettlementAllocationsTable} — mirrors
+   * `_hasCommissionModelColumnCache`'s own precedent immediately above: the
+   * `sqlite_master` probe itself now lives in the single exported
+   * {@link hasSettlementAllocationsTable} free function (shared with
+   * `FinancialServiceRepository`'s own wrapper of the same name — rule 14,
+   * de-duplicated from what used to be two independent copies of the
+   * identical query); this cache only adds this repository's per-instance
+   * memoization on top of it.
+   */
+  private _hasSettlementAllocationsTableCache: boolean | null = null;
+
+  /**
+   * `settlement_commission_allocations` only exists from migration v150
+   * onward, and ~30 jest fixtures in this file's own test suite (and
+   * `ProfitService`'s) hand-roll a fresh in-memory schema that predates it
+   * (LIRA-158_COMMISSION_REPORTING_PLAN.md §5). Naming that table unguarded
+   * in {@link getFinancialSettledByProvider} / {@link getByDate}'s
+   * `daily_commissions` CTE would throw "no such table" and kill every one
+   * of those fixtures in SETUP — degrade to the pre-Phase-3 query shape
+   * (no allocation UNION arm) instead when the table is absent.
+   */
+  private _hasSettlementAllocationsTable(): boolean {
+    if (this._hasSettlementAllocationsTableCache === null) {
+      this._hasSettlementAllocationsTableCache =
+        hasSettlementAllocationsTable(this.db);
+    }
+    return this._hasSettlementAllocationsTableCache;
   }
 
   // ---------------------------------------------------------------------------
@@ -997,37 +1225,118 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   // By module (getByModule)
   // ---------------------------------------------------------------------------
 
-  /** Settled financial-service revenue/profit grouped by provider. */
+  /**
+   * Settled financial-service revenue/profit grouped by provider.
+   *
+   * LIRA-158 Phase 3 — restores per-provider ATTRIBUTION for
+   * `commission_model = 1` rows. The base arm below (unchanged from before
+   * Phase 3) already carries every settled fs row's revenue and count,
+   * dated by `fs.created_at` (transaction day) — Phase 1 only zeroed the
+   * COMMISSION TERM of the profit stamp for a model-1 row, so this arm
+   * self-corrects to 0 profit for those rows without losing their revenue.
+   * The real commission for a model-1 row is recognised on the settlement
+   * day instead (D7), on a `SUPPLIER_SETTLEMENT` transaction that is NOT a
+   * `financial_services` row and so cannot join here — its per-provider
+   * share lives in `settlement_commission_allocations` instead
+   * (LIRA-158_COMMISSION_REPORTING_PLAN.md §1.4). The second arm (added by
+   * this UNION, guarded by {@link _hasSettlementAllocationsTable}) adds
+   * exactly that share, dated by `sca.created_at` (settlement day) via
+   * {@link currentSettlementAllocation}'s join shape, and re-aggregates with
+   * the first arm so a provider settled in BOTH shapes within one period
+   * gets one combined row.
+   *
+   * Deliberately `0 AS count` on the allocation arm: the underlying fs row
+   * was already counted once by the base arm (which counts every settled fs
+   * row unconditionally, regardless of `commission_model`) whenever both
+   * arms fall in the same reporting period — adding a second count there
+   * would double it. `revenue_usd`/`revenue_lbp` are `0` for the same
+   * reason the doc comment on `getSupplierCommissionTotals` gives: an
+   * allocation carries a commission SHARE only, no revenue/cost pair of its
+   * own. A provider whose only settled activity in-period is a model-1
+   * allocation (its underlying fs row transacted in an EARLIER period) still
+   * surfaces via this arm's own `GROUP BY sca.provider`, with
+   * `revenue_usd: 0`/`count: 0` and the real commission in `profit_usd`/
+   * `profit_lbp` — not silently dropped.
+   *
+   * Gates on the allocation arm: {@link notRefunded} (an fs row refunded
+   * WITHOUT voiding the settlement still needs excluding — the allocation
+   * row survives that refund path since only a voided SETTLEMENT
+   * hard-deletes allocations) and {@link notPartnerPending} (a FOR-partner
+   * fs row's allocated share still defers until the partner settles —
+   * supplier-settled is not partner-settled; this is a SECOND, independent
+   * gate from the base arm's own `notPartnerPending`, not a duplicate of
+   * it). No `notDebtPending` here or in `getSupplierCommissionTotals`'s
+   * SUPPLIER_SETTLEMENT bucket: commission recognition at settlement is
+   * against the SUPPLIER relationship, not the client's account status, and
+   * gating it would break reconciliation against that totals method (which
+   * is deliberately debt-gate-free, per its own EXCLUDED_UNITS entry in
+   * `profitRecognition.guard.test.ts`). No reversal predicate is needed
+   * beyond that: a voided settlement hard-DELETEs its allocation rows
+   * (`TransactionRepository.ts` — `DELETE FROM
+   * settlement_commission_allocations WHERE settlement_ledger_id = ?`), so
+   * a reversed allocation is physically gone rather than needing an
+   * `is_voided` filter.
+   */
   getFinancialSettledByProvider(
     fromDt: string,
     toDt: string,
   ): FinByProviderRow[] {
+    const tenantId = getCurrentTenantId();
+    const hasAllocations = this._hasSettlementAllocationsTable();
+    const allocationArm = hasAllocations
+      ? `
+        UNION ALL
+        SELECT
+          sca.provider AS provider,
+          0 AS revenue_usd,
+          0 AS revenue_lbp,
+          COALESCE(SUM(sca.commission_usd), 0) AS profit_usd,
+          COALESCE(SUM(sca.commission_lbp), 0) AS profit_lbp,
+          0 AS count
+        FROM settlement_commission_allocations sca
+        JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
+        WHERE sca.tenant_id = ?
+          AND ${notRefunded("fs")}
+          AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
+          AND ${dateRange("sca.created_at")}
+        GROUP BY sca.provider`
+      : "";
+
+    const params: (string | number)[] = [fromDt, toDt, tenantId, tenantId];
+    if (hasAllocations) params.push(tenantId, fromDt, toDt);
+
     return this.db
       .prepare(
         `SELECT
-          fs.provider AS provider,
-          COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_usd,
-          COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_lbp,
-          COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN t.profit_usd ELSE 0 END), 0) AS profit_usd,
-          COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END), 0) AS profit_lbp,
-          COUNT(*) AS count
-        FROM financial_services fs
-        JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
-        WHERE fs.is_settled = 1
-          AND t.status = 'ACTIVE'
-          AND ${notRefunded("fs")}
-          AND ${notPartnerPending("financial_services", "fs.id")}
-          AND ${notDebtPending("t.id")}
-          AND ${dateRange("fs.created_at")}
-          AND fs.tenant_id = ? AND t.tenant_id = ?
-        GROUP BY fs.provider`,
+          provider,
+          COALESCE(SUM(revenue_usd), 0) AS revenue_usd,
+          COALESCE(SUM(revenue_lbp), 0) AS revenue_lbp,
+          COALESCE(SUM(profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(profit_lbp), 0) AS profit_lbp,
+          COALESCE(SUM(count), 0) AS count
+        FROM (
+          SELECT
+            fs.provider AS provider,
+            COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_usd,
+            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_lbp,
+            COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN t.profit_usd ELSE 0 END), 0) AS profit_usd,
+            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END), 0) AS profit_lbp,
+            COUNT(*) AS count
+          FROM financial_services fs
+          JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
+          WHERE fs.is_settled = 1
+            AND t.status = 'ACTIVE'
+            AND ${notRefunded("fs")}
+            AND ${notPartnerPending("financial_services", "fs.id")}
+            AND ${notDebtPending("t.id")}
+            AND ${dateRange("fs.created_at")}
+            AND fs.tenant_id = ? AND t.tenant_id = ?
+          GROUP BY fs.provider
+          ${allocationArm}
+        ) combined
+        GROUP BY provider`,
       )
-      .all(
-        fromDt,
-        toDt,
-        getCurrentTenantId(),
-        getCurrentTenantId(),
-      ) as FinByProviderRow[];
+      .all(...params) as FinByProviderRow[];
   }
 
   /** Recharge revenue/cost/profit grouped by carrier. */
@@ -1076,6 +1385,56 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     toDt: string,
   ): ProfitByDateRow[] {
     const tenantId = getCurrentTenantId();
+    const hasAllocations = this._hasSettlementAllocationsTable();
+
+    /**
+     * LIRA-158 Phase 3 — restores per-DATE attribution for
+     * `commission_model = 1` rows, mirroring {@link getFinancialSettledByProvider}'s
+     * allocation arm (see that method's doc comment for the full rationale:
+     * why the base `daily_commissions` arm below is left unchanged, why this
+     * is dated by `sca.created_at` (D7 settlement day, not the fs row's
+     * transaction day), why `notRefunded` + `notPartnerPending` are the
+     * gates and `notDebtPending` deliberately is not, and why voiding needs
+     * no extra predicate). Built as a separate string (rather than nested
+     * inline) so the outer `daily_commissions AS (...)` CTE body keeps a
+     * single, unbroken pair of backticks — a nested template literal here
+     * would introduce a second, unbalanced backtick inside this method's
+     * `.prepare(\`...\`)` call.
+     */
+    const dailyCommissionsAllocationArm = hasAllocations
+      ? `
+          UNION ALL
+          SELECT
+            DATE(sca.created_at, 'localtime') AS d,
+            COALESCE(SUM(sca.commission_usd), 0) AS profit_usd,
+            COALESCE(SUM(sca.commission_lbp), 0) AS profit_lbp,
+            0 AS revenue_usd,
+            0 AS revenue_lbp
+          FROM settlement_commission_allocations sca
+          JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
+          WHERE sca.tenant_id = ?
+            AND ${notRefunded("fs")}
+            AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
+            AND ${dateRange("sca.created_at")}
+          GROUP BY DATE(sca.created_at, 'localtime')`
+      : "";
+
+    const params: (string | number)[] = [];
+    params.push(from, to); // dates CTE
+    params.push(fromDt, toDt, tenantId, tenantId); // daily_sales (si, s)
+    params.push(fromDt, toDt, tenantId, tenantId); // daily_sales_profit (t, s)
+    params.push(fromDt, toDt, tenantId, tenantId); // daily_commissions arm 1 (fs, t)
+    if (hasAllocations) {
+      params.push(tenantId, fromDt, toDt); // daily_commissions arm 2 (sca, fs) — LIRA-158 Phase 3
+    }
+    params.push(fromDt, toDt, tenantId, tenantId); // daily_recharges (r, t)
+    params.push(fromDt, toDt, tenantId, tenantId); // daily_custom (cs, t)
+    params.push(fromDt, toDt, tenantId, tenantId); // daily_maint (m, t)
+    params.push(fromDt, toDt, tenantId, tenantId); // daily_loto (lt, t)
+    params.push(fromDt, toDt, tenantId); // daily_expenses
+    params.push(fromDt, toDt, tenantId); // daily_exchange
+    params.push(fromDt, toDt, tenantId); // daily_pmfee (fs)
+
     return this.db
       .prepare(
         `WITH dates AS (
@@ -1119,21 +1478,31 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         ),
         daily_commissions AS (
           SELECT
-            DATE(fs.created_at, 'localtime') AS d,
-            COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN t.profit_usd ELSE 0 END), 0) AS profit_usd,
-            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END), 0) AS profit_lbp,
-            COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_usd,
-            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_lbp
-          FROM financial_services fs
-          JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
-          WHERE fs.is_settled = 1
-            AND t.status = 'ACTIVE'
-            AND ${notRefunded("fs")}
-            AND ${notPartnerPending("financial_services", "fs.id")}
-          AND ${notDebtPending("t.id")}
-            AND ${dateRange("fs.created_at")}
-            AND fs.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(fs.created_at, 'localtime')
+            d,
+            COALESCE(SUM(profit_usd), 0) AS profit_usd,
+            COALESCE(SUM(profit_lbp), 0) AS profit_lbp,
+            COALESCE(SUM(revenue_usd), 0) AS revenue_usd,
+            COALESCE(SUM(revenue_lbp), 0) AS revenue_lbp
+          FROM (
+            SELECT
+              DATE(fs.created_at, 'localtime') AS d,
+              COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN t.profit_usd ELSE 0 END), 0) AS profit_usd,
+              COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END), 0) AS profit_lbp,
+              COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_usd,
+              COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_lbp
+            FROM financial_services fs
+            JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
+            WHERE fs.is_settled = 1
+              AND t.status = 'ACTIVE'
+              AND ${notRefunded("fs")}
+              AND ${notPartnerPending("financial_services", "fs.id")}
+            AND ${notDebtPending("t.id")}
+              AND ${dateRange("fs.created_at")}
+              AND fs.tenant_id = ? AND t.tenant_id = ?
+            GROUP BY DATE(fs.created_at, 'localtime')
+            ${dailyCommissionsAllocationArm}
+          ) daily_commissions_combined
+          GROUP BY d
         ),
         daily_recharges AS (
           SELECT
@@ -1271,47 +1640,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN daily_pmfee dpf ON dpf.d = dates.d
         ORDER BY dates.d DESC`,
       )
-      .all(
-        from,
-        to, // dates CTE
-        fromDt,
-        toDt,
-        tenantId,
-        tenantId, // daily_sales (si, s)
-        fromDt,
-        toDt,
-        tenantId,
-        tenantId, // daily_sales_profit (t, s)
-        fromDt,
-        toDt,
-        tenantId,
-        tenantId, // daily_commissions (fs, t)
-        fromDt,
-        toDt,
-        tenantId,
-        tenantId, // daily_recharges (r, t)
-        fromDt,
-        toDt,
-        tenantId,
-        tenantId, // daily_custom (cs, t)
-        fromDt,
-        toDt,
-        tenantId,
-        tenantId, // daily_maint (m, t)
-        fromDt,
-        toDt,
-        tenantId,
-        tenantId, // daily_loto (lt, t)
-        fromDt,
-        toDt,
-        tenantId, // daily_expenses
-        fromDt,
-        toDt,
-        tenantId, // daily_exchange
-        fromDt,
-        toDt,
-        tenantId, // daily_pmfee (fs)
-      ) as ProfitByDateRow[];
+      .all(...params) as ProfitByDateRow[];
   }
 
   // ---------------------------------------------------------------------------
@@ -1358,11 +1687,24 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * (`t.status = 'ACTIVE'`). A settled-but-pending row is withheld here AND
    * from the pending row (which keys on is_settled = 0) — it surfaces in
    * getDeferredProfit until settlement/repayment, matching the per-currency
-   * pair. Deliberately NOT adopted from the sibling: the
-   * `provider IN (COMMISSION_PROVIDERS)` filter — this row has always
-   * counted every commission > 0 row regardless of provider; narrowing it
-   * is a separate owner-facing semantics question, not part of the LIRA-108
-   * gate closure.
+   * pair.
+   *
+   * LIRA-158 (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2a): this now counts
+   * LEGACY (`commission_model = 0`) rows only, via `embeddedCommission`. It
+   * used to be true that this row "has always counted every commission > 0
+   * row regardless of provider" — that is now FALSE for AT_SETTLEMENT rows
+   * (`commission_model = 1`): their `fs.commission` column is a stale
+   * creation-time estimate that is never corrected, and their real,
+   * operator-entered commission is recognised instead at settlement time on
+   * the SUPPLIER_SETTLEMENT transaction (settlement-day, D7 — see
+   * {@link getSupplierCommissionTotals}). `commission > 0` is KEPT
+   * alongside the new gate — with model-1 rows excluded by
+   * `embeddedCommission`, it goes back to being a plain "this legacy row
+   * actually earned a commission" filter instead of doubling as a model
+   * discriminator. The `provider IN (COMMISSION_PROVIDERS)` filter is still
+   * deliberately NOT adopted from the sibling — narrowing by provider
+   * remains a separate owner-facing semantics question, not part of either
+   * the LIRA-108 gate closure or this fix.
    */
   getRealizedCommissionTotals(
     fromDt: string,
@@ -1378,6 +1720,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
         WHERE fs.is_settled = 1
           AND fs.commission > 0
+          AND ${embeddedCommission("fs", this._hasCommissionModelColumn())}
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND ${notPartnerPending("financial_services", "fs.id")}
@@ -1403,39 +1746,78 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * supplier-SETTLED but partner-/debt-pending row is excluded from realized
    * by the gates and from here by `is_settled = 0`, and lives in
    * getDeferredProfit instead. Adding the gates here would double-hide it.
+   *
+   * LIRA-158 (Phase 2a): `total_usd`/`total_lbp`/`count` restricted to
+   * LEGACY (`commission_model = 0`) rows via `embeddedCommission` — an
+   * AT_SETTLEMENT row's `commission` column is an unreliable creation-time
+   * estimate, never the true pending figure (it is 0 forever for
+   * WHISH/BILL, and never corrected for OMT/WHISH SEND/RECEIVE).
+   *
+   * LIRA-158 (Phase 2b/D15): `awaiting_settlement_count` is the model-1
+   * counterpart — a COUNT, never a dollar figure, since a model-1 row's
+   * pending commission is genuinely unknowable until settlement (a WHISH
+   * or BILL row's `commission` column is 0 even while genuinely pending —
+   * §1.1 of the plan — so it can never satisfy `commission > 0` and must
+   * NOT be gated by that predicate the way the legacy figure is).
+   *
+   * The outer `WHERE` therefore only carries `is_settled = 0` plus the
+   * counterparty-agnostic gates (`notRefunded`, `dateRange`, `tenant_id`) —
+   * `commission > 0` and the model split both moved INTO the individual
+   * `CASE` expressions below, so a single pass over the is_settled = 0 rows
+   * produces both the legacy dollar figure and the new-model count without
+   * either excluding rows the other needs.
    */
   getPendingCommissionTotals(
     fromDt: string,
     toDt: string,
-  ): CommissionTotalsRow {
+  ): PendingCommissionTotalsRow {
+    const supported = this._hasCommissionModelColumn();
     return this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) AS total_usd,
-          COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN commission ELSE 0 END), 0) AS total_lbp,
-          COUNT(*) AS count
+          COALESCE(SUM(CASE WHEN currency != 'LBP' AND commission > 0 AND ${embeddedCommission("financial_services", supported)} THEN commission ELSE 0 END), 0) AS total_usd,
+          COALESCE(SUM(CASE WHEN currency  = 'LBP' AND commission > 0 AND ${embeddedCommission("financial_services", supported)} THEN commission ELSE 0 END), 0) AS total_lbp,
+          COALESCE(SUM(CASE WHEN commission > 0 AND ${embeddedCommission("financial_services", supported)} THEN 1 ELSE 0 END), 0) AS count,
+          COALESCE(SUM(CASE WHEN ${atSettlementCommission("financial_services", supported)} THEN 1 ELSE 0 END), 0) AS awaiting_settlement_count
         FROM financial_services
         WHERE is_settled = 0
-          AND commission > 0
           AND ${notRefunded("financial_services")}
           AND ${dateRange("created_at")}
           AND tenant_id = ?`,
       )
-      .get(fromDt, toDt, getCurrentTenantId()) as CommissionTotalsRow;
+      .get(fromDt, toDt, getCurrentTenantId()) as PendingCommissionTotalsRow;
   }
 
-  /** Per-provider pending commission detail (for the pending-row label). */
+  /**
+   * Per-provider pending commission detail (for the pending-row label).
+   *
+   * LIRA-158 (Phase 2a/2b/D15): same split as {@link getPendingCommissionTotals}
+   * — see that method's doc comment for the full rationale. Must stay
+   * predicate-identical to it (both the legacy `embeddedCommission` gate AND
+   * the new `atSettlementCommission` gate) or the per-provider breakdown
+   * diverges from the totals row it's meant to explain.
+   *
+   * A provider whose ONLY pending rows are model-1 (e.g. a WHISH/BILL
+   * provider, whose `commission` column is 0 even while genuinely pending)
+   * still surfaces here with `total_usd: 0` and a nonzero
+   * `awaiting_settlement_count` — the outer `WHERE` only filters on
+   * `is_settled = 0` (not `commission > 0`), so `GROUP BY provider` sees
+   * every pending row of every model, not just the ones with a nonzero
+   * legacy estimate.
+   */
   getPendingCommissionByProvider(
     fromDt: string,
     toDt: string,
   ): PendingCommissionByProviderRow[] {
+    const supported = this._hasCommissionModelColumn();
     return this.db
       .prepare(
         `SELECT provider,
-           COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) AS total_usd,
-           COUNT(*) AS count
+           COALESCE(SUM(CASE WHEN currency != 'LBP' AND commission > 0 AND ${embeddedCommission("financial_services", supported)} THEN commission ELSE 0 END), 0) AS total_usd,
+           COALESCE(SUM(CASE WHEN commission > 0 AND ${embeddedCommission("financial_services", supported)} THEN 1 ELSE 0 END), 0) AS count,
+           COALESCE(SUM(CASE WHEN ${atSettlementCommission("financial_services", supported)} THEN 1 ELSE 0 END), 0) AS awaiting_settlement_count
          FROM financial_services
-         WHERE is_settled = 0 AND commission > 0
+         WHERE is_settled = 0
            AND ${notRefunded("financial_services")}
            AND ${dateRange("created_at")}
            AND tenant_id = ?
@@ -1530,6 +1912,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             ELSE t.profit_lbp
           END) AS profit_lbp,
           COUNT(*) AS transaction_count,
+          -- LIRA-158 (Phase 2a): embeddedCommission restricts this pending
+          -- figure to LEGACY (commission_model = 0) rows — see
+          -- getPendingCommissionTotals's doc comment for the rationale.
           COALESCE((
             SELECT SUM(fs2.commission)
             FROM financial_services fs2
@@ -1538,6 +1923,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             WHERE t2.user_id = COALESCE(orig.user_id, t.user_id)
               AND fs2.is_settled = 0
               AND fs2.commission > 0
+              AND ${embeddedCommission("fs2", this._hasCommissionModelColumn())}
               AND ${notRefunded("fs2")}
               AND ${dateRange("fs2.created_at")}
               AND fs2.tenant_id = ? AND t2.tenant_id = ?
@@ -1651,6 +2037,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             ELSE t.profit_lbp
           END) AS profit_lbp,
           COUNT(*) AS transaction_count,
+          -- LIRA-158 (Phase 2a): embeddedCommission restricts this pending
+          -- figure to LEGACY (commission_model = 0) rows — see
+          -- getPendingCommissionTotals's doc comment for the rationale.
           COALESCE((
             SELECT SUM(fs2.commission)
             FROM financial_services fs2
@@ -1662,6 +2051,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             )
               AND fs2.is_settled = 0
               AND fs2.commission > 0
+              AND ${embeddedCommission("fs2", this._hasCommissionModelColumn())}
               AND ${notRefunded("fs2")}
               AND ${dateRange("fs2.created_at")}
               AND fs2.tenant_id = ? AND t2.tenant_id = ?
@@ -1744,7 +2134,14 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       ) as PendingSaleProfitRow[];
   }
 
-  /** Unsettled financial-service commissions (RECEIVE rows not yet settled). */
+  /**
+   * Unsettled financial-service commissions (RECEIVE rows not yet settled).
+   *
+   * LIRA-158 (Phase 2a): restricted to LEGACY (`commission_model = 0`) rows
+   * via `embeddedCommission` — same rationale as
+   * {@link getPendingCommissionTotals}. An AT_SETTLEMENT row's `commission`
+   * column is a stale creation-time estimate, not the real pending figure.
+   */
   getUnsettledCommissions(
     fromDt: string,
     toDt: string,
@@ -1756,6 +2153,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM financial_services
         WHERE is_settled = 0
           AND commission > 0
+          AND ${embeddedCommission("financial_services", this._hasCommissionModelColumn())}
           AND ${notRefunded("financial_services")}
           AND ${dateRange("created_at")}
           AND tenant_id = ?

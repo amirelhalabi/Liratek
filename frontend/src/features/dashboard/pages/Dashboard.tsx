@@ -14,8 +14,13 @@ import {
   Select,
   ServiceTypeTabs,
   DataTable,
+  PageAlerts,
 } from "@liratek/ui";
-import type { ServiceTypeOption, CarrierLineEntity } from "@liratek/ui";
+import type {
+  ServiceTypeOption,
+  CarrierLineEntity,
+  PageAlertItem,
+} from "@liratek/ui";
 import {
   Clock,
   BarChart2,
@@ -775,6 +780,62 @@ export default function Dashboard() {
     };
   });
 
+  // Page-header alert pill (PageAlerts) — each entry preserves the exact
+  // copy/handler/guard of the full-width banner it replaces.
+  const pageAlerts = useMemo<PageAlertItem[]>(() => {
+    const items: PageAlertItem[] = [];
+
+    if (!initialBalancesSet) {
+      items.push({
+        id: "initial-balances",
+        icon: Wallet,
+        title: "Starting drawer amounts not set",
+        detail:
+          "Set the opening cash for each active drawer so balances are accurate from day one.",
+        actionLabel: "Set now",
+        onAction: () => setShowInitialDrawerModal(true),
+      });
+    }
+
+    if (checkpointsEnabled && !startingCheckpointSet) {
+      items.push({
+        id: "starting-checkpoint",
+        icon: ClipboardCheck,
+        title: "No starting checkpoint recorded",
+        detail:
+          "Record an opening checkpoint so the timeline has a baseline to reconcile against.",
+        actionLabel: "Record now",
+        onAction: () =>
+          appEvents.emit("checkpoint:open", {
+            drawerName: drawerEntries[0]?.[0] ?? "General",
+          }),
+      });
+    }
+
+    if (carrierLineAlerts.length > 0) {
+      items.push({
+        id: "carrier-lines",
+        icon: Phone,
+        title:
+          carrierLineAlerts.length > 1
+            ? "Carrier lines need attention"
+            : "Carrier line needs attention",
+        detail: carrierLineAlerts.map(carrierLineAlertText).join(" · "),
+        actionLabel: "Review",
+        onAction: () => navigate("/settings?tab=carrier-lines"),
+      });
+    }
+
+    return items;
+  }, [
+    initialBalancesSet,
+    checkpointsEnabled,
+    startingCheckpointSet,
+    carrierLineAlerts,
+    drawerEntries,
+    navigate,
+  ]);
+
   // Credits & Stock (Row 3)
   const creditsAndStockCards = [
     {
@@ -795,81 +856,11 @@ export default function Dashboard() {
   return (
     <>
       <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-        <PageHeader icon={LayoutDashboard} title="Dashboard" />
-
-        {/* Initial drawer amounts banner — shown until operator sets starting balances */}
-        {!initialBalancesSet && (
-          <button
-            onClick={() => setShowInitialDrawerModal(true)}
-            className="flex items-center gap-3 w-full px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-left hover:bg-amber-500/15 transition-colors group"
-          >
-            <Wallet className="w-5 h-5 text-amber-400 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-amber-300">
-                Starting drawer amounts not set
-              </p>
-              <p className="text-xs text-amber-400/70">
-                Set the opening cash for each active drawer so balances are
-                accurate from day one.
-              </p>
-            </div>
-            <span className="text-xs text-amber-400 group-hover:text-amber-300 font-medium shrink-0">
-              Set now →
-            </span>
-          </button>
-        )}
-
-        {/* Starting-checkpoint banner — shown (when checkpoints are enabled)
-            until the operator records the first checkpoint in the timeline */}
-        {checkpointsEnabled && !startingCheckpointSet && (
-          <button
-            onClick={() =>
-              appEvents.emit("checkpoint:open", {
-                drawerName: drawerEntries[0]?.[0] ?? "General",
-              })
-            }
-            className="flex items-center gap-3 w-full px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-left hover:bg-amber-500/15 transition-colors group"
-          >
-            <ClipboardCheck className="w-5 h-5 text-amber-400 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-amber-300">
-                No starting checkpoint recorded
-              </p>
-              <p className="text-xs text-amber-400/70">
-                Record an opening checkpoint so the timeline has a baseline to
-                reconcile against.
-              </p>
-            </div>
-            <span className="text-xs text-amber-400 group-hover:text-amber-300 font-medium shrink-0">
-              Record now →
-            </span>
-          </button>
-        )}
-
-        {/* Carrier-line expiry / missing-line banner (D11: <=7 days or
-            expired; D4: an enabled carrier with zero active lines) — deep
-            links into Settings' Carrier Lines tab via the ?tab= mechanism */}
-        {carrierLineAlerts.length > 0 && (
-          <button
-            onClick={() => navigate("/settings?tab=carrier-lines")}
-            className="flex items-center gap-3 w-full px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-left hover:bg-amber-500/15 transition-colors group"
-          >
-            <Phone className="w-5 h-5 text-amber-400 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-amber-300">
-                {carrierLineAlerts.length > 1
-                  ? "Carrier lines need attention"
-                  : "Carrier line needs attention"}
-              </p>
-              <p className="text-xs text-amber-400/70 truncate">
-                {carrierLineAlerts.map(carrierLineAlertText).join(" · ")}
-              </p>
-            </div>
-            <span className="text-xs text-amber-400 group-hover:text-amber-300 font-medium shrink-0">
-              Review →
-            </span>
-          </button>
-        )}
+        <PageHeader
+          icon={LayoutDashboard}
+          title="Dashboard"
+          actions={<PageAlerts alerts={pageAlerts} />}
+        />
 
         {/* Active money holds — one notification card per held amount */}
         {activeHolds.length > 0 && (

@@ -47,6 +47,26 @@ export interface MigrationRecord {
  * The canonical schema lives in create_db.sql (for fresh databases).
  * Add incremental migrations here for existing databases.
  */
+
+// v161 (LIRA-158_COMMISSION_REPORTING_PLAN.md Phase 0) commission-term SQL
+// fragments. VERSION-SCOPED AND FROZEN: these encode, as a SQL CASE
+// expression, exactly how FinancialServiceRepository.ts:1881-1884 composed
+// the profit stamp's commission term at the moment v161 shipped —
+// `fs.currency = 'USD'` / `= 'LBP'`, deliberately NOT the reporting queries'
+// `!= 'LBP'` / `!= 'USD'` convention, so a row in a third currency
+// contributes 0 to both terms exactly like the original write did. Declared
+// ONCE here (CLAUDE.md rule 14 — no copy-pasting a business-rule predicate)
+// and reused by both v161's up() and down() below. Do NOT edit these after
+// v161 ships — a migration must keep doing exactly what it did when it ran,
+// forever (the same reason v160 pins literals instead of importing catalog
+// constants) — and no OTHER migration may reuse them: a future migration
+// encoding the "same" rule must declare its own frozen copy, scoped to its
+// own version.
+const V161_COMMISSION_TERM_USD =
+  `CASE WHEN fs.currency = 'USD' THEN COALESCE(fs.commission, 0) ELSE 0 END`;
+const V161_COMMISSION_TERM_LBP =
+  `CASE WHEN fs.currency = 'LBP' THEN COALESCE(fs.commission, 0) ELSE 0 END`;
+
 export const MIGRATIONS: Migration[] = [
   {
     version: 9,
@@ -9500,6 +9520,291 @@ export const MIGRATIONS: Migration[] = [
 
       console.log(
         "Migration v160 rolled back: mobile_service_items.max_returned_credits_usd dropped",
+      );
+    },
+  },
+  {
+    version: 161,
+    name: "zero_commission_estimate_stamp_for_at_settlement_rows",
+    description:
+      "LIRA-158_COMMISSION_REPORTING_PLAN.md Phase 0 — insurance backfill ahead of Phase 1's " +
+        "write-path change (a LATER, separate change, not this one: FinancialServiceRepository.ts:" +
+        "1881-1884 will stop stamping the commission term for commission_model = 1 rows going " +
+        "forward). Today every financial_services row's profit stamp is `(currency === 'USD' ? " +
+        "commission : 0) + kept_change_usd` (LBP mirror) regardless of commission_model. For " +
+        "commission_model = 0 (EMBEDDED) rows fs.commission IS the settled truth, so the stamp is " +
+        "correct and permanent. For commission_model = 1 (AT_SETTLEMENT) rows fs.commission is " +
+        "only an auto-calculated ESTIMATE — the real, owner-entered figure is booked separately at " +
+        "settlement (SupplierRepository's settlement stamp, widened in Phase 1). A model-1 row's " +
+        "profit stamp is therefore stale from the moment it is written, and once Phase 1 ships it " +
+        "would double-count: the estimate already sitting in transactions.profit_usd/profit_lbp " +
+        "plus the real figure the settlement stamp adds on top. This migration zeros the " +
+        "COMMISSION TERM ONLY — never the whole stamp — on every already-posted model-1 row, so " +
+        "kept-change profit (a separate money concept guarded by lira-108-keep-change-modules." +
+        "spec.ts) survives untouched; the term is derived from fs.commission/fs.currency using the " +
+        "exact same ternary that wrote it (read a row with the formula that wrote it), not a " +
+        "broader `currency != other` shape borrowed from the reporting queries. fs.commission " +
+        "itself is deliberately LEFT ALONE (D6: no stamp-back onto financial_services; D3: this is " +
+        "a cutover, not a restatement) — the column remains the permanent audit record of what was " +
+        "originally estimated, even after its contribution to reported profit is removed. A " +
+        "REFUND row carries the NEGATED original stamp on the same source_table/source_id " +
+        "(TransactionRepository.ts's refund insert: `-original.profit_usd`/`-original.profit_lbp`), " +
+        "so its correction is the mirror image of the original row's: ADD the term back, not " +
+        "subtract it — skipping that half would break create+refund netting to zero (rule 20) for " +
+        "exactly the rows this migration exists to fix. Every EXISTS gate also requires " +
+        "`COALESCE(fs.cost, 0) = 0`: FinancialServiceRepository.ts:1448-1450's cost/price branch " +
+        "(`useCostPriceFlow`) computes fs.commission as `price - cost` — a MARGIN earned at " +
+        "transaction time, not a deferred supplier-commission estimate — and every BILL row takes " +
+        "that branch (cost = price at every submission site, per plan §1.1b), so the overlap with " +
+        "commission_model = 1 is the normal case, not an edge case; without the guard the first " +
+        "bill ever priced above cost would have its margin silently subtracted from reported " +
+        "profit. The affected population is structurally " +
+        "bounded and expected to be empty on most installs: OMT/WHISH only became " +
+        "commission_model = 1 in commit 43948a35 (2026-08-30 16:39, hours before this migration was " +
+        "written), WHISH forces its commission to 0 at creation (FinancialServiceRepository.ts:" +
+        "1325-1327) so it has no term to remove, and BILL rows never auto-calculate a commission at " +
+        "all — only an OMT SEND/RECEIVE row created in that narrow window can carry a nonzero " +
+        "model-1 estimate. Measured on the local DB: 0 matching rows. Shipped anyway because it is " +
+        "cheap insurance and no read-side test can ever distinguish, after Phase 1 ships, an old " +
+        "model-1 row that carried an estimate from a new one correctly stamped 0 by the new write " +
+        "path — once the two look identical, backfilling later is not possible even in principle. " +
+        "down() reverses this exactly (ADD the term back to FINANCIAL_SERVICE rows, SUBTRACT it " +
+        "from REFUND rows) but carries a documented, accepted limitation once Phase 1 has shipped — " +
+        "see the comment on down() itself.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Same defensive shape as v150/v157/v158/v160: migration-runner test
+      // harnesses build minimal per-migration fixture DBs and replay EVERY
+      // migration over them, so a bare UPDATE here must not assume the wider
+      // schema exists.
+      const hasTransactions = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'transactions'`,
+        )
+        .get();
+      const hasFinancialServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'financial_services'`,
+        )
+        .get();
+      if (!hasTransactions || !hasFinancialServices) {
+        console.log(
+          "Migration v161 skipped: 'transactions' or 'financial_services' table not present",
+        );
+        return;
+      }
+
+      // A fixture DB predating v150 has financial_services but no
+      // commission_model column yet — nothing to backfill there either.
+      const cols = db
+        .prepare(`PRAGMA table_info(financial_services)`)
+        .all() as { name: string }[];
+      if (!cols.some((c) => c.name === "commission_model")) {
+        console.log(
+          "Migration v161 skipped: 'financial_services.commission_model' column not present",
+        );
+        return;
+      }
+
+      // The commission TERM, spelled EXACTLY as
+      // FinancialServiceRepository.ts:1881-1884 composed it at write time
+      // (CLAUDE.md: read a row with the formula that wrote it) — `= 'USD'` /
+      // `= 'LBP'`, not `!= 'LBP'` / `!= 'USD'`. Matching the ternary, not the
+      // broader gates the reporting queries use, matters: a currency other
+      // than USD/LBP (there is none today, but the schema doesn't forbid it)
+      // must contribute 0 to both terms, exactly like the original write did.
+      // Hoisted to module scope as V161_COMMISSION_TERM_USD/LBP (CLAUDE.md
+      // rule 14 — this predicate must not be defined twice between up() and
+      // down()); see the comment above the MIGRATIONS array for why they are
+      // frozen and v161-only.
+
+      // Correlated subqueries rather than SQLite's UPDATE...FROM so this also
+      // runs on older SQLite builds. The EXISTS clause is the tenant-scoped
+      // join (CLAUDE.md tenant-scoping; precedent v130's
+      // `sl.tenant_id = transactions.tenant_id`), the commission_model = 1
+      // gate — without it every FINANCIAL_SERVICE row would be "touched"
+      // (subtracting a 0 term for model-0 rows), which would inflate
+      // `.changes` past the true corrected count — AND the
+      // `COALESCE(fs.cost, 0) = 0` guard (LIRA-158_COMMISSION_REPORTING_PLAN.md
+      // §1.1b): FinancialServiceRepository.ts:1448-1450's cost/price branch
+      // (`useCostPriceFlow`) computes `commission` as `price - cost`, a
+      // MARGIN earned at transaction time, not a deferred supplier-commission
+      // estimate, whenever `fs.cost > 0`. Every BILL row takes that branch
+      // (cost = price at every submission site), so the overlap with
+      // commission_model = 1 is the normal case, not an edge case — without
+      // this guard the first bill ever priced above cost would have its
+      // margin silently subtracted from reported profit.
+
+      // (a) The original FINANCIAL_SERVICE row — SUBTRACT the term.
+      const originalResult = db
+        .prepare(
+          `UPDATE transactions
+              SET profit_usd = profit_usd - (
+                    SELECT ${V161_COMMISSION_TERM_USD} FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                  ),
+                  profit_lbp = profit_lbp - (
+                    SELECT ${V161_COMMISSION_TERM_LBP} FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                  )
+            WHERE type = 'FINANCIAL_SERVICE'
+              AND source_table = 'financial_services'
+              AND EXISTS (
+                    SELECT 1 FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                       AND fs.commission_model = 1
+                       AND COALESCE(fs.cost, 0) = 0
+                  )`,
+        )
+        .run();
+
+      // (b) Its REFUND row carries the NEGATED stamp
+      // (TransactionRepository.ts: `-original.profit_usd`/
+      // `-original.profit_lbp`) on the SAME source_table/source_id — so its
+      // correction is the opposite sign: ADD the term back. Skipping this
+      // half breaks create+refund netting to zero (rule 20) for exactly the
+      // rows this migration exists to fix.
+      const refundResult = db
+        .prepare(
+          `UPDATE transactions
+              SET profit_usd = profit_usd + (
+                    SELECT ${V161_COMMISSION_TERM_USD} FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                  ),
+                  profit_lbp = profit_lbp + (
+                    SELECT ${V161_COMMISSION_TERM_LBP} FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                  )
+            WHERE type = 'REFUND'
+              AND source_table = 'financial_services'
+              AND EXISTS (
+                    SELECT 1 FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                       AND fs.commission_model = 1
+                       AND COALESCE(fs.cost, 0) = 0
+                  )`,
+        )
+        .run();
+
+      console.log(
+        `Migration v161: zeroed the commission-term contribution to profit_usd/profit_lbp on ` +
+          `${originalResult.changes} FINANCIAL_SERVICE row(s) and restored it on ` +
+          `${refundResult.changes} paired REFUND row(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      const hasTransactions = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'transactions'`,
+        )
+        .get();
+      const hasFinancialServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'financial_services'`,
+        )
+        .get();
+      if (!hasTransactions || !hasFinancialServices) {
+        console.log(
+          "Migration v161 rollback skipped: 'transactions' or 'financial_services' table not present",
+        );
+        return;
+      }
+
+      const cols = db
+        .prepare(`PRAGMA table_info(financial_services)`)
+        .all() as { name: string }[];
+      if (!cols.some((c) => c.name === "commission_model")) {
+        console.log(
+          "Migration v161 rollback skipped: 'financial_services.commission_model' column not present",
+        );
+        return;
+      }
+
+      // Reuses V161_COMMISSION_TERM_USD/LBP declared above the MIGRATIONS
+      // array (CLAUDE.md rule 14 — the same frozen fragment up() uses, not a
+      // second copy).
+
+      // Exact inverse of up(): ADD the term back to FINANCIAL_SERVICE rows,
+      // SUBTRACT it from REFUND rows.
+      //
+      // KNOWN, ACCEPTED LIMITATION — documented rather than papered over:
+      // once Phase 1 ships (FinancialServiceRepository.ts's write path gates
+      // the commission term on commissionModel), a model-1 row created by the
+      // NEW code already stamps 0 for the term — and it is indistinguishable
+      // in the schema from an OLD row THIS migration corrected (both end up
+      // carrying kept-change only; nothing marks which path produced the 0).
+      // Rolling back v161 after that point therefore ADDS the term back onto
+      // rows that were never touched by this migration in the first place,
+      // over-restoring them. No discriminator exists to tell the two apart.
+      // Deliberately NOT "fixed" with a created_at/applied_at bound:
+      // created_at in this database holds a mix of ISO-string and
+      // `datetime('now')` output across different write paths (both formats
+      // coexist app-wide), so a lexicographic date comparison would silently
+      // misclassify rows rather than honestly admit the gap. Accepted
+      // because (i) the corrected population is structurally ~0 rows (see
+      // the migration's description above) and (ii) rolling back a data
+      // migration is already an exceptional, manually-invoked operation, not
+      // part of a normal upgrade/downgrade path.
+      const originalResult = db
+        .prepare(
+          `UPDATE transactions
+              SET profit_usd = profit_usd + (
+                    SELECT ${V161_COMMISSION_TERM_USD} FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                  ),
+                  profit_lbp = profit_lbp + (
+                    SELECT ${V161_COMMISSION_TERM_LBP} FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                  )
+            WHERE type = 'FINANCIAL_SERVICE'
+              AND source_table = 'financial_services'
+              AND EXISTS (
+                    SELECT 1 FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                       AND fs.commission_model = 1
+                       AND COALESCE(fs.cost, 0) = 0
+                  )`,
+        )
+        .run();
+
+      const refundResult = db
+        .prepare(
+          `UPDATE transactions
+              SET profit_usd = profit_usd - (
+                    SELECT ${V161_COMMISSION_TERM_USD} FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                  ),
+                  profit_lbp = profit_lbp - (
+                    SELECT ${V161_COMMISSION_TERM_LBP} FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                  )
+            WHERE type = 'REFUND'
+              AND source_table = 'financial_services'
+              AND EXISTS (
+                    SELECT 1 FROM financial_services fs
+                     WHERE fs.id = transactions.source_id
+                       AND fs.tenant_id = transactions.tenant_id
+                       AND fs.commission_model = 1
+                       AND COALESCE(fs.cost, 0) = 0
+                  )`,
+        )
+        .run();
+
+      console.log(
+        `Migration v161 rolled back: restored the commission-term contribution to profit_usd/` +
+          `profit_lbp on ${originalResult.changes} FINANCIAL_SERVICE row(s) and removed it again ` +
+          `from ${refundResult.changes} paired REFUND row(s)`,
       );
     },
   },

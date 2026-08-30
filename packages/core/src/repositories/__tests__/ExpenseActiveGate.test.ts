@@ -162,12 +162,13 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE financial_services (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      tenant_id   INTEGER DEFAULT 1,
-      currency    TEXT NOT NULL DEFAULT 'USD',
-      commission  REAL NOT NULL DEFAULT 0,
-      created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id    INTEGER DEFAULT 1,
+      currency     TEXT NOT NULL DEFAULT 'USD',
+      commission   REAL NOT NULL DEFAULT 0,
+      is_refunded  INTEGER DEFAULT 0,
+      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at   TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE recharges (

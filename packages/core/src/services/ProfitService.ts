@@ -57,8 +57,20 @@ export interface ProfitByPaymentMethod {
   total_usd: number;
   total_lbp: number;
   count: number;
-  /** For commission rows: the pending amount not yet realized */
+  /** For commission rows: the pending amount not yet realized
+   *  (commission_model = 0 legacy rows only — see D15). */
   pending_commission_usd?: number;
+  /** LBP counterpart of pending_commission_usd (commission_model = 0 legacy
+   *  rows only). Previously silently dropped — the pending row hardcoded
+   *  total_lbp/pending_commission_lbp to 0, so pending LBP commission never
+   *  reached the UI at all. */
+  pending_commission_lbp?: number;
+  /** LIRA-158 D15: count of commission_model = 1 rows awaiting settlement.
+   *  Their commission is unknowable until the operator enters it at
+   *  settlement, so they are surfaced as a COUNT here, never a dollar
+   *  figure — unlike pending_commission_usd/lbp above, which stay dollar
+   *  amounts for legacy model-0 rows. */
+  awaiting_settlement_count?: number;
   /** 1 = realized/settled, 0 = pending settlement */
   is_settled?: number;
   /** 1 = all entries are debt repayment pass-throughs (no profit generated) */
@@ -670,6 +682,11 @@ export class ProfitService {
    *     gates by design) → shown separately with status. A settled but
    *     partner-/debt-pending commission appears in NEITHER row here; it
    *     surfaces in the deferred-profit bucket until settlement/repayment.
+   *     LIRA-158 D15: a commission_model = 1 row's pending commission is
+   *     unknowable until settlement, so it contributes to
+   *     `awaiting_settlement_count` (a COUNT) instead of
+   *     `pending_commission_usd`/`_lbp` (a dollar figure, legacy model-0
+   *     rows only).
    */
   getByPaymentMethod(from: string, to: string): ProfitByPaymentMethod[] {
     try {
@@ -699,15 +716,30 @@ export class ProfitService {
         });
       }
 
-      if (pendingCommission.count > 0) {
-        // Build per-provider pending commission details for the label
+      if (
+        pendingCommission.count > 0 ||
+        pendingCommission.awaiting_settlement_count > 0
+      ) {
+        // Build per-provider pending commission details for the label.
+        // D15: a commission_model=1 provider has no dollar figure to show
+        // (total_usd is 0 for it), only a count of transactions awaiting
+        // settlement — surface that instead of a misleading "$0.00".
         const pendingByProvider = this.repo.getPendingCommissionByProvider(
           fromDt,
           toDt,
         );
 
         const providerLabel = pendingByProvider
-          .map((p) => `${p.provider} $${p.total_usd.toFixed(2)}`)
+          .map((p) => {
+            const parts: string[] = [];
+            if (p.total_usd > 0) parts.push(`$${p.total_usd.toFixed(2)}`);
+            if (p.awaiting_settlement_count > 0) {
+              parts.push(
+                `${p.awaiting_settlement_count} awaiting settlement`,
+              );
+            }
+            return `${p.provider} ${parts.length > 0 ? parts.join(", ") : "$0.00"}`;
+          })
           .join(", ");
 
         results.push({
@@ -716,6 +748,11 @@ export class ProfitService {
           total_lbp: 0,
           count: pendingCommission.count,
           pending_commission_usd: pendingCommission.total_usd,
+          // Bug fix: this used to be hardcoded 0, so pending LBP commission
+          // never reached the UI at all.
+          pending_commission_lbp: pendingCommission.total_lbp,
+          awaiting_settlement_count:
+            pendingCommission.awaiting_settlement_count,
           is_settled: 0,
         });
       }

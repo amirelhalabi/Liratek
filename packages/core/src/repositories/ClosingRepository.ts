@@ -10,7 +10,12 @@ import {
   carrierDrawerName,
   type CarrierKey,
 } from "./CarrierLineRepository.js";
-import { activeExpense } from "./ProfitRepository.js";
+import {
+  activeExpense,
+  embeddedCommission,
+  hasCommissionModelColumn,
+  notRefunded,
+} from "./ProfitRepository.js";
 
 /**
  * Payments-journal method used for the balance adjustment posted when a
@@ -184,6 +189,47 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
     return "id, closing_date, drawer_name, opening_balance_usd, opening_balance_lbp, physical_usd, physical_lbp, physical_eur, system_expected_usd, system_expected_lbp, variance_usd, notes";
+  }
+
+  /**
+   * Memoized guard for whether `financial_services.commission_model` exists
+   * (LIRA-158). Mirrors `ProfitRepository`'s own
+   * `_hasCommissionModelColumnCache` precedent — the schema cannot change
+   * mid-process, so the PRAGMA only needs to run once per repository
+   * instance. Feeds {@link embeddedCommission}'s `supported` argument in
+   * {@link getDailyStatsSnapshot} so a pre-v148 fixture (no `commission_model`
+   * column — e.g. `ClosingRepository.localBusinessDay.test.ts`) degrades to
+   * today's legacy-only behavior instead of throwing "no such column".
+   */
+  private _hasCommissionModelColumnCache: boolean | null = null;
+  private _hasCommissionModelColumn(): boolean {
+    if (this._hasCommissionModelColumnCache === null) {
+      this._hasCommissionModelColumnCache = hasCommissionModelColumn(this.db);
+    }
+    return this._hasCommissionModelColumnCache;
+  }
+
+  /**
+   * Schema-drift guard, same `sqlite_master` probe shape as
+   * `FinancialServiceRepository._hasSettlementAllocationsTable()`. Several
+   * `getDailyStatsSnapshot` fixtures (e.g.
+   * `ClosingRepository.localBusinessDay.test.ts`) predate the LIRA-158
+   * settlement-day commission source added below and never create a
+   * `transactions` table at all — every prepare in this method runs
+   * unconditionally, so a bare `no such table: transactions` there would kill
+   * EVERY test in that file in SETUP even though none of them exercise
+   * commission (the exact trap `reference_test_schema_completeness` names).
+   * A missing table means no `SUPPLIER_SETTLEMENT`/`REFUND` rows can exist
+   * either, so degrading to 0 is also the semantically correct answer, not
+   * just a safe one.
+   */
+  private _hasTransactionsTable(): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'transactions'`,
+      )
+      .get();
+    return row !== undefined;
   }
 
   /**
@@ -690,14 +736,63 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       )
       .get(tenantId, tenantId) as { profit_usd: number };
 
-    const finProfit = this.db
+    // Financial-service commission — LIRA-158 (D10/D14, closing goes
+    // settlement-day cash basis). Two independent, additive sources:
+    //
+    //  - LEGACY (`commission_model = 0`): UNCHANGED — `financial_services
+    //    .commission` on the row's own transaction day. This is a per-row
+    //    CUTOVER (D3), not a restatement of history: legacy rows keep the
+    //    embedded-estimate model forever. Newly gated with `notRefunded` —
+    //    the sibling `salesProfit` query above already carries
+    //    `si.is_refunded = 0`; this query never did, so a voided financial
+    //    service kept contributing its commission forever (bonus fix,
+    //    independent of LIRA-158, §1.3 of the plan).
+    //  - NEW MODEL (`commission_model = 1`): the operator's ENTERED
+    //    commission, read off the `SUPPLIER_SETTLEMENT` transaction
+    //    `SupplierRepository` stamps at settlement time
+    //    (`source_table = 'supplier_ledger'`), bucketed on THAT row's own
+    //    date — the settlement day. The predicate mirrors
+    //    `ProfitRepository.getSupplierCommissionTotals` verbatim (rule 14),
+    //    swapping its arbitrary `dateRange` for this file's `todayLocal`.
+    //    `REFUND` is included deliberately: a voided settlement's REFUND row
+    //    carries the negated stamp on the same `source_table`, so a
+    //    same-day create+void nets to exactly 0 (rule 20).
+    //
+    // DELIBERATE, NOT A REGRESSION: from this change on, a model-1 row's
+    // commission appears in the daily closing total on the day it is
+    // SETTLED, never the day the underlying OMT/WHISH/BILL transaction
+    // happened. A future reader must not "fix" this back to transaction-day
+    // bucketing — D10/D14 chose settlement-day cash basis on purpose.
+    const hasCommissionModel = this._hasCommissionModelColumn();
+    const finProfitLegacy = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as profit_usd
          FROM financial_services
-         WHERE ${todayLocal("created_at")} AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")}
+           AND ${embeddedCommission("financial_services", hasCommissionModel)}
+           AND ${notRefunded("financial_services")}
+           AND tenant_id = ?`,
       )
       .get(tenantId) as { profit_usd: number };
+
+    const finProfitSettlement = this._hasTransactionsTable()
+      ? (this.db
+          .prepare(
+            `SELECT COALESCE(SUM(profit_usd), 0) as profit_usd
+             FROM transactions
+             WHERE ${todayLocal("created_at")}
+               AND status = 'ACTIVE'
+               AND source_table = 'supplier_ledger'
+               AND type IN ('SUPPLIER_SETTLEMENT', 'REFUND')
+               AND tenant_id = ?`,
+          )
+          .get(tenantId) as { profit_usd: number })
+      : { profit_usd: 0 };
+
+    const finProfit = {
+      profit_usd: finProfitLegacy.profit_usd + finProfitSettlement.profit_usd,
+    };
 
     const rechargeProfit = this.db
       .prepare(

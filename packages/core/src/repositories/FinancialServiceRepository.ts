@@ -6,6 +6,11 @@
  */
 import { BaseRepository } from "./BaseRepository.js";
 import {
+  embeddedCommission,
+  hasCommissionModelColumn,
+  hasSettlementAllocationsTable,
+} from "./ProfitRepository.js";
+import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
   isNonCashDrawerMethod,
@@ -1878,10 +1883,55 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             ? unifiedAmount
             : 0,
         // Commission (service currency) + kept change (T3, tender-native).
+        //
+        // LIRA-158_COMMISSION_REPORTING_PLAN.md §1.1b / §2 (D14, option C) —
+        // the commission TERM only is zeroed for an AT_SETTLEMENT row
+        // (`commissionModel === 1`) so it isn't double-counted once more at
+        // settlement time, when `SupplierRepository.ts`'s settlement stamp
+        // now recognises the operator-ENTERED figure on the
+        // SUPPLIER_SETTLEMENT transaction instead (period re-assigned to the
+        // settlement day, D7). The two writes are one interlock, not two
+        // independent fixes: this half alone would silently delete a
+        // model-1 row's commission with nothing to replace it; widening the
+        // settlement stamp alone (without this half) would double it, since
+        // `fs.is_settled` flipping to 1 and this stamp both keep contributing
+        // once settlement books its own row.
+        //
+        // `!useCostPriceFlow` is the other half of the gate and is NOT
+        // optional. `commission` here is the ternary at :1448-1450 —
+        // `useCostPriceFlow ? price - cost + telecomCreditReturnCredit :
+        // calculatedCommission`. On the cost/price branch it is a MARGIN
+        // earned at transaction time, not a supplier-commission estimate
+        // deferred to settlement, and every BILL row is commissionModel = 1
+        // (:1489-1493) AND takes that branch (all three submission sites send
+        // cost = price, KatchForm.tsx:1272-1273/:1404-1405/:1778-1779) — so
+        // the overlap between "AT_SETTLEMENT" and "cost/price margin" is the
+        // NORMAL case, not an edge case. A bill's margin only evaluates to 0
+        // today because cost happens to equal price; without this half, the
+        // first bill ever priced above cost has its margin silently deleted
+        // from profit. The rule that generates the whole gate: zero only the
+        // value that came from `calculatedCommission`.
+        //
+        // Migration v161 already applied this SAME predicate
+        // (`commission_model = 1 AND COALESCE(fs.cost, 0) = 0`) to rows
+        // posted before this change shipped — this is that predicate's
+        // write-time twin, kept in lockstep going forward.
+        //
+        // `kept_change` stays UNCONDITIONAL in both legs — it is a separate
+        // money concept (guarded by lira-108-keep-change-modules.spec.ts) and
+        // must survive regardless of how the commission term is gated.
         profit_usd:
-          (currency === "USD" ? commission : 0) + (data.kept_change_usd ?? 0),
+          (commissionModel === 1 && !useCostPriceFlow
+            ? 0
+            : currency === "USD"
+              ? commission
+              : 0) + (data.kept_change_usd ?? 0),
         profit_lbp:
-          (currency === "LBP" ? commission : 0) + (data.kept_change_lbp ?? 0),
+          (commissionModel === 1 && !useCostPriceFlow
+            ? 0
+            : currency === "LBP"
+              ? commission
+              : 0) + (data.kept_change_lbp ?? 0),
         client_id: resolvedPrimaryClientId ?? null,
         // For-partner services label the row with the partner (owner ask: the
         // transactions table shows "<partner> [partner]" in the client column).
@@ -4310,22 +4360,46 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   }
 
   /**
+   * LIRA-158_COMMISSION_REPORTING_PLAN.md §4 Phase 2a — cheap PRAGMA check
+   * (not a hot path; `getAnalytics` calls this once and reuses the result
+   * across its 5 sub-queries, not once per query) for whether the connected
+   * `financial_services` table itself carries `commission_model` yet. Some
+   * hand-rolled jest fixtures pre-date migration v148 and lack the column —
+   * naming it unguarded would make those fixtures throw "no such column" and
+   * die in SETUP (see `ProfitRepository._hasCommissionModelColumn`'s doc
+   * comment for the full rationale). `"1 = 1"` on an unsupported schema
+   * reproduces today's pre-LIRA-158 behavior for those fixtures unchanged.
+   * Rule 14 — the PRAGMA itself now lives in the single exported
+   * `hasCommissionModelColumn` free function in `ProfitRepository.ts`
+   * (imported above and shared with `ProfitRepository`'s own wrapper of the
+   * same name); this wrapper exists only so call sites in this class keep
+   * reading `this._hasCommissionModelColumn()` unchanged. No memoization
+   * here (unlike `ProfitRepository`'s wrapper) — this is already only called
+   * once per `getAnalytics` invocation.
+   */
+  private _hasCommissionModelColumn(): boolean {
+    return hasCommissionModelColumn(this.db);
+  }
+
+  /**
    * Schema-drift guard mirroring `_suppliersHasCommissionEligibleColumn`
    * above: `settlement_commission_allocations` only exists from migration
    * v150 onward, and `packages/core` jest specs hand-roll fresh in-memory
    * schemas per file — many predate this migration. Feeds `getAllByProvider`'s
    * LEFT JOIN so a pre-v150 fixture still gets a stable result shape instead
    * of a "no such table" throw. Memoized (unlike the sibling PRAGMA check) —
-   * see the cache field's own doc comment.
+   * see the cache field's own doc comment. Rule 14 — the `sqlite_master`
+   * probe itself now lives in the single exported
+   * {@link hasSettlementAllocationsTable} free function in
+   * `ProfitRepository.ts` (imported above and shared with `ProfitRepository`'s
+   * own wrapper of the same name, replacing what used to be two independent
+   * copies of the identical query); this wrapper only adds this class's own
+   * memoization on top of it.
    */
   private _hasSettlementAllocationsTable(): boolean {
     if (this._hasSettlementAllocationsTableCache === null) {
-      const row = this.db
-        .prepare(
-          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settlement_commission_allocations'`,
-        )
-        .get();
-      this._hasSettlementAllocationsTableCache = !!row;
+      this._hasSettlementAllocationsTableCache =
+        hasSettlementAllocationsTable(this.db);
     }
     return this._hasSettlementAllocationsTableCache;
   }
@@ -4514,6 +4588,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   /**
    * Get comprehensive analytics for financial services (all currencies)
+   *
+   * LIRA-158_COMMISSION_REPORTING_PLAN.md §4 Phase 2a: every `commission` sum
+   * below is now gated by `modelZeroOnly` in ADDITION to `is_settled` — an
+   * AT_SETTLEMENT row's (`commission_model = 1`) `commission` column is a
+   * stale creation-time estimate (auto-calculated for OMT/WHISH SEND/RECEIVE,
+   * force-zeroed for WHISH/BILL) that is never corrected, never the real
+   * figure whether the row is settled or still pending. `modelZeroOnly` is
+   * computed ONCE here and reused across all 5 sub-queries, rather than
+   * re-running `_hasCommissionModelColumn`'s PRAGMA per query. Rule 14 — it
+   * is built from `embeddedCommission` (exported from `ProfitRepository.ts`),
+   * the SAME predicate that repository's own six commission queries embed,
+   * rather than a second hand-rolled ternary. It sits INSIDE each CASE,
+   * never in the query's outer WHERE, because `COUNT(*)` here counts every
+   * financial-service row created today/this month regardless of model —
+   * only the commission figure itself narrows. This is a DELIBERATELY
+   * different placement from `ProfitRepository`'s own six commission
+   * queries, where the same fragment sits in the outer WHERE (their
+   * `COUNT(*)` means "count of commission-bearing rows" — see
+   * `embeddedCommission`'s own doc comment).
    */
   getAnalytics(providers?: string[]): FinancialServiceAnalytics {
     const tenantId = getCurrentTenantId();
@@ -4525,12 +4618,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         : "";
     const providerParams = providers && providers.length > 0 ? providers : [];
 
+    const modelZeroOnly = embeddedCommission(
+      "financial_services",
+      this._hasCommissionModelColumn(),
+    );
+
     // Today's totals — split realized (settled) vs pending
     const todayStats = this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(CASE WHEN is_settled = 1 THEN commission ELSE 0 END), 0) as today_commission,
-          COALESCE(SUM(CASE WHEN is_settled = 0 THEN commission ELSE 0 END), 0) as today_pending,
+          COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as today_commission,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as today_pending,
           COUNT(*) as today_count
         FROM financial_services
         WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}`,
@@ -4546,7 +4644,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       .prepare(
         `SELECT
           currency,
-          COALESCE(SUM(CASE WHEN is_settled = 1 THEN commission ELSE 0 END), 0) as commission,
+          COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as commission,
           COUNT(*) as count
         FROM financial_services
         WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}
@@ -4558,8 +4656,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     const monthStats = this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(CASE WHEN is_settled = 1 THEN commission ELSE 0 END), 0) as month_commission,
-          COALESCE(SUM(CASE WHEN is_settled = 0 THEN commission ELSE 0 END), 0) as month_pending,
+          COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as month_commission,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as month_pending,
           COUNT(*) as month_count
         FROM financial_services
         WHERE tenant_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}`,
@@ -4575,7 +4673,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       .prepare(
         `SELECT
           currency,
-          COALESCE(SUM(CASE WHEN is_settled = 1 THEN commission ELSE 0 END), 0) as commission,
+          COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as commission,
           COUNT(*) as count
         FROM financial_services
         WHERE tenant_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}
@@ -4588,7 +4686,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       .prepare(
         `SELECT
           provider,
-          COALESCE(SUM(CASE WHEN is_settled = 1 THEN commission ELSE 0 END), 0) as commission,
+          COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as commission,
           currency,
           COUNT(*) as count
         FROM financial_services

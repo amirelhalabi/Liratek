@@ -50,3 +50,5 @@ export { DecimalInput } from "./DecimalInput";
 export type { DecimalInputProps } from "./DecimalInput";
 export { SearchBar } from "./SearchBar";
 export type { SearchBarProps } from "./SearchBar";
+export { default as PageAlerts } from "./PageAlerts";
+export type { PageAlertsProps, PageAlertItem } from "./PageAlerts";

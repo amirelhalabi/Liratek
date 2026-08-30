@@ -19,6 +19,10 @@ export interface SetupPayload {
   enabled_payment_methods: string[];
   session_management_enabled: boolean;
   customer_sessions_enabled: boolean;
+  // Set once, the first time Step 3 loads the live module/payment-method lists
+  // and switches every toggle on. Persisted so navigating back to the step
+  // never re-enables what the operator deliberately turned off.
+  modules_defaults_applied?: boolean;
   // Step 4 - Currencies (optional)
   active_currencies: string[];
   // Step 5 - Users (optional)

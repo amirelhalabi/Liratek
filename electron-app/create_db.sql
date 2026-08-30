@@ -803,16 +803,27 @@ CREATE TABLE IF NOT EXISTS financial_services (
     -- v150 (COMMISSION_AT_SETTLEMENT_PLAN.md D3): per-row cutover flag.
     -- 0 = EMBEDDED (legacy), 1 = AT_SETTLEMENT. The repository's insert path
     -- (FinancialServiceRepository.createTransaction) explicitly stamps this
-    -- on every row it writes, gated on service_type === "BILL" — that
-    -- explicit stamp is the ONLY thing that ever writes 1; OMT/WHISH
-    -- SEND/RECEIVE stay 0 until Phase 2's gross-payable flip ships (their
-    -- supplier_owed is still commission-netted at creation, so flagging them
-    -- 1 early would double-subtract the commission at settlement). This
-    -- column DEFAULT (used only if a row is ever inserted without
-    -- specifying the column) mirrors the migration's own
-    -- `ALTER ... DEFAULT 0` — 0 (legacy/safe) matches "no BILL gate matched",
+    -- on every row it writes, gated on `service_type === "BILL" ||
+    -- isOmtWhishTransfer(provider, serviceType)` — that explicit stamp is
+    -- the ONLY thing that ever writes 1. OMT/WHISH SEND/RECEIVE are born
+    -- commission_model = 1 as of commit 43948a35 (2026-08-30 16:39,
+    -- LIRA-095 Phase 2's gross-payable flip): their supplier_owed is now
+    -- booked GROSS (principal + fee, commission no longer netted out at
+    -- creation), so the commission is correctly deferred to settlement
+    -- instead of being double-subtracted. Every OTHER service_type/provider
+    -- (BINANCE, BOB, app wallets, OTHER) stays commission_model = 0 (legacy
+    -- EMBEDDED) — their commission, if any, is realized immediately at
+    -- transaction time. This column DEFAULT (used only if a row is ever
+    -- inserted without specifying the column) mirrors the migration's own
+    -- `ALTER ... DEFAULT 0` — 0 (legacy/safe) matches "no gate matched",
     -- never AT_SETTLEMENT by default.
     commission_model INTEGER NOT NULL DEFAULT 0,
+    -- v161 (LIRA-158_COMMISSION_REPORTING_PLAN.md Phase 0) is DATA-ONLY: it
+    -- zeroes the stale commission-estimate term already sitting in
+    -- transactions.profit_usd/profit_lbp for pre-existing commission_model=1
+    -- rows. A fresh install has no pre-existing rows to correct — everything
+    -- it inserts goes through the (post-Phase-1) write path directly — so
+    -- there is intentionally no fresh-schema/DDL counterpart here.
     FOREIGN KEY (tenant_id, provider) REFERENCES service_providers(tenant_id, code)
 );
 
