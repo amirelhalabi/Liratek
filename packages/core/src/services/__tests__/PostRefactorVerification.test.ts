@@ -464,7 +464,8 @@ function buildSchema(db: Database.Database): void {
       -- SQLITE_ERROR before any assertion runs.
       partner_mode        TEXT,
       fulfillment_status  TEXT,
-      fulfilled_at        TEXT
+      fulfilled_at        TEXT,
+      is_refunded         INTEGER DEFAULT 0
     );
 
     -- ══════════════════════════════════════════

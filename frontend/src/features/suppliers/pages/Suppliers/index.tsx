@@ -815,11 +815,17 @@ export default function SuppliersPage() {
   // commission-arrives-as-a-drawer-top-up treatment applies ONLY when every
   // selected row is a BILL (mirrors the SAME gate SupplierRepository.
   // settleTransactions applies server-side — rule 14, one definition of
-  // "is this a bills-only batch"). Today every commission_model=1 row IS a
-  // BILL (only BILL rows are born that way), so this is currently identical
-  // to isNewModelBatch — but keeping the service_type check means a future
-  // non-bills new-model row (Phase 2, not built) doesn't silently inherit
-  // UI that was never designed for it.
+  // "is this a bills-only batch"). `commission_model = 1` is NO LONGER
+  // BILL-exclusive: commit 43948a35 (LIRA-095) widened the stamp to also
+  // cover OMT/WHISH SEND/RECEIVE, so a selection can be `isNewModelBatch`
+  // (model 1) without being a bills-only batch at all — the service_type
+  // check is what tells the UI apart. That split now matters twice over:
+  // it picks the drawer-top-up UI (bills) vs the cashless SUPPLIER_PAYS_US
+  // UI (OMT/WHISH), and per LIRA-158 owner decision D17
+  // (docs/plans/todo_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §8) the
+  // cashless side is where a settlement's commission now DEFERS recognition
+  // until the client repays, instead of counting immediately the way a
+  // bill's does.
   const isBillsOnlyBatch =
     isNewModelBatch &&
     selectedUnsettled.length > 0 &&

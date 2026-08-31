@@ -242,6 +242,7 @@ function createSchema(db: Database.Database): void {
       description TEXT NOT NULL,
       profit_usd REAL DEFAULT 0,
       status TEXT DEFAULT 'completed',
+      is_refunded INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

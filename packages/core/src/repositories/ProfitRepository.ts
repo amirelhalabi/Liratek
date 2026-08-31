@@ -762,9 +762,18 @@ const PROFIT_TXN_TYPES =
  * The maintenance workflow has NO "completed" status (its states are Received /
  * In_Progress / Ready / Delivered / Delivered_Paid) — the old lowercase
  * equality predicate matched nothing, so maintenance profit was always zero
- * in every profits view (B5).
+ * in every profits view (B5). Takes an alias (mirrors `notRefunded(alias)`
+ * immediately above) so every caller — including one with a different table
+ * alias, or `ClosingRepository.getDailyStatsSnapshot`'s unaliased
+ * `FROM maintenance` — reuses this ONE definition (rule 14) instead of
+ * hand-rolling a second copy that silently drifts. That exact drift is what
+ * left `ClosingRepository`'s own maintenance-profit query gated on the dead
+ * `LOWER(status) = 'completed'` predicate forever, so maintenance profit
+ * never once appeared in a daily closing snapshot.
  */
-const MAINTENANCE_COMPLETED = "m.status IN ('Delivered', 'Delivered_Paid')";
+export function maintenanceCompleted(alias: string): string {
+  return `${alias}.status IN ('Delivered', 'Delivered_Paid')`;
+}
 
 // =============================================================================
 // Repository
@@ -1296,7 +1305,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COUNT(*) AS count
         FROM maintenance m
         JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
-        WHERE ${MAINTENANCE_COMPLETED}
+        WHERE ${maintenanceCompleted("m")}
           AND t.status = 'ACTIVE'
           AND ${notRefunded("m")}
           AND ${notDebtPending("t.id")}
@@ -1870,7 +1879,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
           FROM maintenance m
           JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
-          WHERE ${MAINTENANCE_COMPLETED}
+          WHERE ${maintenanceCompleted("m")}
             AND t.status = 'ACTIVE'
             AND ${notRefunded("m")}
           AND ${notDebtPending("t.id")}

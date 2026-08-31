@@ -635,46 +635,50 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "alongside this unit) is already gated via its own notPartnerPending + " +
     "allocationNotDebtPending calls and needs no exclusion.",
   "ClosingRepository:getDailyStatsSnapshot:rechargeProfit":
-    "KNOWN GAP, not correct-by-design — found during this LIRA-158 guard " +
-    "extension, out of that ticket's scope (Phase 4 targeted only the " +
-    "financial-services commission source). Unlike salesProfit above " +
-    "(which carries si.is_refunded = 0, the exact class of 'bonus defect' " +
-    "this same plan fixed for finProfitLegacy), this query has NO refund " +
-    "gate on `recharges` at all — a same-day refunded recharge still adds " +
-    "its (price - cost) margin to totalProfitUSD. It also carries neither " +
+    "PARTIAL GAP, narrowed by a follow-up fix (found during this LIRA-158 " +
+    "guard extension, fixed independently afterward): the query NOW carries " +
+    "`notRefunded('recharges')` — a same-day refunded recharge no longer " +
+    "adds its (price - cost) margin to totalProfitUSD — but `notRefunded` " +
+    "is not one of the seven GATE_FRAGMENTS this guard scans for (it answers " +
+    "a different question, 'was this row reversed', not 'has the money " +
+    "actually moved yet'), so the unit still trips this guard's token match " +
+    "and needs this exclusion. Residual, still-real gap: it carries neither " +
     "notPartnerPending nor notDebtPending, so a for-partner or " +
-    "CUSTOMER_ACCOUNT-charged recharge counts before any cash has actually " +
-    "moved. Excluded here (mirroring getPaymentMethodRows:(query)'s " +
-    "'documented v1 gap' precedent) so the guard states the gap explicitly " +
-    "instead of silently passing OR fabricating a gate that isn't there; " +
-    "recommend filing as its own ticket.",
+    "CUSTOMER_ACCOUNT-charged recharge still counts before any cash has " +
+    "actually moved. Excluded here (mirroring getPaymentMethodRows:(query)'s " +
+    "'documented v1 gap' precedent) so the guard states the residual gap " +
+    "explicitly instead of silently passing OR fabricating a gate that " +
+    "isn't there; recommend filing the partner/debt-pending half as its " +
+    "own ticket.",
   "ClosingRepository:getDailyStatsSnapshot:customProfit":
-    "Same class of KNOWN GAP as rechargeProfit immediately above — sums " +
-    "custom_services.profit_usd directly with no refund gate " +
-    "(custom_services.is_refunded exists and is used by notRefunded " +
-    "everywhere else this table is read, e.g. " +
-    "ProfitRepository.getCustomServicesTotals), and no " +
-    "notPartnerPending/notDebtPending. A same-day refunded, for-partner, " +
-    "or debt-charged custom service order still inflates today's closing " +
-    "total. Documented, not fixed, here — recommend its own ticket " +
-    "(can likely be batched with rechargeProfit's).",
+    "Same class of PARTIAL GAP as rechargeProfit immediately above, same " +
+    "follow-up fix: NOW gated by `notRefunded('custom_services')` (the " +
+    "exact fragment `ProfitRepository.getCustomServicesTotals` already " +
+    "uses for this table) — a same-day refunded order no longer inflates " +
+    "today's total. `notRefunded` still isn't a GATE_FRAGMENT (see " +
+    "rechargeProfit's entry above for why), so the exclusion stays. " +
+    "Residual gap: still no notPartnerPending/notDebtPending, so a " +
+    "for-partner or debt-charged custom service order can still count " +
+    "before cash has moved. Documented, not fixed, here — recommend its " +
+    "own ticket (can likely be batched with rechargeProfit's).",
   "ClosingRepository:getDailyStatsSnapshot:maintProfit":
-    "KNOWN BUG, the most severe of the three module gaps here: " +
-    "`LOWER(status) = 'completed'` never matches any row — " +
-    "maintenance.status's real values are Received/In_Progress/Ready/" +
-    "Delivered/Delivered_Paid (no 'completed' state ever exists). This is " +
-    "the EXACT B5 defect ProfitRepository.MAINTENANCE_COMPLETED was " +
-    "introduced to fix ('the old lowercase equality predicate matched " +
-    "nothing, so maintenance profit was always zero in every profits " +
-    "view') — that fix was never carried over to ClosingRepository, so " +
-    "maintenance profit is unconditionally $0 in every daily closing " +
-    "snapshot. Also carries no refund gate (same class as recharge/custom " +
-    "above) and no notDebtPending, though both are moot while the status " +
-    "predicate matches zero rows. Excluded here as a documented, tracked " +
-    "gap (not a fabricated gate) — recommend filing as its own ticket; " +
-    "swapping in MAINTENANCE_COMPLETED is a one-line fix once someone owns " +
-    "verifying the closing-report semantics change a nonzero figure would " +
-    "introduce.",
+    "FIXED (the most severe of the three module gaps here, found during " +
+    "this LIRA-158 guard extension): `LOWER(status) = 'completed'` used to " +
+    "never match any row — maintenance.status's real values are " +
+    "Received/In_Progress/Ready/Delivered/Delivered_Paid (no 'completed' " +
+    "state ever exists) — the exact B5 defect `ProfitRepository " +
+    ".maintenanceCompleted` (generalised from the former private " +
+    "`MAINTENANCE_COMPLETED` constant, alias-parameterised the same way as " +
+    "`notRefunded(alias)`) was introduced to fix for the Profits page, but " +
+    "which was never carried over to ClosingRepository. Now reuses that " +
+    "SAME canonical function (`maintenanceCompleted('maintenance')`, the " +
+    "table name standing in for an alias since this query has none), so " +
+    "maintenance profit finally reaches the daily closing snapshot. Still " +
+    "excluded here because neither `maintenanceCompleted` nor `notRefunded` " +
+    "is a GATE_FRAGMENT this guard scans for (see rechargeProfit's entry " +
+    "above) and — deliberately left unfixed alongside recharge/custom above " +
+    "— this query carries no is_refunded gate on `maintenance` nor " +
+    "notDebtPending; recommend batching that residual with the other two.",
 };
 
 describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)", () => {

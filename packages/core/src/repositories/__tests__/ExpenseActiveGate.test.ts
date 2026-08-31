@@ -177,6 +177,7 @@ function createTestDb(): Database.Database {
       currency_code TEXT NOT NULL DEFAULT 'USD',
       price         REAL NOT NULL DEFAULT 0,
       cost          REAL NOT NULL DEFAULT 0,
+      is_refunded   INTEGER DEFAULT 0,
       created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -186,6 +187,7 @@ function createTestDb(): Database.Database {
       tenant_id   INTEGER DEFAULT 1,
       status      TEXT NOT NULL DEFAULT 'completed',
       profit_usd  REAL NOT NULL DEFAULT 0,
+      is_refunded INTEGER DEFAULT 0,
       created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
     );

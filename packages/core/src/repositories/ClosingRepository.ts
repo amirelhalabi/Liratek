@@ -18,6 +18,7 @@ import {
   embeddedCommission,
   hasCommissionModelColumn,
   hasSettlementAllocationsTable,
+  maintenanceCompleted,
   notPartnerPending,
   notRefunded,
 } from "./ProfitRepository.js";
@@ -875,30 +876,57 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       profit_usd: finProfitLegacy.profit_usd + finProfitSettlement.profit_usd,
     };
 
+    // Pre-existing bug, independent of LIRA-158 (found during that phase's
+    // guard extension): NO refund gate on `recharges` at all — a same-day
+    // voided/refunded recharge kept adding its (price - cost) margin to
+    // totalProfitUSD forever, because void/refund only stamps
+    // `recharges.is_refunded` (TransactionRepository._markSourceRefunded)
+    // and never touches this query. Reuses the SAME `notRefunded` fragment
+    // ProfitRepository.getRechargeTotals already gates the same table with —
+    // no second copy of the predicate (rule 14).
     const rechargeProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(CASE WHEN currency_code != 'LBP' THEN (price - cost) ELSE 0 END), 0) as profit_usd
          FROM recharges
-         WHERE ${todayLocal("created_at")} AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")} AND tenant_id = ? AND ${notRefunded("recharges")}`,
       )
       .get(tenantId) as { profit_usd: number };
 
+    // Same class of pre-existing bug as rechargeProfit immediately above: no
+    // refund gate on `custom_services`, so a same-day voided/refunded order
+    // kept inflating today's total. `custom_services.is_refunded` is the
+    // exact column `notRefunded` already reads for this table everywhere
+    // else it's queried (e.g. ProfitRepository.getCustomServicesTotals) —
+    // reused verbatim here, same as rechargeProfit. `status = 'completed'`
+    // is kept unchanged (custom_services DOES have a real 'completed' state,
+    // unlike maintenance below).
     const customProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(profit_usd), 0) as profit_usd
          FROM custom_services
-         WHERE ${todayLocal("created_at")} AND status = 'completed' AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")} AND status = 'completed' AND tenant_id = ? AND ${notRefunded("custom_services")}`,
       )
       .get(tenantId) as { profit_usd: number };
 
+    // Most severe of the three: `LOWER(status) = 'completed'` never matched
+    // any row — the maintenance workflow has NO "completed" status (its
+    // real states are Received/In_Progress/Ready/Delivered/Delivered_Paid),
+    // so maintProfit summed to unconditional $0 in every daily closing
+    // snapshot. This is the exact B5 defect `ProfitRepository
+    // .maintenanceCompleted` was introduced to fix for the Profits page —
+    // that fix was never carried over here. Reuses the SAME canonical
+    // function (generalised to take an alias, mirroring `notRefunded`)
+    // instead of pasting a second copy of the predicate (rule 14); this
+    // query has no table alias, so the table name itself is passed as the
+    // "alias".
     const maintProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(final_amount_usd - cost_usd), 0) as profit_usd
          FROM maintenance
-         WHERE ${todayLocal("created_at")} AND LOWER(status) = 'completed' AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")} AND ${maintenanceCompleted("maintenance")} AND tenant_id = ?`,
       )
       .get(tenantId) as { profit_usd: number };
 

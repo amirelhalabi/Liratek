@@ -1172,16 +1172,24 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       );
     // BILL_COMMISSION_SETTLEMENT_PLAN.md — narrow scope (owner, 2026-08-11):
     // the drawer-top-up-and-profit treatment applies ONLY when every
-    // eligible row is a BILL. Today `commission_model = 1` is stamped
-    // EXCLUSIVELY on BILL rows at creation (FinancialServiceRepository's own
-    // comment on that stamp), so this is currently identical to
-    // `batchModel === 1` — but gating on service_type too means a future
-    // OMT/WHISH row that earns `commission_model = 1` (Phase 2 of
-    // COMMISSION_AT_SETTLEMENT_PLAN.md, not built) automatically stays on
-    // the OLD cashless SUPPLIER_PAYS_US path below until that generalisation
-    // is deliberately designed and shipped (tracked as LIRA-138) — it does
-    // NOT silently inherit "top up a drawer" semantics that were never
-    // decided for it.
+    // eligible row is a BILL. `commission_model = 1` is NO LONGER
+    // BILL-exclusive: commit 43948a35 (LIRA-095) widened the stamp so
+    // OMT/WHISH SEND/RECEIVE are ALSO born model-1 (FinancialServiceRepository's
+    // own comment on that stamp), so `isBillsOnlyBatch` and `batchModel === 1`
+    // are genuinely DIFFERENT today — gating on service_type is what keeps
+    // an OMT/WHISH new-model batch OFF the bills' drawer-top-up-and-profit
+    // path and on the cashless SUPPLIER_PAYS_US path below. That split is
+    // load-bearing twice over: it is the ONLY thing separating "real money
+    // arrived" from "nothing arrived", and per LIRA-158 owner decision D17
+    // (docs/plans/todo_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §8) it is
+    // now also what decides immediate vs deferred commission recognition —
+    // bills recognise immediately (real money in the drawer), OMT/WHISH
+    // defers until the row's own client debt is covered. LIRA-138 still
+    // tracks generalising the MONEY treatment itself (the drawer top-up)
+    // past bills-only; that part remains genuinely unbuilt — a non-bills
+    // model-1 batch still always takes the cashless path below, it never
+    // silently inherits "top up a drawer" semantics that were never decided
+    // for it.
     const isBillsOnlyBatch =
       batchModel === 1 &&
       eligibleRows.length > 0 &&
@@ -1778,11 +1786,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *      obligation, one owner": there is no debt for it to net against).
    *      Reversal is FREE via the generic `_reversePayments` step every
    *      other transaction already gets (rule 20) — no bespoke code needed.
-   *    - **Every other new-model batch** (none reachable in production
-   *      today — kept for the generic `commission_model = 1` batches this
-   *      file's OWN tests exercise, and for forward-compatibility with a
-   *      future non-bills new-model row): unchanged from before this plan —
-   *      a cashless `SUPPLIER_PAYS_US` `supplier_ledger` credit row
+   *    - **Every other new-model batch** — since commit 43948a35 (LIRA-095)
+   *      widened `commission_model = 1` past BILL-only to also cover
+   *      OMT/WHISH SEND/RECEIVE, this is NO LONGER a forward-compat stub:
+   *      it is the NORMAL branch for every cashless (OMT/WHISH, or mixed
+   *      bills+OMT) settlement. Unchanged from before this plan — a
+   *      cashless `SUPPLIER_PAYS_US` `supplier_ledger` credit row
    *      (negative = the supplier owes the shop), `is_auto`, linked to THIS
    *      settlement's own ledger row via `source_ref_table`/`source_ref_id`
    *      — the EXACT shape `TransactionRepository`'s existing LIRA-091
@@ -1790,6 +1799,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *      keyed off the SUPPLIER_SETTLEMENT transaction's own
    *      `source_table`/`source_id`, which IS this ledger row) — so voiding/
    *      refunding the settlement finds and soft-voids this row for free.
+   *      This row is also the anchor LIRA-158 owner decision D17
+   *      (docs/plans/todo_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §8)
+   *      builds on: because no drawer is topped up here, the commission it
+   *      credits is not yet real money, so downstream reporting DEFERS its
+   *      recognition until this row's own client debt is covered — do not
+   *      read this branch as unreachable and do not delete it as dead code.
    *
    *    Both branches skip entirely when the entered commission is $0/0 LBP
    *    (nothing to credit).

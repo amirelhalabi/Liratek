@@ -102,7 +102,7 @@ function createFullSchema(d: Database.Database): void {
     CREATE TABLE custom_services (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       profit_usd REAL, status TEXT, created_at TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0);
     CREATE TABLE maintenance (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT
@@ -164,7 +164,7 @@ function createLegacySchema(d: Database.Database): void {
     CREATE TABLE custom_services (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       profit_usd REAL, status TEXT, created_at TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0);
     CREATE TABLE maintenance (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT
