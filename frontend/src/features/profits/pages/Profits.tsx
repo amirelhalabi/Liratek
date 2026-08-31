@@ -109,7 +109,20 @@ interface ProfitSummary {
   expenses: { total_usd: number; total_lbp: number; count: number };
   /** Profit earned but not yet realized in cash — sitting in a partner
    *  settlement or a client's debt account. Optional so an older cached
-   *  summary response (pre-deferred-profit backend) doesn't crash the page. */
+   *  summary response (pre-deferred-profit backend) doesn't crash the page.
+   *
+   *  LIRA-158 D17 (owner decision, 2026-08-31): a settlement is CASHLESS
+   *  when no money actually arrives at settlement (OMT/WHISH, and mixed
+   *  bills+OMT batches) — the owner fronts that payout from his own drawer
+   *  before the underlying client repays. Commission on a cashless
+   *  settlement now defers until that client's debt is covered, instead of
+   *  recognising on the settlement day. The deferred share is summed into
+   *  `client_debt_profit_usd`/`client_debt_profit_lbp` alongside the
+   *  pre-existing account-charged-transaction profit that bucket already
+   *  carried — same "stranded behind an uncovered client debt" condition,
+   *  now with a second contributing source. A bills-only Katsh/iPick
+   *  settlement is unaffected (it recognises immediately; see
+   *  `supplier_commission` below). */
   deferred?: {
     partner_profit_usd: number;
     partner_profit_lbp: number;
@@ -127,7 +140,18 @@ interface ProfitSummary {
    *  stamped directly on the SUPPLIER_SETTLEMENT transaction at settlement —
    *  "our profit entirely" (owner). Already folded into the totals above;
    *  this is a visibility breakout. Optional so an older cached summary
-   *  response (pre-fix backend) doesn't crash the page. */
+   *  response (pre-fix backend) doesn't crash the page.
+   *
+   *  LIRA-158 D17: `count` is the number of DISTINCT settlements that
+   *  contributed RECOGNISED commission in this window — not every
+   *  settlement touched. A cashless (OMT/WHISH, or mixed) settlement whose
+   *  commission is entirely deferred (§ `deferred.client_debt_profit_usd`
+   *  above) contributes nothing here and does not increment `count`, even
+   *  though it happened. A bills-only settlement always recognises
+   *  immediately, so it always counts. `profit_usd`/`profit_lbp` can
+   *  legitimately be 0 while `count` is 0 too — that means every
+   *  settlement in the window was fully deferred, not that nothing
+   *  happened; see the Deferred Profit card for where that money sits. */
   supplier_commission?: {
     profit_usd: number;
     profit_lbp: number;
@@ -640,12 +664,31 @@ export default function Profits() {
                       </span>
                     </div>
                     <div className="flex justify-between items-center gap-4 border-t border-amber-800/30 pt-2">
-                      <span>Pending client accounts</span>
+                      <span className="flex flex-col">
+                        <span>Pending client accounts</span>
+                        {/* LIRA-158 D17: this figure is a fusion of two
+                            sources by design (see the `deferred` field doc
+                            above) — account-charged transaction profit AND
+                            cashless-settlement commission, both stranded
+                            behind the same uncovered client debt. Named
+                            here so it isn't read as a silent regression the
+                            day this total grows for a reason unrelated to
+                            transaction profit. */}
+                        <span
+                          data-testid="deferred-client-debt-caption"
+                          className="text-[10px] text-amber-500/60 font-normal"
+                        >
+                          incl. cashless settlement commission awaiting
+                          repayment
+                        </span>
+                      </span>
                       <span className="text-amber-300 font-semibold text-right">
-                        {formatAmount(
-                          summary.deferred.client_debt_profit_usd ?? 0,
-                          "USD",
-                        )}
+                        <span data-testid="deferred-client-debt-usd">
+                          {formatAmount(
+                            summary.deferred.client_debt_profit_usd ?? 0,
+                            "USD",
+                          )}
+                        </span>
                         {(summary.deferred.client_debt_profit_lbp ?? 0) !==
                           0 && (
                           <span className="block text-[11px] text-amber-400/70 font-normal">
@@ -1076,15 +1119,31 @@ export default function Profits() {
                   settlement commission, entered at settlement and stamped
                   directly on the SUPPLIER_SETTLEMENT transaction. Already
                   folded into the totals above; this is a visibility
-                  breakout. */}
+                  breakout.
+                  LIRA-158 D17: `count` now counts only settlements that
+                  contributed RECOGNISED commission (see the field's doc
+                  comment above) — a cashless settlement that deferred in
+                  full contributes count 0 / profit 0 even though it
+                  happened. Rendering nothing in that case would look
+                  identical to "no settlements at all", which is no longer
+                  true, so a fully-deferred window renders a small pointer
+                  to the Deferred Profit card instead of vanishing —
+                  chosen over silence because the whole point of D17 is that
+                  this money must stay visible SOMEWHERE, and this card is
+                  where the operator already looks for it. */}
               {summary.supplier_commission &&
-                summary.supplier_commission.count > 0 && (
+                (summary.supplier_commission.count > 0 ||
+                summary.supplier_commission.profit_usd !== 0 ||
+                summary.supplier_commission.profit_lbp !== 0 ? (
                   <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-white">
                         Supplier Commission
                       </span>
-                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                      <span
+                        data-testid="supplier-commission-count"
+                        className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full"
+                      >
                         {summary.supplier_commission.count} settlements
                       </span>
                     </div>
@@ -1092,7 +1151,10 @@ export default function Profits() {
                       {summary.supplier_commission.profit_usd !== 0 && (
                         <div className="flex justify-between">
                           <span className="font-semibold">USD</span>
-                          <span className="text-emerald-400 font-semibold">
+                          <span
+                            data-testid="supplier-commission-usd"
+                            className="text-emerald-400 font-semibold"
+                          >
                             {formatAmount(
                               summary.supplier_commission.profit_usd,
                               "USD",
@@ -1113,7 +1175,30 @@ export default function Profits() {
                       )}
                     </div>
                   </div>
-                )}
+                ) : (
+                  ((summary.deferred?.client_debt_profit_usd ?? 0) !== 0 ||
+                    (summary.deferred?.client_debt_profit_lbp ?? 0) !==
+                      0) && (
+                    <div
+                      data-testid="supplier-commission-fully-deferred"
+                      className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-white">
+                          Supplier Commission
+                        </span>
+                        <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                          Deferred
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        No commission recognised this period — this
+                        period's cashless settlements are deferred until
+                        the client repays. See Deferred Profit above.
+                      </p>
+                    </div>
+                  )
+                ))}
             </div>
 
             {/* Expense breakdown */}

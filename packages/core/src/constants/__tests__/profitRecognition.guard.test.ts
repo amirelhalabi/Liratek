@@ -103,6 +103,29 @@
  *    guard entirely, an UNEXCLUDED violation that predates this Phase 5
  *    extension — see the new `hasSettlementAllocationsTable:(query)`
  *    EXCLUDED_UNITS entry).
+ *
+ * LIRA-158 D17 follow-up (owner decision 2026-08-31) — `GATE_FRAGMENTS`
+ * gained a SEVENTH entry, `allocationNotDebtPending`. It is a genuine gate,
+ * not a loophole: `ProfitRepository.allocationNotDebtPending` is a thin
+ * wrapper that calls `notDebtPending` VERBATIM on a resolved
+ * `financial_services` row's own FINANCIAL_SERVICE transaction id (see its
+ * doc comment) — a unit that calls it IS applying the exact same
+ * client-debt-pending rule as a unit that calls `notDebtPending` directly,
+ * just against a `settlement_commission_allocations` row instead of a
+ * `transactions` row. Its sibling `cashlessCommissionBatch` is deliberately
+ * NOT added here: it only classifies a settlement batch as bills-only vs
+ * cashless (a re-derivation of `SupplierRepository.isBillsOnlyBatch`'s
+ * negation) and defers nothing on its own — a query could call it alone with
+ * no debt gate at all and still be wrongly unguarded, so treating it as a
+ * gate would open exactly the loophole this guard exists to close. D17 also
+ * added several new query units built on these two fragments across
+ * `ProfitRepository.getSupplierCommissionTotals`, `getFinancialSettledByProvider`,
+ * `getByDate`, `getDeferredProfit`, `getByUser`, `getByClient`, and
+ * `ClosingRepository.getDailyStatsSnapshot` — see the new/updated
+ * EXCLUDED_UNITS entries below for the units that are correctly ungated
+ * (bills-only: real money, recognition-by-construction) vs the ones that
+ * are now recognised as gated via `allocationNotDebtPending` and needed no
+ * exclusion at all.
  */
 
 import * as fs from "node:fs";
@@ -139,6 +162,13 @@ const GATE_FRAGMENTS = [
   "saleFullyPaid",
   "saleNotFullyPaid",
   "salePaidOrPartnerSettled",
+  // LIRA-158 D17 — wraps notDebtPending VERBATIM against a
+  // settlement_commission_allocations row's own fs transaction id (see this
+  // file's header note and ProfitRepository.allocationNotDebtPending's own
+  // doc comment); a genuine gate, not a loophole. `cashlessCommissionBatch`
+  // (the batch-shape classifier D17 also introduced) is deliberately NOT
+  // listed — it defers nothing on its own, so it doesn't belong here.
+  "allocationNotDebtPending",
 ] as const;
 
 const GATE_CALL_REGEX = new RegExp(`\\b(?:${GATE_FRAGMENTS.join("|")})\\(`);
@@ -433,22 +463,41 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "COUNTERPARTY_DISCOUNT carries a signed profit stamp with amount_usd/lbp " +
     "always 0 (no cash moved) and is NON_REVERSIBLE_TRANSACTION_TYPES — " +
     "immediate recognition by design, nothing left to defer.",
-  "ProfitRepository:getSupplierCommissionTotals:(query)":
-    "LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md): recognition-by-" +
-    "construction, same reasoning as getDebtRepaymentProfit/" +
-    "getCounterpartyDiscountTotals above. A bills-only settlement's " +
-    "commission is a REAL provider-drawer top-up funded directly by the " +
-    "supplier AT settlement (SupplierRepository.settleTransactions's " +
-    "isBillsOnlyBatch branch) — there is no counterparty-pending state left " +
-    "to gate against: no partner_ledger row is EVER created with " +
-    "reference_table = 'supplier_ledger' (verified — grep across the " +
-    "codebase), and no debt_ledger module-debt row is ever keyed to a " +
-    "SUPPLIER_SETTLEMENT transaction id (module-debt rows are keyed to " +
-    "CUSTOMER_ACCOUNT-charged services only), so notPartnerPending/" +
-    "notDebtPending would always no-op here. Money-real-once verified " +
-    "separately via rule 20 (void status-excludes; refund's negated stamp " +
-    "nets the pair to 0) — see ProfitService.supplierSettlementCommission" +
-    ".test.ts.",
+  "ProfitRepository:getSupplierCommissionTotals:degraded":
+    "LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md), re-keyed from the " +
+    "stale 'ProfitRepository:getSupplierCommissionTotals:(query)' by the " +
+    "LIRA-158 D17 follow-up when the method split from one bare prepare " +
+    "into three named ones (degraded/billsOnly/cashless — see that " +
+    "method's own doc comment). This is the SCHEMA-DRIFT branch only " +
+    "(`!this._hasSettlementAllocationsTable()`, a pre-v150 fixture): the " +
+    "OLD, undifferentiated stamp-only query, recognition-by-construction " +
+    "for the SAME reason getDebtRepaymentProfit/getCounterpartyDiscountTotals " +
+    "above are — no partner_ledger row is EVER created with reference_table " +
+    "= 'supplier_ledger' and no debt_ledger module-debt row is ever keyed " +
+    "to a SUPPLIER_SETTLEMENT transaction id, so notPartnerPending/" +
+    "notDebtPending would always no-op here regardless of batch shape. On " +
+    "this schema there is no `settlement_commission_allocations` table to " +
+    "classify bills-only vs cashless against in the first place, so — " +
+    "unlike the two branches below — this one is not even D17-aware; it is " +
+    "the pre-D17 behavior preserved verbatim for fixtures that predate the " +
+    "allocations table.",
+  "ProfitRepository:getSupplierCommissionTotals:billsOnly":
+    "D17 (LIRA-158 follow-up, owner decision 2026-08-31): the BILLS-ONLY " +
+    "half of the degraded branch's former undifferentiated query, split out " +
+    "once `settlement_commission_allocations` exists so the CASHLESS half " +
+    "(the `cashless` unit alongside this one, already gated via its own " +
+    "notPartnerPending + allocationNotDebtPending calls) can defer " +
+    "correctly without double-counting. A bills-only Katsh/iPick " +
+    "settlement's commission is a REAL provider-drawer top-up (or real " +
+    "payment legs) funded directly BY THE SUPPLIER at settlement — 'our " +
+    "profit entirely' (owner) — recognition-by-construction, same " +
+    "reasoning as the (now-removed) combined entry this replaces: no " +
+    "partner_ledger/debt_ledger row is ever keyed to a SUPPLIER_SETTLEMENT " +
+    "transaction id, so a gate here would always no-op. Restricted to " +
+    "`NOT (cashlessCommissionBatch(...))` so it never also counts a " +
+    "cashless or mixed batch's stamp (that money is real too, but re-" +
+    "sourced from allocations, not from this flat stamp — see the method's " +
+    "partition-proof doc comment for the exhaustive/disjoint argument).",
   "ProfitRepository:getFinancialPendingByCurrency:(query)":
     "Deliberately the PRE-recognition bucket (is_settled = 0), surfaced as " +
     "its own 'pending' line (ProfitService.getByPaymentMethod) and never " +
@@ -561,16 +610,30 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "own ticket.",
   "ClosingRepository:getDailyStatsSnapshot:finProfitSettlement":
     "Recognition-by-construction, identical reasoning to " +
-    "getSupplierCommissionTotals:(query) above (LIRA-137 fix) transplanted " +
-    "to Closing's todayLocal window (LIRA-158 Phase 4, D10): a " +
-    "SUPPLIER_SETTLEMENT transaction's profit_usd is the operator's " +
-    "entered commission, a real provider-drawer top-up funded BY the " +
-    "supplier AT settlement — no partner_ledger row is ever created with " +
-    "reference_table = 'supplier_ledger' and no debt_ledger module-debt " +
-    "row is ever keyed to a SUPPLIER_SETTLEMENT transaction id, so both " +
-    "gates would always no-op here. REFUND on the same source_table nets a " +
-    "same-day void to 0 (rule 20), matching the ProfitRepository sibling " +
-    "exactly.",
+    "getSupplierCommissionTotals:degraded above (LIRA-137 fix) transplanted " +
+    "to Closing's todayLocal window (LIRA-158 Phase 4, D10): the SCHEMA-" +
+    "DRIFT branch (`!this._hasSettlementAllocationsTable()`), the OLD " +
+    "undifferentiated stamp-only query preserved verbatim for a pre-v150 " +
+    "fixture — a SUPPLIER_SETTLEMENT transaction's profit_usd is the " +
+    "operator's entered commission, a real provider-drawer top-up funded " +
+    "BY the supplier AT settlement — no partner_ledger row is ever created " +
+    "with reference_table = 'supplier_ledger' and no debt_ledger module-" +
+    "debt row is ever keyed to a SUPPLIER_SETTLEMENT transaction id, so " +
+    "both gates would always no-op here regardless of batch shape. REFUND " +
+    "on the same source_table nets a same-day void to 0 (rule 20), " +
+    "matching the ProfitRepository sibling exactly.",
+  "ClosingRepository:getDailyStatsSnapshot:billsOnlySettlement":
+    "D17 (LIRA-158 follow-up, owner decision 2026-08-31): the BILLS-ONLY " +
+    "half of finProfitSettlement's former undifferentiated query, split out " +
+    "once `settlement_commission_allocations` exists — same split, same " +
+    "rationale as ProfitRepository.getSupplierCommissionTotals:billsOnly " +
+    "above, transplanted to Closing's todayLocal window. Real provider-" +
+    "funded drawer money the instant it's recognised ('our profit " +
+    "entirely,' owner) — recognition-by-construction, no partner_ledger/" +
+    "debt_ledger row is ever keyed to a SUPPLIER_SETTLEMENT transaction id, " +
+    "so a gate would always no-op. The CASHLESS half (`cashlessSettlement`, " +
+    "alongside this unit) is already gated via its own notPartnerPending + " +
+    "allocationNotDebtPending calls and needs no exclusion.",
   "ClosingRepository:getDailyStatsSnapshot:rechargeProfit":
     "KNOWN GAP, not correct-by-design — found during this LIRA-158 guard " +
     "extension, out of that ticket's scope (Phase 4 targeted only the " +

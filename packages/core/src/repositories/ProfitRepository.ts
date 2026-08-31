@@ -17,6 +17,10 @@
  *   - FS_REVENUE                 financial-service revenue (price when cost>0 else amount)
  *   - EMBEDDED_COMMISSION(alias) `fs.commission` column is settled truth only for
  *                                a legacy (commission_model = 0) row — LIRA-158 Phase 2a
+ *   - allocationNotDebtPending   a CASHLESS settlement's commission defers until the
+ *                                CLIENT repays the underlying transfer — LIRA-158 D17
+ *   - cashlessCommissionBatch    re-derives isBillsOnlyBatch's negation in SQL from
+ *                                settlement_commission_allocations — LIRA-158 D17
  */
 
 import type Database from "better-sqlite3";
@@ -282,7 +286,7 @@ function saleNotFullyPaid(alias: string): string {
  * and pass unchanged. reference_table + reference_id identify the source row
  * globally (one AUTOINCREMENT per table), so no tenant correlation is needed.
  */
-function notPartnerPending(refTable: string, idExpr: string): string {
+export function notPartnerPending(refTable: string, idExpr: string): string {
   return `NOT EXISTS (
     SELECT 1 FROM partner_ledger plp
     WHERE plp.reference_table = '${refTable}'
@@ -310,6 +314,91 @@ function notDebtPending(txnIdExpr: string): string {
       AND COALESCE(dlp.is_refunded, 0) = 0
       AND (dlp.covered_usd < COALESCE(dlp.amount_usd, 0) - 0.005
            OR dlp.covered_lbp < COALESCE(dlp.amount_lbp, 0) - 1)
+  )`;
+}
+
+/**
+ * D17 (LIRA-158 follow-up, owner decision 2026-08-31) — the client-debt
+ * counterpart of {@link notDebtPending} for a
+ * `settlement_commission_allocations` row instead of a `transactions` row.
+ * Owner-confirmed 2026-08-31: he settles OMT/WHISH batches out of his OWN
+ * drawer BEFORE the customers who owe him for those transfers have paid, so
+ * a CASHLESS settlement's commission is not unconditionally earned at
+ * settlement — it is contingent on collecting the client's debt for the
+ * underlying transfer, exactly like a legacy (`commission_model = 0`)
+ * embedded-commission row already defers via {@link notDebtPending} (both
+ * gate on the SAME `debt_ledger` rule; this is not a second copy of it —
+ * see below).
+ *
+ * Resolves the allocation's own `financial_service_id` to THAT financial
+ * service's own FINANCIAL_SERVICE transaction id (a scalar correlated
+ * subquery; `LIMIT 1` defends against a never-expected second row sharing
+ * one `source_id`, matching this file's existing scalar-subquery
+ * discipline) and calls {@link notDebtPending} VERBATIM on that id — rule 14
+ * forbids a second, hand-copied text of the debt-pending predicate.
+ *
+ * `scaAlias` is the alias for `settlement_commission_allocations` already in
+ * scope at the call site (typically `sca`).
+ */
+export function allocationNotDebtPending(scaAlias: string): string {
+  return notDebtPending(
+    `(SELECT ft.id FROM transactions ft
+        WHERE ft.source_table = 'financial_services'
+          AND ft.source_id = ${scaAlias}.financial_service_id
+          AND ft.type = 'FINANCIAL_SERVICE'
+        LIMIT 1)`,
+  );
+}
+
+/**
+ * D17 — re-derives `SupplierRepository._resolveSettlementBatchModel` /
+ * `isBillsOnlyBatch`'s JS boolean (SupplierRepository.ts ~:1185:
+ * `batchModel === 1 && eligibleRows.every(r => r.service_type === 'BILL')`)
+ * in SQL, from the SAME persisted per-row link
+ * (`settlement_commission_allocations.service_type`) that boolean was
+ * computed from at write time. A settlement's allocation rows are written
+ * ATOMICALLY together, one per settled fs row, all sharing the same
+ * `settlement_ledger_id` (`SupplierRepository._bookCommissionAtSettlement`'s
+ * `insertAllocation` loop) — so "every row is BILL" (bills-only) and "at
+ * least one row is NOT BILL" (cashless) are exhaustive, mutually-exclusive
+ * re-derivations of the identical batch-level fact. This fragment computes
+ * the CASHLESS side directly (the negation of bills-only) since every call
+ * site needs the cashless predicate, not its complement.
+ *
+ * Document this pair as a JS/SQL twin needing lockstep maintenance, the same
+ * discipline `isPendingSupplierSettlement`/`pendingSettlementSql` already
+ * follow: if `isBillsOnlyBatch`'s definition in SupplierRepository.ts ever
+ * changes, this fragment must change with it.
+ *
+ * Owner decision 2026-08-31 (D17) folds a MIXED bills+OMT batch into
+ * "cashless too" — no real money arrives for the OMT/WHISH share of a mixed
+ * batch either, only for its BILL share — which is exactly what "at least
+ * one non-BILL row exists for this settlement" captures (a pure-BILL batch
+ * has zero such rows, so it correctly evaluates to NOT cashless).
+ *
+ * `settlementLedgerIdExpr` is a SQL expression evaluating to the
+ * settlement's `supplier_ledger.id` — pass `` `${alias}.settlement_ledger_id` ``
+ * when correlating from an allocation row already in scope (the common
+ * case), or a `transactions` row's own `source_id` (the SAME id, under
+ * `supplier_ledger`'s naming on that table — see
+ * `SupplierRepository._bookCommissionAtSettlement`'s
+ * `source_id: ledgerEntryId` / `settlement_ledger_id: ledgerEntryId`, both
+ * bound to the identical value) when classifying a SUPPLIER_SETTLEMENT/
+ * REFUND transaction row instead of an allocation row — both
+ * {@link ProfitRepository.getSupplierCommissionTotals} and
+ * `ClosingRepository`'s settlement-day source need exactly that second use,
+ * and rule 14 forbids a second copy of this predicate hard-coding a
+ * different column name for the same fact. No `tenant_id` bind inside
+ * (matching every other rule-14 fragment's convention of leaving tenant
+ * scoping to the caller) — safe regardless, since `settlement_ledger_id` is
+ * a `supplier_ledger.id` global AUTOINCREMENT PK, so a sibling allocation row
+ * for the SAME id can never belong to a different tenant.
+ */
+export function cashlessCommissionBatch(settlementLedgerIdExpr: string): string {
+  return `EXISTS (
+    SELECT 1 FROM settlement_commission_allocations sca2
+    WHERE sca2.settlement_ledger_id = ${settlementLedgerIdExpr}
+      AND sca2.service_type != 'BILL'
   )`;
 }
 
@@ -529,8 +618,70 @@ export function atSettlementCommission(alias: string, supported: boolean): strin
  * every other rule-14 fragment in this file leaves tenant binds to the
  * caller).
  */
-function currentSettlementAllocation(fsAlias: string, scaAlias: string): string {
+export function currentSettlementAllocation(fsAlias: string, scaAlias: string): string {
   return `${scaAlias}.financial_service_id = ${fsAlias}.id AND ${scaAlias}.settlement_ledger_id = ${fsAlias}.settlement_id`;
+}
+
+/**
+ * D17 (LIRA-158 follow-up, owner decision 2026-08-31) — the SUPPLIER_SETTLEMENT
+ * / REFUND profit arm shared by {@link ProfitRepository.getByUser} and
+ * {@link ProfitRepository.getByClient}'s `profit_usd`/`profit_lbp` `CASE`
+ * expressions (rule 14 — one definition, reused in all FOUR arms — getByUser
+ * usd/lbp, getByClient usd/lbp — instead of four hand-copied texts). Before
+ * this fix both views fell through to their generic `ELSE t.profit_usd` /
+ * `ELSE t.profit_lbp` arm for a settlement row, which stamps the FULL
+ * entered commission unconditionally — contradicting D17 (a CASHLESS
+ * settlement's commission defers until the client's own debt for the
+ * underlying transfer is covered) even though every OTHER profit surface
+ * ({@link ProfitRepository.getSupplierCommissionTotals},
+ * {@link ProfitRepository.getFinancialSettledByProvider},
+ * {@link ProfitRepository.getByDate}, {@link ProfitRepository.getDeferredProfit})
+ * was already re-sourced for D17.
+ *
+ * A BILLS-ONLY batch ({@link cashlessCommissionBatch} false) keeps reading
+ * the transaction-level stamp (`t.profit_usd`/`t.profit_lbp`) UNCHANGED —
+ * real money, recognised immediately, matching
+ * `getSupplierCommissionTotals`'s `billsOnly` bucket byte-for-byte. A
+ * CASHLESS batch (true) re-sources ONLY this settlement's OWN allocations
+ * (`sca.settlement_ledger_id = t.source_id` — the one settlement this
+ * specific transaction row belongs to, never every settlement tenant-wide)
+ * gated by {@link allocationNotDebtPending} (the new D17 gate),
+ * {@link notPartnerPending} (supplier-settled != partner-settled, matching
+ * every other allocation-sourced query in this file), and
+ * {@link notRefunded} (an fs row refunded WITHOUT voiding the settlement
+ * still needs excluding).
+ *
+ * Degrades to `""` (the WHEN is omitted entirely, so the row falls through
+ * to the existing `ELSE`) when `settlement_commission_allocations` doesn't
+ * exist (§5): a pre-v150 fixture never had a way to write a cashless
+ * allocation in the first place, so there is nothing to re-source — matches
+ * every other schema-drift degradation in this file. Callers MUST branch
+ * their bind-param array on the SAME `hasAllocations` flag used here: this
+ * fragment embeds exactly one `?` (`sca.tenant_id`) when `hasAllocations` is
+ * true, and none at all when it is false.
+ */
+function supplierSettlementProfitArm(
+  hasAllocations: boolean,
+  currency: "usd" | "lbp",
+): string {
+  if (!hasAllocations) return "";
+  const profitCol = currency === "usd" ? "t.profit_usd" : "t.profit_lbp";
+  const commissionCol =
+    currency === "usd" ? "sca.commission_usd" : "sca.commission_lbp";
+  return `WHEN t.source_table = 'supplier_ledger' AND t.type IN ('SUPPLIER_SETTLEMENT', 'REFUND') THEN (
+              CASE WHEN NOT (${cashlessCommissionBatch("t.source_id")}) THEN ${profitCol}
+              ELSE COALESCE((
+                SELECT SUM(${commissionCol})
+                FROM settlement_commission_allocations sca
+                JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
+                WHERE sca.settlement_ledger_id = t.source_id
+                  AND sca.tenant_id = ?
+                  AND ${notRefunded("fs")}
+                  AND ${allocationNotDebtPending("sca")}
+                  AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
+              ), 0)
+              END
+            )`;
 }
 
 /** Exchange leg profit (v30+): leg1 + leg2, NULL-safe. */
@@ -823,37 +974,111 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
-   * LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md) — bills-only
-   * settlement commission: `SupplierRepository.settleTransactions`'s
-   * `isBillsOnlyBatch` branch stamps the operator's entered commission as
-   * `profit_usd`/`profit_lbp` directly on the SUPPLIER_SETTLEMENT
-   * transaction (a real provider-drawer top-up funded BY the provider — the
-   * shop's own words, "our profit entirely"). Every OTHER settlement shape
-   * (legacy `commission_model = 0` OMT/WHISH, or a non-bills new-model
-   * batch) stamps exactly 0/0 here, so this bucket is a no-op for them.
+   * LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md), re-shaped by D17
+   * (LIRA-158 follow-up, owner decision 2026-08-31) — the gate now keys on
+   * whether real money arrived AT SETTLEMENT, not on `commission_model`:
    *
-   * Double-count analysis (verified before this method was added): no OTHER
-   * ProfitRepository query reads a supplier_ledger-sourced transaction, and
-   * a BILL row's `financial_services.commission` column stays 0 forever
-   * (LIRA-112 — the settlement never writes it back), so this is the
-   * commission's ONE and ONLY home across every profits view.
+   *  - **BILLS-ONLY portion** (`billsOnly` below) — UNCHANGED source and
+   *    semantics: `SupplierRepository.settleTransactions`'s
+   *    `isBillsOnlyBatch` branch stamps the operator's entered commission as
+   *    `profit_usd`/`profit_lbp` directly on the SUPPLIER_SETTLEMENT
+   *    transaction (a real provider-drawer top-up, or real payment legs,
+   *    funded BY the provider — "our profit entirely," owner). This is real
+   *    cash the instant it is recognised, so it keeps immediate,
+   *    settlement-day recognition byte-for-byte — restricted here to ONLY
+   *    the settlements {@link cashlessCommissionBatch} classifies as
+   *    bills-only (negated), since a CASHLESS or MIXED batch's stamp is now
+   *    sourced from allocations instead (below) and must not ALSO be summed
+   *    here (double-count).
+   *  - **CASHLESS portion** (`cashless` below; every OTHER new-model batch,
+   *    including a MIXED bills+OMT batch — no real money arrives for its
+   *    OMT/WHISH share either) — the owner settles OMT/WHISH batches out of
+   *    his OWN drawer BEFORE the client who owes for the underlying transfer
+   *    has repaid, so this commission is not unconditionally earned; it is
+   *    contingent on that repayment, exactly like a legacy
+   *    (`commission_model = 0`) embedded-commission row already defers via
+   *    `notDebtPending`. Re-sourced from `settlement_commission_allocations`
+   *    (the per-row link {@link getFinancialSettledByProvider}'s allocation
+   *    arm already established) — the ONLY place this fix can reach each
+   *    allocated fs row's OWN client-debt status, since the flat
+   *    SUPPLIER_SETTLEMENT/REFUND stamp has no per-row knowledge of it at
+   *    all. Gated on {@link allocationNotDebtPending} (D17's new gate),
+   *    {@link notPartnerPending} (supplier-settled != partner-settled, the
+   *    same second gate every other allocation arm in this file carries),
+   *    and {@link notRefunded} (an fs row refunded WITHOUT voiding the
+   *    settlement still needs excluding — matching
+   *    {@link getFinancialSettledByProvider}'s allocation arm).
    *
-   * Includes `REFUND` on the SAME `source_table` (rule 14 — same pattern as
-   * {@link getDebtRepaymentProfit}): a reversed settlement's REFUND row
-   * carries the negated stamp (`TransactionRepository
-   * ._refundTransactionInternal`), so summing the pair nets to 0 (rule 20).
-   * A VOIDed settlement needs no REFUND counterpart — its own row simply
-   * drops out of the `status = 'ACTIVE'` filter. `source_table =
-   * 'supplier_ledger'` also matches SUPPLIER_PAYMENT / journal-entry rows
-   * (and their REFUNDs) — harmless, since none of those ever stamp a
-   * nonzero profit (verified: no `createTransaction` call for them passes
-   * `profit_usd`/`profit_lbp`, so both default to 0).
+   * **Partition proof (exhaustive + disjoint, no double count):** a
+   * settlement's allocation rows are written ATOMICALLY, one per settled fs
+   * row, ALL sharing one `settlement_ledger_id` — so
+   * `cashlessCommissionBatch` (at least one row's `service_type != 'BILL'`)
+   * and its negation (every row is `'BILL'`) partition EVERY new-model
+   * (`commission_model = 1`) settlement into exactly one of the two buckets,
+   * never both. A LEGACY (`commission_model = 0`) settlement's stamp is 0/0
+   * (`SupplierRepository` only stamps `data.commission_usd`/`commission_lbp`
+   * when `batchModel === 1`) and it never writes any allocation row at all
+   * (`_bookCommissionAtSettlement` only runs `if (batchModel === 1 &&
+   * eligibleRows.length > 0)`) — so it contributes 0 to `billsOnly` (its own
+   * NOT-cashless classification is moot since its stamp is 0 either way) and
+   * 0 to `cashless` (no allocation row exists to sum). Every dollar this
+   * method reports comes from exactly ONE source: the transaction stamp
+   * (bills-only) or the allocation table (cashless), never both.
+   *
+   * **Reversal (rule 20), verified per source:** a void/refund
+   * hard-DELETEs a settlement's allocation rows
+   * (`TransactionRepository._reverseCommissionAtSettlementRecords`), so a
+   * voided/refunded CASHLESS settlement's `cashless` contribution drops to
+   * exactly 0 with no REFUND-row bookkeeping needed on that side. Its
+   * transaction-level stamp (original +X, REFUND -X, or a VOID's
+   * zero-profit reversal row) is NEVER read by `billsOnly` in the first
+   * place — `cashlessCommissionBatch("source_id")` classifies a CASHLESS
+   * settlement's original/REFUND rows identically (both evaluate against the
+   * SAME allocation-table state at query time), so neither ever enters
+   * `billsOnly` — there is no "REFUND negates a stamp whose positive half
+   * came from allocations" hazard, because that positive half was never
+   * counted there. A voided BILLS-ONLY settlement nets to 0 the same way it
+   * always has (original excluded via `status != 'ACTIVE'` on VOID; REFUND's
+   * negated stamp cancels the still-ACTIVE original on a plain refund).
+   *
+   * **Schema drift** (§5): degrades to the OLD, undifferentiated stamp-only
+   * query when `settlement_commission_allocations` doesn't exist at all
+   * (pre-v150 fixture) — there is no per-row link to classify against on
+   * such a schema, and no cashless-vs-bills split could ever have been
+   * written there either.
    */
   getSupplierCommissionTotals(
     fromDt: string,
     toDt: string,
   ): SupplierCommissionTotalsRow {
-    return this.db
+    const tenantId = getCurrentTenantId();
+
+    if (!this._hasSettlementAllocationsTable()) {
+      // Named `degraded` (not returned inline) so the profitRecognition
+      // guard's `precedingVarName` heuristic attributes this unit to a
+      // meaningful label instead of accidentally borrowing the `tenantId`
+      // declared above — see EXCLUDED_UNITS'
+      // "ProfitRepository:getSupplierCommissionTotals:degraded" entry.
+      const degraded = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(profit_usd), 0) AS profit_usd,
+            COALESCE(SUM(profit_lbp), 0) AS profit_lbp,
+            COALESCE(SUM(CASE WHEN type = 'SUPPLIER_SETTLEMENT'
+                               AND (profit_usd != 0 OR profit_lbp != 0)
+                              THEN 1 ELSE 0 END), 0) AS count
+          FROM transactions
+          WHERE status = 'ACTIVE'
+            AND source_table = 'supplier_ledger'
+            AND type IN ('SUPPLIER_SETTLEMENT', 'REFUND')
+            AND ${dateRange("created_at")}
+            AND tenant_id = ?`,
+        )
+        .get(fromDt, toDt, tenantId) as SupplierCommissionTotalsRow;
+      return degraded;
+    }
+
+    const billsOnly = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(profit_usd), 0) AS profit_usd,
@@ -865,10 +1090,34 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE status = 'ACTIVE'
           AND source_table = 'supplier_ledger'
           AND type IN ('SUPPLIER_SETTLEMENT', 'REFUND')
+          AND NOT (${cashlessCommissionBatch("source_id")})
           AND ${dateRange("created_at")}
           AND tenant_id = ?`,
       )
-      .get(fromDt, toDt, getCurrentTenantId()) as SupplierCommissionTotalsRow;
+      .get(fromDt, toDt, tenantId) as SupplierCommissionTotalsRow;
+
+    const cashless = this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(sca.commission_usd), 0) AS profit_usd,
+          COALESCE(SUM(sca.commission_lbp), 0) AS profit_lbp,
+          COUNT(DISTINCT sca.settlement_ledger_id) AS count
+        FROM settlement_commission_allocations sca
+        JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
+        WHERE sca.tenant_id = ?
+          AND ${notRefunded("fs")}
+          AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
+          AND ${allocationNotDebtPending("sca")}
+          AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
+          AND ${dateRange("sca.created_at")}`,
+      )
+      .get(tenantId, fromDt, toDt) as SupplierCommissionTotalsRow;
+
+    return {
+      profit_usd: billsOnly.profit_usd + cashless.profit_usd,
+      profit_lbp: billsOnly.profit_lbp + cashless.profit_lbp,
+      count: billsOnly.count + cashless.count,
+    };
   }
 
   /** Settled financial-service commissions (OMT/WHISH family) grouped by currency. */
@@ -1175,6 +1424,30 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * txnNotPartnerPending / notDebtPending verbatim (rule 14) so this bucket
    * always reconciles with the realized totals: a source moves out of here
    * and into the realized summary the moment it settles/repays, never both.
+   *
+   * D17 (LIRA-158 follow-up, owner decision 2026-08-31) — NON-OPTIONAL
+   * addition: `clientDebtRow` above is transaction-shaped
+   * (`t.type IN (PROFIT_TXN_TYPES)`, `notDebtPending("t.id")`), so it cannot
+   * see a CASHLESS settlement's deferred commission at all — the
+   * FINANCIAL_SERVICE transaction stamps 0 for a model-1 row (Phase 1), and
+   * the SUPPLIER_SETTLEMENT transaction has no `debt_ledger` row keyed to
+   * ITS OWN id (debt is keyed to the fs row's transaction, not the
+   * settlement's), so it always passes `notDebtPending` and never lands
+   * here. Without `cashlessDeferredRow` below, D17's whole point — money
+   * that STOPS being recognised at settlement — would simply vanish from
+   * every profits view instead of showing up as deferred. Sourced from
+   * `settlement_commission_allocations` (mirrors
+   * {@link getSupplierCommissionTotals}'s cashless bucket exactly, negating
+   * its {@link allocationNotDebtPending} gate to select the STILL-PENDING
+   * allocations instead of the covered ones), restricted to
+   * {@link cashlessCommissionBatch} (a bills-only settlement's commission is
+   * real money the instant it's recognised — never deferred, never here) and
+   * {@link notRefunded} (matching every other allocation-sourced query in
+   * this file). Degrades to a 0 contribution when
+   * `settlement_commission_allocations` doesn't exist (§5) — reconciles with
+   * `getSupplierCommissionTotals`'s own schema-drift degradation, which on
+   * such a fixture recognises the OLD, undifferentiated stamp immediately
+   * (nothing left to defer).
    */
   getDeferredProfit(fromDt: string, toDt: string): DeferredProfitRow {
     const tenantId = getCurrentTenantId();
@@ -1213,11 +1486,33 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       profit_lbp: number;
     };
 
+    const cashlessDeferredRow = this._hasSettlementAllocationsTable()
+      ? (this.db
+          .prepare(
+            `SELECT
+              COALESCE(SUM(sca.commission_usd), 0) AS profit_usd,
+              COALESCE(SUM(sca.commission_lbp), 0) AS profit_lbp
+            FROM settlement_commission_allocations sca
+            JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
+            WHERE sca.tenant_id = ?
+              AND ${notRefunded("fs")}
+              AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
+              AND NOT (${allocationNotDebtPending("sca")})
+              AND ${dateRange("sca.created_at")}`,
+          )
+          .get(tenantId, fromDt, toDt) as {
+          profit_usd: number;
+          profit_lbp: number;
+        })
+      : { profit_usd: 0, profit_lbp: 0 };
+
     return {
       partner_profit_usd: partnerRow.profit_usd,
       partner_profit_lbp: partnerRow.profit_lbp,
-      client_debt_profit_usd: clientDebtRow.profit_usd,
-      client_debt_profit_lbp: clientDebtRow.profit_lbp,
+      client_debt_profit_usd:
+        clientDebtRow.profit_usd + cashlessDeferredRow.profit_usd,
+      client_debt_profit_lbp:
+        clientDebtRow.profit_lbp + cashlessDeferredRow.profit_lbp,
     };
   }
 
@@ -1265,17 +1560,25 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * fs row's allocated share still defers until the partner settles —
    * supplier-settled is not partner-settled; this is a SECOND, independent
    * gate from the base arm's own `notPartnerPending`, not a duplicate of
-   * it). No `notDebtPending` here or in `getSupplierCommissionTotals`'s
-   * SUPPLIER_SETTLEMENT bucket: commission recognition at settlement is
-   * against the SUPPLIER relationship, not the client's account status, and
-   * gating it would break reconciliation against that totals method (which
-   * is deliberately debt-gate-free, per its own EXCLUDED_UNITS entry in
-   * `profitRecognition.guard.test.ts`). No reversal predicate is needed
-   * beyond that: a voided settlement hard-DELETEs its allocation rows
-   * (`TransactionRepository.ts` — `DELETE FROM
-   * settlement_commission_allocations WHERE settlement_ledger_id = ?`), so
-   * a reversed allocation is physically gone rather than needing an
+   * it). No reversal predicate is needed beyond that: a voided settlement
+   * hard-DELETEs its allocation rows (`TransactionRepository.ts` — `DELETE
+   * FROM settlement_commission_allocations WHERE settlement_ledger_id = ?`),
+   * so a reversed allocation is physically gone rather than needing an
    * `is_voided` filter.
+   *
+   * UPDATED by D17 (LIRA-158 follow-up, owner decision 2026-08-31; this
+   * paragraph replaces a now-FALSE claim that lived here — "commission
+   * recognition at settlement is against the SUPPLIER relationship, not the
+   * client's account status" is no longer true for a CASHLESS settlement):
+   * the owner settles OMT/WHISH batches out of his OWN drawer BEFORE the
+   * client who owes for the underlying transfer has repaid, so a cashless
+   * settlement's commission is contingent on that repayment. This arm now
+   * ALSO carries {@link allocationNotDebtPending} (the new D17 gate) and
+   * {@link cashlessCommissionBatch} (restricting this arm to CASHLESS
+   * settlements only — a BILLS-ONLY settlement's commission is real money
+   * the instant it's recognised, per {@link getSupplierCommissionTotals}'s
+   * own doc comment, and stays out of this UNION arm entirely to avoid
+   * double-counting against that method's now-separate bills-only bucket).
    */
   getFinancialSettledByProvider(
     fromDt: string,
@@ -1298,6 +1601,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE sca.tenant_id = ?
           AND ${notRefunded("fs")}
           AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
+          AND ${allocationNotDebtPending("sca")}
+          AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
           AND ${dateRange("sca.created_at")}
         GROUP BY sca.provider`
       : "";
@@ -1393,13 +1698,22 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
      * allocation arm (see that method's doc comment for the full rationale:
      * why the base `daily_commissions` arm below is left unchanged, why this
      * is dated by `sca.created_at` (D7 settlement day, not the fs row's
-     * transaction day), why `notRefunded` + `notPartnerPending` are the
-     * gates and `notDebtPending` deliberately is not, and why voiding needs
-     * no extra predicate). Built as a separate string (rather than nested
-     * inline) so the outer `daily_commissions AS (...)` CTE body keeps a
-     * single, unbroken pair of backticks — a nested template literal here
-     * would introduce a second, unbalanced backtick inside this method's
-     * `.prepare(\`...\`)` call.
+     * transaction day), why `notRefunded` + `notPartnerPending` are gates,
+     * and why voiding needs no extra predicate). Built as a separate string
+     * (rather than nested inline) so the outer `daily_commissions AS (...)`
+     * CTE body keeps a single, unbroken pair of backticks — a nested
+     * template literal here would introduce a second, unbalanced backtick
+     * inside this method's `.prepare(\`...\`)` call.
+     *
+     * D17 (LIRA-158 follow-up, owner decision 2026-08-31) — this arm now
+     * ALSO carries {@link allocationNotDebtPending} and
+     * {@link cashlessCommissionBatch}, the SAME two gates added to
+     * {@link getFinancialSettledByProvider}'s allocation arm and for the
+     * SAME reason: a CASHLESS settlement's commission is contingent on the
+     * client repaying the underlying transfer (see that method's doc
+     * comment for the full D17 rationale); a BILLS-ONLY settlement's real
+     * money is recognised elsewhere (`getSupplierCommissionTotals`'s own
+     * bills-only bucket) and must not double-count here.
      */
     const dailyCommissionsAllocationArm = hasAllocations
       ? `
@@ -1415,6 +1729,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE sca.tenant_id = ?
             AND ${notRefunded("fs")}
             AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
+            AND ${allocationNotDebtPending("sca")}
+            AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
             AND ${dateRange("sca.created_at")}
           GROUP BY DATE(sca.created_at, 'localtime')`
       : "";
@@ -1841,6 +2157,32 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    */
   getByUser(fromDt: string, toDt: string): ProfitByUserRow[] {
     const tenantId = getCurrentTenantId();
+    const hasAllocations = this._hasSettlementAllocationsTable();
+
+    const params: (string | number)[] = [
+      tenantId, // revenue_usd CASE — financial_services fs subquery
+      tenantId, // revenue_usd CASE — sales s2 subquery
+    ];
+    if (hasAllocations) params.push(tenantId); // profit_usd CASE — D17 supplierSettlementProfitArm sca.tenant_id
+    params.push(
+      tenantId, // profit_usd CASE — sales s2 subquery
+      tenantId, // profit_usd CASE — financial_services fs subquery
+    );
+    if (hasAllocations) params.push(tenantId); // profit_lbp CASE — D17 supplierSettlementProfitArm sca.tenant_id
+    params.push(
+      tenantId, // profit_lbp CASE — financial_services fs subquery
+      tenantId, // profit_lbp CASE — sales s2 subquery
+      fromDt,
+      toDt, // pending_profit_usd — dateRange(fs2.created_at)
+      tenantId, // pending_profit_usd — fs2.tenant_id
+      tenantId, // pending_profit_usd — t2.tenant_id
+      tenantId, // LEFT JOIN transactions orig
+      tenantId, // LEFT JOIN users u
+      fromDt,
+      toDt, // WHERE dateRange(t.created_at)
+      tenantId, // WHERE t.tenant_id
+    );
+
     return this.db
       .prepare(
         `SELECT
@@ -1879,6 +2221,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- DBT-2: partner/debt-pending transactions contribute 0 until
             -- settled/repaid, so this view matches the Summary's gates.
             WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- D17: a SUPPLIER_SETTLEMENT/REFUND row is classified bills-only
+            -- (stamp, unchanged) vs cashless (re-sourced from THIS
+            -- settlement's own allocations) — see supplierSettlementProfitArm.
+            ${supplierSettlementProfitArm(hasAllocations, "usd")}
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
                 WHEN ${salePaidOrPartnerSettled("s2")}
@@ -1899,6 +2245,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- DBT-2: partner/debt-pending transactions contribute 0 until
             -- settled/repaid, so this view matches the Summary's gates.
             WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- D17: see the profit_usd arm above — identical branch, LBP currency.
+            ${supplierSettlementProfitArm(hasAllocations, "lbp")}
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
@@ -1938,23 +2286,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         GROUP BY COALESCE(orig.user_id, t.user_id)
         ORDER BY profit_usd DESC`,
       )
-      .all(
-        tenantId, // revenue_usd CASE — financial_services fs subquery
-        tenantId, // revenue_usd CASE — sales s2 subquery
-        tenantId, // profit_usd CASE — sales s2 subquery
-        tenantId, // profit_usd CASE — financial_services fs subquery
-        tenantId, // profit_lbp CASE — financial_services fs subquery
-        tenantId, // profit_lbp CASE — sales s2 subquery
-        fromDt,
-        toDt, // pending_profit_usd — dateRange(fs2.created_at)
-        tenantId, // pending_profit_usd — fs2.tenant_id
-        tenantId, // pending_profit_usd — t2.tenant_id
-        tenantId, // LEFT JOIN transactions orig
-        tenantId, // LEFT JOIN users u
-        fromDt,
-        toDt, // WHERE dateRange(t.created_at)
-        tenantId, // WHERE t.tenant_id
-      ) as ProfitByUserRow[];
+      .all(...params) as ProfitByUserRow[];
   }
 
   // ---------------------------------------------------------------------------
@@ -1968,6 +2300,32 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     limit: number,
   ): ProfitByClientRow[] {
     const tenantId = getCurrentTenantId();
+    const hasAllocations = this._hasSettlementAllocationsTable();
+
+    const params: (string | number)[] = [
+      tenantId, // revenue_usd CASE — financial_services fs subquery
+      tenantId, // revenue_usd CASE — sales s2 subquery
+    ];
+    if (hasAllocations) params.push(tenantId); // profit_usd CASE — D17 supplierSettlementProfitArm sca.tenant_id
+    params.push(
+      tenantId, // profit_usd CASE — sales s2 subquery
+      tenantId, // profit_usd CASE — financial_services fs subquery
+    );
+    if (hasAllocations) params.push(tenantId); // profit_lbp CASE — D17 supplierSettlementProfitArm sca.tenant_id
+    params.push(
+      tenantId, // profit_lbp CASE — financial_services fs subquery
+      tenantId, // profit_lbp CASE — sales s2 subquery
+      fromDt,
+      toDt, // pending_profit_usd — dateRange(fs2.created_at)
+      tenantId, // pending_profit_usd — fs2.tenant_id
+      tenantId, // pending_profit_usd — t2.tenant_id
+      tenantId, // LEFT JOIN clients c
+      fromDt,
+      toDt, // WHERE dateRange(t.created_at)
+      tenantId, // WHERE t.tenant_id
+      limit,
+    );
+
     return this.db
       .prepare(
         `SELECT
@@ -2004,6 +2362,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- DBT-2: partner/debt-pending transactions contribute 0 until
             -- settled/repaid, so this view matches the Summary's gates.
             WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- D17: a SUPPLIER_SETTLEMENT/REFUND row is classified bills-only
+            -- (stamp, unchanged) vs cashless (re-sourced from THIS
+            -- settlement's own allocations) — see supplierSettlementProfitArm.
+            ${supplierSettlementProfitArm(hasAllocations, "usd")}
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
                 WHEN ${salePaidOrPartnerSettled("s2")}
@@ -2024,6 +2386,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- DBT-2: partner/debt-pending transactions contribute 0 until
             -- settled/repaid, so this view matches the Summary's gates.
             WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- D17: see the profit_usd arm above — identical branch, LBP currency.
+            ${supplierSettlementProfitArm(hasAllocations, "lbp")}
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
@@ -2066,23 +2430,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         ORDER BY profit_usd DESC
         LIMIT ?`,
       )
-      .all(
-        tenantId, // revenue_usd CASE — financial_services fs subquery
-        tenantId, // revenue_usd CASE — sales s2 subquery
-        tenantId, // profit_usd CASE — sales s2 subquery
-        tenantId, // profit_usd CASE — financial_services fs subquery
-        tenantId, // profit_lbp CASE — financial_services fs subquery
-        tenantId, // profit_lbp CASE — sales s2 subquery
-        fromDt,
-        toDt, // pending_profit_usd — dateRange(fs2.created_at)
-        tenantId, // pending_profit_usd — fs2.tenant_id
-        tenantId, // pending_profit_usd — t2.tenant_id
-        tenantId, // LEFT JOIN clients c
-        fromDt,
-        toDt, // WHERE dateRange(t.created_at)
-        tenantId, // WHERE t.tenant_id
-        limit,
-      ) as ProfitByClientRow[];
+      .all(...params) as ProfitByClientRow[];
   }
 
   // ---------------------------------------------------------------------------

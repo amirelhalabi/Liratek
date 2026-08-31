@@ -12,8 +12,13 @@ import {
 } from "./CarrierLineRepository.js";
 import {
   activeExpense,
+  allocationNotDebtPending,
+  cashlessCommissionBatch,
+  currentSettlementAllocation,
   embeddedCommission,
   hasCommissionModelColumn,
+  hasSettlementAllocationsTable,
+  notPartnerPending,
   notRefunded,
 } from "./ProfitRepository.js";
 
@@ -207,6 +212,28 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       this._hasCommissionModelColumnCache = hasCommissionModelColumn(this.db);
     }
     return this._hasCommissionModelColumnCache;
+  }
+
+  /**
+   * Memoized guard for whether `settlement_commission_allocations` exists
+   * (LIRA-158 D17). Mirrors `_hasCommissionModelColumnCache` immediately
+   * above and `ProfitRepository`'s own
+   * `_hasSettlementAllocationsTableCache` precedent — the schema cannot
+   * change mid-process, so the `sqlite_master` probe only needs to run once
+   * per repository instance. Feeds the settlement-day commission source in
+   * {@link getDailyStatsSnapshot} so a fixture that predates the table
+   * (every existing `getDailyStatsSnapshot` fixture, none of which create
+   * it — §5) degrades to the OLD, undifferentiated stamp-only query instead
+   * of throwing "no such table".
+   */
+  private _hasSettlementAllocationsTableCache: boolean | null = null;
+  private _hasSettlementAllocationsTable(): boolean {
+    if (this._hasSettlementAllocationsTableCache === null) {
+      this._hasSettlementAllocationsTableCache = hasSettlementAllocationsTable(
+        this.db,
+      );
+    }
+    return this._hasSettlementAllocationsTableCache;
   }
 
   /**
@@ -763,6 +790,26 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     // SETTLED, never the day the underlying OMT/WHISH/BILL transaction
     // happened. A future reader must not "fix" this back to transaction-day
     // bucketing — D10/D14 chose settlement-day cash basis on purpose.
+    //
+    // EXTENDED by D17 (LIRA-158 follow-up, owner decision 2026-08-31) — the
+    // NEW MODEL source above splits further, mirroring
+    // `ProfitRepository.getSupplierCommissionTotals` verbatim (same two
+    // buckets, same partition proof — see that method's doc comment for the
+    // full exhaustive/disjoint argument and the reversal analysis, which
+    // apply here unchanged; only `dateRange` -> `todayLocal` differs):
+    //  - BILLS-ONLY (`cashlessCommissionBatch` negated): UNCHANGED —
+    //    real money the instant it's recognised, stays on the settlement
+    //    transaction's own stamp.
+    //  - CASHLESS (every other new-model batch, including MIXED
+    //    bills+OMT): the owner settles these batches out of his OWN drawer
+    //    BEFORE the client who owes for the transfer has repaid, so this
+    //    commission is contingent on that repayment — re-sourced from
+    //    `settlement_commission_allocations`, gated on
+    //    `allocationNotDebtPending` + `notPartnerPending` + `notRefunded`.
+    //  Degrades to the OLD, undifferentiated stamp-only query when
+    //  `settlement_commission_allocations` doesn't exist (§5) — every
+    //  existing `getDailyStatsSnapshot` fixture predates that table, so this
+    //  degradation keeps every one of them byte-for-byte unchanged.
     const hasCommissionModel = this._hasCommissionModelColumn();
     const finProfitLegacy = this.db
       .prepare(
@@ -776,19 +823,53 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       )
       .get(tenantId) as { profit_usd: number };
 
-    const finProfitSettlement = this._hasTransactionsTable()
-      ? (this.db
-          .prepare(
-            `SELECT COALESCE(SUM(profit_usd), 0) as profit_usd
-             FROM transactions
-             WHERE ${todayLocal("created_at")}
-               AND status = 'ACTIVE'
-               AND source_table = 'supplier_ledger'
-               AND type IN ('SUPPLIER_SETTLEMENT', 'REFUND')
-               AND tenant_id = ?`,
-          )
-          .get(tenantId) as { profit_usd: number })
-      : { profit_usd: 0 };
+    let finProfitSettlement: { profit_usd: number };
+    if (!this._hasTransactionsTable()) {
+      finProfitSettlement = { profit_usd: 0 };
+    } else if (!this._hasSettlementAllocationsTable()) {
+      finProfitSettlement = this.db
+        .prepare(
+          `SELECT COALESCE(SUM(profit_usd), 0) as profit_usd
+           FROM transactions
+           WHERE ${todayLocal("created_at")}
+             AND status = 'ACTIVE'
+             AND source_table = 'supplier_ledger'
+             AND type IN ('SUPPLIER_SETTLEMENT', 'REFUND')
+             AND tenant_id = ?`,
+        )
+        .get(tenantId) as { profit_usd: number };
+    } else {
+      const billsOnlySettlement = this.db
+        .prepare(
+          `SELECT COALESCE(SUM(profit_usd), 0) as profit_usd
+           FROM transactions
+           WHERE ${todayLocal("created_at")}
+             AND status = 'ACTIVE'
+             AND source_table = 'supplier_ledger'
+             AND type IN ('SUPPLIER_SETTLEMENT', 'REFUND')
+             AND NOT (${cashlessCommissionBatch("source_id")})
+             AND tenant_id = ?`,
+        )
+        .get(tenantId) as { profit_usd: number };
+
+      const cashlessSettlement = this.db
+        .prepare(
+          `SELECT COALESCE(SUM(sca.commission_usd), 0) as profit_usd
+           FROM settlement_commission_allocations sca
+           JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
+           WHERE sca.tenant_id = ?
+             AND ${notRefunded("fs")}
+             AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
+             AND ${allocationNotDebtPending("sca")}
+             AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
+             AND ${todayLocal("sca.created_at")}`,
+        )
+        .get(tenantId) as { profit_usd: number };
+
+      finProfitSettlement = {
+        profit_usd: billsOnlySettlement.profit_usd + cashlessSettlement.profit_usd,
+      };
+    }
 
     const finProfit = {
       profit_usd: finProfitLegacy.profit_usd + finProfitSettlement.profit_usd,

@@ -456,7 +456,9 @@ Recorded so a later session doesn't rediscover them as new bugs.
   `commission` is now model-0 only. Phase 2b relabels the cell client-side ("Awaiting settlement"
   instead of `$0.00`) rather than changing SQL, which is the right layer for a display fix but leaves
   the underlying asymmetry in place.
-- **The allocation arm carries `notPartnerPending` but NOT `notDebtPending`** — a deliberate
+- ~~**The allocation arm carries `notPartnerPending` but NOT `notDebtPending`**~~ — **RESOLVED by
+  D17 (§8), being implemented.** Kept below for the reasoning that led there.
+- **[SUPERSEDED] The allocation arm carries `notPartnerPending` but NOT `notDebtPending`** — a deliberate
   asymmetry with `getRealizedCommissionTotals`, which carries both. The reasoning: `notDebtPending`
   defers profit until a CLIENT repays an account-charged transaction. A settlement commission is
   paid by the SUPPLIER and arrives independently of whether the customer has settled their own debt,
@@ -505,6 +507,38 @@ future session must not read them as a regression and "fix" them back.
 `COMMISSION_AT_SETTLEMENT_PLAN.md` §4 Phase 3. Rationale reinforced by §1.1: WHISH and BILL rows
 have no estimate at all (the column is 0), so a dollar figure would render "$0.00" and read as
 *settled for nothing* rather than *not yet known*.
+
+**D17 — CASHLESS settlement commission DEFERS until the client repays (2026-08-31).** Asked whether
+a settlement-granted commission is earned unconditionally or is contingent on collecting the client's
+debt, the owner answered from practice: *"I might settle omt whish batches out of my own drawer
+(before the customer owing us omt related debt actually pays)."* That is decisive — the shop fronts
+real cash against an uncollected tab, so the commission is not yet real money.
+
+The gate keys on **whether money actually arrived at settlement**, NOT on `commission_model`:
+
+| Batch shape | What arrives at settlement | Recognition |
+| ----------- | -------------------------- | ----------- |
+| **Bills-only** (Katsh/iPick) | REAL money — a provider-funded drawer top-up (`_bookBillsCommissionDrawerTopUp`) or payment legs | **Immediate, unchanged.** Deferring it would break "money is real" in the opposite direction — the cash is literally in the drawer. |
+| **Cashless** (OMT/WHISH, and mixed bills+OMT) | Nothing. A `SUPPLIER_PAYS_US` ledger credit; the commission is cash NOT paid out while the principal was fronted | **Defers** until the underlying row's client debt is covered. |
+
+Ledger proof for the worked example: `+105 (creation TOP_UP) − 103 (SETTLEMENT) − 2 (SUPPLIER_PAYS_US)
+= 0`. The shop's $2 is $2 it did not pay out, against a $105 receivable it may never collect.
+
+Sub-case decided the same way: **a bill row settled inside a MIXED batch defers too**, because that
+batch takes the cashless branch and no money arrives for it either.
+
+Two consequences that are part of the decision, not side effects:
+1. `getSupplierCommissionTotals` must be re-sourced for the cashless portion from
+   `settlement_commission_allocations` — the settlement stamp has no per-row link to client debt.
+   Bills keep reading the stamp. The partition must be exhaustive and disjoint or it double-counts.
+2. `getDeferredProfit` MUST gain an allocation-sourced arm. Without it the deferred commission is
+   invisible everywhere (the FS row stamps 0, and the SUPPLIER_SETTLEMENT row has no `debt_ledger`
+   row keyed to its own id, so it passes the gate) — the change would simply delete the money from
+   the owner's view instead of deferring it.
+
+This also fixes a shipped internal inconsistency in `getFinancialSettledByProvider`, whose base arm
+carries `notDebtPending` while its allocation arm did not — an account-charged row rendered as
+provider profit $2.00 with revenue $0.00 and count 0.
 
 **D16 — the `getAnalytics` IPC/REST parity gap is IN SCOPE**, folded into Phase 5.
 `backend/src/api/services.ts:39` is `router.get("/analytics", (_req, res)` and ignores the

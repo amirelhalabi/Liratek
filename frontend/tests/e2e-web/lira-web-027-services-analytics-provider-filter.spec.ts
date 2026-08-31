@@ -38,17 +38,38 @@
  * or WHISH rows are already baked into the "before" snapshot on both sides
  * of the delta and cancel out.
  *
- * Provider choice: OMT and WHISH are both pre-seeded `service_providers`
- * rows (used throughout this suite, e.g. lira-web-016/017/019/020) so no
- * setup is needed. A plain `SEND` with `commission: 0` and no
- * `omtServiceType` avoids the OMT fee-table auto-commission lookup
- * (FinancialServiceRepository.ts ~line 1291) entirely — irrelevant here
- * anyway since every assertion below is on `count`, not `commission`,
- * because WHISH transactions are ALWAYS forced to `commission = 0`
- * (same file, "WHISH SYSTEM: No commission" branch) — commission deltas
- * would not distinguish the two providers, but `count` unconditionally
- * does (the repository's COUNT(*) has no `is_settled` gate, only the SUM
- * does).
+ * Provider choice: OMT + WHISH (both `is_system_provider` SYSTEM rows) does
+ * NOT work here. `FinancialServiceRepository.createTransaction` treats OMT
+ * and WHISH as a primary/secondary pair gated by `system_settings.
+ * shop_base_system` (this env's tenant has it set to "OMT" — verified by
+ * the exact rejection this spec used to hit): a walk-in (no `partnerId`)
+ * against whichever of the two is NOT the base system is hard-rejected —
+ * "WHISH is the secondary system (shop base system is OMT) — a walk-in
+ * transaction cannot be booked directly against it; route it through a
+ * partner (set partnerId)" — because that provider's obligation belongs in
+ * `partner_ledger`, not a direct supplier debt (same file, ~line 1207's
+ * comment). Routing through a partner would drag partner-settlement gating
+ * into a spec that is only trying to prove a query-string filter, so this
+ * spec avoids the SYSTEM pair entirely.
+ *
+ * Instead it uses OMT (base system — walk-in already proven fine, no
+ * partner needed) + OMT_APP, a wallet provider
+ * (`service_providers.is_system_provider = 0`). The primary/secondary guard
+ * above is written to check ONLY `provider === "OMT" || provider ===
+ * "WHISH"` (FinancialServiceRepository.ts's `skipSecondarySupplierLedger`/
+ * walk-in-rejection checks) — OMT_APP, WHISH_APP, and BINANCE are
+ * explicitly exempted by that same code's own comment ("OMT_App / Whish_App
+ * / Binance FOR-partner are untouched: those wallets hold money the shop
+ * genuinely owns, whichever system is primary") — so OMT_APP is always a
+ * valid walk-in regardless of `shop_base_system`, making this pairing
+ * robust even if that tenant setting ever changes. It is already exercised
+ * as a plain walk-in SEND (no `omtServiceType`, no `checkoutTotal`, a
+ * single CASH leg) by packages/core's own suite, e.g.
+ * FinancialServiceRepository.appWalletTransfer.test.ts's "OMT_APP SEND: app
+ * drawer −20, General +20" and crossCurrencyTender.test.ts's OMT_APP SEND
+ * cases. A plain `SEND` with `commission: 0` keeps this test's assertions
+ * (all on `count`, never `commission`) provider-symmetric — the repository
+ * COUNT(*) has no `is_settled` gate, only the SUM does.
  */
 import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
 
@@ -59,11 +80,18 @@ test("GET /api/services/analytics?providers=... filters count and byProvider to 
   const token = await page.evaluate(() => localStorage.getItem("liratek.jwt"));
   const auth = { Authorization: `Bearer ${token}` };
 
+  // NOTE: `byProvider` is a TOP-LEVEL sibling of `today`/`month`
+  // (FinancialServiceRepository.getAnalytics's return shape:
+  // `{ today: {...}, month: {...}, byProvider }`), not nested under
+  // `today` — an earlier draft of this spec nested it under `today` and the
+  // resulting `undefined.every(...)` TypeError never surfaced because the
+  // seeding call above it threw first (the invalid-provider bug this spec
+  // was written to fix); fixed here now that seeding succeeds.
   type Analytics = {
     today: {
       count: number;
-      byProvider: Array<{ provider: string; currency: string; count: number }>;
     };
+    byProvider: Array<{ provider: string; currency: string; count: number }>;
   };
 
   const getAnalytics = async (
@@ -80,18 +108,18 @@ test("GET /api/services/analytics?providers=... filters count and byProvider to 
   };
 
   const omtCountIn = (a: Analytics): number =>
-    a.today.byProvider
+    a.byProvider
       .filter((p) => p.provider === "OMT")
       .reduce((s, p) => s + p.count, 0);
-  const whishCountIn = (a: Analytics): number =>
-    a.today.byProvider
-      .filter((p) => p.provider === "WHISH")
+  const omtAppCountIn = (a: Analytics): number =>
+    a.byProvider
+      .filter((p) => p.provider === "OMT_APP")
       .reduce((s, p) => s + p.count, 0);
 
   // ── Snapshot BEFORE seeding, once per query shape under test ────────────
   const beforeOmtOnly = await getAnalytics(["OMT"]);
-  const beforeWhishOnly = await getAnalytics(["WHISH"]);
-  const beforeBoth = await getAnalytics(["OMT", "WHISH"]);
+  const beforeOmtAppOnly = await getAnalytics(["OMT_APP"]);
+  const beforeBoth = await getAnalytics(["OMT", "OMT_APP"]);
 
   // ── Seed one distinguishable SEND per provider ──────────────────────────
   const marker = `LIRA158-${Date.now()}`;
@@ -111,55 +139,57 @@ test("GET /api/services/analytics?providers=... filters count and byProvider to 
   ).json();
   expect(sendOmt.success, JSON.stringify(sendOmt)).toBeTruthy();
 
-  const sendWhish = await (
+  const sendOmtApp = await (
     await page.request.post(`${BACKEND_URL}/api/services/transactions`, {
       headers: auth,
       data: {
-        provider: "WHISH",
+        provider: "OMT_APP",
         serviceType: "SEND",
         amount: 22.5,
         currency: "USD",
         commission: 0,
-        note: `${marker}-WHISH`,
+        note: `${marker}-OMT_APP`,
         payments: [{ method: "CASH", currencyCode: "USD", amount: 22.5 }],
       },
     })
   ).json();
-  expect(sendWhish.success, JSON.stringify(sendWhish)).toBeTruthy();
+  expect(sendOmtApp.success, JSON.stringify(sendOmtApp)).toBeTruthy();
 
   // ── Snapshot AFTER, same three query shapes ──────────────────────────────
   const afterOmtOnly = await getAnalytics(["OMT"]);
-  const afterWhishOnly = await getAnalytics(["WHISH"]);
-  const afterBoth = await getAnalytics(["OMT", "WHISH"]);
+  const afterOmtAppOnly = await getAnalytics(["OMT_APP"]);
+  const afterBoth = await getAnalytics(["OMT", "OMT_APP"]);
 
   // `?providers=OMT` — the top-level count moves by exactly 1 (the OMT SEND
   // just created), never 2: if the filter were a no-op (the pre-fix bug),
-  // this would be 2, because the WHISH SEND created a moment earlier would
+  // this would be 2, because the OMT_APP SEND created a moment earlier would
   // also be counted.
   expect(afterOmtOnly.today.count - beforeOmtOnly.today.count).toBe(1);
   // The `byProvider` breakdown — built by the SAME `provider IN (...)` SQL
-  // fragment as the count above — must contain ONLY "OMT" rows: the WHISH
+  // fragment as the count above — must contain ONLY "OMT" rows: the OMT_APP
   // SEND created in this very test is provably absent from a request
   // filtered to OMT, not merely zero-valued.
   expect(
-    afterOmtOnly.today.byProvider.every((p) => p.provider === "OMT"),
-    JSON.stringify(afterOmtOnly.today.byProvider),
+    afterOmtOnly.byProvider.every((p) => p.provider === "OMT"),
+    JSON.stringify(afterOmtOnly.byProvider),
   ).toBe(true);
   expect(omtCountIn(afterOmtOnly) - omtCountIn(beforeOmtOnly)).toBe(1);
 
-  // `?providers=WHISH` — symmetric check, other direction.
-  expect(afterWhishOnly.today.count - beforeWhishOnly.today.count).toBe(1);
+  // `?providers=OMT_APP` — symmetric check, other direction.
+  expect(afterOmtAppOnly.today.count - beforeOmtAppOnly.today.count).toBe(1);
   expect(
-    afterWhishOnly.today.byProvider.every((p) => p.provider === "WHISH"),
-    JSON.stringify(afterWhishOnly.today.byProvider),
+    afterOmtAppOnly.byProvider.every((p) => p.provider === "OMT_APP"),
+    JSON.stringify(afterOmtAppOnly.byProvider),
   ).toBe(true);
-  expect(whishCountIn(afterWhishOnly) - whishCountIn(beforeWhishOnly)).toBe(1);
+  expect(
+    omtAppCountIn(afterOmtAppOnly) - omtAppCountIn(beforeOmtAppOnly),
+  ).toBe(1);
 
-  // `?providers=OMT,WHISH` (the exact comma-joined shape
+  // `?providers=OMT,OMT_APP` (the exact comma-joined shape
   // `frontend/src/api/backendApi.ts`'s `getOMTAnalytics` sends, and the
   // Services page's real call, `Services/index.tsx`) — both rows counted
   // together.
   expect(afterBoth.today.count - beforeBoth.today.count).toBe(2);
   expect(omtCountIn(afterBoth) - omtCountIn(beforeBoth)).toBe(1);
-  expect(whishCountIn(afterBoth) - whishCountIn(beforeBoth)).toBe(1);
+  expect(omtAppCountIn(afterBoth) - omtAppCountIn(beforeBoth)).toBe(1);
 });
