@@ -2429,3 +2429,237 @@ fixture does — which is exactly why the whole class was invisible.
 `docs/FEATURE_GUIDE.md` §8/§8.1 (corrected for Phase 2 in `a47db530`);
 commits `43948a35` (the flip) and `a47db530` (docs + this ticket).
 
+
+---
+
+# LIRA-158 follow-ups — filed 2026-08-31
+
+Nine items surfaced while shipping LIRA-158 (`8c453764`, `8a868fe3`, `25199c74`). **Every claim below
+was source-verified before filing** by a five-agent triage pass; where the original framing turned out
+wrong the ticket says so, because two of them would otherwise send you down the wrong path.
+
+Recommended order: **LIRA-159 first** — it is the only one that prevents the NEXT instance of this bug
+class rather than fixing this one. LIRA-160/161 then become small changes against shared fragments.
+
+---
+
+## LIRA-159: `fs.commission` estimate still reaches THREE ungated reporting surfaces — HIGH
+
+**Priority:** High · **Epic:** Profits/Commission-at-settlement · **Status:** TODO
+
+`financial_services.commission` permanently holds a creation-time ESTIMATE for `commission_model = 1`
+rows and is never corrected (D6 no stamp-back, by design). LIRA-158 put every Profits/Closing reader
+behind `embeddedCommission(alias, supported)`. Three readers were missed.
+
+**This ticket includes a regression LIRA-158 itself introduced — own it.** Before LIRA-158 the
+Dashboard tile, Profits and Closing all agreed on the estimate. They were consistently wrong, but
+consistent. LIRA-158 corrected two of the three, so `FinancialRepository.getMonthlyPL` now
+*disagrees* with the other surfaces about the same money. That divergence is new, and it is ours.
+
+**The three surfaces**
+
+1. `FinancialRepository.getMonthlyPL` (`packages/core/src/repositories/FinancialRepository.ts:76-88`)
+   → Dashboard "Monthly Net Profit" tile, BOTH transports. Adds the estimate for every model-1 OMT row
+   in the month, never sees the operator's entered figure, and carries **no `is_refunded` gate** — so
+   a voided financial service inflates it permanently.
+2. Profits → Commissions tab "Commission (Pending)" column and the pending pie slice — shows a dollar
+   estimate where D15 says it must show a count.
+3. The REST consumer of the same payload, which receives the estimate unmarked.
+
+**Precision the triage corrected:** "holds an estimate" is exact only for the OMT SEND/RECEIVE subset.
+WHISH is force-zeroed (`FinancialServiceRepository.ts:1329-1331`) and BILL takes the
+`useCostPriceFlow` branch, so for those two the column is 0 — they under-report rather than
+mis-report. Do not write the fix as if all three shapes behave alike.
+
+**Acceptance**
+- `getMonthlyPL` mirrors what `ClosingRepository.getDailyStatsSnapshot` already does (legacy arm via
+  `embeddedCommission` + `notRefunded`; settlement arm split bills-only vs cashless with
+  `allocationNotDebtPending` + `notPartnerPending`), swapping `todayLocal` for the month bound. Reuse
+  the exported fragments — do NOT re-text the predicates (rule 14).
+- Surfaces 2 and 3 carry the count, per D15.
+- **A static guard test** in the style of `constants/__tests__/profitRecognition.guard.test.ts`: fail
+  the build when a new query reads `financial_services.commission` without `embeddedCommission(...)`,
+  with an `EXCLUDED_UNITS` escape for row-level display reads. That guard already carries a staleness
+  assertion — re-derive keys carefully.
+- Rule 17 on each: revert, watch the specific assertion fail, restore.
+
+---
+
+## LIRA-160: the daily closing snapshot OVER-recognises profit on four module sources — MEDIUM
+
+**Priority:** Medium · **Epic:** Closing · **Status:** TODO
+
+`ClosingRepository.getDailyStatsSnapshot` books profit for which no cash has arrived. Verified gate
+comparison against each ProfitRepository counterpart:
+
+| Sub-query | Missing gates |
+| --------- | ------------- |
+| `finProfitLegacy` (~:815) | `notPartnerPending`, `notDebtPending` |
+| `rechargeProfit` (~:887) | `notPartnerPending`, `notDebtPending` |
+| `customProfit` (~:904) | `notPartnerPending`, `notDebtPending` |
+| `maintProfit` (~:924) | `notDebtPending` **and** `notRefunded` |
+
+**Why this is a real defect and not a design choice.** The snapshot is deliberately a *same-day
+cash-in-hand* view (self-documented at `profitRecognition.guard.test.ts:565-575`) whose only consumer
+is the generated closing PDF. That reading does not excuse these — it *condemns* them: a for-partner
+or CUSTOMER_ACCOUNT-charged row books as today's profit when **no cash moved at all**. Wrong under
+either reading of the snapshot's purpose.
+
+Reachable today: BINANCE/BOB/app-wallets/OTHER are still born `commission_model = 0`
+(`FinancialServiceRepository.ts:1489-1498`), and CUSTOMER_ACCOUNT books a `'Service Debt'` row at
+`:2113`.
+
+**Impact:** the end-of-day PDF overstates profit and cannot be reconciled against the Profits page for
+the same day. Already self-documented as a known gap at `profitRecognition.guard.test.ts:592-610`.
+
+**Acceptance:** all four carry the gates their Profits counterparts do, via the shared fragments;
+`maintProfit` also gains `notRefunded`; rule-17 proof on each; the guard test's "KNOWN GAP" exclusion
+text updated to match reality afterwards.
+
+---
+
+## LIRA-161: the same snapshot UNDER-counts — two modules absent, one gap by omission — LOW/MEDIUM
+
+**Priority:** Low-Medium · **Epic:** Closing · **Status:** TODO
+
+Three under-counting defects in `getDailyStatsSnapshot`, opposite in sign to LIRA-160:
+
+1. **`loto` and `exchange` never reach `totalProfitUSD` at all** (~:933-938), though both have
+   ProfitRepository counterparts (`getLotoTotals`, `getExchangeTotals`). Whole modules missing from
+   the closing profit figure.
+2. **For-partner sale margin reaches the snapshot on NO day, ever.** `salesProfit` (~:754) omits
+   `salePaidOrPartnerSettled`'s partner-covered OR-branch. Excluding it on the sale's own day is
+   *correct* for a cash view (a for-partner sale has `paid_usd = 0`) — but unlike commission, which
+   got `finProfitSettlement`, sales have no settlement-day path, so it is never picked up when the
+   partner actually pays.
+3. **`salesProfit` hand-inlines `saleFullyPaid`'s text** instead of calling the exported fragment —
+   rule 14. A change to `saleFullyPaid` would silently desynchronise Closing.
+
+**The original framing was too harsh.** Triage found item 2 largely correct by design: it can only
+under-count and never claims money that has not arrived. Fix 3 first (cheap, prevents drift), then
+decide whether 1 and 2 are wanted — that is a semantics question about what the PDF should mean.
+
+---
+
+## LIRA-162: pending commission is INVISIBLE on the Profits Overview and Commissions cards — MEDIUM
+
+**Priority:** Medium · **Epic:** Profits · **Status:** TODO
+
+D15's "N transactions awaiting settlement" landed in `getPendingCommissionTotals`, which feeds only
+the By-Payment-Method tab. The Overview and Commissions cards are fed by
+`getFinancialPendingByCurrency` / `getOMTAnalytics`, which read the transaction profit stamp — now 0
+for model-1 rows.
+
+**Corrected from the original claim:** the cards do **not** display `$0.00` pending. The Pending line
+does not render at all (it sits behind a `> 0` guard), which is arguably worse — nothing hints the
+commission exists.
+
+Worked example, one post-cutover OMT SEND ($100 + $5 fee, unsettled, ~$2.00 estimate):
+Overview → Financial Services reads `1 txns / $105.00 / Commission $0.00` and nothing else;
+Commissions tab reads `Realized (Month) $0.00` with no pending caption.
+
+**Acceptance:** `ProfitService.getSummary` also calls the existing `getPendingCommissionTotals` and
+carries `awaiting_settlement_count` onto the `finSvc` block — do NOT swap out
+`getFinancialPendingByCurrency`, which still supplies `revenue` and `count`. Type it through both
+transports (rules 12 + 19). Frontend jest coverage for the render.
+
+---
+
+## LIRA-163: `getAnalytics` has no awaiting-settlement count — three more surfaces read $0.00 — MEDIUM
+
+**Priority:** Medium · **Epic:** Profits/Services · **Status:** TODO
+
+`getAnalytics` sums `commission` model-0-only while `COUNT(*)` stays model-agnostic. LIRA-158
+relabelled ONE render site client-side ("Awaiting settlement" instead of `$0.00`); the asymmetry is
+still in the SQL, so every other consumer shows the bare zero:
+
+- Services (OMT/Whish) page header — Today and Month commission chips read `$0.00`, on the very page
+  those transactions are entered
+- Recharge page `CompactStats` for non-crypto providers
+- Profits → Commissions: the "Revenue by Provider" pie drops a fully-model-1 provider to a zero slice
+  while the table beside it says "Awaiting settlement"; the cards above read `Realized (Month) $0.00`
+  next to `Transaction Volume: N services`
+- REST (`backend/src/api/services.ts:73-79`) returns `count: 10, commission: 0`, unmarked
+
+**Two guesses in the original framing were WRONG — do not act on them:** the XLSX/PDF **export is
+fine** (DataTable exports rendered cell text, so it carries "Awaiting settlement"), and the
+**Dashboard is not fed by `getAnalytics`** at all (it reads `getUnsettledSummaryByProvider`).
+
+**Acceptance:** add the count in the same SQL pass
+(`SUM(CASE WHEN NOT (<modelZeroOnly>) THEN 1 ELSE 0 END) AS awaiting_settlement_count`, per
+provider/currency and at today/month level) — the same shape D15 already established — then drive the
+render sites off it instead of the `commission === 0 && count > 0` heuristic.
+
+---
+
+## LIRA-164: delete a stale comment — do NOT "re-derive the test" — LOW (doc chore)
+
+**Priority:** Low · **Epic:** Docs · **Status:** TODO
+
+`FinancialServiceRepository.ts:1485-1487` claims `omtCommissionModelGate.test.ts`'s expectations
+"describe the PRE-Phase-2 shape and are stale after this change — a Phase 2 follow-up must re-derive
+them". **That comment is itself out of date.** The test is correct, green, and already re-derived.
+
+**Filed deliberately as a doc chore, and the framing matters.** If picked up as "re-derive the stale
+test", the next agent will rewrite a correct, passing guard against the same production code it was
+derived from — pure churn on the double-subtraction guard, one of the most safety-critical tests in
+this area. The actionable work is deleting three lines.
+
+Optional and genuinely useful: discharge rule 17 on that guard for real — temporarily re-add the
+`- commission` term to `grossOwedDelta`/`SUPPLIER_OWED_EXPR`, confirm the test fails, revert. It has
+so far only been re-derived on paper.
+
+---
+
+## LIRA-165: `transaction_time` is validated differently on IPC than on REST — LOW (rule 19)
+
+**Priority:** Low · **Epic:** Dual-transport · **Status:** TODO
+
+The desktop financial-service schema (`electron-app/schemas/index.ts`) carries a hand-copied,
+unvalidated `transaction_time: z.string().optional()`; the core validator uses a strict
+`z.string().datetime()`. Same field, two contracts.
+
+**No user-facing bug today** — `TransactionTimeOverride.tsx:53` always emits `toISOString()`, which
+both accept. Two real consequences: the desktop spec `lira-087` cannot be ported to web mode unchanged
+(rule 19d parity unprovable for that surface), and any script or direct IPC caller can write an
+arbitrary garbage string into `financial_services.created_at`, after which that row silently falls out
+of every date-bucketed report — Profits By Date, Closing, Cash Report.
+
+This cost real debugging time during LIRA-158's e2e fix.
+
+**Acceptance:** the IPC schema re-exports the core one (rule 19b) instead of hand-copying it.
+
+---
+
+## LIRA-166: negative `commission_usd` makes the ledger and the profit stamp disagree in sign — LOW
+
+**Priority:** Low · **Epic:** Suppliers · **Status:** TODO
+
+`validators/supplier.ts`'s `commission_usd`/`commission_lbp` are bare `z.number()` with no
+`.nonnegative()`. The `SUPPLIER_PAYS_US` ledger credit normalises with `-Math.abs(...)` while the
+settlement profit stamp uses the RAW value — so a negative entry credits the ledger positively while
+booking negative profit.
+
+Not reachable through the settlement UI; reachable via direct IPC/REST. Left deliberately unfixed
+during LIRA-158 so shipped bills behaviour was not silently altered (see the comment at the stamp
+site). Fix is `.nonnegative()` on both, plus a validator test.
+
+---
+
+## LIRA-167: LIRA-138's dependency line is stale, and D17 changed its meaning — CHORE
+
+**Priority:** Low · **Epic:** Suppliers · **Status:** TODO
+
+`LIRA-138` (`current_sprint.md:1215-1259`, still genuinely open — no implementing commit exists) says
+it depends on "COMMISSION_AT_SETTLEMENT_PLAN.md Phase 2 (OMT/WHISH gross flip, **not shipped**)".
+Phase 2 shipped in `43948a35`, so that blocker is gone.
+
+More importantly, **D17 changed what LIRA-138 means.** It was written when the cashless
+`SUPPLIER_PAYS_US` branch was considered an unreachable placeholder. That branch is now the live path
+that DEFERS commission recognition until the client repays. So "generalise the drawer top-up past
+bills-only" is no longer a neutral money-placement question: moving OMT/WHISH commission into a real
+drawer credit would make it arrive as actual cash, which under D17's own logic flips it back to
+IMMEDIATE recognition and undoes the deferral the owner just asked for.
+
+**Acceptance:** update the ticket body's Depends On and restate its scope against D17 *before* any
+implementation. This is a re-scoping chore, not code.
