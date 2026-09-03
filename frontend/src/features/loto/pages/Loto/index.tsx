@@ -10,7 +10,6 @@ import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import {
-  Ticket,
   Plus,
   History,
   ClipboardCheck,
@@ -448,9 +447,8 @@ export function LotoPage() {
   }
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
-        icon={Ticket}
         title="Loto"
         actions={
           <div className="flex items-center gap-2">
@@ -490,7 +488,7 @@ export function LotoPage() {
       />
 
       {/* Centered Forms with Tabs */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
         <div className="max-w-3xl mx-auto">
           {/* Tab Switcher */}
           <div className="flex gap-1 mb-4 bg-slate-800 rounded-lg p-1 border border-slate-700/50">

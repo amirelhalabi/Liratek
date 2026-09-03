@@ -1956,7 +1956,6 @@ export function PartnersPage() {
     <div className="h-full flex flex-col gap-6 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 overflow-hidden animate-in fade-in duration-500">
       {/* ── Header ── */}
       <PageHeader
-        icon={Users}
         title="Partners"
         actions={
           <div className="flex items-center gap-3">

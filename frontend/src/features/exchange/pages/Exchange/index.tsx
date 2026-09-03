@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import logger from "@/utils/logger";
 import {
-  RefreshCw,
   ArrowRightLeft,
   ArrowRight,
   AlertCircle,
@@ -1048,9 +1047,8 @@ export default function Exchange() {
   const exoticIsPayout = !!toCurrency && !usdIsPayout && !lbpIsPayout;
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
-        icon={RefreshCw}
         title="Exchange"
         actions={
           <>
@@ -1077,7 +1075,7 @@ export default function Exchange() {
         }
       />
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
         <div className="w-full max-w-6xl mx-auto flex flex-col gap-6">
           <div className="w-full flex flex-col lg:flex-row lg:items-stretch gap-6">
             {/* ── Exchange Calculator ── */}

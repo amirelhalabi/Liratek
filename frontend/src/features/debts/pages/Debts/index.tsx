@@ -9,7 +9,6 @@ import {
   ArrowUpRight,
   ChevronDown,
   ChevronUp,
-  BookOpen,
   Eye,
   Briefcase,
   Clock,
@@ -1187,7 +1186,6 @@ export default function Debts() {
       />
 
       <PageHeader
-        icon={BookOpen}
         title="Accounts"
         actions={
           <div className="flex items-center gap-2">

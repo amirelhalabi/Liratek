@@ -1360,7 +1360,7 @@ export default function MobileRecharge() {
   const telecomStats = getTelecomStats();
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col overflow-hidden animate-in fade-in duration-500">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col overflow-hidden animate-in fade-in duration-500">
       {/* Header — two zones: provider controls (left) vs. read-only metrics + actions (right) */}
       <div className="flex items-start justify-between gap-4 mb-3">
         {/* Left zone: provider selection (the controls) */}
@@ -1440,7 +1440,7 @@ export default function MobileRecharge() {
       {/* Scrollable content area — pt/px give the sticky search bar's focus
           ring room to render; flush against the clip edge otherwise cuts
           off its top/left border. */}
-      <div className="flex-1 min-h-0 overflow-y-auto pt-1 px-1">
+      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pt-1 pl-1 pr-7 pb-6">
         {activeConfig?.formMode === "telecom" && (
           <TelecomForm
             isMTC={isMTC}

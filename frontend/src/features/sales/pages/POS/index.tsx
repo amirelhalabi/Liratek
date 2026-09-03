@@ -743,7 +743,7 @@ export default function POS() {
     <div
       className={`h-full overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 animate-in fade-in duration-500 ${minimizedOrders.length > 0 ? "pb-32" : ""}`}
     >
-      <PageHeader icon={ShoppingCart} title="Point of Sale" />
+      <PageHeader title="Point of Sale" />
 
       <div className="flex flex-1 min-h-0 gap-4 overflow-hidden relative">
         {/* Left: Product Selection */}

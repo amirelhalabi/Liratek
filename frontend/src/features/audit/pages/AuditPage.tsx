@@ -42,7 +42,7 @@ export default function AuditPage() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-4 overflow-auto animate-in fade-in duration-500">
-      <PageHeader icon={Shield} title="Audit & Transactions" />
+      <PageHeader title="Audit & Transactions" />
 
       {/* Card 1: Tabs + active filters */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 flex flex-col gap-4 shrink-0">

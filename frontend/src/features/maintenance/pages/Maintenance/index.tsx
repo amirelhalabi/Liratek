@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
-  Wrench,
   Plus,
   DollarSign,
   History,
@@ -486,9 +485,8 @@ export default function Maintenance() {
   const isAmountLocked = hasMoneyHistory && !isRefundedOrVoided;
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
-        icon={Wrench}
         title="Maintenance"
         actions={
           <button
@@ -502,7 +500,7 @@ export default function Maintenance() {
       />
 
       {/* Main Content: form (left) + jobs/status (right) */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           {/* Right: Jobs list with status tabs */}
           <div className="order-2 lg:col-span-2">

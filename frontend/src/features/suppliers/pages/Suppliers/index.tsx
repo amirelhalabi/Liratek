@@ -8,7 +8,7 @@ import {
   PageHeader,
   type PaymentLine,
 } from "@liratek/ui";
-import { Truck, Eraser, Plus, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Eraser, Plus, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -1130,7 +1130,6 @@ export default function SuppliersPage() {
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
       <PageHeader
-        icon={Truck}
         title="Suppliers"
         subtitle="Track amounts owed to suppliers. System debts are auto-recorded from transactions."
       />

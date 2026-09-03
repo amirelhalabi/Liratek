@@ -10,7 +10,6 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
-  Briefcase,
   Plus,
   History,
   TrendingUp,
@@ -562,10 +561,9 @@ export default function CustomServices() {
 
   // ─── Render ───
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       {/* Header with Stats and History */}
       <PageHeader
-        icon={Briefcase}
         title="Services"
         actions={
           <div className="flex items-center gap-2">
@@ -595,7 +593,7 @@ export default function CustomServices() {
       />
 
       {/* Main: Form */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
         {/* New Service Form */}
         <div className="w-full bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col">
           <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">

@@ -3,7 +3,6 @@ import logger from "@/utils/logger";
 import {
   Plus,
   Search,
-  Users,
   Edit2,
   Trash2,
   MessageCircle,
@@ -85,7 +84,6 @@ export default function ClientList() {
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
-        icon={Users}
         title="Clients"
         actions={
           <button

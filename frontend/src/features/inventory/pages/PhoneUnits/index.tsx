@@ -7,7 +7,6 @@ import {
   FileSpreadsheet,
   FileText,
   Search,
-  Smartphone,
   Trash2,
 } from "lucide-react";
 import {
@@ -265,7 +264,6 @@ export default function PhoneUnits() {
       className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500"
     >
       <PageHeader
-        icon={Smartphone}
         title="Phone Units"
         subtitle="Every registered IMEI — stock status, sale, and warranty"
         actions={

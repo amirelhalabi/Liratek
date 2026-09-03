@@ -244,7 +244,7 @@ export default function CheckpointTimeline() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
-      <PageHeader icon={Clock} title="Checkpoints" />
+      <PageHeader title="Checkpoints" />
 
       {/* Timeline Filters */}
       <div>

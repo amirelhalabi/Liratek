@@ -525,8 +525,8 @@ export default function Profits() {
   // ---------- Render ----------
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-      <PageHeader icon={TrendingUp} title="Profits" />
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
+      <PageHeader title="Profits" />
 
       {/* Tab bar + date range */}
       <div className="flex flex-wrap items-center gap-4">
@@ -557,7 +557,7 @@ export default function Profits() {
       </div>
 
       {/* Scrollable content area */}
-      <div className="flex-1 min-h-0 overflow-auto space-y-6">
+      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6 space-y-6">
         {/* Loading */}
         {loading && (
           <div className="text-center py-12 text-slate-400">Loading...</div>
@@ -1177,8 +1177,7 @@ export default function Profits() {
                   </div>
                 ) : (
                   ((summary.deferred?.client_debt_profit_usd ?? 0) !== 0 ||
-                    (summary.deferred?.client_debt_profit_lbp ?? 0) !==
-                      0) && (
+                    (summary.deferred?.client_debt_profit_lbp ?? 0) !== 0) && (
                     <div
                       data-testid="supplier-commission-fully-deferred"
                       className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-1"
@@ -1192,9 +1191,9 @@ export default function Profits() {
                         </span>
                       </div>
                       <p className="text-xs text-slate-400">
-                        No commission recognised this period — this
-                        period's cashless settlements are deferred until
-                        the client repays. See Deferred Profit above.
+                        No commission recognised this period — this period's
+                        cashless settlements are deferred until the client
+                        repays. See Deferred Profit above.
                       </p>
                     </div>
                   )

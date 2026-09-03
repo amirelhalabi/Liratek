@@ -10,56 +10,230 @@
 
 /*
  * =============================================================
- * LIGHT MODE THEME OVERRIDES
+ * BRAND PALETTE — Porcelain / Signal Blue / Cosmic Navy / Pastel Violet
  * =============================================================
  *
- * Ground Rules:
- * - bg-slate-950  → #f8fafc (page backgrounds)
- * - bg-slate-900  → #f1f5f9 (section backgrounds)
- * - bg-slate-800  → #ffffff (cards, panels)
- * - bg-slate-700  → #e2e8f0 (dividers, inactive elements)
- * - bg-slate-600  → #cbd5e1
- * - text-white    → #1e293b (except on colored buttons)
- * - text-slate-*  → darker equivalents
- * - borders       → #e2e8f0 or #cbd5e1
- * - inputs        → #ffffff bg with #e2e8f0 border
- * - disabled      → #f1f5f9 bg with #94a3b8 text
- * - colored buttons (emerald, violet, brand) → keep as-is
- * - hover on colored buttons → slightly darker shade
+ * Four owner-specified anchors, one per role per mode:
+ *
+ *   LIGHT   page   Porcelain      #F8F7F4
+ *           accent Signal Blue    #0057FF
+ *   DARK    card   Cosmic Navy    #0C134F
+ *           accent Pastel Violet  #D4ADFC
+ *
+ * Everything else is derived: neutral ramps are stepped in OKLCH with the hue
+ * locked to the mode's anchor (light 91.4deg from Porcelain, dark 269.8deg from
+ * Cosmic Navy), and each accent gets a 5-step ramp with the anchor pinned at
+ * the 500 slot. So no value in this file is off-palette.
+ *
+ * -------------------------------------------------------------
+ * HOW THIS FILE WORKS
+ * -------------------------------------------------------------
+ * The app is authored dark-first with bare Tailwind classes (bg-slate-800,
+ * text-slate-400, ...). Neither mode uses Tailwind's own slate/violet values
+ * any more: BOTH are repainted here, from the tokens below.
+ *
+ * Tokens are named after the SOURCE CLASS, not after a role -- `--s-800` is
+ * "whatever bg-slate-800 should paint", `--t-400` is "whatever text-slate-400
+ * should paint". That is deliberate: several classes collapse to one value in
+ * one mode and stay distinct in the other (text-slate-400 and text-slate-500
+ * are both muted in light, but two different levels in dark). Naming by source
+ * class keeps this file a direct transcription of the approved mapping, with
+ * no interpretation step.
+ *
+ * Rules that differ only by value are written once against both modes:
+ *
+ *     html:not(.dark) .bg-slate-800,
+ *     html.dark .bg-slate-800 { background-color: var(--s-800) !important; }
+ *
+ * Both selectors are specificity (0,2,1), exactly as the old light-only layer
+ * was, so the carefully-tuned overrides further down (:hover rules at (0,2,2),
+ * tr[data-session] at (0,2,2)) keep beating the base rules by the same margin
+ * they always did. Do not "simplify" these to a bare `.bg-slate-800` -- that
+ * drops to (0,1,0) and silently inverts those relationships.
+ *
+ * -------------------------------------------------------------
+ * TWO VALUE CONVENTIONS, AND WHY THEY DIFFER
+ * -------------------------------------------------------------
+ * 1. Brand values (the ramps below) are hex, defined ONCE as custom properties
+ *    on :root / html.dark. These are ours, so they cannot be pruned and a
+ *    var() reference to them cannot fail.
+ *
+ * 2. Tailwind palette values -- the money semantics we deliberately kept
+ *    (emerald / red / rose / amber / orange / sky) -- are literal oklch()
+ *    coordinates copied from node_modules/tailwindcss/theme.css. Never
+ *    hand-write hex for those, and never reach for var(--color-*): Tailwind v4
+ *    prunes theme variables it does not consider used, and a var() that
+ *    resolves to nothing makes the whole declaration invalid at computed-value
+ *    time, so the rule silently vanishes.
  * =============================================================
  */
 
+:root {
+  /* ---- surfaces: warm neutral ramp, hue 91.4deg from Porcelain ---- */
+  --s-950: #f8f7f4; /* page       <- Porcelain, anchor */
+  --s-900: #f0efeb; /* section                         */
+  --s-800: #ffffff; /* card                            */
+  --s-700: #e4e2db; /* raised / inputs / inactive      */
+  --s-600: #e4e2db; /* raised                          */
+  --s-950-90: rgba(248, 247, 244, 0.9);
+  --s-900-95: rgba(240, 239, 235, 0.95);
+  --s-800-95: rgba(255, 255, 255, 0.95);
+  --s-700-60: rgba(228, 226, 219, 0.6);
+  --s-input: #ffffff;
+
+  /* ---- borders ---- */
+  --b-700: #e4e2db; /* default card / divider edge */
+  --b-600: #d4d1c9; /* stronger                    */
+  --b-500: #d4d1c9;
+
+  /* ---- text ---- */
+  --t-white: #292823; /* text-white  */
+  --t-100: #292823;
+  --t-200: #44423c;
+  --t-300: #59574f;
+  --t-400: #77746b;
+  --t-500: #77746b;
+  --t-600: #a19e95; /* disabled / placeholder */
+
+  /* ---- accent: Signal Blue ---- */
+  --a-300: #6fadff;
+  --a-400: #518cff;
+  --a-500: #0057ff; /* <- Signal Blue, anchor */
+  --a-600: #003edd;
+  --a-700: #0020c4;
+  --a-deep: #0020c4; /* SOLID deep fill; white label, 10.48:1 */
+  --a-fill: var(--a-600); /* filled primary button       */
+  --a-fill-hover: var(--a-700); /* light mode darkens on hover */
+  --a-label: #ffffff; /* text ON a filled button     */
+  --a-text: var(--a-500); /* accent text / icons         */
+  --a-text-hi: var(--a-500);
+  --a-wash: rgba(0, 87, 255, 0.06); /* hover surface wash      */
+  --a-wash-2: rgba(0, 87, 255, 0.08);
+  --a-tint-12: rgba(0, 87, 255, 0.12);
+  --a-tint-20: rgba(0, 87, 255, 0.2);
+  --a-tint-50: rgba(0, 87, 255, 0.5);
+  --a-glow: rgba(0, 87, 255, 0.3);
+  --a-chip: rgba(0, 87, 255, 0.07); /* soft tinted panel       */
+  --a-hover-row: #e8efff; /* solid hover row         */
+
+  /* ---- shadow ink ---- */
+  --shadow-a: rgba(41, 40, 35, 0.06);
+  --shadow-b: rgba(41, 40, 35, 0.04);
+
+  /* ---- session-row stripe (TransactionsViewer, see F4 note below) ---- */
+  --session-sat: 72%;
+  --session-lig: 42%;
+  --session-a1: 0.15;
+  --session-a2: 0.05;
+}
+
+html.dark {
+  /* ---- surfaces: navy ramp, hue 269.8deg from Cosmic Navy ---- */
+  --s-950: #020222; /* page                             */
+  --s-900: #050938; /* section                          */
+  --s-800: #0c134f; /* card       <- Cosmic Navy, anchor */
+  --s-700: #1a2761; /* raised / inputs / inactive       */
+  --s-600: #3e4d7d; /* raised                           */
+  --s-950-90: rgba(2, 2, 34, 0.9);
+  --s-900-95: rgba(5, 9, 56, 0.95);
+  --s-800-95: rgba(12, 19, 79, 0.95);
+  --s-700-60: rgba(26, 39, 97, 0.6);
+  --s-input: #1a2761;
+
+  /* ---- borders ---- */
+  --b-700: #25336a;
+  --b-600: #3e4d7d;
+  --b-500: #3e4d7d;
+
+  /* ---- text ---- */
+  --t-white: #ffffff;
+  --t-100: #ffffff;
+  --t-200: #d8deed;
+  --t-300: #bfc7dc;
+  --t-400: #99a4c2;
+  --t-500: #667398;
+  --t-600: #3e4d7d;
+
+  /* ---- accent: Pastel Violet ---- */
+  --a-300: #edd0ff;
+  --a-400: #dfc3ff;
+  --a-500: #d4adfc; /* <- Pastel Violet, anchor */
+  --a-600: #b18bd7;
+  --a-700: #956fba;
+  --a-deep: #542977; /* SOLID deep fill. --a-700 is a mid-tone (#956fba):
+                        white on it is 3.99:1 and navy 4.31:1, so BOTH labels
+                        fail AA. This deep step at the same hue takes white to
+                        10.71:1 while staying 1.60:1 clear of the card. Tints
+                        and borders keep --a-700, where a mid-tone reads better. */
+  --a-fill: var(--a-500);
+  --a-fill-hover: var(--a-400); /* dark mode lightens on hover */
+  --a-label: #0c134f; /* white on Pastel Violet is 1.88:1 and FAILS -- the
+                         label has to be Cosmic Navy, which is 9.15:1 (F3) */
+  --a-text: var(--a-400);
+  --a-text-hi: var(--a-300);
+  --a-wash: rgba(212, 173, 252, 0.08);
+  --a-wash-2: rgba(212, 173, 252, 0.1);
+  --a-tint-12: rgba(212, 173, 252, 0.14);
+  --a-tint-20: rgba(212, 173, 252, 0.24);
+  --a-tint-50: rgba(212, 173, 252, 0.5);
+  --a-glow: rgba(212, 173, 252, 0.3);
+  --a-chip: rgba(212, 173, 252, 0.1);
+  --a-hover-row: #1a2761;
+
+  --shadow-a: rgba(0, 0, 0, 0.45);
+  --shadow-b: rgba(0, 0, 0, 0.3);
+
+  /* F4 -- these four were tuned against a slate-800 card. Cosmic Navy is
+     darker and more saturated, so the stripe is lifted slightly and the tint
+     pulled back a touch to stop mid-hues going muddy. Worth one visual pass
+     over a real transaction list before considering them final. */
+  --session-sat: 80%;
+  --session-lig: 66%;
+  --session-a1: 0.22;
+  --session-a2: 0.07;
+}
+
 /* === BASE === */
-html:not(.dark) body {
-  background-color: #f8fafc;
-  color: #1e293b;
+html:not(.dark) body,
+html.dark body {
+  background-color: var(--s-950);
+  color: var(--t-white);
 }
 
 /* === BACKGROUNDS === */
-html:not(.dark) .bg-slate-950 {
-  background-color: #f8fafc !important;
+html:not(.dark) .bg-slate-950,
+html.dark .bg-slate-950 {
+  background-color: var(--s-950) !important;
 }
-html:not(.dark) .bg-slate-900 {
-  background-color: #f1f5f9 !important;
+html:not(.dark) .bg-slate-900,
+html.dark .bg-slate-900 {
+  background-color: var(--s-900) !important;
 }
-html:not(.dark) .bg-slate-800 {
-  background-color: #ffffff !important;
+html:not(.dark) .bg-slate-800,
+html.dark .bg-slate-800 {
+  background-color: var(--s-800) !important;
 }
-html:not(.dark) .bg-slate-700 {
-  background-color: #e2e8f0 !important;
+html:not(.dark) .bg-slate-700,
+html.dark .bg-slate-700 {
+  background-color: var(--s-700) !important;
 }
 html:not(.dark) .bg-slate-700\/50,
-html:not(.dark) .bg-slate-700\/30 {
-  background-color: rgba(226, 232, 240, 0.6) !important;
+html:not(.dark) .bg-slate-700\/30,
+html.dark .bg-slate-700\/50,
+html.dark .bg-slate-700\/30 {
+  background-color: var(--s-700-60) !important;
 }
-html:not(.dark) .bg-slate-600 {
-  background-color: #e2e8f0 !important;
+html:not(.dark) .bg-slate-600,
+html.dark .bg-slate-600 {
+  background-color: var(--s-600) !important;
 }
 
 /* Opacity variants */
 html:not(.dark) .bg-slate-950\/50,
-html:not(.dark) .bg-slate-950\/80 {
-  background-color: rgba(248, 250, 252, 0.9) !important;
+html:not(.dark) .bg-slate-950\/80,
+html.dark .bg-slate-950\/50,
+html.dark .bg-slate-950\/80 {
+  background-color: var(--s-950-90) !important;
 }
 html:not(.dark) .bg-slate-900\/20,
 html:not(.dark) .bg-slate-900\/30,
@@ -67,8 +241,15 @@ html:not(.dark) .bg-slate-900\/40,
 html:not(.dark) .bg-slate-900\/50,
 html:not(.dark) .bg-slate-900\/60,
 html:not(.dark) .bg-slate-900\/80,
-html:not(.dark) .bg-slate-900\/95 {
-  background-color: rgba(241, 245, 249, 0.95) !important;
+html:not(.dark) .bg-slate-900\/95,
+html.dark .bg-slate-900\/20,
+html.dark .bg-slate-900\/30,
+html.dark .bg-slate-900\/40,
+html.dark .bg-slate-900\/50,
+html.dark .bg-slate-900\/60,
+html.dark .bg-slate-900\/80,
+html.dark .bg-slate-900\/95 {
+  background-color: var(--s-900-95) !important;
 }
 html:not(.dark) .bg-slate-800\/30,
 html:not(.dark) .bg-slate-800\/40,
@@ -76,27 +257,53 @@ html:not(.dark) .bg-slate-800\/50,
 html:not(.dark) .bg-slate-800\/60,
 html:not(.dark) .bg-slate-800\/80,
 html:not(.dark) .bg-slate-800\/90,
-html:not(.dark) .bg-slate-800\/95 {
-  background-color: rgba(255, 255, 255, 0.95) !important;
+html:not(.dark) .bg-slate-800\/95,
+html.dark .bg-slate-800\/30,
+html.dark .bg-slate-800\/40,
+html.dark .bg-slate-800\/50,
+html.dark .bg-slate-800\/60,
+html.dark .bg-slate-800\/80,
+html.dark .bg-slate-800\/90,
+html.dark .bg-slate-800\/95 {
+  background-color: var(--s-800-95) !important;
 }
 
-/* === GRADIENTS === */
+/* === GRADIENTS ===
+   Page-chrome gradients are flattened to a page -> section -> page wash in both
+   modes, so a gradient never reintroduces an off-palette stop. `.bg-clip-text`
+   is excluded because those gradients ARE the visible content (gradient text).
+   This replaces the old approach of setting the --tw-gradient-from and
+   --tw-gradient-to variables here: those ARE still the right names under v4,
+   but setting them only recolours a gradient whose stops come from the from-
+   and to- utilities, and leaves the stop POSITIONS untouched. Painting the
+   whole background is unambiguous. The from- / via- / to- utilities themselves
+   are handled in the coverage sweep. */
 html:not(.dark) .bg-gradient-to-br:not(.bg-clip-text),
-html:not(.dark) .bg-gradient-to-b:not(.bg-clip-text),
-html:not(.dark) .bg-gradient-to-r:not(.bg-clip-text) {
-  --tw-gradient-from: #f8fafc !important;
-  --tw-gradient-to: #f1f5f9 !important;
-}
-html:not(.dark) .bg-gradient-to-br:not(.bg-clip-text) {
+html.dark .bg-gradient-to-br:not(.bg-clip-text) {
   background: linear-gradient(
     to bottom right,
-    #f8fafc,
-    #f1f5f9,
-    #f8fafc
+    var(--s-950),
+    var(--s-900),
+    var(--s-950)
   ) !important;
 }
-html:not(.dark) .bg-gradient-to-b:not(.bg-clip-text) {
-  background: linear-gradient(to bottom, #f8fafc, #f1f5f9, #f8fafc) !important;
+html:not(.dark) .bg-gradient-to-b:not(.bg-clip-text),
+html.dark .bg-gradient-to-b:not(.bg-clip-text) {
+  background: linear-gradient(
+    to bottom,
+    var(--s-950),
+    var(--s-900),
+    var(--s-950)
+  ) !important;
+}
+html:not(.dark) .bg-gradient-to-r:not(.bg-clip-text),
+html.dark .bg-gradient-to-r:not(.bg-clip-text) {
+  background: linear-gradient(
+    to right,
+    var(--s-950),
+    var(--s-900),
+    var(--s-950)
+  ) !important;
 }
 
 /* === BORDERS === */
@@ -105,173 +312,327 @@ html:not(.dark) .border-slate-700\/30,
 html:not(.dark) .border-slate-700\/40,
 html:not(.dark) .border-slate-700\/50,
 html:not(.dark) .border-slate-700\/60,
-html:not(.dark) .border-slate-800 {
-  border-color: #e2e8f0 !important;
+html:not(.dark) .border-slate-800,
+html.dark .border-slate-700,
+html.dark .border-slate-700\/30,
+html.dark .border-slate-700\/40,
+html.dark .border-slate-700\/50,
+html.dark .border-slate-700\/60,
+html.dark .border-slate-800 {
+  border-color: var(--b-700) !important;
 }
 html:not(.dark) .border-slate-600,
-html:not(.dark) .border-slate-600\/50 {
-  border-color: #cbd5e1 !important;
+html:not(.dark) .border-slate-600\/50,
+html.dark .border-slate-600,
+html.dark .border-slate-600\/50 {
+  border-color: var(--b-600) !important;
 }
-html:not(.dark) .border-slate-500 {
-  border-color: #cbd5e1 !important;
+html:not(.dark) .border-slate-500,
+html.dark .border-slate-500 {
+  border-color: var(--b-500) !important;
 }
 /* Tailwind v4 renders divide-y as border-bottom on `:not(:last-child)`
    (v3 used border-top on `:not(:first-child)`). Match BOTH so no divider —
-   including the first row's — is left with the raw dark slate border. */
+   including the first row's — is left with an off-palette border. */
 html:not(.dark) .divide-slate-700 > :not(:first-child),
 html:not(.dark) .divide-slate-700 > :not(:last-child),
 html:not(.dark) .divide-slate-600 > :not(:first-child),
-html:not(.dark) .divide-slate-600 > :not(:last-child) {
-  border-color: #e2e8f0 !important;
+html:not(.dark) .divide-slate-600 > :not(:last-child),
+html.dark .divide-slate-700 > :not(:first-child),
+html.dark .divide-slate-700 > :not(:last-child),
+html.dark .divide-slate-600 > :not(:first-child),
+html.dark .divide-slate-600 > :not(:last-child) {
+  border-color: var(--b-700) !important;
 }
 html:not(.dark) .ring-slate-700,
-html:not(.dark) .ring-slate-700\/50 {
-  --tw-ring-color: #e2e8f0 !important;
+html:not(.dark) .ring-slate-700\/50,
+html.dark .ring-slate-700,
+html.dark .ring-slate-700\/50 {
+  --tw-ring-color: var(--b-700) !important;
 }
 
 /* === TEXT === */
-html:not(.dark) .text-white {
-  color: #1e293b !important;
+html:not(.dark) .text-white,
+html.dark .text-white {
+  color: var(--t-white) !important;
 }
-/* Keep white text on colored backgrounds */
+/* F3 — LABELS ON FILLED COLOURED BUTTONS.
+   This used to be one shared rule forcing #ffffff. That breaks in dark mode:
+   the accent is now Pastel Violet, where white measures 1.88:1. So the rule is
+   split by mode — light keeps a white label on Signal Blue (7.68:1), dark gets
+   a Cosmic Navy label on Pastel Violet (9.15:1), both via --a-label. The
+   semantic fills (emerald / red / rose / orange) keep white labels in both
+   modes; the #ff0a46 provider brand is unaffected. */
 html:not(.dark) .bg-emerald-600.text-white,
 html:not(.dark) .bg-emerald-500.text-white,
-html:not(.dark) .bg-violet-600.text-white,
-html:not(.dark) .bg-violet-500.text-white,
 html:not(.dark) .bg-red-600.text-white,
 html:not(.dark) .bg-red-500.text-white,
 html:not(.dark) .bg-rose-600.text-white,
 html:not(.dark) .bg-rose-500.text-white,
-html:not(.dark) .bg-blue-600.text-white,
-html:not(.dark) .bg-blue-500.text-white,
 html:not(.dark) .bg-orange-600.text-white,
 html:not(.dark) .bg-orange-500.text-white,
-html:not(.dark) .bg-indigo-600.text-white,
-html:not(.dark) .bg-indigo-500.text-white,
-html:not(.dark) [class*="bg-\[#ff0a46\]"].text-white {
+html:not(.dark) [class*="bg-\[#ff0a46\]"].text-white,
+html.dark .bg-emerald-600.text-white,
+html.dark .bg-emerald-500.text-white,
+html.dark .bg-red-600.text-white,
+html.dark .bg-red-500.text-white,
+html.dark .bg-rose-600.text-white,
+html.dark .bg-rose-500.text-white,
+html.dark .bg-orange-600.text-white,
+html.dark .bg-orange-500.text-white,
+html.dark [class*="bg-\[#ff0a46\]"].text-white {
   color: #ffffff !important;
 }
-html:not(.dark) .text-slate-100 {
-  color: #1e293b !important;
+/* The accent fills -- the violet- shades, plus the blue- and indigo- shades
+   folded into the accent per D8 -- take the mode's own label colour. */
+html:not(.dark) .bg-violet-600.text-white,
+html:not(.dark) .bg-violet-500.text-white,
+html:not(.dark) .bg-blue-600.text-white,
+html:not(.dark) .bg-blue-500.text-white,
+html:not(.dark) .bg-indigo-600.text-white,
+html:not(.dark) .bg-indigo-500.text-white,
+html.dark .bg-violet-600.text-white,
+html.dark .bg-violet-500.text-white,
+html.dark .bg-blue-600.text-white,
+html.dark .bg-blue-500.text-white,
+html.dark .bg-indigo-600.text-white,
+html.dark .bg-indigo-500.text-white {
+  color: var(--a-label) !important;
 }
-html:not(.dark) .text-slate-200 {
-  color: #334155 !important;
+/* A SOLID deep fill takes a white label in both modes (light #0020c4 -> 10.48:1,
+   dark #542977 -> 10.71:1). This is the one accent fill whose label does NOT
+   follow --a-label, because the fill is dark in both modes rather than only in
+   light. */
+html:not(.dark) .bg-violet-700.text-white,
+html:not(.dark) .bg-violet-800.text-white,
+html:not(.dark) .bg-violet-900.text-white,
+html.dark .bg-violet-700.text-white,
+html.dark .bg-violet-800.text-white,
+html.dark .bg-violet-900.text-white {
+  color: #ffffff !important;
 }
-html:not(.dark) .text-slate-300 {
-  color: #475569 !important;
+html:not(.dark) .text-slate-100,
+html.dark .text-slate-100 {
+  color: var(--t-100) !important;
 }
-html:not(.dark) .text-slate-400 {
-  color: #64748b !important;
+html:not(.dark) .text-slate-200,
+html.dark .text-slate-200 {
+  color: var(--t-200) !important;
 }
-html:not(.dark) .text-slate-500 {
-  color: #64748b !important;
+html:not(.dark) .text-slate-300,
+html.dark .text-slate-300 {
+  color: var(--t-300) !important;
 }
-html:not(.dark) .text-slate-600 {
-  color: #94a3b8 !important;
+html:not(.dark) .text-slate-400,
+html.dark .text-slate-400 {
+  color: var(--t-400) !important;
+}
+html:not(.dark) .text-slate-500,
+html.dark .text-slate-500 {
+  color: var(--t-500) !important;
+}
+html:not(.dark) .text-slate-600,
+html.dark .text-slate-600 {
+  color: var(--t-600) !important;
 }
 
-/* === SIDEBAR === */
-html:not(.dark) .bg-violet-500\/10 {
-  background-color: rgba(139, 92, 246, 0.08) !important;
+/* === ACCENT — Signal Blue in light, Pastel Violet in dark ===
+   D8: blue-* is folded into the accent (it was never carrying a distinct
+   meaning); sky-* stays a separate semantic and is NOT touched here. */
+html:not(.dark) .bg-violet-600,
+html:not(.dark) .bg-blue-600,
+html:not(.dark) .bg-indigo-600,
+html.dark .bg-violet-600,
+html.dark .bg-blue-600,
+html.dark .bg-indigo-600 {
+  background-color: var(--a-fill) !important;
 }
-html:not(.dark) .bg-violet-500\/20 {
-  background-color: rgba(139, 92, 246, 0.12) !important;
+html:not(.dark) .bg-violet-500,
+html:not(.dark) .bg-blue-500,
+html:not(.dark) .bg-indigo-500,
+html.dark .bg-violet-500,
+html.dark .bg-blue-500,
+html.dark .bg-indigo-500 {
+  background-color: var(--a-500) !important;
 }
-html:not(.dark) .bg-violet-500\/30 {
-  border-color: rgba(139, 92, 246, 0.2) !important;
+html:not(.dark) .bg-violet-700,
+html:not(.dark) .bg-violet-800,
+html:not(.dark) .bg-violet-900,
+html.dark .bg-violet-700,
+html.dark .bg-violet-800,
+html.dark .bg-violet-900 {
+  background-color: var(--a-deep) !important;
+}
+html:not(.dark) .bg-violet-400,
+html.dark .bg-violet-400 {
+  background-color: var(--a-400) !important;
+}
+html:not(.dark) .border-violet-500,
+html:not(.dark) .border-blue-500,
+html:not(.dark) .border-indigo-500,
+html.dark .border-violet-500,
+html.dark .border-blue-500,
+html.dark .border-indigo-500 {
+  border-color: var(--a-500) !important;
+}
+html:not(.dark) .text-violet-400,
+html:not(.dark) .text-blue-400,
+html:not(.dark) .text-indigo-400,
+html.dark .text-violet-400,
+html.dark .text-blue-400,
+html.dark .text-indigo-400 {
+  color: var(--a-text) !important;
+}
+html:not(.dark) .text-violet-300,
+html:not(.dark) .text-blue-300,
+html.dark .text-violet-300,
+html.dark .text-blue-300 {
+  color: var(--a-text-hi) !important;
+}
+html:not(.dark) .text-violet-300\/80,
+html.dark .text-violet-300\/80 {
+  color: var(--a-text-hi) !important;
+  opacity: 0.85;
+}
+html:not(.dark) .ring-violet-500,
+html.dark .ring-violet-500 {
+  --tw-ring-color: var(--a-500) !important;
+}
+html:not(.dark) .ring-violet-600,
+html.dark .ring-violet-600 {
+  --tw-ring-color: var(--a-fill) !important;
+}
+html:not(.dark) .shadow-violet-900,
+html.dark .shadow-violet-900 {
+  --tw-shadow-color: var(--a-glow) !important;
+}
+/* Accent tint surfaces (sidebar active item, selected rows) */
+html:not(.dark) .bg-violet-500\/10,
+html.dark .bg-violet-500\/10 {
+  background-color: var(--a-wash-2) !important;
+}
+html:not(.dark) .bg-violet-500\/20,
+html.dark .bg-violet-500\/20 {
+  background-color: var(--a-tint-12) !important;
+}
+html:not(.dark) .bg-violet-500\/30,
+html.dark .bg-violet-500\/30 {
+  border-color: var(--a-tint-20) !important;
+}
+/* Accent tinted panels, authored dark-first as bg-violet-950/NN */
+html:not(.dark) .bg-violet-950\/20,
+html:not(.dark) .bg-violet-950\/30,
+html:not(.dark) .bg-violet-950\/40,
+html.dark .bg-violet-950\/20,
+html.dark .bg-violet-950\/30,
+html.dark .bg-violet-950\/40 {
+  background-color: var(--a-chip) !important;
 }
 
 /* === INPUTS & FORM ELEMENTS === */
-/* .bg-transparent inputs are exempt from the forced white background: they
+/* .bg-transparent inputs are exempt from the forced surface background: they
    sit inside a styled pill (CheckoutModal customer fields, MultiPaymentInput)
-   whose container paints the surface — force-painting them white leaves a
-   white rectangle floating in the pill's light-gray (#f1f5f9, ex slate-900)
-   background. Their text/placeholder colors still come from the .text-white
-   and ::placeholder remaps. */
+   whose container paints the surface — force-painting them leaves a rectangle
+   floating in the pill's own background. Their text/placeholder colors still
+   come from the .text-white and ::placeholder remaps. */
 html:not(.dark) input:not(.bg-transparent),
 html:not(.dark) select,
-html:not(.dark) textarea {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  color: #1e293b !important;
+html:not(.dark) textarea,
+html.dark input:not(.bg-transparent),
+html.dark select,
+html.dark textarea {
+  background-color: var(--s-input) !important;
+  border-color: var(--b-700) !important;
+  color: var(--t-white) !important;
 }
-html:not(.dark) input.bg-transparent {
-  color: #1e293b !important;
+html:not(.dark) input.bg-transparent,
+html.dark input.bg-transparent {
+  color: var(--t-white) !important;
 }
 html:not(.dark) input::placeholder,
-html:not(.dark) textarea::placeholder {
-  color: #94a3b8 !important;
+html:not(.dark) textarea::placeholder,
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: var(--t-600) !important;
 }
 
 /* === DISABLED STATES === */
-html:not(.dark) .disabled\:bg-slate-700:disabled {
-  background-color: #e2e8f0 !important;
+html:not(.dark) .disabled\:bg-slate-700:disabled,
+html.dark .disabled\:bg-slate-700:disabled {
+  background-color: var(--s-700) !important;
 }
-html:not(.dark) .disabled\:text-slate-500:disabled {
-  color: #94a3b8 !important;
+html:not(.dark) .disabled\:text-slate-500:disabled,
+html.dark .disabled\:text-slate-500:disabled {
+  color: var(--t-600) !important;
 }
-html:not(.dark) .bg-slate-600.text-slate-400 {
-  color: #94a3b8 !important;
+html:not(.dark) .bg-slate-600.text-slate-400,
+html.dark .bg-slate-600.text-slate-400 {
+  color: var(--t-600) !important;
 }
 
 /* === HOVER STATES === */
-html:not(.dark) .hover\:bg-slate-700:hover {
-  background-color: #e2e8f0 !important;
+html:not(.dark) .hover\:bg-slate-700:hover,
+html:not(.dark) .hover\:bg-slate-600:hover,
+html.dark .hover\:bg-slate-700:hover,
+html.dark .hover\:bg-slate-600:hover {
+  background-color: var(--s-700) !important;
 }
-html:not(.dark) .hover\:bg-slate-700\/20:hover {
-  background-color: rgba(226, 232, 240, 0.6) !important;
+html:not(.dark) .hover\:bg-slate-700\/20:hover,
+html:not(.dark) .hover\:bg-slate-700\/30:hover,
+html:not(.dark) .hover\:bg-slate-700\/50:hover,
+html:not(.dark) .hover\:bg-slate-700\/60:hover,
+html:not(.dark) .hover\:bg-slate-700\/70:hover,
+html.dark .hover\:bg-slate-700\/20:hover,
+html.dark .hover\:bg-slate-700\/30:hover,
+html.dark .hover\:bg-slate-700\/50:hover,
+html.dark .hover\:bg-slate-700\/60:hover,
+html.dark .hover\:bg-slate-700\/70:hover {
+  background-color: var(--s-700-60) !important;
 }
-html:not(.dark) .hover\:bg-slate-700\/30:hover {
-  background-color: rgba(226, 232, 240, 0.6) !important;
+/* Hovering a card-coloured row lifts it toward the accent rather than toward
+   grey — this is the one place the accent appears as a surface. */
+html:not(.dark) .hover\:bg-slate-800:hover,
+html.dark .hover\:bg-slate-800:hover {
+  background-color: var(--a-hover-row) !important;
 }
-html:not(.dark) .hover\:bg-slate-700\/50:hover {
-  background-color: rgba(226, 232, 240, 0.6) !important;
+html:not(.dark) .hover\:bg-slate-800\/30:hover,
+html:not(.dark) .hover\:bg-slate-800\/40:hover,
+html:not(.dark) .hover\:bg-slate-800\/50:hover,
+html:not(.dark) .hover\:bg-slate-800\/60:hover,
+html:not(.dark) .hover\:bg-white\/5:hover,
+html.dark .hover\:bg-slate-800\/30:hover,
+html.dark .hover\:bg-slate-800\/40:hover,
+html.dark .hover\:bg-slate-800\/50:hover,
+html.dark .hover\:bg-slate-800\/60:hover,
+html.dark .hover\:bg-white\/5:hover {
+  background-color: var(--a-wash) !important;
 }
-html:not(.dark) .hover\:bg-slate-700\/60:hover {
-  background-color: rgba(226, 232, 240, 0.6) !important;
+html:not(.dark) .hover\:bg-white\/10:hover,
+html.dark .hover\:bg-white\/10:hover {
+  background-color: var(--a-wash-2) !important;
 }
-html:not(.dark) .hover\:bg-slate-700\/70:hover {
-  background-color: rgba(226, 232, 240, 0.6) !important;
+html:not(.dark) .hover\:text-white:hover,
+html.dark .hover\:text-white:hover {
+  color: var(--t-white) !important;
 }
-html:not(.dark) .hover\:bg-slate-600:hover {
-  background-color: #e2e8f0 !important;
+html:not(.dark) .hover\:text-slate-300:hover,
+html.dark .hover\:text-slate-300:hover {
+  color: var(--t-200) !important;
 }
-html:not(.dark) .hover\:bg-slate-800:hover {
-  background-color: #ede9fe !important;
+html:not(.dark) .hover\:border-slate-600:hover,
+html.dark .hover\:border-slate-600:hover {
+  border-color: var(--b-600) !important;
 }
-html:not(.dark) .hover\:bg-slate-800\/50:hover {
-  background-color: rgba(139, 92, 246, 0.06) !important;
-}
-html:not(.dark) .hover\:bg-slate-800\/60:hover {
-  background-color: rgba(139, 92, 246, 0.06) !important;
-}
-html:not(.dark) .hover\:bg-slate-800\/40:hover {
-  background-color: rgba(139, 92, 246, 0.06) !important;
-}
-html:not(.dark) .hover\:bg-slate-800\/30:hover {
-  background-color: rgba(139, 92, 246, 0.06) !important;
-}
-html:not(.dark) .hover\:bg-white\/5:hover {
-  background-color: rgba(139, 92, 246, 0.06) !important;
-}
-html:not(.dark) .hover\:bg-white\/10:hover {
-  background-color: rgba(139, 92, 246, 0.08) !important;
-}
-html:not(.dark) .hover\:text-white:hover {
-  color: #1e293b !important;
-}
-html:not(.dark) .hover\:text-slate-300:hover {
-  color: #334155 !important;
-}
-html:not(.dark) .hover\:border-slate-600:hover {
-  border-color: #cbd5e1 !important;
-}
-/* Colored button hovers - darken instead of lighten */
+/* Filled-button hovers: light darkens, dark lightens — both via --a-fill-hover.
+   The emerald rule stays semantic and light-only (dark keeps Tailwind's own). */
 html:not(.dark) .hover\:bg-emerald-500:hover {
-  background-color: #059669 !important;
+  background-color: oklch(59.6% 0.145 163.225) !important;
 }
-html:not(.dark) .hover\:bg-violet-500:hover {
-  background-color: #6d28d9 !important;
+html:not(.dark) .hover\:bg-violet-500:hover,
+html:not(.dark) .hover\:bg-violet-600:hover,
+html.dark .hover\:bg-violet-500:hover,
+html.dark .hover\:bg-violet-600:hover {
+  background-color: var(--a-fill-hover) !important;
 }
 
 /* === SHADOWS === */
@@ -279,255 +640,1183 @@ html:not(.dark) .shadow-2xl,
 html:not(.dark) .shadow-xl,
 html:not(.dark) .shadow-lg {
   box-shadow:
-    0 4px 20px -4px rgba(0, 0, 0, 0.06),
-    0 2px 8px -2px rgba(0, 0, 0, 0.04) !important;
+    0 4px 20px -4px var(--shadow-a),
+    0 2px 8px -2px var(--shadow-b) !important;
 }
 html:not(.dark) .shadow-inner {
-  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.04) !important;
+  box-shadow: inset 0 2px 4px 0 var(--shadow-b) !important;
 }
 
-/* === TINTED CHIPS (dark-tint panels → soft light tints) ===
-   Chips/pills authored dark-first as bg-<color>-950/NN with text-<color>-300/400
-   (debt rows, account-charge rows, PM-fee rows, warning panels — e.g.
-   ServiceDebtDetailModal, SessionDebtDetailModal, MultiPaymentInput). The
-   near-black -950 tints render as muddy brown/mauve over light cards, and the
-   -300/-400 tint text (designed for dark surfaces) washes out. Remap to the
-   color's -100 tint with -700/-600 text. */
+/* =============================================================
+ * COVERAGE SWEEP — generated, do not hand-edit
+ * =============================================================
+ * The hand-written layers above cover the classes someone noticed. This block
+ * covers the rest: every remaining slate / gray / violet / purple / indigo /
+ * blue utility the app actually uses, including opacity variants, `dark:`
+ * variants and hover/focus/disabled/group-hover states.
+ *
+ * Why it is needed: the layers above match bare classes (`.bg-slate-800`).
+ * They do NOT match `.bg-slate-700/40`, and they do not match the `dark:`
+ * variant classes that three light-first components use
+ * (VoiceBotButton, VoiceBotTips, TopBar) — those render as
+ * `.dark\:bg-slate-900:where(.dark, .dark *)`, a different class entirely.
+ * Uncovered, all of those paint raw Tailwind slate/violet, which read as
+ * neutral against the OLD slate theme but clash badly against Porcelain and
+ * Cosmic Navy.
+ *
+ * 236 classes / 834 usages. Opacity variants go through color-mix() on the
+ * token, which Tailwind preserves and guards with @supports (the fallback is
+ * the solid token). Regenerate with scratchpad/sweep.py after adding classes.
+ * ============================================================= */
+html.dark .accent-indigo-500,
+html.dark .accent-violet-500,
+html.dark .accent-violet-600,
+html:not(.dark) .accent-indigo-500,
+html:not(.dark) .accent-violet-500,
+html:not(.dark) .accent-violet-600 {
+  accent-color: var(--a-500) !important;
+}
+html.dark .bg-blue-400\/10,
+html.dark .bg-indigo-400\/10,
+html.dark .bg-purple-400\/10,
+html.dark .bg-violet-400\/10,
+html.dark .hover\:bg-blue-400\/10:hover,
+html.dark .hover\:bg-violet-400\/10:hover,
+html:not(.dark) .bg-blue-400\/10,
+html:not(.dark) .bg-indigo-400\/10,
+html:not(.dark) .bg-purple-400\/10,
+html:not(.dark) .bg-violet-400\/10,
+html:not(.dark) .hover\:bg-blue-400\/10:hover,
+html:not(.dark) .hover\:bg-violet-400\/10:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-400) 10%,
+    transparent
+  ) !important;
+}
+html.dark .bg-blue-500\/10,
+html.dark .bg-indigo-500\/10,
+html.dark .bg-purple-500\/10,
+html.dark .hover\:bg-violet-500\/10:hover,
+html:not(.dark) .bg-blue-500\/10,
+html:not(.dark) .bg-indigo-500\/10,
+html:not(.dark) .bg-purple-500\/10,
+html:not(.dark) .hover\:bg-violet-500\/10:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-500) 10%,
+    transparent
+  ) !important;
+}
+html.dark .bg-blue-500\/20,
+html.dark .bg-purple-500\/20,
+html.dark .hover\:bg-indigo-500\/20:hover,
+html.dark .hover\:bg-violet-500\/20:hover,
+html:not(.dark) .bg-blue-500\/20,
+html:not(.dark) .bg-purple-500\/20,
+html:not(.dark) .hover\:bg-indigo-500\/20:hover,
+html:not(.dark) .hover\:bg-violet-500\/20:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-500) 20%,
+    transparent
+  ) !important;
+}
+html.dark .bg-blue-500\/5,
+html.dark .bg-purple-500\/5,
+html.dark .bg-violet-500\/5,
+html:not(.dark) .bg-blue-500\/5,
+html:not(.dark) .bg-purple-500\/5,
+html:not(.dark) .bg-violet-500\/5 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-500) 5%,
+    transparent
+  ) !important;
+}
+html.dark .bg-blue-500\/50,
+html.dark .hover\:bg-blue-500\/50:hover,
+html:not(.dark) .bg-blue-500\/50,
+html:not(.dark) .hover\:bg-blue-500\/50:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-500) 50%,
+    transparent
+  ) !important;
+}
+html.dark .bg-blue-900\/30,
+html.dark .bg-violet-900\/30,
+html.dark .dark\:hover\:bg-violet-900\/30:hover,
+html.dark .hover\:bg-blue-900\/30:hover,
+html.dark .hover\:bg-violet-900\/30:hover,
+html:not(.dark) .bg-blue-900\/30,
+html:not(.dark) .bg-violet-900\/30,
+html:not(.dark) .hover\:bg-blue-900\/30:hover,
+html:not(.dark) .hover\:bg-violet-900\/30:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-700) 30%,
+    transparent
+  ) !important;
+}
+html.dark .bg-blue-900\/50,
+html.dark .bg-violet-800\/50,
+html.dark .bg-violet-900\/50,
+html:not(.dark) .bg-blue-900\/50,
+html:not(.dark) .bg-violet-800\/50,
+html:not(.dark) .bg-violet-900\/50 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-700) 50%,
+    transparent
+  ) !important;
+}
+html.dark .bg-blue-900\/80,
+html:not(.dark) .bg-blue-900\/80 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-700) 80%,
+    transparent
+  ) !important;
+}
+html.dark .bg-gray-800,
+html.dark .dark\:bg-slate-800,
+html.dark .dark\:hover\:bg-slate-800:hover,
+html.dark .disabled\:bg-slate-800:disabled,
+html:not(.dark) .bg-gray-800,
+html:not(.dark) .disabled\:bg-slate-800:disabled {
+  background-color: var(--s-800) !important;
+}
+html.dark .bg-indigo-400,
+html:not(.dark) .bg-indigo-400 {
+  background-color: var(--a-400) !important;
+}
+html.dark .bg-indigo-900\/40,
+html:not(.dark) .bg-indigo-900\/40 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-700) 40%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-100,
+html.dark .dark\:bg-slate-900,
+html.dark .hover\:bg-slate-100:hover,
+html.dark .hover\:bg-slate-900:hover,
+html:not(.dark) .bg-slate-100,
+html:not(.dark) .hover\:bg-slate-100:hover,
+html:not(.dark) .hover\:bg-slate-900:hover {
+  background-color: var(--s-900) !important;
+}
+html.dark .bg-slate-400,
+html:not(.dark) .bg-slate-400 {
+  background-color: var(--b-600) !important;
+}
+html.dark .bg-slate-400\/10,
+html:not(.dark) .bg-slate-400\/10 {
+  background-color: color-mix(
+    in oklab,
+    var(--b-600) 10%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-500,
+html.dark .disabled\:bg-slate-600:disabled,
+html:not(.dark) .bg-slate-500,
+html:not(.dark) .disabled\:bg-slate-600:disabled {
+  background-color: var(--s-600) !important;
+}
+html.dark .bg-slate-500\/10,
+html.dark .bg-slate-600\/10,
+html.dark .hover\:bg-slate-500\/10:hover,
+html:not(.dark) .bg-slate-500\/10,
+html:not(.dark) .bg-slate-600\/10,
+html:not(.dark) .hover\:bg-slate-500\/10:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--s-600) 10%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-500\/15,
+html:not(.dark) .bg-slate-500\/15 {
+  background-color: color-mix(
+    in oklab,
+    var(--s-600) 15%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-500\/20,
+html.dark .bg-slate-600\/20,
+html:not(.dark) .bg-slate-500\/20,
+html:not(.dark) .bg-slate-600\/20 {
+  background-color: color-mix(
+    in oklab,
+    var(--s-600) 20%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-500\/5,
+html:not(.dark) .bg-slate-500\/5 {
+  background-color: color-mix(
+    in oklab,
+    var(--s-600) 5%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-600\/50,
+html:not(.dark) .bg-slate-600\/50 {
+  background-color: color-mix(
+    in oklab,
+    var(--s-600) 50%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-700\/40,
+html:not(.dark) .bg-slate-700\/40 {
+  background-color: color-mix(
+    in oklab,
+    var(--s-700) 40%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-700\/60,
+html:not(.dark) .bg-slate-700\/60 {
+  background-color: color-mix(
+    in oklab,
+    var(--s-700) 60%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-800\/10,
+html:not(.dark) .bg-slate-800\/10 {
+  background-color: color-mix(
+    in oklab,
+    var(--s-800) 10%,
+    transparent
+  ) !important;
+}
+html.dark .bg-slate-800\/20,
+html:not(.dark) .bg-slate-800\/20 {
+  background-color: color-mix(
+    in oklab,
+    var(--s-800) 20%,
+    transparent
+  ) !important;
+}
+html.dark .bg-violet-400\/60,
+html:not(.dark) .bg-violet-400\/60 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-400) 60%,
+    transparent
+  ) !important;
+}
+html.dark .bg-violet-500\/15,
+html:not(.dark) .bg-violet-500\/15 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-500) 15%,
+    transparent
+  ) !important;
+}
+html.dark .bg-violet-600\/10,
+html:not(.dark) .bg-violet-600\/10 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-fill) 10%,
+    transparent
+  ) !important;
+}
+html.dark .bg-violet-600\/15,
+html:not(.dark) .bg-violet-600\/15 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-fill) 15%,
+    transparent
+  ) !important;
+}
+html.dark .bg-violet-600\/20,
+html:not(.dark) .bg-violet-600\/20 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-fill) 20%,
+    transparent
+  ) !important;
+}
+html.dark .bg-violet-600\/30,
+html.dark .hover\:bg-violet-600\/30:hover,
+html:not(.dark) .bg-violet-600\/30,
+html:not(.dark) .hover\:bg-violet-600\/30:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-fill) 30%,
+    transparent
+  ) !important;
+}
+html.dark .bg-violet-600\/40,
+html:not(.dark) .bg-violet-600\/40 {
+  background-color: color-mix(
+    in oklab,
+    var(--a-fill) 40%,
+    transparent
+  ) !important;
+}
+html.dark .bg-violet-900\/20,
+html.dark .dark\:bg-violet-900\/20,
+html.dark .hover\:bg-violet-900\/20:hover,
+html:not(.dark) .bg-violet-900\/20,
+html:not(.dark) .hover\:bg-violet-900\/20:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-700) 20%,
+    transparent
+  ) !important;
+}
+html.dark .border-blue-500\/20,
+html.dark .border-purple-500\/20,
+html.dark .border-violet-500\/20,
+html:not(.dark) .border-blue-500\/20,
+html:not(.dark) .border-purple-500\/20,
+html:not(.dark) .border-violet-500\/20 {
+  border-color: color-mix(in oklab, var(--a-500) 20%, transparent) !important;
+}
+html.dark .border-blue-500\/30,
+html.dark .border-purple-500\/30,
+html.dark .border-violet-500\/30,
+html:not(.dark) .border-blue-500\/30,
+html:not(.dark) .border-purple-500\/30,
+html:not(.dark) .border-violet-500\/30 {
+  border-color: color-mix(in oklab, var(--a-500) 30%, transparent) !important;
+}
+html.dark .border-gray-200\/50,
+html.dark .border-gray-300\/50,
+html.dark .divide-slate-700\/50 > :not(:last-child),
+html.dark .divide-slate-800\/50 > :not(:last-child),
+html:not(.dark) .border-gray-200\/50,
+html:not(.dark) .border-gray-300\/50,
+html:not(.dark) .divide-slate-700\/50 > :not(:last-child),
+html:not(.dark) .divide-slate-800\/50 > :not(:last-child) {
+  border-color: color-mix(in oklab, var(--b-700) 50%, transparent) !important;
+}
+html.dark .border-gray-700,
+html.dark .border-slate-200,
+html.dark .border-slate-900,
+html.dark .dark\:border-slate-700,
+html.dark .focus\:border-slate-700:focus,
+html:not(.dark) .border-gray-700,
+html:not(.dark) .border-slate-200,
+html:not(.dark) .border-slate-900,
+html:not(.dark) .focus\:border-slate-700:focus {
+  border-color: var(--b-700) !important;
+}
+html.dark .border-indigo-600,
+html.dark .dark\:hover\:border-violet-600:hover,
+html:not(.dark) .border-indigo-600 {
+  border-color: var(--a-fill) !important;
+}
+html.dark .border-purple-700,
+html.dark .border-violet-700,
+html:not(.dark) .border-purple-700,
+html:not(.dark) .border-violet-700 {
+  border-color: var(--a-700) !important;
+}
+html.dark .border-slate-400\/50,
+html:not(.dark) .border-slate-400\/50 {
+  border-color: color-mix(in oklab, var(--b-600) 50%, transparent) !important;
+}
+html.dark .border-slate-500\/20,
+html:not(.dark) .border-slate-500\/20 {
+  border-color: color-mix(in oklab, var(--b-600) 20%, transparent) !important;
+}
+html.dark .border-slate-500\/30,
+html.dark .border-slate-600\/30,
+html:not(.dark) .border-slate-500\/30,
+html:not(.dark) .border-slate-600\/30 {
+  border-color: color-mix(in oklab, var(--b-600) 30%, transparent) !important;
+}
+html.dark .border-slate-500\/40,
+html.dark .border-slate-600\/40,
+html:not(.dark) .border-slate-500\/40,
+html:not(.dark) .border-slate-600\/40 {
+  border-color: color-mix(in oklab, var(--b-600) 40%, transparent) !important;
+}
+html.dark .border-slate-700\/70,
+html:not(.dark) .border-slate-700\/70 {
+  border-color: color-mix(in oklab, var(--b-700) 70%, transparent) !important;
+}
+html.dark .border-slate-800\/30,
+html.dark .divide-slate-700\/30 > :not(:last-child),
+html:not(.dark) .border-slate-800\/30,
+html:not(.dark) .divide-slate-700\/30 > :not(:last-child) {
+  border-color: color-mix(in oklab, var(--b-700) 30%, transparent) !important;
+}
+html.dark .border-t-blue-500\/60,
+html.dark .border-t-indigo-500\/60,
+html.dark .border-t-purple-500\/60,
+html.dark .border-t-violet-500\/60,
+html:not(.dark) .border-t-blue-500\/60,
+html:not(.dark) .border-t-indigo-500\/60,
+html:not(.dark) .border-t-purple-500\/60,
+html:not(.dark) .border-t-violet-500\/60 {
+  border-top-color: color-mix(
+    in oklab,
+    var(--a-500) 60%,
+    transparent
+  ) !important;
+}
+html.dark .border-t-slate-500\/60,
+html:not(.dark) .border-t-slate-500\/60 {
+  border-top-color: color-mix(
+    in oklab,
+    var(--b-600) 60%,
+    transparent
+  ) !important;
+}
+html.dark .border-t-violet-500,
+html:not(.dark) .border-t-violet-500 {
+  border-top-color: var(--a-500) !important;
+}
+html.dark .border-violet-400\/30,
+html:not(.dark) .border-violet-400\/30 {
+  border-color: color-mix(in oklab, var(--a-400) 30%, transparent) !important;
+}
+html.dark .border-violet-500\/40,
+html.dark .hover\:border-purple-500\/40:hover,
+html:not(.dark) .border-violet-500\/40,
+html:not(.dark) .hover\:border-purple-500\/40:hover {
+  border-color: color-mix(in oklab, var(--a-500) 40%, transparent) !important;
+}
+html.dark .border-violet-500\/50,
+html.dark .focus\:border-violet-500\/50:focus,
+html:not(.dark) .border-violet-500\/50,
+html:not(.dark) .focus\:border-violet-500\/50:focus {
+  border-color: color-mix(in oklab, var(--a-500) 50%, transparent) !important;
+}
+html.dark .border-violet-500\/60,
+html.dark .hover\:border-blue-500\/60:hover,
+html.dark .hover\:border-indigo-500\/60:hover,
+html.dark .hover\:border-purple-500\/60:hover,
+html.dark .hover\:border-violet-500\/60:hover,
+html:not(.dark) .border-violet-500\/60,
+html:not(.dark) .hover\:border-blue-500\/60:hover,
+html:not(.dark) .hover\:border-indigo-500\/60:hover,
+html:not(.dark) .hover\:border-purple-500\/60:hover,
+html:not(.dark) .hover\:border-violet-500\/60:hover {
+  border-color: color-mix(in oklab, var(--a-500) 60%, transparent) !important;
+}
+html.dark .border-violet-600\/30,
+html:not(.dark) .border-violet-600\/30 {
+  border-color: color-mix(in oklab, var(--a-fill) 30%, transparent) !important;
+}
+html.dark .border-violet-600\/40,
+html:not(.dark) .border-violet-600\/40 {
+  border-color: color-mix(in oklab, var(--a-fill) 40%, transparent) !important;
+}
+html.dark .border-violet-700\/30,
+html.dark .border-violet-800\/30,
+html:not(.dark) .border-violet-700\/30,
+html:not(.dark) .border-violet-800\/30 {
+  border-color: color-mix(in oklab, var(--a-700) 30%, transparent) !important;
+}
+html.dark .border-violet-700\/40,
+html:not(.dark) .border-violet-700\/40 {
+  border-color: color-mix(in oklab, var(--a-700) 40%, transparent) !important;
+}
+html.dark .border-violet-700\/50,
+html:not(.dark) .border-violet-700\/50 {
+  border-color: color-mix(in oklab, var(--a-700) 50%, transparent) !important;
+}
+html.dark .dark\:focus\:ring-violet-600:focus,
+html.dark .focus\:ring-violet-600:focus,
+html:not(.dark) .focus\:ring-violet-600:focus {
+  --tw-ring-color: var(--a-fill) !important;
+}
+html.dark .dark\:from-violet-400,
+html.dark .from-violet-400,
+html:not(.dark) .from-violet-400 {
+  --tw-gradient-from: var(--a-400) !important;
+}
+html.dark .dark\:hover\:text-violet-400:hover,
+html.dark .dark\:text-violet-400,
+html.dark .group:hover .dark\:group-hover\:text-violet-400:hover,
+html.dark .hover\:text-blue-400:hover,
+html.dark .hover\:text-violet-400:hover,
+html.dark .text-purple-400,
+html:not(.dark) .hover\:text-blue-400:hover,
+html:not(.dark) .hover\:text-violet-400:hover,
+html:not(.dark) .text-purple-400 {
+  color: var(--a-text) !important;
+}
+html.dark .dark\:hover\:bg-slate-700:hover {
+  background-color: var(--s-700) !important;
+}
+html.dark .dark\:text-slate-200,
+html.dark .hover\:text-slate-200:hover,
+html.dark .text-gray-700,
+html.dark .text-slate-700,
+html:not(.dark) .hover\:text-slate-200:hover,
+html:not(.dark) .text-gray-700,
+html:not(.dark) .text-slate-700 {
+  color: var(--t-200) !important;
+}
+html.dark .dark\:text-slate-300 {
+  color: var(--t-300) !important;
+}
+html.dark .dark\:text-slate-400,
+html.dark .text-gray-400,
+html:not(.dark) .text-gray-400 {
+  color: var(--t-400) !important;
+}
+html.dark .dark\:to-indigo-400,
+html.dark .to-indigo-400,
+html:not(.dark) .to-indigo-400 {
+  --tw-gradient-to: var(--a-400) !important;
+}
+html.dark .disabled\:bg-blue-800:disabled,
+html.dark .hover\:bg-blue-700:hover,
+html.dark .hover\:bg-violet-700:hover,
+html.dark .hover\:bg-violet-800:hover,
+html:not(.dark) .disabled\:bg-blue-800:disabled,
+html:not(.dark) .hover\:bg-blue-700:hover,
+html:not(.dark) .hover\:bg-violet-700:hover,
+html:not(.dark) .hover\:bg-violet-800:hover {
+  background-color: var(--a-deep) !important;
+}
+html.dark .disabled\:bg-slate-800\/60:disabled,
+html:not(.dark) .disabled\:bg-slate-800\/60:disabled {
+  background-color: color-mix(
+    in oklab,
+    var(--s-800) 60%,
+    transparent
+  ) !important;
+}
+html.dark .disabled\:from-slate-300:disabled,
+html:not(.dark) .disabled\:from-slate-300:disabled {
+  --tw-gradient-from: var(--b-600) !important;
+}
+html.dark .disabled\:text-slate-600:disabled,
+html.dark .text-gray-600,
+html:not(.dark) .disabled\:text-slate-600:disabled,
+html:not(.dark) .text-gray-600 {
+  color: var(--t-600) !important;
+}
+html.dark .disabled\:to-slate-400:disabled,
+html:not(.dark) .disabled\:to-slate-400:disabled {
+  --tw-gradient-to: var(--b-600) !important;
+}
+html.dark .divide-slate-700\/20 > :not(:last-child),
+html:not(.dark) .divide-slate-700\/20 > :not(:last-child) {
+  border-color: color-mix(in oklab, var(--b-700) 20%, transparent) !important;
+}
+html.dark .divide-slate-700\/40 > :not(:last-child),
+html:not(.dark) .divide-slate-700\/40 > :not(:last-child) {
+  border-color: color-mix(in oklab, var(--b-700) 40%, transparent) !important;
+}
+html.dark .divide-slate-700\/60 > :not(:last-child),
+html:not(.dark) .divide-slate-700\/60 > :not(:last-child) {
+  border-color: color-mix(in oklab, var(--b-700) 60%, transparent) !important;
+}
+html.dark .focus\:border-indigo-500:focus,
+html.dark .focus\:border-purple-500:focus,
+html.dark .focus\:border-violet-500:focus,
+html:not(.dark) .focus\:border-indigo-500:focus,
+html:not(.dark) .focus\:border-purple-500:focus,
+html:not(.dark) .focus\:border-violet-500:focus {
+  border-color: var(--a-500) !important;
+}
+html.dark .focus\:border-violet-400:focus,
+html:not(.dark) .focus\:border-violet-400:focus {
+  border-color: var(--a-400) !important;
+}
+html.dark .focus\:ring-blue-500:focus,
+html.dark .focus\:ring-purple-500:focus,
+html.dark .focus\:ring-violet-500:focus,
+html:not(.dark) .focus\:ring-blue-500:focus,
+html:not(.dark) .focus\:ring-purple-500:focus,
+html:not(.dark) .focus\:ring-violet-500:focus {
+  --tw-ring-color: var(--a-500) !important;
+}
+html.dark .focus\:ring-violet-300:focus,
+html:not(.dark) .focus\:ring-violet-300:focus {
+  --tw-ring-color: var(--a-300) !important;
+}
+html.dark .focus\:ring-violet-500\/30:focus,
+html.dark .ring-violet-500\/30,
+html:not(.dark) .focus\:ring-violet-500\/30:focus,
+html:not(.dark) .ring-violet-500\/30 {
+  --tw-ring-color: color-mix(
+    in oklab,
+    var(--a-500) 30%,
+    transparent
+  ) !important;
+}
+html.dark .focus\:ring-violet-500\/50:focus,
+html.dark .ring-violet-500\/50,
+html:not(.dark) .focus\:ring-violet-500\/50:focus,
+html:not(.dark) .ring-violet-500\/50 {
+  --tw-ring-color: color-mix(
+    in oklab,
+    var(--a-500) 50%,
+    transparent
+  ) !important;
+}
+html.dark .from-blue-600,
+html.dark .from-violet-600,
+html:not(.dark) .from-blue-600,
+html:not(.dark) .from-violet-600 {
+  --tw-gradient-from: var(--a-fill) !important;
+}
+html.dark .from-gray-50,
+html.dark .from-slate-950,
+html:not(.dark) .from-gray-50,
+html:not(.dark) .from-slate-950 {
+  --tw-gradient-from: var(--s-950) !important;
+}
+html.dark .from-slate-600,
+html:not(.dark) .from-slate-600 {
+  --tw-gradient-from: var(--s-600) !important;
+}
+html.dark .from-slate-900,
+html:not(.dark) .from-slate-900 {
+  --tw-gradient-from: var(--s-900) !important;
+}
+html.dark .from-violet-500,
+html.dark .hover\:from-violet-500:hover,
+html:not(.dark) .from-violet-500,
+html:not(.dark) .hover\:from-violet-500:hover {
+  --tw-gradient-from: var(--a-500) !important;
+}
+html.dark .group:hover .group-hover\:text-violet-300:hover,
+html.dark .hover\:text-blue-100:hover,
+html.dark .hover\:text-blue-300:hover,
+html.dark .hover\:text-violet-100:hover,
+html.dark .hover\:text-violet-300:hover,
+html.dark .text-blue-200,
+html.dark .text-indigo-200,
+html.dark .text-indigo-300,
+html.dark .text-purple-300,
+html.dark .text-violet-100,
+html.dark .text-violet-200,
+html:not(.dark) .group:hover .group-hover\:text-violet-300:hover,
+html:not(.dark) .hover\:text-blue-100:hover,
+html:not(.dark) .hover\:text-blue-300:hover,
+html:not(.dark) .hover\:text-violet-100:hover,
+html:not(.dark) .hover\:text-violet-300:hover,
+html:not(.dark) .text-blue-200,
+html:not(.dark) .text-indigo-200,
+html:not(.dark) .text-indigo-300,
+html:not(.dark) .text-purple-300,
+html:not(.dark) .text-violet-100,
+html:not(.dark) .text-violet-200 {
+  color: var(--a-text-hi) !important;
+}
+html.dark .group:hover .group-hover\:text-violet-600:hover,
+html.dark .hover\:text-violet-600:hover,
+html.dark .text-blue-600,
+html.dark .text-purple-600,
+html.dark .text-violet-600,
+html:not(.dark) .group:hover .group-hover\:text-violet-600:hover,
+html:not(.dark) .hover\:text-violet-600:hover,
+html:not(.dark) .text-blue-600,
+html:not(.dark) .text-purple-600,
+html:not(.dark) .text-violet-600 {
+  color: var(--a-fill) !important;
+}
+html.dark .hover\:bg-blue-500:hover,
+html.dark .hover\:bg-indigo-500:hover,
+html:not(.dark) .hover\:bg-blue-500:hover,
+html:not(.dark) .hover\:bg-indigo-500:hover {
+  background-color: var(--a-500) !important;
+}
+html.dark .hover\:bg-slate-50:hover,
+html:not(.dark) .hover\:bg-slate-50:hover {
+  background-color: var(--s-950) !important;
+}
+html.dark .hover\:bg-violet-100:hover,
+html:not(.dark) .hover\:bg-violet-100:hover {
+  background-color: var(--a-300) !important;
+}
+html.dark .hover\:bg-violet-500\/30:hover,
+html:not(.dark) .hover\:bg-violet-500\/30:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-500) 30%,
+    transparent
+  ) !important;
+}
+html.dark .hover\:bg-violet-600\/25:hover,
+html:not(.dark) .hover\:bg-violet-600\/25:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-fill) 25%,
+    transparent
+  ) !important;
+}
+html.dark .hover\:bg-violet-600\/60:hover,
+html:not(.dark) .hover\:bg-violet-600\/60:hover {
+  background-color: color-mix(
+    in oklab,
+    var(--a-fill) 60%,
+    transparent
+  ) !important;
+}
+html.dark .hover\:border-slate-500\/60:hover,
+html:not(.dark) .hover\:border-slate-500\/60:hover {
+  border-color: color-mix(in oklab, var(--b-600) 60%, transparent) !important;
+}
+html.dark .hover\:border-violet-300:hover,
+html:not(.dark) .hover\:border-violet-300:hover {
+  border-color: var(--a-300) !important;
+}
+html.dark .hover\:from-violet-700:hover,
+html:not(.dark) .hover\:from-violet-700:hover {
+  --tw-gradient-from: var(--a-700) !important;
+}
+html.dark .hover\:shadow-blue-900\/20:hover,
+html.dark .hover\:shadow-indigo-900\/20:hover,
+html.dark .hover\:shadow-purple-900\/20:hover,
+html.dark .hover\:shadow-violet-900\/20:hover,
+html.dark .shadow-blue-900\/20,
+html.dark .shadow-indigo-900\/20,
+html.dark .shadow-violet-500\/20,
+html.dark .shadow-violet-900\/20,
+html:not(.dark) .hover\:shadow-blue-900\/20:hover,
+html:not(.dark) .hover\:shadow-indigo-900\/20:hover,
+html:not(.dark) .hover\:shadow-purple-900\/20:hover,
+html:not(.dark) .hover\:shadow-violet-900\/20:hover,
+html:not(.dark) .shadow-blue-900\/20,
+html:not(.dark) .shadow-indigo-900\/20,
+html:not(.dark) .shadow-violet-500\/20,
+html:not(.dark) .shadow-violet-900\/20 {
+  --tw-shadow-color: color-mix(
+    in oklab,
+    var(--a-glow) 20%,
+    transparent
+  ) !important;
+}
+html.dark .hover\:shadow-slate-900\/20:hover,
+html:not(.dark) .hover\:shadow-slate-900\/20:hover {
+  --tw-shadow-color: color-mix(
+    in oklab,
+    var(--b-600) 20%,
+    transparent
+  ) !important;
+}
+html.dark .hover\:shadow-violet-600\/50:hover,
+html:not(.dark) .hover\:shadow-violet-600\/50:hover {
+  --tw-shadow-color: color-mix(
+    in oklab,
+    var(--a-glow) 50%,
+    transparent
+  ) !important;
+}
+html.dark .hover\:to-indigo-500:hover,
+html.dark .to-indigo-500,
+html:not(.dark) .hover\:to-indigo-500:hover,
+html:not(.dark) .to-indigo-500 {
+  --tw-gradient-to: var(--a-500) !important;
+}
+html.dark .hover\:to-purple-700:hover,
+html.dark .hover\:to-violet-800:hover,
+html.dark .to-blue-700,
+html.dark .to-violet-700,
+html:not(.dark) .hover\:to-purple-700:hover,
+html:not(.dark) .hover\:to-violet-800:hover,
+html:not(.dark) .to-blue-700,
+html:not(.dark) .to-violet-700 {
+  --tw-gradient-to: var(--a-700) !important;
+}
+html.dark .placeholder-slate-500::placeholder,
+html.dark .text-gray-500,
+html:not(.dark) .placeholder-slate-500::placeholder,
+html:not(.dark) .text-gray-500 {
+  color: var(--t-500) !important;
+}
+html.dark .ring-violet-400\/30,
+html:not(.dark) .ring-violet-400\/30 {
+  --tw-ring-color: color-mix(
+    in oklab,
+    var(--a-400) 30%,
+    transparent
+  ) !important;
+}
+html.dark .ring-violet-400\/50,
+html:not(.dark) .ring-violet-400\/50 {
+  --tw-ring-color: color-mix(
+    in oklab,
+    var(--a-400) 50%,
+    transparent
+  ) !important;
+}
+html.dark .ring-violet-500\/40,
+html:not(.dark) .ring-violet-500\/40 {
+  --tw-ring-color: color-mix(
+    in oklab,
+    var(--a-500) 40%,
+    transparent
+  ) !important;
+}
+html.dark .shadow-violet-600\/30,
+html.dark .shadow-violet-900\/30,
+html:not(.dark) .shadow-violet-600\/30,
+html:not(.dark) .shadow-violet-900\/30 {
+  --tw-shadow-color: color-mix(
+    in oklab,
+    var(--a-glow) 30%,
+    transparent
+  ) !important;
+}
+html.dark .text-blue-300\/80,
+html:not(.dark) .text-blue-300\/80 {
+  color: color-mix(in oklab, var(--a-text-hi) 80%, transparent) !important;
+}
+html.dark .text-blue-500,
+html.dark .text-violet-500,
+html:not(.dark) .text-blue-500,
+html:not(.dark) .text-violet-500 {
+  color: var(--a-500) !important;
+}
+html.dark .text-blue-500\/70,
+html.dark .text-violet-500\/70,
+html:not(.dark) .text-blue-500\/70,
+html:not(.dark) .text-violet-500\/70 {
+  color: color-mix(in oklab, var(--a-500) 70%, transparent) !important;
+}
+html.dark .text-gray-800,
+html.dark .text-slate-800,
+html.dark .text-slate-900,
+html:not(.dark) .text-gray-800,
+html:not(.dark) .text-slate-800,
+html:not(.dark) .text-slate-900 {
+  color: var(--t-white) !important;
+}
+html.dark .text-purple-300\/70,
+html:not(.dark) .text-purple-300\/70 {
+  color: color-mix(in oklab, var(--a-text-hi) 70%, transparent) !important;
+}
+html.dark .text-slate-300\/80,
+html:not(.dark) .text-slate-300\/80 {
+  color: color-mix(in oklab, var(--t-300) 80%, transparent) !important;
+}
+html.dark .to-gray-100,
+html:not(.dark) .to-gray-100 {
+  --tw-gradient-to: var(--s-900) !important;
+}
+html.dark .to-indigo-600,
+html.dark .to-purple-600,
+html:not(.dark) .to-indigo-600,
+html:not(.dark) .to-purple-600 {
+  --tw-gradient-to: var(--a-fill) !important;
+}
+html.dark .to-slate-700,
+html:not(.dark) .to-slate-700 {
+  --tw-gradient-to: var(--s-700) !important;
+}
+html.dark .to-slate-950,
+html:not(.dark) .to-slate-950 {
+  --tw-gradient-to: var(--s-950) !important;
+}
+html.dark .via-gray-50,
+html:not(.dark) .via-gray-50 {
+  --tw-gradient-via: var(--s-950) !important;
+}
+html.dark .via-slate-900,
+html:not(.dark) .via-slate-900 {
+  --tw-gradient-via: var(--s-900) !important;
+}
+
+/* =============================================================
+ * MONEY SEMANTICS — DELIBERATELY NOT RE-THEMED (decision D1)
+ * =============================================================
+ * emerald = money in, red / rose = money out, amber / orange = warning,
+ * sky = info / carrier. 1,750 slots, kept at Tailwind's own values in both
+ * modes so profit-versus-loss never depends on the brand palette. Values are
+ * literal oklch() from theme.css — see the convention note at the top.
+ *
+ * These remain LIGHT-ONLY rules: dark mode gets Tailwind's values directly,
+ * which already read well on Cosmic Navy (emerald-400 8.87:1, red-400 5.95:1,
+ * amber-400 9.98:1, sky-500 6.35:1).
+ * ============================================================= */
+
+/* Tinted chips: dark-first bg-<color>-950/NN panels become soft light tints */
 html:not(.dark) .bg-red-950\/20,
 html:not(.dark) .bg-red-950\/30,
 html:not(.dark) .bg-red-950\/40 {
-  background-color: rgba(254, 226, 226, 0.6) !important;
+  background-color: oklch(93.6% 0.032 17.717 / 0.6) !important;
 }
 html:not(.dark) .bg-sky-950\/40 {
-  background-color: rgba(224, 242, 254, 0.6) !important;
-}
-html:not(.dark) .bg-violet-950\/20,
-html:not(.dark) .bg-violet-950\/30,
-html:not(.dark) .bg-violet-950\/40 {
-  background-color: rgba(237, 233, 254, 0.6) !important;
+  background-color: oklch(95.1% 0.026 236.824 / 0.6) !important;
 }
 html:not(.dark) .bg-emerald-950\/30,
 html:not(.dark) .bg-emerald-950\/40 {
-  background-color: rgba(209, 250, 229, 0.6) !important;
+  background-color: oklch(95% 0.052 163.051 / 0.6) !important;
 }
 html:not(.dark) .bg-amber-950\/20,
 html:not(.dark) .bg-amber-950\/30,
 html:not(.dark) .bg-amber-950\/40 {
-  background-color: rgba(254, 243, 199, 0.6) !important;
+  background-color: oklch(96.2% 0.059 95.617 / 0.6) !important;
 }
 html:not(.dark) .bg-amber-950\/80 {
-  background-color: rgba(254, 243, 199, 0.85) !important;
+  background-color: oklch(96.2% 0.059 95.617 / 0.85) !important;
 }
 
+/* Semantic text: the -300/-400 tones are tuned for dark surfaces, so light
+   mode steps them down to -700/-600. */
 html:not(.dark) .text-red-300 {
-  color: #b91c1c !important;
+  color: oklch(50.5% 0.213 27.518) !important;
 }
 html:not(.dark) .text-red-400 {
-  color: #dc2626 !important;
+  color: oklch(57.7% 0.245 27.325) !important;
 }
 html:not(.dark) .text-red-400\/60 {
-  color: rgba(220, 38, 38, 0.65) !important;
+  color: oklch(57.7% 0.245 27.325 / 0.65) !important;
 }
 html:not(.dark) .text-red-400\/70 {
-  color: rgba(220, 38, 38, 0.75) !important;
+  color: oklch(57.7% 0.245 27.325 / 0.75) !important;
 }
 html:not(.dark) .text-red-400\/80 {
-  color: rgba(220, 38, 38, 0.85) !important;
+  color: oklch(57.7% 0.245 27.325 / 0.85) !important;
 }
 html:not(.dark) .text-rose-300 {
-  color: #be123c !important;
+  color: oklch(51.4% 0.222 16.935) !important;
 }
 html:not(.dark) .text-rose-400 {
-  color: #e11d48 !important;
+  color: oklch(58.6% 0.253 17.585) !important;
 }
 html:not(.dark) .text-sky-300 {
-  color: #0369a1 !important;
+  color: oklch(50% 0.134 242.749) !important;
 }
 html:not(.dark) .text-sky-400 {
-  color: #0284c7 !important;
+  color: oklch(58.8% 0.158 241.966) !important;
 }
 html:not(.dark) .text-sky-400\/70 {
-  color: rgba(2, 132, 199, 0.75) !important;
-}
-html:not(.dark) .text-violet-300 {
-  color: #6d28d9 !important;
-}
-html:not(.dark) .text-violet-300\/80 {
-  color: rgba(109, 40, 217, 0.85) !important;
-}
-html:not(.dark) .text-violet-400 {
-  color: #7c3aed !important;
+  color: oklch(58.8% 0.158 241.966 / 0.75) !important;
 }
 html:not(.dark) .text-amber-300 {
-  color: #b45309 !important;
+  color: oklch(55.5% 0.163 48.998) !important;
 }
 html:not(.dark) .text-amber-300\/60 {
-  color: rgba(180, 83, 9, 0.65) !important;
+  color: oklch(55.5% 0.163 48.998 / 0.65) !important;
 }
 html:not(.dark) .text-amber-300\/80 {
-  color: rgba(180, 83, 9, 0.85) !important;
+  color: oklch(55.5% 0.163 48.998 / 0.85) !important;
 }
 html:not(.dark) .text-amber-400 {
-  color: #d97706 !important;
+  color: oklch(66.6% 0.179 58.318) !important;
 }
 html:not(.dark) .text-amber-400\/70 {
-  color: rgba(217, 119, 6, 0.75) !important;
+  color: oklch(66.6% 0.179 58.318 / 0.75) !important;
 }
 html:not(.dark) .text-amber-400\/90 {
-  color: rgba(217, 119, 6, 0.95) !important;
+  color: oklch(66.6% 0.179 58.318 / 0.95) !important;
+}
+/* F2 — emerald was the ONE semantic family this layer never remapped, so every
+   green figure in light mode rendered emerald-400 on a white card at 1.94:1:
+   effectively invisible, across 305 slots, on the most important colour in the
+   app (money in). Stepped to emerald-700 for 5.36:1 AA, matching how red-400
+   and amber-400 are already handled. Pre-existing bug, fixed here because this
+   layer was being rewritten anyway. */
+html:not(.dark) .text-emerald-300 {
+  color: oklch(43.2% 0.095 166.913) !important;
+}
+html:not(.dark) .text-emerald-400 {
+  color: oklch(50.8% 0.118 165.612) !important;
+}
+html:not(.dark) .text-green-400 {
+  color: oklch(52.7% 0.154 150.069) !important;
 }
 
-/* === COLORED ACCENTS (fintech card design — preserve in light mode) === */
+/* =============================================================
+ * COLOURED ACCENT EDGES (fintech card design)
+ * =============================================================
+ * These re-assert a card's left-border / hover-border colour, because the
+ * `border-color` shorthand overrides above would otherwise clobber it on any
+ * element carrying BOTH border-slate-700 and border-l-<colour>-500.
+ *
+ * They now have to cover DARK mode too: before this change dark mode had no
+ * border-color override, so Tailwind's own utility survived on its own. It no
+ * longer does.
+ *
+ * blue-* resolves to the accent (D8); every other family keeps its Tailwind
+ * value in both modes (D1).
+ * ============================================================= */
+html:not(.dark) .border-l-blue-500,
+html:not(.dark) .border-l-violet-500,
+html.dark .border-l-blue-500,
+html.dark .border-l-violet-500 {
+  border-left-color: var(--a-500) !important;
+}
+html:not(.dark) .border-l-emerald-500,
+html.dark .border-l-emerald-500 {
+  border-left-color: oklch(69.6% 0.17 162.48) !important;
+}
+html:not(.dark) .border-l-green-500,
+html.dark .border-l-green-500 {
+  border-left-color: oklch(72.3% 0.219 149.579) !important;
+}
+html:not(.dark) .border-l-lime-500,
+html.dark .border-l-lime-500 {
+  border-left-color: oklch(76.8% 0.233 130.85) !important;
+}
+html:not(.dark) .border-l-sky-500,
+html.dark .border-l-sky-500 {
+  border-left-color: oklch(68.5% 0.169 237.323) !important;
+}
+html:not(.dark) .border-l-rose-500,
+html.dark .border-l-rose-500 {
+  border-left-color: oklch(64.5% 0.246 16.439) !important;
+}
+html:not(.dark) .border-l-red-500,
+html.dark .border-l-red-500 {
+  border-left-color: oklch(63.7% 0.237 25.331) !important;
+}
+html:not(.dark) .border-l-orange-500,
+html.dark .border-l-orange-500 {
+  border-left-color: oklch(70.5% 0.213 47.604) !important;
+}
+html:not(.dark) .border-l-amber-500,
+html.dark .border-l-amber-500 {
+  border-left-color: oklch(76.9% 0.188 70.08) !important;
+}
+html:not(.dark) .border-l-yellow-500,
+html.dark .border-l-yellow-500 {
+  border-left-color: oklch(79.5% 0.184 86.047) !important;
+}
+html:not(.dark) .border-l-fuchsia-500,
+html.dark .border-l-fuchsia-500 {
+  border-left-color: oklch(66.7% 0.295 322.15) !important;
+}
+html:not(.dark) .border-l-cyan-500,
+html.dark .border-l-cyan-500 {
+  border-left-color: oklch(71.5% 0.143 215.221) !important;
+}
+html:not(.dark) .border-l-teal-500,
+html.dark .border-l-teal-500 {
+  border-left-color: oklch(70.4% 0.14 182.503) !important;
+}
+html:not(.dark) .border-l-slate-500,
+html.dark .border-l-slate-500 {
+  border-left-color: var(--b-600) !important;
+}
 
-/* Left-border color accents */
-html:not(.dark) .border-l-blue-500 {
-  border-left-color: rgb(59 130 246) !important;
+/* Hover border accents */
+html:not(.dark) .hover\:border-blue-500\/50:hover,
+html:not(.dark) .hover\:border-violet-500\/50:hover,
+html.dark .hover\:border-blue-500\/50:hover,
+html.dark .hover\:border-violet-500\/50:hover {
+  border-color: var(--a-tint-50) !important;
 }
-html:not(.dark) .border-l-violet-500 {
-  border-left-color: rgb(139 92 246) !important;
+html:not(.dark) .hover\:border-emerald-500\/50:hover,
+html.dark .hover\:border-emerald-500\/50:hover {
+  border-color: oklch(69.6% 0.17 162.48 / 0.5) !important;
 }
-html:not(.dark) .border-l-emerald-500 {
-  border-left-color: rgb(16 185 129) !important;
+html:not(.dark) .hover\:border-green-500\/50:hover,
+html.dark .hover\:border-green-500\/50:hover {
+  border-color: oklch(72.3% 0.219 149.579 / 0.5) !important;
 }
-html:not(.dark) .border-l-green-500 {
-  border-left-color: rgb(34 197 94) !important;
+html:not(.dark) .hover\:border-lime-500\/50:hover,
+html.dark .hover\:border-lime-500\/50:hover {
+  border-color: oklch(76.8% 0.233 130.85 / 0.5) !important;
 }
-html:not(.dark) .border-l-lime-500 {
-  border-left-color: rgb(132 204 22) !important;
+html:not(.dark) .hover\:border-sky-500\/50:hover,
+html.dark .hover\:border-sky-500\/50:hover {
+  border-color: oklch(68.5% 0.169 237.323 / 0.5) !important;
 }
-html:not(.dark) .border-l-sky-500 {
-  border-left-color: rgb(14 165 233) !important;
+html:not(.dark) .hover\:border-rose-500\/50:hover,
+html.dark .hover\:border-rose-500\/50:hover {
+  border-color: oklch(64.5% 0.246 16.439 / 0.5) !important;
 }
-html:not(.dark) .border-l-rose-500 {
-  border-left-color: rgb(244 63 94) !important;
+html:not(.dark) .hover\:border-red-500\/50:hover,
+html.dark .hover\:border-red-500\/50:hover {
+  border-color: oklch(63.7% 0.237 25.331 / 0.5) !important;
 }
-html:not(.dark) .border-l-red-500 {
-  border-left-color: rgb(239 68 68) !important;
+html:not(.dark) .hover\:border-orange-500\/50:hover,
+html.dark .hover\:border-orange-500\/50:hover {
+  border-color: oklch(70.5% 0.213 47.604 / 0.5) !important;
 }
-html:not(.dark) .border-l-orange-500 {
-  border-left-color: rgb(249 115 22) !important;
+html:not(.dark) .hover\:border-amber-500\/50:hover,
+html.dark .hover\:border-amber-500\/50:hover {
+  border-color: oklch(76.9% 0.188 70.08 / 0.5) !important;
 }
-html:not(.dark) .border-l-amber-500 {
-  border-left-color: rgb(245 158 11) !important;
+html:not(.dark) .hover\:border-yellow-500\/50:hover,
+html.dark .hover\:border-yellow-500\/50:hover {
+  border-color: oklch(79.5% 0.184 86.047 / 0.5) !important;
 }
-html:not(.dark) .border-l-yellow-500 {
-  border-left-color: rgb(234 179 8) !important;
+html:not(.dark) .hover\:border-fuchsia-500\/50:hover,
+html.dark .hover\:border-fuchsia-500\/50:hover {
+  border-color: oklch(66.7% 0.295 322.15 / 0.5) !important;
 }
-html:not(.dark) .border-l-fuchsia-500 {
-  border-left-color: rgb(217 70 239) !important;
-}
-html:not(.dark) .border-l-cyan-500 {
-  border-left-color: rgb(6 182 212) !important;
-}
-html:not(.dark) .border-l-slate-500 {
-  border-left-color: rgb(100 116 139) !important;
-}
-
-/* Hover border color accents */
-html:not(.dark) .hover\:border-blue-500\/50:hover {
-  border-color: rgba(59, 130, 246, 0.5) !important;
-}
-html:not(.dark) .hover\:border-violet-500\/50:hover {
-  border-color: rgba(139, 92, 246, 0.5) !important;
-}
-html:not(.dark) .hover\:border-emerald-500\/50:hover {
-  border-color: rgba(16, 185, 129, 0.5) !important;
-}
-html:not(.dark) .hover\:border-green-500\/50:hover {
-  border-color: rgba(34, 197, 94, 0.5) !important;
-}
-html:not(.dark) .hover\:border-lime-500\/50:hover {
-  border-color: rgba(132, 204, 22, 0.5) !important;
-}
-html:not(.dark) .hover\:border-sky-500\/50:hover {
-  border-color: rgba(14, 165, 233, 0.5) !important;
-}
-html:not(.dark) .hover\:border-rose-500\/50:hover {
-  border-color: rgba(244, 63, 94, 0.5) !important;
-}
-html:not(.dark) .hover\:border-red-500\/50:hover {
-  border-color: rgba(239, 68, 68, 0.5) !important;
-}
-html:not(.dark) .hover\:border-orange-500\/50:hover {
-  border-color: rgba(249, 115, 22, 0.5) !important;
-}
-html:not(.dark) .hover\:border-amber-500\/50:hover {
-  border-color: rgba(245, 158, 11, 0.5) !important;
-}
-html:not(.dark) .hover\:border-yellow-500\/50:hover {
-  border-color: rgba(234, 179, 8, 0.5) !important;
-}
-html:not(.dark) .hover\:border-fuchsia-500\/50:hover {
-  border-color: rgba(217, 70, 239, 0.5) !important;
-}
-html:not(.dark) .hover\:border-slate-500\/50:hover {
-  border-color: rgba(100, 116, 139, 0.5) !important;
+html:not(.dark) .hover\:border-slate-500\/50:hover,
+html.dark .hover\:border-slate-500\/50:hover {
+  border-color: var(--b-600) !important;
 }
 
 /* Hover colored shadows — these have higher specificity (:hover pseudo-class) so they
-   beat the !important shadow-lg override above and show the accent glow on hover */
-html:not(.dark) .hover\:shadow-blue-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(59, 130, 246, 0.3) !important;
-}
+   beat the !important shadow-lg override above and show the accent glow on hover.
+   Light-only: dark mode has no shadow override to fight. */
+html:not(.dark) .hover\:shadow-blue-500\/20:hover,
 html:not(.dark) .hover\:shadow-violet-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(139, 92, 246, 0.3) !important;
+  box-shadow: 0 8px 24px -4px var(--a-glow) !important;
 }
 html:not(.dark) .hover\:shadow-emerald-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(16, 185, 129, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(69.6% 0.17 162.48 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-green-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(34, 197, 94, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(72.3% 0.219 149.579 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-lime-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(132, 204, 22, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(76.8% 0.233 130.85 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-sky-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(14, 165, 233, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(68.5% 0.169 237.323 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-rose-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(244, 63, 94, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(64.5% 0.246 16.439 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-red-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(239, 68, 68, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(63.7% 0.237 25.331 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-orange-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(249, 115, 22, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(70.5% 0.213 47.604 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-amber-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(245, 158, 11, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(76.9% 0.188 70.08 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-yellow-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(234, 179, 8, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(79.5% 0.184 86.047 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-fuchsia-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(217, 70, 239, 0.3) !important;
+  box-shadow: 0 8px 24px -4px oklch(66.7% 0.295 322.15 / 0.3) !important;
 }
 html:not(.dark) .hover\:shadow-slate-500\/20:hover {
-  box-shadow: 0 8px 24px -4px rgba(100, 116, 139, 0.15) !important;
+  box-shadow: 0 8px 24px -4px var(--b-600) !important;
 }
 
 /* === DYNAMIC SESSION ROW ACCENT (TransactionsViewer) ===
-   --session-hue is set inline on the <tr> (golden-angle hash of session_id).
-   In dark mode: bright border (62% L) + vivid tint.
-   In light mode: deeper border (42% L) + softer tint.
-   html:not(.dark) tr[data-session] has specificity (0,2,2) which beats the
-   (0,2,1) of html:not(.dark) .border-slate-800 that would otherwise reset all
-   border colours to light gray. */
-.dark tr[data-session] {
-  border-left: 4px solid hsla(var(--session-hue), 78%, 62%, 1) !important;
-  background-image: linear-gradient(
-    to right,
-    hsla(var(--session-hue), 78%, 62%, 0.2),
-    hsla(var(--session-hue), 78%, 62%, 0.06) 42%,
-    transparent 72%
-  );
-}
+   --session-hue is set inline on the <tr> (golden-angle hash of session_id);
+   saturation, lightness and the two tint alphas come from the mode tokens.
+   Specificity (0,2,2) beats the (0,2,1) of the .border-slate-800 rule that
+   would otherwise reset the left border to the neutral edge colour. */
+html.dark tr[data-session],
 html:not(.dark) tr[data-session] {
-  border-left: 4px solid hsla(var(--session-hue), 72%, 42%, 1) !important;
+  border-left: 4px solid
+    hsla(var(--session-hue), var(--session-sat), var(--session-lig), 1) !important;
   background-image: linear-gradient(
     to right,
-    hsla(var(--session-hue), 72%, 42%, 0.15),
-    hsla(var(--session-hue), 72%, 42%, 0.05) 42%,
+    hsla(
+      var(--session-hue),
+      var(--session-sat),
+      var(--session-lig),
+      var(--session-a1)
+    ),
+    hsla(
+        var(--session-hue),
+        var(--session-sat),
+        var(--session-lig),
+        var(--session-a2)
+      )
+      42%,
     transparent 72%
   );
 }
@@ -546,48 +1835,62 @@ html:not(.dark) tr[data-session] {
   transform-origin: left;
 }
 
-/* === NATIVE SELECT — hide OS arrow, add custom chevron, ensure right padding === */
+/* === NATIVE SELECT — hide OS arrow, add custom chevron, ensure right padding ===
+   The chevron stroke lives inside a URL-encoded SVG data URI, which cannot read
+   a custom property — so this is the one place the mode's muted text colour is
+   repeated as a literal hex (light --t-400 #77746b, dark --t-400 #99a4c2). */
 select {
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
   background-repeat: no-repeat;
   background-position: right 0.625rem center;
   background-size: 1.25rem;
   padding-right: 2.5rem !important;
 }
+html:not(.dark) select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2377746b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+}
+html.dark select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2399a4c2' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+}
 
-/* === SCROLLBAR === */
+/* === SCROLLBAR ===
+   Width is a normal 10px and the thumb fills it -- the gap between the bar and
+   the content beside it is NOT made here, it comes from layout: each page's
+   scroll container is pulled out to the page edge with -mr-6 and its content
+   pushed back in with pr-6, so the bar sits at the true right edge and the
+   cards stop 24px short of it. That leaves 24 - 10 = 14px of clear space.
+   Insetting the thumb with a transparent border was tried first and only made
+   the thumb thinner; it does not move the bar.
+
+   The track is transparent rather than a filled colour so the gutter reads as
+   empty space instead of a grey stripe running down the edge. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
-
-html:not(.dark) ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+html:not(.dark) ::-webkit-scrollbar-track,
+html.dark ::-webkit-scrollbar-track {
+  background-color: transparent;
 }
-html:not(.dark) ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+html:not(.dark) ::-webkit-scrollbar-thumb,
+html.dark ::-webkit-scrollbar-thumb {
+  background-color: var(--b-600);
+  border-radius: 5px;
 }
-html:not(.dark) ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+html:not(.dark) ::-webkit-scrollbar-thumb:hover,
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--t-500);
 }
-
-.dark ::-webkit-scrollbar-track {
-  background: transparent;
-}
-.dark ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 4px;
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+/* the square where a vertical and horizontal bar meet */
+html:not(.dark) ::-webkit-scrollbar-corner,
+html.dark ::-webkit-scrollbar-corner {
+  background-color: transparent;
 }
 
 /* === DATE PICKER CALENDAR ICON === */
-/* Dark mode: invert the browser's dark icon to slate-300 white */
-.dark input[type="date"]::-webkit-calendar-picker-indicator {
+/* Dark mode: invert the browser's dark icon so it reads on the navy surface */
+html.dark input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(1) opacity(0.7);
   cursor: pointer;
 }

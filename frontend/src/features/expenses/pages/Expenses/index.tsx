@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
-import { Plus, Banknote, History } from "lucide-react";
+import { Plus, History } from "lucide-react";
 import {
   appEvents,
   PageHeader,
@@ -179,7 +179,6 @@ export default function Expenses() {
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       {/* Header with Stats and History */}
       <PageHeader
-        icon={Banknote}
         title="Expenses"
         actions={
           <div className="flex items-center gap-2">

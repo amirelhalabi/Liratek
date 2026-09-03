@@ -1341,10 +1341,9 @@ export default function Services() {
   );
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-4 overflow-hidden animate-in fade-in duration-300">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col gap-4 overflow-hidden animate-in fade-in duration-300">
       {/* Header with Stats on Right */}
       <PageHeader
-        icon={Send}
         title="OMT/Whish"
         actions={
           <div className="flex items-center gap-2">
@@ -1380,7 +1379,7 @@ export default function Services() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
         <div className="w-full flex flex-col gap-4 pb-1">
           {/* ── Form Card ── */}
           <div

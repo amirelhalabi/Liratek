@@ -803,7 +803,6 @@ export default function ProductList() {
       />
 
       <PageHeader
-        icon={Package}
         title="Inventory"
         actions={
           <div className="flex items-center gap-2">

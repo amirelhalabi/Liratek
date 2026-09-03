@@ -233,7 +233,7 @@ export function VouchersPage() {
   return (
     <div className="h-full p-6 overflow-auto">
       <div className="mb-6">
-        <PageHeader icon={Gift} title="Vouchers" />
+        <PageHeader title="Vouchers" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

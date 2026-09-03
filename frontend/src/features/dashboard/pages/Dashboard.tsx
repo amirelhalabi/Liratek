@@ -27,7 +27,6 @@ import {
   Package,
   Wallet,
   AlertTriangle,
-  LayoutDashboard,
   Plus,
   Minus,
   ClipboardCheck,
@@ -855,9 +854,8 @@ export default function Dashboard() {
 
   return (
     <>
-      <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
+      <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
         <PageHeader
-          icon={LayoutDashboard}
           title="Dashboard"
           actions={<PageAlerts alerts={pageAlerts} />}
         />
@@ -907,7 +905,7 @@ export default function Dashboard() {
         )}
 
         {/* Scrollable content area */}
-        <div className="flex-1 min-h-0 overflow-auto space-y-6">
+        <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6 space-y-6">
           {/* Financial Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {financialCards.map((stat) => {

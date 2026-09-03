@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Settings as SettingsIcon, Tag } from "lucide-react";
+import { Tag } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
 import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
@@ -82,8 +82,8 @@ export default function Settings() {
   ] as { key: TabKey; label: string; icon?: typeof Tag }[];
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-      <PageHeader icon={SettingsIcon} title="Settings" />
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
+      <PageHeader title="Settings" />
 
       {/* Tab Navigation Section */}
       <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 shadow-lg flex flex-col overflow-hidden">
@@ -98,7 +98,7 @@ export default function Settings() {
             </button>
           ))}
         </div>
-        <div className="flex-1 min-h-0 overflow-auto p-4">
+        <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pl-4 pt-4 pr-10 pb-6">
           {active === "shop" && <ShopConfig />}
           {active === "categories" && <CategoriesManager />}
           {active === "notifications" && <NotificationsConfig />}

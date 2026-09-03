@@ -121,7 +121,6 @@ export default function CustomerSessions() {
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-4 overflow-hidden animate-in fade-in duration-300">
       <PageHeader
-        icon={Users}
         title="Customer Sessions"
         actions={
           <div className="flex items-center gap-3">
