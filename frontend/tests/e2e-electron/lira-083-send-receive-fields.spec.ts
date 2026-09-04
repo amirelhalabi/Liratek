@@ -16,7 +16,7 @@ test.describe("LIRA-083 (A2) — send/receive field visibility", () => {
   test("system form: SEND shows sender only; RECEIVE shows receiver only", async ({
     appPage,
   }) => {
-    await navigateTo(appPage, "/services");
+    await navigateTo(appPage, "/omt-whish");
 
     const senderName = appPage.locator("#service-sender-name");
     const receiverName = appPage.locator("#service-receiver-name");

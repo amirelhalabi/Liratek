@@ -37,7 +37,8 @@ export function useShopBase(): ShopBase {
 
     if (cachedBase === null) {
       // Dual-mode (IPC on desktop, REST in web) — window.api.settings is
-      // undefined in a browser and crashed /services + /suppliers.
+      // undefined in a browser and crashed /omt-whish (was /services) +
+      // /suppliers.
       getAllSettings()
         .then((settings: Array<{ key_name: string; value: string }>) => {
           const setting = settings.find(

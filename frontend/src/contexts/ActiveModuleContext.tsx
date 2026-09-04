@@ -7,7 +7,7 @@ const routeToModule: Record<string, string> = {
   "/products": "inventory",
   "/clients": "clients",
   "/exchange": "exchange",
-  "/services": "omt_whish",
+  "/omt-whish": "omt_whish",
   "/recharge": "recharge",
   "/expenses": "expenses",
   "/maintenance": "maintenance",

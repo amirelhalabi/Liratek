@@ -9808,6 +9808,80 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 162,
+    name: "rename_omt_whish_route_to_omt_whish",
+    description:
+      "The 'omt_whish' module (UI label 'OMT/Whish') was seeded with route = '/services', which " +
+        "collides with the UNRELATED 'custom_services' module — whose UI label is 'Services' but " +
+        "whose route is '/custom-services'. The identical route string on two different module " +
+        "keys has misled multiple investigations into thinking the two modules were the same " +
+        "page. This migration repoints ONLY 'omt_whish' to '/omt-whish'; 'custom_services' " +
+        "(key, label, and route) is deliberately left untouched — it was never the problem. " +
+        "'/services' survives in frontend/src/app/App.tsx as a transitional redirect to the new " +
+        "path, so existing deep links and any mid-session user on the old route still land on the " +
+        "same page.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Same defensive shape as v160/v161: migration-runner test harnesses
+      // build minimal per-migration fixture DBs and replay EVERY migration
+      // over them, so a bare UPDATE here must not assume 'modules' exists.
+      const hasModules = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'modules'`,
+        )
+        .get();
+      if (!hasModules) {
+        console.log("Migration v162 skipped: 'modules' table not present");
+        return;
+      }
+
+      // Deliberately UNSCOPED by tenant_id, even though modules.tenant_id is
+      // part of its primary key and yarn check:tenant-scoping runs in CI:
+      // frontend/src/app/App.tsx's route table is compiled once per build,
+      // not per tenant, so every tenant's 'omt_whish' row must point at the
+      // same '/omt-whish' path. A tenant left behind on '/services' would
+      // hit the transitional redirect forever instead of the real page.
+      // Keying the predicate on `key = 'omt_whish'` (not on the old route
+      // value) keeps this idempotent and legible on re-run.
+      // This matches the precedent set by the prior module-route UPDATEs at
+      // migrations/index.ts:149-150 (`UPDATE modules SET route = '/recharge'
+      // WHERE key = 'ipec_katch'` / `'binance'`), which are likewise
+      // unscoped. Also note modules.route carries no UNIQUE constraint (only
+      // the (tenant_id, key) primary key is unique), so this update cannot
+      // fail on ordering mid-migration.
+      const result = db
+        .prepare(`UPDATE modules SET route = ? WHERE key = ?`)
+        .run("/omt-whish", "omt_whish");
+
+      console.log(
+        `Migration v162: 'omt_whish' module route updated to '/omt-whish' on ${result.changes} row(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      const hasModules = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'modules'`,
+        )
+        .get();
+      if (!hasModules) {
+        console.log(
+          "Migration v162 rollback skipped: 'modules' table not present",
+        );
+        return;
+      }
+
+      // Exact reverse of up() — same deliberate cross-tenant scope, same
+      // identity-keyed predicate.
+      const result = db
+        .prepare(`UPDATE modules SET route = ? WHERE key = ?`)
+        .run("/services", "omt_whish");
+
+      console.log(
+        `Migration v162 rolled back: 'omt_whish' module route restored to '/services' on ${result.changes} row(s)`,
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

@@ -43,7 +43,7 @@ test("Inventory: page loads", async ({ appPage }) => {
 });
 
 test("Services: page loads and OMT buttons active", async ({ appPage }) => {
-  await navigateTo(appPage, "/services");
+  await navigateTo(appPage, "/omt-whish");
   const omtBtn = appPage.locator("button").filter({ hasText: "OMT" }).first();
   await expect(omtBtn).toBeVisible({ timeout: 10_000 });
   await expect(omtBtn).toBeEnabled();
@@ -193,7 +193,7 @@ test("Exchange: complete USD to LBP exchange", async ({ appPage }) => {
 });
 
 test("Services: complete OMT send transaction", async ({ appPage }) => {
-  await navigateTo(appPage, "/services");
+  await navigateTo(appPage, "/omt-whish");
 
   // Select OMT SEND
   const omtSendBtn = appPage
@@ -411,7 +411,7 @@ test.describe("Debts (self-seeded)", () => {
 test("Services: WHISH disabled without partner (OMT-base)", async ({
   appPage,
 }) => {
-  await navigateTo(appPage, "/services");
+  await navigateTo(appPage, "/omt-whish");
 
   const firstWhish = appPage
     .locator("button")

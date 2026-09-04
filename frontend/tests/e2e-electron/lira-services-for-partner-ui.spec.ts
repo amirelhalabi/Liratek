@@ -1,5 +1,5 @@
 /**
- * E2E: Services (OMT/Whish, route `/services`) — the real For-Partner form,
+ * E2E: Services (OMT/Whish, route `/omt-whish`) — the real For-Partner form,
  * driven through the UI, not a hand-built IPC payload.
  *
  * WHY THIS SPEC EXISTS. Commit `fd5444cc` fixed LIRA-114 §4: the For-Partner
@@ -221,7 +221,7 @@ test.describe("Services (OMT/Whish) — real For-Partner form, UI-driven", () =>
     const forType = baseSystem === "OMT" ? "FOR_OMT_SEND" : "FOR_WHISH_SEND";
     const systemDrawer = baseSystem === "OMT" ? "OMT_System" : "Whish_System";
 
-    await navigateTo(appPage, "/services");
+    await navigateTo(appPage, "/omt-whish");
     await pickTab(appPage, baseSystem, "SEND");
 
     const amountInput = appPage.locator("#service-amount");

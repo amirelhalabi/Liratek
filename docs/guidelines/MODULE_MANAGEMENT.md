@@ -39,7 +39,7 @@ The `modules` table (`create_db.sql` line 488):
 | `inventory`       | Inventory     | Package      | `/products`        | 4          |
 | `clients`         | Clients       | Users        | `/clients`         | 5          |
 | `exchange`        | Exchange      | RefreshCw    | `/exchange`        | 6          |
-| `omt_whish`       | OMT/Whish     | Send         | `/services`        | 7          |
+| `omt_whish`       | OMT/Whish     | Send         | `/omt-whish`       | 7          |
 | `recharge`        | MTC/Alfa      | Smartphone   | `/recharge`        | 8          |
 | `expenses`        | Expenses      | Banknote     | `/expenses`        | 9          |
 | `maintenance`     | Maintenance   | Wrench       | `/maintenance`     | 10         |

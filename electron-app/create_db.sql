@@ -1402,7 +1402,7 @@ INSERT OR IGNORE INTO modules (tenant_id, key, label, icon, route, sort_order, i
   (1, 'inventory',   'Inventory',    'Package',       '/products',      3,  1, 0, 0),
   (1, 'clients',     'Clients',      'Users',         '/clients',       4,  1, 0, 0),
   (1, 'exchange',    'Exchange',     'RefreshCw',     '/exchange',      5,  1, 0, 0),
-  (1, 'omt_whish',   'OMT/Whish',   'Send',          '/services',      6,  1, 0, 0),
+  (1, 'omt_whish',   'OMT/Whish',   'Send',          '/omt-whish',     6,  1, 0, 0),
   (1, 'recharge',    'MTC/Alfa',     'Smartphone',    '/recharge',      7,  0, 0, 0),
   (1, 'expenses',    'Expenses',     'Banknote',      '/expenses',      8,  1, 0, 0),
   (1, 'maintenance', 'Maintenance',  'Wrench',        '/maintenance',   9,  1, 0, 0),

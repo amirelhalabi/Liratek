@@ -158,7 +158,7 @@ async function recordOmtSystemSendOnAccount(
   page: Page,
   opts: { client: string; phone: string; amount: number; fee: number },
 ): Promise<number> {
-  await navigateTo(page, "/services");
+  await navigateTo(page, "/omt-whish");
   await pickOmt(page, "SEND");
 
   const amountInput = page.locator("#service-amount");
