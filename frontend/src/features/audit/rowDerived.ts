@@ -12,6 +12,7 @@ import { saleTenderTotals } from "./cashFlow";
 import {
   billsOnlyCommissionAmount,
   getSplitGroupInfo,
+  isProviderBalanceInflow,
   isSignedPartnerType,
   isSupplierCredit,
 } from "./transactionDisplay";
@@ -30,6 +31,8 @@ export type RowDerived = {
   splitGroup: { groupId: string; units: number | null } | null;
   /** Bills-only settlement commission, unreachable via `row.payments`. */
   commissionAmount: { usd: number; lbp: number } | null;
+  /** LIRA-140: the row's money landed in a provider balance, not a till. */
+  providerBalance: boolean;
 };
 
 export function deriveRow(row: TransactionRow): RowDerived {
@@ -39,5 +42,6 @@ export function deriveRow(row: TransactionRow): RowDerived {
     tender: saleTenderTotals(row.type, row.payments),
     splitGroup: getSplitGroupInfo(row.metadata_json),
     commissionAmount: billsOnlyCommissionAmount(row),
+    providerBalance: isProviderBalanceInflow(row),
   };
 }

@@ -355,6 +355,16 @@ export function checkpointPhysicalTotals(
 // ---------------------------------------------------------------------------
 
 /**
+ * The two ways a bills-only commission settlement can be collected — see
+ * `SupplierRepository._bookBillsCommissionDrawerTopUp` and the
+ * `metadata_json.commission_collection_mode` field it stamps. Named here
+ * (rule 14) so the literal isn't pasted twice between
+ * `billsCommissionModeLine` and `isProviderBalanceInflow` below.
+ */
+const COMMISSION_MODE_TOP_UP = "TOP_UP";
+const COMMISSION_MODE_OTHER_PAYMENT = "OTHER_PAYMENT";
+
+/**
  * A supplier credit booked in our favour with NO cash movement — e.g. the fixed
  * commission earned when selling an iPick/Katsh bill. The supplier_ledger stores
  * it as a negative (credit) entry so its running balance stays valid; the journal
@@ -370,6 +380,52 @@ export function isSupplierCredit(
   try {
     const m = JSON.parse(metaJson) as { is_credit?: boolean };
     return m.is_credit === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * LIRA-140: true when this row's money landed in a PROVIDER BALANCE rather
+ * than a till — it matches the split the closing count sheet already makes
+ * (till cash and provider balances are different money), and the
+ * Transactions page is the one place they currently look the same (both
+ * rendered the plain green "cash in" arrow).
+ *
+ * Covers exactly TWO shapes, composed from their own existing gates rather
+ * than re-derived here (rule 14 — never copy-paste a business predicate):
+ *
+ *   1. The legacy cashless `SUPPLIER_PAYMENT` receivable — delegated
+ *      entirely to `isSupplierCredit`, untouched.
+ *   2. The LIRA-137 bills-only settlement drawer top-up — gated first by
+ *      `billsOnlyCommissionAmount` (the bills-only shape itself: a real
+ *      SUPPLIER_SETTLEMENT with the contractual 0/0 stored amount), then by
+ *      `metadata_json.commission_collection_mode`:
+ *        - COMMISSION_MODE_TOP_UP, or the field ABSENT: the commission was
+ *          credited into the provider's own drawer — provider balance, not
+ *          till cash. An absent field still means TOP_UP ran —
+ *          `SupplierRepository.ts:1500-1501` stamps
+ *          `data.commission_collection_mode ?? "TOP_UP"`, so a real
+ *          bills-only row never has a meaningfully-absent value here.
+ *        - COMMISSION_MODE_OTHER_PAYMENT: excluded — this mode collects a
+ *          real payment leg, which really does hit a drawer, so it is till
+ *          money and keeps the plain green arrow.
+ *
+ * `isSupplierCredit` itself is unchanged and remains exported — it still
+ * renders legacy rows on its own, and remains the ready-made hook for
+ * LIRA-138.
+ */
+export function isProviderBalanceInflow(row: TransactionRow): boolean {
+  if (isSupplierCredit(row.type, row.metadata_json)) return true;
+  if (!billsOnlyCommissionAmount(row)) return false;
+  try {
+    const meta = JSON.parse(row.metadata_json ?? "{}") as {
+      commission_collection_mode?: unknown;
+    };
+    // Only an explicit OTHER_PAYMENT collected a real leg into a real
+    // drawer; TOP_UP, an absent field, or any non-string value all default
+    // to the provider-balance (TOP_UP) reading — see the doc comment above.
+    return meta.commission_collection_mode !== COMMISSION_MODE_OTHER_PAYMENT;
   } catch {
     return false;
   }
@@ -485,8 +541,8 @@ export function billsCommissionModeLine(
       counterparty?: { method?: unknown } | null;
     };
     const mode = meta.commission_collection_mode;
-    if (mode === "OTHER_PAYMENT") return "Other payment";
-    if (mode !== "TOP_UP") return null;
+    if (mode === COMMISSION_MODE_OTHER_PAYMENT) return "Other payment";
+    if (mode !== COMMISSION_MODE_TOP_UP) return null;
     const providerMethod =
       typeof meta.counterparty?.method === "string"
         ? meta.counterparty.method

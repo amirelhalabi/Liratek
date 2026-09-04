@@ -80,6 +80,7 @@ export function SummaryCell({
           amountLbp={commissionAmount?.lbp ?? tender?.lbp ?? row.amount_lbp}
           metaJson={row.metadata_json}
           legs={row.payments}
+          providerBalance={derived.providerBalance}
         />
         {row.summary && (
           <span className="text-slate-400 truncate max-w-[480px]">

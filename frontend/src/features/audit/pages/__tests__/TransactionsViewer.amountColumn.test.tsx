@@ -270,6 +270,222 @@ describe("TransactionsViewer — CashFlowBadge for a bills-only settlement", () 
   });
 });
 
+// ---------------------------------------------------------------------------
+// LIRA-140 — provider-balance marker (amber "+") vs the plain green cash-in
+// arrow.
+//
+// `isProviderBalanceInflow` (../../transactionDisplay.ts) widens the amber
+// marker's gate from `isSupplierCredit` alone to ALSO cover a LIRA-137
+// bills-only settlement whose commission was collected via a provider
+// drawer top-up (`commission_collection_mode` TOP_UP or absent) — that
+// money never touched a till, unlike an OTHER_PAYMENT-mode settlement or an
+// ordinary cash receipt. Interaction-level (rule 17): renders the REAL page
+// + REAL DataTable, matches rows by identity (a unique summary substring,
+// never row position — rule 15).
+// ---------------------------------------------------------------------------
+
+const TOP_UP_EXPLICIT_SUMMARY =
+  "Settlement: 1 txns — iPick credited 250,000 LBP commission";
+const topUpExplicitRow = baseRow({
+  id: 105,
+  type: "SUPPLIER_SETTLEMENT",
+  source_table: "supplier_ledger",
+  amount_usd: 0,
+  amount_lbp: 0,
+  summary: TOP_UP_EXPLICIT_SUMMARY,
+  created_at: "2026-08-12 01:11:00",
+  metadata_json: JSON.stringify({
+    supplier_id: 7,
+    financial_service_ids: [6],
+    commission_usd: 0,
+    commission_lbp: 250000,
+    commission_model: 1,
+    entry_mode: "LUMP",
+    commission_collection_mode: "TOP_UP",
+    counterparty: {
+      kind: "supplier",
+      id: 7,
+      name: "iPick",
+      flow: "IN",
+      method: "iPick",
+    },
+  }),
+});
+
+const OTHER_PAYMENT_SUMMARY_140 =
+  "Settlement: 1 txns — iPick credited 300,000 LBP commission";
+const otherPaymentRow140 = baseRow({
+  id: 106,
+  type: "SUPPLIER_SETTLEMENT",
+  source_table: "supplier_ledger",
+  amount_usd: 0,
+  amount_lbp: 0,
+  summary: OTHER_PAYMENT_SUMMARY_140,
+  created_at: "2026-08-12 01:12:00",
+  payments: [
+    {
+      direction: "in",
+      amount: 300000,
+      signed_amount: 300000,
+      currency_code: "LBP",
+      method: "CASH",
+    },
+  ],
+  metadata_json: JSON.stringify({
+    supplier_id: 7,
+    financial_service_ids: [7],
+    commission_usd: 0,
+    commission_lbp: 300000,
+    commission_model: 1,
+    entry_mode: "LUMP",
+    commission_collection_mode: "OTHER_PAYMENT",
+    counterparty: {
+      kind: "supplier",
+      id: 7,
+      name: "iPick",
+      flow: "IN",
+      method: "CASH",
+    },
+  }),
+});
+
+// Legacy cashless SUPPLIER_PAYMENT receivable — `is_credit: true`, no
+// `is_auto` key. Per verified fact 7 (`isSupplierPaymentVisible`,
+// auditConstants.ts:111): with `selectedFilter="All"` the active filter
+// option is undefined, so visibility is `!isAutoSupplierPayment(metaJson)` —
+// an `is_auto: true` row would be hidden and the assertion below would fail
+// for the wrong reason.
+const LEGACY_CREDIT_SUMMARY = "Legacy supplier credit — bill commission";
+const legacyCreditRow = baseRow({
+  id: 107,
+  type: "SUPPLIER_PAYMENT",
+  source_table: "supplier_ledger",
+  amount_usd: 0,
+  amount_lbp: 45000,
+  summary: LEGACY_CREDIT_SUMMARY,
+  created_at: "2026-08-12 01:13:00",
+  metadata_json: JSON.stringify({
+    supplier_id: 8,
+    is_credit: true,
+  }),
+});
+
+describe("TransactionsViewer — LIRA-140 provider-balance marker", () => {
+  beforeEach(() => {
+    mockGetRecentTransactions.mockReset();
+  });
+
+  it("bills-only settlement, explicit commission_collection_mode TOP_UP: amber provider marker, data-direction stays in", async () => {
+    mockGetRecentTransactions.mockResolvedValue([topUpExplicitRow]);
+
+    render(
+      <TransactionsViewer
+        limit="50"
+        selectedFilter="All"
+        search=""
+        from=""
+        to=""
+      />,
+    );
+
+    await waitFor(() =>
+      screen.getByText(TOP_UP_EXPLICIT_SUMMARY, { exact: false }),
+    );
+
+    const badge = badgeInRowFor(TOP_UP_EXPLICIT_SUMMARY);
+    expect(badge.getAttribute("data-cash-location")).toBe("provider");
+    expect(badge.textContent).toContain("+");
+    // Guards the lira-141 e2e contract (assertCashFlowBadge): direction
+    // stays "in" regardless of location — only the location differs.
+    expect(badge.getAttribute("data-direction")).toBe("in");
+  });
+
+  it("bills-only settlement, commission_collection_mode field ABSENT: also amber (core's documented TOP_UP default)", async () => {
+    mockGetRecentTransactions.mockResolvedValue([billsOnlySettlementRow]);
+
+    render(
+      <TransactionsViewer
+        limit="50"
+        selectedFilter="All"
+        search=""
+        from=""
+        to=""
+      />,
+    );
+
+    await waitFor(() => screen.getByText(BILLS_ONLY_SUMMARY, { exact: false }));
+
+    const badge = badgeInRowFor(BILLS_ONLY_SUMMARY);
+    expect(badge.getAttribute("data-cash-location")).toBe("provider");
+    expect(badge.getAttribute("data-direction")).toBe("in");
+  });
+
+  it("bills-only settlement, explicit commission_collection_mode OTHER_PAYMENT: no provider marker, plain green in", async () => {
+    mockGetRecentTransactions.mockResolvedValue([otherPaymentRow140]);
+
+    render(
+      <TransactionsViewer
+        limit="50"
+        selectedFilter="All"
+        search=""
+        from=""
+        to=""
+      />,
+    );
+
+    await waitFor(() =>
+      screen.getByText(OTHER_PAYMENT_SUMMARY_140, { exact: false }),
+    );
+
+    const badge = badgeInRowFor(OTHER_PAYMENT_SUMMARY_140);
+    expect(badge.getAttribute("data-cash-location")).toBeNull();
+    expect(badge.getAttribute("data-direction")).toBe("in");
+  });
+
+  it("legacy is_credit SUPPLIER_PAYMENT row: provider marker still present (legacy rows undisturbed)", async () => {
+    mockGetRecentTransactions.mockResolvedValue([legacyCreditRow]);
+
+    render(
+      <TransactionsViewer
+        limit="50"
+        selectedFilter="All"
+        search=""
+        from=""
+        to=""
+      />,
+    );
+
+    // Confirm the row actually renders before asserting on it (verified
+    // fact 7 — an is_auto row would silently be filtered out instead).
+    await waitFor(() =>
+      screen.getByText(LEGACY_CREDIT_SUMMARY, { exact: false }),
+    );
+
+    const badge = badgeInRowFor(LEGACY_CREDIT_SUMMARY);
+    expect(badge.getAttribute("data-cash-location")).toBe("provider");
+  });
+
+  it("ordinary cash receipt (SALE): plain green in, no provider marker", async () => {
+    mockGetRecentTransactions.mockResolvedValue([normalSaleRow]);
+
+    render(
+      <TransactionsViewer
+        limit="50"
+        selectedFilter="All"
+        search=""
+        from=""
+        to=""
+      />,
+    );
+
+    await waitFor(() => screen.getByText(SALE_SUMMARY, { exact: false }));
+
+    const badge = badgeInRowFor(SALE_SUMMARY);
+    expect(badge.getAttribute("data-cash-location")).toBeNull();
+    expect(badge.getAttribute("data-direction")).toBe("in");
+  });
+});
+
 describe("TransactionsViewer — Amount column for a bills-only settlement", () => {
   beforeEach(() => {
     mockGetRecentTransactions.mockReset();
