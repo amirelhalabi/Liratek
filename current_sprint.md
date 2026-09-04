@@ -2702,3 +2702,216 @@ IMMEDIATE recognition and undoes the deferral the owner just asked for.
 
 **Acceptance:** update the ticket body's Depends On and restate its scope against D17 *before* any
 implementation. This is a re-scoping chore, not code.
+
+---
+
+# 2026-09-04 session findings — filed 2026-09-04
+
+Five items found while shipping LIRA-159 and doing a documentation pass over its e2e coverage. **Every
+file:line and factual claim below was independently re-verified against source before filing** —
+two of the claims handed to the filing agent did not survive verification and are recorded below in
+their corrected form, with the original framing named so nobody re-introduces it.
+
+---
+
+## LIRA-168: core jest runs at the wrong timezone on Windows — SQL and JS local-time disagree by 2h — MEDIUM
+
+**Priority:** Medium · **Epic:** Test harness · **Status:** TODO
+
+Measured 2026-09-04 on Windows 11, via `better-sqlite3` and Node's `Date`, for the fixed instant
+`2026-06-30T22:30:00.000Z`:
+
+```
+APP path (no TZ set - OS zone):
+  SQL 'localtime'  : +3.00h -> 2026-07-01 01:30
+  JS  Date getters : +3.00h -> 2026-07-01 01:30   AGREE
+
+TEST path (cross-env TZ=Asia/Beirut - what packages/core's test script uses):
+  SQL 'localtime'  : +1.00h -> 2026-06-30 23:30
+  JS  Date getters : +3.00h -> 2026-07-01 01:30   DISAGREE by 2.00h
+
+cross-env TZ=UTC: SQL 0.00h
+```
+
+`packages/core/package.json`'s `test` script (`cross-env TZ=Asia/Beirut jest ...`) is the only place in
+the repo where `TZ=Asia/Beirut` is actually **set** as an environment variable (verified — grepped the
+whole repo for an assignment shape, not just the string). *Correction to the original framing: the
+literal string `TZ=Asia/Beirut` also appears in roughly a dozen other places — comments in
+`ClosingRepository.ts`, `ProfitRepository.ts`, `localDate.ts`, several test file headers, and
+`docs/plans/done_plans/LOCAL_BUSINESS_DAY_PLAN.md` — all of them documentation telling a human/CI
+operator what TZ to launch with, none of them an actual assignment. "Exactly one place" is true only
+for where the variable is actually SET, not for every place the string appears.*
+
+Node resolves `Asia/Beirut` through full ICU and correctly gets Beirut's real +3h offset; SQLite's
+`'localtime'` modifier goes through the Windows C runtime's `localtime()`, which cannot parse an IANA
+zone name, silently falls back to base UTC+0, then applies the **US** DST default rule — landing on
++1h in a September probe. Beirut in June/July/September is genuinely +3h, so the SQL side of the test
+environment runs two hours off, on Windows only. This exact mechanism is already independently
+documented in two places in the repo, both dated the same day: `ClosingRepository.ts:958-967`'s
+`hasOpeningBalanceToday()` comment, and `packages/core/src/repositories/__tests__
+/FinancialRepository.monthlyPL.test.ts:108-137`'s own offset-probe comment, which measured the identical
++1h (not +3h) result independently.
+
+**Impact:** any core test that compares a JS-computed local day/month (`localDay()`, `localMonth()`,
+`Date` getters) against a SQL-computed one (`todayLocal()`, `dateRange()`, `strftime(..., 'localtime')`)
+is comparing two different days/months on Windows. It can mask a real date-boundary bug as easily as
+invent a phantom one. On Linux CI both sides resolve to the real +3h, so **CI cannot detect this at
+all** — this is Windows-dev-machine-only.
+
+**This is NOT ticket T4** ("Timing error on Windows (works on Mac)" — `docs/tickets/CURRENT_SPRINT.md`,
+the stale, non-live board; T4 isn't carried into this file at all, but it's the closest existing
+reference to a "Windows timing" bug and worth naming so nobody conflates the two). The shipped Electron
+app never sets `TZ` — the "APP path" measurement above is self-consistent (SQL and JS both land on
++3h) — so this ticket does not explain T4. The measurements above are nonetheless a better starting
+point for investigating T4 than the guess currently recorded there ("suspect timestamp/timezone
+handling").
+
+Two things any investigator must know:
+- **Git Bash silently drops `TZ`.** `TZ=Asia/Beirut node -e "console.log(process.env.TZ)"` run from
+  MSYS prints `undefined` — a probe run that way measures the OS zone, not the variable, and produced a
+  wrong conclusion during this very investigation before being corrected. Only `cross-env` (as
+  `packages/core/package.json`'s `test` script already uses) passes it faithfully cross-platform.
+- *Correction to the original framing:* `packages/core/src/repositories/__tests__
+  /ClosingRepository.localBusinessDay.test.ts` does **NOT** manipulate `process.env.TZ` directly —
+  grepped, no `process.env.TZ =` assignment exists anywhere in the file, or anywhere else in the repo's
+  test suite. It does the opposite: its header comment (lines 12-16) explicitly explains why a
+  **mid-test** `process.env.TZ` assignment is unreliable (SQLite's `'localtime'` reads the C runtime
+  zone once, at process launch) and instead relies on `TZ` being set at process launch (via the
+  `cross-env` in the package.json script), backed by a `beforeAll` probe that fails loudly if the
+  measured offset is 0 — i.e. if the suite is accidentally run without the TZ launch env. Start there
+  anyway: it's still the right file, just for the "how this is *supposed* to be pinned, and how to tell
+  if it wasn't" story, not a `process.env.TZ =` example. `ClosingRepository.ts:961-962` separately
+  comments that `localDay()` respects `process.env.TZ` (true — it uses Node's `Date` getters, verified).
+
+---
+
+## LIRA-169: `profitRecognition.guard.test.ts` can be defeated by a sibling column in the same query unit — MEDIUM
+
+**Priority:** Medium · **Epic:** Profits · **Status:** TODO
+
+Found while building LIRA-159's new `packages/core/src/constants/__tests__
+/embeddedCommission.guard.test.ts`. That guard's first design used unit-level detection —
+`GATE_CALL_REGEX.test(unit.sql)` over the WHOLE `.prepare()` call's text, the same granularity
+`profitRecognition.guard.test.ts` still uses today — and **failed to catch the very regression LIRA-159
+specifies**: stripping `embeddedCommission(...)` from only `getUnsettledSummaryByProvider`'s
+`pending_commission_usd`/`_lbp` `CASE` expressions still left `GATE_CALL_REGEX.test(unit.sql)` true,
+because the THIRD, untouched `CASE` in the same `.prepare()` call (`awaiting_settlement_count`) kept its
+own `atSettlementCommission(...)` call — the surviving sibling call "covered" the two newly-ungated
+columns purely because they share one query unit. It was redesigned to paren-depth-aware, per-column
+detection (`splitSelectShape`/`isGated`/`textIsGated` in `embeddedCommission.guard.test.ts`, verified
+present).
+
+**The same hole is live, not theoretical, in the older guard.** `profitRecognition.guard.test.ts`'s own
+check (`GATE_CALL_REGEX.test(u.sql)`, whole-unit) has no per-column splitting logic at all — verified by
+reading the file end to end; it never imports `splitSelectShape` or anything equivalent. In
+`ProfitRepository.getByUser` (`packages/core/src/repositories/ProfitRepository.ts:2174-2306`) and
+`.getByClient` (`:2313-2450`), the `revenue_usd`, `profit_usd`, and `profit_lbp` columns are each their
+OWN `SUM(CASE ... END) AS <col>` block, and each independently repeats `NOT
+(${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")})` inline at the top of its own `CASE` — the
+gate is never hoisted once into the outer `WHERE`. So stripping the gate from, say, only the
+`profit_usd` `CASE` while leaving `profit_lbp`'s copy intact would leave `GATE_CALL_REGEX.test(u.sql)`
+true (the sibling's copy is still textually present in the same unit), and the current guard would
+report "gated" on a query that just shipped an ungated `profit_usd` column.
+
+Second, smaller blind spot, verified by reading every call site: the shared parser
+(`constants/testHelpers/sqlQueryUnits.ts`'s `collectQueryUnits`) only recognizes `.prepare(` calls, so
+`this.query()`/`this.queryOne()` calls are invisible to it (`embeddedCommission.guard.test.ts` works
+around this for its own six scanned files with a supplementary `collectQueryLikeUnits`, but
+`profitRecognition.guard.test.ts` does not import or use it). `ProfitRepository.ts` has **0**
+`this.query`/`this.queryOne` calls (grepped); `ClosingRepository.ts` has exactly **4**, at lines 1075,
+1098, 1174, and 1178 (`getCheckpointAmounts`, `getCheckpointCarrierLines`, and `getCheckpointTimeline`'s
+two calls) — none read `profit` or `commission` today, so this is a **latent gap**, not a current miss.
+
+**Fix:** port `embeddedCommission.guard.test.ts`'s per-column detection into
+`profitRecognition.guard.test.ts`. Rule 17 applies to the port itself — strip one sibling's gate (e.g.
+`profit_usd`'s copy in `getByUser`, leaving `profit_lbp`'s intact), confirm the CURRENT guard passes it
+through undetected, then confirm the ported guard catches it.
+
+---
+
+## LIRA-170: root `yarn test` silently skips the core suite when another workspace fails — MEDIUM-HIGH
+
+**Priority:** Medium-High · **Epic:** Tooling · **Status:** TODO
+
+Root `package.json`'s `test` script (verified): `"npm run rebuild:node && yarn workspaces foreach -A
+--exclude liratek run test"`. `-A` (all workspaces, ignoring git-diff `--since` filtering) carries no
+`-t`/`--topological` and no `-p`/`--parallel` — Yarn (this repo pins `yarn@4.12.0`) runs `foreach` in
+that shape sequentially and stops at the first workspace whose script exits non-zero, rather than
+continuing to the remaining workspaces and reporting each one.
+
+Observed 2026-09-04: one frontend test timed out, the run ended there, and `packages/core`'s test suite
+(263 test files on disk as of this filing — close to the "262 suites" figure originally reported; file
+count drifts by ±1 as tickets land) **never ran** — while the output said only "Failed with errors in
+1m 42s", with no indication that an entire workspace, containing the project's core money logic, was
+never touched. So a failed root `yarn test` currently carries **no information** about whether the
+money logic was tested at all, and this is the project's designated pre-merge gate (CLAUDE.md rule 9).
+It was caught only by counting result blocks in the log.
+
+`yarn typecheck` already uses the safer shape (verified): `"yarn workspaces foreach -ptA --exclude
+liratek run typecheck"` — parallel (`-p`) and topological (`-t`), which reports every workspace rather
+than stopping at the first failure. **Fix:** bring `test` to the same `-ptA` shape, and/or otherwise
+make it continue through every workspace so each one reports pass/fail independently.
+
+**Fold in a second, related correction.** Root `yarn test` runs `npm run rebuild:node` first, flipping
+`better-sqlite3` to the Node ABI and breaking desktop e2e (`waitForEvent("window")` timeout on every
+spec) until the Electron ABI is restored. **`yarn rebuild:native` (`node
+scripts/rebuild-native-deps.cjs`) does correctly restore it** — reported verified 2026-09-04 by
+constructing a `Database` and observing the expected ABI throw pre-rebuild, none post-rebuild (the
+correct methodology — a bare `require('better-sqlite3')` succeeds even on a mismatched ABI because the
+native binding loads lazily). Mechanism, read from source: the script fetches a prebuilt Electron-ABI
+binary via `prebuild-install` — not a from-source compile, which is why it's fast (~1s) — for each of up
+to 4 hardcoded candidate `better-sqlite3` directories that actually exist on disk; both
+`node_modules/better-sqlite3` and `node_modules/@liratek/core/node_modules/better-sqlite3` (the real,
+non-symlinked copy) were rebuilt to electron@31.7.7 (the installed version, verified). *Caution before
+treating this as fully general:* this appears to conflict with an earlier-recorded finding that
+`rebuild:native` fails to restore the ABI specifically after `test:e2e:web`'s own `rebuild:node` (citing
+5+ on-disk `better-sqlite3` copies vs. this script's 4 fixed candidate paths). If that finding still
+holds, the two scenarios (root `yarn test` vs. `test:e2e:web`) differ in some way not yet identified —
+re-verify in the `test:e2e:web` scenario specifically rather than assuming today's root-`yarn-test`
+result generalizes to it.
+
+---
+
+## LIRA-171: Dashboard awaiting-settlement test is 12s against a 15s limit — flaky under full-suite load — LOW
+
+**Priority:** Low · **Epic:** Test harness · **Status:** TODO
+
+`frontend/src/features/dashboard/pages/__tests__/Dashboard.awaitingSettlementCount.test.tsx` (added by
+LIRA-159; verified it exists with exactly 3 `it(...)` blocks) already carries an explicit
+`jest.setTimeout(15000)` (line 42) with a comment (lines 33-41) explaining why: the file's first test
+pays the one-time cost of ts-jest compiling and `recharts` (the lazy-loaded Sales Trend chart)
+initializing, which alone can approach jest's default 5000ms per-test timeout under a cold cache.
+
+Takes about 12 seconds in isolation (safely under the existing 15s allowance) and **timed out at that
+15s limit under full-suite load** on 2026-09-04 — CPU contention from the rest of the suite pushed it
+over. Passes 3/3 when run alone. Not a logic defect — a fragility in an already-heavy test.
+
+**Fix:** either make it faster (the recharts cold-compile cost is the obvious target), or widen the
+existing `jest.setTimeout(15000)` further with an equally explicit, commented justification for the new
+number. The timeout was **deliberately not raised** when this was found, because bumping a limit to
+make a slow test stop failing is masking the fragility, not fixing it — that call is left to whoever
+picks this up, with the reasoning on record.
+
+---
+
+## LIRA-172: `ImeiStoryCard` receives `product_deleted` but renders no chip — LOW
+
+**Priority:** Low · **Epic:** Inventory · **Status:** TODO
+
+LIRA-152 added `p.is_deleted AS product_deleted` to both unit reads that share the
+`ProductUnitRepository.UNIT_PROVENANCE_JOIN` fragment (rule 14) — `listUnits` (the Phone Units register,
+`packages/core/src/repositories/ProductUnitRepository.ts:597-631`) and `getUnitStoryByImei` (the walk-in
+lookup / IMEI story read, `:553-578`) — and renders a muted "Product deleted" chip for it in the Phone
+Units register (`frontend/src/features/inventory/pages/PhoneUnits/index.tsx:434-440`, gated on
+`unit.product_deleted === 1`).
+
+`frontend/src/features/inventory/components/ImeiStoryCard.tsx` — the story read's OTHER consumer — takes
+a `story: UnitStoryEntry` prop, and `UnitStoryEntry`
+(`frontend/src/features/inventory/hooks/useProductUnits.ts:40-46`) already carries `product_deleted:
+number | null` on the type. But the component's render (verified against the full file) never
+references `story.product_deleted` anywhere — no chip, no conditional, nothing. A unit whose product was
+deleted renders identically to one whose product wasn't, on this surface only.
+
+Correctly scoped out of LIRA-152 at the time; this is the follow-up. **Fix:** mirror the Phone Units
+chip (`{unit.product_deleted === 1 && <span>...Product deleted...</span>}`) into `ImeiStoryCard.tsx`'s
+render, gated on `story.product_deleted === 1`.
