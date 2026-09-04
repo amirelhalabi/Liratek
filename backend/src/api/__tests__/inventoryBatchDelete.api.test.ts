@@ -11,15 +11,22 @@
  *      deleted NOTHING — a false success. This file proves the route now
  *      exists, validates its body against the SAME `batchDeleteProductIdsSchema`
  *      the IPC handler validates (rule 14), matches the IPC handler's
- *      `["admin", "staff"]` role gate (NOT the singular DELETE's admin-only
- *      gate), calls the SAME `InventoryService.batchDeleteProducts` (rule 13),
- *      and mirrors its audit.
+ *      `["admin", "staff"]` role gate, calls the SAME
+ *      `InventoryService.batchDeleteProducts` (rule 13), and mirrors its
+ *      audit.
  *
  *  (b) Envelope parity: every REST route in this file must answer a
  *      business-rule failure with HTTP 200 + `{success:false}` (rule 19c) —
  *      never a 4xx — because the frontend adapter (`ipcOrHttp`) branches only
  *      on `result.success`, never on status code. This file proves the new
  *      route holds that contract on a service-level failure.
+ *
+ *  (c) 2026-09-04 owner decision: staff may delete products, so the singular
+ *      `DELETE /products/:id` — left admin-only when this file was written —
+ *      is now also `["admin", "staff"]`, matching both the batch route above
+ *      and the `inventory:delete-product` IPC channel. The "staff can batch-
+ *      delete but not delete one at a time" gap this file used to call out
+ *      no longer exists; the DELETE describe block below proves it directly.
  *
  * Pattern mirrors inventoryProductList.api.test.ts: the REAL router with only
  * ../../middleware/auth.js faked (header-driven `x-test-role`), and the REAL
@@ -211,5 +218,30 @@ describe("DELETE /api/inventory/products/:id — envelope parity (LIRA-149)", ()
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: false, error: "Invalid id" });
+  });
+
+  it("matches the IPC handler's role gate — staff can delete a single product (2026-09-04 owner decision, NOT admin-only)", async () => {
+    const spy = jest
+      .spyOn(inventoryService, "deleteProduct")
+      .mockReturnValue({ success: true });
+
+    const res = await request(app)
+      .delete("/api/inventory/products/42")
+      .set("x-test-role", "staff");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(spy).toHaveBeenCalledWith(42);
+  });
+
+  it("still rejects a role outside admin/staff (e.g. cashier)", async () => {
+    const spy = jest.spyOn(inventoryService, "deleteProduct");
+
+    const res = await request(app)
+      .delete("/api/inventory/products/42")
+      .set("x-test-role", "cashier");
+
+    expect(res.status).toBe(403);
+    expect(spy).not.toHaveBeenCalled();
   });
 });

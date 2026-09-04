@@ -272,8 +272,12 @@ router.put("/products/:id", requireRole(["admin"]), (req, res) => {
   res.status(result.success ? 200 : 400).json(result);
 });
 
-// DELETE /api/inventory/products/:id (admin)
-router.delete("/products/:id", requireRole(["admin"]), (req, res) => {
+// DELETE /api/inventory/products/:id (admin/staff — matches the IPC
+// handler's roles per rule 19b: inventoryHandlers.ts's `inventory:delete-product`
+// carries `["admin", "staff"]`, same as its batch-delete sibling above; this
+// singular DELETE was the one route left admin-only, a rule 19c gap surfaced
+// while shipping LIRA-149 and fixed here per 2026-09-04 owner decision).
+router.delete("/products/:id", requireRole(["admin", "staff"]), (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
     // Rule 19c envelope parity (LIRA-149 scope extension — see
