@@ -7,7 +7,8 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { activeExpense } from "./ProfitRepository.js";
+import { activeExpense, dateRange, notRefunded, getProfitRepository } from "./ProfitRepository.js";
+import { monthBounds } from "../utils/localDate.js";
 
 export interface MonthlyPL {
   month: string;
@@ -51,8 +52,73 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
   /**
    * Get Monthly P&L Aggregation
    * @param month format 'YYYY-MM'
+   *
+   * LIRA-159 (D1) — the commission arms are COMPOSED from
+   * `ProfitRepository.getRealizedCommissionTotals` (legacy, `commission_model
+   * = 0`) + `ProfitRepository.getSupplierCommissionTotals` (settlement-day,
+   * `commission_model = 1`) rather than a third hand-rolled
+   * `SUM(financial_services.commission)` query. Two reasons this is
+   * composition and not a rewrite-in-place:
+   *
+   *  - **Correctness**: for a `commission_model = 1` row, the row's own
+   *    `commission` column is a creation-time ESTIMATE that settlement
+   *    overrides and never writes back (owner decision D6 — no stamp-back).
+   *    Summing it directly (the old query) reported a number that was never
+   *    true, and never decayed even after the underlying transaction was
+   *    voided (no refund gate at all). Composing the two repository methods
+   *    means this tile inherits their correct gating for free.
+   *  - **Single source of truth**: `getRealizedCommissionTotals` and
+   *    `getSupplierCommissionTotals` are already the definition of
+   *    "commission recognised in this period" that the Profits page uses. A
+   *    third copy of that SQL is exactly the divergence class LIRA-108
+   *    fixed once already — composing removes a whole class of future
+   *    disagreement instead of adding a third site to keep in lockstep
+   *    (rule 14).
+   *
+   * **Recognition basis change (deliberate):** a model-1 (AT_SETTLEMENT) row's
+   * commission now appears in the month it is SETTLED, never the month the
+   * underlying OMT/WHISH/BILL transaction happened (owner decisions D7/D10,
+   * cash basis) — the same switch LIRA-158 made for the Closing snapshot. A
+   * legacy (model-0) row's commission is recognised once supplier-settled
+   * AND counterparty-clear (not partner-pending, not debt-pending).
+   *
+   * **Deliberately does NOT mirror `ClosingRepository.getDailyStatsSnapshot`'s
+   * `finProfitLegacy`** — that query is missing `notPartnerPending`/
+   * `notDebtPending`, a documented KNOWN GAP
+   * (`constants/__tests__/profitRecognition.guard.test.ts` ~:592-610,
+   * ticketed as LIRA-160). `getRealizedCommissionTotals` carries both gates,
+   * so composing here avoids importing that gap into the Dashboard tile.
+   *
+   * **Per-currency is mandatory**, not incidental: this tile feeds
+   * `netProfitLBP`, so both arms are summed in BOTH currencies. A USD-only
+   * mirror of Closing's arm would silently drop LBP commission for every
+   * settled model-1 batch.
+   *
+   * `serviceCommissionsByCurrency` now always carries exactly the `USD` and
+   * `LBP` keys (both composed methods bucket `currency != 'LBP'` into USD,
+   * matching every other reporting surface's convention) — previously it
+   * carried one key per literal `financial_services.currency` value, so a
+   * hypothetical third currency got its own key. Verified 2026-09-04: this
+   * field has no reader anywhere in the app (only its own declaration and
+   * the mirrored `packages/ui` type), so this fold changes nothing on
+   * screen.
+   *
+   * The sales arm remains USD-only (pre-existing — `netProfitLBP` never
+   * included sales profit; not changed here) and gains a refund gate
+   * (`notRefunded`) it was missing: a voided sale item was inflating this
+   * tile forever, the same class of bug the commission arms had. It
+   * deliberately does NOT add Closing's fully-paid predicate
+   * (`s.paid_usd + … >= s.final_amount_usd - 0.05`) — that is a separate
+   * recognition question, out of scope for this fix.
    */
   getMonthlyPL(month: string): MonthlyPL {
+    // Hoisted OUTSIDE the try: `monthBounds` throws `ValidationError` for a
+    // malformed `month` (e.g. "2026-13", "garbage"). That's a caller error,
+    // not a database error — if this line sat inside the try below, the
+    // catch would rewrap it as `DatabaseError("Failed to aggregate monthly
+    // P&L")`, misreporting a bad-input problem as a backend failure and
+    // burying the real cause in `cause`. Do not move it back in.
+    const { fromDt, toDt } = monthBounds(month);
     try {
       const tenantId = getCurrentTenantId();
 
@@ -65,35 +131,26 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
         FROM sale_items si
         JOIN sales s ON si.sale_id = s.id
         WHERE s.status = 'completed'
-          AND strftime('%Y-%m', s.created_at, 'localtime') = ?
+          AND ${dateRange("s.created_at")}
+          AND ${notRefunded("si")}
           AND si.tenant_id = ?
           AND s.tenant_id = ?
       `,
         )
-        .get(month, tenantId, tenantId) as { profit: number };
+        .get(fromDt, toDt, tenantId, tenantId) as { profit: number };
 
-      // 2. Service Commissions (OMT, Whish, etc.) — grouped by currency
-      const commissionRows = this.db
-        .prepare(
-          `
-        SELECT
-          currency,
-          COALESCE(SUM(commission), 0) as commission
-        FROM financial_services
-        WHERE strftime('%Y-%m', created_at, 'localtime') = ?
-          AND tenant_id = ?
-        GROUP BY currency
-      `,
-        )
-        .all(month, tenantId) as { currency: string; commission: number }[];
-
-      const serviceCommissionsByCurrency: Record<string, number> = {};
-      for (const row of commissionRows) {
-        serviceCommissionsByCurrency[row.currency] = row.commission;
-      }
-      // Keep legacy USD/LBP fields for backward compat
-      const commissionUsd = serviceCommissionsByCurrency["USD"] || 0;
-      const commissionLbp = serviceCommissionsByCurrency["LBP"] || 0;
+      // 2. Service Commissions (OMT, Whish, etc.) — composed from the two
+      // gated ProfitRepository arms rather than a raw SUM(commission) over
+      // financial_services (see the method doc comment above for why).
+      const profits = getProfitRepository();
+      const legacy = profits.getRealizedCommissionTotals(fromDt, toDt);
+      const settlement = profits.getSupplierCommissionTotals(fromDt, toDt);
+      const commissionUsd = legacy.total_usd + settlement.profit_usd;
+      const commissionLbp = legacy.total_lbp + settlement.profit_lbp;
+      const serviceCommissionsByCurrency: Record<string, number> = {
+        USD: commissionUsd,
+        LBP: commissionLbp,
+      };
 
       // 3. Expenses — gated to status='active' AND not-refunded (rule 14's
       // shared `activeExpense` predicate), else a voided/refunded expense
@@ -107,12 +164,15 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
           COALESCE(SUM(amount_usd), 0) as expenses_usd,
           COALESCE(SUM(amount_lbp), 0) as expenses_lbp
         FROM expenses
-        WHERE strftime('%Y-%m', expense_date, 'localtime') = ?
+        WHERE ${dateRange("expense_date")}
           AND tenant_id = ?
           AND ${activeExpense()}
       `,
         )
-        .get(month, tenantId) as { expenses_usd: number; expenses_lbp: number };
+        .get(fromDt, toDt, tenantId) as {
+        expenses_usd: number;
+        expenses_lbp: number;
+      };
 
       // Per-currency net profit: income - expenses, independently
       const netProfitUSD =

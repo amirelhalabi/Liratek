@@ -173,6 +173,28 @@ export interface SupplierTransaction {
 }
 
 /**
+ * LIRA-159 D2: per-provider unsettled commission rollup
+ * (`FinancialServiceRepository.getUnsettledSummaryByProvider`).
+ *
+ * `pending_commission_usd`/`_lbp` are LEGACY-model-only (`commission_model =
+ * 0`) — 0 for providers whose unsettled rows are all post-cutover
+ * (`commission_model = 1`). For those, `awaiting_settlement_count` is the
+ * only honest figure: a model-1 row's commission is unknowable until the
+ * operator enters it at settlement (owner decision D15), so it must render
+ * as a transaction count, never as a dollar amount.
+ */
+export interface UnsettledSummary {
+  provider: string;
+  count: number;
+  bill_count: number;
+  pending_commission_usd: number;
+  pending_commission_lbp: number;
+  total_owed_usd: number;
+  total_owed_lbp: number;
+  awaiting_settlement_count: number;
+}
+
+/**
  * LIRA-064: a single structured in/out payment leg for a transaction.
  *
  * `direction` is from the shop's perspective: `"in"` is money the customer
@@ -960,6 +982,7 @@ export interface ElectronAPI {
       salesProfitUSD: number;
       serviceCommissionsUSD: number;
       serviceCommissionsLBP: number;
+      serviceCommissionsByCurrency: Record<string, number>;
       expensesUSD: number;
       expensesLBP: number;
       netProfitUSD: number;
@@ -1462,19 +1485,7 @@ export interface ElectronAPI {
       provider: string,
       limit?: number,
     ) => Promise<SupplierTransaction[]>;
-    getUnsettledSummary: () => Promise<
-      Array<{
-        provider: string;
-        count: number;
-        pending_commission_usd: number;
-        pending_commission_lbp: number;
-        total_owed_usd: number;
-        total_owed_lbp: number;
-        /** COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1 — count of unsettled
-         *  BILL rows in this provider's bucket (feeds RATE × count entry). */
-        bill_count: number;
-      }>
-    >;
+    getUnsettledSummary: () => Promise<UnsettledSummary[]>;
     settleTransactions: (data: {
       supplier_id: number;
       financial_service_ids: number[];

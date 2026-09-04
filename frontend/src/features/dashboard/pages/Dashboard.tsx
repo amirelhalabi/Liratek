@@ -333,6 +333,11 @@ export default function Dashboard() {
     pending_commission_lbp: number;
     total_owed_usd: number;
     total_owed_lbp: number;
+    /** LIRA-159 D2: count of unsettled model-1 (post-cutover) rows for this
+     *  provider — their commission is unknowable until settlement, so this
+     *  is the only honest figure to show for them (never a $0.0000
+     *  estimate). */
+    awaiting_settlement_count: number;
   };
   const [unsettledSummary, setUnsettledSummary] = useState<UnsettledSummary[]>(
     [],
@@ -1170,6 +1175,14 @@ export default function Dashboard() {
                 (s, r) => s + r.count,
                 0,
               );
+              // LIRA-159 D2: same narrowing as the per-provider figure above
+              // — pending_commission_usd is legacy-model-only, so a period
+              // that's entirely post-cutover would sum to $0.0000 here too.
+              // Same fix, same reason: never a fabricated dollar total.
+              const totalAwaitingSettlement = unsettledSummary.reduce(
+                (s, r) => s + r.awaiting_settlement_count,
+                0,
+              );
               return (
                 <div className="bg-amber-100 border border-amber-300 dark:bg-amber-950/40 dark:border-amber-700/60 rounded-xl p-4 flex items-start gap-3">
                   <AlertTriangle
@@ -1182,25 +1195,61 @@ export default function Dashboard() {
                       {totalTxns !== 1 ? "s" : ""}
                     </p>
                     <div className="mt-1 flex flex-wrap gap-3">
-                      {unsettledSummary.map((r) => (
-                        <span
-                          key={r.provider}
-                          className="text-xs text-amber-700 dark:text-amber-400/80 font-mono"
-                        >
-                          {r.provider}:{" "}
-                          <span className="text-amber-900 dark:text-amber-300 font-semibold">
-                            ${r.pending_commission_usd.toFixed(4)}
-                          </span>{" "}
-                          commission on ${r.total_owed_usd.toFixed(2)} owed (
-                          {r.count} txns)
-                        </span>
-                      ))}
+                      {unsettledSummary.map((r) => {
+                        // LIRA-159 D2: pending_commission_usd is now
+                        // LEGACY-model-only — 0 for a provider whose
+                        // unsettled rows are all post-cutover
+                        // (commission_model = 1). Their commission is
+                        // unknowable until entered at settlement, so
+                        // awaiting_settlement_count is the only honest
+                        // figure; never render a fabricated $0.0000.
+                        const hasPendingUsd = r.pending_commission_usd > 0;
+                        const hasAwaiting = r.awaiting_settlement_count > 0;
+                        return (
+                          <span
+                            key={r.provider}
+                            className="text-xs text-amber-700 dark:text-amber-400/80 font-mono"
+                          >
+                            {r.provider}:{" "}
+                            {hasPendingUsd && (
+                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                ${r.pending_commission_usd.toFixed(4)}
+                              </span>
+                            )}
+                            {hasPendingUsd && " commission"}
+                            {hasPendingUsd && hasAwaiting && " + "}
+                            {hasAwaiting && (
+                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                {r.awaiting_settlement_count} awaiting
+                                settlement
+                              </span>
+                            )}
+                            {(hasPendingUsd || hasAwaiting) && " "}
+                            on ${r.total_owed_usd.toFixed(2)} owed ({r.count}{" "}
+                            txns)
+                          </span>
+                        );
+                      })}
                     </div>
                     <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
-                      Total pending:{" "}
-                      <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
-                        ${totalPendingUsd.toFixed(4)}
-                      </span>{" "}
+                      {(totalPendingUsd > 0 || totalAwaitingSettlement > 0) && (
+                        <>
+                          Total pending:{" "}
+                          {totalPendingUsd > 0 && (
+                            <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
+                              ${totalPendingUsd.toFixed(4)}
+                            </span>
+                          )}
+                          {totalPendingUsd > 0 &&
+                            totalAwaitingSettlement > 0 &&
+                            " + "}
+                          {totalAwaitingSettlement > 0 && (
+                            <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
+                              {totalAwaitingSettlement} awaiting settlement
+                            </span>
+                          )}{" "}
+                        </>
+                      )}
                       — settle via Settings → Supplier Ledger
                     </p>
                   </div>

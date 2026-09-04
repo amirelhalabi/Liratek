@@ -258,6 +258,10 @@ interface UnsettledProviderSummary {
   pending_commission_lbp: number;
   total_owed_usd: number;
   total_owed_lbp: number;
+  /** LIRA-159 D2: count of unsettled model-1 (post-cutover) rows for this
+   *  provider — their commission is unknowable until settlement, so this is
+   *  the only honest figure to show for them (never a $0.0000 estimate). */
+  awaiting_settlement_count: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -521,6 +525,16 @@ export default function Profits() {
       ? [{ key: "commissions" as TabKey, label: "Commissions", icon: Activity }]
       : []),
   ];
+
+  // LIRA-159 D2: total unsettled model-1 rows across all providers — the
+  // pie chart's pending ring is dollar-only (fed by legacy
+  // pending_commission_usd), so a provider whose pending commission is
+  // entirely post-cutover would otherwise be invisible. Surfaced as a
+  // caption near the chart instead of a fabricated pie amount.
+  const awaitingSettlementCount = unsettledByProvider.reduce(
+    (sum, u) => sum + (u.awaiting_settlement_count ?? 0),
+    0,
+  );
 
   // ---------- Render ----------
 
@@ -1823,10 +1837,22 @@ export default function Profits() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Market Share / Provider Breakdown */}
               <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
-                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
                   <PieChartIcon size={18} className="text-pink-500" />
                   Revenue by Provider
                 </h3>
+                <div className="mb-4">
+                  {awaitingSettlementCount > 0 && (
+                    <p
+                      data-testid="revenue-by-provider-awaiting-caption"
+                      className="text-xs text-amber-400/80"
+                    >
+                      {awaitingSettlementCount} awaiting settlement —
+                      commission unknown until settled, not reflected in the
+                      chart above
+                    </p>
+                  )}
+                </div>
                 <div className="h-80">
                   <Suspense
                     fallback={
@@ -1885,6 +1911,13 @@ export default function Profits() {
                       );
                       const pendingUsd =
                         providerUnsettled?.pending_commission_usd ?? 0;
+                      // LIRA-159 D2: model-1 rows for this provider awaiting
+                      // settlement — their commission is unknowable until
+                      // entered at settlement, so this count (never a
+                      // fabricated $0.0000) is the only honest thing to show
+                      // when it's the only pending signal for the provider.
+                      const providerAwaitingSettlementCount =
+                        providerUnsettled?.awaiting_settlement_count ?? 0;
                       // LIRA-158 Phase 2a made this endpoint's per-provider
                       // `commission` commission_model=0-only while `count`
                       // stayed unrestricted, so a provider whose today's
@@ -1919,10 +1952,26 @@ export default function Profits() {
                             )}
                           </td>
                           <td className="py-4 text-right text-amber-400 font-mono">
-                            {pendingUsd > 0 ? `$${pendingUsd.toFixed(4)}` : "—"}
+                            {pendingUsd > 0 ||
+                            providerAwaitingSettlementCount > 0 ? (
+                              <div className="flex flex-col items-end gap-0.5">
+                                {pendingUsd > 0 && (
+                                  <span>${pendingUsd.toFixed(4)}</span>
+                                )}
+                                {providerAwaitingSettlementCount > 0 && (
+                                  <span className="text-xs font-normal text-slate-400">
+                                    {providerAwaitingSettlementCount} awaiting
+                                    settlement
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              "—"
+                            )}
                           </td>
                           <td className="py-4 text-right">
-                            {pendingUsd > 0 ? (
+                            {pendingUsd > 0 ||
+                            providerAwaitingSettlementCount > 0 ? (
                               <span className="text-xs font-medium text-amber-400">
                                 Profit Pending
                               </span>

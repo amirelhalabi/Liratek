@@ -7,6 +7,7 @@ import {
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 import type { ProductListFilters } from "@liratek/core";
+import type { UnsettledSummary } from "@liratek/ui";
 
 export type { ProductListFilters };
 
@@ -1880,9 +1881,10 @@ export async function getUnsettledSummary() {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.getUnsettledSummary(),
     async () => {
-      const res = await requestJson<{ success: boolean; summary: any[] }>(
-        `/api/suppliers/unsettled-summary`,
-      );
+      const res = await requestJson<{
+        success: boolean;
+        summary: UnsettledSummary[];
+      }>(`/api/suppliers/unsettled-summary`);
       return res.summary || [];
     },
   );

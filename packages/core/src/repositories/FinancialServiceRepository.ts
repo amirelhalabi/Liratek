@@ -6,6 +6,7 @@
  */
 import { BaseRepository } from "./BaseRepository.js";
 import {
+  atSettlementCommission,
   embeddedCommission,
   hasCommissionModelColumn,
   hasSettlementAllocationsTable,
@@ -216,6 +217,7 @@ export interface UnsettledSummary {
   count: number;
   pending_commission_usd: number;
   pending_commission_lbp: number;
+  awaiting_settlement_count: number;
   total_owed_usd: number;
   total_owed_lbp: number;
   bill_count: number;
@@ -4536,12 +4538,51 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   /**
    * Get a per-provider summary of unsettled commissions and total amounts owed.
-   * Used by the Dashboard pending note and Profits pending tab.
+   * Used by the Dashboard "Pending Settlement" banner and the Profits
+   * Commissions tab (column + pending pie slice) over BOTH transports — IPC
+   * `suppliers:unsettled-summary` and REST `GET /api/suppliers/unsettled-summary`
+   * both resolve to this same method, so there is no separate REST-side fix.
+   *
+   * LIRA-159/D15 (closes a deferral LIRA-158 left open — that plan rated this
+   * query "ACCEPTABLE — self-documented as an estimate" and moved on;
+   * LIRA-159 closes it for real): `pending_commission_usd`/`_lbp` are now
+   * restricted to LEGACY rows (`embeddedCommission`, `commission_model = 0`),
+   * mirroring `ProfitRepository.getPendingCommissionTotals`'s shape exactly
+   * (rule 14 — reuse the fragment, don't re-spell `commission_model = 0/1`).
+   * That makes the two dollar columns a REAL figure, not an estimate — a
+   * legacy row's own `commission` column IS the settled truth.
+   *
+   * An AT_SETTLEMENT row (`commission_model = 1`) has no such truth to sum:
+   * its `commission` column is a creation-time ESTIMATE (OMT/WHISH
+   * SEND/RECEIVE) or force-zeroed (WHISH/BILL) and is never written back —
+   * the operator's entered figure at settlement is the only real number, and
+   * it doesn't exist yet. `awaiting_settlement_count` (via
+   * `atSettlementCommission`) is that row's counterpart: a COUNT, never a
+   * dollar amount, per D15. The model split sits INSIDE each `CASE`, not the
+   * outer `WHERE`, so one pass over the `is_settled = 0` rows produces both
+   * the legacy dollar figure and the new-model count without either
+   * excluding rows the other needs — a WHISH/BILL row's `commission` column
+   * is 0 even while genuinely pending, so it would silently vanish from both
+   * figures if either were gated by `commission > 0` instead.
+   *
+   * Verified 2026-09-04: nothing in the Suppliers settle flow pre-fills,
+   * defaults, suggests, or validates the operator-entered settlement
+   * commission from this figure — the settle modal resets its commission
+   * inputs to empty and prefills only from the supplier's own stored tariff
+   * config. Narrowing the dollar figure to legacy-only therefore cannot
+   * affect settlement input; this is a display-only correction.
+   *
+   * Pre-existing, deliberately untouched (rule 14 debt, out of scope here):
+   * this file's own `NOT_REFUNDED_SQL` (below) and `ProfitRepository`'s
+   * exported `notRefunded` encode the identical
+   * `COALESCE(is_refunded, 0) = 0` predicate twice, under two different
+   * names. Left as-is — fixing it would touch every query in this file.
    */
   getUnsettledSummaryByProvider(): UnsettledSummary[] {
     const pendingSql = pendingSettlementSql(
       this._suppliersHasCommissionEligibleColumn(),
     );
+    const supported = this._hasCommissionModelColumn();
     return this.db
       .prepare(
         `SELECT
@@ -4551,18 +4592,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
            -- BILL rows only, so RATE-mode settlement (rate × unit_count) has
            -- a count to read without pulling the full unsettled row array.
            COALESCE(SUM(CASE WHEN service_type = 'BILL' THEN 1 ELSE 0 END), 0) as bill_count,
-           -- Plan §4 Phase 2 D1: for OMT/WHISH SEND/RECEIVE the 'commission'
-           -- column is still auto-populated (createTransaction's
-           -- calculatedCommission) but is now an ESTIMATE ONLY — it is no
-           -- longer netted into supplier_owed below, and the REAL commission
-           -- for these rows is entered at settlement (same as a BILL, whose
-           -- own 'commission' is always 0 here). Summing it is display-only
-           -- and will double-count against the settlement booking's
-           -- own entered figure once a batch actually settles; Phase 3
-           -- (profits/reporting repoint) owns reconciling this projection to
-           -- the allocations table, not this query.
-           COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_usd,
-           COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_lbp,
+           -- LIRA-159/D15: legacy-only now (see doc comment above) — a real
+           -- figure, not an estimate.
+           COALESCE(SUM(CASE WHEN currency != 'LBP' AND ${embeddedCommission("financial_services", supported)} THEN commission ELSE 0 END), 0) as pending_commission_usd,
+           COALESCE(SUM(CASE WHEN currency  = 'LBP' AND ${embeddedCommission("financial_services", supported)} THEN commission ELSE 0 END), 0) as pending_commission_lbp,
+           -- LIRA-159/D15: the AT_SETTLEMENT counterpart — a count, never a
+           -- dollar amount; see doc comment above.
+           COALESCE(SUM(CASE WHEN ${atSettlementCommission("financial_services", supported)} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count,
            -- total_owed per row = SUPPLIER_OWED_EXPR = the GROSS amount owed
            -- the provider (plan §8.3/§4 Phase 2 D1): SEND +(x+f), RECEIVE
            -- −(x−f) — the whole fee, no commission netted out.

@@ -24,5 +24,6 @@ export type {
   StockStats,
   VirtualStock,
   MonthlyPL,
+  UnsettledSummary,
 } from "./types";
 export { ApiProvider, useApi } from "./ApiProvider";

@@ -474,8 +474,15 @@ export function activeExpense(alias = "expenses"): string {
  * `'localtime'` follows the machine TZ (Beirut on desktop; pin `TZ=Asia/Beirut`
  * on the web server). Non-sargable (defeats a `created_at` index) — same cost the
  * other `'localtime'` reporting queries already pay.
+ *
+ * Exported (same precedent as {@link notRefunded}/{@link activeExpense}) so
+ * `FinancialRepository.getMonthlyPL` can bind the SAME predicate text via
+ * `monthBounds()` (`utils/localDate.ts`, the JS twin of this SQL fragment) —
+ * the monthly Dashboard tile and the Profits page then bound their windows
+ * identically (rule 14) instead of a second hand-written
+ * `strftime('%Y-%m', …)` form drifting from this one.
  */
-function dateRange(col: string): string {
+export function dateRange(col: string): string {
   return `datetime(${col}, 'localtime') >= ? AND datetime(${col}, 'localtime') <= ?`;
 }
 

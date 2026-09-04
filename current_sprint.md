@@ -892,7 +892,7 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 
 ---
 
-## Open Board (19 items)
+## Open Board (20 items)
 
 > Every item below is genuinely open per `docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md` §3 —
 > verified against source/git history, not against any file's own status marker. Ticket bodies are
@@ -902,7 +902,6 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 
 | Ticket      | Description                                                                                    | Priority                                                       | Originally in                 |
 | ----------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------- |
-| LIRA-114    | Services/OMT-Whish For-Partner payment section: unfiltered on SEND, discarded on RECEIVE       | High (narrowed)                                                | Sprint 6                      |
 | LIRA-138    | Generalise the commission-at-settlement drawer top-up (LIRA-137) from Katsh bills to OMT/WHISH | Medium                                                         | Sprint 6                      |
 | LIRA-079    | Refund scope (which txn types get Refund) + whether to remove the Void button                  | Medium                                                         | Sprint 4                      |
 | LIRA-083    | Custom Services needs a real work-status lifecycle                                             | Medium                                                         | Sprint 4                      |
@@ -911,7 +910,6 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 | LIRA-088    | Signed decrement path for MTC/Alfa provider balance                                            | Medium (likely partially superseded)                           | Sprint 4                      |
 | LIRA-099    | Multi-tenant admin/impersonation e2e spec + full-suite proof run                               | Medium                                                         | Sprint 6                      |
 | LIRA-101    | Primary Cash Drawer cleanup + verify Suppliers `settleNetPayUsd`                               | Medium                                                         | Sprint 6                      |
-| LIRA-110    | Daily closing sums financial-services commission with zero gates                               | Medium                                                         | Sprint 6                      |
 | LIRA-116    | Rename the crossed `custom_services`/`omt_whish` module labels + routes                        | **High** (raised 2026-08-22 — has now misled 3 investigations) | Sprint 6                      |
 | LIRA-117    | No e2e spec drives the inventory-pick to stock-decrement flow                                  | Medium                                                         | Sprint 6                      |
 | LIRA-058    | OMT App topup flow design (dual cash/owed-pool model)                                          | Medium                                                         | Sprint 2                      |
@@ -925,7 +923,7 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 | LIRA-140    | Non-till money renders identically to till cash on a settlement row                            | Low                                                            | Found 2026-08-12              |
 | LIRA-142    | PM Fee input renders on a For-Partner SEND while the payload forces the fee to 0               | Low                                                            | Found 2026-08-22              |
 
-**Count by priority:** High — 2 · Medium — 12 · Low — 8. **Total: 22.**
+**Count by priority:** High — 1 · Medium — 11 · Low — 8. **Total: 20.**
 
 ---
 
@@ -1017,14 +1015,14 @@ question is purely whether the page should say WHERE it landed at a glance.
 
 ---
 
-## LIRA-114: For-Partner payment section on Services — ROOT CAUSE FIXED, §4 UI gating IN BUILD
+## LIRA-114: For-Partner payment section on Services — DONE
 
 | Field                | Value                                         |
 | -------------------- | --------------------------------------------- |
 | **Epic**             | Services / Partners                           |
 | **Type**             | Investigation → likely UX fix                 |
 | **Priority**         | Medium                                        |
-| **Status**           | **IN BUILD 2026-08-22** (was NEEDS INTERVIEW) |
+| **Status**           | **DONE** `fd5444cc` + `aee4d341` (2026-08-22) |
 | **Affected Modules** | Financial Services, Custom Services, Partners |
 | **Assigned To**      | —                                             |
 | **Source Plan**      | Owner report 2026-08-08 ('7welet souria')     |
@@ -1209,6 +1207,11 @@ for Services SEND (it would discard a real drawer choice). Approved instead: SEN
 relabelled **"Paid from"** and filtered to `drawerAffectingMethods`, with a notice stating both
 sides; RECEIVE hides it behind a notice. Full rationale in
 `docs/plans/todo_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md` §4's decision block.
+
+**✅ Implemented 2026-08-22 (same day as the decision above):** `fd5444cc` ("For-Partner payment
+section stops offering what the backend rejects") shipped the SEND/RECEIVE gating decided just
+above; `aee4d341` added an e2e spec driving the real For-Partner Services form (UI and money).
+Ticket closed — DONE.
 
 ---
 
@@ -1538,14 +1541,14 @@ attention:
 
 ---
 
-## LIRA-110: Daily closing sums financial-services commission with ZERO gates
+## LIRA-110: Daily closing sums financial-services commission with ZERO gates — SUPERSEDED by LIRA-158 + LIRA-160
 
 | Field                | Value                                                                  |
 | -------------------- | ---------------------------------------------------------------------- |
 | **Epic**             | Closing / Profits                                                      |
 | **Type**             | Bug (candidate — same class as LIRA-108)                               |
 | **Priority**         | Medium                                                                 |
-| **Status**           | TODO                                                                   |
+| **Status**           | **SUPERSEDED** — split into LIRA-158 (DONE) + LIRA-160 (TODO), see below |
 | **Affected Modules** | Closing                                                                |
 | **Assigned To**      | —                                                                      |
 | **Depends On**       | —                                                                      |
@@ -1559,7 +1562,24 @@ third, fully ungated `SUM(commission)` — missing not just the LIRA-108 counter
 the closing screen's daily commission number. Also rule-14 debt: a third hand-rolled copy of the
 "realized commission" concept instead of reusing one definition.
 
-### Acceptance Criteria
+### Resolution (verified against source 2026-09-04) — split into LIRA-158 (DONE) + LIRA-160 (TODO)
+
+`ClosingRepository.ts` now has exactly ONE `SUM(...commission...)` query left — `finProfitLegacy`
+(~:815-822) — and it already carries both `embeddedCommission(...)` and `notRefunded(...)`. That
+closes this ticket's original complaint (a "third, fully ungated" commission sum, plus the rule-14
+duplication) via LIRA-158's 2026-08-31 shipment (`8c453764`, `8a868fe3`, `25199c74`).
+
+What LIRA-158 did NOT add is `finProfitLegacy`'s counterparty gates
+(`notPartnerPending`/`notDebtPending`) — a for-partner or CUSTOMER_ACCOUNT-charged legacy
+commission can still land in today's closing total before the partner/client has actually paid.
+That residual is now its own ticket, **LIRA-160** (below, ~:2488), and is self-documented as a
+KNOWN GAP in `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` ~:592-610.
+
+So this ticket closes as **superseded**, not simply "done": the zero-gates complaint split into a
+DONE half (LIRA-158) and a still-open half (LIRA-160). Do not mark either resolved by proxy of the
+other.
+
+### Acceptance Criteria (historical — superseded by the Resolution above)
 
 - [ ] Money-eyes pass on what the closing figure is MEANT to show (day's earned commission?
       cash-collected commission?) — the closing screen may intentionally differ from Profits
@@ -1954,7 +1974,20 @@ can be picked".
 
 ---
 
-## LIRA-143: Phone IMEI units & warranty-from-sale — NEEDS BUILD (owner-interviewed 2026-08-23)
+## LIRA-143: Phone IMEI units & warranty-from-sale — BUILT (`70776da6`..`e432ba69`, 2026-08-25; hardening through 2026-08-27)
+
+> **Status note (corrected 2026-09-04):** BUILT — phases 1-4 landed 2026-08-25
+> (`70776da6`..`e432ba69`); e2e was proven green the SAME day, not left in flight (see "Phase 7
+> record" below: desktop 258/258, web 68/68). Two items an earlier draft of this status line
+> flagged as still open are BOTH already resolved further down in this ticket's own body: (a) the
+> payment-side double-debit on a full-after-partial refund — retired 2026-08-27 by the
+> `discountItemRefundTender` fix plus the partial-then-whole BLOCK (see "ALL REMAINING ITEMS BUILT +
+> ADVERSARIALLY VERIFIED + SHIPPED 2026-08-27" below); (b) ungated category routes — the owner
+> explicitly decided "ACCEPTED AS-IS" 2026-08-26 (JWT-only, matching the IPC handlers), so this was
+> a decision, not a gap. Do not re-open either without new owner input. Real residual follow-ups
+> (dead-end refund message, no undo on a per-item refund, missing table-exists guard, no REST twin
+> for batch-delete, stale-response guard) are already tracked as their own tickets, LIRA-146 through
+> LIRA-151, below.
 
 ### Summary
 
@@ -2251,13 +2284,14 @@ passes only when invoked by hand. (b) CI never runs `packages/core`'s jest suite
 tests) — `yarn test` does locally, but ci.yml lacks the job. Add the runner root + the CI
 job; budget for the runtime cost. Suite-count floors per the LIRA-123 lesson.
 
-## LIRA-152: Phone Units register — "product deleted" label on sold history rows — LOW (BLOCKED until LIRA-145's commit lands)
+## LIRA-152: Phone Units register — "product deleted" label on sold history rows — LOW (UNBLOCKED — TODO)
 
 Sold units of a soft-deleted product stay in the register (correct — history), but nothing
 says the product is gone. Add `p.is_deleted AS product_deleted` to the unit list/story
 reads (the shared UNIT_PROVENANCE_JOIN) and render a muted "product deleted" chip next to
-the product name. BLOCKED: needs the shared typing files (`electron.d.ts`,
-`backendApi.ts`, `packages/ui` types) currently carrying LIRA-145's uncommitted edits.
+the product name. **UNBLOCKED 2026-09-04**: the shared typing files (`electron.d.ts`,
+`backendApi.ts`, `packages/ui` types) this depended on shipped with LIRA-145's carrier-line
+usage expense feature (`8845ef2a`, `7f229d99`, both 2026-08-27). Ready to build — TODO.
 
 ## Backlog (parked ideas, owner to green-light)
 
@@ -2267,7 +2301,12 @@ the product name. BLOCKED: needs the shared typing files (`electron.d.ts`,
 - "Products | Units" tab toggle on the Inventory page (nicest UX; LIRA-144's filters have
   landed so the collision risk is gone once LIRA-145 commits).
 
-## LIRA-158: Profits & Closing still report the commission ESTIMATE, not the settled figure — MEDIUM
+## LIRA-158: Profits & Closing still report the commission ESTIMATE, not the settled figure — MEDIUM (DONE)
+
+**Status:** DONE — `8c453764` (report the SETTLED commission, not the estimate), `8a868fe3`
+(defer cashless settlement commission until the client repays, D17), `25199c74` (fix three
+pre-existing bugs in the daily stats snapshot) — all 2026-08-31. See "LIRA-158 follow-ups" below
+for residual gaps spun into LIRA-159/160/161.
 
 **Origin:** fallout of LIRA-095 (commit `43948a35`), found by the adversarial reporting pass and
 verified against source before filing. Nothing here is a money bug — the ledger and drawers are

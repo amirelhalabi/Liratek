@@ -198,6 +198,28 @@ export type MonthlyPL = {
   netProfitLBP: number;
 };
 
+/**
+ * LIRA-159 D2: per-provider unsettled commission rollup
+ * (`FinancialServiceRepository.getUnsettledSummaryByProvider`).
+ *
+ * `pending_commission_usd`/`_lbp` are LEGACY-model-only (`commission_model =
+ * 0`) — 0 for providers whose unsettled rows are all post-cutover
+ * (`commission_model = 1`). For those, `awaiting_settlement_count` is the
+ * only honest figure: a model-1 row's commission is unknowable until the
+ * operator enters it at settlement (owner decision D15), so it must render
+ * as a transaction count, never as a dollar amount.
+ */
+export type UnsettledSummary = {
+  provider: string;
+  count: number;
+  bill_count: number;
+  pending_commission_usd: number;
+  pending_commission_lbp: number;
+  total_owed_usd: number;
+  total_owed_lbp: number;
+  awaiting_settlement_count: number;
+};
+
 // =============================================================================
 // API Result Types
 // =============================================================================
@@ -989,7 +1011,7 @@ export type ApiAdapter = {
     limit?: number,
   ) => Promise<any[]>;
   /** Per-provider unsettled commission summary (dashboard + profits page). */
-  getUnsettledSummary: () => Promise<any[]>;
+  getUnsettledSummary: () => Promise<UnsettledSummary[]>;
   /** Product-supplier aggregate balances (Inventory-linked suppliers). */
   getSupplierProductBalances: () => Promise<any[]>;
   /** Inventory items sourced from one product supplier. */

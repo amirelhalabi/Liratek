@@ -41,6 +41,7 @@ import {
   resetClosingRepository,
 } from "../ClosingRepository.js";
 import { FinancialRepository } from "../FinancialRepository.js";
+import { resetProfitRepository } from "../ProfitRepository.js";
 import {
   initFixedTenantContext,
   resetTenantContext,
@@ -111,7 +112,50 @@ function createTestDb(): Database.Database {
       tenant_id        INTEGER DEFAULT 1,
       is_refunded      INTEGER DEFAULT 0,
       refunded_at      TEXT DEFAULT NULL,
+      -- LIRA-159: required by ProfitRepository's notDebtPending (DBT-1),
+      -- read unconditionally by getRealizedCommissionTotals AND
+      -- allocationNotDebtPending (getSupplierCommissionTotals's cashless
+      -- bucket) — both now reachable via FinancialRepository.getMonthlyPL's
+      -- composed commission arms. Left at their DEFAULT 0 everywhere in this
+      -- file (no row is ever inserted here), so the NOT EXISTS gate passes
+      -- every row unchanged.
+      covered_usd      REAL NOT NULL DEFAULT 0,
+      covered_lbp      REAL NOT NULL DEFAULT 0,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- LIRA-159: required (even empty) by ProfitRepository's notPartnerPending
+    -- (PFT-6), read unconditionally by getRealizedCommissionTotals AND
+    -- getSupplierCommissionTotals's cashless bucket — both now reachable via
+    -- FinancialRepository.getMonthlyPL's composed commission arms. This
+    -- table did not exist at all in this fixture before; every test in this
+    -- file leaves it empty, so the NOT EXISTS gate passes every row.
+    --
+    -- NOT actually empty at runtime, though: this file's own
+    -- seedThreeExpenses() drives TransactionRepository.voidTransaction
+    -- directly (the refundedViaTxnVoid door), and its generic reversal path
+    -- (_reversePartnerLedger / _unwindPartnerSettlementCoverage,
+    -- TransactionRepository.ts) unconditionally INSERTs INTO partner_ledger
+    -- with the FULL production column list — so this fixture must carry every
+    -- column those INSERTs write, not just what notPartnerPending reads.
+    -- Column set matches the newest partner_ledger migration (v127's rebuild
+    -- + v128's covered_amount, packages/core/src/db/migrations/index.ts:6284)
+    -- and electron-app/create_db.sql's own definition verbatim.
+    CREATE TABLE partner_ledger (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER,
+      partner_id         INTEGER NOT NULL,
+      transaction_type   TEXT NOT NULL,
+      reference_table    TEXT,
+      reference_id       INTEGER,
+      amount             REAL NOT NULL,
+      currency           TEXT NOT NULL DEFAULT 'USD',
+      direction          TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+      notes              TEXT,
+      user_id            INTEGER,
+      settlement_method  TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT')),
+      created_at         TEXT DEFAULT CURRENT_TIMESTAMP,
+      covered_amount     REAL NOT NULL DEFAULT 0
     );
 
     CREATE TABLE expenses (
@@ -166,6 +210,13 @@ function createTestDb(): Database.Database {
       tenant_id    INTEGER DEFAULT 1,
       currency     TEXT NOT NULL DEFAULT 'USD',
       commission   REAL NOT NULL DEFAULT 0,
+      -- LIRA-159: required by getRealizedCommissionTotals's unconditional
+      -- WHERE fs.is_settled = 1 (unlike commission_model, this column has
+      -- no schema-drift PRAGMA guard) — now reachable via
+      -- FinancialRepository.getMonthlyPL's composed commission arms. No row
+      -- is ever inserted into this table in this file, so the DEFAULT is
+      -- never exercised either way.
+      is_settled   INTEGER NOT NULL DEFAULT 1,
       is_refunded  INTEGER DEFAULT 0,
       created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at   TEXT DEFAULT CURRENT_TIMESTAMP
@@ -229,6 +280,13 @@ describe("Expense active-gate (rule 14 / rule 20) — Closing + Financial report
     resetExpenseRepository();
     resetTransactionRepository();
     resetClosingRepository();
+    // LIRA-159: FinancialRepository.getMonthlyPL now calls the
+    // ProfitRepository SINGLETON (getProfitRepository()) for its composed
+    // commission arms, and that singleton's schema probes are memoized PER
+    // INSTANCE — reset it alongside the other singletons above so it is
+    // always (re)constructed against THIS test's fresh db, never a stale
+    // instance left over from another test/file.
+    resetProfitRepository();
     expenseRepo = new ExpenseRepository();
     txnRepo = new TransactionRepository();
     closingRepo = new ClosingRepository();
@@ -243,6 +301,7 @@ describe("Expense active-gate (rule 14 / rule 20) — Closing + Financial report
     resetExpenseRepository();
     resetTransactionRepository();
     resetClosingRepository();
+    resetProfitRepository();
     resetTenantContext();
   });
 
