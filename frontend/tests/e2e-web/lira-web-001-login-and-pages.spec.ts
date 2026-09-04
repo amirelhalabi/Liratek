@@ -18,7 +18,7 @@ const CLEAN_ROUTES = [
   "/clients",
   "/debts",
   "/exchange",
-  "/services",
+  "/omt-whish",
   "/recharge",
   "/loto",
   "/expenses",

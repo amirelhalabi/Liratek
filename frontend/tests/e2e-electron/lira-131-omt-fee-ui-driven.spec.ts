@@ -110,7 +110,7 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
   test("SEND fee-on-top: till gains the full x+f, float pays only the principal x", async ({
     appPage,
   }) => {
-    await navigateTo(appPage, "/services");
+    await navigateTo(appPage, "/omt-whish");
     await pickOmt(appPage, "SEND");
 
     const amountInput = appPage.locator("#service-amount");
@@ -144,7 +144,7 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
   test("SEND fee-included: the owner's reported hard-reject — budget 100 = principal 95 + fee 5", async ({
     appPage,
   }) => {
-    await navigateTo(appPage, "/services");
+    await navigateTo(appPage, "/omt-whish");
     await pickOmt(appPage, "SEND");
 
     const amountInput = appPage.locator("#service-amount");
@@ -188,7 +188,7 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
   test("RECEIVE with a fee: float FILLS by the full x, customer collects x−f", async ({
     appPage,
   }) => {
-    await navigateTo(appPage, "/services");
+    await navigateTo(appPage, "/omt-whish");
     await pickOmt(appPage, "RECEIVE");
 
     const amountInput = appPage.locator("#service-amount");
@@ -228,7 +228,7 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
   test("RECEIVE fee-on-top, fee collected via the Whish wallet: PCD pays the FULL x, Whish_App collects f", async ({
     appPage,
   }) => {
-    await navigateTo(appPage, "/services");
+    await navigateTo(appPage, "/omt-whish");
     await pickOmt(appPage, "RECEIVE");
 
     const amountInput = appPage.locator("#service-amount");

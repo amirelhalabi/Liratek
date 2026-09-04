@@ -120,7 +120,10 @@ const accentMap: Record<
     topBorder: "border-t-amber-500/60",
     shadow: "hover:shadow-amber-900/20",
   },
-  services: {
+  // Key is derived from the route by routeToKey() below (LIRA-116: route is
+  // now `/omt-whish`, not `/services` — this key must track it or the tile
+  // silently falls back to defaultAccent).
+  omt_whish: {
     bg: "bg-indigo-400/10",
     text: "text-indigo-400",
     border: "hover:border-indigo-500/60",

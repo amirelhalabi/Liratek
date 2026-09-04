@@ -72,7 +72,7 @@ test.describe("LIRA-134 — refund a fee-on-top RECEIVE through the real RefundM
     const RECEIVER_NAME = `L134 Refund Receiver ${ts}`;
 
     // ── Create the fee-on-top RECEIVE through the real Services form ──────
-    await navigateTo(appPage, "/services");
+    await navigateTo(appPage, "/omt-whish");
 
     const omtReceiveTile = appPage
       .locator("button")

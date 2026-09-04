@@ -503,7 +503,7 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
   test("group 5: system services — OMT (primary) + WHISH (secondary/partner) SEND+RECEIVE", async ({
     appPage,
   }) => {
-    await navigateTo(appPage, "/services");
+    await navigateTo(appPage, "/omt-whish");
 
     // 20. OMT system SEND $30.
     await appPage

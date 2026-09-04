@@ -2442,7 +2442,7 @@ Actions within the current module context.
 | clients, customers                          | `/clients`             |
 | debts, "money owed"                         | `/debts`               |
 | exchange, "currency exchange"               | `/exchange`            |
-| services, "omt whish", "money transfer"     | `/services`            |
+| services, "omt whish", "money transfer"     | `/omt-whish`           |
 | recharge, "mobile recharge", "phone credit" | `/recharge`            |
 | expenses                                    | `/expenses`            |
 | maintenance                                 | `/maintenance`         |

@@ -578,7 +578,7 @@ export async function navigateTo(page: Page, route: string) {
   const routeAnchors: Record<string, string> = {
     "/pos": 'input[placeholder*="Search"]',
     "/products": 'button:has-text("Add Product")',
-    "/services": 'button:has-text("OMT")',
+    "/omt-whish": 'button:has-text("OMT")',
     "/exchange": "text=Exchange",
     "/debts": "text=Debt",
     "/expenses": "#expense-description",

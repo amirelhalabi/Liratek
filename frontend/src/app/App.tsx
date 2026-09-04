@@ -240,12 +240,20 @@ function AppRoutes() {
           }
         />
         <Route
-          path="/services"
+          path="/omt-whish"
           element={
             <ProtectedRoute>
               <Services />
             </ProtectedRoute>
           }
+        />
+        {/* LIRA-116: `/services` was the OMT/Whish route until the rename to
+            `/omt-whish` (it collided with the `custom_services` module, whose UI
+            label is "Services"). Kept as a transitional redirect so old deep links,
+            bookmarks and a user mid-session still land on the same page. */}
+        <Route
+          path="/services"
+          element={<Navigate to="/omt-whish" replace />}
         />
         <Route
           path="/recharge"

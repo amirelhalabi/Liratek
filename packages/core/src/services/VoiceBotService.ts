@@ -46,9 +46,14 @@ const ROUTE_MAPPING: Record<string, string> = {
   "money owed": "/debts",
   exchange: "/exchange",
   "currency exchange": "/exchange",
-  services: "/services",
-  "omt whish": "/services",
-  "money transfer": "/services",
+  // LIRA-116: "services" is kept pointing at OMT/Whish (not /custom-services) to
+  // preserve today's behavior unchanged. The bare word "services" is ambiguous
+  // with the custom_services module (UI label "Services", route /custom-services);
+  // whether it should eventually resolve there instead is an open owner decision,
+  // not an oversight.
+  services: "/omt-whish",
+  "omt whish": "/omt-whish",
+  "money transfer": "/omt-whish",
   recharge: "/recharge",
   "mobile recharge": "/recharge",
   "phone credit": "/recharge",
