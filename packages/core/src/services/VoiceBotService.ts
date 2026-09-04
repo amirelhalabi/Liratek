@@ -46,12 +46,21 @@ const ROUTE_MAPPING: Record<string, string> = {
   "money owed": "/debts",
   exchange: "/exchange",
   "currency exchange": "/exchange",
-  // LIRA-116: "services" is kept pointing at OMT/Whish (not /custom-services) to
-  // preserve today's behavior unchanged. The bare word "services" is ambiguous
-  // with the custom_services module (UI label "Services", route /custom-services);
-  // whether it should eventually resolve there instead is an open owner decision,
-  // not an oversight.
-  services: "/omt-whish",
+  // LIRA-116 named this collision: the bare word "services" is ambiguous
+  // between OMT/Whish and the custom_services module, whose UI label IS
+  // "Services" (route /custom-services) — that mislabeling is the reason
+  // LIRA-116 existed at all. 2026-09-04 owner decision (verbatim): "voice
+  // command omt or whish should open the omt-whish page" — so OMT/Whish now
+  // gets its own single-word triggers ("omt", "whish") below and no longer
+  // needs the bare word "services" to reach it.
+  //
+  // Repointing "services" itself to /custom-services is an INFERENCE, not a
+  // verbatim instruction: it follows from the module's own UI label plus the
+  // fact that the collision LIRA-116 flagged would otherwise still exist.
+  // Trivially reversible — revert this one line if the owner disagrees.
+  services: "/custom-services",
+  omt: "/omt-whish",
+  whish: "/omt-whish",
   "omt whish": "/omt-whish",
   "money transfer": "/omt-whish",
   recharge: "/recharge",
