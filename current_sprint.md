@@ -2829,9 +2829,47 @@ through undetected, then confirm the ported guard catches it.
 
 ---
 
-## LIRA-170: root `yarn test` silently skips the core suite when another workspace fails — MEDIUM-HIGH
+## LIRA-170: root `yarn test` silently skips the core suite when another workspace fails — DONE
 
-**Priority:** Medium-High · **Epic:** Tooling · **Status:** TODO
+**Priority:** Medium-High · **Epic:** Tooling · **Status:** **DONE** 2026-09-04
+
+### Resolution
+
+Root `test` is now `npm run rebuild:node && node scripts/run-tests.mjs`. The new wrapper is modelled
+on `scripts/run-e2e.mjs`, which exists for the same class of problem (a step that runs nothing and
+exits 0 is indistinguishable from a pass): it runs **every** workspace serially and never bails,
+captures each workspace's real exit code, parses its suite/test counts, treats a workspace that
+reported **no counts at all** as a failure, prints a summary table, and exits non-zero naming which
+workspaces failed.
+
+Ordering alone was deliberately rejected as the fix: adding `-t` makes `packages/core` run before
+`frontend`, which cures the observed symptom but only **moves** the blind spot — a core failure would
+then bail before backend and frontend ever ran. Yarn's `foreach` has no no-bail option, so no flag
+combination gives "run everything, report everything".
+
+Proven by injection, not assertion. With a deliberately failing scratch test in `packages/core`
+(the *early* workspace, so a bail would hide the rest):
+
+```
+workspace          exit  suites  tests  elapsed  status
+@liratek/core      1     264     2782   21.2s    FAILED
+@liratek/backend   0     46      633    15.1s    passed
+@liratek/frontend  0     176     1347   40.0s    passed
+[run-tests] FAILED: @liratek/core          (overall EXIT=1)
+```
+
+Backend and frontend still ran with real counts. Scratch file then removed and re-run clean:
+
+```
+@liratek/core      0     263     2781   20.8s    passed
+@liratek/backend   0     46      633    14.9s    passed
+@liratek/frontend  0     176     1347   40.0s    passed
+[run-tests] all workspaces passed         (overall EXIT=0)
+```
+
+**Not fixed here, and still open: CI never runs `packages/core`'s suite at all** — that is LIRA-151,
+and this ticket does not touch `.github/workflows/ci.yml`. Fixing the local gate does not close the
+CI blind spot.
 
 Root `package.json`'s `test` script (verified): `"npm run rebuild:node && yarn workspaces foreach -A
 --exclude liratek run test"`. `-A` (all workspaces, ignoring git-diff `--since` filtering) carries no

@@ -18,7 +18,7 @@
     "dev:web": "npm run rebuild:node && concurrently -k -n vite,backend -c blue,green \"cd frontend && cross-env VITE_BACKEND_URL=http://127.0.0.1:4300 npm run dev\" \"yarn workspace @liratek/backend dev\"",
     "electron:start": "npm run rebuild:native && cd electron-app && npm run build && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 npm start",
     "build": "yarn workspaces foreach -ptA --exclude liratek run build && node scripts/build-stage.cjs",
-    "test": "npm run rebuild:node && yarn workspaces foreach -A --exclude liratek run test",
+    "test": "npm run rebuild:node && node scripts/run-tests.mjs",
     "test:e2e": "node scripts/run-e2e.mjs electron",
     "test:e2e:web": "npm run rebuild:node && node scripts/run-e2e.mjs web",
     "lint": "yarn workspaces foreach -ptA --exclude liratek run lint",
