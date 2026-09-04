@@ -420,7 +420,8 @@ function buildSchema(db: Database.Database): void {
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
       edited_by        TEXT,
-      edited_at        TEXT
+      edited_at        TEXT,
+      is_refunded      INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS maintenance_payments (
@@ -573,6 +574,7 @@ function buildSchema(db: Database.Database): void {
       client_name      TEXT,
       edited_by        TEXT,
       edited_at        TEXT,
+      is_refunded      INTEGER DEFAULT 0,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at       TEXT DEFAULT CURRENT_TIMESTAMP
     );

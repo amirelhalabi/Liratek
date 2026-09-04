@@ -19,8 +19,10 @@ import {
   hasCommissionModelColumn,
   hasSettlementAllocationsTable,
   maintenanceCompleted,
+  notDebtPending,
   notPartnerPending,
   notRefunded,
+  saleFullyPaid,
 } from "./ProfitRepository.js";
 
 /**
@@ -100,6 +102,24 @@ export interface DailyStatsSnapshot {
   totalExpensesUSD: number;
   totalExpensesLBP: number;
   totalProfitUSD: number;
+  /**
+   * LIRA-161 item 1: Loto's real commission is booked entirely in LBP
+   * (`transactions.profit_lbp` on the LOTO row — see `lotoProfit` in
+   * `getDailyStatsSnapshot`), and every OTHER module folded into
+   * `totalProfitUSD` above already excludes its own LBP-denominated slice
+   * (`finProfitLegacy`/`rechargeProfit` both read `CASE WHEN currency !=
+   * 'LBP' ... ELSE 0`) — there is no established currency-conversion
+   * convention anywhere in this method to fold LBP profit into the USD
+   * total. Rather than silently forcing loto's profit through that USD-only
+   * total (where it would always evaluate to exactly $0 and the "add loto"
+   * fix would be a no-op), it gets its OWN field, mirroring the
+   * USD/LBP-pair convention `totalSalesUSD`/`totalSalesLBP` etc. already use
+   * on this same interface. Optional because `ClosingService`
+   * .getDailyStatsSnapshot()'s error-fallback object (a file out of this
+   * ticket's scope) does not set it — every real (non-error) return from
+   * this repository method always populates it.
+   */
+  totalProfitLBP?: number;
 }
 
 export interface CheckpointAmount {
@@ -258,6 +278,100 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       )
       .get();
     return row !== undefined;
+  }
+
+  /**
+   * LIRA-160/161 schema-drift guard for `partner_ledger` — same plain,
+   * uncached `sqlite_master` probe shape as `_hasTransactionsTable()`
+   * immediately above. Feeds the `notPartnerPending` gates added to
+   * `finProfitLegacy`/`rechargeProfit`/`customProfit` (LIRA-160) and the new
+   * loto/exchange sources (LIRA-161) — every one of those calls
+   * `ProfitRepository.notPartnerPending`, whose SQL unconditionally queries
+   * `partner_ledger`. Several existing `getDailyStatsSnapshot` fixtures
+   * (`ClosingRepository.moduleProfitGates.test.ts`,
+   * `LIRA158.closingCashBasis.test.ts`, `ClosingRepository
+   * .localBusinessDay.test.ts`) predate that table entirely — an unguarded
+   * reference would throw "no such table: partner_ledger" and kill every
+   * test in those files in SETUP (the exact trap
+   * `reference_test_schema_completeness` names), even though none of them
+   * exercise partner routing. Degrading to "skip the gate" on such a fixture
+   * is also semantically correct, not just safe: a schema this old can never
+   * have a `partner_ledger` row referencing these tables in the first place.
+   */
+  private _hasPartnerLedgerTable(): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'partner_ledger'`,
+      )
+      .get();
+    return row !== undefined;
+  }
+
+  /**
+   * LIRA-161 schema-drift guard for `loto_tickets` — same shape as
+   * `_hasPartnerLedgerTable()` immediately above. No existing
+   * `getDailyStatsSnapshot` fixture creates this table (loto was never
+   * queried by this method before this ticket), so the new loto-profit
+   * source degrades to zero rather than throwing when it's absent.
+   */
+  private _hasLotoTicketsTable(): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'loto_tickets'`,
+      )
+      .get();
+    return row !== undefined;
+  }
+
+  /**
+   * LIRA-161 schema-drift guard for `exchange_transactions` — same shape as
+   * `_hasLotoTicketsTable()` immediately above, same rationale.
+   */
+  private _hasExchangeTransactionsTable(): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'exchange_transactions'`,
+      )
+      .get();
+    return row !== undefined;
+  }
+
+  /**
+   * LIRA-160 follow-up (2026-09-04, once `notDebtPending` was exported from
+   * ProfitRepository.ts) — a scalar correlated subquery (LIMIT 1) resolving
+   * a module source row's own unified `transactions` id, for the four
+   * sub-queries below (`finProfitLegacy`/`rechargeProfit`/`customProfit`/
+   * `maintProfit`) that read straight off their source table and never
+   * already JOIN `transactions`. Mirrors `ProfitRepository
+   * .allocationNotDebtPending`'s resolve-then-gate shape (same LIMIT 1
+   * defence against a never-expected second row) generalised to any
+   * module's own source table/type, instead of the
+   * `settlement_commission_allocations`-specific case that function
+   * handles. `notDebtPending`'s NOT EXISTS is `x = NULL`-safe — a row with
+   * no matching `transactions` entry (a fixture that predates that
+   * module's own unified-ledger row, e.g. `LIRA158.closingCashBasis
+   * .test.ts`'s legacy-commission tests, which never insert one) resolves
+   * this subquery to NULL, and `notDebtPending(NULL)` is trivially TRUE
+   * (nothing in `debt_ledger` has `transaction_id = NULL`) — so a missing
+   * row degrades to "not debt pending" rather than being silently dropped
+   * (the risk an INNER JOIN would carry) or throwing.
+   *
+   * IMPORTANT — this returns plain TEXT, never the `notDebtPending(...)`
+   * CALL itself. `profitRecognition.guard.test.ts` statically scans the
+   * raw SOURCE TEXT captured inside each `.prepare(\`...\`)` call for the
+   * literal substring `notDebtPending(` — every call site below writes
+   * `${notDebtPending(this._sourceTxnIdSubquery(...))}` directly inside its
+   * own template literal so that substring is always physically present in
+   * the SQL text the guard reads; hoisting the FULL gate (call included)
+   * through an intermediate `${aVariable}` splice would make the guard
+   * misread a genuinely-gated query as ungated.
+   */
+  private _sourceTxnIdSubquery(sourceTable: string, txnType: string): string {
+    return `(SELECT ft.id FROM transactions ft
+        WHERE ft.source_table = '${sourceTable}'
+          AND ft.source_id = ${sourceTable}.id
+          AND ft.type = '${txnType}'
+        LIMIT 1)`;
   }
 
   /**
@@ -759,7 +873,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
          JOIN sale_items si ON s.id = si.sale_id
          WHERE ${todayLocal("s.created_at")} AND s.status = 'completed'
            AND si.is_refunded = 0
-           AND (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) >= s.final_amount_usd - 0.05
+           AND ${saleFullyPaid("s")}
            AND s.tenant_id = ? AND si.tenant_id = ?`,
       )
       .get(tenantId, tenantId) as { profit_usd: number };
@@ -812,20 +926,89 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     //  existing `getDailyStatsSnapshot` fixture predates that table, so this
     //  degradation keeps every one of them byte-for-byte unchanged.
     const hasCommissionModel = this._hasCommissionModelColumn();
-    const finProfitLegacy = this.db
-      .prepare(
-        `SELECT
-          COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as profit_usd
-         FROM financial_services
-         WHERE ${todayLocal("created_at")}
-           AND ${embeddedCommission("financial_services", hasCommissionModel)}
-           AND ${notRefunded("financial_services")}
-           AND tenant_id = ?`,
-      )
-      .get(tenantId) as { profit_usd: number };
+    // LIRA-160 (2026-09-04, resolution): `notPartnerPending` was added first
+    // (closing the "for-partner legacy commission recognised before the
+    // partner has settled" half of the gap) while `notDebtPending` was
+    // blocked — it was a private, unexported function in ProfitRepository.ts
+    // and a concurrent agent was mid-edit on that exact file for
+    // LIRA-162/163. That fence is now lifted: `notDebtPending` is exported
+    // (Task 1 of this follow-up) and wired in below via
+    // `_sourceTxnIdSubquery` (see that method's doc comment for why a scalar
+    // subquery, not a JOIN). Both gates are independent schema-drift axes
+    // (`partner_ledger` vs `transactions`), each proven to occur alone in a
+    // real fixture (`ClosingRepository.lira160PartnerPendingGates.test.ts`
+    // has partner_ledger but no transactions; `LIRA158.closingCashBasis
+    // .test.ts` has transactions but no partner_ledger), so all four
+    // combinations are handled explicitly below rather than collapsed into
+    // one combined guard that would silently drop one gate's coverage on a
+    // fixture missing only the OTHER table.
+    const hasPartnerLedger = this._hasPartnerLedgerTable();
+    const hasTransactionsTable = this._hasTransactionsTable();
+    const finServiceTxnIdSubquery = this._sourceTxnIdSubquery(
+      "financial_services",
+      "FINANCIAL_SERVICE",
+    );
+    let finProfitLegacy: { profit_usd: number };
+    if (!hasPartnerLedger && !hasTransactionsTable) {
+      const finProfitLegacyDegraded = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as profit_usd
+           FROM financial_services
+           WHERE ${todayLocal("created_at")}
+             AND ${embeddedCommission("financial_services", hasCommissionModel)}
+             AND ${notRefunded("financial_services")}
+             AND tenant_id = ?`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      finProfitLegacy = finProfitLegacyDegraded;
+    } else if (hasPartnerLedger && !hasTransactionsTable) {
+      const finProfitLegacyPartnerOnly = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as profit_usd
+           FROM financial_services
+           WHERE ${todayLocal("created_at")}
+             AND ${embeddedCommission("financial_services", hasCommissionModel)}
+             AND ${notRefunded("financial_services")}
+             AND ${notPartnerPending("financial_services", "financial_services.id")}
+             AND tenant_id = ?`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      finProfitLegacy = finProfitLegacyPartnerOnly;
+    } else if (!hasPartnerLedger && hasTransactionsTable) {
+      const finProfitLegacyDebtOnly = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as profit_usd
+           FROM financial_services
+           WHERE ${todayLocal("created_at")}
+             AND ${embeddedCommission("financial_services", hasCommissionModel)}
+             AND ${notRefunded("financial_services")}
+             AND ${notDebtPending(finServiceTxnIdSubquery)}
+             AND tenant_id = ?`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      finProfitLegacy = finProfitLegacyDebtOnly;
+    } else {
+      const finProfitLegacyFull = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as profit_usd
+           FROM financial_services
+           WHERE ${todayLocal("created_at")}
+             AND ${embeddedCommission("financial_services", hasCommissionModel)}
+             AND ${notRefunded("financial_services")}
+             AND ${notPartnerPending("financial_services", "financial_services.id")}
+             AND ${notDebtPending(finServiceTxnIdSubquery)}
+             AND tenant_id = ?`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      finProfitLegacy = finProfitLegacyFull;
+    }
 
     let finProfitSettlement: { profit_usd: number };
-    if (!this._hasTransactionsTable()) {
+    if (!hasTransactionsTable) {
       finProfitSettlement = { profit_usd: 0 };
     } else if (!this._hasSettlementAllocationsTable()) {
       finProfitSettlement = this.db
@@ -884,14 +1067,63 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     // and never touches this query. Reuses the SAME `notRefunded` fragment
     // ProfitRepository.getRechargeTotals already gates the same table with —
     // no second copy of the predicate (rule 14).
-    const rechargeProfit = this.db
-      .prepare(
-        `SELECT
-          COALESCE(SUM(CASE WHEN currency_code != 'LBP' THEN (price - cost) ELSE 0 END), 0) as profit_usd
-         FROM recharges
-         WHERE ${todayLocal("created_at")} AND tenant_id = ? AND ${notRefunded("recharges")}`,
-      )
-      .get(tenantId) as { profit_usd: number };
+    //
+    // LIRA-160 (2026-09-04, resolution): `notPartnerPending` (gated on
+    // `hasPartnerLedger`, like `finProfitLegacy` above) and `notDebtPending`
+    // (gated on `hasTransactionsTable`, via `_sourceTxnIdSubquery` — the
+    // export fence documented on `finProfitLegacy` above is now lifted) are
+    // both wired in below, independently, across all four schema
+    // combinations.
+    const rechargeTxnIdSubquery = this._sourceTxnIdSubquery(
+      "recharges",
+      "RECHARGE",
+    );
+    let rechargeProfit: { profit_usd: number };
+    if (!hasPartnerLedger && !hasTransactionsTable) {
+      const rechargeProfitDegraded = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency_code != 'LBP' THEN (price - cost) ELSE 0 END), 0) as profit_usd
+           FROM recharges
+           WHERE ${todayLocal("created_at")} AND tenant_id = ? AND ${notRefunded("recharges")}`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      rechargeProfit = rechargeProfitDegraded;
+    } else if (hasPartnerLedger && !hasTransactionsTable) {
+      const rechargeProfitPartnerOnly = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency_code != 'LBP' THEN (price - cost) ELSE 0 END), 0) as profit_usd
+           FROM recharges
+           WHERE ${todayLocal("created_at")} AND tenant_id = ? AND ${notRefunded("recharges")}
+             AND ${notPartnerPending("recharges", "recharges.id")}`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      rechargeProfit = rechargeProfitPartnerOnly;
+    } else if (!hasPartnerLedger && hasTransactionsTable) {
+      const rechargeProfitDebtOnly = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency_code != 'LBP' THEN (price - cost) ELSE 0 END), 0) as profit_usd
+           FROM recharges
+           WHERE ${todayLocal("created_at")} AND tenant_id = ? AND ${notRefunded("recharges")}
+             AND ${notDebtPending(rechargeTxnIdSubquery)}`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      rechargeProfit = rechargeProfitDebtOnly;
+    } else {
+      const rechargeProfitFull = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency_code != 'LBP' THEN (price - cost) ELSE 0 END), 0) as profit_usd
+           FROM recharges
+           WHERE ${todayLocal("created_at")} AND tenant_id = ? AND ${notRefunded("recharges")}
+             AND ${notPartnerPending("recharges", "recharges.id")}
+             AND ${notDebtPending(rechargeTxnIdSubquery)}`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      rechargeProfit = rechargeProfitFull;
+    }
 
     // Same class of pre-existing bug as rechargeProfit immediately above: no
     // refund gate on `custom_services`, so a same-day voided/refunded order
@@ -901,14 +1133,60 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     // reused verbatim here, same as rechargeProfit. `status = 'completed'`
     // is kept unchanged (custom_services DOES have a real 'completed' state,
     // unlike maintenance below).
-    const customProfit = this.db
-      .prepare(
-        `SELECT
-          COALESCE(SUM(profit_usd), 0) as profit_usd
-         FROM custom_services
-         WHERE ${todayLocal("created_at")} AND status = 'completed' AND tenant_id = ? AND ${notRefunded("custom_services")}`,
-      )
-      .get(tenantId) as { profit_usd: number };
+    //
+    // LIRA-160 (2026-09-04, resolution): both `notPartnerPending` and
+    // `notDebtPending` wired in below, same independent four-way gating as
+    // rechargeProfit above.
+    const customServiceTxnIdSubquery = this._sourceTxnIdSubquery(
+      "custom_services",
+      "CUSTOM_SERVICE",
+    );
+    let customProfit: { profit_usd: number };
+    if (!hasPartnerLedger && !hasTransactionsTable) {
+      const customProfitDegraded = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(profit_usd), 0) as profit_usd
+           FROM custom_services
+           WHERE ${todayLocal("created_at")} AND status = 'completed' AND tenant_id = ? AND ${notRefunded("custom_services")}`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      customProfit = customProfitDegraded;
+    } else if (hasPartnerLedger && !hasTransactionsTable) {
+      const customProfitPartnerOnly = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(profit_usd), 0) as profit_usd
+           FROM custom_services
+           WHERE ${todayLocal("created_at")} AND status = 'completed' AND tenant_id = ? AND ${notRefunded("custom_services")}
+             AND ${notPartnerPending("custom_services", "custom_services.id")}`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      customProfit = customProfitPartnerOnly;
+    } else if (!hasPartnerLedger && hasTransactionsTable) {
+      const customProfitDebtOnly = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(profit_usd), 0) as profit_usd
+           FROM custom_services
+           WHERE ${todayLocal("created_at")} AND status = 'completed' AND tenant_id = ? AND ${notRefunded("custom_services")}
+             AND ${notDebtPending(customServiceTxnIdSubquery)}`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      customProfit = customProfitDebtOnly;
+    } else {
+      const customProfitFull = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(profit_usd), 0) as profit_usd
+           FROM custom_services
+           WHERE ${todayLocal("created_at")} AND status = 'completed' AND tenant_id = ? AND ${notRefunded("custom_services")}
+             AND ${notPartnerPending("custom_services", "custom_services.id")}
+             AND ${notDebtPending(customServiceTxnIdSubquery)}`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      customProfit = customProfitFull;
+    }
 
     // Most severe of the three: `LOWER(status) = 'completed'` never matched
     // any row — the maintenance workflow has NO "completed" status (its
@@ -921,21 +1199,165 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     // instead of pasting a second copy of the predicate (rule 14); this
     // query has no table alias, so the table name itself is passed as the
     // "alias".
-    const maintProfit = this.db
-      .prepare(
-        `SELECT
-          COALESCE(SUM(final_amount_usd - cost_usd), 0) as profit_usd
-         FROM maintenance
-         WHERE ${todayLocal("created_at")} AND ${maintenanceCompleted("maintenance")} AND tenant_id = ?`,
-      )
-      .get(tenantId) as { profit_usd: number };
+    //
+    // LIRA-160: `notRefunded("maintenance")` was added (this query had
+    // NEITHER a refund gate NOR a debt-pending gate originally —
+    // `maintenance.is_refunded` is a real, always-present production
+    // column — see `MaintenanceRepository.isJobMoneyLocked`/LIRA-081 — so,
+    // unlike `notPartnerPending` elsewhere in this method, this fix needed
+    // no schema-drift probe of its own; existing fixtures that predated the
+    // column were updated to carry it). No `notPartnerPending` is added —
+    // maintenance has no partner-routing path
+    // (`ProfitRepository.getMaintenanceTotals` itself gates only
+    // `notRefunded` + `notDebtPending`, never `notPartnerPending` —
+    // ticket-verified). `notDebtPending` (2026-09-04 follow-up, the export
+    // fence lifted) IS now added below, gated on `hasTransactionsTable` —
+    // this is the one axis maintProfit needs, since `maintenanceCompleted`/
+    // `notRefunded` need no table beyond `maintenance` itself.
+    const maintTxnIdSubquery = this._sourceTxnIdSubquery(
+      "maintenance",
+      "MAINTENANCE",
+    );
+    let maintProfit: { profit_usd: number };
+    if (!hasTransactionsTable) {
+      const maintProfitDegraded = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(final_amount_usd - cost_usd), 0) as profit_usd
+           FROM maintenance
+           WHERE ${todayLocal("created_at")} AND ${maintenanceCompleted("maintenance")}
+             AND ${notRefunded("maintenance")} AND tenant_id = ?`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      maintProfit = maintProfitDegraded;
+    } else {
+      const maintProfitGated = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(final_amount_usd - cost_usd), 0) as profit_usd
+           FROM maintenance
+           WHERE ${todayLocal("created_at")} AND ${maintenanceCompleted("maintenance")}
+             AND ${notRefunded("maintenance")}
+             AND ${notDebtPending(maintTxnIdSubquery)}
+             AND tenant_id = ?`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      maintProfit = maintProfitGated;
+    }
+
+    // LIRA-161 item 1 (owner decision 2026-09-04: add BOTH loto and
+    // exchange). Loto's commission is booked on the unified `transactions`
+    // row (`t.profit_lbp`, LBP), never on `loto_tickets` itself — mirrors
+    // `ProfitRepository.getLotoTotals` verbatim (same JOIN shape, same three
+    // gates it carries: notRefunded/notPartnerPending/notDebtPending),
+    // swapping its `dateRange` bound for this file's `todayLocal`.
+    // `notDebtPending` (2026-09-04 follow-up, the export fence lifted) is
+    // now added below too — unlike the four sources above, this query
+    // already JOINs `transactions` directly, so it uses the real `t.id`
+    // rather than `_sourceTxnIdSubquery`'s scalar resolution.
+    //
+    // Gated on transactions + loto_tickets + partner_ledger ALL existing:
+    // no existing getDailyStatsSnapshot fixture creates loto_tickets at all
+    // (loto was never queried here before this ticket), so this degrades to
+    // zero — not a throw — on every one of them, matching this file's
+    // established schema-drift convention.
+    const hasLotoSchema =
+      hasTransactionsTable && this._hasLotoTicketsTable() && hasPartnerLedger;
+    let lotoProfit: { profit_lbp: number };
+    if (!hasLotoSchema) {
+      lotoProfit = { profit_lbp: 0 };
+    } else {
+      const lotoProfitGated = this.db
+        .prepare(
+          `SELECT COALESCE(SUM(t.profit_lbp), 0) as profit_lbp
+           FROM loto_tickets lt
+           JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
+           WHERE t.status = 'ACTIVE'
+             AND ${notRefunded("lt")}
+             AND ${notPartnerPending("loto_tickets", "lt.id")}
+             AND ${notDebtPending("t.id")}
+             AND ${todayLocal("lt.created_at")}
+             AND lt.tenant_id = ? AND t.tenant_id = ?`,
+        )
+        .get(tenantId, tenantId) as { profit_lbp: number };
+      lotoProfit = lotoProfitGated;
+    }
+
+    // LIRA-161 item 1, exchange half. Verified (not assumed) that exchange
+    // profit belongs in a same-day cash view before adding it — see this
+    // method's own investigation, recorded in
+    // `ClosingRepository.lira161ExchangeAndLoto.test.ts`'s file header and
+    // the LIRA-161 status note in current_sprint.md: `leg1_profit_usd`/
+    // `leg2_profit_usd` are stamped SYNCHRONOUSLY inside
+    // `ExchangeRepository.createTransaction` (never at a later "settlement"
+    // event — the EXCHANGE_LOT_SETTLEMENT.md "settlement" terminology means
+    // FIFO cost-basis matching against a lot, resolved at the SELL
+    // transaction's own time, not a deferred cash event like OMT/WHISH's
+    // supplier settlement), and `ExchangeRepository` structurally rejects
+    // CUSTOMER_ACCOUNT payout legs ("exchange_transactions does not carry
+    // client_id") — so exchange can be for-partner (hence
+    // `notPartnerPending`, which `getExchangeTotals` already carries) but
+    // can NEVER be debt-pending, matching `getExchangeTotals`'s own gate set
+    // exactly (no `notDebtPending` gap here — nothing was skipped).
+    // `EXCHANGE_LEG_PROFIT` (`COALESCE(leg1_profit_usd,0) +
+    // COALESCE(leg2_profit_usd,0)`) is a private, unexported const in
+    // ProfitRepository.ts (not a gate fragment) — inlined here verbatim
+    // rather than extracted, same documented constraint as the
+    // `notDebtPending` gaps above; it is a plain summed expression, not a
+    // recognition-gate predicate, so it does not trip
+    // `profitRecognition.guard.test.ts`'s GATE_FRAGMENTS scan.
+    const hasExchangeSchema =
+      this._hasExchangeTransactionsTable() && hasPartnerLedger;
+    let exchangeProfit: { profit_usd: number };
+    if (!hasExchangeSchema) {
+      exchangeProfit = { profit_usd: 0 };
+    } else {
+      const exchangeProfitGated = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(COALESCE(leg1_profit_usd, 0) + COALESCE(leg2_profit_usd, 0)), 0) as profit_usd
+           FROM exchange_transactions
+           WHERE ${notRefunded("exchange_transactions")}
+             AND ${notPartnerPending("exchange_transactions", "exchange_transactions.id")}
+             AND ${todayLocal("created_at")}
+             AND tenant_id = ?`,
+        )
+        .get(tenantId) as { profit_usd: number };
+      exchangeProfit = exchangeProfitGated;
+    }
 
     const totalProfitUSD =
       salesProfit.profit_usd +
       finProfit.profit_usd +
       rechargeProfit.profit_usd +
       customProfit.profit_usd +
-      maintProfit.profit_usd;
+      maintProfit.profit_usd +
+      exchangeProfit.profit_usd;
+
+    // LIRA-161 item 2 (owner decision 2026-09-04: OUT OF SCOPE, filed as
+    // LIRA-173): salesProfit deliberately omits salePaidOrPartnerSettled's
+    // partner-covered OR-branch. A for-partner sale has paid_usd = 0, so it
+    // is (correctly, for a same-day cash view) excluded on its own day —
+    // but unlike financial-service commission (which has
+    // finProfitSettlement, a dedicated settlement-day source), sales have no
+    // equivalent path, so such a sale's margin never reaches this snapshot
+    // on ANY day. Gap of omission only (can under-count, never
+    // over-recognise) — see LIRA-173 for the settlement-day fix.
+    //
+    // LIRA-161 item 3 (blocked, NOT done — see current_sprint.md's
+    // LIRA-161 status note): `saleFullyPaid` is a private, unexported
+    // function in ProfitRepository.ts. This query still hand-inlines its
+    // formula rather than calling the fragment, because importing it would
+    // require adding `export` to ProfitRepository.ts, which a concurrent
+    // agent is mid-edit on for LIRA-162/163 — out of this ticket's allowed
+    // scope. The predicate text below is BYTE-IDENTICAL to
+    // `saleFullyPaid("s")`'s returned SQL (verified against
+    // ProfitRepository.ts:269-271) so behaviour is unaffected; only the
+    // rule-14 drift risk (a future change to `saleFullyPaid` silently not
+    // reaching Closing) remains open. Recommended follow-up: export
+    // `saleFullyPaid` once LIRA-162/163 lands, then swap this inlined text
+    // for `${saleFullyPaid("s")}` — a one-line change.
+    const totalProfitLBP = lotoProfit.profit_lbp;
 
     return {
       salesCount: salesStats?.sales_count || 0,
@@ -946,6 +1368,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       totalExpensesUSD: expensesStats?.total_expenses_usd || 0,
       totalExpensesLBP: expensesStats?.total_expenses_lbp || 0,
       totalProfitUSD,
+      totalProfitLBP,
     };
   }
 

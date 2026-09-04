@@ -21,6 +21,16 @@
  * `commission` figure commission_model=0-only while `count` stayed
  * unrestricted, so an all-model-1 provider used to render "10 / $0.00" —
  * indistinguishable from ten transactions that genuinely earned nothing.
+ *
+ * LIRA-163 update: this table's "Awaiting settlement" label used to be
+ * GUESSED from `p.commission === 0 && p.count > 0` (a heuristic — it could
+ * not tell "genuinely zero" from "unknown until settlement" apart from a
+ * provider with truly no activity, which happens to pass the same test by
+ * having `count === 0`). `getAnalytics` now states the per-provider,
+ * today-scoped model-1 count outright
+ * (`ProviderStats.awaiting_settlement_count`), so this suite's mock rows now
+ * carry it explicitly instead of relying on the deleted heuristic to
+ * reconstruct it from `commission`/`count` alone.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -221,12 +231,34 @@ describe("Profits — Commissions tab, Provider Performance (Today) honesty fix"
       byProvider: [
         // All-model-1 traffic today: count is unrestricted, commission is
         // commission_model=0-only (LIRA-158 Phase 2a) — reads as "10 / $0.00"
-        // pre-fix.
-        { provider: "OMT", commission: 0, currency: "USD", count: 10 },
+        // pre-fix. LIRA-163: awaiting_settlement_count now states the model-1
+        // count outright instead of it being guessed from commission===0.
+        {
+          provider: "OMT",
+          commission: 0,
+          currency: "USD",
+          count: 10,
+          awaiting_settlement_count: 10,
+        },
         // A provider that did realize commission — must render unchanged.
-        { provider: "WHISH", commission: 3.5, currency: "USD", count: 5 },
+        {
+          provider: "WHISH",
+          commission: 3.5,
+          currency: "USD",
+          count: 5,
+          awaiting_settlement_count: 0,
+        },
         // A provider with genuinely no activity — must still read "$0.00".
-        { provider: "BINANCE", commission: 0, currency: "USD", count: 0 },
+        // (Pre-LIRA-163 this relied on `count === 0` to escape the
+        // commission===0 heuristic; now it's simply awaiting_settlement_count
+        // being 0, the real signal.)
+        {
+          provider: "BINANCE",
+          commission: 0,
+          currency: "USD",
+          count: 0,
+          awaiting_settlement_count: 0,
+        },
       ],
     });
     mockGetUnsettledSummary.mockResolvedValueOnce([]);

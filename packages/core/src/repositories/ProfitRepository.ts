@@ -266,7 +266,7 @@ export interface SupplierCommissionTotalsRow {
  * rate) covers the final amount within a $0.05 tolerance. `alias` is the table
  * alias used for the `sales` row in the surrounding query.
  */
-function saleFullyPaid(alias: string): string {
+export function saleFullyPaid(alias: string): string {
   return `(${alias}.paid_usd + COALESCE(${alias}.paid_lbp, 0) / COALESCE(NULLIF(${alias}.exchange_rate_snapshot, 0), 1)) >= ${alias}.final_amount_usd - 0.05`;
 }
 
@@ -306,7 +306,7 @@ export function notPartnerPending(refTable: string, idExpr: string): string {
  * 'Sale Debt' is excluded — sales recognize via sales.paid_usd. Refunded
  * charge rows are skipped (their source is excluded via notRefunded anyway).
  */
-function notDebtPending(txnIdExpr: string): string {
+export function notDebtPending(txnIdExpr: string): string {
   return `NOT EXISTS (
     SELECT 1 FROM debt_ledger dlp
     WHERE dlp.transaction_id = ${txnIdExpr}

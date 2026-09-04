@@ -82,8 +82,10 @@ function createFullSchema(d: Database.Database): void {
     );
     CREATE TABLE debt_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
-      amount_usd REAL, amount_lbp REAL, transaction_type TEXT, created_at TEXT
-    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
+      amount_usd REAL, amount_lbp REAL, transaction_type TEXT, created_at TEXT,
+      transaction_id INTEGER
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL
+    , covered_usd REAL NOT NULL DEFAULT 0, covered_lbp REAL NOT NULL DEFAULT 0);
     CREATE TABLE expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       amount_usd REAL, amount_lbp REAL, expense_date TEXT
@@ -105,7 +107,8 @@ function createFullSchema(d: Database.Database): void {
     , is_refunded INTEGER DEFAULT 0);
     CREATE TABLE maintenance (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
-      final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT
+      final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT,
+      is_refunded INTEGER DEFAULT 0
     );
     CREATE TABLE transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,7 +170,8 @@ function createLegacySchema(d: Database.Database): void {
     , is_refunded INTEGER DEFAULT 0);
     CREATE TABLE maintenance (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
-      final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT
+      final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT,
+      is_refunded INTEGER DEFAULT 0
     );
   `);
 }

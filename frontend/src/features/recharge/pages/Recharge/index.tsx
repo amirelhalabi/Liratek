@@ -1391,6 +1391,11 @@ export default function MobileRecharge() {
                   ? finAnalytics.today.byCurrency
                   : undefined
               }
+              allProvidersAwaitingSettlementCount={
+                activeConfig.formMode !== "crypto"
+                  ? finAnalytics.today.awaiting_settlement_count
+                  : undefined
+              }
               cryptoOutToday={binanceStats.totalSent}
               cryptoInToday={binanceStats.totalReceived}
               showCryptoStats={activeConfig.formMode === "crypto"}

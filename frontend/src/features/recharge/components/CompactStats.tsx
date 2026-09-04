@@ -80,6 +80,11 @@ interface CompactStatsProps {
   todayCount?: number | undefined;
   allProvidersCommission?: number | undefined;
   allProvidersByCurrency?: CurrencyStats[] | undefined;
+  /** LIRA-163: count of today's commission_model = 1 rows (across the
+   *  filtered provider set) still awaiting settlement — the "Total Profit"
+   *  metric otherwise reads a bare $0.00 for an all-post-cutover provider,
+   *  indistinguishable from a day with genuinely no commission. */
+  allProvidersAwaitingSettlementCount?: number | undefined;
   todayByCurrency?: CurrencyStats[] | undefined;
   cryptoOutToday?: number | undefined;
   cryptoInToday?: number | undefined;
@@ -94,6 +99,7 @@ export function CompactStats({
   todayCount,
   allProvidersCommission,
   allProvidersByCurrency,
+  allProvidersAwaitingSettlementCount,
   todayByCurrency,
   cryptoOutToday,
   cryptoInToday,
@@ -158,9 +164,14 @@ export function CompactStats({
         <Metric
           label="Total Profit"
           value={
-            allProvidersByCurrency && allProvidersByCurrency.length > 0
+            (allProvidersByCurrency && allProvidersByCurrency.length > 0
               ? formatByCurrency(allProvidersByCurrency)
-              : `$${allProvidersCommission.toFixed(2)}`
+              : `$${allProvidersCommission.toFixed(2)}`) +
+            // LIRA-163: without this, an all-post-cutover provider reads a
+            // bare $0.00 — indistinguishable from genuinely zero commission.
+            ((allProvidersAwaitingSettlementCount ?? 0) > 0
+              ? ` · ${allProvidersAwaitingSettlementCount} pending`
+              : "")
           }
         />
       )}

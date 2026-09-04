@@ -44,6 +44,13 @@ import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
 
+// This spec asserts on toast visibility (the exact "N products deleted"
+// wording) — opt out of the harness's 2ms notification-duration override
+// (fixtures.ts's `E2E_NOTIFICATION_DURATION_MS`, applied so toasts don't
+// overlay/intercept clicks across the rest of the suite) and keep the real
+// dismiss timing, same pattern as lira-143/lira-089/etc.
+test.use({ notificationDurationMs: null });
+
 const RUN = Date.now();
 const NAME_A = `LIRA149 BatchDel A ${RUN}`;
 const NAME_B = `LIRA149 BatchDel B ${RUN}`;

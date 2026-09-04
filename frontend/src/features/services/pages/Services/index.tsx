@@ -225,12 +225,19 @@ interface Analytics {
     commission: number;
     pending_commission: number;
     count: number;
+    /** LIRA-163: count of today's commission_model = 1 rows still awaiting
+     *  settlement — the header's "Today"/"Month" chips otherwise read a bare
+     *  $0.00 for an all-post-cutover period, on the very page these
+     *  transactions are entered. */
+    awaiting_settlement_count?: number;
     byCurrency?: CurrencyStats[];
   };
   month: {
     commission: number;
     pending_commission: number;
     count: number;
+    /** @see today.awaiting_settlement_count */
+    awaiting_settlement_count?: number;
     byCurrency?: CurrencyStats[];
   };
   byProvider: {
@@ -1352,6 +1359,12 @@ export default function Services() {
               monthCommission={analytics.month.commission}
               todayByCurrency={analytics.today.byCurrency}
               monthByCurrency={analytics.month.byCurrency}
+              todayAwaitingSettlementCount={
+                analytics.today.awaiting_settlement_count
+              }
+              monthAwaitingSettlementCount={
+                analytics.month.awaiting_settlement_count
+              }
               owedByProvider={owedByProvider}
             />
             <button

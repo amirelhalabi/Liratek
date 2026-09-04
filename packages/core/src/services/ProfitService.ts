@@ -104,6 +104,19 @@ export interface ProfitSummary {
     commission_lbp: number;
     pending_commission_usd: number;
     pending_commission_lbp: number;
+    /** LIRA-162: count of commission_model = 1 rows awaiting settlement in
+     *  this period (from {@link ProfitRepository.getPendingCommissionTotals}
+     *  — the SAME D15 count `ProfitService.getByPaymentMethod` already
+     *  surfaces). Never a dollar figure — a model-1 row's real commission is
+     *  unknowable until the operator enters it at settlement (D15), so
+     *  `commission_usd`/`_lbp` and `pending_commission_usd`/`_lbp` above stay
+     *  LEGACY-model-only; this count is model-1's only honest counterpart.
+     *  Before this field, the Overview/Commissions cards had no way to know
+     *  a model-1 commission existed at all — `pending_commission_usd/_lbp`
+     *  read 0 for an all-model-1 period, and the "Pending" line sat behind a
+     *  `> 0` guard that never fired, so it didn't render $0.00 — it silently
+     *  didn't render anything. */
+    awaiting_settlement_count: number;
     /** Payment-method fees kept by the shop (immediate profit, PM_FEE rows) */
     pm_fee_usd: number;
     pm_fee_lbp: number;
@@ -283,6 +296,7 @@ export class ProfitService {
         commission_lbp: 0,
         pending_commission_usd: 0,
         pending_commission_lbp: 0,
+        awaiting_settlement_count: 0,
         pm_fee_usd: 0,
         pm_fee_lbp: 0,
         count: 0,
@@ -310,6 +324,18 @@ export class ProfitService {
         }
         finSvc.count += row.count;
       }
+
+      // LIRA-162: D15's "N transactions awaiting settlement" count (already
+      // powering the By-Payment-Method tab via getByPaymentMethod) is now
+      // ALSO carried onto the Overview/Commissions finSvc block — see
+      // ProfitSummary.financial_services.awaiting_settlement_count's doc
+      // comment. getFinancialPendingByCurrency above is UNCHANGED (still the
+      // source of revenue/count) — this is an addition, not a swap.
+      finSvc.awaiting_settlement_count =
+        this.repo.getPendingCommissionTotals(
+          fromDt,
+          toDt,
+        ).awaiting_settlement_count;
 
       // Payment-method fees — immediate shop profit kept in the wallet drawer,
       // recorded as PM_FEE payment rows but previously never counted anywhere.

@@ -568,4 +568,89 @@ describe("LIRA-158 Phase 2a — FinancialServiceRepository.getAnalytics", () => 
     // today regardless of which one's commission counts.
     expect(analytics.today.count).toBe(2);
   });
+
+  // ---------------------------------------------------------------------------
+  // LIRA-163 — awaiting_settlement_count (today/month/byProvider)
+  // ---------------------------------------------------------------------------
+
+  it("LIRA-163: today.awaiting_settlement_count counts only STILL-UNSETTLED model-1 rows, and byProvider carries the same per-provider count", () => {
+    const today = db
+      .prepare(`SELECT DATE('now', 'localtime') as d`)
+      .get() as { d: string };
+    const todayAt = `${today.d} 10:00:00`;
+
+    // Counts: unsettled model-1 (OMT).
+    insertFs(db, {
+      provider: "OMT",
+      commission: 2,
+      commissionModel: 1,
+      isSettled: 0,
+      createdAt: todayAt,
+    });
+    // Does NOT count: SETTLED model-1 (its real commission was already
+    // recognised on the SUPPLIER_SETTLEMENT transaction, a different
+    // report — getSupplierCommissionTotals — so it is no longer "awaiting"
+    // anything, even though this method's own `commission` field still
+    // reads 0 for it, same as before this row settled).
+    insertFs(db, {
+      provider: "OMT",
+      commission: 1,
+      commissionModel: 1,
+      isSettled: 1,
+      createdAt: todayAt,
+    });
+    // Does NOT count: unsettled but LEGACY (model-0) — its commission is
+    // already a known dollar figure (embeddedCommission's own scope), not
+    // an unknown awaiting settlement.
+    insertFs(db, {
+      provider: "WHISH",
+      commission: 0.75,
+      commissionModel: 0,
+      isSettled: 0,
+      createdAt: todayAt,
+    });
+
+    const analytics = runWithTenant(1, () => repo.getAnalytics());
+
+    // Breaks if `atSettlementCommission`/the `is_settled = 0` condition is
+    // dropped from getAnalytics's todayStats CASE WHEN: would read 2 (both
+    // model-1 rows, settled or not) instead of 1.
+    expect(analytics.today.awaiting_settlement_count).toBe(1);
+    expect(analytics.today.count).toBe(3);
+
+    const omtRow = analytics.byProvider.find((p) => p.provider === "OMT");
+    const whishRow = analytics.byProvider.find((p) => p.provider === "WHISH");
+    expect(omtRow?.awaiting_settlement_count).toBe(1);
+    expect(whishRow?.awaiting_settlement_count).toBe(0);
+  });
+
+  it("LIRA-163: month.awaiting_settlement_count mirrors the today scope for the current month bound", () => {
+    const monthAt = db
+      .prepare(
+        `SELECT strftime('%Y-%m-15 10:00:00', 'now', 'localtime') as d`,
+      )
+      .get() as { d: string };
+
+    insertFs(db, {
+      provider: "OMT",
+      commission: 1.2,
+      commissionModel: 1,
+      isSettled: 0,
+      createdAt: monthAt.d,
+    });
+    insertFs(db, {
+      provider: "OMT",
+      commission: 0.4,
+      commissionModel: 0,
+      isSettled: 0,
+      createdAt: monthAt.d,
+    });
+
+    const analytics = runWithTenant(1, () => repo.getAnalytics());
+
+    expect(analytics.month.awaiting_settlement_count).toBe(1);
+    expect(analytics.month.count).toBe(2);
+    expect(analytics.month.commission).toBe(0);
+    expect(analytics.month.pending_commission).toBe(0.4);
+  });
 });

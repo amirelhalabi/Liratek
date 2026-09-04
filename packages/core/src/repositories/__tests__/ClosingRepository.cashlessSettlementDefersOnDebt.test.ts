@@ -61,7 +61,8 @@ function createFullSchema(d: Database.Database): void {
     , is_refunded INTEGER DEFAULT 0);
     CREATE TABLE maintenance (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
-      final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT
+      final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT,
+      is_refunded INTEGER DEFAULT 0
     );
     CREATE TABLE transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,7 +108,7 @@ function createLegacySchema(d: Database.Database): void {
     CREATE TABLE financial_services (supplier_debt_booked INTEGER NOT NULL DEFAULT 0, id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, currency TEXT, commission REAL, created_at TEXT, is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
     CREATE TABLE recharges (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, currency_code TEXT, price REAL, cost REAL, created_at TEXT, is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
     CREATE TABLE custom_services (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, profit_usd REAL, status TEXT, created_at TEXT, is_refunded INTEGER DEFAULT 0);
-    CREATE TABLE maintenance (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT);
+    CREATE TABLE maintenance (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT, is_refunded INTEGER DEFAULT 0);
   `);
 }
 

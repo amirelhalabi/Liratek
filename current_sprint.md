@@ -2593,7 +2593,10 @@ mis-report. Do not write the fix as if all three shapes behave alike.
 
 ## LIRA-160: the daily closing snapshot OVER-recognises profit on four module sources — MEDIUM
 
-**Priority:** Medium · **Epic:** Closing · **Status:** TODO
+**Priority:** Medium · **Epic:** Closing · **Status:** DONE (2026-09-04, completed same day — see both
+resolution notes below) — the one gate this ticket left blocked (`notDebtPending`) was unblocked the
+same day once the concurrent LIRA-162/163 edit on `ProfitRepository.ts` landed; see "Follow-up resolution"
+below the first pass.
 
 `ClosingRepository.getDailyStatsSnapshot` books profit for which no cash has arrived. Verified gate
 comparison against each ProfitRepository counterpart:
@@ -2622,11 +2625,107 @@ the same day. Already self-documented as a known gap at `profitRecognition.guard
 `maintProfit` also gains `notRefunded`; rule-17 proof on each; the guard test's "KNOWN GAP" exclusion
 text updated to match reality afterwards.
 
+### Resolution (2026-09-04) — PARTIALLY DONE, one gate blocked by a real cross-agent scoping constraint
+
+Verified all four line numbers and the missing-gate table against source before starting — accurate as
+filed. Fixed, with rule-17 proof (revert → run the specific test → capture the verbatim failure →
+restore) on each:
+
+- `finProfitLegacy`, `rechargeProfit`, `customProfit` all now carry `notPartnerPending`, gated behind a
+  new `_hasPartnerLedgerTable()` schema-drift probe (mirrors `_hasTransactionsTable()`'s existing shape)
+  so the several fixtures that predate `partner_ledger` degrade to zero rather than throwing.
+- `maintProfit` now carries `notRefunded("maintenance")` (unconditional — the column is a real,
+  always-present production one; existing fixtures were updated to carry it).
+
+**NOT done: `notDebtPending` on any of the four.** `ProfitRepository.notDebtPending` is a private,
+unexported `function notDebtPending(...)` — this ticket's own handover explicitly forbids editing
+ProfitRepository.ts (a second agent was concurrently mid-edit on that exact file for LIRA-162/163;
+editing it too risked corrupting or losing either agent's in-progress work), and a private function
+cannot be imported without adding `export` to it. This is a real, verified blocker, not a shortcut:
+`notPartnerPending` (already exported) could be added; `notDebtPending` (not exported) could not. A
+CUSTOMER_ACCOUNT-charged ('Service Debt'/'Recharge Debt'/'Custom Service Debt') row on any of these four
+modules can still count in today's closing total before the client has repaid — documented as a STILL-OPEN
+gap in `profitRecognition.guard.test.ts`'s `EXCLUDED_UNITS` (updated to match this reality, not the
+original filing) and in the code comments at each of the four queries in `ClosingRepository.ts`.
+**Recommended follow-up (near-zero risk, additive-only):** once LIRA-162/163 lands, add `export` to
+`notDebtPending` in ProfitRepository.ts and wire it into these four queries + the two LIRA-161 additions
+below, exactly like `notPartnerPending`.
+
+New coverage: `ClosingRepository.lira160PartnerPendingGates.test.ts` (8 tests, all fixtures built so the
+old and new predicates DISAGREE per rule 17's own warning). Full core suite: 266 suites / 2798 tests,
+exit 0 (30s) — exceeds the 263/2781 baseline.
+
+### Follow-up resolution (2026-09-04) — `notDebtPending` fence lifted, the residual gap closed
+
+The concurrent LIRA-162/163 edit on `ProfitRepository.ts` landed; the scoping constraint above no longer
+applies. Verified BOTH `notDebtPending` and `saleFullyPaid` (needed by LIRA-161 item 3, batched into this
+same follow-up per the recommended-follow-up notes on both tickets) were still private/unexported before
+touching the file — confirmed by grep, not assumed. Added `export` to both, changing nothing else in
+`ProfitRepository.ts` (diff is exactly two `+export` / two removed-`function` lines).
+
+`notDebtPending` is now wired into all four sources named in the acceptance criteria, plus the two
+LIRA-161 additions (`loto`, which already carries it per its own resolution note below — `exchange` does
+not, and re-verified as genuinely unnecessary rather than assumed, see below):
+
+| Sub-query | `notPartnerPending` | `notDebtPending` | Notes |
+| --------- | :---: | :---: | ----- |
+| `finProfitLegacy` | ✅ (this ticket, first pass) | ✅ (this follow-up) | Resolves the row's own FINANCIAL_SERVICE transaction id via a new `_sourceTxnIdSubquery(sourceTable, txnType)` scalar-subquery helper (mirrors `ProfitRepository.allocationNotDebtPending`'s resolve-then-gate shape) — no existing fixture reliably has a matching `transactions` row for every legacy fs row (verified: `LIRA158.closingCashBasis.test.ts` test 3 does not), so an INNER JOIN would have silently dropped rows; the scalar subquery degrades a missing match to "not pending" instead, matching pre-change behaviour exactly. |
+| `rechargeProfit` | ✅ | ✅ | Same `_sourceTxnIdSubquery` pattern, `source_table = 'recharges'`, `type = 'RECHARGE'`. |
+| `customProfit` | ✅ | ✅ | Same pattern, `source_table = 'custom_services'`, `type = 'CUSTOM_SERVICE'`. |
+| `maintProfit` | ❌ (correct — `getMaintenanceTotals` itself never gates this; re-verified) | ✅ | Same pattern, `source_table = 'maintenance'`, `type = 'MAINTENANCE'`. |
+| `loto` (LIRA-161 addition) | ✅ (already shipped) | ✅ (this follow-up) | Already JOINs `transactions` directly (unlike the four above) — uses the real `t.id`, no subquery needed. `getLotoTotals` itself carries this gate, so this closes the ONE place the prior pass documented as "provably wider than the counterpart." |
+| `exchange` (LIRA-161 addition) | ✅ (already shipped) | ❌ — **verified unnecessary, not a gap** | Re-confirmed independently (not just re-read from the prior agent's claim): `electron-app/create_db.sql`'s `exchange_transactions` DDL has NO `client_id` column at all, and `ExchangeRepository.createTransaction`'s payout-leg validation (`ExchangeRepository.ts` ~:505-513) explicitly rejects any non-drawer-affecting method, with an inline comment naming CUSTOMER_ACCOUNT as the excluded case ("needs a client_id, which exchange_transactions does not carry"). A table with no client association can never have a `debt_ledger` row referencing it — `notDebtPending` would always no-op. `getExchangeTotals` itself gates only `notRefunded` + `notPartnerPending`, confirming the counterpart carries none either. |
+| `finProfitSettlement` / `billsOnlySettlement` | — | — (recognition-by-construction, unchanged) | Not in scope — no partner_ledger/debt_ledger row is ever keyed to a SUPPLIER_SETTLEMENT transaction id; the CASHLESS half already carries `allocationNotDebtPending` + `notPartnerPending` from LIRA-158 D17, untouched here. |
+
+**Every schema-drift combination is handled explicitly** (not collapsed into one combined guard): each of
+`finProfitLegacy`/`rechargeProfit`/`customProfit` now has four literal branches (`…Degraded` — neither
+`partner_ledger` nor `transactions`; `…PartnerOnly`; `…DebtOnly`; `…Full`), verified against two real
+fixtures that each have exactly one of the two tables (`ClosingRepository.lira160PartnerPendingGates
+.test.ts` has `partner_ledger` but no `transactions`; `LIRA158.closingCashBasis.test.ts` has `transactions`
+but no `partner_ledger`) — collapsing the two axes into a single "both or neither" guard would have
+silently dropped one gate's coverage on whichever fixture is missing the OTHER table. `maintProfit` needs
+only the `transactions` axis (two branches). This is why the gate-call TEXT is written literally inside
+every `.prepare()` template rather than hoisted through an intermediate JS variable:
+`profitRecognition.guard.test.ts` statically scans each `.prepare()` call's raw source text for the
+literal substring `notDebtPending(`/`notPartnerPending(` — a value merely spliced in via `${aVariable}`
+would not contain that literal text and would misread a genuinely-gated query as ungated.
+
+**Test-schema trap, hit exactly as CLAUDE.md warned:** two existing fixtures with a `transactions` table
+but a `debt_ledger` missing `transaction_id`/`covered_usd`/`covered_lbp` (`LIRA158.closingCashBasis
+.test.ts`'s `createFullSchema`, `ClosingRepository.lira161ExchangeAndLoto.test.ts`) started throwing
+`no such column: dlp.transaction_id` the moment `notDebtPending` became reachable in their execution
+path — both fixed by adding the three real production columns (matching `electron-app/create_db.sql`'s
+`debt_ledger` DDL).
+
+**Rule 17, all five gates, verbatim:**
+
+| Gate | Test | Captured failure (gate removed) |
+| --- | --- | --- |
+| `finProfitLegacy` | `lira160DebtPendingGates` › finProfitLegacy › excludes … | `Expected: 0, Received: 5` |
+| `rechargeProfit` | … › rechargeProfit › excludes … | `Expected: 0, Received: 6` |
+| `customProfit` | … › customProfit › excludes … | `Expected: 0, Received: 15` |
+| `maintProfit` | … › maintProfit › excludes … | `Expected: 0, Received: 30` |
+| `loto` | … › loto › excludes … | `Expected: 0, Received: 4500` |
+
+Each: the specific `AND ${notDebtPending(...)}` clause removed from the branch the fixture actually
+exercises, the named test run in isolation (`npx jest ClosingRepository.lira160DebtPendingGates -t
+"<module>"`), the failure above captured, the clause restored, the full suite re-confirmed green.
+
+New coverage: `ClosingRepository.lira160DebtPendingGates.test.ts` (11 tests — an uncovered-debt exclusion
++ a fully-covered-debt inclusion + a no-debt-row inclusion per module, proving the gate is the real FIFO
+comparison and not a blanket "any debt row exists" check). Every fixture built so the CUSTOMER_ACCOUNT-
+charged row and the cash row disagree (rule 17's own warning against coincidental agreement).
+
+Gates after this follow-up: core **268 suites / 2816 tests**, exit 0 (25.9s); backend **46/633**, exit 0
+(25.8s); frontend **180/1360** (1 skipped), exit 0 (39.7s) — meets or exceeds every baseline.
+
 ---
 
 ## LIRA-161: the same snapshot UNDER-counts — two modules absent, one gap by omission — LOW/MEDIUM
 
-**Priority:** Low-Medium · **Epic:** Closing · **Status:** TODO
+**Priority:** Low-Medium · **Epic:** Closing · **Status:** DONE (2026-09-04) — items 1 and 3 complete;
+item 2 was OUT OF SCOPE by owner instruction from the start (filed as its own ticket, LIRA-173) and is not
+a blocker on this ticket's completion.
 
 Three under-counting defects in `getDailyStatsSnapshot`, opposite in sign to LIRA-160:
 
@@ -2645,11 +2744,86 @@ Three under-counting defects in `getDailyStatsSnapshot`, opposite in sign to LIR
 under-count and never claims money that has not arrived. Fix 3 first (cheap, prevents drift), then
 decide whether 1 and 2 are wanted — that is a semantics question about what the PDF should mean.
 
+### Resolution (2026-09-04)
+
+**Item 1 — DONE, owner decision confirmed: add BOTH loto and exchange.** Investigated whether each is
+genuinely same-day cash before adding, per the owner's stated condition:
+
+- **Loto**: `ProfitRepository.getLotoTotals`'s own doc comment confirms same-day cash ("stamps its
+  commission as profit_lbp on the LOTO transaction at sale time"). Added, gated exactly like the
+  counterpart (`notRefunded` + `notPartnerPending` on the new `loto_tickets`/`transactions` JOIN, behind
+  a new `_hasLotoTicketsTable()` + `_hasTransactionsTable()` + `_hasPartnerLedgerTable()` schema-drift
+  guard — no existing fixture creates `loto_tickets`, so every one of them degrades to zero unchanged).
+  Loto's real commission is booked ENTIRELY in LBP; `totalProfitUSD` has no currency-conversion
+  convention anywhere in this method (the existing `finProfitLegacy`/`rechargeProfit` queries already
+  EXCLUDE their own module's LBP slice rather than convert it), so forcing loto through the USD-only
+  total would silently contribute exactly $0 — a no-op disguised as a fix. Added a new, additive-only
+  `totalProfitLBP?: number` field to `DailyStatsSnapshot` instead (mirrors the `totalSalesUSD`/
+  `totalSalesLBP`-pair convention the interface already uses elsewhere). **Follow-up needed, out of this
+  ticket's `packages/core`-only scope:** the generated closing PDF (frontend) does not yet render this
+  new field — wiring it in is a small, separate frontend change.
+- **Exchange**: scrutinised as asked (this is the one the ticket flagged as needing care). Verified in
+  `ExchangeRepository.createTransaction`: `leg1_profit_usd`/`leg2_profit_usd` are stamped SYNCHRONOUSLY,
+  inside the SAME transaction as the exchange itself — never at a later date. The
+  `EXCHANGE_LOT_SETTLEMENT.md` "settlement" terminology that raised the original concern refers to FIFO
+  cost-basis matching against a previously-bought lot (deciding WHICH lot(s) a sell consumes), resolved
+  at the SELL's own transaction time — `profitRecognition.guard.test.ts`'s own header note already says
+  so explicitly ("stamps the FIFO-realized profit... AT SETTLEMENT (the sell's own) time... never at the
+  buy's time"). This is NOT the OMT/WHISH kind of deferred cash settlement (a later, separate,
+  operator-entered event) — it is same-day by construction for every exchange, lot-tracked or not.
+  Additionally `ExchangeRepository` structurally REJECTS CUSTOMER_ACCOUNT payout legs
+  ("exchange_transactions does not carry client_id", ExchangeRepository.ts ~:506-513), so exchange can
+  never be debt-pending — `getExchangeTotals` itself gates only `notRefunded` + `notPartnerPending`, and
+  this addition matches it exactly, with no `notDebtPending` residual gap (the one source in this whole
+  pair of tickets with none). **Conclusion: exchange belongs in the same-day view, added.** Folds
+  directly into `totalProfitUSD` (already USD-native), gated behind a new
+  `_hasExchangeTransactionsTable()` + `_hasPartnerLedgerTable()` probe (degrades to zero on every
+  existing fixture, none of which create `exchange_transactions`).
+
+**Item 2 — OUT OF SCOPE as instructed, filed as LIRA-173** (see below). Not built here.
+
+**Item 3 — DONE (2026-09-04 follow-up, the export fence lifted the same day as LIRA-160's).**
+`saleFullyPaid` was confirmed still private/unexported by grep before editing (not assumed), then
+exported alongside `notDebtPending` (Task 1 of the follow-up, a two-line additive diff — see LIRA-160's
+follow-up resolution above). `salesProfit`'s inlined predicate text was replaced with
+`${saleFullyPaid("s")}`.
+
+This is a behaviour-preserving refactor, so a plain revert-and-rerun (rule 17) proves nothing — the SQL
+text is unchanged. Two different proofs were required and both were done:
+
+1. **Parity ("passes both before and after"):** a new 5-case test file
+   (`ClosingRepository.lira161SaleFullyPaidCoupling.test.ts` — fully-paid, $0.03-short-within-tolerance,
+   $0.10-short-outside-tolerance, mixed USD+LBP fully paid, materially under-paid) was run against the
+   OLD inlined text first (5/5 pass, 6.47s), then again after the `${saleFullyPaid("s")}` swap (5/5 pass,
+   5.45s) — identical results both times, confirming the swap is behaviour-preserving.
+2. **Coupling proof (the actual point of rule 14):** `ProfitRepository.saleFullyPaid`'s tolerance was
+   temporarily tightened from `- 0.05` to `- 0.00`, and the same file's "$0.03 short" test was re-run in
+   isolation — it FLIPPED from pass to `Expected: 40, Received: 0`, proving `ClosingRepository` is now
+   genuinely coupled to the shared definition (pre-fix, this mutation would not have touched
+   `ClosingRepository.ts` at all). `saleFullyPaid` was then reverted to its exact original text and the
+   full file re-confirmed green (5/5).
+
+`profitRecognition.guard.test.ts`'s `salesProfit` `EXCLUDED_UNITS` entry was REMOVED (not just edited) —
+the query now literally calls `saleFullyPaid(` inside its own `.prepare()` template, so the guard's
+text-scan self-detects the gate and the exclusion is stale weight; the guard's own "no stale entries"
+check confirms this.
+
+New coverage: `ClosingRepository.lira161ExchangeAndLoto.test.ts` (7 tests, including a schema-drift
+fallback proof and rule-17 proofs for both module additions and both new `notPartnerPending` gates);
+`ClosingRepository.lira161SaleFullyPaidCoupling.test.ts` (5 tests, the parity + coupling proof above).
+Full core suite after both LIRA-160 and LIRA-161 follow-ups: **268 suites / 2816 tests**, exit 0 (25.9s)
+— exceeds the 266/2800 baseline this follow-up started from.
+
 ---
 
-## LIRA-162: pending commission is INVISIBLE on the Profits Overview and Commissions cards — MEDIUM
+## LIRA-162: pending commission is INVISIBLE on the Profits Overview and Commissions cards — MEDIUM (DONE)
 
-**Priority:** Medium · **Epic:** Profits · **Status:** TODO
+**Priority:** Medium · **Epic:** Profits · **Status:** DONE (2026-09-04) — `ProfitService.getSummary`
+now also calls `ProfitRepository.getPendingCommissionTotals` and carries
+`financial_services.awaiting_settlement_count`; the Overview "Pending" line's guard now fires on that
+count too (previously rendered nothing at all for an all-post-cutover period), and the field is typed
+through the service, the local page type, and three new component-level jest tests (one proven
+failing-first against the pre-fix guard). `getFinancialPendingByCurrency` left untouched, as required.
 
 D15's "N transactions awaiting settlement" landed in `getPendingCommissionTotals`, which feeds only
 the By-Payment-Method tab. The Overview and Commissions cards are fed by
@@ -2671,9 +2845,23 @@ transports (rules 12 + 19). Frontend jest coverage for the render.
 
 ---
 
-## LIRA-163: `getAnalytics` has no awaiting-settlement count — three more surfaces read $0.00 — MEDIUM
+## LIRA-163: `getAnalytics` has no awaiting-settlement count — three more surfaces read $0.00 — MEDIUM (DONE)
 
-**Priority:** Medium · **Epic:** Profits/Services · **Status:** TODO
+**Priority:** Medium · **Epic:** Profits/Services · **Status:** DONE (2026-09-04) —
+`FinancialServiceRepository.getAnalytics` now computes `awaiting_settlement_count` (scoped to
+`is_settled = 0 AND commission_model = 1`, D15's exact shape) at today/month level, per currency, and
+per provider, in the same SQL pass. The three render sites (Services header `StatsCards`, Recharge
+`CompactStats`, Profits → Commissions cards/table) now read the real count instead of the deleted
+`commission === 0 && count > 0` heuristic — proven wrong-on-purpose failing-first (a genuinely-zero
+provider the heuristic mislabeled "Awaiting settlement"). REST (`backend/src/api/services.ts`) needed
+no change — confirmed a pure passthrough to the same core service. Both corrected claims re-verified:
+the XLSX/PDF export already carries rendered cell text (confirmed by reading `tableExport.ts`), and the
+Dashboard is confirmed NOT calling `getOMTAnalytics` at all. `embeddedCommission.guard.test.ts` passes
+on the new SQL, and its per-column gate detection was proven (failing-first) to catch a simulated
+ungated sibling column added next to the new one — the older `profitRecognition.guard.test.ts` was
+confirmed out of scope entirely (its `SCANNED_FILES` never included `FinancialServiceRepository.ts`).
+Fixed the pre-existing `Promise<any>` on `ApiAdapter.getOMTAnalytics`/`backendApi.ts`'s `getOMTAnalytics`
+while wiring the field through both transports (new `OMTAnalytics` type in `packages/ui`).
 
 `getAnalytics` sums `commission` model-0-only while `COUNT(*)` stays model-agnostic. LIRA-158
 relabelled ONE render site client-side ("Awaiting settlement" instead of `$0.00`); the asymmetry is
@@ -3049,3 +3237,195 @@ deleted renders identically to one whose product wasn't, on this surface only.
 Correctly scoped out of LIRA-152 at the time; this is the follow-up. **Fix:** mirror the Phone Units
 chip (`{unit.product_deleted === 1 && <span>...Product deleted...</span>}`) into `ImeiStoryCard.tsx`'s
 render, gated on `story.product_deleted === 1`.
+
+---
+
+## LIRA-173: for-partner sale margin needs a settlement-day recognition path, mirroring `finProfitSettlement` — LOW/MEDIUM
+
+**Priority:** Low-Medium · **Epic:** Closing/Profits · **Status:** TODO
+
+**Filed 2026-09-04, owner decision recorded the same day** — split out of LIRA-161 item 2 on purpose.
+The owner separated this because it mirrors the whole shape of LIRA-158's commission-at-settlement work
+and deserves its own ticket rather than riding along inside the LIRA-160/161 closing-snapshot fix.
+
+`ClosingRepository.getDailyStatsSnapshot`'s `salesProfit` query excludes a for-partner sale's margin on
+the sale's OWN day — correct for a same-day cash view, since a for-partner sale carries `paid_usd = 0`
+(no counter cash actually changed hands that day; `ProfitRepository`'s
+`salePaidOrPartnerSettled(alias)` fragment's partner-covered OR-branch is what recognizes it, and
+`salesProfit` deliberately omits that branch). The gap: unlike financial-service commission, which got a
+dedicated settlement-day source (`finProfitSettlement`, reading `SUPPLIER_SETTLEMENT`/`REFUND`
+transactions off the unified `transactions` table on THEIR OWN day) when LIRA-158 moved Closing to a
+cash basis, sales have NO equivalent path. A for-partner sale's margin is therefore never picked up by
+this snapshot on ANY day — not the sale day (correctly deferred) and not the day the partner actually
+pays (no source reads it there at all).
+
+**Sign of the bug:** can only ever UNDER-count `totalProfitUSD`, never overstate it — it never claims a
+cash event that hasn't happened, so today's behaviour does not violate the "profit is real only when
+money is real" rule (`profitRecognition.guard.test.ts`'s own header/`EXCLUDED_UNITS` note for
+`salesProfit` documents this explicitly). This is a completeness gap, not a correctness one — which is
+exactly why it was correctly triaged as LOW/MEDIUM and separable from LIRA-160's real over-recognition
+bugs.
+
+**Acceptance (sketch, mirroring `finProfitSettlement`'s shape):**
+
+- A new settlement-day source in `getDailyStatsSnapshot`, reading a for-partner sale's margin on the day
+  the PARTNER settles (i.e. when `partner_ledger`'s FOR_% coverage against `reference_table = 'sales'`
+  completes), not the sale's own day — same "recognize on the day the cash event actually happens"
+  principle `finProfitSettlement` already applies to OMT/WHISH commission.
+- Reuse `ProfitRepository`'s exported `notPartnerPending` fragment (and `saleFullyPaid`, if exported by
+  then — see LIRA-160/161's recommended follow-up) rather than a new hand-written predicate (rule 14).
+- Same schema-drift discipline as every other source in this method: degrade to zero, not a throw, on any
+  fixture that predates the tables involved (`_hasPartnerLedgerTable()` and friends already exist from
+  LIRA-160/161 and can be reused).
+- Rule 17 proof: a for-partner sale fixture where the OLD (day-of-sale-only) and NEW (settlement-day)
+  queries disagree — the sale day must show $0 (unchanged), the settlement day must show the margin
+  (new).
+- Update `profitRecognition.guard.test.ts`'s `salesProfit` `EXCLUDED_UNITS` entry once this ships — its
+  "gap of omission, worth its own ticket" note becomes stale the moment this lands.
+
+---
+
+## LIRA-174: downloadable profits PDF needs a rate-stamped USD+LBP view — LOW/MEDIUM
+
+**Priority:** Low-Medium · **Epic:** Profits/Reporting · **Status:** TODO
+
+**Filed 2026-09-04**, owner spec recorded verbatim-in-substance while reviewing LIRA-161 (this ticket is a
+record of the owner's spec, not a design produced here — per instruction, nothing below was decided by
+the filer beyond the one item explicitly marked as an inference in §3).
+
+### 1. What the owner asked for (evolved same-day, in two passes)
+
+**First pass** — three separate downloadable PDF versions:
+
+1. **Total USD** — every currency converted to USD.
+2. **Total LBP** — every currency converted to LBP.
+3. **Both LBP and USD, zero conversions** — native amounts only.
+
+For modes 1 and 2, an amount with no rate stamped on it was to use "the rate from system configuration."
+
+**Second pass, same day — SUPERSEDES the three-mode spec above.** The owner reviewed the presentation
+requirement and decided one view can carry the same transparency without a mode toggle. Their words: *"I
+think you are correct on this. Let's stick to one view."* The reasoning offered back to them (not their
+own words, recorded here so the "why" behind the supersession is legible): showing the USD amount, the
+LBP amount, and a rate-stamped USD total together on one document already makes every figure both native
+and auditable — a reader who wants "the LBP figure" or "the USD figure" already has it without a second
+PDF, and a reader who wants the conversion sees the exact rate used printed on the page instead of having
+to reverse-engineer it against a separate config screen.
+
+**Do not build the three-mode toggle.** The single-view layout in §2 is the current spec. The three-mode
+text above is kept only so the history is legible to whoever picks this up — do not resurrect it as a
+"missed requirement."
+
+### 2. The single-view layout (owner's words, verbatim on the first three lines)
+
+> "showcase usd amount, lbp amount, total amount in usd with the rate used — this way it's clear"
+
+Concretely, per line item:
+
+```
+USD amount        $ 195.50
+LBP amount      450,000 LBP
+Total (USD)     $ 200.79   @ 90,000
+Total (LBP)   18,071,000 LBP   @ 90,000
+```
+
+The first three lines (USD amount, LBP amount, Total (USD) with the rate annotation) are the owner's
+explicit instruction. **The fourth line (Total (LBP), also rate-annotated) is the filer's inference, NOT
+something the owner said in this exchange** — it completes their ORIGINAL request (which asked for a
+usable LBP-facing total as well as a USD-facing one) symmetrically, and costs nothing to add once the
+rate is already being stamped on the USD line. Flagged explicitly so the owner can strike it in one line
+if they'd rather keep the document USD-total-only.
+
+The rate being printed on the document **is the point** — it turns "some number was converted somehow"
+into an auditable figure the reader can check by hand. Every row and every total on the document must
+carry its rate whenever a conversion happened; a native (unconverted) amount carries none.
+
+### 3. The conversion rate: `sell_rate`, not `buy_rate` — and why that is a real divergence, flagged not resolved
+
+**Owner decision (2026-09-04): use the `sell_rate` column of `exchange_rates`** as "the rate from system
+configuration" for any amount that reaches the document with no rate already stamped on it. Verified
+(filer, before this ticket): `exchange_rates` (read via `RateRepository`) carries three independent rates
+per currency, seeded as LBP `market 89,500 / buy 89,000 / sell 90,000` and EUR `market 1.18 / buy 1.16 /
+sell 1.20`. The PDF uses **sell** — 90,000 for LBP at today's seed values.
+
+**Flag this, do not "fix" it:** the app-wide convention for LBP→USD conversion elsewhere in the codebase
+is **buy**, not sell — owner decision 2026-07-06, cited in source at `frontend/src/features/debts/pages/
+Debts/index.tsx` (~:2068-2070) and `frontend/src/features/sessions/.../SessionCheckoutModal.tsx`
+(~:979-981), and it is what LIRA-139's amount-sort fallback uses. That means the profits PDF's converted
+total will **not tie out exactly** against those other buy-rate surfaces for the same underlying LBP
+figures. This is defensible on its own terms — sell is the rate the shop would actually pay to turn LBP
+into dollars, the conservative reading for a profit figure, and printing the rate on the face of the
+document makes the divergence visible rather than silently hidden — but it is a real, deliberate
+departure from the established convention. **Do not have a future pass quietly "correct" this to buy, and
+do not file the buy/sell mismatch against the other surfaces as a bug** — it is this ticket's own choice,
+made by the owner with the tradeoff named, not an oversight.
+
+### 4. What's already built (partly), from LIRA-160/161's core-side work
+
+`ClosingRepository.getDailyStatsSnapshot` already computes a same-day `totalProfitLBP` field (LIRA-161
+item 1, 2026-09-04) precisely because loto's commission is booked **entirely in LBP**
+(`ProfitRepository.getLotoTotals` returns only `revenue_lbp`/`profit_lbp`, no USD figure at all) — a
+USD-only total would silently contribute exactly $0 for loto forever. That LIRA-161 pass deliberately did
+**not** touch the PDF renderer (frontend — out of that ticket's `packages/core`-only scope), so this
+ticket's data side has a documented head start: the LBP figure this PDF needs for loto is already
+surfaced on the snapshot object; only the frontend rendering (this ticket's actual scope) is unbuilt.
+
+### 5. Open items for whoever implements this (name them, do not guess)
+
+- Confirm which document fields, beyond loto, currently arrive with NO stamped rate at all (candidates:
+  any USD/LBP total that sums across mixed-rate historical rows) — each such field is where §3's
+  `sell_rate` substitution actually fires; a field that already carries its own historical rate (e.g. a
+  sale's `exchange_rate_snapshot`) must keep using ITS OWN rate, not be overridden by the current
+  `sell_rate` (that would misstate a historical transaction at today's rate).
+- Decide whether the Total (LBP) line from §2 survives owner review, per the inference flag above.
+- Reuse `RateRepository`'s existing accessor for `sell_rate` rather than a second hand-rolled query
+  (rule 14) — confirm the exact method name before implementing.
+
+---
+
+## LIRA-175: `lira-136-binance-fee-mode-c-ui-driven.spec.ts` — order-dependent failure, only inside the full suite; blocks future e2e sharding — LOW (documentation only, do not fix yet)
+
+**Priority:** Low · **Epic:** E2E Infra/Testing · **Status:** TODO (investigation only — do not touch the spec)
+
+**Filed 2026-09-04**, while fixing LIRA-151's genuinely-failing spec on this branch. This ticket is a
+record of an already-diagnosed-as-out-of-scope failure, not a fix — per instruction, the spec itself was
+left untouched.
+
+`frontend/tests/e2e-electron/lira-136-binance-fee-mode-c-ui-driven.spec.ts:157` — *"'Customer pays
+separately' is absent while a session is active"* — fails **only when run as part of the full desktop e2e
+suite** (observed on Ubuntu CI) and **passes when run alone** (verified on Windows). Both directions were
+verified before filing.
+
+**Where it fails:** line 186, `await expect(appPage.locator("#crypto-amount")).toBeVisible({ timeout:
+20_000 })` — i.e. failing during the test's own *setup* (starting a session, navigating to `/recharge`,
+clicking the "Binance" provider button, waiting for the crypto-amount field to render) rather than at its
+actual assertion further down (the "Customer pays separately" absence check). A spec failing inside its
+own setup step, with the same steps succeeding in isolation, is the signature of state left behind by
+whichever spec(s) ran immediately before it in the shared run — not a defect in this spec's own logic or
+in the LIRA-160/161/162/163 work this branch actually touched.
+
+**Confirmed NOT caused by this branch:** the spec and the code path it drives (Binance/crypto recharge
+provider selection) are untouched by LIRA-160/161/162/163. The failure is a pre-existing property of
+running the suite in full, surfaced now only because this was the first time the full suite was run since
+it started failing.
+
+**The mechanism to investigate** (per CLAUDE.md rule 15): the desktop e2e suite shares **one accumulating
+SQLite database** across every spec file, run in order, against a **single Electron window per worker** —
+there is no per-file reset. Some earlier spec in the full-suite ordering is leaving behind state (an
+active session that shouldn't be active, a module/provider toggle, a lingering modal/toast, drawer or rate
+state, etc.) that this spec's setup steps don't anticipate and don't defend against. Finding *which*
+earlier spec, and *what* state it leaves, is the actual investigation — this ticket does not attempt that;
+it only localizes the failure to the setup step and rules out this branch as the cause.
+
+**Why this is more than a flaky-test annoyance:** this spec is now a concrete, demonstrated blocker for any
+future attempt to shard/parallelize the e2e suite. Sharding would split specs across multiple
+workers/DBs, which is exactly the kind of change that would partition (or accidentally fix, or
+unpredictably relocate) whatever cross-spec state this failure depends on — so this failure mode should be
+understood, not just individually silenced, before anyone attempts that. That context — not the specific
+fix — is the most valuable part of this ticket.
+
+**Do not fix, do not touch the spec, as instructed when this was filed.** Whoever picks this up should
+start by bisecting the full-suite run (e.g. running increasingly large prefixes of the suite ending at
+lira-136) to identify the specific preceding spec(s) responsible, then decide whether the fix belongs in
+that spec (clean up after itself) or in this spec (defend its own setup against whatever state
+pre-existing sessions leave behind).
