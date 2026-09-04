@@ -45,6 +45,8 @@ import {
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
+import { useSellRate } from "@/hooks/useSellRate";
+import { amountSortValue } from "../amountSort";
 import {
   buildServiceReceiptTextByTransaction,
   getConfiguredReceiptPrinter,
@@ -97,6 +99,10 @@ export default function TransactionsViewer({
     to,
   });
   const shopInfo = useShopInfo();
+  // LIRA-139: fallback rate for Amount-column sort on rows with no stamped
+  // `exchange_rate` — injected into amountSortValue rather than read inside
+  // it (DIP).
+  const { buyRate: fallbackRate } = useSellRate();
 
   const { methods: paymentMethods, drawerAffectingMethods } =
     usePaymentMethods();
@@ -513,7 +519,7 @@ export default function TransactionsViewer({
         getSortValue={(row, key) => {
           if (key === "created_at")
             return row.created_at ? parseDbDate(row.created_at).getTime() : 0;
-          if (key === "amount_usd") return row.amount_usd ?? 0;
+          if (key === "amount_usd") return amountSortValue(row, fallbackRate);
           if (key === "reverses_id") return row.reverses_id ?? 0;
           if (key === "payment_method")
             return formatPaymentMethods(methodLegsFor(row), methodLabelByCode);

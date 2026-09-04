@@ -52,6 +52,10 @@ jest.mock("@/hooks/useShopName", () => ({
   useShopInfo: () => ({ name: "Test Shop", phone: "", location: "", logo: "" }),
 }));
 
+jest.mock("@/hooks/useSellRate", () => ({
+  useSellRate: () => ({ sellRate: 89500, buyRate: 89000, isLoading: false }),
+}));
+
 const mockGetRecentTransactions = getRecentTransactions as jest.MockedFunction<
   typeof getRecentTransactions
 >;
