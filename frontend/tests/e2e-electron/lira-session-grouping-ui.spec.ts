@@ -7,10 +7,19 @@
  * every same-session <tr> as the `--session-hue` custom property
  * (`sessionVars()` ~L639-641), and sets a bare `data-session=""` attribute on
  * that row (`buildTr()` ~L996-997). index.css then paints a left border whose
- * lightness differs by theme: `.dark tr[data-session]` uses 78%/62% (L474-482)
- * while `html:not(.dark) tr[data-session]` uses 72%/42% (L483-491) — same hue,
- * different lightness. This spec is the ONLY thing guarding that mechanism:
- * nothing under frontend/ referenced `data-session`/`--session-hue` before it.
+ * lightness differs by theme: `--session-sat`/`--session-lig` are declared on
+ * `:root` (light) and `html.dark` (dark) and consumed by the single
+ * `tr[data-session]` rule. This spec is the ONLY thing guarding that
+ * mechanism: nothing under frontend/ referenced `data-session`/`--session-hue`
+ * before it.
+ *
+ * The saturation/lightness pair is NOT hardcoded here — a prior version
+ * duplicated index.css's dark-mode numbers as spec constants, and a later
+ * re-theme (424dff6e) changed the tokens without anyone updating the spec,
+ * leaving it silently red. Instead `sessionTokens()` below reads
+ * `--session-sat`/`--session-lig` live off `document.documentElement`'s
+ * computed style — the same custom properties the CSS itself resolves — so
+ * there is exactly one source of truth for these numbers.
  *
  * Setup mirrors lira-session-basket-payment.spec.ts: start a session, then
  * `session.checkout` two custom-service items so both resulting transaction
@@ -81,6 +90,24 @@ function hueOf(row: Locator): Promise<number> {
   return row.evaluate((el) =>
     Number(el.style.getPropertyValue("--session-hue").trim()),
   );
+}
+
+/**
+ * Read the CURRENTLY ACTIVE theme's `--session-sat`/`--session-lig` off the
+ * live computed style of <html> — the single source of truth index.css's
+ * `tr[data-session]` rule itself consumes (`:root` for light, `html.dark`
+ * for dark). This is read fresh each call so it always reflects whichever
+ * theme is active at that instant, instead of restating the numbers as
+ * spec-local constants that can drift from the CSS (see file header).
+ */
+async function sessionTokens(page: Page): Promise<{ s: number; l: number }> {
+  return page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    return {
+      s: parseFloat(style.getPropertyValue("--session-sat")),
+      l: parseFloat(style.getPropertyValue("--session-lig")),
+    };
+  });
 }
 
 function borderLeftColorOf(row: Locator): Promise<string> {
@@ -217,7 +244,7 @@ test.describe("Session grouping UI — per-session border accent (WS8)", () => {
       );
     const startedDark = await isDark();
 
-    const [sBefore, lBefore] = startedDark ? [78, 62] : [72, 42];
+    const { s: sBefore, l: lBefore } = await sessionTokens(appPage);
     const expectedBefore = await resolvedColor(appPage, hue, sBefore, lBefore);
     expect(await borderLeftColorOf(rowA)).toBe(expectedBefore);
     expect(await borderLeftColorOf(rowB)).toBe(expectedBefore);
@@ -231,7 +258,7 @@ test.describe("Session grouping UI — per-session border accent (WS8)", () => {
     await themeToggle.click();
     await expect.poll(isDark, { timeout: 5000 }).toBe(!startedDark);
 
-    const [sAfter, lAfter] = !startedDark ? [78, 62] : [72, 42];
+    const { s: sAfter, l: lAfter } = await sessionTokens(appPage);
     const expectedAfter = await resolvedColor(appPage, hue, sAfter, lAfter);
     const afterA = await borderLeftColorOf(rowA);
     const afterB = await borderLeftColorOf(rowB);
