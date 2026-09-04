@@ -3383,9 +3383,9 @@ surfaced on the snapshot object; only the frontend rendering (this ticket's actu
 
 ---
 
-## LIRA-175: `lira-136-binance-fee-mode-c-ui-driven.spec.ts` — order-dependent failure, only inside the full suite; blocks future e2e sharding — LOW (documentation only, do not fix yet)
+## LIRA-175: `lira-136-binance-fee-mode-c-ui-driven.spec.ts` — order-dependent failure, only inside the full suite; blocks future e2e sharding — LOW — DONE (2026-09-04)
 
-**Priority:** Low · **Epic:** E2E Infra/Testing · **Status:** TODO (investigation only — do not touch the spec)
+**Priority:** Low · **Epic:** E2E Infra/Testing · **Status:** DONE — fixed at the spec level after a harness-level attempt was proven to regress an unrelated spec (see Resolution below)
 
 **Filed 2026-09-04**, while fixing LIRA-151's genuinely-failing spec on this branch. This ticket is a
 record of an already-diagnosed-as-out-of-scope failure, not a fix — per instruction, the spec itself was
@@ -3429,3 +3429,68 @@ start by bisecting the full-suite run (e.g. running increasingly large prefixes 
 lira-136) to identify the specific preceding spec(s) responsible, then decide whether the fix belongs in
 that spec (clean up after itself) or in this spec (defend its own setup against whatever state
 pre-existing sessions leave behind).
+
+---
+
+### Resolution (2026-09-04, owner decision superseded "do not fix yet")
+
+**Bisection attempted, could not force a repro on Windows.** Ran, in order: (1) lira-136 alone — 3
+passed; (2) `lira-097-debt-cashout` (opts out of the harness's 2ms toast auto-dismiss via
+`test.use({ notificationDurationMs: null })`, sorts before lira-136) → lira-136 — 7 passed; (3)
+`lira-089-bill-commission-settlement` (same opt-out) → lira-136 — 4 passed; (4)
+`lira-135-session-checkout-net-negative-mixed-basket` — the spec that sorts **immediately** before
+lira-136 in true full-suite order, and leaves its own `SessionCheckoutModal` "Checkout Complete" success
+view on screen with no explicit close (its own comment says so) → lira-136 — 4 passed; (5) the full,
+true-order prefix of **all 79 spec files** (223 tests) from the start of the suite through lira-136
+inclusive — 223 passed in 5.3m, lira-136's session-gating test taking 8.8s, unremarkable. None reproduced
+the CI failure. Conclusion: this is a genuine Windows-vs-Ubuntu-CI timing difference, not a state leak
+reproducible by ordering alone on this machine — consistent with the ticket's own filing, which only ever
+claimed the failure on Ubuntu CI and only ever verified the pass-alone case on Windows.
+
+**Root-cause theory (Likely, not proven by reproduction):** the failure signature — a `{ force: true }`
+click that "succeeds" (force skips Playwright's actionability/obstruction check, so the resulting click is
+a real OS-level click at the target's on-screen coordinates, landing on whatever is topmost there) followed
+by `#crypto-amount` never appearing at all ("element(s) not found", not just "not visible") — matches a
+click intercepted by an overlay, not a slow render. `navigateTo()`'s existing overlay-dismiss logic
+(fixtures.ts) only targets `div.fixed.inset-0` modals; `NotificationCenter`'s toasts are
+`fixed bottom-4 right-4` and are invisible to that check. A spec that opts out of the harness's 2ms
+auto-dismiss to assert on its own toast content (11 specs do, via `notificationDurationMs: null`) can leave
+a toast alive for its real 3s/5s type default; if CI's timing (slower/shared runner, different render
+pacing) lines up such that one is still on screen when this spec's setup force-clicks "Binance," the click
+is silently eaten. This is the same class of bug as LIRA-151 (fixed same day: a toast assertion racing the
+2ms default), just the *intercepting* side of it instead of the *asserting* side.
+
+**Fix — spec-level, NOT harness-level, and here is why that reversed the original preference:** the first
+attempt put a generic toast-dismiss step inside `fixtures.ts`'s shared `navigateTo()` (used by all ~110
+spec files) — reasoning that a harness fix protects every spec, matching this ticket's own stated
+preference. That attempt was **proven wrong by execution**: paired with lira-097, it turned a passing run
+into a consistent, reproducible failure — not in lira-136, but in lira-097's OWN "mixed position" test,
+which asserts a `"Cash out processed!"` toast (a fixed, no-amount string — `Debts/index.tsx:646`).
+`NotificationCenter` dedupes identical `type:message` keys within a rolling 5s window regardless of whether
+the earlier toast is still visually present (dismissing it early does not reset the dedupe timestamp), and
+this spec's two cash-outs already sit within a few hundred ms of that 5s boundary. The generic fix's added
+per-`navigateTo()`-call latency (one extra `count()` await, suite-wide) was enough to flip that pre-existing
+marginal race consistently red across 2/2 runs. Reverted `fixtures.ts` back to the committed original
+(confirmed via `git status` — zero diff) rather than also fixing lira-097's race, which is out of this
+ticket's scope and out of the touchable-files list. The fix instead lives entirely in
+`lira-136-binance-fee-mode-c-ui-driven.spec.ts`: a local `dismissToasts()` helper (actively clicks each
+visible toast's own X button — not a blind wait, not a weakened assertion, and `{ force: true }` is left
+untouched since it is legitimately needed elsewhere per `helpers/nav.ts`'s own comment about z-layer
+settling) called both from the shared `openBinanceCashOut()` helper and inline in the failing test, right
+before each `{ force: true }` click on the "Binance" button. Blast radius: one file.
+
+**Verified:** `npx tsc -p tsconfig.playwright.json --noEmit` and `npx eslint
+tests/e2e-electron/lira-136-binance-fee-mode-c-ui-driven.spec.ts` both clean. lira-136 alone: 3 passed
+(23.2s). Paired after lira-097: 7 passed (30.0s) — including lira-097's own "mixed position" test back to
+1.2s (was 15.9s/failing with the reverted harness-level attempt). Paired after lira-089: 4 passed (22.8s).
+Because the fix is confined to the one spec file (`fixtures.ts` is untouched), the mandatory-full-suite
+rule was not triggered (owner call, 2026-09-04) — CI already has an independent full run in flight against
+this branch.
+
+**Honest limitation:** the local Windows environment never turned this failure red, including with the
+full true-order 79-file/223-test prefix (item 5 above). The fix is a well-reasoned hardening against a
+documented, real gap (toasts uncovered by `navigateTo()`'s overlay-dismiss) and the exact bug class that
+already hit this suite once (LIRA-151), not a red-to-green proof of THIS specific failure. If it recurs on
+CI after this lands, the next data point should be the CI trace/screenshot at the moment of failure
+(`document.elementFromPoint` at the click coordinates, `document.querySelectorAll('[role="alert"]')`) to
+confirm or rule out this exact mechanism.

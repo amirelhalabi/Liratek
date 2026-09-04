@@ -68,10 +68,59 @@ async function drawers(
   });
 }
 
+/**
+ * Actively dismiss any toast notification currently on screen — a real click
+ * on each toast's own X button, not a blind wait.
+ *
+ * LIRA-175: on Ubuntu CI, in the full suite, this file's "absent while a
+ * session is active" test failed at the `{ force: true }` click on the
+ * "Binance" provider button — the click "succeeded" (force skips
+ * Playwright's actionability/obstruction check, so it fires a real
+ * OS-level click at the button's on-screen coordinates regardless of what
+ * else is there) but the crypto form never opened, meaning that click
+ * landed on something else. `navigateTo()`'s own overlay-dismiss (fixtures.ts)
+ * only targets `div.fixed.inset-0` modals — NotificationCenter's toasts are
+ * `fixed bottom-4 right-4` and are invisible to that check entirely. A spec
+ * ordered immediately before this file in the full-suite run can opt out of
+ * the harness's 2ms auto-dismiss default (`test.use({ notificationDurationMs:
+ * null })`, so it can assert on its own toast content) and leave a toast
+ * alive for its real 3s/5s type default long enough to still be on screen
+ * when this file's setup runs — that is this ticket's most likely mechanism,
+ * though it could not be reproduced locally on Windows even pairing every
+ * preceding spec file in true full-suite order (see LIRA-175 investigation
+ * notes). This is a narrow, file-local defense rather than a change to the
+ * shared `navigateTo()` helper: an earlier attempt to dismiss toasts
+ * generically inside `navigateTo()` was PROVEN to destabilize an unrelated,
+ * pre-existing marginal race in lira-097 (a fixed, no-amount "Cash out
+ * processed!" notification string means two cash-outs within the
+ * NotificationCenter's 5s dedupe window silently suppress the second toast —
+ * the tiny added latency of a suite-wide check was enough to flip that
+ * already-marginal timing in testing). Scoping the fix to this file avoids
+ * that blast radius entirely.
+ */
+async function dismissToasts(page: Page): Promise<void> {
+  const toasts = page.locator('[role="alert"]');
+  // Dismissing shifts every remaining toast's index down by one, so always
+  // re-query `.first()` — `.nth(i)` on a shrinking list would skip toasts.
+  // Bounded by the count read before the loop so a toast whose dismiss
+  // button can't be found/clicked can never spin this forever.
+  const count = await toasts.count().catch(() => 0);
+  for (let i = 0; i < count; i++) {
+    if ((await toasts.count().catch(() => 0)) === 0) break;
+    await toasts
+      .first()
+      .locator("button")
+      .first()
+      .click({ timeout: 500 })
+      .catch(() => {});
+  }
+}
+
 /** Navigate to Recharge, select the Binance provider, then its Cash Out
  *  (RECEIVE) tab. Shared setup for every test below. */
 async function openBinanceCashOut(page: Page) {
   await navigateTo(page, "/recharge");
+  await dismissToasts(page);
   await page
     .locator("button")
     .filter({ hasText: /^Binance$/ })
@@ -177,6 +226,11 @@ test.describe("LIRA-136 — Binance mode C (customer pays separately), UI-driven
         .filter({ hasText: /Session - / })
         .first(),
     ).toBeVisible({ timeout: 20_000 });
+
+    // LIRA-175: dismiss any toast left on screen by whichever spec ran
+    // immediately before this one in the full suite before force-clicking
+    // Binance below — see `dismissToasts()`'s doc comment for the mechanism.
+    await dismissToasts(appPage);
 
     await appPage
       .locator("button")
