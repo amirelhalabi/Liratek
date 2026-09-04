@@ -3380,3 +3380,52 @@ surfaced on the snapshot object; only the frontend rendering (this ticket's actu
 - Decide whether the Total (LBP) line from §2 survives owner review, per the inference flag above.
 - Reuse `RateRepository`'s existing accessor for `sell_rate` rather than a second hand-rolled query
   (rule 14) — confirm the exact method name before implementing.
+
+---
+
+## LIRA-175: `lira-136-binance-fee-mode-c-ui-driven.spec.ts` — order-dependent failure, only inside the full suite; blocks future e2e sharding — LOW (documentation only, do not fix yet)
+
+**Priority:** Low · **Epic:** E2E Infra/Testing · **Status:** TODO (investigation only — do not touch the spec)
+
+**Filed 2026-09-04**, while fixing LIRA-151's genuinely-failing spec on this branch. This ticket is a
+record of an already-diagnosed-as-out-of-scope failure, not a fix — per instruction, the spec itself was
+left untouched.
+
+`frontend/tests/e2e-electron/lira-136-binance-fee-mode-c-ui-driven.spec.ts:157` — *"'Customer pays
+separately' is absent while a session is active"* — fails **only when run as part of the full desktop e2e
+suite** (observed on Ubuntu CI) and **passes when run alone** (verified on Windows). Both directions were
+verified before filing.
+
+**Where it fails:** line 186, `await expect(appPage.locator("#crypto-amount")).toBeVisible({ timeout:
+20_000 })` — i.e. failing during the test's own *setup* (starting a session, navigating to `/recharge`,
+clicking the "Binance" provider button, waiting for the crypto-amount field to render) rather than at its
+actual assertion further down (the "Customer pays separately" absence check). A spec failing inside its
+own setup step, with the same steps succeeding in isolation, is the signature of state left behind by
+whichever spec(s) ran immediately before it in the shared run — not a defect in this spec's own logic or
+in the LIRA-160/161/162/163 work this branch actually touched.
+
+**Confirmed NOT caused by this branch:** the spec and the code path it drives (Binance/crypto recharge
+provider selection) are untouched by LIRA-160/161/162/163. The failure is a pre-existing property of
+running the suite in full, surfaced now only because this was the first time the full suite was run since
+it started failing.
+
+**The mechanism to investigate** (per CLAUDE.md rule 15): the desktop e2e suite shares **one accumulating
+SQLite database** across every spec file, run in order, against a **single Electron window per worker** —
+there is no per-file reset. Some earlier spec in the full-suite ordering is leaving behind state (an
+active session that shouldn't be active, a module/provider toggle, a lingering modal/toast, drawer or rate
+state, etc.) that this spec's setup steps don't anticipate and don't defend against. Finding *which*
+earlier spec, and *what* state it leaves, is the actual investigation — this ticket does not attempt that;
+it only localizes the failure to the setup step and rules out this branch as the cause.
+
+**Why this is more than a flaky-test annoyance:** this spec is now a concrete, demonstrated blocker for any
+future attempt to shard/parallelize the e2e suite. Sharding would split specs across multiple
+workers/DBs, which is exactly the kind of change that would partition (or accidentally fix, or
+unpredictably relocate) whatever cross-spec state this failure depends on — so this failure mode should be
+understood, not just individually silenced, before anyone attempts that. That context — not the specific
+fix — is the most valuable part of this ticket.
+
+**Do not fix, do not touch the spec, as instructed when this was filed.** Whoever picks this up should
+start by bisecting the full-suite run (e.g. running increasingly large prefixes of the suite ending at
+lira-136) to identify the specific preceding spec(s) responsible, then decide whether the fix belongs in
+that spec (clean up after itself) or in this spec (defend its own setup against whatever state
+pre-existing sessions leave behind).

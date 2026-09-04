@@ -1,0 +1,159 @@
+name: E2E Tests
+
+# LIRA-160/163: E2E used to run automatically as a job inside ci.yml on every
+# PR. Per owner decision it is still REQUIRED but no longer AUTOMATIC — moved
+# here as its own manually-dispatched workflow so opening/updating a PR no
+# longer runs it, while a human (or a required-check policy that expects it
+# to have been dispatched) can still demand it before merge. See the two
+# owner-facing notes in the PR/handover: (1) "required" is set in this repo's
+# branch-protection settings, not by anything in this file; (2) a
+# workflow_dispatch-only workflow is not selectable in the Actions UI (and
+# cannot be required in branch protection in a way that's satisfiable) until
+# this file exists on the DEFAULT branch — so it cannot gate the PR that
+# introduces it.
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Which e2e suite to run"
+        type: choice
+        options:
+          - electron
+          - web
+          - both
+        default: electron
+
+# Same convention as ci.yml, scoped to this workflow's own group name so a
+# manual e2e dispatch never cancels (or gets cancelled by) an in-flight CI
+# run on the same ref — the two workflows are independent gates.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # Launches the real Electron app (IPC + SQLite) via Playwright's _electron.
+  # The Vite dev server is started automatically by playwright.electron.config.ts.
+  #
+  # This job's steps are unchanged from the "e2e-tests" job formerly in
+  # ci.yml, apart from: (a) `uses: ./.github/actions/setup` now runs its own
+  # `yarn install --immutable` (`install: "true"`) instead of restoring a
+  # cache populated by ci.yml's sibling `install` job — this workflow has no
+  # such sibling job of its own and cannot assume ci.yml's cache is warm for
+  # whatever commit it's dispatched against, so it installs directly, the
+  # same pattern build.yml already uses for its standalone jobs; (b) the
+  # gating `if:` below, driven by the new `suite` input.
+  e2e-electron:
+    name: E2E Tests (Electron)
+    if: ${{ github.event.inputs.suite == 'electron' || github.event.inputs.suite == 'both' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          install: "true"
+
+      - name: Install virtual display + allow Electron sandbox
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          # Ubuntu 24.04 AppArmor blocks unprivileged user namespaces, which
+          # Electron's sandbox needs; relax it for this job.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Ensure better-sqlite3 is built for Electron
+        run: yarn rebuild:native
+
+      - name: Build core + electron-app
+        run: |
+          yarn workspace @liratek/core build
+          yarn workspace @liratek/electron-app build
+
+      # LIRA-123: this step used to be
+      #   `yarn workspace @liratek/frontend test:e2e`
+      # which is provably unreliable on Windows dev machines — `yarn`'s own
+      # script-dispatch layer can silently exit 0 with ZERO output instead of
+      # ever launching Playwright (reproduced with a -g pattern matching no
+      # spec, which Playwright itself always fails loudly on with "Error: No
+      # tests found" when invoked directly). CI on Linux has NOT been
+      # observed to hit this — real run logs show genuine spec counts and
+      # multi-minute durations — but the fix bypasses `yarn` for this
+      # specific step everywhere anyway ("a working harness beats a tidy
+      # one"), and scripts/run-e2e.mjs adds the safety net that was missing:
+      # it fails the step if the run reports fewer than --min completed
+      # tests, even if the underlying process's own exit code was 0.
+      - name: Run Electron E2E tests
+        run: xvfb-run --auto-servernum -- node scripts/run-e2e.mjs electron --min=150
+
+      - name: Upload Playwright report (Electron)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-electron
+          path: frontend/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Drives the app as a real browser client against the Express backend over
+  # HTTP + JWT (playwright.web.config.ts) — no Electron, no IPC. This suite
+  # has NEVER been run in CI before (see the LIRA-160/163 handover); this job
+  # is what makes it reachable at all. Two real differences from the
+  # electron job above, both load-bearing, not cosmetic:
+  #
+  #   1. ABI: the web suite's backend is a plain Node process (`tsx
+  #      src/server.ts`), not Electron, so better-sqlite3 must be on the
+  #      NODE ABI — `yarn rebuild:node`, the mirror image of the electron
+  #      job's `rebuild:native`. This is exactly what root `test:e2e:web`
+  #      does (`npm run rebuild:node && node scripts/run-e2e.mjs web`) and
+  #      what playwright.web.config.ts's own header comment documents as a
+  #      prerequisite. No electron-app/core Electron build is needed here —
+  #      the web suite never touches electron-app.
+  #   2. Browser binary: the electron suite drives the real, already-built
+  #      Electron binary via Playwright's `_electron` runner, so no browser
+  #      download is needed. The web suite drives a real Chromium that
+  #      Playwright manages itself, and nothing in this repo has ever
+  #      installed it before (there was no CI job running the web suite to
+  #      need it) — added explicitly rather than assumed present.
+  e2e-web:
+    name: E2E Tests (Web)
+    if: ${{ github.event.inputs.suite == 'web' || github.event.inputs.suite == 'both' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          install: "true"
+
+      - name: Ensure better-sqlite3 is built for Node (not Electron)
+        run: yarn rebuild:node
+
+      - name: Install Playwright browsers (Chromium)
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # No --min override here, deliberately. run-e2e.mjs ships its own
+      # DEFAULT_MIN.web = 20, but that number's own comment says it's an
+      # estimate ("current suite sizes... web ~35-39 specs", 2026-08) never
+      # confirmed by an actual run — this suite has never gone green in CI,
+      # so there is no real baseline to defend a floor with (LIRA-123's
+      # lesson cuts both ways: an invented floor is exactly as unearned as no
+      # floor). Left alone rather than guessed at. Once this job has produced
+      # a real passing count, replace this comment and DEFAULT_MIN.web in
+      # scripts/run-e2e.mjs with the observed number, at the same
+      # roughly-half-of-baseline margin the electron floor and core-tests
+      # floor already use.
+      - name: Run Web E2E tests
+        run: node scripts/run-e2e.mjs web
+
+      - name: Upload Playwright report (Web)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-web
+          path: frontend/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
