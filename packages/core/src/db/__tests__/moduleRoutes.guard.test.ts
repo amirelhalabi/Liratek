@@ -39,14 +39,35 @@
  * loudly with a message saying so), and only then (b) does the captured
  * value equal what LIRA-116 requires.
  *
- * Rule 17 (failing-first proof): jest cannot run in the isolated worktree
- * this test was authored in (no node_modules), so the "this test fails on
- * the pre-rename code" proof was done out-of-band with a standalone node
- * script that copies these exact regexes/comparison logic and runs them
- * against `git show HEAD:<path>` (pre-rename) vs the working tree
- * (post-rename). See the task handover for the script's path and output;
- * it is NOT part of this repo. Running this file under jest itself is
- * still owed separately.
+ * Rule 17 (failing-first proof): discharged, by observation, by running
+ * THIS file under jest itself — first against the pre-rename tree (the
+ * rename reverted via `git checkout HEAD~1 --` on the six source sites,
+ * with this test file retained), then again against the post-rename tree.
+ *
+ * Pre-rename: 8 of 10 assertions FAILED — the six site assertions, the
+ * `/services`-redirect assertion, and the HomeGrid `accentMap` assertion,
+ * each with its own diagnostic message (the create_db.sql, TenantRepository,
+ * and VoiceBotService sites reported `expected "/omt-whish" but found
+ * "/services"`; the migration site reported the deliberate "the guard has
+ * gone blind" no-match error, because migration v162 does not exist
+ * pre-rename). Post-rename: 10 of 10 passed.
+ *
+ * The 2 assertions that stay green in BOTH runs are correct, not weak: (a)
+ * the REPO_ROOT landmark check, which is an environment assertion, and (b)
+ * "custom_services still declares /custom-services everywhere, and is never
+ * paired with /services", an anti-regression assertion guarding a FUTURE
+ * swap the owner explicitly rejected — it is supposed to be green before
+ * and after; do not "fix" it by making it fail pre-rename.
+ *
+ * What is genuinely still unrun: the FULL packages/core jest suite, because
+ * in the authoring worktree `better-sqlite3` resolves to a binary built for
+ * the Electron ABI (NODE_MODULE_VERSION 125 present vs 127 required), so
+ * any core test that constructs a Database fails environmentally. This
+ * guard is deliberately unaffected — it is a pure TEXT test that imports
+ * only `node:fs` and `node:path`, never imports TenantRepository or the
+ * migrations module, and never opens a database, which is also why it
+ * keeps working even when a module fails to load: exactly the recurrence
+ * it guards against.
  */
 
 import * as fs from "node:fs";
