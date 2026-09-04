@@ -30,6 +30,10 @@ export interface ProductUnitSummary {
  *  sale provenance and computed warranty status. */
 export interface ProductUnitStory extends ProductUnit {
   product_name: string | null;
+  /** `products.is_deleted` off the same join as `product_name` — `null` when
+   *  the product row is missing, `1` when soft-deleted, `0` when live. Only a
+   *  truthy `1` means deleted (LIRA-152). */
+  product_deleted: number | null;
   /** The owning MODEL's warranty term (`products.warranty_months`) —
    *  display-only (decision #4 starts the clock at the sale), never a
    *  coverage claim. */
@@ -64,6 +68,10 @@ export interface ProductUnitListRow {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  /** `products.is_deleted` off the same join as `product_name` — `null` when
+   *  the product row is missing, `1` when soft-deleted, `0` when live. Only a
+   *  truthy `1` means deleted (LIRA-152). */
+  product_deleted: number | null;
   /** The owning MODEL's warranty term (`products.warranty_months`) —
    *  display-only, so unsold stock can show "N mo — starts at sale" instead
    *  of "No warranty". Never a coverage claim (decision #4). */
@@ -582,9 +590,15 @@ export interface ElectronAPI {
     deleteProduct: (
       id: number,
     ) => Promise<{ success: boolean; error?: string }>;
-    batchDelete: (
-      ids: number[],
-    ) => Promise<{ success: boolean; deleted?: number; error?: string }>;
+    batchDelete: (ids: number[]) => Promise<{
+      success: boolean;
+      deleted?: number;
+      /** LIRA-149: cascades IN_STOCK units for every id, same as the
+       *  singular deleteProduct above — see InventoryService.batchDeleteProducts. */
+      removed_unit_count?: number;
+      removed_unit_imeis?: string[];
+      error?: string;
+    }>;
     adjustStock: (payload: {
       id: number;
       newQuantity?: number;

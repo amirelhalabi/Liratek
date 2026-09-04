@@ -298,6 +298,7 @@ describe("buildUnitExportTable", () => {
     warranty_override_until: null,
     created_at: "2026-08-01 10:00:00",
     product_name: "iPhone 15 Pro",
+    product_deleted: null,
     product_warranty_months: null,
     sale_item_id: null,
     sold_at: null,

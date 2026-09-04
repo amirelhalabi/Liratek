@@ -2291,24 +2291,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   }
 
   /**
-   * LIRA-143 phase 4 — memoized `product_units` table-existence guard, same
-   * `sqlite_master` shape as `_exchangeLotTablesExist` above but cached
-   * per-instance (this repository is a long-lived singleton and the schema
-   * shape never changes once the process is up). Guards `_reverseProductUnits`
-   * so the many hand-built test schemas that predate this phase (no
-   * `product_units` table) stay byte-identical.
+   * LIRA-143 phase 4 — `product_units` table-existence guard, delegating to
+   * `BaseRepository.tableExists` (rule 14: LIRA-148 collapsed this repo's
+   * own hand-rolled `sqlite_master` probe + cache onto the one shared owner
+   * — same probe `ProductUnitRepository.productUnitsTableExists()` now
+   * exposes to `InventoryService`). Guards `_reverseProductUnits` so the
+   * many hand-built test schemas that predate this phase (no `product_units`
+   * table) stay byte-identical. Method name/call sites kept as-is to limit
+   * blast radius.
    */
-  private _productUnitsTableExistsCache: boolean | null = null;
   private _productUnitsTableExists(): boolean {
-    if (this._productUnitsTableExistsCache === null) {
-      const row = this.db
-        .prepare(
-          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_units'`,
-        )
-        .get();
-      this._productUnitsTableExistsCache = row !== undefined;
-    }
-    return this._productUnitsTableExistsCache;
+    return this.tableExists("product_units");
   }
 
   /**

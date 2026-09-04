@@ -42,6 +42,10 @@ export type ProductUnitListRow = {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  /** `products.is_deleted` off the same join as `product_name` — `null` when
+   *  the product row is missing, `1` when soft-deleted, `0` when live. Only a
+   *  truthy `1` means deleted (LIRA-152). */
+  product_deleted: number | null;
   /** The owning MODEL's warranty term (`products.warranty_months`) —
    *  display-only, so unsold stock can show "N mo — starts at sale" instead
    *  of "No warranty". Never a coverage claim (decision #4: the clock starts
@@ -227,6 +231,16 @@ export type ProductWriteResult = {
   error?: string;
   code?: string;
   suggested_barcode?: string;
+};
+
+/** LIRA-149 — mirrors `InventoryService.batchDeleteProducts`'s return shape,
+ *  identical on both transports (IPC raw; REST envelope-parity 200). */
+export type BatchDeleteProductsResult = {
+  success: boolean;
+  deleted?: number;
+  removed_unit_count?: number;
+  removed_unit_imeis?: string[];
+  error?: string;
 };
 
 export type ProcessSaleResult = {
@@ -571,6 +585,10 @@ export type ApiAdapter = {
   createProduct: (payload: any) => Promise<ProductWriteResult>;
   updateProduct: (id: number, payload: any) => Promise<ProductWriteResult>;
   deleteProduct: (id: number) => Promise<ProductWriteResult>;
+  /** LIRA-149 — dual-transport twin of the inventory grid's multi-select
+   *  delete (IPC `inventory:batch-delete` / REST
+   *  `POST /api/inventory/products/batch-delete`). */
+  batchDeleteProducts: (ids: number[]) => Promise<BatchDeleteProductsResult>;
   getLowStockProducts: () => Promise<any[]>;
   /** LIRA-077: set-absolute (newQuantity) or delta stock correction, always
    *  with a reason for the stock_adjustments audit trail. */

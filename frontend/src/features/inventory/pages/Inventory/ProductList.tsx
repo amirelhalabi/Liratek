@@ -262,6 +262,25 @@ export default function ProductList() {
     null,
   );
   const [checkingUnits, setCheckingUnits] = useState(false);
+  /**
+   * LIRA-150 — request-token guard for the IN_STOCK-unit probe above.
+   *
+   * `requestDelete`/`requestBatchDelete` below are event-click handlers, not
+   * effects, so there is no `useEffect` cleanup to flip a `cancelled` flag
+   * on — that's the house latest-wins idiom used everywhere else a stale
+   * async response must be dropped (`let cancelled = false` closed over the
+   * effect, `if (cancelled) return;` after every `await`, cleanup sets it
+   * `true`; see e.g. `hooks/useSellRate.ts`, `hooks/useExchangeRate.ts`,
+   * `components/SessionDebtDetailModal.tsx`). This ref is the SAME
+   * semantics reshaped for an event handler: a monotonically increasing
+   * token that both `requestDelete` and `requestBatchDelete` share and bump
+   * on entry, so opening a NEW confirm (single or batch) always "cancels"
+   * whichever probe was still in flight — a delete click on product A
+   * followed quickly by one on product B (or the batch button) can never
+   * let A's IMEIs land in B's dialog. Do NOT simplify this back to a bare
+   * `await` — that reintroduces the race this ticket fixes.
+   */
+  const deleteProbeToken = useRef(0);
 
   const allSelected =
     products.length > 0 && selectedIds.size === products.length;
@@ -499,29 +518,42 @@ export default function ProductList() {
    *  disclosure. The dialog opens immediately — the read only decides whether
    *  an extra paragraph appears in it. */
   const requestDelete = async (product: Product) => {
+    // Bump FIRST — this both claims the token for this call and supersedes
+    // whatever single/batch probe was still in flight (see the ref's doc
+    // comment above).
+    const token = ++deleteProbeToken.current;
     setDeleteUnitWarning(null);
     setShowDeleteConfirm({ id: product.id });
     setCheckingUnits(true);
     try {
       const { entries, probeFailed } = await probeInStockUnits([product]);
+      // A newer request (single or batch) opened while we were awaiting —
+      // its own result, not ours, owns the dialog now.
+      if (token !== deleteProbeToken.current) return;
       setDeleteUnitWarning(buildUnitDeleteWarning(entries, probeFailed));
     } finally {
-      setCheckingUnits(false);
+      // Only the still-current request may clear the spinner. A superseded
+      // probe's `finally` firing LAST would otherwise unstick "Checking…"
+      // for a request that isn't done yet — the subtle bug naive versions
+      // of this guard ship.
+      if (token === deleteProbeToken.current) setCheckingUnits(false);
     }
   };
 
   /** Same, for the batch-delete confirm over the current selection. */
   const requestBatchDelete = async () => {
     if (selectedIds.size === 0) return;
+    const token = ++deleteProbeToken.current;
     setDeleteUnitWarning(null);
     setShowBatchDeleteConfirm(true);
     setCheckingUnits(true);
     try {
       const targets = products.filter((p) => selectedIds.has(p.id));
       const { entries, probeFailed } = await probeInStockUnits(targets);
+      if (token !== deleteProbeToken.current) return;
       setDeleteUnitWarning(buildUnitDeleteWarning(entries, probeFailed));
     } finally {
-      setCheckingUnits(false);
+      if (token === deleteProbeToken.current) setCheckingUnits(false);
     }
   };
 
@@ -572,11 +604,14 @@ export default function ProductList() {
 
     try {
       const ids = Array.from(selectedIds);
-      const result = window.api
-        ? await (window.api as any).inventory.batchDelete(ids)
-        : null;
+      // LIRA-149: this used to gate on raw `window.api` and silently no-op
+      // in the browser (result stayed `null`, the failure guard below never
+      // fired, and the count fell back to `ids.length` — reporting products
+      // "deleted" that were never touched). `useApi()` routes to IPC or REST
+      // for both transports, so `result` is always the real outcome now.
+      const result = await api.batchDeleteProducts(ids);
 
-      if (result && !result.success) {
+      if (!result.success) {
         appEvents.emit(
           "notification:show",
           result.error || "Failed to delete products",
@@ -585,7 +620,7 @@ export default function ProductList() {
         return;
       }
 
-      const deleted = result?.deleted ?? ids.length;
+      const deleted = result.deleted ?? ids.length;
       appEvents.emit(
         "notification:show",
         `${deleted} product${deleted !== 1 ? "s" : ""} deleted`,

@@ -79,6 +79,15 @@ export abstract class BaseRepository<T extends BaseEntity> {
    */
   protected readonly tenantScoped: boolean;
 
+  /**
+   * Cache for {@link tableExists} — the schema shape does not change once
+   * the process is up, so each table name is probed at most once per
+   * repository instance. Keyed by table name so a repository that ever
+   * needs to probe more than one table (unlikely today) still gets one
+   * cache entry per name, not one shared boolean.
+   */
+  private readonly tableExistsCache = new Map<string, boolean>();
+
   constructor(
     tableName: string,
     options?: { softDelete?: boolean; tenantScoped?: boolean },
@@ -487,6 +496,33 @@ export abstract class BaseRepository<T extends BaseEntity> {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Whether a table exists in the attached database. ONE owner for the
+   * sqlite_master probe (rule 14) — repositories that must tolerate a
+   * pre-migration schema call this instead of hand-rolling their own.
+   * Cached per instance: the schema shape does not change once the process
+   * is up.
+   */
+  protected tableExists(tableName: string): boolean {
+    const cached = this.tableExistsCache.get(tableName);
+    if (cached !== undefined) {
+      return cached;
+    }
+    let exists: boolean;
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?`,
+        )
+        .get(tableName);
+      exists = row !== undefined;
+    } catch {
+      exists = false;
+    }
+    this.tableExistsCache.set(tableName, exists);
+    return exists;
   }
 
   /**

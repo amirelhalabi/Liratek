@@ -139,6 +139,16 @@ function insertProduct(
   return Number(result.lastInsertRowid);
 }
 
+/** LIRA-152 — soft-delete a product row in place, the same flag
+ *  `ProductRepository.softDeleteById` sets (`is_deleted = 1`). Raw UPDATE
+ *  because `insertProduct` has no such option — every other test in this
+ *  file relies on a freshly-inserted product defaulting to `is_deleted = 0`. */
+function softDeleteProduct(db: Database.Database, productId: number): void {
+  db.prepare(`UPDATE products SET is_deleted = 1 WHERE id = ?`).run(
+    productId,
+  );
+}
+
 function insertClient(
   db: Database.Database,
   tenantId: number,
@@ -709,6 +719,40 @@ describe("ProductUnitRepository", () => {
       expect(bare[0].product_warranty_months).toBeNull();
     });
 
+    /**
+     * LIRA-152 — a unit whose product was soft-deleted stays in this read
+     * (history), but the row must now say so via `product_deleted`. Only a
+     * truthy `1` means deleted; a live product's unit must come back `0`,
+     * not `null` (the join found a real product row either way).
+     */
+    it("carries product_deleted truthy for a soft-deleted product's unit, and 0 for a live one", () => {
+      const deletedProductId = insertProduct(db, {
+        tenantId: 1,
+        name: "Discontinued Phone",
+      });
+      const liveProductId = insertProduct(db, {
+        tenantId: 1,
+        name: "iPhone 13",
+      });
+      runWithTenant(1, () =>
+        repo.addUnits(deletedProductId, ["111111111111111"]),
+      );
+      runWithTenant(1, () =>
+        repo.addUnits(liveProductId, ["222222222222222"]),
+      );
+      softDeleteProduct(db, deletedProductId);
+
+      const deleted = runWithTenant(1, () =>
+        repo.getUnitStoryByImei("111111111111111"),
+      );
+      expect(deleted[0].product_deleted).toBe(1);
+
+      const live = runWithTenant(1, () =>
+        repo.getUnitStoryByImei("222222222222222"),
+      );
+      expect(live[0].product_deleted).toBe(0);
+    });
+
     it("orders newest unit first across multiple rows sharing one IMEI", () => {
       const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
       const [unit] = runWithTenant(1, () =>
@@ -1176,6 +1220,41 @@ describe("ProductUnitRepository", () => {
       // A model with no term at all stays null — this is what keeps a
       // genuinely warranty-less unit distinguishable from unsold stock.
       expect(byId.get(bare.id)!.product_warranty_months).toBeNull();
+    });
+
+    /**
+     * LIRA-152 — the ticket's core scenario: a unit SOLD off a product that
+     * is later soft-deleted must stay in this list (history, never filtered
+     * out) AND now carry `product_deleted = 1` so the operator is told the
+     * product is gone. A live product's unit stays `0`.
+     */
+    it("keeps a sold unit's row after its product is soft-deleted, and stamps product_deleted", () => {
+      const deletedProductId = insertProduct(db, {
+        tenantId: 1,
+        name: "Discontinued Phone",
+      });
+      const liveProductId = insertProduct(db, {
+        tenantId: 1,
+        name: "iPhone 13",
+      });
+      const [soldUnit] = runWithTenant(1, () =>
+        repo.addUnits(deletedProductId, ["950000000000001"]),
+      );
+      const [liveUnit] = runWithTenant(1, () =>
+        repo.addUnits(liveProductId, ["950000000000002"]),
+      );
+      runWithTenant(1, () => repo.markSold(soldUnit.id, 950));
+      softDeleteProduct(db, deletedProductId);
+
+      const { rows, total } = runWithTenant(1, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      // Still present — this is history disclosure, not a filter.
+      expect(total).toBe(2);
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      expect(byId.get(soldUnit.id)!.status).toBe("SOLD");
+      expect(byId.get(soldUnit.id)!.product_deleted).toBe(1);
+      expect(byId.get(liveUnit.id)!.product_deleted).toBe(0);
     });
 
     it("never shows tenant B's units to tenant A — rows AND total", () => {

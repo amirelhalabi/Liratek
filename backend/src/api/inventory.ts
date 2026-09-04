@@ -7,6 +7,7 @@ import {
   productListQuerySchema,
   type ProductListQuery,
   type ProductListFilters,
+  batchDeleteProductsSchema,
   stockAdjustSchema,
   resolveScanCodeSchema,
   createCategorySchema,
@@ -192,6 +193,41 @@ router.post(
   },
 );
 
+// POST /api/inventory/products/batch-delete (admin/staff — matches the IPC
+// handler's roles per rule 19b: inventoryHandlers.ts's `inventory:batch-delete`
+// carries `["admin", "staff"]`, not the admin-only gate the singular DELETE
+// below has). Static path — declared here, BEFORE every parameterized
+// `/products/:id` route below (this file's own convention, see the comments
+// at lines 81-84/100-102): otherwise Express would match "batch-delete" as
+// the `:id` param on PUT/DELETE /products/:id.
+//
+// Body `{ ids }` validated against `batchDeleteProductsSchema`
+// (packages/core/src/validators/product.ts), which wraps the SAME
+// `batchDeleteProductIdsSchema` the IPC channel validates its positional
+// `number[]` argument against (rule 14) — one ids rule, two shapes.
+router.post(
+  "/products/batch-delete",
+  requireRole(["admin", "staff"]),
+  validateRequest(batchDeleteProductsSchema),
+  (req, res) => {
+    const service = getInventoryService();
+    const result = service.batchDeleteProducts(req.body.ids);
+    if (result.success) {
+      // Mirrors inventoryHandlers.ts's inventory:batch-delete audit. Actor
+      // comes from req.user via auditRest — never a client-supplied id.
+      auditRest(req, {
+        action: "delete",
+        entity_type: "product",
+        summary: `Batch deleted ${req.body.ids.length} products`,
+        metadata: { ids: req.body.ids },
+      });
+    }
+    // Rule 19c envelope parity: HTTP 200 even on a business-rule failure,
+    // same as the IPC channel and this route's PUT/DELETE siblings below.
+    res.status(200).json(result);
+  },
+);
+
 // PUT /api/inventory/products/:id (admin)
 router.put("/products/:id", requireRole(["admin"]), (req, res) => {
   const id = Number(req.params.id);
@@ -240,7 +276,13 @@ router.put("/products/:id", requireRole(["admin"]), (req, res) => {
 router.delete("/products/:id", requireRole(["admin"]), (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: "Invalid id" });
+    // Rule 19c envelope parity (LIRA-149 scope extension — see
+    // backend/src/middleware/validation.ts's rule-19c comment): a
+    // business-rule/validation failure is HTTP 200 + `{success:false}`,
+    // never a 4xx, because the frontend adapter branches on `result.success`
+    // only. This route's own PUT sibling already gets this right for its
+    // OWN "Invalid id" guard's neighbour below.
+    res.status(200).json({ success: false, error: "Invalid id" });
     return;
   }
 
@@ -255,7 +297,11 @@ router.delete("/products/:id", requireRole(["admin"]), (req, res) => {
       summary: `Deleted product #${id}`,
     });
   }
-  res.status(result.success ? 200 : 400).json(result);
+  // Rule 19c envelope parity (LIRA-149): a service failure used to answer
+  // HTTP 400 here, breaking the IPC-identical HTTP-200 + {success:false}
+  // envelope every other route in this file (and the frontend adapter)
+  // relies on — `result.success` is the only thing callers branch on.
+  res.status(200).json(result);
 });
 
 // POST /api/inventory/products/:id/stock (admin/staff — matches the IPC

@@ -409,6 +409,34 @@ export async function deleteProduct(id: number): Promise<ProductWriteResult> {
   });
 }
 
+/**
+ * LIRA-149 — dual-transport twin of `inventory:batch-delete` /
+ * `POST /api/inventory/products/batch-delete`. Mirrors
+ * `InventoryService.batchDeleteProducts`'s own return shape on both
+ * transports (IPC returns it raw; REST returns the SAME envelope,
+ * `res.status(200).json(result)` — see backend/src/api/inventory.ts).
+ */
+export type BatchDeleteProductsResult = {
+  success: boolean;
+  deleted?: number;
+  removed_unit_count?: number;
+  removed_unit_imeis?: string[];
+  error?: string;
+};
+
+export async function batchDeleteProducts(
+  ids: number[],
+): Promise<BatchDeleteProductsResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.batchDelete(ids),
+    async () =>
+      requestJson<BatchDeleteProductsResult>(
+        `/api/inventory/products/batch-delete`,
+        { method: "POST", body: { ids } },
+      ),
+  );
+}
+
 export type StockAdjustPayload = {
   id: number;
   newQuantity?: number;
@@ -3845,6 +3873,10 @@ export interface ProductUnitSummaryDto {
 
 export interface ProductUnitStoryDto extends ProductUnitDto {
   product_name: string | null;
+  /** `products.is_deleted` off the same join as `product_name` — `null` when
+   *  the product row is missing, `1` when soft-deleted, `0` when live. Only a
+   *  truthy `1` means deleted (LIRA-152). */
+  product_deleted: number | null;
   /** The owning MODEL's warranty term — display-only (decision #4 starts the
    *  warranty clock at the sale), never a coverage claim. */
   product_warranty_months: number | null;
@@ -3930,6 +3962,10 @@ export interface ProductUnitListRowDto {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  /** `products.is_deleted` off the same join as `product_name` — `null` when
+   *  the product row is missing, `1` when soft-deleted, `0` when live. Only a
+   *  truthy `1` means deleted (LIRA-152). */
+  product_deleted: number | null;
   /** The owning MODEL's warranty term — display-only, so unsold stock reads
    *  "N mo — starts at sale" rather than "No warranty". */
   product_warranty_months: number | null;

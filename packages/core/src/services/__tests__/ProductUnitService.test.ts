@@ -264,6 +264,7 @@ describe("ProductUnitService", () => {
         warranty_override_until: null,
         created_at: "2026-08-25 10:00:00",
         product_name: "iPhone 13",
+        product_deleted: 0,
         product_warranty_months: null,
         sale_item_id: null,
         sold_at: null,

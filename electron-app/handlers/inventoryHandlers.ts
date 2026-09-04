@@ -18,6 +18,7 @@ import {
   ProductCreateSchema,
   ProductUpdateSchema,
   BatchUpdateSchema,
+  BatchDeleteProductIdsSchema,
   StockAdjustSchema,
   UpdateCategorySchema,
   ResolveScanCodeSchema,
@@ -303,12 +304,19 @@ export function registerInventoryHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
-    const result = service.batchDeleteProducts(ids);
+    // LIRA-149: this channel trusted raw `ids` from the renderer with no
+    // validation at all (unlike its `inventory:batch-update` sibling above).
+    // Same shared schema the REST twin validates `{ ids }` against (rule 14).
+    const v = validatePayload(BatchDeleteProductIdsSchema, ids);
+    if (!v.ok) return { success: false, error: v.error };
+    const validatedIds = v.data;
+
+    const result = service.batchDeleteProducts(validatedIds);
     audit(e.sender.id, {
       action: "delete",
       entity_type: "product",
-      summary: `Batch deleted ${ids.length} products`,
-      metadata: { ids },
+      summary: `Batch deleted ${validatedIds.length} products`,
+      metadata: { ids: validatedIds },
     });
     return result;
   });

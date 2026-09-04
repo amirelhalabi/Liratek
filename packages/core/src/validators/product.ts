@@ -54,6 +54,28 @@ export const searchProductsSchema = z.object({
 });
 
 // =============================================================================
+// Batch delete (LIRA-149 — dual-transport: shared by inventory:batch-delete
+// and POST /api/inventory/products/batch-delete, rule 14)
+// =============================================================================
+
+/**
+ * The ids rule, defined ONCE: a non-empty array of positive integer product
+ * ids. The IPC channel takes this shape directly (a positional `number[]`
+ * argument); the REST route wraps it in `{ ids }` below, since an HTTP body
+ * needs an object, not a bare array.
+ */
+export const batchDeleteProductIdsSchema = z
+  .array(z.number().int().positive())
+  .min(1);
+
+export const batchDeleteProductsSchema = z.object({
+  ids: batchDeleteProductIdsSchema,
+});
+
+export type BatchDeleteProductIds = z.infer<typeof batchDeleteProductIdsSchema>;
+export type BatchDeleteProductsInput = z.infer<typeof batchDeleteProductsSchema>;
+
+// =============================================================================
 // Inventory product-list filters (backend SQL filtering)
 // =============================================================================
 

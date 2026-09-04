@@ -40,6 +40,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   createProduct = (payload: any) => api.createProduct(payload);
   updateProduct = (id: number, payload: any) => api.updateProduct(id, payload);
   deleteProduct = (id: number) => api.deleteProduct(id);
+  batchDeleteProducts = (ids: number[]) => api.batchDeleteProducts(ids);
   getLowStockProducts = () => api.getLowStockProducts();
   adjustStock = (payload: {
     id: number;
