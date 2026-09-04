@@ -27,7 +27,7 @@ describe("generateClosingReport", () => {
       system_expected_eur: 50,
     };
 
-    const report = generateClosingReport(closingData, mockDailyStats);
+    const report = generateClosingReport(closingData, mockDailyStats, 90000);
 
     expect(report).toContain("--- Daily Closing Report ---");
     expect(report).toContain("Date: 2023-12-16");
@@ -59,7 +59,20 @@ describe("generateClosingReport", () => {
     expect(report).toContain("Debt Payments (LBP): 150,000");
     expect(report).toContain("Total Expenses (USD): 50.00");
     expect(report).toContain("Total Expenses (LBP): 75,000");
-    expect(report).toContain("Total Profit (USD): 300.00");
+
+    // LIRA-174: rate-stamped USD+LBP profit view (replaces the old
+    // USD-only "Total Profit" line). totalProfitLBP is absent on
+    // mockDailyStats, so it defaults to 0 — verified by hand:
+    // lbpAsUsd = 0 / 90,000 = 0; totalUsd = 300 + 0 = 300;
+    // usdAsLbp = 300 * 90,000 = 27,000,000; totalLbp = 0 + 27,000,000.
+    expect(report).toContain("Profit - USD amount: $300.00");
+    expect(report).toContain("Profit - LBP amount (Loto only): 0 LBP");
+    expect(report).toContain(
+      "Profit - Total (USD) @ 90,000 (sell rate): $300.00",
+    );
+    expect(report).toContain(
+      "Profit - Total (LBP) @ 90,000 (sell rate): 27,000,000 LBP",
+    );
   });
 
   it("should generate a report with correct variances and percentages for a deficit", () => {
@@ -76,7 +89,7 @@ describe("generateClosingReport", () => {
       system_expected_eur: 50,
     };
 
-    const report = generateClosingReport(closingData, mockDailyStats);
+    const report = generateClosingReport(closingData, mockDailyStats, 90000);
 
     expect(report).toContain("Variance (USD): -100.00 USD (-10.00%) - Deficit");
     expect(report).toContain(
@@ -99,7 +112,7 @@ describe("generateClosingReport", () => {
       system_expected_eur: 50,
     };
 
-    const report = generateClosingReport(closingData, mockDailyStats);
+    const report = generateClosingReport(closingData, mockDailyStats, 90000);
 
     expect(report).toContain("Variance (USD): +100.00 USD (10.00%) - Surplus");
     expect(report).toContain(
@@ -122,7 +135,7 @@ describe("generateClosingReport", () => {
       system_expected_eur: 0,
     };
 
-    const report = generateClosingReport(closingData, mockDailyStats);
+    const report = generateClosingReport(closingData, mockDailyStats, 90000);
 
     // When system_expected is 0, percentage should ideally be N/A or 0%.
     // The current implementation calculates (variance / 0) * 100 which results in Infinity,

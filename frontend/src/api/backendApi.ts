@@ -7,7 +7,11 @@ import {
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 import type { ProductListFilters } from "@liratek/core";
-import type { UnsettledSummary, OMTAnalytics } from "@liratek/ui";
+import type {
+  UnsettledSummary,
+  OMTAnalytics,
+  DailyStatsSnapshot,
+} from "@liratek/ui";
 
 export type { ProductListFilters };
 
@@ -1596,13 +1600,14 @@ export async function hasStartingCheckpoint(): Promise<boolean> {
   }
 }
 
-export async function getDailyStatsSnapshot() {
+export async function getDailyStatsSnapshot(): Promise<DailyStatsSnapshot> {
   if (isElectron()) {
     return (window as any).api.closing.getDailyStatsSnapshot();
   }
-  const res = await requestJson<{ success: boolean; stats: any }>(
-    "/api/closing/daily-stats-snapshot",
-  );
+  const res = await requestJson<{
+    success: boolean;
+    stats: DailyStatsSnapshot;
+  }>("/api/closing/daily-stats-snapshot");
   return res.stats;
 }
 

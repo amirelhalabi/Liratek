@@ -3285,9 +3285,10 @@ bugs.
 
 ---
 
-## LIRA-174: downloadable profits PDF needs a rate-stamped USD+LBP view — LOW/MEDIUM
+## LIRA-174: downloadable profits PDF needs a rate-stamped USD+LBP view — LOW/MEDIUM — DONE (2026-09-04)
 
-**Priority:** Low-Medium · **Epic:** Profits/Reporting · **Status:** TODO
+**Priority:** Low-Medium · **Epic:** Profits/Reporting · **Status:** DONE — built against the
+Checkpoint/closing PDF (owner-confirmed target, not the Profits export). See §6 below for what shipped.
 
 **Filed 2026-09-04**, owner spec recorded verbatim-in-substance while reviewing LIRA-161 (this ticket is a
 record of the owner's spec, not a design produced here — per instruction, nothing below was decided by
@@ -3380,6 +3381,74 @@ surfaced on the snapshot object; only the frontend rendering (this ticket's actu
 - Decide whether the Total (LBP) line from §2 survives owner review, per the inference flag above.
 - Reuse `RateRepository`'s existing accessor for `sell_rate` rather than a second hand-rolled query
   (rule 14) — confirm the exact method name before implementing.
+
+### 6. What shipped (2026-09-04, frontend-only per this ticket's actual scope)
+
+- **New module** `frontend/src/features/closing/utils/rateStampedProfit.ts` — pure (no React, no
+  `useApi`), unit-testable. `buildRateStampedProfitLines(totalProfitUSD, totalProfitLBP, sellRate)`
+  converts via `convert`/`RateTable` from `packages/ui/src/money/` (never hand-rolled `lbp / rate`),
+  side `"sell"`, both sides of the table set to the same `sellRate` (mirrors
+  `frontend/src/features/audit/amountSort.ts`'s LIRA-139 precedent). Degrades to native totals with
+  `rateAvailable: false` — never throws — on a missing/0/negative/NaN rate.
+  `formatRateStampedProfitBlock(lines)` renders the 4 lines and prints the rate on both converted
+  totals, never on the two native lines.
+- **Wired into** `closingReportGenerator.ts` (`generateClosingReport` now takes a required 3rd
+  `sellRate` param) and `Checkpoint/index.tsx` (reads `useSellRate().sellRate`, injects it — never
+  hardcoded, never reached for inside the formatter). This is the actual Checkpoint/closing PDF's HTML
+  builder (`api.generatePDF(html, filename)` call site), not the Profits page.
+- **Plumbed `totalProfitLBP` frontend-visible** (it was core-only before this ticket): added to
+  `frontend/src/types/electron.d.ts`'s `closing.getDailyStatsSnapshot` return type, to a new exported
+  `DailyStatsSnapshot` type in `packages/ui/src/api/types.ts` (+ `packages/ui/src/api/index.ts` export),
+  and typed (was `Promise<any>`) in `frontend/src/api/backendApi.ts`. No core/electron-app/backend
+  changes needed — `ClosingRepository`/`ClosingService`/the IPC handler/the REST route already returned
+  the field (LIRA-161); only the frontend-facing types were missing it.
+- **§5 open items resolved:**
+  - *Which fields arrive with no stamped rate*: only the two profit aggregates
+    (`totalProfitUSD`/`totalProfitLBP`) get this treatment — see the "stamped rate" item below for why
+    the rest of the document's fields don't have a per-row stamped rate to honour at all at this layer.
+  - *Total (LBP) line*: kept, flagged in a source comment in `rateStampedProfit.ts` as the filer's
+    inference — a one-line removal if the owner disagrees.
+  - *`sell_rate` accessor*: used `useSellRate().sellRate` (the canonical frontend hook everyone else
+    reads it from), not a second query — `RateRepository` is a `packages/core` concern already behind
+    that hook via IPC/REST.
+- **The "LBP amount" scope risk (this ticket's highest-risk item), verified**: `totalProfitLBP`
+  (`ClosingRepository.ts:1360`) is `lotoProfit.profit_lbp` — loto's commission ONLY. Confirmed against
+  the repository's own doc comment (`ClosingRepository.ts:104-120`): every other module folded into
+  `totalProfitUSD` (sales, financial services, recharge, custom services, maintenance, exchange)
+  ALREADY EXCLUDES its own LBP-denominated slice at the SQL layer — there is no established
+  currency-conversion convention there to fold LBP profit into the USD total. So if any of those
+  modules ever produces a genuine LBP profit slice, it is dropped from BOTH totals today, not merely
+  deferred. Chose labelling over a bigger fix: the PDF's "LBP amount" line reads "(Loto only)" rather
+  than presenting incomplete coverage as if it were the whole picture. A true cross-module LBP
+  aggregate is a `packages/core`/`ClosingRepository` change, out of this (frontend-only) ticket.
+- **The "stamped rate" clause, verified moot at this layer**: `getDailyStatsSnapshot` returns
+  currency-bucketed `SUM`s per module (one number per module per currency), not individual rows, so
+  there is no per-amount stamped rate surviving the aggregation for this method to honour. Converting
+  the two aggregate profit figures at today's `sell_rate` is the faithful implementation for this view;
+  true per-row stamped-rate conversion would mean pushing conversion inside each of the ~7 module
+  sub-queries `getDailyStatsSnapshot` composes — a much larger `packages/core` change, correctly out of
+  this ticket's scope.
+- **Tests**: `rateStampedProfit.test.ts` (new, 10 cases — exact-arithmetic known input verified by a
+  second method, zero-side cases, `it.each` over 4 degenerate-rate inputs proving no throw, and 2
+  `formatRateStampedProfitBlock` cases proving the rate prints on converted lines only and never on
+  native ones); `closingReportGenerator.test.ts` updated (new required `sellRate` param threaded through
+  all 4 existing calls; old single "Total Profit (USD)" assertion replaced with the 4 new
+  rate-stamped-block assertions, values verified by hand). Rule 17 proof done for real: temporarily
+  changed `formatRateStampedProfitBlock`'s `rateLabel` to `""` (dropping the rate annotation — the exact
+  defect the ticket calls "the whole point"), ran the suite, captured 3 real failures (verbatim in
+  `rateStampedProfit.test.ts`'s comment), reverted, reran green. `Checkpoint.countSheet.test.tsx`'s
+  `mockApi` gained a `getRates` mock (the new `useSellRate()` call in `Checkpoint/index.tsx` would
+  otherwise throw synchronously in that suite).
+- **Divergence flagged in source, not just here**: `rateStampedProfit.ts`'s module doc explains why this
+  document uses `sell_rate` while the app-wide LBP→USD convention elsewhere is `buy` (2026-07-06
+  decision) — deliberate, conservative-for-profit, made visible by printing the rate. Do not "fix" it
+  to buy.
+- **Gates**: `@liratek/ui` typecheck (5s) and lint (7s) exit 0; frontend typecheck (26s), lint (28s,
+  0 errors/530 pre-existing warnings unrelated to this change), and full `test` (63s, 181 suites/1370
+  tests, up from baseline 180/1360 — +1 new suite, +10 new tests, 1 pre-existing skip) all exit 0. Ran
+  `yarn workspace @liratek/ui build`/`typecheck`/`lint` and `yarn workspace @liratek/frontend
+  typecheck`/`lint`/`test` directly (not root `yarn test`) since no `packages/core`/`backend` files were
+  touched. Nothing left undone.
 
 ---
 
@@ -3494,3 +3563,44 @@ already hit this suite once (LIRA-151), not a red-to-green proof of THIS specifi
 CI after this lands, the next data point should be the CI trace/screenshot at the moment of failure
 (`document.elementFromPoint` at the click coordinates, `document.querySelectorAll('[role="alert"]')`) to
 confirm or rule out this exact mechanism.
+
+---
+
+## LIRA-176: LBP-denominated profit is dropped from BOTH closing totals, not deferred — MEDIUM
+
+**Priority:** Medium · **Epic:** Closing · **Status:** TODO · **Found:** 2026-09-04, while building LIRA-174
+
+`getDailyStatsSnapshot` returns two profit figures and an LBP-denominated profit slice can fall
+outside **both** of them. This is a gap in the data, not in the PDF that displays it.
+
+**Verified against source:**
+
+- `totalProfitLBP` (`ClosingRepository.ts` ~:1360) is `lotoProfit.profit_lbp` — **loto's commission
+  alone**. Nothing else feeds it.
+- `finProfitLegacy`'s four branches (`finProfitLegacyDegraded` / `PartnerOnly` / `DebtOnly` / `Full`,
+  ~:956, :969, :983, :997) each sum
+  `CASE WHEN currency != 'LBP' THEN commission ELSE 0 END` — so an LBP-denominated
+  financial-services commission is excluded from `profit_usd`.
+
+Those two facts together mean **LBP financial-services commission appears in neither total**. It is
+not deferred to a later day and not converted — it is simply absent from the closing profit figure.
+
+**Reported but NOT yet verified** (the LIRA-174 agent's finding, based on the repository's own
+comment): the same is true of sales, recharge, custom services, maintenance and exchange — i.e. every
+module folded into `totalProfitUSD` excludes its own LBP slice, because no convention exists there for
+folding LBP into a USD total. **Confirm module by module before acting**; the mechanism may differ per
+module (some may only ever have USD columns, which would be a non-issue rather than a gap).
+
+**Why this matters now.** LIRA-174 prints an LBP profit line on the closing PDF. Because the figure is
+loto-only, that line is deliberately labelled **"LBP amount (Loto only)"** rather than presented as
+complete LBP coverage — an honest label over a wrong total. Closing this ticket is what would let that
+label become simply "LBP amount".
+
+**Not to be confused with the stamped-rate question.** LIRA-174 established that per-row stamped-rate
+conversion is impossible at this layer because the snapshot returns currency-bucketed `SUM`s. That is a
+separate, larger change (pushing conversion inside ~7 module sub-queries). This ticket is narrower:
+make sure an LBP profit slice reaches *a* total rather than vanishing.
+
+**Acceptance:** every module's LBP profit slice reaches either `totalProfitLBP` or a documented,
+deliberate exclusion; rule 17 failing-first per module changed; the shared gate fragments reused, never
+re-texted (rule 14); and LIRA-174's PDF label updated once the figure is genuinely complete.

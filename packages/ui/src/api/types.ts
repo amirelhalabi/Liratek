@@ -203,6 +203,36 @@ export type MonthlyPL = {
 };
 
 /**
+ * Closing/Checkpoint's daily reconciliation snapshot. Mirrors
+ * `packages/core/src/repositories/ClosingRepository.ts`'s `DailyStatsSnapshot`
+ * interface verbatim (rule 14) — this is a dual-transport read type, not a
+ * second source of truth, so keep the two in sync by hand when either
+ * changes.
+ */
+export type DailyStatsSnapshot = {
+  salesCount: number;
+  totalSalesUSD: number;
+  totalSalesLBP: number;
+  debtPaymentsUSD: number;
+  debtPaymentsLBP: number;
+  totalExpensesUSD: number;
+  totalExpensesLBP: number;
+  totalProfitUSD: number;
+  /**
+   * LIRA-161 item 1 (see ClosingRepository.ts:104-122): loto's commission is
+   * booked ENTIRELY in LBP, so it gets its own field rather than folding into
+   * `totalProfitUSD` (which would always add exactly $0 for it). This is
+   * LOTO'S profit ONLY — every other module's LBP-denominated profit slice
+   * is excluded from BOTH totals at the repository layer today, not folded
+   * into either one. LIRA-174's rate-stamped PDF view
+   * (`frontend/src/features/closing/utils/rateStampedProfit.ts`) labels its
+   * "LBP amount" line accordingly rather than presenting this as complete
+   * LBP profit coverage.
+   */
+  totalProfitLBP?: number;
+};
+
+/**
  * LIRA-159 D2: per-provider unsettled commission rollup
  * (`FinancialServiceRepository.getUnsettledSummaryByProvider`).
  *
@@ -948,7 +978,7 @@ export type ApiAdapter = {
     Record<string, Record<string, number>>
   >;
   hasOpeningBalanceToday: () => Promise<boolean>;
-  getDailyStatsSnapshot: () => Promise<any>;
+  getDailyStatsSnapshot: () => Promise<DailyStatsSnapshot>;
   recalculateDrawerBalances: () => Promise<ApiResult>;
   updateDailyClosing: (
     id: number,

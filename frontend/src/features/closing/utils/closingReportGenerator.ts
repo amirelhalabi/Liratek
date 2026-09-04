@@ -1,3 +1,8 @@
+import {
+  buildRateStampedProfitLines,
+  formatRateStampedProfitBlock,
+} from "./rateStampedProfit";
+
 type ClosingReportData = {
   closing_date: string;
   drawer_name: string;
@@ -23,11 +28,20 @@ type DailyStatsData = {
   totalExpensesUSD: number;
   totalExpensesLBP: number;
   totalProfitUSD: number;
+  /** LIRA-161: loto's commission only — see `rateStampedProfit.ts`'s module
+   *  doc for what this does and does not cover. Optional because
+   *  `ClosingService`'s error-fallback object omits it. */
+  totalProfitLBP?: number;
 };
 
 export function generateClosingReport(
   closingData: ClosingReportData,
   dailyStats: DailyStatsData,
+  /** LIRA-174: today's sell_rate (`useSellRate().sellRate` at the call
+   *  site) — injected by the caller, never read from inside this module or
+   *  hardcoded here. See `rateStampedProfit.ts` for why sell (not the
+   *  app-wide buy convention) is used for this document. */
+  sellRate: number,
 ): string {
   // Build per-currency data from dynamic fields or legacy fields
   const physical: Record<string, number> = closingData.physical ?? {};
@@ -96,6 +110,17 @@ export function generateClosingReport(
     })
     .join("\n\n");
 
+  // LIRA-174: single rate-stamped USD+LBP profit view, replacing the old
+  // USD-only "Total Profit" line. See rateStampedProfit.ts for what each
+  // line means, why sell_rate is used, and what "LBP amount" does and does
+  // not cover.
+  const profitLines = buildRateStampedProfitLines(
+    dailyStats.totalProfitUSD,
+    dailyStats.totalProfitLBP ?? 0,
+    sellRate,
+  );
+  const profitBlock = formatRateStampedProfitBlock(profitLines);
+
   const reportContent = `
 --- Daily Closing Report ---
 Date: ${closingData.closing_date}
@@ -112,7 +137,8 @@ ${currencySummary}
   Debt Payments (LBP): ${dailyStats.debtPaymentsLBP.toLocaleString()}
   Total Expenses (USD): ${dailyStats.totalExpensesUSD.toFixed(2)}
   Total Expenses (LBP): ${dailyStats.totalExpensesLBP.toLocaleString()}
-  Total Profit (USD): ${dailyStats.totalProfitUSD.toFixed(2)}
+
+${profitBlock}
 `;
 
   return reportContent;

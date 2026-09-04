@@ -1964,6 +1964,13 @@ export interface ElectronAPI {
       totalExpensesUSD: number;
       totalExpensesLBP: number;
       totalProfitUSD: number;
+      /**
+       * LIRA-174: loto's commission only (booked entirely in LBP) — see
+       * `packages/core/src/repositories/ClosingRepository.ts:104-122` and
+       * `frontend/src/features/closing/utils/rateStampedProfit.ts`. NOT a
+       * complete LBP-profit figure across every module.
+       */
+      totalProfitLBP?: number;
     }>;
     recalculateDrawerBalances: () => Promise<{
       success: boolean;

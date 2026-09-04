@@ -30,6 +30,7 @@ import { generateClosingReport } from "../../utils/closingReportGenerator";
 import { X } from "lucide-react";
 import { useShopBase } from "@/hooks/useShopBase";
 import { localDay } from "@/shared/utils/localDay";
+import { useSellRate } from "@/hooks/useSellRate";
 
 interface CheckpointModalProps {
   isOpen: boolean;
@@ -83,6 +84,11 @@ export default function CheckpointModal({
 
   const drawerAmounts = useDrawerAmounts({ currencies });
   const { systemExpected, fetchSystemExpected } = useSystemExpected();
+  // LIRA-174: the closing PDF's rate-stamped profit view converts at
+  // sell_rate (owner decision) — see rateStampedProfit.ts for why. Read via
+  // the canonical hook, never hardcoded, and injected into
+  // generateClosingReport rather than reached for inside it.
+  const { sellRate } = useSellRate();
 
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -320,6 +326,7 @@ export default function CheckpointModal({
               system_expected_eur: sumExpectedByCurrency("EUR"),
             },
             dailyStats,
+            sellRate,
           );
 
           const html = `<!doctype html><html><head><meta charset="utf-8" /><title>Checkpoint Report</title></head><body><pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; white-space: pre-wrap;">${escapeHtml(reportText)}</pre></body></html>`;

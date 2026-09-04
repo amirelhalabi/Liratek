@@ -25,6 +25,7 @@ export type {
   VirtualStock,
   MonthlyPL,
   UnsettledSummary,
+  DailyStatsSnapshot,
   OMTAnalytics,
   OMTCurrencyStats,
   OMTProviderStats,

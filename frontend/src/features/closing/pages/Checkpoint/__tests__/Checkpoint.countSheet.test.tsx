@@ -44,6 +44,14 @@ const mockApi = {
   getDailyStatsSnapshot: jest.fn().mockResolvedValue({}),
   generatePDF: jest.fn().mockResolvedValue({ success: false }),
   updateDailyClosing: jest.fn().mockResolvedValue({ success: true }),
+  // LIRA-174: Checkpoint now reads useSellRate(), which calls api.getRates()
+  // on mount — without this, the hook's effect throws synchronously
+  // (mockApi.getRates would be undefined).
+  getRates: jest
+    .fn()
+    .mockResolvedValue([
+      { to_code: "LBP", market_rate: 89500, buy_rate: 89000, sell_rate: 90000 },
+    ]),
 };
 
 jest.mock("@liratek/ui", () => ({
