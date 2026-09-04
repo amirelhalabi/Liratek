@@ -2276,13 +2276,80 @@ clicking product A's delete then product B's can render A's IMEIs in B's destruc
 dialog. Guard with the house stale-response pattern (request id / abort / disable second
 click while the first fetch is in flight). Component test with two interleaved fetches.
 
-## LIRA-151: Wire the orphaned test suites into gates — MEDIUM (infrastructure)
+## LIRA-151: Wire the orphaned test suites into gates — MEDIUM (infrastructure) — PARTIAL (2026-09-04)
 
 (a) `electron-app/handlers/__tests__/` (20+ suites incl. productUnitHandlers) runs under
 NO jest runner — `electron-app`'s jest config roots only `schemas/`; every handler test
 passes only when invoked by hand. (b) CI never runs `packages/core`'s jest suite (2400+
 tests) — `yarn test` does locally, but ci.yml lacks the job. Add the runner root + the CI
 job; budget for the runtime cost. Suite-count floors per the LIRA-123 lesson.
+
+**Status: PARTIAL — (b) DONE, (a) deliberately NOT wired in, spun off as its own ticket.**
+
+**Complementary to LIRA-170:** LIRA-170 (above) fixed the LOCAL gate — root `yarn test` now
+runs every workspace and reports each one instead of bailing at the first failure. This
+ticket fixes the CI gate — `packages/core`'s suite now actually runs on every PR. Neither
+subsumes the other: a green local `yarn test` was never wired into GitHub's PR checks, and a
+green `core-tests` CI job says nothing about a dev's local run silently skipping core after
+an earlier workspace failure. Both were needed; both are now done.
+
+**(b) — DONE.** Added a `core-tests` job to `.github/workflows/ci.yml`: checkout + the same
+setup action + the same `actions/cache/restore@v4` (identical `path`/`key`) used by every
+other job, then `yarn rebuild:node` (core jest needs the Node ABI, same fix `backend-tests`
+already carries for the identical reason), then `yarn workspace @liratek/core test`, wrapped
+in a suite-count-floor check modeled on `scripts/run-e2e.mjs`'s `--min` (that script itself
+was NOT modified — the floor logic here is a standalone inline shell step, since the ticket
+scope is `ci.yml` only). `build`'s `needs` now includes `core-tests` alongside
+`lint`/`typecheck`/`backend-tests`/`frontend-tests`.
+
+Floor: 130 suites / 1300 tests — roughly half of the verified current counts (263 suites /
+2781 tests, reconfirmed locally 2026-09-04 via `yarn workspace @liratek/core test`, exit 0,
+21.5s real time — matches CLAUDE.md's "~21s locally" claim and LIRA-170's own captured
+numbers exactly). Same margin `run-e2e.mjs` documents for its own `DEFAULT_MIN`: comfortably
+below normal churn (adding/removing a handful of suites never trips it), nowhere near the 0
+that a silently-no-op'd step would report. The floor step was proven against three cases
+before being trusted: (1) fed the real captured 263/2781 output → passes; (2) fed empty
+output (the LIRA-123 "exited 0, ran nothing" mode) → correctly fails; (3) fed a synthetic
+50-suite/400-test partial run → correctly fails as below-floor. All three were run locally
+against the extracted shell script, not just eyeballed.
+
+**Verified:** YAML parses clean (`js-yaml`); the embedded floor-check script passes
+`bash -n`; a step-by-step diff against `backend-tests` confirms steps 0-2 (checkout, setup
+action, cache-restore path+key) are byte-identical, and the `yarn rebuild:node` step's `run:`
+text is identical to backend-tests' own rebuild step. **NOT verified: the job has not run on
+GitHub Actions.** Ubuntu's cache restore, corepack/Node version resolution, and actual
+runtime under CI's shared runner remain unconfirmed until a real PR run.
+
+**(a) — NOT wired in this pass, spun off as its own ticket.** Per the ticket's own
+instruction ("if a substantial number fail, do NOT fix them all in this pass"): ran all 21
+orphaned suites via a throwaway `jest --roots handlers/__tests__` invocation (no config
+committed). Result: **15 of 21 suites failed (71%), 41 of 92 tests failed** — not "a couple
+of trivial fixes." Four distinct root causes, none of them one-line:
+
+- **11 suites** — `Database not initialized. Call initDatabase() first.` (dbHandlers,
+  dbHandlers.behavior, dbHandlers_registration, currencyHandlers.behavior,
+  inventoryHandlers, inventoryHandlers.behavior, clientHandlers, omtHandlers,
+  exchangeHandlers, rateHandlers, rechargeHandlers) — the config has no setup file that
+  mocks or initializes the core DB singleton the way `backend/jest.config.cjs` does.
+- **2 suites** (`updaterHandlers`, `updaterHandlers_registration`) —
+  `SyntaxError: Identifier '__filename' has already been declared`: `updaterHandlers.ts`'s
+  own `const __filename = fileURLToPath(import.meta.url)` collides with the `__filename`
+  ts-jest's CJS transform auto-injects. A source/transform-config mismatch, not a test typo.
+- **1 suite** (`closingHandlers`) — `Cannot read properties of undefined (reading 'handle')`
+  on `ipcMain.handle`: the `electron` module isn't mocked for this suite's shape (no
+  `moduleNameMapper`/`__mocks__/electron.ts`, unlike backend's).
+- **1 suite** (`maintenanceHandlers`) — `Cannot find module '../../services/MaintenanceService'`:
+  a stale import path from a since-moved/renamed service; the test itself is out of date
+  with source.
+
+This is real jest infrastructure work (an electron mock, a DB test harness/init strategy,
+one fixed import path, one ts-jest transform fix) spanning most of the 21 suites, not a
+runner-root flip. Widening `roots` and adding a `test` script now would ship 15 red suites
+as the "new" gate — exactly the misleading-green this ticket exists to prevent. **Filed as
+its own follow-up ticket** (not yet numbered in this file) to fix the harness and each
+suite's failure class deliberately, then wire in `electron-app/jest.config.cjs` +
+`electron-app/package.json`'s `test` script — which `scripts/run-tests.mjs` (LIRA-170) will
+then pick up automatically with no further changes needed there.
 
 ## LIRA-152: Phone Units register — "product deleted" label on sold history rows — LOW (UNBLOCKED — TODO)
 
@@ -2867,9 +2934,11 @@ Backend and frontend still ran with real counts. Scratch file then removed and r
 [run-tests] all workspaces passed         (overall EXIT=0)
 ```
 
-**Not fixed here, and still open: CI never runs `packages/core`'s suite at all** — that is LIRA-151,
-and this ticket does not touch `.github/workflows/ci.yml`. Fixing the local gate does not close the
-CI blind spot.
+**Not fixed here at the time this was written: CI never ran `packages/core`'s suite at all** — that
+was LIRA-151, and this ticket did not touch `.github/workflows/ci.yml`. Fixing the local gate did
+not close the CI blind spot on its own. **Update 2026-09-04: LIRA-151 is now PARTIAL — a
+`core-tests` job with a suite-count floor was added to ci.yml, closing this specific gap (see
+LIRA-151 above for the unrelated part (a) it deliberately left open).**
 
 Root `package.json`'s `test` script (verified): `"npm run rebuild:node && yarn workspaces foreach -A
 --exclude liratek run test"`. `-A` (all workspaces, ignoring git-diff `--since` filtering) carries no
@@ -2912,23 +2981,50 @@ result generalizes to it.
 
 ## LIRA-171: Dashboard awaiting-settlement test is 12s against a 15s limit — flaky under full-suite load — LOW
 
-**Priority:** Low · **Epic:** Test harness · **Status:** TODO
+**Priority:** Low · **Epic:** Test harness · **Status:** RESOLVED (2026-09-04)
 
 `frontend/src/features/dashboard/pages/__tests__/Dashboard.awaitingSettlementCount.test.tsx` (added by
-LIRA-159; verified it exists with exactly 3 `it(...)` blocks) already carries an explicit
-`jest.setTimeout(15000)` (line 42) with a comment (lines 33-41) explaining why: the file's first test
-pays the one-time cost of ts-jest compiling and `recharts` (the lazy-loaded Sales Trend chart)
-initializing, which alone can approach jest's default 5000ms per-test timeout under a cold cache.
+LIRA-159) carried an explicit `jest.setTimeout(15000)` blaming "ts-jest compiling and recharts
+initializing" the lazy-loaded Sales Trend chart's dynamic `import()` (the default "trend" insight tab
+renders unconditionally on mount, so every render pulled recharts's full module graph in for real).
 
-Takes about 12 seconds in isolation (safely under the existing 15s allowance) and **timed out at that
-15s limit under full-suite load** on 2026-09-04 — CPU contention from the rest of the suite pushed it
-over. Passes 3/3 when run alone. Not a logic defect — a fragility in an already-heavy test.
+**Root cause, measured not guessed:** diffing against the fast sibling
+`Profits.awaitingSettlementCount.test.tsx` (same ticket, same feature) showed it already stubs its own
+chart (`CommissionsChart`) — this file was the one outlier that left its chart real. Isolated runs of
+this file (repeated 4x pre-fix) showed the file's first test alone consistently costing ~700-900ms
+(dynamic import + Suspense resolution), vs ~60-100ms for tests 2-3 in the same run (warm in-run module
+cache) — a ~10x per-test gap explained entirely by recharts, not by any `waitFor`/retry/mock issue (no
+retries, no rejected mocks, no fake-vs-real-timers difference from the Profits file).
 
-**Fix:** either make it faster (the recharts cold-compile cost is the obvious target), or widen the
-existing `jest.setTimeout(15000)` further with an equally explicit, commented justification for the new
-number. The timeout was **deliberately not raised** when this was found, because bumping a limit to
-make a slow test stop failing is masking the fragility, not fixing it — that call is left to whoever
-picks this up, with the reasoning on record.
+**Fix:** stubbed `../../components/DashboardChart` the same way `Profits.awaitingSettlementCount.test.tsx`
+stubs `CommissionsChart` — none of this file's assertions touch the trend chart, only the unrelated
+"Pending Settlement" banner, so the dependency was provably irrelevant to what's under test. Dropped
+`jest.setTimeout(15000)` back to jest's plain 5000ms default (documented, not silently omitted) since the
+cause was removed rather than budgeted around.
+
+**Before/after (isolated, `npx jest --config jest.config.ts <file>`, 4 runs each):**
+before — file "Time" 6.05-8.05s, first test 707-868ms, tests 2-3 59-101ms;
+after — file "Time" 6.4-7.4s, first test 136-370ms, tests 2-3 57-276ms (~2-6x reduction on the test
+actually subject to the per-test timeout; the residual ~6s "Time" is fixed jest/ts-jest worker-boot +
+non-recharts module-graph transform cost, present in the Profits sibling too, and not gated by
+`jest.setTimeout` since that only wraps `it()` bodies, not suite-level compile).
+
+**Under real full-suite load** (`npx jest --config jest.config.ts --verbose`, all 176 suites): this file's
+3 tests measured 307ms / 80ms / 99ms — comfortably under the new 5000ms default and nowhere near the old
+15000ms. Full run: 176 suites / 1347 tests, 1 skipped, exit 0 (39.7s verbose / ~50s non-verbose), matching
+the pre-existing baseline.
+
+**Rule 17 sanity check:** temporarily forced the banner's `hasPendingUsd`/`hasAwaiting` flags in
+`Dashboard.tsx` to always show the legacy dollar figure and never the count (reintroducing the exact
+LIRA-159 D2 bug this test guards). 2 of 3 tests failed as expected:
+`Expected substring: "3 awaiting settlement" / Received string: "OMT: $0.0000 commission on $100.00 owed
+(3 txns)"` (and the analogous BINANCE mixed-provider case). Reverted immediately after —
+`git status`/`git diff` on `Dashboard.tsx` confirm zero residual change. Assertions were not weakened by
+this ticket: same `toContain("N awaiting settlement")` / `not.toMatch(/\$0\.00/)` checks as before, only
+the irrelevant chart dependency was removed.
+
+Touched only the test file (`Dashboard.awaitingSettlementCount.test.tsx`) — `Dashboard.tsx` itself is
+unchanged.
 
 ---
 

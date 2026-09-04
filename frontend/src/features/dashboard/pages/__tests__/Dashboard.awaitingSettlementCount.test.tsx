@@ -30,16 +30,19 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import Dashboard from "../Dashboard";
 
-// The "trend" insight tab (the default) lazy-loads the real, unmocked
-// DashboardChart (recharts) — see the note by its jest.mock removal below.
-// The FIRST test in this file pays the one-time cost of ts-jest compiling
-// and recharts initializing that dynamic import, which alone can approach
-// the default 5000ms per-test timeout under a cold jest cache; later tests
-// in the same file reuse the cached module and are fast. This is real
-// dependency weight, not a broken render (recharts logs a harmless "width/
-// height should be greater than 0" warning because jsdom has no layout
-// engine — expected, not a failure signal).
-jest.setTimeout(15000);
+// LIRA-171: was jest.setTimeout(15000) with a comment attributing the cost
+// to "ts-jest compiling and recharts initializing" the lazy-loaded
+// DashboardChart's dynamic import — real, but removable: none of this
+// file's assertions touch the trend chart (see the DashboardChart mock
+// below), so it's now stubbed like the sibling
+// Profits.awaitingSettlementCount.test.tsx already stubs its own chart.
+// That dropped the file's heaviest test (the first — dynamic import +
+// Suspense resolution happen once, subsequent tests reuse the resolved
+// module) from ~700-900ms to ~140-370ms across repeated isolated runs, so
+// this stays at jest's plain 5000ms default rather than carrying a bespoke
+// override — the point of this ticket was removing the cost, not hiding a
+// wider timeout over it.
+jest.setTimeout(5000);
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -121,13 +124,26 @@ jest.mock("@/hooks/useShopBase", () => ({
   }),
 }));
 
-// NOTE: no mock for "../components/DashboardChart" here. Dashboard.tsx does
-// not import it directly — it lazy-loads it (`lazy(() => import(...))`)
-// behind a Suspense boundary that only resolves for the "trend" insight tab.
-// Mocking a module the component under test never statically imports is
-// dead weight that hides real wiring, so it's left real; ResizeObserver is
-// polyfilled in jest.setup.ts, which is enough for recharts to render inert
-// (0x0) in jsdom without throwing.
+// LIRA-171: DashboardChart IS stubbed, unlike the original LIRA-159 version
+// of this file. Dashboard.tsx lazy-loads it (`lazy(() => import(...))`)
+// behind a Suspense boundary for the default "trend" insight tab, so every
+// render in this file pulled in recharts's full module graph through a real
+// dynamic `import()`. That import — not a waitFor/retry loop, not a slow
+// mock — was the entire 12s: profiled isolated runs showed the file's FIRST
+// test alone spending ~700-900ms in it (vs ~60-100ms for the 2nd/3rd tests,
+// which hit ts-jest's warm in-run module cache), consistent with the
+// removed comment that used to sit here documenting the one-time recharts
+// compile+init cost. That per-run few-hundred-ms cost is what turned into a
+// 15s timeout under full-suite CPU contention. None of this file's
+// assertions touch the trend chart — only the unrelated "Pending
+// Settlement" banner — so stubbing it out removes real, provably-irrelevant
+// weight rather than papering over a slow assertion; mirrors the sibling
+// Profits.awaitingSettlementCount.test.tsx, which stubs its own chart
+// (CommissionsChart) for the identical reason and was never slow.
+jest.mock("../../components/DashboardChart", () => ({
+  __esModule: true,
+  default: () => null,
+}));
 
 // Modals — never opened in this test (isOpen defaults false / not
 // triggered), stubbed to avoid pulling in their own IPC-heavy internals.

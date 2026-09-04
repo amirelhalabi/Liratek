@@ -122,6 +122,76 @@ jobs:
           flags: backend
           fail_ci_if_error: false
 
+  # LIRA-151: packages/core's jest suite (the money layer — rules 13/14/17/20
+  # guards, tenant scoping, profit recognition) never ran in CI before this
+  # job; `yarn test` runs it locally, but ci.yml had no job for it, so it
+  # never gated a PR.
+  core-tests:
+    name: Core Tests
+    runs-on: ubuntu-latest
+    needs: install
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Restore dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CI_CACHE_PATHS }}
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      # Same reasoning as backend-tests above: the root `postinstall` builds
+      # better-sqlite3 for the ELECTRON ABI, but core's jest suite runs under
+      # plain Node — several suites open a real in-memory/on-disk database
+      # via better-sqlite3, so without this they'd die with a
+      # NODE_MODULE_VERSION mismatch.
+      - name: Ensure better-sqlite3 is built for Node (not Electron)
+        run: yarn rebuild:node
+
+      # LIRA-123 lesson (scripts/run-e2e.mjs): a step that runs nothing and
+      # exits 0 is indistinguishable from a pass, so this fails the build if
+      # the reported suite/test counts fall below a floor even when jest's
+      # own exit code is 0.
+      #
+      # Floor: current counts are 263 suites / 2781 tests (verified locally
+      # 2026-09-04, `yarn workspace @liratek/core test`). The floors below
+      # sit at roughly half of that — the same "comfortably below normal
+      # churn, nowhere near the 0 that LIRA-123 silently reported as a pass"
+      # margin scripts/run-e2e.mjs documents for its own DEFAULT_MIN — so
+      # adding or removing a handful of suites/tests never trips this.
+      - name: Core tests with suite-count floor
+        run: |
+          MIN_SUITES=130
+          MIN_TESTS=1300
+
+          set +e
+          yarn workspace @liratek/core test > core-test-output.log 2>&1
+          test_exit=$?
+          set -e
+          cat core-test-output.log
+
+          suites_total=$(grep -E "^Test Suites:" core-test-output.log | grep -oE "[0-9]+ total" | grep -oE "[0-9]+" || true)
+          tests_total=$(grep -E "^Tests:" core-test-output.log | grep -oE "[0-9]+ total" | grep -oE "[0-9]+" || true)
+
+          echo "[core-tests] exit=$test_exit suites_total=${suites_total:-<none>} tests_total=${tests_total:-<none>}"
+
+          if [ "$test_exit" -ne 0 ]; then
+            echo "[core-tests] jest exited $test_exit — real test failure(s), see output above."
+            exit "$test_exit"
+          fi
+
+          if [ -z "$suites_total" ] || [ -z "$tests_total" ]; then
+            echo "[core-tests] FLOOR CHECK FAILED — no 'Test Suites:'/'Tests:' summary line found even though jest exited 0. Treating this as the LIRA-123 failure mode (a green exit code without the suite actually running)."
+            exit 1
+          fi
+
+          if [ "$suites_total" -lt "$MIN_SUITES" ] || [ "$tests_total" -lt "$MIN_TESTS" ]; then
+            echo "[core-tests] FLOOR CHECK FAILED — reported $suites_total suite(s)/$tests_total test(s), below the floor of $MIN_SUITES suites / $MIN_TESTS tests."
+            exit 1
+          fi
+
+          echo "[core-tests] floor check passed — $suites_total suite(s), $tests_total test(s), floor $MIN_SUITES/$MIN_TESTS."
+
   frontend-tests:
     name: Frontend Tests
     runs-on: ubuntu-latest
@@ -210,7 +280,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, backend-tests, frontend-tests]
+    needs: [lint, typecheck, backend-tests, core-tests, frontend-tests]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
