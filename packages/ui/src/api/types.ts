@@ -224,6 +224,58 @@ export type UnsettledSummary = {
   awaiting_settlement_count: number;
 };
 
+/**
+ * LIRA-163: per-currency slice of `getOMTAnalytics`'s `today`/`month`
+ * buckets, mirroring `FinancialServiceRepository.CurrencyStats`.
+ * `awaiting_settlement_count` is optional so an older cached payload (or a
+ * test mock built before this field existed) still type-checks.
+ */
+export type OMTCurrencyStats = {
+  currency: string;
+  commission: number;
+  count: number;
+  awaiting_settlement_count?: number;
+};
+
+/**
+ * LIRA-163: per-provider+currency row, mirroring
+ * `FinancialServiceRepository.ProviderStats`.
+ */
+export type OMTProviderStats = {
+  provider: string;
+  commission: number;
+  currency: string;
+  count: number;
+  awaiting_settlement_count?: number;
+};
+
+/**
+ * Return shape of `getOMTAnalytics` (`FinancialService.getAnalytics` over
+ * BOTH transports — IPC `omt:get-analytics` and REST
+ * `GET /api/services/analytics`), mirroring
+ * `FinancialServiceRepository.FinancialServiceAnalytics`. Was `Promise<any>`
+ * (rule: no `any`) — fixed while wiring `awaiting_settlement_count` (LIRA-163)
+ * through this adapter, since every consumer of this call needed a real
+ * shape to read that field off of anyway.
+ */
+export type OMTAnalytics = {
+  today: {
+    commission: number;
+    pending_commission: number;
+    count: number;
+    awaiting_settlement_count?: number;
+    byCurrency: OMTCurrencyStats[];
+  };
+  month: {
+    commission: number;
+    pending_commission: number;
+    count: number;
+    awaiting_settlement_count?: number;
+    byCurrency: OMTCurrencyStats[];
+  };
+  byProvider: OMTProviderStats[];
+};
+
 // =============================================================================
 // API Result Types
 // =============================================================================
@@ -845,7 +897,7 @@ export type ApiAdapter = {
   // Services (OMT / Whish / BOB)
   // ---------------------------------------------------------------------------
   getOMTHistory: (provider?: string) => Promise<any[]>;
-  getOMTAnalytics: (providers?: string[]) => Promise<any>;
+  getOMTAnalytics: (providers?: string[]) => Promise<OMTAnalytics>;
   /** RECEIVE payouts can be blocked with `code: "INSUFFICIENT_DRAWER_FUNDS"`
    *  (Primary Cash Drawer plan §8.5) when the primary cash drawer lacks
    *  funds in the payout currency — `details` carries the shortfall so the

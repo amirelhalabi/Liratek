@@ -7,7 +7,7 @@ import {
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 import type { ProductListFilters } from "@liratek/core";
-import type { UnsettledSummary } from "@liratek/ui";
+import type { UnsettledSummary, OMTAnalytics } from "@liratek/ui";
 
 export type { ProductListFilters };
 
@@ -1406,13 +1406,22 @@ export async function getOMTHistory(provider?: string) {
   return res.history;
 }
 
-export async function getOMTAnalytics(providers?: string[]) {
+export async function getOMTAnalytics(
+  providers?: string[],
+): Promise<OMTAnalytics> {
   if (isElectron()) {
-    return (window as any).api.omt.getAnalytics(providers);
+    // LIRA-163: `omt.getAnalytics`'s ambient electron.d.ts type is stale
+    // (pre-dates this shape entirely — see that declaration's own note) and
+    // this call has always bypassed it via `as any`; the real runtime shape
+    // is `FinancialServiceRepository.getAnalytics`'s (mirrored here as
+    // `OMTAnalytics`), asserted below rather than left as `any` end-to-end.
+    return (window as any).api.omt.getAnalytics(
+      providers,
+    ) as Promise<OMTAnalytics>;
   }
   const qs = new URLSearchParams();
   if (providers) qs.set("providers", providers.join(","));
-  const res = await requestJson<{ success: boolean; analytics: any }>(
+  const res = await requestJson<{ success: boolean; analytics: OMTAnalytics }>(
     `/api/services/analytics?${qs.toString()}`,
   );
   return res.analytics;

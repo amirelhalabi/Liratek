@@ -314,41 +314,25 @@ const EXCLUDED_UNITS: Record<string, string> = {
   // existing `is_refunded` gate (a gap this same LIRA-158 phase already
   // fixed for the sibling `finProfitLegacy` query, per §1.3's "bonus
   // defect"), that is called out honestly as a known gap, not papered over.
-  "ClosingRepository:getDailyStatsSnapshot:salesProfit":
-    "Same-day cash-in-hand check: reproduces saleFullyPaid's formula " +
-    "inline (paid_usd + paid_lbp/rate >= final_amount - 0.05), restricted " +
-    "to todayLocal(s.created_at), and DOES carry its own refund gate " +
-    "(si.is_refunded = 0) — a same-day void nets to 0 correctly. " +
-    "Deliberately omits salePaidOrPartnerSettled's partner-covered OR-" +
-    "branch: unlike financial-service commission (which this same LIRA-158 " +
-    "phase gave a dedicated settlement-day source read off `transactions`, " +
-    "see finProfitSettlement below), Closing has no equivalent path that " +
-    "ever recognizes a for-partner SALE's profit on the day the partner " +
-    "actually settles — such a sale's profit never reaches this snapshot, " +
-    "on any day. That is a real completeness gap (worth its own ticket), " +
-    "but it is a gap of OMISSION, not of over-recognition: it can only " +
-    "under-count today's total, never claim a cash event that has not " +
-    "happened, so it does not violate the 'profit is real only when money " +
-    "is real' rule this guard enforces.",
-  "ClosingRepository:getDailyStatsSnapshot:finProfitLegacy":
-    "D10/D14 (LIRA-158_COMMISSION_REPORTING_PLAN.md §1.3, Phase 4): " +
-    "legacy (commission_model = 0) financial-service commission, UNCHANGED " +
-    "pre-existing behavior — recognized on the row's own transaction day " +
-    "(todayLocal(created_at)), not gated by is_settled at all, because for " +
-    "a legacy embedded-commission row the `commission` column IS the real, " +
-    "already-true figure the instant the transaction is created (D3 " +
-    "cutover) — there is no separate settlement event to wait for, unlike " +
-    "an AT_SETTLEMENT (commission_model = 1) row. Gated by " +
-    "embeddedCommission (model-0 only) and notRefunded (the §1.3 'bonus " +
-    "defect' this same LIRA-158 phase added). KNOWN GAP, not fixed here: " +
-    "unlike this same commission's getFinancialSettledByCurrency/" +
-    "getRealizedCommissionTotals siblings in ProfitRepository, this query " +
-    "carries no notPartnerPending/notDebtPending — a for-partner or " +
-    "CUSTOMER_ACCOUNT-charged legacy commission can appear in today's " +
-    "closing total before the partner/client has actually paid. " +
-    "Pre-existing (not introduced by this LIRA-158 phase, which only added " +
-    "the is_refunded gate and the settlement-day source below) — worth its " +
-    "own ticket.",
+  "ClosingRepository:getDailyStatsSnapshot:finProfitLegacyDegraded":
+    "LIRA-160 (2026-09-04, updated by the 2026-09-04 follow-up once " +
+    "`notDebtPending` was exported): the SCHEMA-DRIFT branch, active ONLY " +
+    "when NEITHER `partner_ledger` NOR `transactions` exists " +
+    "(`ClosingRepository.moduleProfitGates.test.ts`, `ClosingRepository" +
+    ".localBusinessDay.test.ts`, `ClosingRepository" +
+    ".lira160PartnerPendingGates.test.ts` — none of them create either " +
+    "table). On such a schema no partner_ledger row can reference this " +
+    "table and no transactions row (hence no debt_ledger-keyed id) can " +
+    "exist either, so both `notPartnerPending` and `notDebtPending` would " +
+    "always no-op — same recognition-by-construction reasoning as every " +
+    "other degraded branch in this file (`finProfitSettlement`, " +
+    "`getSupplierCommissionTotals:degraded`). The other three siblings — " +
+    "`finProfitLegacyPartnerOnly` (partner_ledger only), " +
+    "`finProfitLegacyDebtOnly` (transactions only, via " +
+    "`_sourceTxnIdSubquery` + `notDebtPending`), and `finProfitLegacyFull` " +
+    "(both) — each call at least one GATE_FRAGMENT literally and need no " +
+    "exclusion. NO RESIDUAL GAP: every schema combination a real fixture " +
+    "exercises now applies whichever gates its own tables support.",
   "ClosingRepository:getDailyStatsSnapshot:finProfitSettlement":
     "Recognition-by-construction, identical reasoning to " +
     "getSupplierCommissionTotals:degraded above (LIRA-137 fix) transplanted " +
@@ -375,51 +359,54 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "so a gate would always no-op. The CASHLESS half (`cashlessSettlement`, " +
     "alongside this unit) is already gated via its own notPartnerPending + " +
     "allocationNotDebtPending calls and needs no exclusion.",
-  "ClosingRepository:getDailyStatsSnapshot:rechargeProfit":
-    "PARTIAL GAP, narrowed by a follow-up fix (found during this LIRA-158 " +
-    "guard extension, fixed independently afterward): the query NOW carries " +
-    "`notRefunded('recharges')` — a same-day refunded recharge no longer " +
-    "adds its (price - cost) margin to totalProfitUSD — but `notRefunded` " +
-    "is not one of the seven GATE_FRAGMENTS this guard scans for (it answers " +
-    "a different question, 'was this row reversed', not 'has the money " +
-    "actually moved yet'), so the unit still trips this guard's token match " +
-    "and needs this exclusion. Residual, still-real gap: it carries neither " +
-    "notPartnerPending nor notDebtPending, so a for-partner or " +
-    "CUSTOMER_ACCOUNT-charged recharge still counts before any cash has " +
-    "actually moved. Excluded here (mirroring getPaymentMethodRows:(query)'s " +
-    "'documented v1 gap' precedent) so the guard states the residual gap " +
-    "explicitly instead of silently passing OR fabricating a gate that " +
-    "isn't there; recommend filing the partner/debt-pending half as its " +
-    "own ticket.",
-  "ClosingRepository:getDailyStatsSnapshot:customProfit":
-    "Same class of PARTIAL GAP as rechargeProfit immediately above, same " +
-    "follow-up fix: NOW gated by `notRefunded('custom_services')` (the " +
-    "exact fragment `ProfitRepository.getCustomServicesTotals` already " +
-    "uses for this table) — a same-day refunded order no longer inflates " +
-    "today's total. `notRefunded` still isn't a GATE_FRAGMENT (see " +
-    "rechargeProfit's entry above for why), so the exclusion stays. " +
-    "Residual gap: still no notPartnerPending/notDebtPending, so a " +
-    "for-partner or debt-charged custom service order can still count " +
-    "before cash has moved. Documented, not fixed, here — recommend its " +
-    "own ticket (can likely be batched with rechargeProfit's).",
-  "ClosingRepository:getDailyStatsSnapshot:maintProfit":
-    "FIXED (the most severe of the three module gaps here, found during " +
-    "this LIRA-158 guard extension): `LOWER(status) = 'completed'` used to " +
-    "never match any row — maintenance.status's real values are " +
-    "Received/In_Progress/Ready/Delivered/Delivered_Paid (no 'completed' " +
-    "state ever exists) — the exact B5 defect `ProfitRepository " +
-    ".maintenanceCompleted` (generalised from the former private " +
-    "`MAINTENANCE_COMPLETED` constant, alias-parameterised the same way as " +
-    "`notRefunded(alias)`) was introduced to fix for the Profits page, but " +
-    "which was never carried over to ClosingRepository. Now reuses that " +
-    "SAME canonical function (`maintenanceCompleted('maintenance')`, the " +
-    "table name standing in for an alias since this query has none), so " +
-    "maintenance profit finally reaches the daily closing snapshot. Still " +
-    "excluded here because neither `maintenanceCompleted` nor `notRefunded` " +
-    "is a GATE_FRAGMENT this guard scans for (see rechargeProfit's entry " +
-    "above) and — deliberately left unfixed alongside recharge/custom above " +
-    "— this query carries no is_refunded gate on `maintenance` nor " +
-    "notDebtPending; recommend batching that residual with the other two.",
+  "ClosingRepository:getDailyStatsSnapshot:rechargeProfitDegraded":
+    "LIRA-160 (2026-09-04, updated by the follow-up once `notDebtPending` " +
+    "was exported): same schema-drift branch / recognition-by-construction " +
+    "reasoning as finProfitLegacyDegraded above — active ONLY when NEITHER " +
+    "`partner_ledger` NOR `transactions` exists. It still carries " +
+    "`notRefunded('recharges')` (the LIRA-158-era fix, unaffected) — " +
+    "`notRefunded` isn't a GATE_FRAGMENT, so the unit still trips the token " +
+    "match and needs this exclusion. The other three siblings " +
+    "(`rechargeProfitPartnerOnly`/`rechargeProfitDebtOnly`/" +
+    "`rechargeProfitFull`) each call at least one GATE_FRAGMENT literally " +
+    "and need no exclusion. NO RESIDUAL GAP.",
+  "ClosingRepository:getDailyStatsSnapshot:customProfitDegraded":
+    "Same class as rechargeProfitDegraded immediately above, same " +
+    "reasoning, for the custom-service source: schema-drift branch, active " +
+    "ONLY when NEITHER `partner_ledger` NOR `transactions` exists, still " +
+    "gated by `notRefunded('custom_services')` (unaffected LIRA-158-era " +
+    "fix, still not a GATE_FRAGMENT). The other three siblings " +
+    "(`customProfitPartnerOnly`/`customProfitDebtOnly`/`customProfitFull`) " +
+    "each call at least one GATE_FRAGMENT literally and need no exclusion. " +
+    "NO RESIDUAL GAP.",
+  "ClosingRepository:getDailyStatsSnapshot:maintProfitDegraded":
+    "LIRA-158 FIX (unchanged by LIRA-160, restated): `LOWER(status) = " +
+    "'completed'` used to never match any row — maintenance.status's real " +
+    "values are Received/In_Progress/Ready/Delivered/Delivered_Paid (no " +
+    "'completed' state ever exists) — fixed by reusing `ProfitRepository" +
+    ".maintenanceCompleted` (the exact B5 fix already applied to the " +
+    "Profits page). LIRA-160 ADDS `notRefunded('maintenance')` " +
+    "unconditionally (`maintenance.is_refunded` is a real, always-present " +
+    "production column — LIRA-081, `MaintenanceRepository" +
+    ".isJobMoneyLocked` — so this fix needed no schema-drift probe; " +
+    "existing fixtures that predated the column were updated to carry " +
+    "it). No `notPartnerPending` gate is added: maintenance has no " +
+    "partner-routing path at all — `ProfitRepository.getMaintenanceTotals` " +
+    "itself (the Profits-page counterpart) gates only `notRefunded` + " +
+    "`notDebtPending`, never `notPartnerPending` (verified against " +
+    "ProfitRepository.ts before filing this exclusion). THIS specific " +
+    "unit (`maintProfitDegraded`) is the branch active ONLY when " +
+    "`transactions` doesn't exist (`ClosingRepository" +
+    ".moduleProfitGates.test.ts`, `ClosingRepository" +
+    ".localBusinessDay.test.ts`, `ClosingRepository" +
+    ".lira160PartnerPendingGates.test.ts`) — on such a schema no " +
+    "`transactions` row (hence no debt_ledger-keyed id) can exist, so " +
+    "`notDebtPending` would always no-op; still excluded because neither " +
+    "`maintenanceCompleted` nor `notRefunded` is a GATE_FRAGMENT this " +
+    "guard scans for. The sibling `maintProfitGated` (2026-09-04 " +
+    "follow-up, active whenever `transactions` exists) calls " +
+    "`notDebtPending` directly via `_sourceTxnIdSubquery` and needs no " +
+    "exclusion. NO RESIDUAL GAP on either branch.",
 };
 
 describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)", () => {

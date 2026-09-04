@@ -49,6 +49,11 @@ interface ProfitSummary {
     commission_lbp: number;
     pending_commission_usd: number;
     pending_commission_lbp: number;
+    /** LIRA-162: count of commission_model = 1 rows awaiting settlement —
+     *  see ProfitService's own ProfitSummary.financial_services doc comment.
+     *  Optional: an older cached payload (or a mocked test response) may not
+     *  carry it yet. */
+    awaiting_settlement_count?: number;
     pm_fee_usd: number;
     pm_fee_lbp: number;
     count: number;
@@ -243,11 +248,26 @@ interface ProviderStats {
   commission: number;
   currency: string;
   count: number;
+  /** LIRA-163: count of this provider+currency's STILL-UNSETTLED
+   *  commission_model = 1 rows (FinancialServiceRepository.getAnalytics,
+   *  same D15 shape as UnsettledProviderSummary.awaiting_settlement_count
+   *  below). Optional: an older cached payload may not carry it. */
+  awaiting_settlement_count?: number;
 }
 
 interface CommissionsAnalytics {
-  today: { commission: number; pending_commission: number; count: number };
-  month: { commission: number; pending_commission: number; count: number };
+  today: {
+    commission: number;
+    pending_commission: number;
+    count: number;
+    awaiting_settlement_count?: number;
+  };
+  month: {
+    commission: number;
+    pending_commission: number;
+    count: number;
+    awaiting_settlement_count?: number;
+  };
   byProvider: ProviderStats[];
 }
 
@@ -798,17 +818,45 @@ export default function Profits() {
                     </span>
                   </div>
                   {(summary.financial_services.pending_commission_usd > 0 ||
-                    summary.financial_services.pending_commission_lbp > 0) && (
+                    summary.financial_services.pending_commission_lbp > 0 ||
+                    (summary.financial_services.awaiting_settlement_count ??
+                      0) > 0) && (
                     <div className="flex justify-between">
                       <span className="text-yellow-400">Pending</span>
-                      <span className="text-yellow-400">
-                        {formatAmount(
-                          summary.financial_services.pending_commission_usd,
-                          "USD",
+                      <span className="text-yellow-400 text-right">
+                        {(summary.financial_services.pending_commission_usd >
+                          0 ||
+                          summary.financial_services
+                            .pending_commission_lbp > 0) && (
+                          <span className="block">
+                            {formatAmount(
+                              summary.financial_services
+                                .pending_commission_usd,
+                              "USD",
+                            )}
+                            {summary.financial_services
+                              .pending_commission_lbp !== 0 &&
+                              ` + ${formatAmount(summary.financial_services.pending_commission_lbp, "LBP")}`}
+                          </span>
                         )}
-                        {summary.financial_services.pending_commission_lbp !==
-                          0 &&
-                          ` + ${formatAmount(summary.financial_services.pending_commission_lbp, "LBP")}`}
+                        {/* LIRA-162: D15's model-1 count — the ONLY honest
+                            figure once the legacy dollar total above is 0
+                            (an all-post-cutover period). Without this, the
+                            "> 0" guard above never fired for such a period
+                            and the whole Pending line silently didn't render
+                            at all — worse than a $0.00, since nothing hinted
+                            the commission existed. */}
+                        {(summary.financial_services
+                          .awaiting_settlement_count ?? 0) > 0 && (
+                          <span
+                            data-testid="overview-finsvc-awaiting-settlement"
+                            className="block text-[11px] text-yellow-500/80 font-normal"
+                          >
+                            {summary.financial_services
+                              .awaiting_settlement_count}{" "}
+                            awaiting settlement
+                          </span>
+                        )}
                       </span>
                     </div>
                   )}
@@ -1797,6 +1845,20 @@ export default function Profits() {
                     pending settlement
                   </p>
                 )}
+                {/* LIRA-163: the legacy pending_commission figure above is
+                    ALWAYS 0 for a fully-post-cutover (model-1) period — this
+                    count is the only honest signal that money is actually
+                    still pending, unknowable until settlement. */}
+                {(commissionsData.month.awaiting_settlement_count ?? 0) >
+                  0 && (
+                  <p
+                    data-testid="commissions-month-awaiting-settlement"
+                    className="text-xs text-amber-400/80 mt-2"
+                  >
+                    {commissionsData.month.awaiting_settlement_count}{" "}
+                    awaiting settlement
+                  </p>
+                )}
               </div>
 
               <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
@@ -1812,6 +1874,16 @@ export default function Profits() {
                   <p className="text-xs text-amber-400 mt-2 font-mono">
                     + ${commissionsData.today.pending_commission.toFixed(4)}{" "}
                     pending settlement
+                  </p>
+                )}
+                {(commissionsData.today.awaiting_settlement_count ?? 0) >
+                  0 && (
+                  <p
+                    data-testid="commissions-today-awaiting-settlement"
+                    className="text-xs text-amber-400/80 mt-2"
+                  >
+                    {commissionsData.today.awaiting_settlement_count}{" "}
+                    awaiting settlement
                   </p>
                 )}
               </div>
@@ -1921,12 +1993,21 @@ export default function Profits() {
                       // LIRA-158 Phase 2a made this endpoint's per-provider
                       // `commission` commission_model=0-only while `count`
                       // stayed unrestricted, so a provider whose today's
-                      // traffic is all model-1 (e.g. new-model OMT) now
-                      // reads "10 / $0.00" — indistinguishable from "10
-                      // transactions that genuinely earned nothing". Label
-                      // the zero honestly instead of leaving it bare.
-                      const noRealizedCommissionYet =
-                        p.commission === 0 && p.count > 0;
+                      // traffic is all model-1 (e.g. new-model OMT) reads
+                      // "10 / $0.00" — indistinguishable from "10
+                      // transactions that genuinely earned nothing".
+                      // LIRA-163: this used to be guessed from
+                      // `p.commission === 0 && p.count > 0` (a heuristic that
+                      // also mislabeled a provider with genuinely zero
+                      // activity as "awaiting settlement" whenever it
+                      // happened to have $0 commission for any other reason).
+                      // getAnalytics now states the TODAY-scoped model-1
+                      // count outright (same shape as
+                      // providerAwaitingSettlementCount above, just scoped to
+                      // today instead of all-time) — read that instead of
+                      // guessing.
+                      const providerTodayAwaitingSettlementCount =
+                        p.awaiting_settlement_count ?? 0;
                       return (
                         <tr
                           key={p.provider}
@@ -1943,7 +2024,7 @@ export default function Profits() {
                               <span className="text-emerald-400">
                                 ${p.commission.toFixed(4)}
                               </span>
-                            ) : noRealizedCommissionYet ? (
+                            ) : providerTodayAwaitingSettlementCount > 0 ? (
                               <span className="text-slate-500 text-xs italic font-normal">
                                 Awaiting settlement
                               </span>
@@ -1979,7 +2060,7 @@ export default function Profits() {
                               <span className="text-xs font-medium text-emerald-400">
                                 Settled
                               </span>
-                            ) : noRealizedCommissionYet ? (
+                            ) : providerTodayAwaitingSettlementCount > 0 ? (
                               <span className="text-xs font-medium text-slate-400">
                                 Awaiting Settlement
                               </span>

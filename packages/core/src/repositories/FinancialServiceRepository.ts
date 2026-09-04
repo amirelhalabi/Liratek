@@ -538,25 +538,66 @@ export interface ProviderStats {
   commission: number;
   currency: string;
   count: number;
+  /** LIRA-163: count of this provider+currency's STILL-UNSETTLED
+   *  commission_model = 1 rows (`is_settled = 0` — the SAME scope
+   *  {@link ProfitRepository.getPendingCommissionTotals}'s own D15 count
+   *  uses, not `count`'s unconditional one — see
+   *  {@link FinancialServiceAnalytics}'s own doc comment). Replaces the
+   *  `commission === 0 && count > 0` heuristic render sites used to guess
+   *  "is this genuinely zero or just unknown yet" — the SQL now states it
+   *  outright. */
+  awaiting_settlement_count: number;
 }
 
 export interface CurrencyStats {
   currency: string;
   commission: number;
   count: number;
+  /** @see ProviderStats.awaiting_settlement_count — same count, scoped to
+   *  this currency instead of this provider. */
+  awaiting_settlement_count: number;
 }
 
+/**
+ * LIRA-163: every bucket below (`today`/`month` top-level, their
+ * `byCurrency` rows, and `byProvider` rows) now carries
+ * `awaiting_settlement_count` alongside `commission`/`pending_commission` —
+ * D15's "N transactions awaiting settlement" count
+ * ({@link ProfitRepository.getPendingCommissionTotals} already established
+ * this shape for the Profits pages; this is the same count — SAME scope,
+ * `is_settled = 0 AND commission_model = 1` — computed in
+ * {@link FinancialServiceRepository.getAnalytics}'s own SQL pass instead of
+ * a second query). `commission`/`pending_commission` stay
+ * commission_model=0-only (LIRA-158 Phase 2a, `modelZeroOnly`); `count`
+ * stays model-agnostic (every row created in the window, matching the
+ * pre-existing contract callers already depend on) — `awaiting_settlement_
+ * count` is narrower than `count`: only the STILL-PENDING model-1 subset, not
+ * every model-1 row regardless of settlement (a settled model-1 row's real
+ * commission was already recognised elsewhere —
+ * {@link ProfitRepository.getSupplierCommissionTotals} — so counting it here
+ * as "awaiting" would mislabel a done deal). A model-1 row (whose
+ * `commission` column is a stale creation-time estimate, never the settled
+ * truth — see {@link embeddedCommission}'s doc comment) still pending can
+ * therefore read "10 transactions, $0.00 commission, 10 awaiting
+ * settlement" — genuinely unknown until settlement, not zero.
+ */
 export interface FinancialServiceAnalytics {
   today: {
     commission: number;
     pending_commission: number;
     count: number;
+    /** @see FinancialServiceAnalytics's own doc comment. Aggregate across
+     *  every currency/provider today — the header chips (Services page,
+     *  Recharge CompactStats) show one number, not a per-currency split. */
+    awaiting_settlement_count: number;
     byCurrency: CurrencyStats[];
   };
   month: {
     commission: number;
     pending_commission: number;
     count: number;
+    /** @see today.awaiting_settlement_count, scoped to the current month. */
+    awaiting_settlement_count: number;
     byCurrency: CurrencyStats[];
   };
   byProvider: ProviderStats[];
@@ -4654,9 +4695,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         : "";
     const providerParams = providers && providers.length > 0 ? providers : [];
 
-    const modelZeroOnly = embeddedCommission(
+    const supported = this._hasCommissionModelColumn();
+    const modelZeroOnly = embeddedCommission("financial_services", supported);
+    // LIRA-163: the D15 complement of modelZeroOnly — a genuine
+    // AT_SETTLEMENT row (commission_model = 1), computed ONCE here (mirrors
+    // modelZeroOnly's own doc-commented "computed once, reused across the 5
+    // sub-queries" discipline) and interpolated as a CASE sibling next to
+    // each query's existing (already-gated) `commission` sum. Every use below
+    // ALSO carries `is_settled = 0` (matching `..._pending`'s own condition,
+    // not `count`'s unconditional one) — mirrors
+    // ProfitRepository.getPendingCommissionTotals's exact scope: a SETTLED
+    // model-1 row is no longer "awaiting" anything (its real commission was
+    // already recognised, on the SUPPLIER_SETTLEMENT transaction — a
+    // different report entirely, ProfitRepository.getSupplierCommissionTotals
+    // — not reflected in this method's `commission` field either way), so
+    // counting it here would mislabel a done deal as still pending. See
+    // FinancialServiceAnalytics's own doc comment for the full contract.
+    const awaitingSettlement = atSettlementCommission(
       "financial_services",
-      this._hasCommissionModelColumn(),
+      supported,
     );
 
     // Today's totals — split realized (settled) vs pending
@@ -4665,7 +4722,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         `SELECT
           COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as today_commission,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as today_pending,
-          COUNT(*) as today_count
+          COUNT(*) as today_count,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as today_awaiting_settlement_count
         FROM financial_services
         WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}`,
       )
@@ -4673,6 +4731,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       today_commission: number;
       today_pending: number;
       today_count: number;
+      today_awaiting_settlement_count: number;
     };
 
     // Today's breakdown by currency (realized only)
@@ -4681,7 +4740,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         `SELECT
           currency,
           COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as commission,
-          COUNT(*) as count
+          COUNT(*) as count,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
         WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}
         GROUP BY currency`,
@@ -4694,7 +4754,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         `SELECT
           COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as month_commission,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as month_pending,
-          COUNT(*) as month_count
+          COUNT(*) as month_count,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as month_awaiting_settlement_count
         FROM financial_services
         WHERE tenant_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}`,
       )
@@ -4702,6 +4763,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       month_commission: number;
       month_pending: number;
       month_count: number;
+      month_awaiting_settlement_count: number;
     };
 
     // This month's breakdown by currency (realized only)
@@ -4710,7 +4772,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         `SELECT
           currency,
           COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as commission,
-          COUNT(*) as count
+          COUNT(*) as count,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
         WHERE tenant_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}
         GROUP BY currency`,
@@ -4724,7 +4787,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           provider,
           COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as commission,
           currency,
-          COUNT(*) as count
+          COUNT(*) as count,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
         WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}
         GROUP BY provider, currency`,
@@ -4736,12 +4800,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         commission: todayStats.today_commission,
         pending_commission: todayStats.today_pending,
         count: todayStats.today_count,
+        awaiting_settlement_count: todayStats.today_awaiting_settlement_count,
         byCurrency: todayByCurrency,
       },
       month: {
         commission: monthStats.month_commission,
         pending_commission: monthStats.month_pending,
         count: monthStats.month_count,
+        awaiting_settlement_count: monthStats.month_awaiting_settlement_count,
         byCurrency: monthByCurrency,
       },
       byProvider,

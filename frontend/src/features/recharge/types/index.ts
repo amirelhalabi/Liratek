@@ -228,9 +228,19 @@ export interface CurrencyStats {
   currency: string;
   commission: number;
   count: number;
+  /** LIRA-163: count of this currency's commission_model = 1 rows still
+   *  awaiting settlement (FinancialServiceRepository.getAnalytics). */
+  awaiting_settlement_count?: number;
 }
 
 export interface ProviderAnalytics {
-  today: { commission: number; count: number; byCurrency?: CurrencyStats[] };
+  today: {
+    commission: number;
+    count: number;
+    /** @see CurrencyStats.awaiting_settlement_count, aggregated across
+     *  currencies for the whole "today" bucket. */
+    awaiting_settlement_count?: number;
+    byCurrency?: CurrencyStats[];
+  };
   byProvider: { provider: string; commission: number; count: number }[];
 }

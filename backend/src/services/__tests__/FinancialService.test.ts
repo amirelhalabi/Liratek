@@ -483,16 +483,21 @@ describe("FinancialService (delegation)", () => {
         throw new Error("Analytics query failed");
       });
       const result = service.getAnalytics();
+      // LIRA-163: FinancialService.getAnalytics's error fallback now also
+      // carries awaiting_settlement_count: 0 on both buckets, matching
+      // FinancialServiceRepository.getAnalytics's real return shape.
       expect(result).toEqual({
         today: {
           commission: 0,
           pending_commission: 0,
+          awaiting_settlement_count: 0,
           byCurrency: [],
           count: 0,
         },
         month: {
           commission: 0,
           pending_commission: 0,
+          awaiting_settlement_count: 0,
           byCurrency: [],
           count: 0,
         },

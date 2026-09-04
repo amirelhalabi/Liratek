@@ -25,5 +25,8 @@ export type {
   VirtualStock,
   MonthlyPL,
   UnsettledSummary,
+  OMTAnalytics,
+  OMTCurrencyStats,
+  OMTProviderStats,
 } from "./types";
 export { ApiProvider, useApi } from "./ApiProvider";
