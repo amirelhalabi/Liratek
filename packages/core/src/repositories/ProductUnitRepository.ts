@@ -80,6 +80,12 @@ export interface UnitStory {
   created_at: string;
   updated_at: string;
   product_name: string | null;
+  /** `products.is_deleted` off the same LEFT JOIN as `product_name` — `null`
+   *  when the product row is missing entirely (never seen a live product),
+   *  `1` when it was soft-deleted, `0` when it is live. Only a truthy `1`
+   *  means "deleted"; the unit row itself is history and stays visible
+   *  either way (LIRA-152). */
+  product_deleted: number | null;
   product_warranty_months: number | null;
   warranty_until: string | null;
   is_refunded: number | null;
@@ -144,6 +150,12 @@ export interface UnitListRow {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  /** `products.is_deleted` off the same LEFT JOIN as `product_name` — `null`
+   *  when the product row is missing entirely, `1` when it was soft-deleted,
+   *  `0` when it is live. Only a truthy `1` means "deleted"; the unit row
+   *  stays in this list either way — this is history disclosure, not a
+   *  filter (LIRA-152). */
+  product_deleted: number | null;
   product_warranty_months: number | null;
   sale_item_id: number | null;
   sold_at: string | null;
@@ -547,6 +559,7 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
            pu.sale_item_id, pu.is_defective, pu.warranty_override_until,
            pu.created_at, pu.updated_at,
            p.name AS product_name,
+           p.is_deleted AS product_deleted,
            p.warranty_months AS product_warranty_months,
            si.warranty_until AS warranty_until,
            si.is_refunded AS is_refunded,
@@ -591,6 +604,7 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
            pu.id, pu.product_id, pu.imei, pu.status, pu.is_defective,
            pu.warranty_override_until, pu.created_at,
            p.name AS product_name,
+           p.is_deleted AS product_deleted,
            p.warranty_months AS product_warranty_months,
            pu.sale_item_id,
            s.created_at AS sold_at,
@@ -860,6 +874,18 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
     imeis: string[];
   } {
     return this.deleteInStockForProducts([productId]);
+  }
+
+  /**
+   * Whether the `product_units` table exists — lets callers skip the unit
+   * cascade on a pre-v157 schema instead of failing the whole delete.
+   * Public precisely because callers (e.g. `InventoryService.deleteProduct`
+   * / `batchDeleteProducts`) must ask THIS repository rather than probing
+   * `sqlite_master` themselves (rule 13 — services never touch the
+   * database).
+   */
+  productUnitsTableExists(): boolean {
+    return this.tableExists("product_units");
   }
 
   /** Count of `IN_STOCK` units for a product — the drift-check input for

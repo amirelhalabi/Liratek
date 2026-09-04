@@ -423,7 +423,25 @@ export default function PhoneUnits() {
                 }`}
               >
                 <td className="p-3 font-mono text-white">{unit.imei}</td>
-                <td className="p-3 text-slate-300">{unit.product_name}</td>
+                <td className="p-3 text-slate-300">
+                  <div className="flex items-center gap-2">
+                    <span>{unit.product_name}</span>
+                    {/* LIRA-152 — a sold unit of a soft-deleted product stays
+                        in this register (it is history), but nothing else on
+                        the row said the product was gone. Muted/secondary on
+                        purpose — same slate family as the "No warranty"
+                        badge below, never an alarm color. */}
+                    {unit.product_deleted === 1 && (
+                      <span
+                        data-testid={`phone-unit-product-deleted-${unit.id}`}
+                        title="This product has been deleted from inventory"
+                        className="text-[10px] px-1.5 py-0.5 rounded border bg-slate-700/40 text-slate-400 border-slate-600/40"
+                      >
+                        Product deleted
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="p-3">
                   <span
                     className={`text-[10px] px-1.5 py-0.5 rounded border ${unitStatusBadgeClass(unit.status)}`}

@@ -33,6 +33,8 @@ import {
   partnerWriteOffSchema,
   stockAdjustSchema,
   productListFiltersSchema,
+  batchDeleteProductIdsSchema,
+  type BatchDeleteProductIds,
   voidCheckoutGroupSchema,
   refundLegsSchema,
   carrierLineCreateSchema,
@@ -215,6 +217,18 @@ export const BatchUpdateSchema = z.object({
   min_stock_level: z.number().int().nonnegative().optional(),
   supplier: z.string().optional().nullable(),
 });
+
+// LIRA-149: `inventory:batch-delete` had NO Zod validation before this ticket
+// — `ids` was trusted raw from the renderer, unlike its sibling
+// `inventory:batch-update` above. The ids rule now lives in
+// packages/core/src/validators/product.ts so the IPC handler and the REST
+// route (`POST /api/inventory/products/batch-delete`) validate against ONE
+// schema (rule 14) — REST wraps the same rule in `{ ids }` via
+// `batchDeleteProductsSchema`. Cast bridges the zod major mismatch (core
+// built against zod 4, this workspace against zod 3); the runtime API used
+// is identical.
+export const BatchDeleteProductIdsSchema =
+  batchDeleteProductIdsSchema as unknown as z.ZodSchema<BatchDeleteProductIds>;
 
 // The stock-adjustment contract lives in packages/core/src/validators/inventory.ts
 // so the Electron IPC handler and the REST route validate against ONE schema

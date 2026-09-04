@@ -108,6 +108,8 @@ function row(
     warranty_override_until: null,
     created_at: "2026-08-01 10:00:00",
     product_name: "iPhone 15 Pro",
+    // Default: a live product — most rows are. LIRA-152 tests override this.
+    product_deleted: null,
     // Default: the MODEL grants no warranty at all, so a NONE verdict really
     // does mean "No warranty" for these rows.
     product_warranty_months: null,
@@ -548,6 +550,36 @@ describe("PhoneUnits — row rendering", () => {
     expect(
       await screen.findByText("No units match these filters."),
     ).toBeInTheDocument();
+  });
+
+  /**
+   * LIRA-152 — a sold unit of a soft-deleted product correctly stays in this
+   * register (it is history and must not disappear), but nothing told the
+   * operator the product is gone. The muted chip is that disclosure; it must
+   * render ONLY for a truthy `1`, never for `0` (a live product) or `null`
+   * (the join found no product row at all — treated the same as "not known
+   * deleted", not as an alarm).
+   */
+  it("shows a muted 'Product deleted' chip only when product_deleted is truthy", async () => {
+    mockList.mockResolvedValue(
+      result([
+        row({ id: 1, imei: "111111111111111", product_deleted: 1 }),
+        row({ id: 2, imei: "222222222222222", product_deleted: 0 }),
+        row({ id: 3, imei: "333333333333333", product_deleted: null }),
+      ]),
+    );
+    renderPage();
+
+    await screen.findByText("111111111111111");
+    expect(
+      screen.getByTestId("phone-unit-product-deleted-1"),
+    ).toHaveTextContent("Product deleted");
+    expect(
+      screen.queryByTestId("phone-unit-product-deleted-2"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("phone-unit-product-deleted-3"),
+    ).not.toBeInTheDocument();
   });
 });
 

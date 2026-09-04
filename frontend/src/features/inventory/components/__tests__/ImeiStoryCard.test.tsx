@@ -94,6 +94,7 @@ function makeStory(overrides: Partial<UnitStoryEntry> = {}): UnitStoryEntry {
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     product_name: "iPhone 13",
+    product_deleted: null,
     // Default: the MODEL grants no warranty term, so a NONE verdict below
     // really is "No warranty" rather than "not yet".
     product_warranty_months: null,

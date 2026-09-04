@@ -2221,6 +2221,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * This predicate happens to cover the all-lines-item-refunded case too,
    * which is correct — it is the same double-refund.
    *
+   * LIRA-146 — that shared throw used to be a dead end: an operator who had
+   * already item-refunded every line got told to "refund the remaining items
+   * individually", when nothing remained. The guard below still throws in
+   * BOTH cases (the block itself is unchanged — see `SALE_ITEM_REFUND_TOUCHED`,
+   * moved verbatim from the old single-query predicate), but now runs one
+   * aggregate query counting `touched` lines against `SALE_ITEM_HAS_REFUNDABLE_REMAINDER`
+   * lines so it can pick the message that matches reality: some lines still
+   * refundable individually → the original message; zero lines left (every
+   * touched line's `refunded_quantity` has caught up to `quantity`) → a
+   * distinct "already fully refunded, nothing remains" message. The
+   * touched/no-throw boundary itself is untouched by this change.
+   *
    * The `is_refunded` half of the predicate is a legacy net, not the main
    * event: the ONLY writer of `sale_items.is_refunded = 1` is the whole-sale
    * refund path (which stamps every line at once, and stamps `reverses_id` on
@@ -2229,23 +2241,42 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * (before `refunded_quantity` existed) whose transaction link was lost —
    * blocking a reversal there is the safe direction.
    */
+  /** A line this guard already counts as "touched" by an item refund — the ORIGINAL predicate, unchanged (rule 14: named once, reused, not re-pasted). */
+  private static readonly SALE_ITEM_REFUND_TOUCHED =
+    `(COALESCE(refunded_quantity, 0) > 0
+      OR (COALESCE(is_refunded, 0) <> 0
+          AND COALESCE(refunded_quantity, 0) < quantity))`;
+
+  /** A line that still has quantity left to refund individually from the sale detail. */
+  private static readonly SALE_ITEM_HAS_REFUNDABLE_REMAINDER =
+    `(COALESCE(is_refunded, 0) = 0 AND COALESCE(refunded_quantity, 0) < quantity)`;
+
   private _assertNoPartialItemRefunds(original: TransactionEntity): void {
     if (original.source_table !== "sales" || original.source_id == null) {
       return;
     }
-    const partial = this.queryOne<{ id: number }>(
-      `SELECT id FROM sale_items
-        WHERE sale_id = ? AND tenant_id = ?
-          AND (COALESCE(refunded_quantity, 0) > 0
-               OR (COALESCE(is_refunded, 0) <> 0
-                   AND COALESCE(refunded_quantity, 0) < quantity))
-        LIMIT 1`,
+    const counts = this.queryOne<{
+      touched: number | null;
+      remaining: number | null;
+    }>(
+      `SELECT
+         SUM(CASE WHEN ${TransactionRepository.SALE_ITEM_REFUND_TOUCHED} THEN 1 ELSE 0 END) AS touched,
+         SUM(CASE WHEN ${TransactionRepository.SALE_ITEM_HAS_REFUNDABLE_REMAINDER} THEN 1 ELSE 0 END) AS remaining
+       FROM sale_items
+       WHERE sale_id = ? AND tenant_id = ?`,
       original.source_id,
       getCurrentTenantId(),
     );
-    if (!partial) return;
+    const touched = counts?.touched ?? 0;
+    if (touched === 0) return;
+    const remaining = counts?.remaining ?? 0;
+    if (remaining > 0) {
+      throw new BusinessRuleError(
+        "This sale was partially refunded — refund the remaining items individually from the sale detail (a whole-sale refund would double-refund the already-returned items)",
+      );
+    }
     throw new BusinessRuleError(
-      "This sale was partially refunded — refund the remaining items individually from the sale detail (a whole-sale refund would double-refund the already-returned items)",
+      "This sale has already been fully refunded item-by-item — nothing remains to refund.",
     );
   }
 
@@ -2260,24 +2291,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   }
 
   /**
-   * LIRA-143 phase 4 — memoized `product_units` table-existence guard, same
-   * `sqlite_master` shape as `_exchangeLotTablesExist` above but cached
-   * per-instance (this repository is a long-lived singleton and the schema
-   * shape never changes once the process is up). Guards `_reverseProductUnits`
-   * so the many hand-built test schemas that predate this phase (no
-   * `product_units` table) stay byte-identical.
+   * LIRA-143 phase 4 — `product_units` table-existence guard, delegating to
+   * `BaseRepository.tableExists` (rule 14: LIRA-148 collapsed this repo's
+   * own hand-rolled `sqlite_master` probe + cache onto the one shared owner
+   * — same probe `ProductUnitRepository.productUnitsTableExists()` now
+   * exposes to `InventoryService`). Guards `_reverseProductUnits` so the
+   * many hand-built test schemas that predate this phase (no `product_units`
+   * table) stay byte-identical. Method name/call sites kept as-is to limit
+   * blast radius.
    */
-  private _productUnitsTableExistsCache: boolean | null = null;
   private _productUnitsTableExists(): boolean {
-    if (this._productUnitsTableExistsCache === null) {
-      const row = this.db
-        .prepare(
-          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_units'`,
-        )
-        .get();
-      this._productUnitsTableExistsCache = row !== undefined;
-    }
-    return this._productUnitsTableExistsCache;
+    return this.tableExists("product_units");
   }
 
   /**

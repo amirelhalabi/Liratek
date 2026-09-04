@@ -83,6 +83,9 @@ describe("InventoryService", () => {
       transaction: jest.fn((fn: () => unknown) => fn()),
       deleteInStockForProduct: jest.fn(() => ({ count: 0, imeis: [] })),
       deleteInStockForProducts: jest.fn(() => ({ count: 0, imeis: [] })),
+      // LIRA-148: the delete cascade is gated on this — default `true` so
+      // every existing test keeps exercising the cascade unchanged.
+      productUnitsTableExists: jest.fn(() => true),
     } as unknown as jest.Mocked<ProductUnitRepository>;
 
     service = new InventoryService(
@@ -492,6 +495,23 @@ describe("InventoryService", () => {
       // The soft delete throws first, so the cascade never runs — the real
       // transaction rolls the whole unit of work back.
       expect(mockUnitRepo.deleteInStockForProduct).not.toHaveBeenCalled();
+    });
+
+    it("LIRA-148: still soft-deletes but skips the unit cascade when product_units doesn't exist", () => {
+      mockRepo.softDeleteById.mockReturnValue(true);
+      (
+        mockUnitRepo.productUnitsTableExists as unknown as jest.Mock
+      ).mockReturnValue(false);
+
+      const result = service.deleteProduct(1);
+
+      expect(mockRepo.softDeleteById).toHaveBeenCalledWith(1);
+      // The cascade query itself is never issued against a schema that
+      // doesn't have the table.
+      expect(mockUnitRepo.deleteInStockForProduct).not.toHaveBeenCalled();
+      // Skipped cascade reads as "no units" — same shape as the real
+      // no-units case, so the caller can't tell the two apart.
+      expect(result).toEqual({ success: true });
     });
   });
 

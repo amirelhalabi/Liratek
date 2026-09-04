@@ -39,6 +39,11 @@ export interface ProductUnit {
  *  for a unit that was never sold. */
 export interface UnitStoryEntry extends ProductUnit {
   product_name: string | null;
+  /** `products.is_deleted` off the same join as `product_name` — `null` when
+   *  the product row is missing, `1` when soft-deleted, `0` when live. Only a
+   *  truthy `1` means deleted; the unit row is history and stays visible
+   *  either way (LIRA-152). */
+  product_deleted: number | null;
   /** The owning MODEL's warranty term (`products.warranty_months`) —
    *  display-only: decision #4 starts the warranty clock at the SALE, so an
    *  unsold unit has no coverage yet, only a term it will get. */
@@ -87,6 +92,11 @@ export interface UnitListRow {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  /** `products.is_deleted` off the same join as `product_name` — `null` when
+   *  the product row is missing, `1` when soft-deleted, `0` when live. Only a
+   *  truthy `1` means deleted; the row is history and stays in the list
+   *  either way (LIRA-152). */
+  product_deleted: number | null;
   /** The owning MODEL's warranty term — display-only (see
    *  {@link UnitStoryEntry.product_warranty_months}); what lets fresh stock
    *  of a 6-month model read "6 mo — starts at sale" instead of the

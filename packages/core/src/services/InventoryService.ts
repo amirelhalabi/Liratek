@@ -504,6 +504,16 @@ export class InventoryService {
    * confirmation can state what actually happened instead of hiding it. They
    * are absent (not `0`) when the product had no units at all, so a caller
    * can tell "no units" from "units removed: none".
+   *
+   * LIRA-148: on a pre-v157 schema (or a hand-built test schema) that has no
+   * `product_units` table at all, the cascade query itself would throw and
+   * roll back the whole transaction — losing the soft delete along with a
+   * cascade that was never applicable to begin with. Asked via
+   * `ProductUnitRepository.productUnitsTableExists()` (rule 13 — this
+   * service never probes `sqlite_master` itself) and, when absent, the
+   * cascade is skipped in favour of the query's own empty-result shape
+   * (`{ count: 0, imeis: [] }`, same as "no units" today) — only the
+   * cascade is skipped, the soft delete always runs.
    */
   deleteProduct(id: number): ProductResult {
     if (!id) {
@@ -513,7 +523,9 @@ export class InventoryService {
     try {
       const removed = this.productUnitRepo.transaction(() => {
         this.productRepo.softDeleteById(id);
-        return this.productUnitRepo.deleteInStockForProduct(id);
+        return this.productUnitRepo.productUnitsTableExists()
+          ? this.productUnitRepo.deleteInStockForProduct(id)
+          : { count: 0, imeis: [] };
       });
       if (removed.count === 0) return { success: true };
       inventoryLogger.info(
@@ -539,6 +551,10 @@ export class InventoryService {
    * skipping it here would leave the identical orphaned-IMEI bug behind a
    * different button (the trap rule 20 warns about: extending a capability to
    * a second call site re-triggers the obligation).
+   *
+   * LIRA-148: same pre-v157/table-absent guard as `deleteProduct` — the
+   * batch soft delete always runs; only the cascade is skipped when
+   * `product_units` doesn't exist yet.
    */
   batchDeleteProducts(ids: number[]): {
     success: boolean;
@@ -555,7 +571,9 @@ export class InventoryService {
         const deletedCount = this.productRepo.batchSoftDelete(ids);
         return {
           deleted: deletedCount,
-          removed: this.productUnitRepo.deleteInStockForProducts(ids),
+          removed: this.productUnitRepo.productUnitsTableExists()
+            ? this.productUnitRepo.deleteInStockForProducts(ids)
+            : { count: 0, imeis: [] },
         };
       });
       if (removed.count === 0) return { success: true, deleted };

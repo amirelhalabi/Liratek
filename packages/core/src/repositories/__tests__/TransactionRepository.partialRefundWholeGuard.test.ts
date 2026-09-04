@@ -214,6 +214,14 @@ function createTestDb(): Database.Database {
 const PARTIAL_REFUND_BLOCK =
   /This sale was partially refunded — refund the remaining items individually/;
 
+/**
+ * LIRA-146 — the guard's OTHER message: every line was already refunded
+ * item-by-item (nothing partial remains), so the old "refund the remaining
+ * items individually" text was a dead end. See `_assertNoPartialItemRefunds`.
+ */
+const FULLY_ITEM_REFUNDED_BLOCK =
+  /This sale has already been fully refunded item-by-item — nothing remains to refund\./;
+
 describe("TransactionRepository — whole-sale void/refund after a partial item refund", () => {
   let db: Database.Database;
   let salesRepo: SalesRepository;
@@ -440,6 +448,101 @@ describe("TransactionRepository — whole-sale void/refund after a partial item 
       });
       expect(drawerUsd()).toBe(5000);
       expect(saleStatus(saleId)).toBe("refunded");
+    });
+  });
+
+  describe("LIRA-146 — fully item-refunded sale gets the distinct 'nothing remains' message", () => {
+    it("refundTransaction reports the NEW message, not the old 'refund remaining items' dead end", () => {
+      const { saleId, saleItemId } = sellThreeAtTen();
+      expect(drawerUsd()).toBe(5030);
+
+      // Refund all 3 units of the sale's one line individually — nothing
+      // partial is left: refunded_quantity (3) has caught up to quantity (3).
+      salesRepo.refundSaleItem({
+        saleId,
+        saleItemId,
+        refundQuantity: 3,
+        userId: 1,
+      });
+      expect(drawerUsd()).toBe(5000); // full $30 tender already back
+      expect(saleStatus(saleId)).toBe("refunded");
+
+      expect(() =>
+        getTransactionRepository().refundTransaction(saleTxnId(saleId), 1),
+      ).toThrow(FULLY_ITEM_REFUNDED_BLOCK);
+      // Still refused — the throw/no-throw boundary is unchanged — and the
+      // drawer stays exactly where the item refunds left it.
+      expect(drawerUsd()).toBe(5000);
+    });
+
+    it("voidTransaction reports the NEW message too, drawer untouched", () => {
+      const { saleId, saleItemId } = sellThreeAtTen();
+      salesRepo.refundSaleItem({
+        saleId,
+        saleItemId,
+        refundQuantity: 3,
+        userId: 1,
+      });
+      expect(drawerUsd()).toBe(5000);
+
+      expect(() =>
+        getTransactionRepository().voidTransaction(saleTxnId(saleId), 1),
+      ).toThrow(FULLY_ITEM_REFUNDED_BLOCK);
+      expect(drawerUsd()).toBe(5000);
+    });
+
+    it("a MULTI-line sale gets the NEW message once EVERY line is individually fully refunded", () => {
+      const productA = Number(
+        db
+          .prepare(
+            `INSERT INTO products (name, cost_price_usd, stock_quantity, tenant_id) VALUES ('Cable', 2, 10, 1)`,
+          )
+          .run().lastInsertRowid,
+      );
+      const productB = Number(
+        db
+          .prepare(
+            `INSERT INTO products (name, cost_price_usd, stock_quantity, tenant_id) VALUES ('Case', 3, 10, 1)`,
+          )
+          .run().lastInsertRowid,
+      );
+      const result = salesRepo.processSale(
+        baseSale({
+          items: [
+            { product_id: productA, quantity: 1, price: 20 },
+            { product_id: productB, quantity: 1, price: 30 },
+          ],
+          total_amount: 50,
+          final_amount: 50,
+          payment_usd: 50,
+        }),
+        1,
+      );
+      const saleId = result.id!;
+      const items = db
+        .prepare(`SELECT id FROM sale_items WHERE sale_id = ? ORDER BY id ASC`)
+        .all(saleId) as { id: number }[];
+
+      // Refund BOTH lines individually, in full.
+      salesRepo.refundSaleItem({
+        saleId,
+        saleItemId: items[0].id,
+        refundQuantity: 1,
+        userId: 1,
+      });
+      salesRepo.refundSaleItem({
+        saleId,
+        saleItemId: items[1].id,
+        refundQuantity: 1,
+        userId: 1,
+      });
+      expect(drawerUsd()).toBe(5000);
+      expect(saleStatus(saleId)).toBe("refunded");
+
+      expect(() =>
+        getTransactionRepository().refundTransaction(saleTxnId(saleId), 1),
+      ).toThrow(FULLY_ITEM_REFUNDED_BLOCK);
+      expect(drawerUsd()).toBe(5000);
     });
   });
 
