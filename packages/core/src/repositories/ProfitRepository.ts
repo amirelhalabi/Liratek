@@ -21,11 +21,6 @@
  *                                CLIENT repays the underlying transfer — LIRA-158 D17
  *   - cashlessCommissionBatch    re-derives isBillsOnlyBatch's negation in SQL from
  *                                settlement_commission_allocations — LIRA-158 D17
- *   - partnerCoverageRatio       proportional counterpart of notPartnerPending —
- *                                fraction of a row's partner obligation covered so
- *                                far, derived at read time, never stamped (2026-09-05
- *                                foundation; not yet wired into any query — see
- *                                docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md)
  */
 
 import type Database from "better-sqlite3";
@@ -501,12 +496,26 @@ export function cashlessCommissionBatch(settlementLedgerIdExpr: string): string 
 }
 
 /**
- * DBT-2 — transaction-level partner-pending scan for the by-user/by-client
- * views (their rows are unified transactions, so the partner scan keys on
- * source_table/source_id instead of a fixed table name). Same semantics as
- * {@link notPartnerPending}.
+ * DBT-2 — transaction-level partner-pending scan, correlating on a
+ * transactions row's own `source_table`/`source_id` (instead of a fixed
+ * table name) — same semantics as {@link notPartnerPending}.
+ *
+ * PROPORTIONAL CONVERSION (2026-09-05, PARTNER_PROPORTIONAL_RECOGNITION.md
+ * Step 2) — `getByUser`/`getByClient`/`getDeferredProfit` (this fragment's
+ * only production call sites) now weight by {@link txnPartnerCoverageRatio}
+ * instead of gating on this predicate directly, so this function currently
+ * has NO production call site. Kept (not deleted) for two reasons: (1) it is
+ * still the canonical, exact definition of "what counts as an uncovered
+ * partner row" for the transactions-alias case — `txnPartnerCoverageRatio`'s
+ * own doc comment cross-references it, and its unit test proves row-
+ * selection agreement against this predicate directly (rule 14 — one
+ * definition, verified equivalent, not two independently-maintained ones);
+ * (2) `profitRecognition.guard.test.ts`'s `GATE_FRAGMENTS` sanity check
+ * asserts this name still exists as a callable function. Exported (was
+ * previously module-private) so its own equivalence test can import it
+ * directly instead of hand-copying its SQL text a second time.
  */
-function txnNotPartnerPending(alias: string): string {
+export function txnNotPartnerPending(alias: string): string {
   return `NOT EXISTS (
     SELECT 1 FROM partner_ledger plp
     WHERE plp.reference_table = ${alias}.source_table
@@ -517,17 +526,83 @@ function txnNotPartnerPending(alias: string): string {
 }
 
 /**
+ * Does this sale carry ANY for-partner obligation at all (a FOR_% row
+ * exists), independent of how much of it is covered? Shared by
+ * {@link salePaidOrPartnerSettled} (the pre-existing binary gate) and
+ * {@link saleRecognitionWeight} (its proportional counterpart, immediately
+ * below) so the two never hand-copy this EXISTS check (rule 14) — extracted
+ * here as the ONE place answering "is this a partner sale at all."
+ */
+function saleHasPartnerObligation(alias: string): string {
+  return `EXISTS (
+    SELECT 1 FROM partner_ledger plf
+    WHERE plf.reference_table = 'sales' AND plf.reference_id = ${alias}.id
+      AND plf.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
+  )`;
+}
+
+/**
  * SALE realized gate (PFT-6): fully paid by the customer OR a for-partner
  * sale (has a FOR_% row) whose partner has fully settled it. A for-partner
  * sale carries paid_usd = 0 (no counter cash), so without the OR-arm it
  * would stay pending forever even after the partner paid.
+ *
+ * UNCHANGED behaviourally by the 2026-09-05 proportional-recognition work
+ * (only refactored to share {@link saleHasPartnerObligation} with its new
+ * sibling below) — this still answers the old binary question ("fully
+ * recognised, yes or no?") for its existing callers (getSalesRevCost,
+ * getSalesProfit, getByDate's daily_sales/daily_sales_profit,
+ * getByUser/getByClient's sale arm). See {@link saleRecognitionWeight}'s doc
+ * comment for why converting those callers to proportional needs more than a
+ * change here.
  */
 function salePaidOrPartnerSettled(alias: string): string {
-  return `(${saleFullyPaid(alias)} OR (EXISTS (
-    SELECT 1 FROM partner_ledger plf
-    WHERE plf.reference_table = 'sales' AND plf.reference_id = ${alias}.id
-      AND plf.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
-  ) AND ${notPartnerPending("sales", `${alias}.id`)}))`;
+  return `(${saleFullyPaid(alias)} OR (${saleHasPartnerObligation(alias)} AND ${notPartnerPending("sales", `${alias}.id`)}))`;
+}
+
+/**
+ * Proportional counterpart of {@link salePaidOrPartnerSettled} (owner
+ * decision 2026-09-05, docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md,
+ * Lane A). Returns a NUMERIC weight in [0, 1] — NOT a boolean:
+ *
+ *  - `1.0` when the customer paid the sale in full ({@link saleFullyPaid}).
+ *    A customer-paid sale recognises at 100% unconditionally; this branch is
+ *    never made proportional — a customer's own payment is not a partner
+ *    obligation, so there is nothing here to prorate.
+ *  - `${partnerCoverageRatio("sales", alias.id)}` when this is a for-partner
+ *    sale ({@link saleHasPartnerObligation}). THIS is the branch that becomes
+ *    continuous: a partner sale recognises exactly the fraction the partner
+ *    has actually paid so far, instead of all-or-nothing.
+ *  - `0.0` otherwise — a genuinely pending, non-partner sale (ordinary
+ *    customer debt). Untouched by this change (DBT-1/client debt is out of
+ *    scope), so a plain unpaid sale still contributes nothing, exactly as
+ *    {@link salePaidOrPartnerSettled} already excludes it today.
+ *
+ * The two branches are a disjunction, never a blend: a sale is never BOTH
+ * customer-paid AND a for-partner sale (a for-partner sale carries
+ * `paid_usd = 0` — see {@link salePaidOrPartnerSettled}'s own doc comment),
+ * so checking `saleFullyPaid` first carries no double-counting risk.
+ *
+ * **Deliberately NOT wired into any query yet** — the same posture
+ * {@link partnerCoverageRatio} itself shipped with (see that function's doc
+ * comment). Actually recognising sales proportionally means MULTIPLYING the
+ * monetary SELECT columns of `getSalesRevCost`, `getSalesProfit`,
+ * `getByDate`'s `daily_sales`/`daily_sales_profit` CTEs, and
+ * `getByUser`/`getByClient`'s sale arm by this weight (replacing their
+ * `AND ${salePaidOrPartnerSettled(alias)}` gate) — every one of those is a
+ * bare `SUM(...)` with no adjacent factor a WHERE-embedded predicate could
+ * inject on its own (unlike {@link supplierSettlementProfitArm}, which owns
+ * its own `SELECT SUM(...)` and could be converted end-to-end in place).
+ * Wiring those SELECT lists reaches well past this file's predicate
+ * definitions into ~14 separate call sites, outside this lane's fenced line
+ * range — named here as the explicit next step, not silently skipped.
+ */
+export function saleRecognitionWeight(alias: string): string {
+  return `(CASE
+    WHEN ${saleFullyPaid(alias)} THEN 1.0
+    WHEN ${saleHasPartnerObligation(alias)} THEN ${partnerCoverageRatio("sales", `${alias}.id`)}
+    ELSE 0.0
+  END)`;
 }
 
 /**
@@ -750,11 +825,22 @@ export function currentSettlementAllocation(fsAlias: string, scaAlias: string): 
  * CASHLESS batch (true) re-sources ONLY this settlement's OWN allocations
  * (`sca.settlement_ledger_id = t.source_id` — the one settlement this
  * specific transaction row belongs to, never every settlement tenant-wide)
- * gated by {@link allocationNotDebtPending} (the new D17 gate),
- * {@link notPartnerPending} (supplier-settled != partner-settled, matching
- * every other allocation-sourced query in this file), and
+ * gated by {@link allocationNotDebtPending} (the new D17 gate) and
  * {@link notRefunded} (an fs row refunded WITHOUT voiding the settlement
- * still needs excluding).
+ * still needs excluding), and weighted by {@link partnerCoverageRatio}
+ * (owner decision 2026-09-05, proportional recognition — supplier-settled
+ * != partner-settled, matching every other allocation-sourced query in this
+ * file, but recognised continuously as the partner pays instead of
+ * all-or-nothing). Each allocation's own commission is multiplied by its own
+ * `partnerCoverageRatio("financial_services", sca.financial_service_id)`
+ * INSIDE the `SUM(...)`, rather than gating the row out of the SUM entirely
+ * with the old binary {@link notPartnerPending}: at ratio 0 a row
+ * contributes 0 (identical to the old gate excluding it), at ratio 1 it
+ * contributes its full commission (identical to the old gate including it),
+ * and only a partially-covered allocation now differs — this is the ONE site
+ * in this file where the monetary SUM and the partner gate live in the SAME
+ * function body, so (unlike {@link saleRecognitionWeight}) this conversion
+ * is complete in place, no separate caller-side wiring needed.
  *
  * Degrades to `""` (the WHEN is omitted entirely, so the row falls through
  * to the existing `ELSE`) when `settlement_commission_allocations` doesn't
@@ -765,7 +851,7 @@ export function currentSettlementAllocation(fsAlias: string, scaAlias: string): 
  * fragment embeds exactly one `?` (`sca.tenant_id`) when `hasAllocations` is
  * true, and none at all when it is false.
  */
-function supplierSettlementProfitArm(
+export function supplierSettlementProfitArm(
   hasAllocations: boolean,
   currency: "usd" | "lbp",
 ): string {
@@ -776,14 +862,13 @@ function supplierSettlementProfitArm(
   return `WHEN t.source_table = 'supplier_ledger' AND t.type IN ('SUPPLIER_SETTLEMENT', 'REFUND') THEN (
               CASE WHEN NOT (${cashlessCommissionBatch("t.source_id")}) THEN ${profitCol}
               ELSE COALESCE((
-                SELECT SUM(${commissionCol})
+                SELECT SUM(${commissionCol} * ${partnerCoverageRatio("financial_services", "sca.financial_service_id")})
                 FROM settlement_commission_allocations sca
                 JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
                 WHERE sca.settlement_ledger_id = t.source_id
                   AND sca.tenant_id = ?
                   AND ${notRefunded("fs")}
                   AND ${allocationNotDebtPending("sca")}
-                  AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
               ), 0)
               END
             )`;
@@ -878,6 +963,85 @@ const PROFIT_TXN_TYPES =
  */
 export function maintenanceCompleted(alias: string): string {
   return `${alias}.status IN ('Delivered', 'Delivered_Paid')`;
+}
+
+/**
+ * DBT-2 / PFT-6 (proportional recognition, 2026-09-05 — Step 2 of
+ * docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md) — the
+ * transactions-alias counterpart of the (literal-`refTable`) fragment
+ * `partnerCoverageRatio(refTable, idExpr)` documented in that plan (§1).
+ * `partnerCoverageRatio` cannot be called from `getByUser`/`getByClient`/
+ * `getDeferredProfit` because those views iterate unified `transactions`
+ * rows spanning every FOR_% module at once — the module a given row belongs
+ * to is only known at read time, off that row's OWN `source_table` column,
+ * not as a compile-time string constant. This mirrors exactly the
+ * relationship {@link txnNotPartnerPending} already has to
+ * {@link notPartnerPending} (same correlation, `${alias}.source_table` /
+ * `${alias}.source_id` instead of a literal table name) — this fragment is
+ * {@link txnNotPartnerPending}'s proportional counterpart the same way
+ * `partnerCoverageRatio` is `notPartnerPending`'s.
+ *
+ * Semantics are IDENTICAL to `partnerCoverageRatio` (only the correlation
+ * differs), so this doc comment restates that fragment's rationale rather
+ * than inventing a second one:
+ *
+ * - Returns `SUM(covered_amount) / SUM(amount)` over the row's FOR_%
+ *   `partner_ledger` rows, selected by a WHERE clause copy-identical to
+ *   {@link txnNotPartnerPending}'s own (rule 14 — one definition of "what
+ *   counts as a partner row" for the transactions-alias case). The only
+ *   difference from that predicate: this fragment does NOT additionally
+ *   filter `covered_amount < amount - 0.005` — every matching FOR_% row
+ *   (covered or not) must contribute to both SUMs, or an already-fully-
+ *   covered row would be silently dropped from the ratio instead of
+ *   correctly pushing it to 1.0.
+ * - **Defaults to 1.0** when the row has no FOR_% rows at all (both SUMs
+ *   are SQL NULL -> division is NULL -> outer `COALESCE` returns 1.0) — a
+ *   non-partner row recognises fully, unchanged from today's binary gate.
+ * - **Clamped to `[0, 1]`** via the scalar (2-argument) `MIN`/`MAX` forms —
+ *   same empirically-verified better-sqlite3 behaviour `partnerCoverageRatio`
+ *   relies on (2-argument MIN/MAX resolves to the scalar row-wise form even
+ *   when an argument is itself an aggregate `SUM(...)` collapsed to one row).
+ * - **`NULLIF`-guarded** against a zero-`amount` FOR_% row degrading to a
+ *   bare NULL instead of the same 1.0 default.
+ * - **Derived at read time, never stamped.** Because the value is computed
+ *   from `covered_amount` when the query runs, a refund that unwinds
+ *   coverage through the existing reverse-FIFO
+ *   (`TransactionRepository._unwindPartnerSettlementCoverage`) corrects the
+ *   figure automatically on the very next read — rule 20 is satisfied by
+ *   construction, with no reversal code of its own needed, because nothing
+ *   is recorded against the source row to begin with. This is a BINDING
+ *   design constraint (not a style preference): stamping this ratio at
+ *   write time would require a second reversal path to keep it in sync with
+ *   `PartnerRepository.applySettlementCoverage` / the unwind above, and
+ *   would drift the instant one of those two write paths changed without
+ *   the stamp being touched in lockstep.
+ *
+ * Cross-reference: `partnerCoverageRatio` (this fragment's literal-table
+ * sibling, used at the 19 `notPartnerPending` call sites classified in
+ * PARTNER_PROPORTIONAL_RECOGNITION.md §4) names this exact fragment in its
+ * own §6 as the piece Step 1 deliberately left unbuilt for
+ * `getByUser`/`getByClient`/`getDeferredProfit` — this is that piece.
+ *
+ * Exported (matching `notPartnerPending`/`partnerCoverageRatio`/
+ * `txnNotPartnerPending`'s convention — the last of those was made exported
+ * by this same change, see its own doc comment) so this fragment's own unit
+ * tests (`ProfitRepository.txnPartnerCoverageRatio.test.ts`) can exercise the
+ * raw SQL expression directly, independent of any repository method — the
+ * same reason `partnerCoverageRatio` itself is exported.
+ */
+export function txnPartnerCoverageRatio(alias: string): string {
+  return `COALESCE(
+    (
+      SELECT MAX(0.0, MIN(1.0,
+        SUM(plr.covered_amount) / NULLIF(SUM(plr.amount), 0)
+      ))
+      FROM partner_ledger plr
+      WHERE plr.reference_table = ${alias}.source_table
+        AND plr.reference_id = ${alias}.source_id
+        AND plr.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
+    ),
+    1.0
+  )`;
 }
 
 // =============================================================================
@@ -1116,12 +1280,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    *    arm already established) — the ONLY place this fix can reach each
    *    allocated fs row's OWN client-debt status, since the flat
    *    SUPPLIER_SETTLEMENT/REFUND stamp has no per-row knowledge of it at
-   *    all. Gated on {@link allocationNotDebtPending} (D17's new gate),
-   *    {@link notPartnerPending} (supplier-settled != partner-settled, the
-   *    same second gate every other allocation arm in this file carries),
-   *    and {@link notRefunded} (an fs row refunded WITHOUT voiding the
+   *    all. Gated on {@link allocationNotDebtPending} (D17's new gate) and
+   *    {@link notRefunded} (an fs row refunded WITHOUT voiding the
    *    settlement still needs excluding — matching
-   *    {@link getFinancialSettledByProvider}'s allocation arm).
+   *    {@link getFinancialSettledByProvider}'s allocation arm). Owner
+   *    decision 2026-09-05 replaced this bucket's THIRD gate — a binary
+   *    `notPartnerPending` (supplier-settled != partner-settled) — with the
+   *    proportional {@link partnerCoverageRatio} weight below: a partially-
+   *    covered partner row now contributes its covered fraction instead of
+   *    being excluded whole. `getFinancialSettledByProvider`'s allocation
+   *    arm (Lane C's range) still carries the binary `notPartnerPending`
+   *    gate unconverted as of this change.
    *
    * **Partition proof (exhaustive + disjoint, no double count):** a
    * settlement's allocation rows are written ATOMICALLY, one per settled fs
@@ -1210,19 +1379,23 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       )
       .get(fromDt, toDt, tenantId) as SupplierCommissionTotalsRow;
 
+    // Owner decision 2026-09-05: partner coverage is proportional, not
+    // binary — a partially-settled cashless commission recognises its
+    // covered fraction instead of being excluded whole (partnerCoverageRatio).
+    // `count` stays a row tally (never weighted — a fractional count has no
+    // sensible rendering), counted once any coverage exists.
     const cashless = this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(sca.commission_usd), 0) AS profit_usd,
-          COALESCE(SUM(sca.commission_lbp), 0) AS profit_lbp,
-          COUNT(DISTINCT sca.settlement_ledger_id) AS count
+          COALESCE(SUM(sca.commission_usd * (${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_usd,
+          COALESCE(SUM(sca.commission_lbp * (${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_lbp,
+          COUNT(DISTINCT CASE WHEN (${partnerCoverageRatio("financial_services", "sca.financial_service_id")}) > 0 THEN sca.settlement_ledger_id END) AS count
         FROM settlement_commission_allocations sca
         JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
         WHERE sca.tenant_id = ?
           AND ${notRefunded("fs")}
           AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
           AND ${allocationNotDebtPending("sca")}
-          AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
           AND ${dateRange("sca.created_at")}`,
       )
       .get(tenantId, fromDt, toDt) as SupplierCommissionTotalsRow;
@@ -1234,7 +1407,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     };
   }
 
-  /** Settled financial-service commissions (OMT/WHISH family) grouped by currency. */
+  /**
+   * Settled financial-service commissions (OMT/WHISH family) grouped by
+   * currency. Owner decision 2026-09-05: a for-partner row recognises
+   * proportionally to partner coverage (partnerCoverageRatio) instead of
+   * being excluded whole while any coverage is outstanding. `count` stays a
+   * row tally, counted once any coverage exists (never weighted).
+   */
   getFinancialSettledByCurrency(
     fromDt: string,
     toDt: string,
@@ -1243,16 +1422,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       .prepare(
         `SELECT
           fs.currency AS currency,
-          COALESCE(SUM(${fsRevenue("fs")}), 0) AS revenue,
-          COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE t.profit_usd END), 0) AS commission,
-          COUNT(*) AS count
+          COALESCE(SUM((${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS revenue,
+          COALESCE(SUM((CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE t.profit_usd END) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS commission,
+          SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM financial_services fs
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
         WHERE fs.is_settled = 1
           AND fs.provider IN (${COMMISSION_PROVIDERS})
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
-          AND ${notPartnerPending("financial_services", "fs.id")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
@@ -1298,10 +1476,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
 
   /**
    * Mobile services (iPick/Katsh/BOB) revenue/cost/profit grouped by currency.
-   * Gated by notPartnerPending so a for-partner iPick/Katsh row defers its
-   * whole line (revenue + cost + profit + count) until the partner settles —
-   * matching the deferred bucket, the daily trend, and getByUser/getByClient
-   * (this was the sole FS aggregation missing the partner gate).
+   * Owner decision 2026-09-05: a for-partner iPick/Katsh row recognises
+   * proportionally to partner coverage (partnerCoverageRatio) — revenue,
+   * cost and profit all scale by the SAME per-row ratio, matching the
+   * deferred bucket / daily trend / getByUser/getByClient's own for-partner
+   * treatment. `count` stays a row tally, counted once any coverage exists
+   * (never weighted — a fractional count has no sensible rendering).
    */
   getMobileServicesByCurrency(
     fromDt: string,
@@ -1311,16 +1491,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       .prepare(
         `SELECT
           fs.currency AS currency,
-          COALESCE(SUM(fs.price), 0) AS revenue,
-          COALESCE(SUM(fs.cost), 0) AS cost,
-          COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE t.profit_usd END), 0) AS profit,
-          COUNT(*) AS count
+          COALESCE(SUM(fs.price * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS revenue,
+          COALESCE(SUM(fs.cost * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS cost,
+          COALESCE(SUM((CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE t.profit_usd END) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS profit,
+          SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM financial_services fs
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
         WHERE fs.provider IN (${MOBILE_PROVIDERS})
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
-          AND ${notPartnerPending("financial_services", "fs.id")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
@@ -1334,21 +1513,25 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       ) as MobileCurrencyRow[];
   }
 
-  /** Recharges (MTC/Alfa) revenue/cost/profit grouped by currency. */
+  /**
+   * Recharges (MTC/Alfa) revenue/cost/profit grouped by currency. Owner
+   * decision 2026-09-05: a for-partner recharge recognises proportionally
+   * to partner coverage (partnerCoverageRatio); `count` stays a row tally,
+   * counted once any coverage exists (never weighted).
+   */
   getRechargesByCurrency(fromDt: string, toDt: string): RechargeCurrencyRow[] {
     return this.db
       .prepare(
         `SELECT
           r.currency_code AS currency_code,
-          COALESCE(SUM(r.price), 0) AS revenue,
-          COALESCE(SUM(r.cost), 0) AS cost,
-          COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN t.profit_lbp ELSE t.profit_usd END), 0) AS profit,
-          COUNT(*) AS count
+          COALESCE(SUM(r.price * (${partnerCoverageRatio("recharges", "r.id")})), 0) AS revenue,
+          COALESCE(SUM(r.cost * (${partnerCoverageRatio("recharges", "r.id")})), 0) AS cost,
+          COALESCE(SUM((CASE WHEN r.currency_code = 'LBP' THEN t.profit_lbp ELSE t.profit_usd END) * (${partnerCoverageRatio("recharges", "r.id")})), 0) AS profit,
+          SUM(CASE WHEN (${partnerCoverageRatio("recharges", "r.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM recharges r
         JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("r")}
-          AND ${notPartnerPending("recharges", "r.id")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("r.created_at")}
           AND r.tenant_id = ? AND t.tenant_id = ?
@@ -1362,24 +1545,29 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       ) as RechargeCurrencyRow[];
   }
 
-  /** Custom services totals (revenue/cost from source, profit from transactions). */
+  /**
+   * Custom services totals (revenue/cost from source, profit from
+   * transactions). Owner decision 2026-09-05: a for-partner job recognises
+   * proportionally to partner coverage (partnerCoverageRatio) across every
+   * monetary column; `count` stays a row tally, counted once any coverage
+   * exists (never weighted).
+   */
   getCustomServicesTotals(fromDt: string, toDt: string): CustomTotalsRow {
     return this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(cs.price_usd), 0) AS revenue_usd,
-          COALESCE(SUM(cs.price_lbp), 0) AS revenue_lbp,
-          COALESCE(SUM(cs.cost_usd), 0) AS cost_usd,
-          COALESCE(SUM(cs.cost_lbp), 0) AS cost_lbp,
-          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
-          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
-          COUNT(*) AS count
+          COALESCE(SUM(cs.price_usd * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS revenue_usd,
+          COALESCE(SUM(cs.price_lbp * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS revenue_lbp,
+          COALESCE(SUM(cs.cost_usd * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS cost_usd,
+          COALESCE(SUM(cs.cost_lbp * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS cost_lbp,
+          COALESCE(SUM(t.profit_usd * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS profit_lbp,
+          SUM(CASE WHEN (${partnerCoverageRatio("custom_services", "cs.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM custom_services cs
         JOIN transactions t ON t.source_table = 'custom_services' AND t.source_id = cs.id AND t.type = 'CUSTOM_SERVICE'
         WHERE cs.status = 'completed'
           AND t.status = 'ACTIVE'
           AND ${notRefunded("cs")}
-          AND ${notPartnerPending("custom_services", "cs.id")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("cs.created_at")}
           AND cs.tenant_id = ? AND t.tenant_id = ?`,
@@ -1429,19 +1617,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * Loto ticket commissions (LBP). Loto stamps its commission as profit_lbp on
    * the LOTO transaction at sale time but was absent from every profits view.
    * Revenue is the ticket face value; profit is the shop's commission cut.
+   * Owner decision 2026-09-05: a for-partner ticket recognises proportionally
+   * to partner coverage (partnerCoverageRatio); `count` stays a row tally,
+   * counted once any coverage exists (never weighted).
    */
   getLotoTotals(fromDt: string, toDt: string): LotoTotalsRow {
     return this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(lt.sale_amount), 0) AS revenue_lbp,
-          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
-          COUNT(*) AS count
+          COALESCE(SUM(lt.sale_amount * (${partnerCoverageRatio("loto_tickets", "lt.id")})), 0) AS revenue_lbp,
+          COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("loto_tickets", "lt.id")})), 0) AS profit_lbp,
+          SUM(CASE WHEN (${partnerCoverageRatio("loto_tickets", "lt.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM loto_tickets lt
         JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("lt")}
-          AND ${notPartnerPending("loto_tickets", "lt.id")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("lt.created_at")}
           AND lt.tenant_id = ? AND t.tenant_id = ?`,
@@ -1485,17 +1675,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       .all(fromDt, toDt, getCurrentTenantId()) as PmFeeCurrencyRow[];
   }
 
-  /** Exchange totals (v30+: leg1 + leg2 profit; revenue = sum of amount_in). */
+  /**
+   * Exchange totals (v30+: leg1 + leg2 profit; revenue = sum of amount_in).
+   * Owner decision 2026-09-05: a for-partner exchange recognises
+   * proportionally to partner coverage (partnerCoverageRatio); `count` stays
+   * a row tally, counted once any coverage exists (never weighted).
+   */
   getExchangeTotals(fromDt: string, toDt: string): ExchangeTotalsRow {
     return this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(${EXCHANGE_LEG_PROFIT}), 0) AS profit_usd,
-          COALESCE(SUM(amount_in), 0) AS revenue_usd,
-          COUNT(*) AS count
+          COALESCE(SUM((${EXCHANGE_LEG_PROFIT}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS profit_usd,
+          COALESCE(SUM(amount_in * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS revenue_usd,
+          SUM(CASE WHEN (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM exchange_transactions
         WHERE ${notRefunded("exchange_transactions")}
-          AND ${notPartnerPending("exchange_transactions", "exchange_transactions.id")}
           AND ${dateRange("created_at")}
           AND tenant_id = ?`,
       )
@@ -1532,12 +1726,45 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   /**
    * Deferred profit (owner ask 2026-07-14): the slice of transactions.profit_usd
    * / profit_lbp that is currently STRANDED behind an uncovered partner FOR_%
-   * row (PFT-6) or an uncovered client-debt charge row (DBT-1) — the exact
-   * negation of the gates {@link getByUser}/{@link getByClient} already apply
-   * before counting a transaction's profit as realized. Reuses
-   * txnNotPartnerPending / notDebtPending verbatim (rule 14) so this bucket
-   * always reconciles with the realized totals: a source moves out of here
-   * and into the realized summary the moment it settles/repays, never both.
+   * row (PFT-6) or an uncovered client-debt charge row (DBT-1) — the
+   * complement of the recognition {@link getByUser}/{@link getByClient} apply
+   * before counting a transaction's profit as realized.
+   *
+   * PROPORTIONAL CONVERSION (2026-09-05, PARTNER_PROPORTIONAL_RECOGNITION.md
+   * Step 2) — `partnerRow` no longer gates by `txnNotPartnerPending("t")`
+   * (an all-or-nothing "is ANY FOR_% row uncovered" test). Under proportional
+   * recognition a partner row is no longer either fully realized or fully
+   * deferred — {@link getByUser}/{@link getByClient} now recognise
+   * `profit_usd * txnPartnerCoverageRatio(t)` per DBT-2-gated row (their own
+   * conversion, this same step), so the DEFERRED complement of that, for the
+   * SAME row, is `profit_usd * (1 - txnPartnerCoverageRatio(t))` — the
+   * UNCOVERED remainder, not the full stamp. Multiplying by `(1 - ratio)`
+   * over the UNGATED population (instead of filtering to "not fully covered"
+   * then summing the full stamp) makes a non-partner or fully-covered row
+   * contribute exactly 0 (ratio = 1 -> 1 - ratio = 0, same as being excluded
+   * by the old WHERE), and an uncovered row contribute its full stamp
+   * (ratio = 0 -> 1 - ratio = 1, same as the old WHERE's fully-in case) — the
+   * two extremes reproduce the prior binary behaviour exactly, and only a
+   * PARTIALLY covered row now differs, moving continuously between them.
+   * This is what keeps `realized + deferred` reconciling to the row's full
+   * stamp at every coverage level, not just at the two extremes (rule 20,
+   * satisfied the same way the ratio fragment itself is: derived at read
+   * time from `covered_amount`, so a refund's reverse-FIFO unwind corrects
+   * both sides automatically on the next read, with no separate reversal
+   * bookkeeping for THIS bucket either). `clientDebtRow` below is
+   * deliberately UNTOUCHED by this conversion — client debt (DBT-1, the
+   * `notDebtPending` gate) is explicitly OUT OF SCOPE for proportional
+   * recognition (owner decision 2026-09-05 scopes this to partner
+   * obligations only) and stays the same binary all-or-nothing bucket it
+   * was before. Pre-existing, unrelated-to-this-conversion note: a
+   * transaction that is BOTH partner-pending (partially) AND debt-pending
+   * has NO gate coupling the two buckets together (each is computed by its
+   * own independent query, exactly as before this conversion) — such a row
+   * contributes to `partnerRow` AND (fully) to `clientDebtRow`
+   * simultaneously, so the two deferred buckets are two independent
+   * diagnostic reasons, not a strict partition; this overlap already existed
+   * in the pre-conversion binary code (a fully-stamped double count in that
+   * edge case, not something this conversion introduces or widens).
    *
    * D17 (LIRA-158 follow-up, owner decision 2026-08-31) — NON-OPTIONAL
    * addition: `clientDebtRow` above is transaction-shaped
@@ -1569,12 +1796,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     const partnerRow = this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
-          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+          COALESCE(SUM(t.profit_usd * (1 - ${txnPartnerCoverageRatio("t")})), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp * (1 - ${txnPartnerCoverageRatio("t")})), 0) AS profit_lbp
         FROM transactions t
         WHERE t.status = 'ACTIVE'
           AND t.type IN (${PROFIT_TXN_TYPES})
-          AND NOT (${txnNotPartnerPending("t")})
           AND ${dateRange("t.created_at")}
           AND t.tenant_id = ?`,
       )
@@ -1670,15 +1896,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * Gates on the allocation arm: {@link notRefunded} (an fs row refunded
    * WITHOUT voiding the settlement still needs excluding — the allocation
    * row survives that refund path since only a voided SETTLEMENT
-   * hard-deletes allocations) and {@link notPartnerPending} (a FOR-partner
-   * fs row's allocated share still defers until the partner settles —
-   * supplier-settled is not partner-settled; this is a SECOND, independent
-   * gate from the base arm's own `notPartnerPending`, not a duplicate of
-   * it). No reversal predicate is needed beyond that: a voided settlement
-   * hard-DELETEs its allocation rows (`TransactionRepository.ts` — `DELETE
-   * FROM settlement_commission_allocations WHERE settlement_ledger_id = ?`),
-   * so a reversed allocation is physically gone rather than needing an
+   * hard-deletes allocations). No reversal predicate is needed beyond that:
+   * a voided settlement hard-DELETEs its allocation rows
+   * (`TransactionRepository.ts` — `DELETE FROM
+   * settlement_commission_allocations WHERE settlement_ledger_id = ?`), so a
+   * reversed allocation is physically gone rather than needing an
    * `is_voided` filter.
+   *
+   * Proportional recognition (owner decision 2026-09-05): a FOR-partner fs
+   * row's allocated commission share no longer defers all-or-nothing on
+   * {@link notPartnerPending}. Both `profit_usd`/`profit_lbp` here (and the
+   * base arm's revenue/cost/profit/count below) are weighted by
+   * {@link partnerCoverageRatio} instead — the same partner_ledger FOR_%
+   * rows, read as a continuous `[0,1]` fraction rather than a binary gate.
+   * `count` stays `0 AS count` regardless (unaffected — see the base arm's
+   * own note on why counts are never weighted, only gated on `ratio > 0`).
    *
    * UPDATED by D17 (LIRA-158 follow-up, owner decision 2026-08-31; this
    * paragraph replaces a now-FALSE claim that lived here — "commission
@@ -1707,14 +1939,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           sca.provider AS provider,
           0 AS revenue_usd,
           0 AS revenue_lbp,
-          COALESCE(SUM(sca.commission_usd), 0) AS profit_usd,
-          COALESCE(SUM(sca.commission_lbp), 0) AS profit_lbp,
+          COALESCE(SUM(sca.commission_usd * (${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_usd,
+          COALESCE(SUM(sca.commission_lbp * (${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_lbp,
           0 AS count
         FROM settlement_commission_allocations sca
         JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
         WHERE sca.tenant_id = ?
           AND ${notRefunded("fs")}
-          AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
           AND ${allocationNotDebtPending("sca")}
           AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
           AND ${dateRange("sca.created_at")}
@@ -1736,17 +1967,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM (
           SELECT
             fs.provider AS provider,
-            COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_usd,
-            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_lbp,
-            COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN t.profit_usd ELSE 0 END), 0) AS profit_usd,
-            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END), 0) AS profit_lbp,
-            COUNT(*) AS count
+            COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_usd,
+            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_lbp,
+            COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN t.profit_usd * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_usd,
+            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_lbp,
+            SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count
           FROM financial_services fs
           JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
           WHERE fs.is_settled = 1
             AND t.status = 'ACTIVE'
             AND ${notRefunded("fs")}
-            AND ${notPartnerPending("financial_services", "fs.id")}
             AND ${notDebtPending("t.id")}
             AND ${dateRange("fs.created_at")}
             AND fs.tenant_id = ? AND t.tenant_id = ?
@@ -1764,18 +1994,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       .prepare(
         `SELECT
           r.carrier AS carrier,
-          COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.price ELSE 0 END), 0) AS revenue_usd,
-          COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN r.price ELSE 0 END), 0) AS revenue_lbp,
-          COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.cost ELSE 0 END), 0) AS cost_usd,
-          COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN r.cost ELSE 0 END), 0) AS cost_lbp,
-          COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN t.profit_usd ELSE 0 END), 0) AS profit_usd,
-          COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN t.profit_lbp ELSE 0 END), 0) AS profit_lbp,
-          COUNT(*) AS count
+          COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.price * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS revenue_usd,
+          COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN r.price * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS revenue_lbp,
+          COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.cost * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS cost_usd,
+          COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN r.cost * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS cost_lbp,
+          COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN t.profit_usd * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS profit_usd,
+          COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN t.profit_lbp * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS profit_lbp,
+          SUM(CASE WHEN (${partnerCoverageRatio("recharges", "r.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM recharges r
         JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("r")}
-          AND ${notPartnerPending("recharges", "r.id")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("r.created_at")}
           AND r.tenant_id = ? AND t.tenant_id = ?
@@ -1812,8 +2041,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
      * allocation arm (see that method's doc comment for the full rationale:
      * why the base `daily_commissions` arm below is left unchanged, why this
      * is dated by `sca.created_at` (D7 settlement day, not the fs row's
-     * transaction day), why `notRefunded` + `notPartnerPending` are gates,
-     * and why voiding needs no extra predicate). Built as a separate string
+     * transaction day), why `notRefunded` is a gate, and why voiding needs
+     * no extra predicate). Built as a separate string
      * (rather than nested inline) so the outer `daily_commissions AS (...)`
      * CTE body keeps a single, unbroken pair of backticks — a nested
      * template literal here would introduce a second, unbalanced backtick
@@ -1828,21 +2057,29 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
      * comment for the full D17 rationale); a BILLS-ONLY settlement's real
      * money is recognised elsewhere (`getSupplierCommissionTotals`'s own
      * bills-only bucket) and must not double-count here.
+     *
+     * Proportional recognition (owner decision 2026-09-05) — same change as
+     * {@link getFinancialSettledByProvider}'s allocation arm: the partner
+     * axis is no longer `notPartnerPending`'s binary gate, it is
+     * {@link partnerCoverageRatio} weighting `profit_usd`/`profit_lbp`
+     * (and, in the base arm below and every other per-day CTE in this
+     * method, `revenue`/`cost`/`profit` likewise). `getByDate` exposes no
+     * per-day count column at all, so there is nothing to convert to a
+     * `ratio > 0` tally here.
      */
     const dailyCommissionsAllocationArm = hasAllocations
       ? `
           UNION ALL
           SELECT
             DATE(sca.created_at, 'localtime') AS d,
-            COALESCE(SUM(sca.commission_usd), 0) AS profit_usd,
-            COALESCE(SUM(sca.commission_lbp), 0) AS profit_lbp,
+            COALESCE(SUM(sca.commission_usd * (${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_usd,
+            COALESCE(SUM(sca.commission_lbp * (${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_lbp,
             0 AS revenue_usd,
             0 AS revenue_lbp
           FROM settlement_commission_allocations sca
           JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
           WHERE sca.tenant_id = ?
             AND ${notRefunded("fs")}
-            AND ${notPartnerPending("financial_services", "sca.financial_service_id")}
             AND ${allocationNotDebtPending("sca")}
             AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
             AND ${dateRange("sca.created_at")}
@@ -1916,16 +2153,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           FROM (
             SELECT
               DATE(fs.created_at, 'localtime') AS d,
-              COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN t.profit_usd ELSE 0 END), 0) AS profit_usd,
-              COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END), 0) AS profit_lbp,
-              COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_usd,
-              COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_lbp
+              COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN t.profit_usd * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_usd,
+              COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_lbp,
+              COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_usd,
+              COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_lbp
             FROM financial_services fs
             JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
             WHERE fs.is_settled = 1
               AND t.status = 'ACTIVE'
               AND ${notRefunded("fs")}
-              AND ${notPartnerPending("financial_services", "fs.id")}
             AND ${notDebtPending("t.id")}
               AND ${dateRange("fs.created_at")}
               AND fs.tenant_id = ? AND t.tenant_id = ?
@@ -1937,17 +2173,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         daily_recharges AS (
           SELECT
             DATE(r.created_at, 'localtime') AS d,
-            COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.price ELSE 0 END), 0) AS revenue_usd,
-            COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN r.price ELSE 0 END), 0) AS revenue_lbp,
-            COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.cost ELSE 0 END), 0) AS cost_usd,
-            COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN r.cost ELSE 0 END), 0) AS cost_lbp,
-            COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN t.profit_usd ELSE 0 END), 0) AS profit_usd,
-            COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN t.profit_lbp ELSE 0 END), 0) AS profit_lbp
+            COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.price * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS revenue_usd,
+            COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN r.price * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS revenue_lbp,
+            COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.cost * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS cost_usd,
+            COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN r.cost * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS cost_lbp,
+            COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN t.profit_usd * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS profit_usd,
+            COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN t.profit_lbp * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS profit_lbp
           FROM recharges r
           JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
           WHERE t.status = 'ACTIVE'
             AND ${notRefunded("r")}
-            AND ${notPartnerPending("recharges", "r.id")}
           AND ${notDebtPending("t.id")}
             AND ${dateRange("r.created_at")}
             AND r.tenant_id = ? AND t.tenant_id = ?
@@ -1956,18 +2191,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         daily_custom AS (
           SELECT
             DATE(cs.created_at, 'localtime') AS d,
-            COALESCE(SUM(cs.price_usd), 0) AS revenue_usd,
-            COALESCE(SUM(cs.price_lbp), 0) AS revenue_lbp,
-            COALESCE(SUM(cs.cost_usd), 0) AS cost_usd,
-            COALESCE(SUM(cs.cost_lbp), 0) AS cost_lbp,
-            COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
-            COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+            COALESCE(SUM(cs.price_usd * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS revenue_usd,
+            COALESCE(SUM(cs.price_lbp * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS revenue_lbp,
+            COALESCE(SUM(cs.cost_usd * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS cost_usd,
+            COALESCE(SUM(cs.cost_lbp * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS cost_lbp,
+            COALESCE(SUM(t.profit_usd * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS profit_usd,
+            COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS profit_lbp
           FROM custom_services cs
           JOIN transactions t ON t.source_table = 'custom_services' AND t.source_id = cs.id AND t.type = 'CUSTOM_SERVICE'
           WHERE cs.status = 'completed'
             AND t.status = 'ACTIVE'
             AND ${notRefunded("cs")}
-          AND ${notPartnerPending("custom_services", "cs.id")}
           AND ${notDebtPending("t.id")}
             AND ${dateRange("cs.created_at")}
             AND cs.tenant_id = ? AND t.tenant_id = ?
@@ -1995,13 +2229,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         daily_loto AS (
           SELECT
             DATE(lt.created_at, 'localtime') AS d,
-            COALESCE(SUM(lt.sale_amount), 0) AS revenue_lbp,
-            COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+            COALESCE(SUM(lt.sale_amount * (${partnerCoverageRatio("loto_tickets", "lt.id")})), 0) AS revenue_lbp,
+            COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("loto_tickets", "lt.id")})), 0) AS profit_lbp
           FROM loto_tickets lt
           JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
           WHERE t.status = 'ACTIVE'
             AND ${notRefunded("lt")}
-            AND ${notPartnerPending("loto_tickets", "lt.id")}
           AND ${notDebtPending("t.id")}
             AND ${dateRange("lt.created_at")}
             AND lt.tenant_id = ? AND t.tenant_id = ?
@@ -2021,11 +2254,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         daily_exchange AS (
           SELECT
             DATE(created_at, 'localtime') AS d,
-            COALESCE(SUM(amount_in), 0) AS revenue_usd,
-            COALESCE(SUM(${EXCHANGE_LEG_PROFIT}), 0) AS profit_usd
+            COALESCE(SUM(amount_in * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS revenue_usd,
+            COALESCE(SUM((${EXCHANGE_LEG_PROFIT}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS profit_usd
           FROM exchange_transactions
           WHERE ${notRefunded("exchange_transactions")}
-            AND ${notPartnerPending("exchange_transactions", "exchange_transactions.id")}
             AND ${dateRange("created_at")}
             AND tenant_id = ?
           GROUP BY DATE(created_at, 'localtime')
@@ -2110,14 +2342,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    *
    * LIRA-108: realized means real on EVERY axis, so beyond `is_settled = 1`
    * this carries the same counterparty gates as its per-currency sibling
-   * `getFinancialSettledByCurrency`: `notPartnerPending` (PFT-6 — a
-   * for-partner row defers until partner settlement FIFO covers its FOR_%
-   * row) and `notDebtPending` (DBT-1 — a CUSTOMER_ACCOUNT-charged service
-   * defers until the client repays), via the same transactions JOIN shape
-   * (`t.status = 'ACTIVE'`). A settled-but-pending row is withheld here AND
-   * from the pending row (which keys on is_settled = 0) — it surfaces in
+   * `getFinancialSettledByCurrency`: `notDebtPending` (DBT-1 — a
+   * CUSTOMER_ACCOUNT-charged service defers until the client repays), via
+   * the same transactions JOIN shape (`t.status = 'ACTIVE'`). A
+   * settled-but-fully-debt-pending row is withheld here AND from the
+   * pending row (which keys on is_settled = 0) — it surfaces in
    * getDeferredProfit until settlement/repayment, matching the per-currency
    * pair.
+   *
+   * Proportional recognition (owner decision 2026-09-05): the partner axis
+   * (PFT-6) is no longer a binary `notPartnerPending` gate — `total_usd`/
+   * `total_lbp` are weighted by {@link partnerCoverageRatio} (a for-partner
+   * row's commission share recognises as the partner's settlement coverage
+   * arrives, not all-or-nothing), and `count` counts a row the moment ANY
+   * money has arrived (`ratio > 0`), never fractionally.
    *
    * LIRA-158 (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2a): this now counts
    * LEGACY (`commission_model = 0`) rows only, via `embeddedCommission`. It
@@ -2143,9 +2381,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     return this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN fs.commission ELSE 0 END), 0) AS total_usd,
-          COALESCE(SUM(CASE WHEN fs.currency  = 'LBP' THEN fs.commission ELSE 0 END), 0) AS total_lbp,
-          COUNT(*) AS count
+          COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN fs.commission * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS total_usd,
+          COALESCE(SUM(CASE WHEN fs.currency  = 'LBP' THEN fs.commission * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS total_lbp,
+          SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM financial_services fs
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
         WHERE fs.is_settled = 1
@@ -2153,7 +2391,6 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${embeddedCommission("fs", this._hasCommissionModelColumn())}
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
-          AND ${notPartnerPending("financial_services", "fs.id")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?`,
@@ -2268,6 +2505,55 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * Profit + realized revenue grouped by cashier. Revenue is gated per type:
    * FINANCIAL_SERVICE → only is_settled=1; SALE → only fully-paid; else amount.
    * Profit comes from transactions.profit_usd with the same realized gates.
+   *
+   * PROPORTIONAL CONVERSION (2026-09-05, PARTNER_PROPORTIONAL_RECOGNITION.md
+   * Step 2) — the combined `NOT (txnNotPartnerPending(t) AND
+   * notDebtPending(t.id))` gate is split apart: client debt (DBT-1) stays a
+   * BINARY gate (`WHEN NOT notDebtPending(t.id) THEN 0`, unchanged — client
+   * debt is explicitly out of scope for this conversion, owner decision
+   * 2026-09-05), while partner coverage (PFT-6) becomes continuous for every
+   * branch this method can convert on its own. The plain `financial_services`
+   * is_settled branch and the generic `ELSE` had NO partner-awareness of
+   * their own (they relied entirely on the now-removed outer
+   * `txnNotPartnerPending` gate), so each is multiplied here directly by
+   * `txnPartnerCoverageRatio(t)` (defaults to 1.0 for a non-partner row, a
+   * no-op, exactly reproducing today's unconditional pass-through).
+   * `revenue_lbp` (`SUM(t.amount_lbp)`, no CASE at all) and
+   * `transaction_count` (`COUNT(*)`, no CASE at all) were never gated by
+   * either predicate to begin with — nothing to convert, left untouched.
+   *
+   * SALE branch (`salePaidOrPartnerSettled`) — DELIBERATELY LEFT AS A
+   * CROSS-LANE DEPENDENCY, NOT converted here. It is a boolean predicate
+   * embedded as `WHEN salePaidOrPartnerSettled(s2) THEN <value> ELSE 0`
+   * (this method's own call site) — a `WHERE`/`WHEN` gate cannot scale a
+   * sibling `SUM` (a predicate embedded in a boolean position has no
+   * numeric value to multiply). Loosening ONLY the boolean (e.g. to "ratio
+   * > 0") without ALSO rewriting this call site's `<value>` to be weighted
+   * would overstate a partially-covered for-partner sale's revenue/profit at
+   * its FULL, unweighted amount — strictly worse than today's conservative
+   * all-or-nothing exclusion. PARTNER_PROPORTIONAL_RECOGNITION.md Lane A is
+   * building `saleRecognitionWeight(alias)` (a NUMERIC weight: 1.0 fully
+   * customer-paid, the partner ratio for a partner sale, 0 otherwise) for
+   * exactly this call-site shape, but it is not on this branch. Left
+   * completely UNTOUCHED here (still the pre-conversion binary gate,
+   * verified safe — a partially-covered sale still contributes exactly 0,
+   * same as before) rather than half-converted. FOLLOW-UP NEEDED at merge:
+   * once `saleRecognitionWeight` lands, this branch's THREE call sites
+   * (revenue_usd, profit_usd, profit_lbp below) need `WHEN
+   * salePaidOrPartnerSettled(s2) THEN <value> ELSE 0` rewritten to `<value>
+   * * saleRecognitionWeight(s2)` to actually pick up proportional
+   * recognition for a for-partner sale — until then this branch stays
+   * binary (correct, just not yet proportional).
+   *
+   * SUPPLIER_SETTLEMENT branch (`supplierSettlementProfitArm`) — genuinely
+   * different shape, no follow-up needed: it returns a COMPLETE `WHEN ...
+   * THEN (...)` clause (the whole branch, not a bare boolean), so Lane A can
+   * freely reweight its OWN internal commission SUM without this call site's
+   * syntax changing at all. Also: the SUPPLIER_SETTLEMENT/REFUND transaction
+   * row itself is NEVER partner-pending (no `partner_ledger` row is ever
+   * keyed to `reference_table = 'supplier_ledger'` — see PROFIT_TXN_TYPES's
+   * own doc comment), so removing the outer `txnNotPartnerPending` gate has
+   * zero effect on this branch's reachability either way.
    */
   getByUser(fromDt: string, toDt: string): ProfitByUserRow[] {
     const tenantId = getCurrentTenantId();
@@ -2306,16 +2592,22 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(orig.user_id, t.user_id) AS user_id,
           COALESCE(u.username, 'Unknown') AS username,
           SUM(CASE
-            -- DBT-2: partner/debt-pending transactions contribute 0 until
-            -- settled/repaid, so this view matches the Summary's gates.
-            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- DBT-2 (converted 2026-09-05): client debt stays a binary gate
+            -- (DBT-1 stands, untouched). Partner coverage is no longer
+            -- gated here — the SALE/SUPPLIER_SETTLEMENT branches below carry
+            -- their own ratio internally (Lane A); every other branch is
+            -- scaled directly by txnPartnerCoverageRatio(t) — see this
+            -- method's own doc comment for the full rationale.
+            WHEN NOT ${notDebtPending("t.id")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               -- Original FINANCIAL_SERVICE and its REFUND both gated by
               -- is_settled; the REFUND negates so a settled FS refund nets to 0
               -- and an UNSETTLED FS refund contributes 0 (was: refund fell to
               -- the ungated ELSE and drove per-user/client revenue negative).
+              -- Scaled by txnPartnerCoverageRatio(t): this branch has no
+              -- partner check of its own, unlike the SALE branch below.
               SELECT CASE WHEN fs.is_settled = 1
-                THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0)
+                THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0) * ${txnPartnerCoverageRatio("t")}
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
@@ -2328,16 +2620,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
-            ELSE t.amount_usd
+            ELSE t.amount_usd * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_usd,
           SUM(t.amount_lbp) AS revenue_lbp,
           SUM(CASE
-            -- DBT-2: partner/debt-pending transactions contribute 0 until
-            -- settled/repaid, so this view matches the Summary's gates.
-            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- DBT-2 (converted 2026-09-05): see the revenue_usd CASE above.
+            WHEN NOT ${notDebtPending("t.id")} THEN 0
             -- D17: a SUPPLIER_SETTLEMENT/REFUND row is classified bills-only
             -- (stamp, unchanged) vs cashless (re-sourced from THIS
             -- settlement's own allocations) — see supplierSettlementProfitArm.
+            -- Never partner-pending for the settlement row itself (no
+            -- partner_ledger row is ever keyed to 'supplier_ledger' — see
+            -- PROFIT_TXN_TYPES's SUPPLIER_SETTLEMENT doc comment); the
+            -- underlying fs row's OWN coverage is Lane A's concern inside
+            -- supplierSettlementProfitArm, not this call site's.
             ${supplierSettlementProfitArm(hasAllocations, "usd")}
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
@@ -2350,19 +2646,19 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- carries the sign: +commission on the original, -commission on
               -- the refund). Fixes: refunding an UNSETTLED commission used to
               -- fall to the ungated ELSE and post a phantom -commission here.
-              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_usd ELSE 0 END
+              -- Scaled by txnPartnerCoverageRatio(t) — see revenue_usd above.
+              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_usd * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
-            ELSE t.profit_usd
+            ELSE t.profit_usd * ${txnPartnerCoverageRatio("t")}
           END) AS profit_usd,
           SUM(CASE
-            -- DBT-2: partner/debt-pending transactions contribute 0 until
-            -- settled/repaid, so this view matches the Summary's gates.
-            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- DBT-2 (converted 2026-09-05): see the revenue_usd CASE above.
+            WHEN NOT ${notDebtPending("t.id")} THEN 0
             -- D17: see the profit_usd arm above — identical branch, LBP currency.
             ${supplierSettlementProfitArm(hasAllocations, "lbp")}
             WHEN t.source_table = 'financial_services' THEN (
-              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
+              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
@@ -2371,7 +2667,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 THEN t.profit_lbp ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
-            ELSE t.profit_lbp
+            ELSE t.profit_lbp * ${txnPartnerCoverageRatio("t")}
           END) AS profit_lbp,
           COUNT(*) AS transaction_count,
           -- LIRA-158 (Phase 2a): embeddedCommission restricts this pending
@@ -2407,7 +2703,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   // By client (getByClient)
   // ---------------------------------------------------------------------------
 
-  /** Top clients by realized profit (same realized gates as getByUser). */
+  /**
+   * Top clients by realized profit (same realized gates as getByUser).
+   *
+   * PROPORTIONAL CONVERSION (2026-09-05, PARTNER_PROPORTIONAL_RECOGNITION.md
+   * Step 2) — identical conversion to {@link getByUser}'s own doc comment:
+   * client debt (DBT-1) stays binary, partner coverage (PFT-6) becomes
+   * continuous via `txnPartnerCoverageRatio(t)` for every branch that has no
+   * partner-awareness of its own. The SUPPLIER_SETTLEMENT branch carries its
+   * own ratio internally (Lane A) with no call-site change needed; the SALE
+   * branch is a deliberate, reported cross-lane dependency (Lane A's
+   * `saleRecognitionWeight`, not yet on this branch) and stays on the
+   * pre-conversion binary gate — see getByUser's doc comment for the full
+   * rationale, not repeated here (rule 14: one explanation, not two copies
+   * drifting apart).
+   */
   getByClient(
     fromDt: string,
     toDt: string,
@@ -2447,16 +2757,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(t.client_name, c.full_name, 'Walk-in') AS client_name,
           COALESCE(t.client_phone, c.phone_number) AS client_phone,
           SUM(CASE
-            -- DBT-2: partner/debt-pending transactions contribute 0 until
-            -- settled/repaid, so this view matches the Summary's gates.
-            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- DBT-2 (converted 2026-09-05): see getByUser's doc comment.
+            WHEN NOT ${notDebtPending("t.id")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               -- Original FINANCIAL_SERVICE and its REFUND both gated by
               -- is_settled; the REFUND negates so a settled FS refund nets to 0
               -- and an UNSETTLED FS refund contributes 0 (was: refund fell to
               -- the ungated ELSE and drove per-user/client revenue negative).
+              -- Scaled by txnPartnerCoverageRatio(t) — see getByUser.
               SELECT CASE WHEN fs.is_settled = 1
-                THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0)
+                THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0) * ${txnPartnerCoverageRatio("t")}
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
@@ -2469,16 +2779,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
-            ELSE t.amount_usd
+            ELSE t.amount_usd * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_usd,
           SUM(t.amount_lbp) AS revenue_lbp,
           SUM(CASE
-            -- DBT-2: partner/debt-pending transactions contribute 0 until
-            -- settled/repaid, so this view matches the Summary's gates.
-            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- DBT-2 (converted 2026-09-05): see getByUser's doc comment.
+            WHEN NOT ${notDebtPending("t.id")} THEN 0
             -- D17: a SUPPLIER_SETTLEMENT/REFUND row is classified bills-only
             -- (stamp, unchanged) vs cashless (re-sourced from THIS
             -- settlement's own allocations) — see supplierSettlementProfitArm.
+            -- Never partner-pending for the settlement row itself; the
+            -- underlying fs row's coverage is Lane A's concern internally.
             ${supplierSettlementProfitArm(hasAllocations, "usd")}
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
@@ -2491,19 +2802,19 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- carries the sign: +commission on the original, -commission on
               -- the refund). Fixes: refunding an UNSETTLED commission used to
               -- fall to the ungated ELSE and post a phantom -commission here.
-              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_usd ELSE 0 END
+              -- Scaled by txnPartnerCoverageRatio(t) — see revenue_usd above.
+              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_usd * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
-            ELSE t.profit_usd
+            ELSE t.profit_usd * ${txnPartnerCoverageRatio("t")}
           END) AS profit_usd,
           SUM(CASE
-            -- DBT-2: partner/debt-pending transactions contribute 0 until
-            -- settled/repaid, so this view matches the Summary's gates.
-            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
+            -- DBT-2 (converted 2026-09-05): see getByUser's doc comment.
+            WHEN NOT ${notDebtPending("t.id")} THEN 0
             -- D17: see the profit_usd arm above — identical branch, LBP currency.
             ${supplierSettlementProfitArm(hasAllocations, "lbp")}
             WHEN t.source_table = 'financial_services' THEN (
-              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
+              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
@@ -2512,7 +2823,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 THEN t.profit_lbp ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
-            ELSE t.profit_lbp
+            ELSE t.profit_lbp * ${txnPartnerCoverageRatio("t")}
           END) AS profit_lbp,
           COUNT(*) AS transaction_count,
           -- LIRA-158 (Phase 2a): embeddedCommission restricts this pending

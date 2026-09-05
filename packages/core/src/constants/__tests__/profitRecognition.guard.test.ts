@@ -173,6 +173,19 @@ const GATE_FRAGMENTS = [
   // (the batch-shape classifier D17 also introduced) is deliberately NOT
   // listed — it defers nothing on its own, so it doesn't belong here.
   "allocationNotDebtPending",
+  // Owner decision 2026-09-05 (PARTNER_PROPORTIONAL_RECOGNITION.md) — the
+  // proportional counterpart of `notPartnerPending`: instead of excluding a
+  // partner-pending row's profit/revenue/cost/commission whole, the query
+  // multiplies each monetary column by this row's covered fraction
+  // (`partnerCoverageRatio`'s own doc comment has the full derivation). A
+  // query that calls it IS applying the SAME "profit real only when partner
+  // money is real" rule as one that calls `notPartnerPending` — just
+  // continuously instead of binarily — so it is a genuine gate here, not a
+  // loophole. Sites converted so far still gate client debt with
+  // `notDebtPending` unchanged where that applies; `getExchangeTotals` has
+  // no debt-gating concept at all, so this entry is the ONLY thing that
+  // keeps its converted query recognized as gated.
+  "partnerCoverageRatio",
 ] as const;
 
 const GATE_CALL_REGEX = new RegExp(`\\b(?:${GATE_FRAGMENTS.join("|")})\\(`);
