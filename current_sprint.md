@@ -3240,9 +3240,31 @@ render, gated on `story.product_deleted === 1`.
 
 ---
 
-## LIRA-173: for-partner sale margin needs a settlement-day recognition path, mirroring `finProfitSettlement` — LOW/MEDIUM
+## LIRA-173: for-partner sale margin needs a settlement-day recognition path — CLOSED, WON'T DO
 
-**Priority:** Low-Medium · **Epic:** Closing/Profits · **Status:** TODO
+**Priority:** Low-Medium · **Epic:** Closing/Profits · **Status:** **CLOSED (won't do)** 2026-09-05
+
+### Owner decision, 2026-09-05
+
+**For-partner sale margin will never appear in the closing PDF.** The closing snapshot stays strictly
+a same-day till-cash view; partner sale margin is not till cash on the sale's day, and the owner
+declined both alternatives put to him (recognising it on the day the partner pays, and recognising it
+retroactively on the sale's own day). It continues to appear correctly on the Profits page, which
+already gates it via `salePaidOrPartnerSettled`.
+
+The retroactive option was rejected for a concrete reason worth preserving: the closing PDF is
+generated once and stored (`report_path`), so recognising the margin on the sale's original date would
+make a re-run of an already-filed day disagree with the filed document.
+
+**Do not re-file this as a gap.** The absence is deliberate. It can only ever under-count — it never
+claims money that has not arrived.
+
+### What did come out of it
+
+The same interview produced a *different* and larger request: partner obligations should be recognised
+**proportionally** as the partner pays, rather than all-or-nothing. That is not this ticket — it
+changes the Profits page rather than the closing PDF, and it touches every `FOR_%` module rather than
+sales alone. Filed separately; see the proportional-recognition ticket below.
 
 **Filed 2026-09-04, owner decision recorded the same day** — split out of LIRA-161 item 2 on purpose.
 The owner separated this because it mirrors the whole shape of LIRA-158's commission-at-settlement work

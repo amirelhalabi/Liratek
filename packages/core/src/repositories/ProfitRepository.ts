@@ -21,6 +21,11 @@
  *                                CLIENT repays the underlying transfer — LIRA-158 D17
  *   - cashlessCommissionBatch    re-derives isBillsOnlyBatch's negation in SQL from
  *                                settlement_commission_allocations — LIRA-158 D17
+ *   - partnerCoverageRatio       proportional counterpart of notPartnerPending —
+ *                                fraction of a row's partner obligation covered so
+ *                                far, derived at read time, never stamped (2026-09-05
+ *                                foundation; not yet wired into any query — see
+ *                                docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md)
  */
 
 import type Database from "better-sqlite3";
@@ -293,6 +298,99 @@ export function notPartnerPending(refTable: string, idExpr: string): string {
       AND plp.reference_id = ${idExpr}
       AND plp.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
       AND plp.covered_amount < plp.amount - 0.005
+  )`;
+}
+
+/**
+ * Proportional-recognition foundation (owner decision 2026-09-05) — the
+ * CONTINUOUS counterpart of {@link notPartnerPending}. Where
+ * `notPartnerPending` answers a binary question ("is this source row still
+ * blocked by ANY uncovered FOR_% obligation?"), `partnerCoverageRatio`
+ * answers a continuous one: "what FRACTION of this source row's total
+ * partner obligation has the partner actually paid so far?" — so a future
+ * caller can recognise revenue/profit/commission/etc. PROPORTIONALLY as
+ * settlement coverage arrives, instead of withholding the whole row until it
+ * is 100% covered.
+ *
+ * Returns a scalar SQL expression (safe to embed directly in a SELECT list,
+ * a weighting multiplier, or a CASE arm) computing:
+ *
+ *   SUM(covered_amount) / SUM(amount)
+ *
+ * over EXACTLY the same `partner_ledger` rows {@link notPartnerPending}
+ * scans for the same `refTable`/`idExpr` pair: matching `reference_table`,
+ * `reference_id`, and `transaction_type LIKE 'FOR\_%' ESCAPE '\'`. That WHERE
+ * clause is copy-identical to `notPartnerPending`'s own (rule 14 — ONE
+ * definition of "what counts as this row's partner obligation"; the two
+ * fragments must never be free to drift apart about which rows belong to a
+ * source row). The one difference from `notPartnerPending`'s own row
+ * selection is deliberate: this fragment does NOT additionally filter by
+ * `covered_amount < amount - 0.005` — that filter exists on
+ * `notPartnerPending` only to detect the EXISTENCE of an uncovered row; here
+ * every matching FOR_% row (covered or not) must contribute to both sums, or
+ * the ratio would silently ignore already-fully-covered rows.
+ *
+ * Three defensive properties, each load-bearing for the callers this will
+ * unblock:
+ *
+ *  - **Defaults to 1.0 when the row has no FOR_% rows at all.** A
+ *    non-partner row (the overwhelming majority of every module's rows —
+ *    any sale, recharge, or service that never involved a partner) has zero
+ *    matching `partner_ledger` rows, so both SUMs are SQL NULL and the
+ *    division is NULL. The outer `COALESCE(..., 1.0)` catches that and
+ *    recognises the row FULLY — exactly as it is recognised today with no
+ *    gate at all. This fragment MUST be a strict no-op for the common case;
+ *    it only ever pulls a row's recognised share below 1.0 when that row
+ *    genuinely has an outstanding partner obligation.
+ *  - **Clamped to the range [0, 1]**, via the scalar (2-argument, NOT the
+ *    1-argument aggregate) `MIN`/`MAX` forms. `covered_amount` should never
+ *    exceed `amount`, but this is a defensive floor/ceiling matching the
+ *    task's own requirement: an over-covered row (rounding, a same-instant
+ *    FIFO race) can never recognise MORE than 100% of itself, and a
+ *    (should-never-happen) negative figure can never recognise LESS than 0%.
+ *  - **`NULLIF` guards the division** so a zero-`amount` FOR_% row (should
+ *    never exist, but defensively) degrades to the same 1.0 default via the
+ *    outer `COALESCE` rather than letting a SQL NULL propagate silently
+ *    through whatever arithmetic a caller builds around this fragment.
+ *
+ * **Derived at read time. Never stamped — this is why rule 20 is satisfied
+ * by construction, with no reversal owner to name.** Nothing about
+ * proportional recognition is written to any row when this expression is
+ * evaluated; it re-reads `covered_amount` fresh on every single query. That
+ * means `PartnerRepository.applySettlementCoverage` incrementing
+ * `covered_amount` (the partner settles more, oldest-uncovered-first FIFO)
+ * and `TransactionRepository._unwindPartnerSettlementCoverage` decrementing
+ * it (a refund/void gives coverage back, newest-covered-first reverse-FIFO)
+ * BOTH automatically change what THIS fragment returns on the very next
+ * read — with no corresponding "reverse the proportional recognition" step
+ * for any caller to remember, because there is nothing recorded to reverse.
+ * A rule-20 change normally must name a reversal owner for every new
+ * ledger-row side effect; this fragment's answer is "there is no side
+ * effect — the figure is recomputed from `partner_ledger` state, never
+ * recorded against the source row."
+ *
+ * Cross-reference: {@link notPartnerPending} is this fragment's binary
+ * sibling — `ratio < 1` implies `notPartnerPending` would say "pending" and
+ * `ratio == 1` implies `notPartnerPending` would say "not pending" (a
+ * pre-existing caller can keep using the binary gate unchanged; this
+ * fragment only matters to a NEW caller that wants the fraction instead of
+ * the yes/no). See `docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md`
+ * for the full call-site classification and lane split this fragment feeds.
+ * NOT yet wired into any existing query — adding this fragment changes zero
+ * behaviour by itself (proven by the unchanged jest baseline).
+ */
+export function partnerCoverageRatio(refTable: string, idExpr: string): string {
+  return `COALESCE(
+    (
+      SELECT MAX(0.0, MIN(1.0,
+        SUM(plr.covered_amount) / NULLIF(SUM(plr.amount), 0)
+      ))
+      FROM partner_ledger plr
+      WHERE plr.reference_table = '${refTable}'
+        AND plr.reference_id = ${idExpr}
+        AND plr.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
+    ),
+    1.0
   )`;
 }
 
