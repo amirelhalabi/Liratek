@@ -547,14 +547,19 @@ function saleHasPartnerObligation(alias: string): string {
  * sale carries paid_usd = 0 (no counter cash), so without the OR-arm it
  * would stay pending forever even after the partner paid.
  *
- * UNCHANGED behaviourally by the 2026-09-05 proportional-recognition work
- * (only refactored to share {@link saleHasPartnerObligation} with its new
- * sibling below) — this still answers the old binary question ("fully
- * recognised, yes or no?") for its existing callers (getSalesRevCost,
- * getSalesProfit, getByDate's daily_sales/daily_sales_profit,
- * getByUser/getByClient's sale arm). See {@link saleRecognitionWeight}'s doc
- * comment for why converting those callers to proportional needs more than a
- * change here.
+ * Task 3 (2026-09-05, PARTNER_PROPORTIONAL_RECOGNITION.md): every production
+ * call site (getSalesRevCost, getSalesProfit, getByDate's
+ * daily_sales/daily_sales_profit, getByUser/getByClient's sale arm) has now
+ * been converted to weight by {@link saleRecognitionWeight} instead of
+ * gating on this binary predicate — this function currently has NO
+ * production call site. Kept (not deleted), mirroring
+ * {@link txnNotPartnerPending}'s own precedent, for two reasons: (1) it is
+ * still the canonical statement of the old binary rule that
+ * `saleRecognitionWeight`'s own doc comment cross-references (its 0/1
+ * endpoints must agree with this predicate's yes/no, and its unit tests
+ * assert exactly that); (2) `profitRecognition.guard.test.ts`'s
+ * `GATE_FRAGMENTS` sanity check asserts this name still exists as a callable
+ * function.
  */
 function salePaidOrPartnerSettled(alias: string): string {
   return `(${saleFullyPaid(alias)} OR (${saleHasPartnerObligation(alias)} AND ${notPartnerPending("sales", `${alias}.id`)}))`;
@@ -583,19 +588,20 @@ function salePaidOrPartnerSettled(alias: string): string {
  * `paid_usd = 0` — see {@link salePaidOrPartnerSettled}'s own doc comment),
  * so checking `saleFullyPaid` first carries no double-counting risk.
  *
- * **Deliberately NOT wired into any query yet** — the same posture
- * {@link partnerCoverageRatio} itself shipped with (see that function's doc
- * comment). Actually recognising sales proportionally means MULTIPLYING the
- * monetary SELECT columns of `getSalesRevCost`, `getSalesProfit`,
- * `getByDate`'s `daily_sales`/`daily_sales_profit` CTEs, and
- * `getByUser`/`getByClient`'s sale arm by this weight (replacing their
- * `AND ${salePaidOrPartnerSettled(alias)}` gate) — every one of those is a
- * bare `SUM(...)` with no adjacent factor a WHERE-embedded predicate could
- * inject on its own (unlike {@link supplierSettlementProfitArm}, which owns
- * its own `SELECT SUM(...)` and could be converted end-to-end in place).
- * Wiring those SELECT lists reaches well past this file's predicate
- * definitions into ~14 separate call sites, outside this lane's fenced line
- * range — named here as the explicit next step, not silently skipped.
+ * WIRED IN (Task 3, 2026-09-05, PARTNER_PROPORTIONAL_RECOGNITION.md): every
+ * call site named above as this fragment's motivation now multiplies its
+ * monetary SELECT columns by this weight instead of gating on
+ * {@link salePaidOrPartnerSettled} — `getSalesRevCost`, `getSalesProfit`
+ * (bare `SUM(...)`, gate removed from the `WHERE` and folded into the summed
+ * expression instead), `getByDate`'s `daily_sales`/`daily_sales_profit` CTEs
+ * (same shape), and `getByUser`/`getByClient`'s sale arm (a value-level
+ * `CASE`, where the old `WHEN salePaidOrPartnerSettled(s2) THEN <value> ELSE
+ * 0` becomes `<value> * saleRecognitionWeight(s2)` directly — no `WHERE` to
+ * remove there, it was never gated at that level). Gate-removal and
+ * value-weighting always land in the SAME edit at every site: loosening the
+ * boolean alone without weighting the value would overstate a
+ * partially-covered for-partner sale's revenue/profit at its FULL amount —
+ * strictly worse than the old all-or-nothing exclusion.
  */
 export function saleRecognitionWeight(alias: string): string {
   return `(CASE
@@ -1044,6 +1050,114 @@ export function txnPartnerCoverageRatio(alias: string): string {
   )`;
 }
 
+/**
+ * Task 2 continuity guard (2026-09-05, PARTNER_PROPORTIONAL_RECOGNITION.md) —
+ * a grouped list query (one row per provider/carrier/currency) that used to
+ * gate a partner-pending row out via a binary `WHERE ... notPartnerPending`
+ * predicate now instead WEIGHTS its monetary columns by
+ * {@link partnerCoverageRatio}/{@link txnPartnerCoverageRatio}. That is
+ * correct for the VALUES (rule: continuity — ratio 0 reads 0, ratio 1 reads
+ * the full value, exactly like the old gate's two extremes), but it changes
+ * ROW MEMBERSHIP as a side effect: the group key (e.g. "WHISH", "LBP") still
+ * has underlying rows even when every one of them is fully partner-
+ * uncovered, so `GROUP BY` still emits a row for it — just one where every
+ * weighted column reads 0. Before this conversion such a group had ZERO
+ * matching rows at all (the binary gate excluded them from the WHERE clause
+ * before grouping), so it never appeared in the result set. A caller
+ * rendering this list (e.g. Profits-by-provider) would show a new, wrong
+ * "WHISH — $0.00" line where it used to show nothing — the money is
+ * identical (zero either way) but the row's mere PRESENCE is a real,
+ * user-visible regression the value-side conversion alone can't fix.
+ *
+ * This HAVING fragment restores exact row-membership parity: a group is kept
+ * iff its summed contribution across every one of the given aggregate
+ * expressions is non-zero in at least one of them (OR, not AND — see below);
+ * a group whose EVERY given expression sums to exactly 0 is dropped, which
+ * reproduces the old gate's "never matched a row" behaviour for the fully-
+ * uncovered case while leaving a partially- or fully-covered group (which
+ * has at least one nonzero column) untouched.
+ *
+ * OR, not AND, is required because sibling columns are not always jointly
+ * zero for the same reason: `getFinancialSettledByProvider`'s allocation arm
+ * deliberately stamps `revenue_usd`/`revenue_lbp`/`count` as 0 UNCONDITIONALLY
+ * (a commission allocation carries no revenue/cost pair and its underlying
+ * fs row is already counted by the base arm — see that method's own doc
+ * comment) while `profit_usd`/`profit_lbp` can be genuinely non-zero there.
+ * Requiring every column to be non-zero (AND) would wrongly drop that exact
+ * row. Callers pass every weighted monetary AND count column from their own
+ * SELECT list — omitting one would let a group survive on a contribution
+ * this check never saw, so every ratio-weighted column belongs in the list.
+ *
+ * Rule 14 — the identical PATTERN ("drop iff every one of these is exactly
+ * 0") recurs across `getFinancialSettledByProvider`, `getRechargesByCarrier`,
+ * `getFinancialSettledByCurrency`, `getMobileServicesByCurrency` and
+ * `getRechargesByCurrency`; this is the one place that pattern is defined so
+ * a sixth grouped query converts by calling it, not by re-typing the OR
+ * chain a second time.
+ *
+ * Takes fully-formed boolean CONDITIONS, not bare column names — and every
+ * condition MUST be a freshly-recomputed `SUM(<raw expression>) != 0` (the
+ * exact same expression the sibling SELECT column sums), never a bare
+ * reference to that column's own OUTPUT ALIAS. This is not a style
+ * preference — it was a SHIPPED BUG here, caught only by actually running
+ * the fixture-backed tests (`ProfitRepository.zeroRowContinuity.test.ts`),
+ * not by reasoning about the SQL in the abstract:
+ *
+ *  - **A bare alias silently resolves to a same-named FROM/JOIN column
+ *    instead of the aggregate, with no error.** `getRechargesByCarrier` and
+ *    `getMobileServicesByCurrency`/`getRechargesByCurrency` join
+ *    `transactions t` (`profit_usd`/`profit_lbp` are REAL columns there) and
+ *    `financial_services`/`recharges` (`cost` is a REAL column on both) —
+ *    `HAVING profit_usd != 0` or `HAVING cost != 0` resolved to the RAW,
+ *    un-weighted `t.profit_usd`/`fs.cost`/`r.cost` (whatever a single
+ *    contributing detail row happened to hold) instead of this query's own
+ *    ratio-weighted output alias of the identical name — so a fully
+ *    partner-uncovered group (every weighted column genuinely 0) was NOT
+ *    dropped whenever the RAW underlying column on its one contributing row
+ *    was nonzero, which is the overwhelmingly common case. SQLite raises no
+ *    error for this — the alias and the real column are both valid
+ *    resolutions of the same bare name, and it silently prefers the
+ *    FROM-clause column. Verified by hand against a minimal repro (a bare
+ *    alias with NO colliding FROM column filtered correctly every time; the
+ *    instant a same-named real column existed anywhere in the FROM/JOIN, the
+ *    bare reference in `HAVING` silently bound to THAT instead).
+ *  - **A bare alias can also collide with an unrelated guard's own text
+ *    scan** — `getFinancialSettledByCurrency` names one column
+ *    `AS commission`, and `embeddedCommission.guard.test.ts` greps for a bare
+ *    `commission` token not preceded by `AS ` as a proxy for "reads
+ *    `financial_services.commission` unsafely" — a second, bare occurrence
+ *    of that exact word in this fragment's own OR chain tripped that guard
+ *    as a false positive.
+ *  - `getFinancialSettledByProvider` is the one call site that is NOT
+ *    single-level: its outer `GROUP BY provider` runs over a DERIVED TABLE
+ *    (`combined`) whose `revenue_usd`/`profit_usd`/etc. genuinely ARE real,
+ *    unambiguous per-row columns of that subquery (nothing else is joined
+ *    at that outer level to collide with), so `SUM(revenue_usd) != 0` there
+ *    is both correct and necessary (collapsing the UNION ALL's multiple
+ *    arms per provider) — the one place a bare column name belongs in a
+ *    condition here, and even then it is wrapped in a fresh `SUM(...)`,
+ *    never compared bare.
+ *
+ * Recomputing the full expression a second time is more verbose, but it is
+ * the ONLY form proven safe against both failure modes above, at every
+ * single-level call site, regardless of whether today's schema happens to
+ * lack a colliding column name — a future column addition to
+ * `financial_services`/`recharges`/`transactions` sharing a name with one of
+ * these aliases would silently reintroduce this exact bug otherwise.
+ *
+ * Deliberately NOT applied to `getByDate`'s per-day CTEs: that method's outer
+ * query always emits exactly one row per calendar day (from its own `dates`
+ * CTE, unconditionally) and LEFT JOINs each daily_* CTE, `COALESCE`-ing a
+ * missing match to 0 — so a day where a CTE would produce a lone zero-valued
+ * row reads byte-for-byte identically to that day having NO CTE row at all.
+ * There is no group-membership question for a fixed calendar-day axis the
+ * way there is for a provider/carrier/currency axis pulled from the data
+ * itself, so this fragment has no work to do there.
+ */
+function havingAnyContribution(conditions: string[]): string {
+  return `HAVING ${conditions.join(" OR ")}`;
+}
+
 // =============================================================================
 // Repository
 // =============================================================================
@@ -1128,19 +1242,36 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   // Summary (getSummary) — per-category raw rows
   // ---------------------------------------------------------------------------
 
-  /** Sales revenue + cost from sale_items, gated by the sale being fully paid. */
+  /**
+   * Sales revenue + cost from sale_items. Owner decision 2026-09-05
+   * (PARTNER_PROPORTIONAL_RECOGNITION.md Task 3): the old binary
+   * `salePaidOrPartnerSettled` WHERE gate is replaced by weighting every
+   * monetary column with {@link saleRecognitionWeight} — 1.0 for a fully
+   * customer-paid sale (unchanged), the partner's covered fraction for a
+   * for-partner sale (was: all-or-nothing), 0 for a genuinely pending
+   * non-partner sale (unchanged, DBT-1 out of scope). Gate removed AND value
+   * weighted in the SAME edit (rule: a loosened gate without a weighted
+   * value would overstate profit for a partially-covered sale). No
+   * phantom-row risk (Task 2's continuity concern): this is a single-row
+   * total, not a grouped list, so there is no group membership to protect —
+   * a fully-uncovered period just reads 0, same as before.
+   *
+   * `count` is never weighted (a fractional "3.4 sales" has no sensible
+   * rendering) — instead counted the moment ANY money is recognised
+   * (`weight > 0`), matching every other converted count column in this
+   * file.
+   */
   getSalesRevCost(fromDt: string, toDt: string): SalesRevCostRow {
     return this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(si.sold_price_usd * si.quantity), 0) AS revenue_usd,
-          COALESCE(SUM(si.cost_price_snapshot_usd * si.quantity), 0) AS cost_usd,
-          COUNT(DISTINCT s.id) AS count
+          COALESCE(SUM(si.sold_price_usd * si.quantity * (${saleRecognitionWeight("s")})), 0) AS revenue_usd,
+          COALESCE(SUM(si.cost_price_snapshot_usd * si.quantity * (${saleRecognitionWeight("s")})), 0) AS cost_usd,
+          COUNT(DISTINCT CASE WHEN (${saleRecognitionWeight("s")}) > 0 THEN s.id END) AS count
         FROM sale_items si
         JOIN sales s ON si.sale_id = s.id
         WHERE s.status = 'completed'
           AND si.is_refunded = 0
-          AND ${salePaidOrPartnerSettled("s")}
           AND ${dateRange("s.created_at")}
           AND si.tenant_id = ? AND s.tenant_id = ?`,
       )
@@ -1153,24 +1284,29 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
-   * Sales profit from the unified ledger (SALE + REFUND), gated by fully-paid.
-   * Dated by the SALE's created_at (not the transaction's) so a REFUND nets
-   * against the sale's period — matching getSalesRevCost, which sources
-   * revenue/cost from sale_items attributed to the same sale. Using the refund
-   * transaction's own date would split a refund into a different period than the
-   * revenue it reverses, so profit and (revenue − cost) would not reconcile.
+   * Sales profit from the unified ledger (SALE + REFUND). Dated by the
+   * SALE's created_at (not the transaction's) so a REFUND nets against the
+   * sale's period — matching getSalesRevCost, which sources revenue/cost
+   * from sale_items attributed to the same sale. Using the refund
+   * transaction's own date would split a refund into a different period than
+   * the revenue it reverses, so profit and (revenue − cost) would not
+   * reconcile.
+   *
+   * Owner decision 2026-09-05 (Task 3): weighted by
+   * {@link saleRecognitionWeight} instead of gated by the old binary
+   * `salePaidOrPartnerSettled` — see getSalesRevCost's own doc comment for
+   * the full rationale (identical here; no count column to convert).
    */
   getSalesProfit(fromDt: string, toDt: string): SalesProfitRow {
     return this.db
       .prepare(
-        `SELECT COALESCE(SUM(t.profit_usd), 0) AS profit_usd
+        `SELECT COALESCE(SUM(t.profit_usd * (${saleRecognitionWeight("s")})), 0) AS profit_usd
         FROM transactions t
         JOIN sales s ON s.id = t.source_id
         WHERE t.status = 'ACTIVE'
           AND t.source_table = 'sales'
           AND t.type IN ('SALE', 'REFUND')
           AND s.status IN ('completed', 'refunded')
-          AND ${salePaidOrPartnerSettled("s")}
           AND ${dateRange("s.created_at")}
           AND t.tenant_id = ? AND s.tenant_id = ?`,
       )
@@ -1412,7 +1548,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * currency. Owner decision 2026-09-05: a for-partner row recognises
    * proportionally to partner coverage (partnerCoverageRatio) instead of
    * being excluded whole while any coverage is outstanding. `count` stays a
-   * row tally, counted once any coverage exists (never weighted).
+   * row tally, counted once any coverage exists (never weighted). A currency
+   * with zero total contribution (every row fully partner-uncovered) is
+   * dropped via {@link havingAnyContribution} — same continuity reasoning as
+   * `getFinancialSettledByProvider` (Task 2, PARTNER_PROPORTIONAL_RECOGNITION.md).
    */
   getFinancialSettledByCurrency(
     fromDt: string,
@@ -1434,7 +1573,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
-        GROUP BY fs.currency`,
+        GROUP BY fs.currency
+        ${havingAnyContribution([
+          `SUM((${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM((CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE t.profit_usd END) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) != 0`,
+        ])}`,
       )
       .all(
         fromDt,
@@ -1481,7 +1625,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * cost and profit all scale by the SAME per-row ratio, matching the
    * deferred bucket / daily trend / getByUser/getByClient's own for-partner
    * treatment. `count` stays a row tally, counted once any coverage exists
-   * (never weighted — a fractional count has no sensible rendering).
+   * (never weighted — a fractional count has no sensible rendering). A
+   * currency with zero total contribution (every row fully
+   * partner-uncovered) is dropped via {@link havingAnyContribution} — same
+   * continuity reasoning as `getFinancialSettledByProvider` (Task 2,
+   * PARTNER_PROPORTIONAL_RECOGNITION.md).
    */
   getMobileServicesByCurrency(
     fromDt: string,
@@ -1503,7 +1651,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
-        GROUP BY fs.currency`,
+        GROUP BY fs.currency
+        ${havingAnyContribution([
+          `SUM(fs.price * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM(fs.cost * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM((CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE t.profit_usd END) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) != 0`,
+        ])}`,
       )
       .all(
         fromDt,
@@ -1517,7 +1671,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * Recharges (MTC/Alfa) revenue/cost/profit grouped by currency. Owner
    * decision 2026-09-05: a for-partner recharge recognises proportionally
    * to partner coverage (partnerCoverageRatio); `count` stays a row tally,
-   * counted once any coverage exists (never weighted).
+   * counted once any coverage exists (never weighted). A currency with zero
+   * total contribution (every row fully partner-uncovered) is dropped via
+   * {@link havingAnyContribution} — same continuity reasoning as
+   * `getFinancialSettledByProvider` (Task 2, PARTNER_PROPORTIONAL_RECOGNITION.md).
    */
   getRechargesByCurrency(fromDt: string, toDt: string): RechargeCurrencyRow[] {
     return this.db
@@ -1535,7 +1692,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${notDebtPending("t.id")}
           AND ${dateRange("r.created_at")}
           AND r.tenant_id = ? AND t.tenant_id = ?
-        GROUP BY r.currency_code`,
+        GROUP BY r.currency_code
+        ${havingAnyContribution([
+          `SUM(r.price * (${partnerCoverageRatio("recharges", "r.id")})) != 0`,
+          `SUM(r.cost * (${partnerCoverageRatio("recharges", "r.id")})) != 0`,
+          `SUM((CASE WHEN r.currency_code = 'LBP' THEN t.profit_lbp ELSE t.profit_usd END) * (${partnerCoverageRatio("recharges", "r.id")})) != 0`,
+          `SUM(CASE WHEN (${partnerCoverageRatio("recharges", "r.id")}) > 0 THEN 1 ELSE 0 END) != 0`,
+        ])}`,
       )
       .all(
         fromDt,
@@ -1925,6 +2088,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * the instant it's recognised, per {@link getSupplierCommissionTotals}'s
    * own doc comment, and stays out of this UNION arm entirely to avoid
    * double-counting against that method's now-separate bills-only bucket).
+   *
+   * Task 2 continuity guard (2026-09-05): the outer `GROUP BY provider` now
+   * carries {@link havingAnyContribution} — see its own doc comment for why
+   * a fully partner-uncovered provider (ratio 0 on every one of its rows)
+   * must be DROPPED from this list, not shown as a zero-valued row. This is
+   * what `LIRA158.settlementAttribution.test.ts`'s "does not surface its
+   * commission" case (a WHISH row settled with the supplier but wholly
+   * uncovered by partner) asserts: `rows.find(r => r.provider === 'WHISH')`
+   * must be `undefined`, matching the pre-conversion binary gate exactly.
    */
   getFinancialSettledByProvider(
     fromDt: string,
@@ -1983,12 +2155,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           GROUP BY fs.provider
           ${allocationArm}
         ) combined
-        GROUP BY provider`,
+        GROUP BY provider
+        ${havingAnyContribution(["SUM(revenue_usd) != 0", "SUM(revenue_lbp) != 0", "SUM(profit_usd) != 0", "SUM(profit_lbp) != 0", "SUM(count) != 0"])}`,
       )
       .all(...params) as FinByProviderRow[];
   }
 
-  /** Recharge revenue/cost/profit grouped by carrier. */
+  /**
+   * Recharge revenue/cost/profit grouped by carrier. Weighted by
+   * {@link partnerCoverageRatio} (owner decision 2026-09-05); a carrier with
+   * zero total contribution (every row fully partner-uncovered) is dropped
+   * from the list via {@link havingAnyContribution} — a phantom "MTC —
+   * $0.00" row would be a user-visible regression the old binary gate never
+   * produced (Task 2, PARTNER_PROPORTIONAL_RECOGNITION.md).
+   */
   getRechargesByCarrier(fromDt: string, toDt: string): RechargeByCarrierRow[] {
     return this.db
       .prepare(
@@ -2008,7 +2188,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${notDebtPending("t.id")}
           AND ${dateRange("r.created_at")}
           AND r.tenant_id = ? AND t.tenant_id = ?
-        GROUP BY r.carrier`,
+        GROUP BY r.carrier
+        ${havingAnyContribution([
+          `SUM(CASE WHEN r.currency_code != 'LBP' THEN r.price * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END) != 0`,
+          `SUM(CASE WHEN r.currency_code = 'LBP' THEN r.price * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END) != 0`,
+          `SUM(CASE WHEN r.currency_code != 'LBP' THEN r.cost * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END) != 0`,
+          `SUM(CASE WHEN r.currency_code = 'LBP' THEN r.cost * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END) != 0`,
+          `SUM(CASE WHEN r.currency_code != 'LBP' THEN t.profit_usd * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END) != 0`,
+          `SUM(CASE WHEN r.currency_code = 'LBP' THEN t.profit_lbp * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END) != 0`,
+          `SUM(CASE WHEN (${partnerCoverageRatio("recharges", "r.id")}) > 0 THEN 1 ELSE 0 END) != 0`,
+        ])}`,
       )
       .all(
         fromDt,
@@ -2111,15 +2300,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         ),
         daily_sales AS (
           -- Revenue + cost grouped by the SALE date (source tables, unchanged).
+          -- Owner decision 2026-09-05 (Task 3): weighted by
+          -- saleRecognitionWeight instead of gated by the old binary
+          -- salePaidOrPartnerSettled (see getSalesRevCost's own doc comment
+          -- for the full rationale). No phantom-row risk: this method's
+          -- outer query always emits one row per calendar day regardless
+          -- (see havingAnyContribution's own doc comment).
           SELECT
             DATE(s.created_at, 'localtime') AS d,
-            COALESCE(SUM(si.sold_price_usd * si.quantity), 0) AS revenue_usd,
-            COALESCE(SUM(si.cost_price_snapshot_usd * si.quantity), 0) AS cost_usd
+            COALESCE(SUM(si.sold_price_usd * si.quantity * (${saleRecognitionWeight("s")})), 0) AS revenue_usd,
+            COALESCE(SUM(si.cost_price_snapshot_usd * si.quantity * (${saleRecognitionWeight("s")})), 0) AS cost_usd
           FROM sale_items si
           JOIN sales s ON si.sale_id = s.id
           WHERE s.status = 'completed'
             AND si.is_refunded = 0
-            AND ${salePaidOrPartnerSettled("s")}
             AND ${dateRange("s.created_at")}
             AND si.tenant_id = ? AND s.tenant_id = ?
           GROUP BY DATE(s.created_at, 'localtime')
@@ -2129,16 +2323,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- date (s.created_at — a REFUND row's source_id points at the original
           -- sale) so a refund nets the sale at its ORIGINAL date, matching
           -- daily_sales revenue/cost and getSalesProfit (no cross-window divergence).
+          -- Weighted by saleRecognitionWeight (Task 3) — same rationale as
+          -- daily_sales above.
           SELECT
             DATE(s.created_at, 'localtime') AS d,
-            COALESCE(SUM(t.profit_usd), 0) AS profit_usd
+            COALESCE(SUM(t.profit_usd * (${saleRecognitionWeight("s")})), 0) AS profit_usd
           FROM transactions t
           JOIN sales s ON s.id = t.source_id
           WHERE t.status = 'ACTIVE'
             AND t.source_table = 'sales'
             AND t.type IN ('SALE', 'REFUND')
             AND s.status IN ('completed', 'refunded')
-            AND ${salePaidOrPartnerSettled("s")}
             AND ${dateRange("s.created_at")}
             AND t.tenant_id = ? AND s.tenant_id = ?
           GROUP BY DATE(s.created_at, 'localtime')
@@ -2522,28 +2717,25 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * `transaction_count` (`COUNT(*)`, no CASE at all) were never gated by
    * either predicate to begin with — nothing to convert, left untouched.
    *
-   * SALE branch (`salePaidOrPartnerSettled`) — DELIBERATELY LEFT AS A
-   * CROSS-LANE DEPENDENCY, NOT converted here. It is a boolean predicate
-   * embedded as `WHEN salePaidOrPartnerSettled(s2) THEN <value> ELSE 0`
-   * (this method's own call site) — a `WHERE`/`WHEN` gate cannot scale a
-   * sibling `SUM` (a predicate embedded in a boolean position has no
-   * numeric value to multiply). Loosening ONLY the boolean (e.g. to "ratio
-   * > 0") without ALSO rewriting this call site's `<value>` to be weighted
-   * would overstate a partially-covered for-partner sale's revenue/profit at
-   * its FULL, unweighted amount — strictly worse than today's conservative
-   * all-or-nothing exclusion. PARTNER_PROPORTIONAL_RECOGNITION.md Lane A is
-   * building `saleRecognitionWeight(alias)` (a NUMERIC weight: 1.0 fully
-   * customer-paid, the partner ratio for a partner sale, 0 otherwise) for
-   * exactly this call-site shape, but it is not on this branch. Left
-   * completely UNTOUCHED here (still the pre-conversion binary gate,
-   * verified safe — a partially-covered sale still contributes exactly 0,
-   * same as before) rather than half-converted. FOLLOW-UP NEEDED at merge:
-   * once `saleRecognitionWeight` lands, this branch's THREE call sites
-   * (revenue_usd, profit_usd, profit_lbp below) need `WHEN
-   * salePaidOrPartnerSettled(s2) THEN <value> ELSE 0` rewritten to `<value>
-   * * saleRecognitionWeight(s2)` to actually pick up proportional
-   * recognition for a for-partner sale — until then this branch stays
-   * binary (correct, just not yet proportional).
+   * SALE branch (`saleRecognitionWeight`) — CONVERTED at merge (Task 3,
+   * 2026-09-05): the cross-lane dependency Lane A/D each flagged and
+   * deliberately left alone is now resolved. The three call sites below
+   * (revenue_usd, profit_usd, profit_lbp) used to embed a boolean gate —
+   * `WHEN salePaidOrPartnerSettled(s2) THEN <value> ELSE 0` — where a
+   * `WHEN` position has no numeric value to multiply; each is now `<value>
+   * * saleRecognitionWeight(s2)`, gate and weighting in the SAME edit (a
+   * loosened gate without a weighted value would overstate a
+   * partially-covered for-partner sale's revenue/profit at its FULL amount —
+   * strictly worse than the old all-or-nothing exclusion, and the exact trap
+   * Lane A stopped short of). `saleRecognitionWeight` is 1.0 fully
+   * customer-paid, the partner's covered fraction for a for-partner sale
+   * (was: all-or-nothing), 0 for a genuinely pending non-partner sale
+   * (DBT-1, unchanged, out of scope). No row-membership change: this was
+   * already a value-level CASE inside a `SUM`, never a `WHERE`-level
+   * exclusion, so a user/client whose only activity is an uncovered
+   * for-partner sale already produced a $0 row before this conversion (via
+   * `transaction_count`, which is unconditional — see below) — nothing new
+   * to guard against Task 2's phantom-row concern here.
    *
    * SUPPLIER_SETTLEMENT branch (`supplierSettlementProfitArm`) — genuinely
    * different shape, no follow-up needed: it returns a COMPLETE `WHEN ...
@@ -2612,12 +2804,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
-              SELECT CASE
-                WHEN ${salePaidOrPartnerSettled("s2")}
-                THEN (CASE WHEN t.type = 'SALE'
+              -- Task 3 (2026-09-05): weighted by saleRecognitionWeight instead
+              -- of gated by the old binary salePaidOrPartnerSettled — see this
+              -- method's own doc comment for the full rationale.
+              SELECT (CASE WHEN t.type = 'SALE'
                            THEN s2.final_amount_usd
-                           ELSE t.amount_usd END)
-                ELSE 0 END
+                           ELSE t.amount_usd END) * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             ELSE t.amount_usd * ${txnPartnerCoverageRatio("t")}
@@ -2636,9 +2828,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- supplierSettlementProfitArm, not this call site's.
             ${supplierSettlementProfitArm(hasAllocations, "usd")}
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
-              SELECT CASE
-                WHEN ${salePaidOrPartnerSettled("s2")}
-                THEN t.profit_usd ELSE 0 END
+              -- Task 3: see the revenue_usd CASE above.
+              SELECT t.profit_usd * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             WHEN t.source_table = 'financial_services' THEN (
@@ -2662,9 +2853,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
-              SELECT CASE
-                WHEN ${salePaidOrPartnerSettled("s2")}
-                THEN t.profit_lbp ELSE 0 END
+              -- Task 3: see the revenue_usd CASE above.
+              SELECT t.profit_lbp * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             ELSE t.profit_lbp * ${txnPartnerCoverageRatio("t")}
@@ -2711,12 +2901,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * client debt (DBT-1) stays binary, partner coverage (PFT-6) becomes
    * continuous via `txnPartnerCoverageRatio(t)` for every branch that has no
    * partner-awareness of its own. The SUPPLIER_SETTLEMENT branch carries its
-   * own ratio internally (Lane A) with no call-site change needed; the SALE
-   * branch is a deliberate, reported cross-lane dependency (Lane A's
-   * `saleRecognitionWeight`, not yet on this branch) and stays on the
-   * pre-conversion binary gate — see getByUser's doc comment for the full
-   * rationale, not repeated here (rule 14: one explanation, not two copies
-   * drifting apart).
+   * own ratio internally (Lane A) with no call-site change needed. The SALE
+   * branch (Task 3, 2026-09-05) is now weighted by `saleRecognitionWeight`
+   * the same way `getByUser`'s own SALE branch is — see that method's doc
+   * comment for the full rationale, not repeated here (rule 14: one
+   * explanation, not two copies drifting apart).
    */
   getByClient(
     fromDt: string,
@@ -2771,12 +2960,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
-              SELECT CASE
-                WHEN ${salePaidOrPartnerSettled("s2")}
-                THEN (CASE WHEN t.type = 'SALE'
+              -- Task 3 (2026-09-05): weighted by saleRecognitionWeight instead
+              -- of gated by the old binary salePaidOrPartnerSettled — see
+              -- getByUser's own doc comment for the full rationale.
+              SELECT (CASE WHEN t.type = 'SALE'
                            THEN s2.final_amount_usd
-                           ELSE t.amount_usd END)
-                ELSE 0 END
+                           ELSE t.amount_usd END) * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             ELSE t.amount_usd * ${txnPartnerCoverageRatio("t")}
@@ -2792,9 +2981,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- underlying fs row's coverage is Lane A's concern internally.
             ${supplierSettlementProfitArm(hasAllocations, "usd")}
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
-              SELECT CASE
-                WHEN ${salePaidOrPartnerSettled("s2")}
-                THEN t.profit_usd ELSE 0 END
+              -- Task 3: see the revenue_usd CASE above.
+              SELECT t.profit_usd * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             WHEN t.source_table = 'financial_services' THEN (
@@ -2818,9 +3006,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
-              SELECT CASE
-                WHEN ${salePaidOrPartnerSettled("s2")}
-                THEN t.profit_lbp ELSE 0 END
+              -- Task 3: see the revenue_usd CASE above.
+              SELECT t.profit_lbp * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             ELSE t.profit_lbp * ${txnPartnerCoverageRatio("t")}

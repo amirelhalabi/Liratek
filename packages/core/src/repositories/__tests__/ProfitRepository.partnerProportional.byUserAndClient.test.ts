@@ -28,9 +28,10 @@
  * their own (and so needed a direct `* txnPartnerCoverageRatio(t)`
  * multiplication in this conversion) — the SALE and SUPPLIER_SETTLEMENT
  * branches are deliberately NOT exercised here since those carry their OWN
- * ratio internally via `salePaidOrPartnerSettled`/`supplierSettlementProfitArm`
- * (a separate, concurrent conversion — PARTNER_PROPORTIONAL_RECOGNITION.md
- * Lane A — not this file's concern):
+ * ratio internally via `saleRecognitionWeight`/`supplierSettlementProfitArm`
+ * (a separate conversion — PARTNER_PROPORTIONAL_RECOGNITION.md Lane A/Task 3,
+ * covered by `ProfitRepository.saleRecognitionWeight.test.ts` instead — not
+ * this file's concern):
  *   (a) the generic ELSE branch — a RECHARGE transaction, and
  *   (b) the inline `financial_services` is_settled branch — a
  *       FINANCIAL_SERVICE transaction.

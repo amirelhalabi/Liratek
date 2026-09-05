@@ -6,10 +6,9 @@
  * Mirrors `ProfitRepository.partnerCoverageRatio.test.ts`'s own precedent:
  * this exercises the raw SQL expression directly against a minimal in-memory
  * schema, NOT through `getSalesRevCost`/`getSalesProfit`/`getByDate` (those
- * still call the pre-existing binary `salePaidOrPartnerSettled` gate
- * unchanged — wiring them to multiply by this weight instead is the next
- * step, out of this lane's fenced line range; see the fragment's own doc
- * comment in ProfitRepository.ts).
+ * now weight by this fragment directly, wired in by
+ * PARTNER_PROPORTIONAL_RECOGNITION.md Task 3 — see the fragment's own doc
+ * comment in ProfitRepository.ts for the call-site list).
  *
  * Schema enumerated in full (the documented test-schema trap — a missing
  * table/column makes the query throw and every test looks like a broken
