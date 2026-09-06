@@ -173,6 +173,44 @@ const GATE_FRAGMENTS = [
   // (the batch-shape classifier D17 also introduced) is deliberately NOT
   // listed — it defers nothing on its own, so it doesn't belong here.
   "allocationNotDebtPending",
+  // Owner decision 2026-09-05 (PARTNER_PROPORTIONAL_RECOGNITION.md) — the
+  // proportional counterpart of `notPartnerPending`: instead of excluding a
+  // partner-pending row's profit/revenue/cost/commission whole, the query
+  // multiplies each monetary column by this row's covered fraction
+  // (`partnerCoverageRatio`'s own doc comment has the full derivation). A
+  // query that calls it IS applying the SAME "profit real only when partner
+  // money is real" rule as one that calls `notPartnerPending` — just
+  // continuously instead of binarily — so it is a genuine gate here, not a
+  // loophole. Sites converted so far still gate client debt with
+  // `notDebtPending` unchanged where that applies; `getExchangeTotals` has
+  // no debt-gating concept at all, so this entry is the ONLY thing that
+  // keeps its converted query recognized as gated.
+  "partnerCoverageRatio",
+  // Owner decision 2026-09-05 (PARTNER_PROPORTIONAL_RECOGNITION.md Step 2) —
+  // the transactions-alias counterpart of `partnerCoverageRatio`, used by
+  // getByUser/getByClient/getDeferredProfit's `partnerRow` bucket (see
+  // txnPartnerCoverageRatio's own doc comment). Same "genuine gate, not a
+  // loophole" reasoning as partnerCoverageRatio above, just correlated on a
+  // transactions row's own source_table/source_id instead of a literal
+  // refTable string.
+  "txnPartnerCoverageRatio",
+  // Task 3 (2026-09-05, PARTNER_PROPORTIONAL_RECOGNITION.md) — the sales-path
+  // proportional counterpart of `salePaidOrPartnerSettled`: a NUMERIC weight
+  // (1.0 fully customer-paid, the partner's covered fraction for a
+  // for-partner sale, 0 otherwise — see saleRecognitionWeight's own doc
+  // comment) that getSalesRevCost, getSalesProfit, getByDate's
+  // daily_sales/daily_sales_profit, and getByUser/getByClient's sale arm now
+  // multiply their monetary columns by, in place of the old binary gate. A
+  // query that calls it IS applying the SAME "sale profit real only when
+  // money is real" rule as one that calls `salePaidOrPartnerSettled` — just
+  // continuously instead of binarily — so it is a genuine gate here, not a
+  // loophole. `getSalesProfit` and `getByDate`'s `daily_sales_profit` CTE are
+  // this fragment's ONLY reason to be gated at all (their sole predicate);
+  // `getSalesRevCost`/`daily_sales` never tripped the profit/commission
+  // token to begin with (revenue_usd/cost_usd only) so this entry isn't
+  // load-bearing there, and getByUser/getByClient's sale arm sits inside a
+  // unit that also calls notDebtPending/txnPartnerCoverageRatio elsewhere.
+  "saleRecognitionWeight",
 ] as const;
 
 const GATE_CALL_REGEX = new RegExp(`\\b(?:${GATE_FRAGMENTS.join("|")})\\(`);
