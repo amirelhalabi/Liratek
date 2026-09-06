@@ -2688,6 +2688,14 @@ export interface ElectronAPI {
       clientId?: number,
     ) => Promise<any[]>;
     pending: (startDate: string, endDate: string) => Promise<any[]>;
+    // Profits password gate (frozen contract). passwordStatus returns the
+    // RAW shape (reads are raw); the other three return the write envelope.
+    passwordStatus: () => Promise<{ isSet: boolean }>;
+    setPassword: (
+      password: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    unlock: (password: string) => Promise<{ success: boolean; error?: string }>;
+    lock: () => Promise<{ success: boolean; error?: string }>;
   };
 
   // Diagnostics

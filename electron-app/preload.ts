@@ -1202,6 +1202,15 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("profits:by-client", from, to, limit),
     pending: (from: string, to: string) =>
       ipcRenderer.invoke("profits:pending", from, to),
+    // Profits password gate (frozen contract). passwordStatus returns the
+    // RAW { isSet } shape (reads are raw, writes are the envelope — the
+    // adapter contract); the other three return { success, error? }.
+    passwordStatus: () => ipcRenderer.invoke("profits:password-status"),
+    setPassword: (password: string) =>
+      ipcRenderer.invoke("profits:set-password", { password }),
+    unlock: (password: string) =>
+      ipcRenderer.invoke("profits:unlock", { password }),
+    lock: () => ipcRenderer.invoke("profits:lock"),
   },
 
   // Rates

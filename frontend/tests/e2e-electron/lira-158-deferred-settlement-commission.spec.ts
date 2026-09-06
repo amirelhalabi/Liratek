@@ -78,7 +78,12 @@
  * which mocks the summary response directly.
  */
 
-import { test, expect, navigateTo } from "./fixtures";
+import {
+  test,
+  expect,
+  navigateTo,
+  ensureProfitsUnlocked,
+} from "./fixtures";
 import type { Page, Locator } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
 import { settleModalRoot, beforeContentBlock } from "./helpers/katshSettlement";
@@ -348,6 +353,12 @@ async function settleOmtRow(
 }
 
 test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT settlement)", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test.afterEach(async ({ appPage }) => {
     await closeAllActiveSessions(appPage).catch(() => {});
   });

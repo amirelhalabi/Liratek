@@ -181,6 +181,14 @@ export {
 } from "./SettingsService.js";
 export type { SettingResult } from "./SettingsService.js";
 
+// Profits Access Service (Profits password gate — frozen contract)
+export {
+  ProfitsAccessService,
+  getProfitsAccessService,
+  resetProfitsAccessService,
+} from "./ProfitsAccessService.js";
+export type { ProfitsPasswordResult } from "./ProfitsAccessService.js";
+
 // Payment Method Service
 export {
   PaymentMethodService,

@@ -383,6 +383,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   getProfitByPaymentMethod = (from: string, to: string) =>
     api.getProfitByPaymentMethod(from, to);
   getProfitByUser = (from: string, to: string) => api.getProfitByUser(from, to);
+  getProfitsPasswordStatus = () => api.getProfitsPasswordStatus();
+  setProfitsPassword = (password: string) => api.setProfitsPassword(password);
+  unlockProfits = (password: string) => api.unlockProfits(password);
+  lockProfits = () => api.lockProfits();
   getProfitByClient = (from: string, to: string, limit?: number) =>
     api.getProfitByClient(from, to, limit);
   getPendingProfit = (from: string, to: string) =>

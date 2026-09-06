@@ -1409,7 +1409,11 @@ INSERT OR IGNORE INTO modules (tenant_id, key, label, icon, route, sort_order, i
   (1, 'binance',     'Binance',      'Bitcoin',       '/recharge',     10,  0, 0, 0),
   (1, 'ipec_katch',  'iPick/Katsh',  'Zap',           '/recharge',     11,  0, 0, 0),
   (1, 'custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
-  (1, 'profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
+  -- v163 (PROFITS_GATE frozen contract): admin_only flipped 1 -> 0. The page
+  -- is now visible to BOTH roles and gated by a per-page password
+  -- (ProfitsAccessService) instead of by role — admin included, "everyone
+  -- types it". See packages/core/src/constants/profitsAccess.ts.
+  (1, 'profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 0, 0),
   (1, 'customer_sessions','Sessions','UserCheck',    '/customer-sessions',14, 1, 0, 0),
   (1, 'partners',       'Partners', 'Handshake',     '/partners',       15, 1, 0, 0),
   (1, 'loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0),

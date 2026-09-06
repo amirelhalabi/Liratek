@@ -11,7 +11,7 @@
  * double counting per the LEFT_TO_DO plan).
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, ensureProfitsUnlocked } from "./fixtures";
 
 test.describe.configure({ retries: 0 });
 
@@ -45,6 +45,12 @@ const FROM = "2000-01-01";
 const TO = "2099-12-31";
 
 test.describe("LIRA-086 (B5) — profits coverage", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test("a Delivered_Paid maintenance job increases maintenance profit by price − cost", async ({
     appPage,
   }) => {

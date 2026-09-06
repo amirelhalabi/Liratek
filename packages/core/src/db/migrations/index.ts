@@ -9882,6 +9882,75 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 163,
+    name: "profits_module_visible_to_all_roles",
+    description:
+      "The 'profits' module was admin_only = 1, gating the ENTIRE /profits page (route, IPC " +
+        "handlers, REST routes) behind the admin role. Per the Profits password gate feature, " +
+        "the page is now reachable by staff too — it flips admin_only to 0 so ModuleService/the " +
+        "route table stop hiding it from staff — but access is instead protected by a per-page " +
+        "password (system_settings key 'profits_password_hash', see " +
+        "packages/core/src/constants/profitsAccess.ts and ProfitsAccessService). '/profits' " +
+        "ALWAYS shows a password screen first, admin included; a correct password unlocks the " +
+        "page and the 7 profit data endpoints for 15 minutes, and navigating away locks it again " +
+        "immediately. If no password has been set yet, nobody enters (fail closed) — the lock " +
+        "screen tells the operator an admin must set one in Settings > Profits Password. The " +
+        "route/IPC (profits:* channels)/REST (profits data routes swap requireRole(['admin']) " +
+        "for requireProfitsUnlock) gates changed together with this migration.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Same defensive shape as v160/v161/v162: migration-runner test
+      // harnesses build minimal per-migration fixture DBs and replay EVERY
+      // migration over them, so a bare UPDATE here must not assume
+      // 'modules' exists.
+      const hasModules = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'modules'`,
+        )
+        .get();
+      if (!hasModules) {
+        console.log("Migration v163 skipped: 'modules' table not present");
+        return;
+      }
+
+      // Deliberately UNSCOPED by tenant_id, matching v162's precedent: the
+      // frontend route table / module visibility rule is compiled once, not
+      // per tenant, so every tenant's 'profits' row must become reachable by
+      // staff at once. Keyed on `key = 'profits'` (identity, not the old
+      // admin_only value) so this stays idempotent and legible on re-run.
+      const result = db
+        .prepare(`UPDATE modules SET admin_only = 0 WHERE key = ?`)
+        .run("profits");
+
+      console.log(
+        `Migration v163: 'profits' module admin_only cleared (now visible to staff) on ${result.changes} row(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      const hasModules = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'modules'`,
+        )
+        .get();
+      if (!hasModules) {
+        console.log(
+          "Migration v163 rollback skipped: 'modules' table not present",
+        );
+        return;
+      }
+
+      // Exact reverse of up() — same deliberate cross-tenant scope, same
+      // identity-keyed predicate.
+      const result = db
+        .prepare(`UPDATE modules SET admin_only = 1 WHERE key = ?`)
+        .run("profits");
+
+      console.log(
+        `Migration v163 rolled back: 'profits' module admin_only restored to 1 (admin-only again) on ${result.changes} row(s)`,
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

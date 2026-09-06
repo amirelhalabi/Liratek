@@ -602,6 +602,71 @@ export async function navigateTo(page: Page, route: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Profits password gate helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared password used by every spec that needs to unlock the profits
+ * password gate to read `window.api.profits.*` as a measuring instrument
+ * (LIRA-071 introduced the gate; see profits.setPassword/unlock below).
+ * Never duplicate this literal in a spec file (CLAUDE.md rule 14) — import
+ * this constant instead.
+ */
+export const E2E_PROFITS_PASSWORD = "Profits1!";
+
+/** Minimal typed view of the profits IPC surface used by this helper. */
+type ProfitsGateApi = {
+  profits: {
+    passwordStatus: () => Promise<{ isSet: boolean }>;
+    setPassword: (
+      password: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    unlock: (
+      password: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+  };
+};
+
+/**
+ * Ensure the shared Electron instance's profits gate is unlocked for the
+ * CURRENT webContents before any spec reads `window.api.profits.*` as an
+ * oracle for unrelated behaviour (sale/debt/partner/commission correctness).
+ *
+ * Why this exists: since the profits password gate (LIRA-071), every
+ * `profits:*` IPC channel throws "Profits locked" until the page has been
+ * unlocked with the correct password. Specs that only care about the
+ * resulting profit numbers — not the gate itself — must not have to drive
+ * the lock-screen UI; this does the unlock purely over IPC.
+ *
+ * Idempotent/safe to call repeatedly and from every spec that needs it:
+ * the unlock is per-webContents with a PROFITS_UNLOCK_TTL_MS (15 minute)
+ * TTL and is revoked the instant the /profits page unmounts (the gate's
+ * unmount effect calls `profits:lock`), so no spec may assume an earlier
+ * spec left the gate unlocked — always call this before touching
+ * `window.api.profits.*`, even mid-file.
+ */
+export async function ensureProfitsUnlocked(page: Page): Promise<void> {
+  await page.evaluate(async (password) => {
+    const api = (window as unknown as { api: ProfitsGateApi }).api;
+    const status = await api.profits.passwordStatus();
+    if (!status.isSet) {
+      // The shared session is logged in as admin — setPassword is
+      // admin-only and this is therefore permitted.
+      await api.profits.setPassword(password);
+    }
+    const result = await api.profits.unlock(password);
+    if (!result.success) {
+      throw new Error(
+        `ensureProfitsUnlocked: profits.unlock failed unexpectedly — ${
+          result.error ?? "no error message"
+        }. A silent failure here would otherwise resurface as a baffling ` +
+          `"Profits locked" deep inside an unrelated assertion.`,
+      );
+    }
+  }, E2E_PROFITS_PASSWORD);
+}
+
+// ---------------------------------------------------------------------------
 // Client context helpers (C1–C4)
 // ---------------------------------------------------------------------------
 

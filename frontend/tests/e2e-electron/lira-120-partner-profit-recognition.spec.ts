@@ -31,7 +31,7 @@
  * getBalance, and named drawers.
  */
 
-import { test, expect, seedProduct } from "./fixtures";
+import { test, expect, seedProduct, ensureProfitsUnlocked } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
@@ -118,6 +118,12 @@ async function createPartner(page: Page, label: string): Promise<number> {
 }
 
 test.describe("LIRA-120 — partner settlement realizes profit and moves money", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test("pending until settled (sale/recharge/FS/Katsh — no carve-out); settle → profit + General cash", async ({
     appPage,
   }) => {

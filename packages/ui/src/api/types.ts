@@ -1934,6 +1934,14 @@ export type ApiAdapter = {
   getProfitByDate: (from: string, to: string) => Promise<any[]>;
   getProfitByPaymentMethod: (from: string, to: string) => Promise<any[]>;
   getProfitByUser: (from: string, to: string) => Promise<any[]>;
+  getProfitsPasswordStatus: () => Promise<{ isSet: boolean }>;
+  setProfitsPassword: (
+    password: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  unlockProfits: (
+    password: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  lockProfits: () => Promise<{ success: boolean }>;
   getProfitByClient: (
     from: string,
     to: string,

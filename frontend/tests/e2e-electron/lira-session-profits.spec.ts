@@ -11,7 +11,7 @@
  * e2e database accumulating other test data.
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, ensureProfitsUnlocked } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
@@ -41,6 +41,12 @@ type Api = {
 };
 
 test.describe("Session checkout — profit counted (transaction-based)", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test("a $30-profit custom service raises the period's custom-service profit by $30", async ({
     appPage,
   }) => {

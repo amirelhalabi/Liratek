@@ -1,8 +1,13 @@
 /**
  * Profits API Endpoints
  *
- * Admin-only analytics: profit summary, by module, by date, by payment method,
- * by user, and by client.
+ * Password-gated analytics, any authenticated role: the `profits` module is
+ * visible to both `admin` and `staff` (migration v163), but `/profits` and
+ * its 7 data endpoints below sit behind a per-page password instead of a
+ * role check — admin included (PROFITS_GATE_CONTRACT.md). The four gate
+ * routes (password-status / password / unlock / lock) are mounted BEFORE
+ * `requireProfitsUnlock` on purpose: they are what let a caller in, so they
+ * can never themselves require the thing they grant.
  */
 
 import { Router } from "express";
@@ -11,16 +16,141 @@ import {
   requireRole,
   type AuthRequest,
 } from "../middleware/auth.js";
-import { getProfitService, localDay, localDaysAgo } from "@liratek/core";
+import {
+  requireProfitsUnlock,
+  grantProfitsUnlock,
+  revokeProfitsUnlock,
+} from "../middleware/profitsUnlock.js";
+import { profitsUnlockLimiter } from "../middleware/rateLimit.js";
+import { validateRequest } from "../middleware/validation.js";
+import { auditRest } from "../middleware/audit.js";
+import {
+  getProfitService,
+  getProfitsAccessService,
+  localDay,
+  localDaysAgo,
+  PROFITS_PASSWORD_SETTING_KEY,
+  SetProfitsPasswordSchema,
+  UnlockProfitsSchema,
+} from "@liratek/core";
 import { logger } from "../server.js";
 
 const router = Router();
 
-// All profit routes require admin role
+// Every profits route requires SOME authenticated user.
 router.use(requireAuth);
-router.use((req: AuthRequest, res, next) =>
-  requireRole(["admin"])(req, res, next),
+
+// ---------------------------------------------------------------------------
+// Password gate — mounted ABOVE requireProfitsUnlock (these are what let a
+// caller earn the unlock; they cannot themselves sit behind it).
+// ---------------------------------------------------------------------------
+
+// GET /api/profits/password-status — admin+staff, no password needed to ask
+// whether one has been set (the lock screen needs this to decide between
+// "enter password" and "ask an admin to set one in Settings").
+router.get("/password-status", (_req: AuthRequest, res) => {
+  try {
+    const isSet = getProfitsAccessService().isPasswordSet();
+    res.json({ success: true, data: { isSet } });
+  } catch (error) {
+    logger.error({ error }, "Profits password-status error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get profits password status" });
+  }
+});
+
+// PUT /api/profits/password — admin only. Sets/replaces the profits password.
+router.put(
+  "/password",
+  requireRole(["admin"]),
+  validateRequest(SetProfitsPasswordSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = getProfitsAccessService().setPassword(req.body.password);
+      if (result.success) {
+        // Mirrors settings.ts's PUT /:key audit — action/entity_type match
+        // the generic "setting" shape; entity_id is the setting key, never
+        // the password or its hash.
+        auditRest(req, {
+          action: "update",
+          entity_type: "setting",
+          entity_id: PROFITS_PASSWORD_SETTING_KEY,
+          summary: "Set profits page password",
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Profits set-password error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to set profits password" });
+    }
+  },
 );
+
+// POST /api/profits/unlock — admin+staff. Rate-limited on FAILED attempts
+// only (profitsUnlockLimiter, not strictLimiter — see rateLimit.ts).
+router.post(
+  "/unlock",
+  profitsUnlockLimiter,
+  validateRequest(UnlockProfitsSchema),
+  (req: AuthRequest, res) => {
+    try {
+      // ProfitsAccessService.verify() is already fail-closed: it returns
+      // false when no password has been set yet, so "no password set" and
+      // "wrong password" both land here with no grant — never log the
+      // attempted password itself, only who/where.
+      const ok = getProfitsAccessService().verify(req.body.password);
+      if (!ok) {
+        logger.warn(
+          { userId: req.user?.userId, ip: req.ip },
+          "Profits unlock failed",
+        );
+        res.json({ success: false, error: "Incorrect password" });
+        return;
+      }
+
+      // req.user is guaranteed set here (router.use(requireAuth) above ran
+      // first), guarded explicitly rather than asserted for type safety.
+      if (!req.user) {
+        res.status(401).json({ success: false, error: "Not authenticated" });
+        return;
+      }
+
+      grantProfitsUnlock(req.user.tenantId, req.user.userId);
+      res.json({ success: true });
+    } catch (error) {
+      logger.error({ error }, "Profits unlock error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to unlock profits" });
+    }
+  },
+);
+
+// POST /api/profits/lock — admin+staff. Revokes the caller's own unlock
+// (client unmount of /profits calls this immediately).
+router.post("/lock", (req: AuthRequest, res) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, error: "Not authenticated" });
+      return;
+    }
+    revokeProfitsUnlock(req.user.tenantId, req.user.userId);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error({ error }, "Profits lock error");
+    res.status(500).json({ success: false, error: "Failed to lock profits" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Everything below requires a live profits unlock — role no longer gates
+// these on its own (fail-closed 403 "Profits locked" via requireProfitsUnlock,
+// same status code the neighbouring requireRole uses).
+// ---------------------------------------------------------------------------
+router.use(requireProfitsUnlock);
 
 // GET /api/profits/summary?from=YYYY-MM-DD&to=YYYY-MM-DD
 router.get("/summary", async (req, res) => {

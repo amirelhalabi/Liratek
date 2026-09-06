@@ -46,6 +46,7 @@ const Suppliers = lazy(() => import("@/features/suppliers/pages/Suppliers"));
 const Vouchers = lazy(() => import("@/features/vouchers/pages/Vouchers"));
 // Super-admin control plane (web-only — plan §5). No Electron equivalent.
 const Tenants = lazy(() => import("@/features/admin/pages/Tenants"));
+import { ProfitsPasswordGate } from "@/features/profits/components/ProfitsPasswordGate";
 import MainLayout from "@/shared/components/layouts/MainLayout";
 import { SuperAdminLayout } from "@/features/admin/components/SuperAdminLayout";
 import HomeGrid from "@/shared/components/layouts/HomeGrid";
@@ -303,12 +304,19 @@ function AppRoutes() {
             </AdminRoute>
           }
         />
+        {/* Profits password gate (PROFITS_GATE_CONTRACT.md): visible to both
+            roles now (migration v163) — the per-page password replaces the
+            role gate, admin included. ProfitsPasswordGate is imported eagerly
+            (not lazy) so it renders instantly; Profits itself stays lazy so
+            its heavy chunk only loads after a successful unlock. */}
         <Route
           path="/profits"
           element={
-            <AdminRoute>
-              <Profits />
-            </AdminRoute>
+            <ProtectedRoute>
+              <ProfitsPasswordGate>
+                <Profits />
+              </ProfitsPasswordGate>
+            </ProtectedRoute>
           }
         />
         <Route

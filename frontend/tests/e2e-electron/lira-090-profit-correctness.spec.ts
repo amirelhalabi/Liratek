@@ -18,7 +18,7 @@
  * drive reliably headless); the summary field is asserted present here.
  */
 
-import { test, expect, seedProduct } from "./fixtures";
+import { test, expect, seedProduct, ensureProfitsUnlocked } from "./fixtures";
 
 test.describe.configure({ retries: 0 });
 
@@ -83,6 +83,12 @@ async function summary(
 }
 
 test.describe("LIRA-090 — profit correctness", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test("Fix 1: a refund reverses the module's profit (net 0)", async ({
     appPage,
   }) => {

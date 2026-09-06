@@ -136,6 +136,13 @@ import {
   type ResolveScanCodeInput,
   type CreateCategoryInput,
   type UpdateCategoryInput,
+  // Frozen contract names these two PascalCase (packages/core/src/validators/
+  // profits.ts) — aliased on import to avoid colliding with the local
+  // re-exports of the same name a few lines below.
+  SetProfitsPasswordSchema as coreSetProfitsPasswordSchema,
+  UnlockProfitsSchema as coreUnlockProfitsSchema,
+  type SetProfitsPasswordInput,
+  type UnlockProfitsInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -1158,6 +1165,19 @@ export const CreateCategorySchema =
   createCategorySchema as unknown as z.ZodSchema<CreateCategoryInput>;
 export const UpdateCategorySchema =
   updateCategorySchema as unknown as z.ZodSchema<UpdateCategoryInput>;
+
+// =============================================================================
+// Profits password gate (frozen contract)
+// =============================================================================
+
+// Both schemas live in packages/core/src/validators/profits.ts so the IPC
+// handlers (profitHandlers.ts) and the REST routes (backend/src/api/profits.ts)
+// validate against ONE schema each (rule 14). Casts bridge the zod-major
+// mismatch (core=zod4, this workspace=zod3); runtime API used is identical.
+export const SetProfitsPasswordSchema =
+  coreSetProfitsPasswordSchema as unknown as z.ZodSchema<SetProfitsPasswordInput>;
+export const UnlockProfitsSchema =
+  coreUnlockProfitsSchema as unknown as z.ZodSchema<UnlockProfitsInput>;
 
 // =============================================================================
 // Helpers

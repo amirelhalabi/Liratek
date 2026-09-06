@@ -2428,6 +2428,68 @@ export async function getProfitByPaymentMethod(from: string, to: string) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Profits password gate — status/set/unlock/lock. IPC returns the raw shape
+// for the status check (no envelope), the envelope for the write/mutating
+// calls, matching the frozen contract. REST mirrors the same shapes; the 7
+// profit data routes now 403 `{ success: false, error: "Profits locked" }`
+// when locked, which surfaces here as a thrown ApiError (httpClient.ts) —
+// callers (ProfitsPasswordGate, Profits.tsx's existing bare `catch` blocks)
+// already treat a rejected fetch as "failed to load", so a lock 403 is a
+// catchable error, never an unhandled crash.
+// ---------------------------------------------------------------------------
+
+export async function getProfitsPasswordStatus(): Promise<{
+  isSet: boolean;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.passwordStatus(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data: { isSet: boolean };
+      }>(`/api/profits/password-status`);
+      return res.data;
+    },
+  );
+}
+
+export async function setProfitsPassword(
+  password: string,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.setPassword(password),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/profits/password`,
+        { method: "PUT", body: { password } },
+      ),
+  );
+}
+
+export async function unlockProfits(
+  password: string,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.unlock(password),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/profits/unlock`,
+        { method: "POST", body: { password } },
+      ),
+  );
+}
+
+export async function lockProfits(): Promise<{ success: boolean }> {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.lock(),
+    async () =>
+      requestJson<{ success: boolean }>(`/api/profits/lock`, {
+        method: "POST",
+      }),
+  );
+}
+
 export async function getProfitByUser(from: string, to: string) {
   return ipcOrHttp(
     async () => getElectronApi().profits.byUser(from, to),

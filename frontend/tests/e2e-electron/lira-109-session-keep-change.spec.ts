@@ -14,7 +14,7 @@
  * recorded in the plan). Rule 15: identity + delta assertions only.
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, ensureProfitsUnlocked } from "./fixtures";
 import { closeAllActiveSessions } from "./helpers/nav";
 
 test.describe.configure({ retries: 0 });
@@ -57,6 +57,12 @@ type Api = {
 };
 
 test.describe("LIRA-109 — session-basket keep change", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test.afterEach(async ({ appPage }) => {
     await closeAllActiveSessions(appPage).catch(() => {});
   });

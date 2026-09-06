@@ -18,7 +18,7 @@
  * assertions fail. Rule 15: identity + deltas only.
  */
 
-import { test, expect, navigateTo } from "./fixtures";
+import { test, expect, navigateTo, ensureProfitsUnlocked } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
@@ -99,9 +99,12 @@ async function keptChangeLbpProfit(page: Page): Promise<number> {
 }
 
 test.describe("LIRA-107 — keep change on a debt repayment", () => {
-  test.beforeEach(({ appPage }) => {
+  test.beforeEach(async ({ appPage }) => {
     dialogs = [];
     appPage.on("dialog", (d) => dialogs.push(d.message()));
+    // profits:* IPC is password-gated since the profits-gate change; unlock
+    // before reading profit numbers as an oracle.
+    await ensureProfitsUnlocked(appPage);
   });
 
   test("kept extra does not reduce the debt, stays in the drawer, and books as kept-change profit", async ({
