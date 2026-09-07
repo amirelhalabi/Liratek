@@ -90,7 +90,42 @@ export type StockAdjustmentEntity = {
   new_quantity: number;
   reason: string;
   user_id: number | null;
+  /** Migration v165 (owner-reported 2026-09-07): null for every row except
+   *  a real delivery (`ProductRepository.receiveStock`) — no cost applies
+   *  to a plain increase/decrease/set-absolute correction, and a pre-v165
+   *  row never recorded one. Mirrors `StockAdjustmentEntity`
+   *  (packages/core/src/repositories/StockAdjustmentRepository.ts)
+   *  field-for-field; hand-kept in sync (same convention as `StockBatchRow`
+   *  below) rather than imported. */
+  unit_cost_usd: number | null;
   username: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * One row of a product's remaining cost batches — a product can hold stock
+ * bought at several different prices (owner report 2026-09-07: 2 iPhones
+ * received at $1,300 on top of 2 already held at $1,200, with no way to see
+ * the split). Mirrors `StockBatchEntity`
+ * (packages/core/src/repositories/StockBatchRepository.ts) field-for-field;
+ * hand-kept in sync (same convention as `StockAdjustmentEntity` above)
+ * rather than imported, since `@liratek/core` resolves to browser.ts for
+ * Vite and frontend jest and this entity isn't exported there.
+ */
+export type StockBatchRow = {
+  id: number;
+  tenant_id: number;
+  product_id: number;
+  supplier_id: number | null;
+  quantity: number;
+  quantity_remaining: number;
+  unit_cost_usd: number;
+  books_debt: number;
+  ledger_entry_id: number | null;
+  transaction_id: number | null;
+  is_opening: number;
+  created_by: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -722,6 +757,9 @@ export type ApiAdapter = {
   /** LIRA-077: adjustment history — one product, or the most recent across
    *  all products when productId is omitted. */
   getStockAdjustments: (productId?: number) => Promise<StockAdjustmentEntity[]>;
+  /** A product's remaining cost batches, FIFO/oldest-first — "where are my
+   *  other units and what did each one cost" (owner report 2026-09-07). */
+  getOpenStockBatches: (productId: number) => Promise<StockBatchRow[]>;
   /** LIRA-143 Phase 3 (owner decision #2): barcode first, then an active
    *  (IN_STOCK) unit IMEI. `matched_unit` is null on a barcode hit. */
   resolveScanCode: (code: string) => Promise<{

@@ -452,6 +452,30 @@ router.post(
   },
 );
 
+// GET /api/inventory/products/:id/stock-batches — a product's remaining cost
+// batches (FIFO/oldest-first), mirroring IPC channel
+// `inventory:get-open-stock-batches` / InventoryService.getOpenStockBatches.
+// "Where are my other N units, and what did each one cost" (owner report
+// 2026-09-07). Nested under `:id` like its `/stock` and `/receive-stock`
+// siblings above, so it can never collide with the bare `/products/:id`
+// route above regardless of declaration order (different segment count) —
+// same no-extra-role-gate read baseline as this router's other GETs (router-
+// level authenticateJWT only, no requireRole).
+router.get("/products/:id/stock-batches", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ success: false, error: "Invalid id" });
+    return;
+  }
+
+  try {
+    const batches = getInventoryService().getOpenStockBatches(id);
+    res.json(createSuccessResponse({ batches }));
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
 // GET /api/inventory/stock-adjustments?productId=123 — audit history for one
 // product, or the most recent adjustments across all products when
 // productId is omitted.

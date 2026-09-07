@@ -88,6 +88,11 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("inventory:adjust-stock", payload),
     getStockAdjustments: (productId?: number) =>
       ipcRenderer.invoke("inventory:get-stock-adjustments", productId),
+    /** A product's remaining cost batches (FIFO/oldest-first) — "where are
+     *  my other units and what did each one cost" (owner report
+     *  2026-09-07). */
+    getOpenStockBatches: (productId: number) =>
+      ipcRenderer.invoke("inventory:get-open-stock-batches", productId),
     // Supplier stock intake (SUPPLIER_STOCK_INTAKE_PLAN.md) — raises stock,
     // writes a cost batch, and books a supplier_ledger debit unless
     // is_old_stock or no supplier.

@@ -79,6 +79,31 @@ function createTestDb(): Database.Database {
       updated_at               TEXT DEFAULT CURRENT_TIMESTAMP
     );
     CREATE UNIQUE INDEX idx_product_units_active_imei ON product_units(tenant_id, imei) WHERE status = 'IN_STOCK';
+
+    -- v165 (ProductRepository.COST_TIERS_SUBQUERY): resolveScanCode returns
+    -- the DTO shape via findProductDtoById, which now always SELECTs a
+    -- correlated subquery counting distinct open-batch unit costs from
+    -- product_stock_batches. A correlated subquery's referenced table is
+    -- resolved at PREPARE time regardless of row count, so a missing table
+    -- throws even though this file never seeds a batch. No REFERENCES
+    -- clause, matching the house convention
+    -- (CustomServiceRepository.stock.test.ts).
+    CREATE TABLE product_stock_batches (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER DEFAULT 1,
+      product_id         INTEGER NOT NULL,
+      supplier_id        INTEGER,
+      quantity           INTEGER NOT NULL,
+      quantity_remaining INTEGER NOT NULL,
+      unit_cost_usd      DECIMAL(10,2) NOT NULL DEFAULT 0,
+      books_debt         INTEGER NOT NULL DEFAULT 0,
+      ledger_entry_id    INTEGER,
+      transaction_id     INTEGER,
+      is_opening         INTEGER NOT NULL DEFAULT 0,
+      created_by         INTEGER,
+      created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }

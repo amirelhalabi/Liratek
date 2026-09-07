@@ -65,16 +65,23 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE stock_adjustments (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      tenant_id    INTEGER DEFAULT 1,
-      product_id   INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-      delta        INTEGER NOT NULL,
-      old_quantity INTEGER NOT NULL,
-      new_quantity INTEGER NOT NULL,
-      reason       TEXT NOT NULL,
-      user_id      INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at   TEXT DEFAULT CURRENT_TIMESTAMP
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id     INTEGER DEFAULT 1,
+      product_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      delta         INTEGER NOT NULL,
+      old_quantity  INTEGER NOT NULL,
+      new_quantity  INTEGER NOT NULL,
+      reason        TEXT NOT NULL,
+      user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      -- v165: nullable, no backfill — only ProductRepository.receiveStock
+      -- (a real delivery) writes a value; adjustStock/adjustStockDelta keep
+      -- writing NULL. StockAdjustmentRepository.create()'s INSERT column
+      -- list references this column unconditionally, so its absence fails
+      -- db.prepare() for EVERY adjustment in this suite, not just the ones
+      -- that go through receiveStock.
+      unit_cost_usd DECIMAL(10,2) DEFAULT NULL,
+      created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     -- LIRA-164 (Supplier Stock Intake): an INCREASE now routes through

@@ -59,6 +59,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   }) => api.adjustStock(payload);
   getStockAdjustments = (productId?: number) =>
     api.getStockAdjustments(productId);
+  /** A product's remaining cost batches, FIFO/oldest-first — "where are my
+   *  other units and what did each one cost" (owner report 2026-09-07). */
+  getOpenStockBatches = (productId: number) =>
+    api.getOpenStockBatches(productId);
   resolveScanCode = (code: string) => api.resolveScanCode(code);
 
   // ---------------------------------------------------------------------------

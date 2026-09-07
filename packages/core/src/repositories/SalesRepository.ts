@@ -489,7 +489,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           saleId = saleResult.lastInsertRowid as number;
         }
 
-        // Create unified transaction row
+        // Seed the unified transaction row's profit stamp. This is only the
+        // PROVISIONAL figure — item processing further below (FIFO batch
+        // consumption) corrects it with each line's real cost before
+        // createTransaction actually writes the row, because this loop runs
+        // before any sale_item exists and has no batch to weight against.
         // Calculate profit from items (sold_price - cost_price) × quantity,
         // minus the sale-level discount — the discount comes straight out of
         // the shop's margin (final_amount = total − discount), so gross item
@@ -538,231 +542,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // note — the Debts history and the audit row must read identically.
         const saleLabel = `Sale #${saleId}: ${itemsLabel} — $${sale.final_amount}${discountTail}`;
 
-        const txnId = getTransactionRepository().createTransaction({
-          type: TRANSACTION_TYPES.SALE,
-          source_table: "sales",
-          source_id: saleId,
-          user_id: userId,
-          // Unified-row amounts carry the sale's VALUE in its denominated
-          // currency (sales are USD-priced), never the tender — the LBP the
-          // customer handed over lives in the payment legs below. Stamping
-          // payment_lbp here double-counted the sale ($5 + 450,000 LBP) in the
-          // audit view and inflated revenue_lbp in profit/session reports.
-          amount_usd: sale.final_amount,
-          amount_lbp: 0,
-          // Item margins − discount, plus any change the operator kept as
-          // profit (T3 keep-change) — stamped per currency at create time so
-          // the generic void's stamp negation reverses it symmetrically.
-          profit_usd: saleProfitUsd + (sale.kept_change_usd || 0),
-          profit_lbp: sale.kept_change_lbp || 0,
-          exchange_rate: sale.exchange_rate,
-          client_id: finalClientId ?? null,
-          // Rule 11: keep the walk-in name/phone on the unified row even when
-          // no clients row could be resolved (lira-094). For-partner sales
-          // label the row with the partner instead (owner ask: the
-          // transactions table shows "<partner> [partner]").
-          client_name:
-            sale.partnerMode === "FOR" && sale.partnerId
-              ? `${getPartnerRepository().getById(sale.partnerId)?.name ?? `#${sale.partnerId}`} [partner]`
-              : (sale.client_name ?? null),
-          client_phone: sale.client_phone ?? null,
-          summary: saleLabel,
-          metadata_json: {
-            total_amount: sale.total_amount,
-            discount: sale.discount,
-            final_amount: sale.final_amount,
-            status,
-            item_count: sale.items.length,
-            items: saleItemDetails,
-          },
-          transaction_time: sale.transaction_time,
-        });
-
-        // Persist payment lines + update running balances (drawer_balances)
-        // - If sale.payments is not provided, we store inferred CASH lines from legacy totals.
-        // - Change is treated as CASH (General drawer) outflow.
-        const paymentLines: PaymentLine[] = sale.payments?.length
-          ? sale.payments
-          : [
-              ...(paymentUsd
-                ? [
-                    {
-                      method: "CASH" as const,
-                      currency_code: "USD",
-                      amount: paymentUsd,
-                    },
-                  ]
-                : []),
-              ...(paymentLbp
-                ? [
-                    {
-                      method: "CASH" as const,
-                      currency_code: "LBP",
-                      amount: paymentLbp,
-                    },
-                  ]
-                : []),
-            ];
-
-        db.prepare(
-          `DELETE FROM payments WHERE tenant_id = ? AND transaction_id IN (SELECT id FROM transactions WHERE tenant_id = ? AND source_table = 'sales' AND source_id = ?)`,
-        ).run(tenantId, tenantId, saleId);
-
-        const insertPayment = {
-          run: (
-            transactionId: number,
-            method: string,
-            drawerName: string,
-            currencyCode: string,
-            amount: number,
-            note: string | null,
-            createdBy: number,
-            tenant: number,
-          ) =>
-            insertPaymentRow(db, {
-              transactionId,
-              method,
-              drawerName,
-              currencyCode,
-              amount,
-              note,
-              createdBy,
-              tenantId: tenant,
-            }),
-        };
-
-        const upsertBalanceDelta = {
-          run: (
-            tenant: number,
-            drawerName: string,
-            currencyCode: string,
-            delta: number,
-          ) =>
-            applyDrawerDelta(db, {
-              drawerName,
-              currencyCode,
-              delta,
-              tenantId: tenant,
-            }),
-        };
-
-        const createdBy = userId;
-        const note = sale.note || null;
-        const deferPayment = sale.deferPayment === true;
-
-        // Split customer-paid (IN) legs from shop-returned change (OUT) legs.
-        // Deferred (session basket): the basket recorder owns the customer-cash
-        // legs, change, gift-card redemption, and debt — skip them all here.
-        const { inLegs, outLegs } = partitionLegs(
-          deferPayment ? [] : paymentLines,
-        );
-
-        for (const p of inLegs) {
-          // DEBT means no drawer movement and should not create a payments row.
-          if (!isDrawerAffectingMethod(p.method)) continue;
-          const drawerName = paymentMethodToDrawerName(p.method);
-          insertPayment.run(
-            txnId,
-            p.method,
-            drawerName,
-            p.currency_code,
-            p.amount,
-            note,
-            createdBy,
-            tenantId,
-          );
-          upsertBalanceDelta.run(
-            tenantId,
-            drawerName,
-            p.currency_code,
-            p.amount,
-          );
-        }
-
-        // Redeem any gift-card / voucher legs atomically with the sale. The
-        // voucher's full value is deposited to the owner's account; the sale's
-        // GIFT_CARD leg is non-drawer, so the unpaid balance becomes a Sale Debt
-        // that the deposited credit offsets.
-        const voucherRepo = getVoucherRepository();
-        for (const p of inLegs) {
-          if (p.method !== "GIFT_CARD" || !p.voucher_code) continue;
-          voucherRepo.redeemByCode({
-            code: p.voucher_code,
-            context: "sale",
-            transactionId: txnId,
-            userId: createdBy,
-          });
-        }
-
-        // Return (OUT) legs: change handed back via a non-cash method or kept as
-        // store credit. Cash change uses the change_given_usd/lbp path below.
-        for (const r of outLegs) {
-          const amt = Math.abs(r.amount);
-          if (amt <= 0) continue;
-          if (r.method === "CUSTOMER_ACCOUNT") {
-            if (!sale.client_id) {
-              throw new Error(
-                "Client is required to return change as store credit",
-              );
-            }
-            getDebtService().addCredit({
-              clientId: sale.client_id,
-              amountUsd: r.currency_code === "USD" ? amt : 0,
-              amountLbp: r.currency_code === "LBP" ? amt : 0,
-              note: "Change returned",
-              userId: createdBy,
-              transactionId: txnId,
-            });
-          } else if (isDrawerAffectingMethod(r.method)) {
-            const drawerName = paymentMethodToDrawerName(r.method);
-            insertPayment.run(
-              txnId,
-              r.method,
-              drawerName,
-              r.currency_code,
-              -amt,
-              "Change returned",
-              createdBy,
-              tenantId,
-            );
-            upsertBalanceDelta.run(tenantId, drawerName, r.currency_code, -amt);
-          }
-        }
-
-        const changeUsd = deferPayment
-          ? 0
-          : Math.abs(sale.change_given_usd || 0);
-        const changeLbp = deferPayment
-          ? 0
-          : Math.abs(sale.change_given_lbp || 0);
-        if (changeUsd) {
-          insertPayment.run(
-            txnId,
-            "CASH",
-            "General",
-            "USD",
-            -changeUsd,
-            "Change given",
-            createdBy,
-            tenantId,
-          );
-          upsertBalanceDelta.run(tenantId, "General", "USD", -changeUsd);
-        }
-        if (changeLbp) {
-          insertPayment.run(
-            txnId,
-            "CASH",
-            "General",
-            "LBP",
-            -changeLbp,
-            "Change given",
-            createdBy,
-            tenantId,
-          );
-          upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
-        }
-
-        // Process Items & Update Stock
+        // Process Items & Update Stock. This now runs BEFORE the unified
+        // transaction row is created (below): FIFO consumption inside this
+        // block computes each line's REAL cost and must correct
+        // saleProfitUsd with it before that stamp is written — see the
+        // comment inside the completed-sale FIFO branch for why the early
+        // loop above couldn't get this right on its own.
         const itemStmt = db.prepare(`
           INSERT INTO sale_items (
             sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei, warranty_until, tenant_id
@@ -988,8 +773,254 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             db.prepare(
               `UPDATE sale_items SET cost_price_snapshot_usd = ? WHERE id = ? AND tenant_id = ?`,
             ).run(weightedUnitCostUsd, saleItemId, tenantId);
+
+            // Correct saleProfitUsd with this line's REAL cost. The early
+            // loop above ran before this sale_item existed, so it had no
+            // FIFO batch to weight against and could only price this line
+            // at the product's CURRENT cost_price_usd — captured as
+            // productMetaByIndex[index].costPriceUsd. That figure drifts
+            // from what this line actually cost once a later restock moves
+            // the product's price. Undo that provisional cost's
+            // contribution and replace it with the real FIFO-weighted cost,
+            // scaled by this line's own quantity. This must happen here,
+            // before createTransaction runs (below) — the stamp has to be
+            // right on the first write, or it and sale_items.
+            // cost_price_snapshot_usd (just corrected above) permanently
+            // disagree, and the Profits page (which reads the transaction
+            // stamp) shows the wrong number for a sale that sale_items
+            // itself already has right.
+            const provisionalCostUsd = productMetaByIndex[index].costPriceUsd;
+            saleProfitUsd +=
+              (provisionalCostUsd - weightedUnitCostUsd) * item.quantity;
           }
         });
+
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.SALE,
+          source_table: "sales",
+          source_id: saleId,
+          user_id: userId,
+          // Unified-row amounts carry the sale's VALUE in its denominated
+          // currency (sales are USD-priced), never the tender — the LBP the
+          // customer handed over lives in the payment legs below. Stamping
+          // payment_lbp here double-counted the sale ($5 + 450,000 LBP) in the
+          // audit view and inflated revenue_lbp in profit/session reports.
+          amount_usd: sale.final_amount,
+          amount_lbp: 0,
+          // Item margins − discount, plus any change the operator kept as
+          // profit (T3 keep-change) — stamped per currency at create time so
+          // the generic void's stamp negation reverses it symmetrically. By
+          // this point saleProfitUsd already carries the FIFO correction
+          // applied in the item-processing loop above, so this is the
+          // sale's REAL margin, never the early loop's provisional one.
+          profit_usd: saleProfitUsd + (sale.kept_change_usd || 0),
+          profit_lbp: sale.kept_change_lbp || 0,
+          exchange_rate: sale.exchange_rate,
+          client_id: finalClientId ?? null,
+          // Rule 11: keep the walk-in name/phone on the unified row even when
+          // no clients row could be resolved (lira-094). For-partner sales
+          // label the row with the partner instead (owner ask: the
+          // transactions table shows "<partner> [partner]").
+          client_name:
+            sale.partnerMode === "FOR" && sale.partnerId
+              ? `${getPartnerRepository().getById(sale.partnerId)?.name ?? `#${sale.partnerId}`} [partner]`
+              : (sale.client_name ?? null),
+          client_phone: sale.client_phone ?? null,
+          summary: saleLabel,
+          metadata_json: {
+            total_amount: sale.total_amount,
+            discount: sale.discount,
+            final_amount: sale.final_amount,
+            status,
+            item_count: sale.items.length,
+            items: saleItemDetails,
+          },
+          transaction_time: sale.transaction_time,
+        });
+
+        // Persist payment lines + update running balances (drawer_balances)
+        // - If sale.payments is not provided, we store inferred CASH lines from legacy totals.
+        // - Change is treated as CASH (General drawer) outflow.
+        const paymentLines: PaymentLine[] = sale.payments?.length
+          ? sale.payments
+          : [
+              ...(paymentUsd
+                ? [
+                    {
+                      method: "CASH" as const,
+                      currency_code: "USD",
+                      amount: paymentUsd,
+                    },
+                  ]
+                : []),
+              ...(paymentLbp
+                ? [
+                    {
+                      method: "CASH" as const,
+                      currency_code: "LBP",
+                      amount: paymentLbp,
+                    },
+                  ]
+                : []),
+            ];
+
+        db.prepare(
+          `DELETE FROM payments WHERE tenant_id = ? AND transaction_id IN (SELECT id FROM transactions WHERE tenant_id = ? AND source_table = 'sales' AND source_id = ?)`,
+        ).run(tenantId, tenantId, saleId);
+
+        const insertPayment = {
+          run: (
+            transactionId: number,
+            method: string,
+            drawerName: string,
+            currencyCode: string,
+            amount: number,
+            note: string | null,
+            createdBy: number,
+            tenant: number,
+          ) =>
+            insertPaymentRow(db, {
+              transactionId,
+              method,
+              drawerName,
+              currencyCode,
+              amount,
+              note,
+              createdBy,
+              tenantId: tenant,
+            }),
+        };
+
+        const upsertBalanceDelta = {
+          run: (
+            tenant: number,
+            drawerName: string,
+            currencyCode: string,
+            delta: number,
+          ) =>
+            applyDrawerDelta(db, {
+              drawerName,
+              currencyCode,
+              delta,
+              tenantId: tenant,
+            }),
+        };
+
+        const createdBy = userId;
+        const note = sale.note || null;
+        const deferPayment = sale.deferPayment === true;
+
+        // Split customer-paid (IN) legs from shop-returned change (OUT) legs.
+        // Deferred (session basket): the basket recorder owns the customer-cash
+        // legs, change, gift-card redemption, and debt — skip them all here.
+        const { inLegs, outLegs } = partitionLegs(
+          deferPayment ? [] : paymentLines,
+        );
+
+        for (const p of inLegs) {
+          // DEBT means no drawer movement and should not create a payments row.
+          if (!isDrawerAffectingMethod(p.method)) continue;
+          const drawerName = paymentMethodToDrawerName(p.method);
+          insertPayment.run(
+            txnId,
+            p.method,
+            drawerName,
+            p.currency_code,
+            p.amount,
+            note,
+            createdBy,
+            tenantId,
+          );
+          upsertBalanceDelta.run(
+            tenantId,
+            drawerName,
+            p.currency_code,
+            p.amount,
+          );
+        }
+
+        // Redeem any gift-card / voucher legs atomically with the sale. The
+        // voucher's full value is deposited to the owner's account; the sale's
+        // GIFT_CARD leg is non-drawer, so the unpaid balance becomes a Sale Debt
+        // that the deposited credit offsets.
+        const voucherRepo = getVoucherRepository();
+        for (const p of inLegs) {
+          if (p.method !== "GIFT_CARD" || !p.voucher_code) continue;
+          voucherRepo.redeemByCode({
+            code: p.voucher_code,
+            context: "sale",
+            transactionId: txnId,
+            userId: createdBy,
+          });
+        }
+
+        // Return (OUT) legs: change handed back via a non-cash method or kept as
+        // store credit. Cash change uses the change_given_usd/lbp path below.
+        for (const r of outLegs) {
+          const amt = Math.abs(r.amount);
+          if (amt <= 0) continue;
+          if (r.method === "CUSTOMER_ACCOUNT") {
+            if (!sale.client_id) {
+              throw new Error(
+                "Client is required to return change as store credit",
+              );
+            }
+            getDebtService().addCredit({
+              clientId: sale.client_id,
+              amountUsd: r.currency_code === "USD" ? amt : 0,
+              amountLbp: r.currency_code === "LBP" ? amt : 0,
+              note: "Change returned",
+              userId: createdBy,
+              transactionId: txnId,
+            });
+          } else if (isDrawerAffectingMethod(r.method)) {
+            const drawerName = paymentMethodToDrawerName(r.method);
+            insertPayment.run(
+              txnId,
+              r.method,
+              drawerName,
+              r.currency_code,
+              -amt,
+              "Change returned",
+              createdBy,
+              tenantId,
+            );
+            upsertBalanceDelta.run(tenantId, drawerName, r.currency_code, -amt);
+          }
+        }
+
+        const changeUsd = deferPayment
+          ? 0
+          : Math.abs(sale.change_given_usd || 0);
+        const changeLbp = deferPayment
+          ? 0
+          : Math.abs(sale.change_given_lbp || 0);
+        if (changeUsd) {
+          insertPayment.run(
+            txnId,
+            "CASH",
+            "General",
+            "USD",
+            -changeUsd,
+            "Change given",
+            createdBy,
+            tenantId,
+          );
+          upsertBalanceDelta.run(tenantId, "General", "USD", -changeUsd);
+        }
+        if (changeLbp) {
+          insertPayment.run(
+            txnId,
+            "CASH",
+            "General",
+            "LBP",
+            -changeLbp,
+            "Change given",
+            createdBy,
+            tenantId,
+          );
+          upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
+        }
 
         // Handle Debt (If Partial Payment AND Completed)
         // Deferred (session basket): the basket recorder creates ONE debt entry

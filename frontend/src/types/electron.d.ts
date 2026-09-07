@@ -639,11 +639,29 @@ export interface ElectronAPI {
         new_quantity: number;
         reason: string;
         user_id: number | null;
+        /** Migration v165: null except for a real delivery
+         *  (ProductRepository.receiveStock) — no cost applies to a plain
+         *  increase/decrease/set-absolute correction, and a pre-v165 row
+         *  never recorded one. */
+        unit_cost_usd: number | null;
         username: string | null;
         created_at: string;
         updated_at: string;
       }>
     >;
+    /** A product's remaining cost batches (FIFO/oldest-first) — "where are
+     *  my other units and what did each one cost" (owner report
+     *  2026-09-07). Safe to reference the real core entity directly here
+     *  (unlike frontend/src/api/backendApi.ts, ElectronApiAdapter.ts and
+     *  packages/ui/src/api/types.ts, which hand-mirror it structurally
+     *  instead): this ambient .d.ts is type-checked against @liratek/core's
+     *  real "types" package-entry (dist/index.d.ts) — it is never bundled by
+     *  Vite nor loaded by frontend jest, so the browser.ts-only entrypoint
+     *  those tools alias to doesn't apply here, same as the
+     *  Product/ProductListFilters references already used above. */
+    getOpenStockBatches: (
+      productId: number,
+    ) => Promise<Array<import("@liratek/core").StockBatchEntity>>;
     /** Supplier stock intake (SUPPLIER_STOCK_INTAKE_PLAN.md) — raises stock,
      *  writes a cost batch, and books a supplier_ledger debit unless
      *  is_old_stock or no supplier is set. */

@@ -10199,6 +10199,74 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v165 — unit cost on stock_adjustments (owner-reported 2026-09-07)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 165,
+    name: "add_unit_cost_to_stock_adjustments",
+    description:
+      "Owner report 2026-09-07: receiving 2 iPhones at $1,300 on top of 2 already held at " +
+        "$1,200 is booked correctly (two cost batches, four units), but the adjustment history " +
+        "row reads '+2 (2 -> 4)' with no mention of the $1,300 because stock_adjustments has no " +
+        "cost column. Adds unit_cost_usd, NULLABLE with NO backfill: historical adjustments " +
+        "never recorded a cost, and inventing one for them would be fabricating financial " +
+        "history. Only ProductRepository.receiveStock (a real delivery with a known unit cost) " +
+        "writes it going forward; the plain increase/decrease/correction paths " +
+        "(adjustStock/adjustStockDelta/decreaseStockForAdjustment) keep writing NULL because no " +
+        "cost applies to shrinkage or a plain count correction.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasTable = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stock_adjustments'`,
+        )
+        .get();
+      if (!hasTable) {
+        console.log(
+          "Migration v165 skipped: 'stock_adjustments' table not present",
+        );
+        return;
+      }
+
+      db.exec(
+        `ALTER TABLE stock_adjustments ADD COLUMN unit_cost_usd DECIMAL(10,2) DEFAULT NULL`,
+      );
+
+      console.log(
+        "Migration v165: stock_adjustments.unit_cost_usd added (nullable, no backfill)",
+      );
+    },
+    down(db: Database.Database) {
+      const hasTable = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stock_adjustments'`,
+        )
+        .get();
+      if (!hasTable) {
+        console.log(
+          "Migration v165 rollback skipped: 'stock_adjustments' table not present",
+        );
+        return;
+      }
+
+      // Same native DROP COLUMN this codebase already uses for v157's
+      // rollback (products.warranty_months / product_categories.
+      // tracks_imei_units / sale_items.warranty_until) — no CHECK/index
+      // touches this column, so a full table rebuild (v131/v164's technique)
+      // is unnecessary here; SQLite's own ALTER ... DROP COLUMN suffices.
+      const cols = db
+        .prepare("PRAGMA table_info(stock_adjustments)")
+        .all() as { name: string }[];
+      if (cols.some((c) => c.name === "unit_cost_usd")) {
+        db.exec(`ALTER TABLE stock_adjustments DROP COLUMN unit_cost_usd`);
+      }
+
+      console.log(
+        "Migration v165 rolled back: stock_adjustments.unit_cost_usd dropped",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

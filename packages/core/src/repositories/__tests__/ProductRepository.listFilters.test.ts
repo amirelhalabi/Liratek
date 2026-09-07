@@ -34,6 +34,16 @@ type TestGlobal = typeof globalThis & {
  * POS, the low-stock report and `findProductsPaginated` all ride on it.
  * A deliberate change to the base query is expected to update this string
  * and to update `findProductDtoById`'s SELECT list in the same commit.
+ *
+ * Re-pinned for migration v165: `findAllProducts` now always SELECTs
+ * `ProductRepository.COST_TIERS_SUBQUERY AS cost_tiers` — a correlated
+ * subquery counting DISTINCT unit costs among a product's still-open
+ * `product_stock_batches` rows — as part of the base SELECT list, for every
+ * caller, filtered or not (the inventory list, the primary consumer, always
+ * needs the value; see the subquery's own doc comment on `ProductRepository`
+ * for why it isn't conditional). That is exactly the "deliberate change to
+ * the base query" this comment already calls out above, so the string below
+ * was updated to match rather than left stale.
  */
 const PRE_FILTER_UNFILTERED_SQL =
   `
@@ -46,7 +56,12 @@ const PRE_FILTER_UNFILTERED_SQL =
           p.category_id,
           p.warranty_months,
           COALESCE(pc.name, p.category) as category,
-          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units
+          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units,
+          (SELECT COUNT(DISTINCT b.unit_cost_usd)
+     FROM product_stock_batches b
+    WHERE b.product_id = p.id
+      AND b.tenant_id = p.tenant_id
+      AND b.quantity_remaining > 0) AS cost_tiers
         FROM products p
         LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
         WHERE p.is_active = 1 AND p.is_deleted = 0
@@ -142,6 +157,33 @@ function createTestDb(): Database.Database {
       status       TEXT NOT NULL DEFAULT 'IN_STOCK',
       created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- v165 (ProductRepository.COST_TIERS_SUBQUERY): findAllProducts now
+    -- always SELECTs a correlated subquery counting distinct open-batch unit
+    -- costs from product_stock_batches. SQLite validates a correlated
+    -- subquery's referenced table at PREPARE time regardless of row count,
+    -- so a missing table throws even though nothing here ever seeds a batch.
+    -- No REFERENCES clauses (unlike products/product_units above) — this
+    -- fixture never inserts a row here, and core jest runs with
+    -- foreign_keys=ON, so a REFERENCES target that stays empty is fine, but
+    -- the house convention (CustomServiceRepository.stock.test.ts) is plain
+    -- columns for these two tables regardless.
+    CREATE TABLE product_stock_batches (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER DEFAULT 1,
+      product_id         INTEGER NOT NULL,
+      supplier_id        INTEGER,
+      quantity           INTEGER NOT NULL,
+      quantity_remaining INTEGER NOT NULL,
+      unit_cost_usd      DECIMAL(10,2) NOT NULL DEFAULT 0,
+      books_debt         INTEGER NOT NULL DEFAULT 0,
+      ledger_entry_id    INTEGER,
+      transaction_id     INTEGER,
+      is_opening         INTEGER NOT NULL DEFAULT 0,
+      created_by         INTEGER,
+      created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
   return db;

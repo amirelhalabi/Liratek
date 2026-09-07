@@ -51,6 +51,13 @@ interface BatchUpdateFields {
   unit?: string;
 }
 
+/** `cost_tiers` isn't declared on the shared `Product` type — @liratek/core's
+ *  browser entrypoint exports `ProductEntity`, not the richer `ProductDTO` —
+ *  but `getProducts()`'s query aliases the column directly. Optional:
+ *  undefined means "not asked", never "single cost" (owner report
+ *  2026-09-07). */
+type ProductRow = Product & { cost_tiers?: number };
+
 /** Shape of one record in a .toon import file */
 interface ToonRecord {
   category?: string;
@@ -180,7 +187,7 @@ function parseToonFile(text: string): ToonRecord[] {
 export default function ProductList() {
   const api = useApi();
   const navigate = useNavigate();
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<ProductRow[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   /** All product-list filters. The BACKEND applies them (SQL), so `products`
@@ -382,7 +389,7 @@ export default function ProductList() {
         search,
         buildProductListFilters(filters),
       );
-      setProducts(data as unknown as Product[]);
+      setProducts(data as unknown as ProductRow[]);
     } catch (error) {
       logger.error("Failed to load products:", error);
       // Surface it — a swallowed failure here looks exactly like "the list
@@ -1161,6 +1168,11 @@ export default function ProductList() {
                 </td>
                 <td className="p-4 text-slate-400">
                   ${(product.cost_price ?? 0).toFixed(2)}
+                  {product.cost_tiers != null && product.cost_tiers > 1 && (
+                    <span className="block text-[10px] text-slate-500">
+                      mixed cost
+                    </span>
+                  )}
                 </td>
                 <td className="p-4 text-green-400 font-medium">
                   ${(product.retail_price ?? 0).toFixed(2)}

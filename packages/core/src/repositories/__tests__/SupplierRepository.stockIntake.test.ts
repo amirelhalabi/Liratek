@@ -157,16 +157,22 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE stock_adjustments (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      tenant_id    INTEGER,
-      product_id   INTEGER NOT NULL,
-      delta        INTEGER NOT NULL,
-      old_quantity INTEGER NOT NULL,
-      new_quantity INTEGER NOT NULL,
-      reason       TEXT NOT NULL,
-      user_id      INTEGER,
-      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id     INTEGER,
+      product_id    INTEGER NOT NULL,
+      delta         INTEGER NOT NULL,
+      old_quantity  INTEGER NOT NULL,
+      new_quantity  INTEGER NOT NULL,
+      reason        TEXT NOT NULL,
+      user_id       INTEGER,
+      -- v165: nullable, no backfill — receiveStock's
+      -- getStockAdjustmentRepository().create(...) call always passes a
+      -- real unit_cost_usd, and StockAdjustmentRepository.create()'s INSERT
+      -- column list references this column unconditionally, so its absence
+      -- fails db.prepare() for every receiveStock() call in this suite.
+      unit_cost_usd DECIMAL(10,2) DEFAULT NULL,
+      created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE transactions (

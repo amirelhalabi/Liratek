@@ -484,6 +484,13 @@ export type StockAdjustmentEntity = {
   reason: string;
   user_id: number | null;
   username: string | null;
+  /** Migration v165. Set only when the change was a delivery through
+   *  `receiveStock`; null on corrections and on every pre-v165 row, which
+   *  never recorded a cost. Third hand-kept copy of this shape (see also
+   *  `packages/ui/src/api/types.ts` and `frontend/src/types/electron.d.ts`) —
+   *  all three must gain a field together or `ElectronApiAdapter` stops
+   *  satisfying `ApiAdapter`. */
+  unit_cost_usd: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -528,6 +535,56 @@ export async function getStockAdjustments(
         data?: { adjustments?: StockAdjustmentEntity[] };
       }>(`/api/inventory/stock-adjustments?${qs.toString()}`);
       return (res.data ?? res).adjustments ?? [];
+    },
+  );
+}
+
+/**
+ * One row of a product's remaining cost batches — a product can hold stock
+ * bought at several different prices (owner report 2026-09-07: 2 iPhones
+ * received at $1,300 on top of 2 already held at $1,200, with no way to see
+ * the split). Mirrors `StockBatchEntity`
+ * (packages/core/src/repositories/StockBatchRepository.ts) field-for-field,
+ * hand-kept in sync — NOT imported directly, since `@liratek/core` resolves
+ * to browser.ts for Vite and frontend jest and this entity isn't (and
+ * needn't be) exported there.
+ */
+export type StockBatchRow = {
+  id: number;
+  tenant_id: number;
+  product_id: number;
+  supplier_id: number | null;
+  quantity: number;
+  quantity_remaining: number;
+  unit_cost_usd: number;
+  books_debt: number;
+  ledger_entry_id: number | null;
+  transaction_id: number | null;
+  is_opening: number;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A product's remaining cost batches, FIFO/oldest-first — mirrors IPC
+ *  `inventory:get-open-stock-batches` / REST
+ *  `GET /api/inventory/products/:id/stock-batches`
+ *  (InventoryService.getOpenStockBatches). Read returns the RAW array on
+ *  both transports: REST wraps in `createSuccessResponse({ batches })`,
+ *  unwrapped here to match the IPC channel's raw-array shape (same pattern
+ *  as getStockAdjustments above). */
+export async function getOpenStockBatches(
+  productId: number,
+): Promise<StockBatchRow[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.getOpenStockBatches(productId),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        batches?: StockBatchRow[];
+        data?: { batches?: StockBatchRow[] };
+      }>(`/api/inventory/products/${productId}/stock-batches`);
+      return (res.data ?? res).batches ?? [];
     },
   );
 }

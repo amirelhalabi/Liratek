@@ -635,13 +635,13 @@ ${labels}
                 </datalist>
               </div>
 
-              {/* Row 3: Supplier (+ old-stock checkbox) | Quantity */}
+              {/* Row 3: Supplier (+ compact "Old" toggle) | Quantity */}
               <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">
-                  Supplier
-                </label>
-                <div className="flex items-start gap-3">
+                <div className="flex gap-2">
                   <div className="flex-1">
+                    <label className="block text-sm font-medium text-slate-400 mb-1">
+                      Supplier
+                    </label>
                     <input
                       type="text"
                       list="supplier-options"
@@ -666,25 +666,21 @@ ${labels}
                       ))}
                     </datalist>
                   </div>
-                  {/* Owner's headline request, quoted verbatim: "a checkbox
-                      right to the supplier field 'old'; if clicked, that
-                      means the entry is for an old product and should not
-                      affect the supplier account balance." Shown only when
-                      a supplier is actually filled — with no supplier there
-                      is no debt to skip in the first place. */}
-                  {formData.supplier?.trim() && (
-                    <label className="flex items-start gap-2 pt-2.5 shrink-0 max-w-[45%]">
-                      <input
-                        type="checkbox"
-                        checked={isOldStock}
-                        onChange={(e) => setIsOldStock(e.target.checked)}
-                        className="mt-0.5 accent-violet-600"
-                      />
-                      <span className="text-xs text-slate-400 leading-snug">
-                        Old stock — don't add to supplier debt
-                      </span>
+                  <div className="shrink-0">
+                    <label className="block text-sm font-medium text-slate-400 mb-1">
+                      Old
                     </label>
-                  )}
+                    {/* mt-[11px] centres the 16px box against the 38px input
+                        beside it — not cosmetic spacing. */}
+                    <input
+                      type="checkbox"
+                      checked={isOldStock}
+                      onChange={(e) => setIsOldStock(e.target.checked)}
+                      title="Old stock — don't add to supplier debt"
+                      aria-label="Old stock — don't add to supplier debt"
+                      className="w-4 h-4 mt-[11px] rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
+                    />
+                  </div>
                 </div>
               </div>
 

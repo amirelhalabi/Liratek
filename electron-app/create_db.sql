@@ -1859,6 +1859,10 @@ CREATE TABLE IF NOT EXISTS stock_adjustments (
     new_quantity INTEGER NOT NULL,
     reason TEXT NOT NULL,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    -- v165: nullable, NO backfill — historical adjustments never recorded a
+    -- cost. Only receiveStock (a real delivery) writes it; plain
+    -- increase/decrease/set-absolute corrections keep writing NULL.
+    unit_cost_usd DECIMAL(10,2) DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -2046,4 +2050,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- value directly, so a fresh DB needs no separate UPDATE — verified
     -- against the 'omt_whish' row's route column.
     (162, 'rename_omt_whish_route_to_omt_whish'),
-    (164, 'add_product_stock_batches_and_intake_ledger_type');
+    (164, 'add_product_stock_batches_and_intake_ledger_type'),
+    -- v165 adds stock_adjustments.unit_cost_usd (nullable) — already declared
+    -- on the table above, so a fresh DB needs no separate ALTER.
+    (165, 'add_unit_cost_to_stock_adjustments');

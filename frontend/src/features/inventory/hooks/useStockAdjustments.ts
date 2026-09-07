@@ -12,11 +12,29 @@ export const STOCK_ADJUSTMENT_KEYS = {
   byProduct: (productId: number) => ["stock-adjustments", productId] as const,
 };
 
+/** A product's remaining cost batches (owner report 2026-09-07). */
+export const STOCK_BATCH_KEYS = {
+  byProduct: (productId: number) => ["stock-batches", productId] as const,
+};
+
 export function useStockAdjustmentsQuery(productId: number | null) {
   const api = useApi();
   return useQuery({
     queryKey: STOCK_ADJUSTMENT_KEYS.byProduct(productId ?? 0),
     queryFn: () => api.getStockAdjustments(productId ?? undefined),
+    enabled: !!productId,
+    select: (data) => data ?? [],
+  });
+}
+
+/** A product's remaining cost batches, FIFO/oldest-first — "where are the
+ *  other units and what did each cost" (owner report 2026-09-07). Same
+ *  gating as the history query above: no fetch without a real product. */
+export function useOpenStockBatchesQuery(productId: number | null) {
+  const api = useApi();
+  return useQuery({
+    queryKey: STOCK_BATCH_KEYS.byProduct(productId ?? 0),
+    queryFn: () => api.getOpenStockBatches(productId ?? 0),
     enabled: !!productId,
     select: (data) => data ?? [],
   });
@@ -37,6 +55,9 @@ export function useAdjustStockMutation() {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({
         queryKey: STOCK_ADJUSTMENT_KEYS.byProduct(variables.id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: STOCK_BATCH_KEYS.byProduct(variables.id),
       });
     },
   });
@@ -68,6 +89,9 @@ export function useReceiveStockMutation() {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({
         queryKey: STOCK_ADJUSTMENT_KEYS.byProduct(variables.product_id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: STOCK_BATCH_KEYS.byProduct(variables.product_id),
       });
     },
   });

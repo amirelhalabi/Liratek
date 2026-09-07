@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { X, PackagePlus, History, Loader2 } from "lucide-react";
+import { X, PackagePlus, History, Loader2, Layers } from "lucide-react";
 import { appEvents } from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import logger from "@/utils/logger";
@@ -7,6 +7,7 @@ import {
   useAdjustStockMutation,
   useReceiveStockMutation,
   useStockAdjustmentsQuery,
+  useOpenStockBatchesQuery,
 } from "../hooks/useStockAdjustments";
 import { useRegisterUnitsMutation } from "../hooks/useProductUnits";
 import { ImeiAddRow, type ImeiAddRowResult } from "./ImeiAddRow";
@@ -81,6 +82,11 @@ export default function AdjustStockModal({
   const [step, setStep] = useState<Step>("form");
   const [pendingIncrease, setPendingIncrease] = useState(0);
   const [scannedImeis, setScannedImeis] = useState<string[]>([]);
+  // The stock change is already committed to the DB by the time the intake
+  // step appears — any exit after that point (X, Cancel, backdrop) must
+  // refresh the caller's list too, not just close.
+  const [committed, setCommitted] = useState(false);
+  const handleDismiss = committed ? onSuccess : onClose;
 
   const adjustStock = useAdjustStockMutation();
   const receiveStock = useReceiveStockMutation();
@@ -90,6 +96,11 @@ export default function AdjustStockModal({
     isLoading: historyLoading,
     isError: historyError,
   } = useStockAdjustmentsQuery(product.id);
+  const {
+    data: batches = [],
+    isLoading: batchesLoading,
+    isError: batchesError,
+  } = useOpenStockBatchesQuery(product.id);
 
   const currentStock = product.stock_quantity ?? 0;
 
@@ -173,6 +184,8 @@ export default function AdjustStockModal({
         return;
       }
 
+      setCommitted(true);
+
       appEvents.emit(
         "notification:show",
         `Stock adjusted for "${product.name}"`,
@@ -241,7 +254,7 @@ export default function AdjustStockModal({
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleDismiss}
             className="text-slate-400 hover:text-white"
             aria-label="Close"
           >
@@ -384,7 +397,7 @@ export default function AdjustStockModal({
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleDismiss}
                   className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm"
                 >
                   Cancel
@@ -440,6 +453,37 @@ export default function AdjustStockModal({
             </div>
           )}
 
+          {/* Only worth a section once there's a split to show — a single
+              batch says nothing the "Current stock" row above doesn't. */}
+          {!batchesLoading && !batchesError && batches.length >= 2 && (
+            <div className="border-t border-slate-700 pt-4">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-2">
+                <Layers size={14} className="text-slate-400" />
+                Cost Batches
+              </h3>
+              <p className="text-xs text-slate-500 mb-2">
+                Oldest stock sells first — batches are listed oldest to
+                newest.
+              </p>
+              <div className="space-y-2 max-h-32 overflow-y-auto">
+                {batches.map((batch) => (
+                  <div
+                    key={batch.id}
+                    className="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2 text-xs"
+                  >
+                    <span className="text-white font-semibold">
+                      {batch.quantity_remaining} units @ $
+                      {batch.unit_cost_usd.toFixed(2)}
+                    </span>
+                    <span className="text-slate-500">
+                      {parseDbDate(batch.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="border-t border-slate-700 pt-4">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">
               <History size={14} className="text-slate-400" />
@@ -479,7 +523,12 @@ export default function AdjustStockModal({
                         }`}
                       >
                         {adj.delta > 0 ? "+" : ""}
-                        {adj.delta} ({adj.old_quantity} → {adj.new_quantity})
+                        {adj.delta}
+                        {/* unit_cost_usd is null on every pre-existing row and
+                            on any non-delivery correction — omit, don't guess */}
+                        {adj.unit_cost_usd != null &&
+                          ` @ $${adj.unit_cost_usd.toFixed(2)}`}{" "}
+                        ({adj.old_quantity} → {adj.new_quantity})
                       </span>
                       <span className="text-slate-500">
                         {parseDbDate(adj.created_at).toLocaleString()}

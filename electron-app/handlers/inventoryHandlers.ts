@@ -440,6 +440,25 @@ export function registerInventoryHandlers(): void {
     },
   );
 
+  // A product's remaining cost batches, FIFO/oldest-first — "where are my
+  // other units, and what did each one cost" (owner report 2026-09-07: 2
+  // iPhones received at $1,300 on top of 2 already held at $1,200, with no
+  // way to see the split). Read-only passthrough to
+  // InventoryService.getOpenStockBatches -> StockBatchRepository
+  // .listOpenByProduct (rule 13/14 — no query logic duplicated here). Raw
+  // array, no {success,data} envelope, same as get-stock-adjustments above.
+  ipcMain.handle(
+    "inventory:get-open-stock-batches",
+    (_event, productId: number) => {
+      try {
+        return service.getOpenStockBatches(productId);
+      } catch (error) {
+        inventoryLogger.error({ error }, "Failed to get open stock batches");
+        return [];
+      }
+    },
+  );
+
   // ---------------------------------------------------------------------------
   // Reporting (No auth required)
   // ---------------------------------------------------------------------------

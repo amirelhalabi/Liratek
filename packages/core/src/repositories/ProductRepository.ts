@@ -69,6 +69,14 @@ export interface ProductDTO {
   /** LIRA-143 v157 (decision #4): duration on the MODEL; NULL = no
    *  warranty. The clock starts at sale time, not here. */
   warranty_months: number | null;
+  /** Count of DISTINCT unit costs among this product's open (quantity_
+   *  remaining > 0) stock batches — 0/1 = single cost, 2+ = mixed-cost
+   *  stock the list should flag. Correlated subquery, not a per-row fetch:
+   *  see `StockBatchRepository.listOpenByProduct` for the actual batches.
+   *  Optional (not every ProductDTO source computes it — e.g. `search()`'s
+   *  narrower SELECT list, or a hand-built test fixture); treat a missing
+   *  value as "unknown", not "single cost". */
+  cost_tiers?: number;
 }
 
 export interface CreateProductData {
@@ -203,6 +211,22 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   private static readonly PROFIT_PCT_EXPR = `CASE WHEN p.cost_price_usd > 0 THEN (p.selling_price_usd - p.cost_price_usd) * 100.0 / p.cost_price_usd WHEN p.selling_price_usd > 0 THEN 100 ELSE 0 END`;
 
+  /**
+   * Number of DISTINCT unit costs among a product's still-open stock
+   * batches — the list's "mixed cost" flag. A correlated subquery (one
+   * scalar per product row) rather than a per-product batch fetch from the
+   * frontend, so the list stays one query regardless of row count; a caller
+   * that needs the actual batches uses `StockBatchRepository.
+   * listOpenByProduct` instead. Tenant-scoped on both sides of the join
+   * (rule: CI's tenant-scoping linter checks every query, not just the
+   * outer one).
+   */
+  private static readonly COST_TIERS_SUBQUERY = `(SELECT COUNT(DISTINCT b.unit_cost_usd)
+     FROM product_stock_batches b
+    WHERE b.product_id = p.id
+      AND b.tenant_id = p.tenant_id
+      AND b.quantity_remaining > 0)`;
+
   /** `(?, ?, ?)` for a dynamic `IN` list — placeholders only, never values. */
   private static placeholders(count: number): string {
     return Array.from({ length: count }, () => "?").join(", ");
@@ -325,7 +349,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           p.category_id,
           p.warranty_months,
           COALESCE(pc.name, p.category) as category,
-          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units
+          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units,
+          ${ProductRepository.COST_TIERS_SUBQUERY} AS cost_tiers
         FROM ${this.tableName} p
         LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
         WHERE ${ProductRepository.LISTABLE_PRODUCTS_WHERE}
@@ -471,7 +496,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           p.category_id,
           p.warranty_months,
           COALESCE(pc.name, p.category) as category,
-          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units
+          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units,
+          ${ProductRepository.COST_TIERS_SUBQUERY} AS cost_tiers
         FROM ${this.tableName} p
         LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
         WHERE p.id = ? AND p.is_active = 1 AND p.is_deleted = 0 AND p.tenant_id = ?
@@ -688,6 +714,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         new_quantity: newQuantity,
         reason: data.reason?.trim() || "Stock received",
         user_id: data.created_by,
+        unit_cost_usd: data.unit_cost_usd,
       });
 
       return this.bookIntakeAndBatch({
@@ -1082,6 +1109,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
             new_quantity: newQuantity,
             reason,
             user_id: userId,
+            unit_cost_usd: null,
           });
         }
         return result.changes > 0;
@@ -1131,6 +1159,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
             new_quantity: newQuantity,
             reason,
             user_id: userId,
+            unit_cost_usd: null,
           });
         }
         return result.changes > 0;

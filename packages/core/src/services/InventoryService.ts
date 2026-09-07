@@ -20,6 +20,8 @@ import {
   getProductUnitRepository,
   CategoryRepository,
   getCategoryRepository,
+  StockBatchRepository,
+  getStockBatchRepository,
   type ProductDTO,
   type CreateProductData,
   type UpdateProductData,
@@ -29,6 +31,7 @@ import {
   type ProductFilterOptions,
   type StockAdjustmentWithUser,
   type ProductUnitEntity,
+  type StockBatchEntity,
 } from "../repositories/index.js";
 import type { ProductListFilters } from "../validators/product.js";
 import { ValidationError, NotFoundError } from "../utils/errors.js";
@@ -92,6 +95,7 @@ export class InventoryService {
   private productRepo: ProductRepository;
   private stockAdjustmentRepo: StockAdjustmentRepository;
   private productUnitRepo: ProductUnitRepository;
+  private stockBatchRepo: StockBatchRepository;
   /**
    * Injected override for the category repo, or `null` until the default
    * singleton is resolved on first use. Deliberately NOT resolved in the
@@ -108,12 +112,14 @@ export class InventoryService {
     stockAdjustmentRepo?: StockAdjustmentRepository,
     productUnitRepo?: ProductUnitRepository,
     categoryRepo?: CategoryRepository,
+    stockBatchRepo?: StockBatchRepository,
   ) {
     this.productRepo = productRepo ?? getProductRepository();
     this.stockAdjustmentRepo =
       stockAdjustmentRepo ?? getStockAdjustmentRepository();
     this.productUnitRepo = productUnitRepo ?? getProductUnitRepository();
     this.categoryRepoRef = categoryRepo ?? null;
+    this.stockBatchRepo = stockBatchRepo ?? getStockBatchRepository();
   }
 
   private get categoryRepo(): CategoryRepository {
@@ -831,6 +837,17 @@ export class InventoryService {
       return this.stockAdjustmentRepo.getByProduct(productId);
     }
     return this.stockAdjustmentRepo.getRecent();
+  }
+
+  /**
+   * A product's remaining cost batches (FIFO order, oldest first) — "where
+   * are the other units and what did each one cost" (owner report
+   * 2026-09-07). Passthrough only: `StockBatchRepository.listOpenByProduct`
+   * already holds the query and the FIFO ordering (rule 13/14 — no second
+   * copy of either here).
+   */
+  getOpenStockBatches(productId: number): StockBatchEntity[] {
+    return this.stockBatchRepo.listOpenByProduct(productId);
   }
 
   /**
