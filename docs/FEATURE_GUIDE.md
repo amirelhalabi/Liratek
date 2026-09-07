@@ -534,8 +534,27 @@ later designs exist to fix it, by different means.
 - Source of truth: `transactions.profit_usd` / `profit_lbp`, aggregated per module by
   `profits.summary` — a flow that never stamps profit is invisible to the page (loto and
   maintenance both had this bug).
-- Admin-only in **three layers**: nav (module `admin_only=1`), route (`<AdminRoute>`),
-  and IPC (`requireRole(["admin"])`) — lira-071.
+- **Password-gated, NOT admin-only** (LIRA-177). This SUPERSEDES the old three-layer
+  admin gate: the `profits` module row is `admin_only=0` (both roles see the nav item,
+  migration v163), the route is `<ProtectedRoute>` wrapped in `ProfitsPasswordGate`, and
+  the 7 profit IPC channels / REST routes require a live **password unlock** instead of
+  the admin role — admin is prompted too, on every visit. Fail-closed: with no password
+  set, nobody enters. The unlock is server-side (per-webContents on desktop, per
+  tenant+user on web) with a 15-minute TTL via the shared `isProfitsUnlockLive`;
+  navigating away from /profits revokes it. An admin sets the password in
+  Settings › Profits Password.
+- The scrypt hash lives in `system_settings` under `profits_password_hash`, and
+  `SettingsService` redacts that key from every read AND refuses to write it. That
+  redaction is **load-bearing, not defensive**: `GET /api/settings` is deliberately
+  unauthenticated (the web login screen reads the shop name pre-auth) and the
+  `settings:get-all` / `db:get-setting` IPC channels carry no role check, so an
+  unguarded secret in that table is world-readable. `PUT /api/settings/:key` also has
+  `authenticateJWT` but no `requireRole` (LIRA-178), which is why the write guard exists.
+- Guards: lira-071 (desktop gate), lira-web-029 (web), `profitsGate.api.test.ts` (REST
+  incl. TTL expiry), `SettingsService.profitsRedaction.test.ts`, `profitsAccess.test.ts`.
+- The 7 profit channels double as a profit **oracle** for 12 unrelated money specs. Those
+  must call `ensureProfitsUnlocked()` first — and per-IPC-read rather than once per test
+  if the spec also visits /profits, because the gate's unmount revokes the unlock.
 - Discounts reduce profit; per-item refund of a discounted sale nets to exactly 0.
 - USD and LBP profits are tracked **separately** per module (an LBP maintenance job
   books `profit_lbp`; summing only `profit_usd` loses it).

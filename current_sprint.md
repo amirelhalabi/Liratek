@@ -3647,9 +3647,9 @@ re-texted (rule 14); and LIRA-174's PDF label updated once the figure is genuine
 
 ## LIRA-177: Profits page visible to all roles, gated by a separate per-page password — MEDIUM — SHIPPED, VERIFICATION PARTIAL (2026-09-07)
 
-**Priority:** Medium · **Epic:** Profits / Auth · **Status:** PARTIAL — feature complete and desktop
-e2e green; core jest and the whole web transport are UNVERIFIED (see §5). Do not mark DONE until §5
-is closed.
+**Priority:** Medium · **Epic:** Profits / Auth · **Status:** PARTIAL — feature complete; desktop
+e2e green; core jest + REST route tests now green (`e257d3af`). **One gap left before DONE:**
+`lira-web-029` has never been run, so rule 19d (prove it in web mode) is unsatisfied. See §5.
 
 **Commits (all on `main`):** `12c3dd72` feature · `c074843f` Suspense revoke fix · `a36850a4`
 lira-120/158 spec fixes · `a079bc79` gate-state wait fix.
@@ -3706,16 +3706,27 @@ ticket.**
 
 ### 5. Verification gaps — the reason this is PARTIAL, not DONE
 
-- **Core jest never executed.** `ProfitsAccessService.test.ts` and
-  `SettingsService.profitsRedaction.test.ts` have never run: `node_modules` is missing `@babel/*`, so
-  jest cannot start (needs `yarn install`). These cover the §3 redaction — the least acceptable thing
-  to leave hypothetical.
-- **Web transport has zero automated coverage.** `lira-web-029` written but the web suite never run
-  (rule 19d unproven), and the backend REST route tests were never written at all.
-- **The 15-minute TTL is untested in both transports**, as is the client-side auto-relock timer. Both
-  helpers already take an injectable `now` for exactly this.
-- **Docs not updated:** `FEATURE_GUIDE.md`, `WEB_PARITY_ROADMAP.md`, and the new
-  `PROFITS_UNLOCK_RATE_LIMIT_MAX` env var.
+- ~~**Core jest never executed.**~~ **CLOSED 2026-09-07** (`e257d3af`) — owner ran `yarn install`;
+  both suites now pass (12 tests) and were additionally proven against the buggy code per rule 17:
+  emptying `SENSITIVE_SETTING_KEYS` fails all 4 redaction guards while the normal-key control still
+  passes, so they detect the guard's removal without being over-broad.
+- ~~**Web transport has zero automated coverage.**~~ **PARTIALLY CLOSED** (`e257d3af`) —
+  `backend/src/api/__tests__/profitsGate.api.test.ts` adds 14 REST tests (staff-403 on set-password,
+  fail-closed, locked-403, both-roles-unlock-then-read, TTL expiry). **STILL OPEN:** `lira-web-029`
+  has never been run, so rule 19d remains unsatisfied. Needs `yarn test:e2e:web` — note that does
+  `rebuild:node` and flips the native ABI, so the `yarn dev` cycle is required again before any
+  desktop e2e afterwards.
+- ~~**The 15-minute TTL is untested**~~ **CLOSED 2026-09-07** (`e257d3af`) — and it turned out the
+  predicate `now - stamp < PROFITS_UNLOCK_TTL_MS` was copy-pasted into THREE sites (rule 14
+  violation introduced by this very feature), which is why it had no testable home. Extracted to
+  core's `isProfitsUnlockLive(unlockedAt, now)`, all three sites delegate to it, 8 unit tests cover
+  the boundary — **exactly at** the TTL is EXPIRED (strict `<`); do not "tidy" it to `<=`.
+  **STILL OPEN:** the client-side auto-relock timer in `ProfitsPasswordGate` has no test.
+- ~~**Docs not updated**~~ **CLOSED 2026-09-07** — `FEATURE_GUIDE.md` §10 (its "admin-only in three
+  layers" bullet was left factually WRONG by this feature and is now corrected, not merely
+  appended to), the `WEB_PARITY_ROADMAP.md` step-2 table, and `PROFITS_UNLOCK_RATE_LIMIT_MAX` in
+  `.env.deploy.example`. Deliberately NOT added to `docs/DEPLOYMENT.md`'s env checklist — that list
+  is the "at minimum" REQUIRED vars, and this one has a working default.
 - **Known design limit (documented, not fixed):** the web unlock map is per-process, so an unlock
   granted on one worker is invisible to another. Fine for today's single-process backend; needs shared
   storage before running multiple workers.
@@ -4057,3 +4068,47 @@ actually RUN (clearing `admin_only` on the `profits` module) rather than being r
 applied via the fresh schema, so a fresh DB and an upgraded DB can diverge in module visibility. Rule
 10 wants both files updated. This is framed as **the owner's call** — whether `profits` should be
 staff-visible on a brand-new install is a product decision, not something to fix unilaterally.
+
+---
+
+## LIRA-178: `PUT /api/settings/:key` has `authenticateJWT` but no `requireRole` — any staff user can write any setting — MEDIUM
+
+**Priority:** Medium · **Epic:** Auth / Settings · **Status:** TODO · **Found:** 2026-09-07, while
+building LIRA-177 (pre-existing; **not** introduced by that ticket)
+
+`backend/src/api/settings.ts` mounts `router.use(authenticateJWT)` and then defines
+`PUT /:key` with **no role check**. Every other admin-ish write path in that layer pairs
+`authenticateJWT` with `requireRole(["admin"])`; this one does not. So any authenticated
+user — `staff` included — can write **any** row in `system_settings` over REST.
+
+**Verified against source, not inferred:** the IPC twins are gated and the REST route is not,
+which is also a rule-19c role-parity break, not only a hole:
+
+| Surface                        | Guard                                             |
+| ------------------------------ | ------------------------------------------------- |
+| IPC `db:update-setting`        | `requireRole(e.sender.id, ["admin"])`             |
+| IPC `settings:update`          | `requireRole(e.sender.id, ["admin"])`             |
+| REST `PUT /api/settings/:key`  | `authenticateJWT` only — **no `requireRole`**     |
+
+**Why it is not already exploitable for the profits password.** LIRA-177 needed to store a secret
+in `system_settings`, so `SettingsService.updateSetting` now *rejects* writes to
+`SENSITIVE_SETTING_KEYS` outright — that write guard exists precisely because this route could not
+be trusted. That closes the one key that matters most and closes nothing else: `shop_base_system`,
+`setup_complete`, every feature flag, and the shop identity remain writable by any staff account
+over REST. A staff user flipping `setup_complete` to `0`, for instance, sends the app back into the
+setup wizard.
+
+**Fix.** Add `requireRole(["admin"])` to `PUT /:key` (after the existing `authenticateJWT`), matching
+the IPC twins. Then decide the same question for `GET /:key`, which is authenticated but ungated —
+reads are far less dangerous now that sensitive keys are redacted service-side, so leaving it open
+may be deliberate; make it an explicit decision with a comment either way rather than an accident.
+
+**Do NOT remove the `SENSITIVE_SETTING_KEYS` write guard once this lands.** It is defence in depth
+for a table reachable from three separate ungated surfaces (`GET /api/settings` is deliberately
+unauthenticated, and the `settings:get-all` / `db:get-setting` IPC channels have no role check).
+
+**Acceptance.** A failing-first test per rule 17: a staff-role JWT gets 403 from
+`PUT /api/settings/:key` and the row is unchanged, and that test must be shown to FAIL on today's
+code before the guard is added. Follow the harness in
+`backend/src/api/__tests__/profitsGate.api.test.ts`, which already forges per-role requests against
+a real router.
