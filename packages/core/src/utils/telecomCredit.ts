@@ -265,6 +265,78 @@ export function isValidMaxReturnedOverride(
  * resolveMaxReturnedCredits(77.28, 73.5)  // 73.5  — customer had $0.22 spare
  * resolveMaxReturnedCredits(77.28, 83)    // 73.0  — over the cap, ignored
  */
+/**
+ * The cards that SHIP with a max-returned override, and the value each gets.
+ *
+ * **Why this exists at all — v160's backfill cannot reach a fresh install.**
+ * Migrations run at startup, but `mobile_service_items` is seeded LATER, by
+ * `MobileServiceItemsContext` once a user has logged in (the seed is gated on
+ * `isAuthenticated`). So on a brand-new database v160's
+ * `UPDATE ... WHERE credits = 77.28` matched an EMPTY table, the catalog then
+ * seeded with NULL, and no card ever got an override. Confirmed against a real
+ * install: column present, `max_returned_credits_usd IS NOT NULL` on 0 of 411
+ * rows.
+ *
+ * `sell_days_lbp` does not have this problem only because
+ * `parseCatalogToSeedData` computes it at SEED time via `deriveSellDaysLbp` —
+ * the migration is its backstop, not its source. This table is the same idea
+ * for the override: the seeder is the source for a fresh database, the
+ * migration is the backstop for one that already holds a catalog.
+ *
+ * Deliberately a NAMED LIST, not a formula. Every card in the catalog is within
+ * one transfer step of another half-dollar, so "computed + 0.5" would be
+ * trivially computable — and wrong. The owner scoped this to the 77.28 card
+ * because that is the only one with counter experience behind it; every other
+ * card must keep computing bare until someone confirms it at the till. Adding a
+ * row here is the deliberate act of saying "we have verified this one".
+ */
+export const SEEDED_MAX_RETURNED_OVERRIDES: ReadonlyArray<{
+  readonly creditsUsd: number;
+  readonly validityDays: number;
+  readonly maxReturnedUsd: number;
+}> = Object.freeze([
+  // alfa/mtc 77.28, 365 days: a bare card returns $73.00; $0.22 of the
+  // customer's own credit buys the final $1.50 message, so the shop gets $73.50.
+  Object.freeze({ creditsUsd: 77.28, validityDays: 365, maxReturnedUsd: 73.5 }),
+]);
+
+/**
+ * The `max_returned_credits_usd` a freshly-seeded catalog row should carry, or
+ * `null` for the overwhelming majority of cards that ship computing bare.
+ *
+ * Matched on `credits` + `validity_days` rather than provider/label because the
+ * same physical card sits on six shelves (iPick/Katsh/WHISH_APP x alfa/mtc) and
+ * the recovery is a property of the CARD, not of who sells it.
+ *
+ * Returns null — never throws — for any card not in
+ * {@link SEEDED_MAX_RETURNED_OVERRIDES}, and for junk input.
+ */
+export function seedMaxReturnedCreditsUsd(
+  creditsUsd: number | null | undefined,
+  validityDays: number | null | undefined,
+): number | null {
+  if (
+    typeof creditsUsd !== "number" ||
+    !Number.isFinite(creditsUsd) ||
+    typeof validityDays !== "number" ||
+    !Number.isFinite(validityDays)
+  ) {
+    return null;
+  }
+
+  const match = SEEDED_MAX_RETURNED_OVERRIDES.find(
+    (o) => o.creditsUsd === creditsUsd && o.validityDays === validityDays,
+  );
+
+  // Never seed a value the write guard would reject — a seeded row must be
+  // editable in Settings without the operator first having to clear an
+  // invalid number they never typed.
+  if (!match) return null;
+  return isValidMaxReturnedOverride(match.maxReturnedUsd, creditsUsd)
+    ? match.maxReturnedUsd
+    : null;
+}
+
 export function resolveMaxReturnedCredits(
   faceCredits: number | null | undefined,
   override?: number | null,

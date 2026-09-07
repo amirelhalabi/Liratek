@@ -18,19 +18,18 @@
 // parseCatalogToSeedData imports `deriveDaysCostLbp` from "@liratek/core",
 // which (unmocked) pulls in the full core index — including Node-only DB
 // modules that don't resolve under jsdom (same issue KatchForm's tests hit).
-// Mock just the two symbols needed, sourced from the REAL pure-function file
-// (never re-implement the formula in test code — rule 14).
-jest.mock("@liratek/core", () => {
-  const actual = jest.requireActual(
+// Re-export the WHOLE pure-function file rather than an allowlist of symbols,
+// sourced from the real module (never re-implement a formula in test code —
+// rule 14). telecomCredit.ts has no Node-only imports, so spreading it is safe
+// under jsdom and it is the only shape that cannot go stale: this mock used to
+// name four symbols by hand, and the moment the seeder started calling
+// seedMaxReturnedCreditsUsd the suite died at SETUP with "is not a function" —
+// a failure that points at production code and says nothing about the mock.
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual(
     "../../../../../../packages/core/src/utils/telecomCredit",
-  );
-  return {
-    deriveDaysCostLbp: actual.deriveDaysCostLbp,
-    deriveSellDaysLbp: actual.deriveSellDaysLbp,
-    TELECOM_CREDIT_COST_RATE_LBP: actual.TELECOM_CREDIT_COST_RATE_LBP,
-    TELECOM_DAYS_SELL_PRICE_LBP: actual.TELECOM_DAYS_SELL_PRICE_LBP,
-  };
-});
+  ),
+}));
 
 import { parseCatalogToSeedData } from "../parseCatalogToSeedData";
 
@@ -174,6 +173,36 @@ describe("parseCatalogToSeedData — days_cost_lbp (TELECOM_DAYS_COST_PLAN.md §
       checked++;
     }
     expect(checked).toBe(39);
+  });
+
+  it("seeds max_returned_credits_usd on the 77.28 card, and ONLY there", () => {
+    // THE REGRESSION THIS GUARDS. v160 backfills the override with a migration
+    // UPDATE, but migrations run at startup while this catalog is seeded later
+    // (MobileServiceItemsContext, gated on isAuthenticated). On a fresh
+    // database that UPDATE hits an empty table, the catalog seeds with NULL,
+    // and no install ever gets an override — verified on a real one: column
+    // present, 0 of 411 rows populated, v160 recorded as applied.
+    //
+    // Fails on the pre-fix seeder with `undefined` instead of 73.5.
+    const seeded = items.filter(
+      (i) => i.max_returned_credits_usd !== undefined,
+    );
+
+    // Six shelves carry the same physical card: iPick / Katsh / WHISH_APP,
+    // each on alfa and mtc.
+    expect(seeded).toHaveLength(6);
+    for (const item of seeded) {
+      expect(item.label).toBe("77.28");
+      expect(item.credits).toBe(77.28);
+      expect(item.validity_days).toBe(365);
+      expect(item.max_returned_credits_usd).toBe(73.5);
+    }
+
+    // ...and nothing else, however close it sits to another half-dollar.
+    for (const item of items) {
+      if (item.credits === 77.28 && item.validity_days === 365) continue;
+      expect(item.max_returned_credits_usd).toBeUndefined();
+    }
   });
 
   it("a days price always exceeds the days cost — no item sells its days at a loss", () => {

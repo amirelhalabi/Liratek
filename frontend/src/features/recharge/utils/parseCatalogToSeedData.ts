@@ -6,7 +6,11 @@
  * This function is only called once on first launch (when the DB table is empty).
  */
 
-import { deriveDaysCostLbp, deriveSellDaysLbp } from "@liratek/core";
+import {
+  deriveDaysCostLbp,
+  deriveSellDaysLbp,
+  seedMaxReturnedCreditsUsd,
+} from "@liratek/core";
 import mobileServices from "@/data/mobileServices";
 
 export interface SeedItem {
@@ -40,6 +44,14 @@ export interface SeedItem {
    * at the annual, so interpolating would invent an unapproved price).
    */
   sell_days_lbp?: number;
+  /**
+   * v160: the per-card max-returned override. Supplied HERE, at seed time,
+   * because v160's migration backfill cannot reach a fresh install — the
+   * catalog does not exist yet when migrations run. See
+   * `SEEDED_MAX_RETURNED_OVERRIDES` in core for which cards carry one and why
+   * it is a named list rather than a formula.
+   */
+  max_returned_credits_usd?: number;
 }
 
 /**
@@ -148,6 +160,15 @@ export function parseCatalogToSeedData(): SeedItem[] {
               const sellDaysLbp = isCandidate
                 ? deriveSellDaysLbp(validityDays)
                 : null;
+              // v160's backfill runs BEFORE this seed on a fresh database (the
+              // catalog does not exist yet at migration time), so the override
+              // has to be supplied here or no install ever gets one. Not gated
+              // on isCandidate: the lookup is keyed on credits + validity_days
+              // and returns null for everything not on the verified list.
+              const maxReturnedCreditsUsd = seedMaxReturnedCreditsUsd(
+                credits,
+                validityDays,
+              );
 
               result.push({
                 provider,
@@ -163,6 +184,9 @@ export function parseCatalogToSeedData(): SeedItem[] {
                 ...(credits !== undefined ? { credits } : {}),
                 ...(daysCostLbp != null ? { days_cost_lbp: daysCostLbp } : {}),
                 ...(sellDaysLbp != null ? { sell_days_lbp: sellDaysLbp } : {}),
+                ...(maxReturnedCreditsUsd != null
+                  ? { max_returned_credits_usd: maxReturnedCreditsUsd }
+                  : {}),
               });
             } else {
               // One level deeper — group of items

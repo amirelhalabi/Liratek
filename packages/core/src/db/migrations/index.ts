@@ -10339,6 +10339,114 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 169,
+    name: "rebackfill_max_returned_credits_override",
+    description:
+      "Repairs v160's backfill, which reaches zero rows on a fresh install. Migrations run at " +
+      "startup but mobile_service_items is seeded LATER, by MobileServiceItemsContext once a " +
+      "user has logged in (the seed is gated on isAuthenticated), so v160's " +
+      "`UPDATE ... WHERE credits = 77.28` ran against an EMPTY table and the catalog then " +
+      "seeded with NULL. Confirmed on a real install before writing this: the column present, " +
+      "max_returned_credits_usd IS NOT NULL on 0 of 411 catalog rows, with v160 recorded as " +
+      "applied. sell_days_lbp escaped the same fate only because parseCatalogToSeedData " +
+      "computes it at SEED time via deriveSellDaysLbp — the migration is its backstop, not its " +
+      "source. The durable fix is the same shape: the seeder now supplies " +
+      "max_returned_credits_usd from SEEDED_MAX_RETURNED_OVERRIDES (core, rule 14) for a fresh " +
+      "database, and THIS migration is the backstop for a database that already holds a " +
+      "catalog — which v160 could never have been, by construction. Identical predicate and " +
+      "pinned literals to v160, and it only ever fills a NULL, so a value an operator has " +
+      "already typed survives and re-running is a no-op. A database where v160 DID find rows " +
+      "(one seeded before v160 shipped) simply matches nothing here.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Same pinned literals as v160 — a migration must keep doing the same
+      // thing forever, so this repair cannot read the live override table
+      // either (v146 OLD_RATE / v159 convention).
+      const CARD_FACE_CREDITS = 77.28;
+      const CARD_VALIDITY_DAYS = 365;
+      const BACKFILL_RETURNED_USD = 73.5;
+
+      const hasTable = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mobile_service_items'`,
+        )
+        .get();
+      if (!hasTable) {
+        console.log(
+          "Migration v169 skipped: 'mobile_service_items' table not present",
+        );
+        return;
+      }
+
+      const cols = db
+        .prepare("PRAGMA table_info(mobile_service_items)")
+        .all() as { name: string }[];
+      if (!cols.some((c) => c.name === "max_returned_credits_usd")) {
+        // v160 adds it; if it is absent this database has not reached v160,
+        // which the runner makes impossible — guard anyway rather than throw.
+        console.log(
+          "Migration v169 skipped: max_returned_credits_usd column not present",
+        );
+        return;
+      }
+
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+              SET max_returned_credits_usd = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE credits = ?
+              AND validity_days = ?
+              AND max_returned_credits_usd IS NULL`,
+        )
+        .run(BACKFILL_RETURNED_USD, CARD_FACE_CREDITS, CARD_VALIDITY_DAYS);
+
+      console.log(
+        `Migration v169: max_returned_credits_usd re-backfilled ` +
+          `${BACKFILL_RETURNED_USD} on ${result.changes} row(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      // Clear ONLY rows still holding exactly the seeded value, so an operator
+      // who tuned one after this ran keeps it. The column itself belongs to
+      // v160 and is not dropped here.
+      const BACKFILL_RETURNED_USD = 73.5;
+      const CARD_FACE_CREDITS = 77.28;
+      const CARD_VALIDITY_DAYS = 365;
+
+      const hasTable = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mobile_service_items'`,
+        )
+        .get();
+      if (!hasTable) {
+        console.log(
+          "Migration v169 rollback skipped: 'mobile_service_items' table not present",
+        );
+        return;
+      }
+
+      const cols = db
+        .prepare("PRAGMA table_info(mobile_service_items)")
+        .all() as { name: string }[];
+      if (!cols.some((c) => c.name === "max_returned_credits_usd")) return;
+
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+              SET max_returned_credits_usd = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE credits = ?
+              AND validity_days = ?
+              AND max_returned_credits_usd = ?`,
+        )
+        .run(CARD_FACE_CREDITS, CARD_VALIDITY_DAYS, BACKFILL_RETURNED_USD);
+
+      console.log(
+        `Migration v169 rolled back: max_returned_credits_usd cleared on ` +
+          `${result.changes} row(s)`,
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

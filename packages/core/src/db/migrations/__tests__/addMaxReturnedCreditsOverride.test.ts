@@ -13,6 +13,7 @@ import Database from "better-sqlite3";
 import { MIGRATIONS } from "../index.js";
 
 const V160 = MIGRATIONS.find((m) => m.version === 160)!;
+const V169 = MIGRATIONS.find((m) => m.version === 169)!;
 
 const BACKFILL = 73.5;
 
@@ -188,5 +189,129 @@ describe("migration v160 — add_max_returned_credits_override", () => {
         V160.up(bare);
       }).not.toThrow();
     });
+  });
+});
+
+/**
+ * Migration v169 — the repair for v160's unreachable backfill.
+ *
+ * v160 runs at startup; `mobile_service_items` is seeded LATER, by
+ * `MobileServiceItemsContext` once someone logs in. So on a fresh database
+ * v160's UPDATE hit an empty table and every card seeded with NULL — verified
+ * on a real install (column present, 0 of 411 rows populated, v160 recorded as
+ * applied). The durable fix is the seeder supplying the value; this migration
+ * is the backstop for a database that ALREADY holds a catalog, which is
+ * precisely the state v160 could never have been in.
+ */
+describe("migration v169 — rebackfill_max_returned_credits_override", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = makeDb();
+    V160.up(db); // the column belongs to v160
+  });
+
+  afterEach(() => db.close());
+
+  it("fills the card v160 could not reach", () => {
+    // The fresh-install shape: the catalog arrived AFTER v160 ran, so the row
+    // exists now and is NULL.
+    addItem(db, "77.28", { credits: 77.28, validityDays: 365 });
+    expect(overrideOf(db, "77.28")).toBeNull();
+
+    V169.up(db);
+
+    expect(overrideOf(db, "77.28")).toBe(BACKFILL);
+  });
+
+  it("covers all six shelves the card sits on", () => {
+    // iPick / Katsh / WHISH_APP x alfa / mtc — the predicate is keyed on the
+    // CARD (credits + validity_days), never on provider or category.
+    for (const shelf of ["a", "b", "c", "d", "e", "f"]) {
+      addItem(db, `77.28-${shelf}`, { credits: 77.28, validityDays: 365 });
+    }
+
+    V169.up(db);
+
+    for (const shelf of ["a", "b", "c", "d", "e", "f"]) {
+      expect(overrideOf(db, `77.28-${shelf}`)).toBe(BACKFILL);
+    }
+  });
+
+  it("leaves a value an operator already set", () => {
+    addItem(db, "77.28", { credits: 77.28, validityDays: 365 });
+    db.prepare(
+      `UPDATE mobile_service_items SET max_returned_credits_usd = 73 WHERE label = '77.28'`,
+    ).run();
+
+    V169.up(db);
+
+    expect(overrideOf(db, "77.28")).toBe(73);
+  });
+
+  it("leaves every other card computing bare", () => {
+    addItem(db, "22.73", { credits: 22.73, validityDays: 90 });
+    addItem(db, "77.28-30d", { credits: 77.28, validityDays: 30 });
+    addItem(db, "50-365d", { credits: 50, validityDays: 365 });
+
+    V169.up(db);
+
+    expect(overrideOf(db, "22.73")).toBeNull();
+    expect(overrideOf(db, "77.28-30d")).toBeNull();
+    expect(overrideOf(db, "50-365d")).toBeNull();
+  });
+
+  it("is a no-op on a database v160 already filled", () => {
+    addItem(db, "77.28", { credits: 77.28, validityDays: 365 });
+    V160.up(db); // this time the row exists, so v160 fills it
+    expect(overrideOf(db, "77.28")).toBe(BACKFILL);
+
+    V169.up(db);
+
+    expect(overrideOf(db, "77.28")).toBe(BACKFILL);
+  });
+
+  it("is idempotent", () => {
+    addItem(db, "77.28", { credits: 77.28, validityDays: 365 });
+
+    V169.up(db);
+    V169.up(db);
+
+    expect(overrideOf(db, "77.28")).toBe(BACKFILL);
+  });
+
+  it("down() clears the seeded value but not a tuned one", () => {
+    addItem(db, "77.28", { credits: 77.28, validityDays: 365 });
+    addItem(db, "tuned", { credits: 77.28, validityDays: 365 });
+    V169.up(db);
+    db.prepare(
+      `UPDATE mobile_service_items SET max_returned_credits_usd = 73 WHERE label = 'tuned'`,
+    ).run();
+
+    V169.down!(db);
+
+    expect(overrideOf(db, "77.28")).toBeNull();
+    expect(overrideOf(db, "tuned")).toBe(73);
+  });
+
+  it("down() leaves the COLUMN alone — that belongs to v160", () => {
+    addItem(db, "77.28", { credits: 77.28, validityDays: 365 });
+    V169.up(db);
+
+    V169.down!(db);
+
+    expect(hasColumn(db)).toBe(true);
+  });
+
+  it("is a no-op on a database with no table or no column", () => {
+    const bare = new Database(":memory:");
+    expect(() => V169.up(bare)).not.toThrow();
+    expect(() => V169.down!(bare)).not.toThrow();
+    bare.close();
+
+    // Table present, column absent (a database that never reached v160).
+    const noCol = makeDb();
+    expect(() => V169.up(noCol)).not.toThrow();
+    noCol.close();
   });
 });
