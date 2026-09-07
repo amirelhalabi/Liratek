@@ -21,7 +21,7 @@
  * required before that deployment shape is safe.
  */
 import { Response, NextFunction } from "express";
-import { PROFITS_UNLOCK_TTL_MS } from "@liratek/core";
+import { isProfitsUnlockLive } from "@liratek/core";
 import type { AuthRequest } from "./auth.js";
 
 /** `${tenantId}:${userId}` -> unlock timestamp (epoch ms). Per-process only — see file header. */
@@ -42,7 +42,7 @@ function unlockKey(
  */
 function sweepExpired(now: number): void {
   for (const [key, stamp] of unlocks) {
-    if (now - stamp >= PROFITS_UNLOCK_TTL_MS) {
+    if (!isProfitsUnlockLive(stamp, now)) {
       unlocks.delete(key);
     }
   }
@@ -73,8 +73,7 @@ export function hasProfitsUnlock(
   now: number = Date.now(),
 ): boolean {
   const stamp = unlocks.get(unlockKey(tenantId, userId));
-  if (stamp === undefined) return false;
-  return now - stamp < PROFITS_UNLOCK_TTL_MS;
+  return isProfitsUnlockLive(stamp, now);
 }
 
 /**

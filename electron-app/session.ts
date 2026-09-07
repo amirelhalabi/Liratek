@@ -2,7 +2,7 @@ import { safeStorage, app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { logger, PROFITS_UNLOCK_TTL_MS } from "@liratek/core";
+import { logger, isProfitsUnlockLive } from "@liratek/core";
 
 export type UserRole = "admin" | "staff";
 
@@ -253,17 +253,17 @@ export function revokeProfitsUnlock(webContentsId: number): void {
 }
 
 /**
- * True only when the session exists AND has an unlock AND that unlock is
- * still within PROFITS_UNLOCK_TTL_MS (imported from @liratek/core, rule 14 —
- * never hardcode the 15-minute window here). `now` is injectable for tests.
+ * True only when the session exists AND has a live unlock. The TTL predicate
+ * itself lives in `isProfitsUnlockLive` (@liratek/core, rule 14 — never
+ * re-inline the window check here). `now` is injectable for tests.
  */
 export function hasProfitsUnlock(
   webContentsId: number,
   now = Date.now(),
 ): boolean {
   const session = sessions.get(webContentsId);
-  if (!session || session.profitsUnlockedAt === undefined) return false;
-  return now - session.profitsUnlockedAt < PROFITS_UNLOCK_TTL_MS;
+  if (!session) return false;
+  return isProfitsUnlockLive(session.profitsUnlockedAt, now);
 }
 
 /**

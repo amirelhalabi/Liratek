@@ -32,3 +32,31 @@ export const PROFITS_UNLOCK_TTL_MS = 15 * 60 * 1000;
  * owner wants a short PIN to be legal here, unlike user account passwords.
  */
 export const PROFITS_PASSWORD_MIN_LENGTH = 4;
+
+/**
+ * Single source of truth for the "is this unlock still live" predicate
+ * (CLAUDE.md rule 14 — this exact fragment was previously copy-pasted into
+ * `electron-app/session.ts` `hasProfitsUnlock` and TWICE into
+ * `backend/src/middleware/profitsUnlock.ts`, once negated for its sweep).
+ *
+ * Semantics (exact, do not "improve"):
+ *  - `unlockedAt` undefined/null → false (never unlocked).
+ *  - Live while `now - unlockedAt < PROFITS_UNLOCK_TTL_MS`.
+ *  - EXACTLY at the TTL boundary (`now - unlockedAt === PROFITS_UNLOCK_TTL_MS`)
+ *    → EXPIRED (false). Both original call sites used strict `<`; keep it
+ *    strict — flipping to `<=` would extend every unlock by one caller's
+ *    worth of clock jitter and is not what either call site did before.
+ *  - A future `unlockedAt` (`now - unlockedAt` negative) → treated as LIVE.
+ *    `unlockedAt` is always server-generated (`Date.now()` at grant time), so
+ *    this can only arise from a clock adjustment on the server itself, not
+ *    from client input — there is no untrusted-input path that can force it.
+ *
+ * Pure function of numbers — safe to import from the browser entrypoint too.
+ */
+export function isProfitsUnlockLive(
+  unlockedAt: number | undefined | null,
+  now: number = Date.now(),
+): boolean {
+  if (unlockedAt === undefined || unlockedAt === null) return false;
+  return now - unlockedAt < PROFITS_UNLOCK_TTL_MS;
+}
