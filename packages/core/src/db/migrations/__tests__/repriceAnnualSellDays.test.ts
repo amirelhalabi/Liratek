@@ -28,7 +28,7 @@ const V159 = MIGRATIONS.find((m) => m.version === 159)!;
 
 /** v147's price — what rows hold before this migration. */
 const OLD_ANNUAL_LBP = 2_300_000;
-/** Owner-confirmed 2026-08-29. */
+/** Owner-confirmed 2026-09-07. */
 const NEW_ANNUAL_LBP = 1_780_000;
 
 function makeDb(): Database.Database {

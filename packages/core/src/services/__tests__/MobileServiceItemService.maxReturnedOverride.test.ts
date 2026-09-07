@@ -1,7 +1,7 @@
 /**
  * MobileServiceItemService — the v160 `max_returned_credits_usd` write guard.
  *
- * Owner decision (2026-08-30): a save that strands the override is REJECTED,
+ * Owner decision (2026-09-07): a save that strands the override is REJECTED,
  * never silently auto-cleared, so a tuned number can never vanish behind the
  * operator's back.
  *

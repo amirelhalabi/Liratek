@@ -166,7 +166,7 @@ export function maxReturnableCredits(balanceUsd: number): number {
 }
 
 // =============================================================================
-// Max returned credits — the per-card override (owner interview 2026-08-30)
+// Max returned credits — the per-card override (owner interview 2026-09-07)
 // =============================================================================
 
 /**
@@ -196,7 +196,7 @@ export const MAX_RETURNED_OVERRIDE_HEADROOM_USD = CREDIT_TRANSFER_STEP_USD;
  *
  *   maxReturnableCredits(face) <= override <= maxReturnableCredits(face) + 0.5
  *
- * **Upward only** (owner decision, 2026-08-30). An override BELOW the computed
+ * **Upward only** (owner decision, 2026-09-07). An override BELOW the computed
  * maximum is rejected rather than honoured: the computed figure is what SMS
  * transfer can always deliver, so a lower number is either a typo or an attempt
  * to encode a one-off failed transfer as a permanent property of the card. A
@@ -348,7 +348,7 @@ export interface TelecomItemEconomicsInput {
   /**
    * The item's `max_returned_credits_usd` override, if configured. Feeds
    * {@link resolveMaxReturnedCredits}, so Settings shows the SAME recovery the
-   * sale books (owner decision 2026-08-30: one number everywhere). Leaving it
+   * sale books (owner decision 2026-09-07: one number everywhere). Leaving it
    * out keeps the bare-card computation, which is what every non-telecom
    * caller wants.
    */
@@ -749,7 +749,7 @@ export function deriveDaysCostLbp(
  * strict linear 83,333: at 83,333 the alfa 4.5 card (days_cost 83,500) would
  * sell its days at a 167 LBP LOSS, and 10-day validity is rarely sold anyway.
  *
- * ### The annual: 2,300,000 → 1,780,000 (owner-confirmed 2026-08-29)
+ * ### The annual: 2,300,000 → 1,780,000 (owner-confirmed 2026-09-07)
  *
  * The year shipped at 2,300,000 (v147) and was repriced DOWN to 1,780,000.
  * Deepening the annual discount from ~24% to ~41% is a deliberate pricing

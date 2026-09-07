@@ -602,7 +602,7 @@ const ITEM_77_28: ServiceItem = {
  *
  *   ● autofills the override, not the bare-card maximum
  *       Expected: "73.5"   Received: "73"
- *   ● a short transfer is billed to the customer (owner decision 2026-08-30)
+ *   ● a short transfer is billed to the customer (owner decision 2026-09-07)
  *       Expected: 1830000  Received: 1780000
  *
  * The third test passes either way — it exists to prove a card WITHOUT an
@@ -656,7 +656,7 @@ describe("v160 — max_returned_credits_usd override", () => {
     expect(payload.amount).toBe(1_780_000);
   });
 
-  it("bills a short transfer to the customer (owner decision 2026-08-30)", async () => {
+  it("bills a short transfer to the customer (owner decision 2026-09-07)", async () => {
     mockCatalogRows.push({
       id: 210,
       sell_days_lbp: 1_780_000,

@@ -1,6 +1,6 @@
 # Max Returned Credits — per-card override
 
-**Status:** planned, not started · **Owner interview:** 2026-08-30 · **Migration:** v160 (v159 is the last shipped)
+**Status:** planned, not started · **Owner interview:** 2026-09-07 · **Migration:** v160 (v159 is the last shipped)
 
 ## 0. The problem in one paragraph
 
@@ -15,16 +15,16 @@ This is not special to the 77.28 card — every credit-bearing card in the catal
 $0.03–$0.49 from another half-dollar — but the backfill is deliberately scoped to 77.28
 (§1, decision 5), because that is the only one with counter experience behind it.
 
-| face  | computed | +$0.50 | needs |     | face  | computed | +$0.50 | needs |
-| ----- | -------- | ------ | ----- | --- | ----- | -------- | ------ | ----- |
-| 3.79  | 3.00     | 3.50   | $0.03 |     | 4.50  | 4.00     | 4.50   | $0.32 |
-| 22.73 | 21.00    | 21.50  | $0.05 |     | 7.58  | 7.00     | 7.50   | $0.40 |
-| 10.00 | 9.00     | 9.50   | $0.14 |     | 1.22  | 1.00     | 1.50   | $0.44 |
-| 15.15 | 14.00    | 14.50  | $0.15 |     | 1.67  | 1.50     | 2.00   | $0.49 |
-| 3.03  | 2.50     | 3.00   | $0.13 |     | 1.00  | 0.50     | 1.00   | $0.16 |
-| 77.28 | 73.00    | 73.50  | $0.22 |     |       |          |        |       |
+| face  | computed | +$0.50 | needs |     | face | computed | +$0.50 | needs |
+| ----- | -------- | ------ | ----- | --- | ---- | -------- | ------ | ----- |
+| 3.79  | 3.00     | 3.50   | $0.03 |     | 4.50 | 4.00     | 4.50   | $0.32 |
+| 22.73 | 21.00    | 21.50  | $0.05 |     | 7.58 | 7.00     | 7.50   | $0.40 |
+| 10.00 | 9.00     | 9.50   | $0.14 |     | 1.22 | 1.00     | 1.50   | $0.44 |
+| 15.15 | 14.00    | 14.50  | $0.15 |     | 1.67 | 1.50     | 2.00   | $0.49 |
+| 3.03  | 2.50     | 3.00   | $0.13 |     | 1.00 | 0.50     | 1.00   | $0.16 |
+| 77.28 | 73.00    | 73.50  | $0.22 |     |      |          |        |       |
 
-## 1. Owner decisions (interview, 2026-08-30)
+## 1. Owner decisions (interview, 2026-09-07)
 
 1. **Shape.** A per-card **"Max returned credits"** field. It always shows the computed
    value; an operator may override it. Same derived/override pattern `days_cost_lbp`
@@ -49,13 +49,13 @@ $0.03–$0.49 from another half-dollar — but the backfill is deliberately scop
 
 ## 2. What the numbers become (alfa 77.28, iPick 7,728,000, days price 1,780,000)
 
-|                       | computed (73.0) | override (73.5) |
-| --------------------- | --------------- | --------------- |
-| Recovered             | $73.00          | **$73.50**      |
-| Rate/$                | 89,984          | **89,371**      |
-| Resale 1$ / 2$ / 3$   | 104,381 / 97,182 / 94,783 | **103,671 / 96,521 / 94,138** |
-| Margin at 100,000/$   | −4,381 / +2,818 / +5,217 | **−3,671 / +3,479 / +5,862** |
-| Only-Days profit stamp | 257,000        | **299,500** (+42,500 = 0.5 × R) |
+|                        | computed (73.0)           | override (73.5)                 |
+| ---------------------- | ------------------------- | ------------------------------- |
+| Recovered              | $73.00                    | **$73.50**                      |
+| Rate/$                 | 89,984                    | **89,371**                      |
+| Resale 1$ / 2$ / 3$    | 104,381 / 97,182 / 94,783 | **103,671 / 96,521 / 94,138**   |
+| Margin at 100,000/$    | −4,381 / +2,818 / +5,217  | **−3,671 / +3,479 / +5,862**    |
+| Only-Days profit stamp | 257,000                   | **299,500** (+42,500 = 0.5 × R) |
 
 `days_cost_lbp` does **not** move. It is anchored on FACE credit by design
 ([telecomCredit.ts:520-533](../../../packages/core/src/utils/telecomCredit.ts#L520-L533)) —
@@ -83,14 +83,14 @@ type is introduced, so no new reversal owner is needed.** Add a guard test that 
 export function resolveMaxReturnedCredits(
   faceCredits: number | null | undefined,
   override?: number | null,
-): number
+): number;
 // override when usable (finite, > 0, passes the cap), else maxReturnableCredits(face).
 // The ONE definition. Never re-derive `override ?? computed` at a call site.
 
 export function isValidMaxReturnedOverride(
   override: number,
   faceCredits: number,
-): boolean
+): boolean;
 // computed <= override <= computed + CREDIT_TRANSFER_STEP_USD
 // Reuses the existing CREDIT_TRANSFER_STEP_USD constant — no 0.5 literal.
 ```
@@ -137,14 +137,14 @@ cap arithmetic.
 The update path already exists end to end; this is field passthrough, and every one of
 these is a place the field silently disappears if missed:
 
-| Layer | File | Change |
-| --- | --- | --- |
-| IPC handler | `electron-app/handlers/mobileServiceItemHandlers.ts` | payload passthrough |
-| Preload | `electron-app/preload.ts` | add to the `data` param type (**rule 12**) |
-| REST | `backend/src/api/mobileServices.ts` | same core schema + service |
-| Adapter | `frontend/src/api/backendApi.ts`, `ElectronApiAdapter.ts` | field on the write payload |
-| Types | `packages/ui/src/api/types.ts`, `frontend/src/types/electron.d.ts` | `MobileServiceItem` |
-| Core exports | `packages/core/src/index.ts` **and `browser.ts`** | both new fns — the renderer resolves `@liratek/core` to `browser.ts` |
+| Layer        | File                                                               | Change                                                               |
+| ------------ | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| IPC handler  | `electron-app/handlers/mobileServiceItemHandlers.ts`               | payload passthrough                                                  |
+| Preload      | `electron-app/preload.ts`                                          | add to the `data` param type (**rule 12**)                           |
+| REST         | `backend/src/api/mobileServices.ts`                                | same core schema + service                                           |
+| Adapter      | `frontend/src/api/backendApi.ts`, `ElectronApiAdapter.ts`          | field on the write payload                                           |
+| Types        | `packages/ui/src/api/types.ts`, `frontend/src/types/electron.d.ts` | `MobileServiceItem`                                                  |
+| Core exports | `packages/core/src/index.ts` **and `browser.ts`**                  | both new fns — the renderer resolves `@liratek/core` to `browser.ts` |
 
 ### 4.6 Frontend
 
@@ -180,17 +180,17 @@ these is a place the field silently disappears if missed:
 
 ## 6. Tests — each must fail first (rule 17)
 
-| # | Guards | Fails-first proof |
-| --- | --- | --- |
-| T1 | `resolveMaxReturnedCredits` returns the override when set, computed when NULL | drop the override branch → 73 not 73.5 |
-| T2 | cap: 73.5 accepted, 73.51 / 74 / 83 rejected, 72.9 rejected (downward) | widen the cap → 74 passes |
-| T3 | v160 backfills exactly 6 rows; leaves non-77.28 and non-365 rows NULL | drop the `credits = 77.28` filter → more rows move |
-| T4 | service blocks a `credits` edit that strands a stored override | remove the reverse-edge check → save succeeds |
-| T5 | `deriveItemEconomics` yields rate 89,371 and table 103,671 / 96,521 / 94,138 at 73.5 | leave economics on face → old numbers |
-| T6 | Only-Days sale with override books stamp **299,500** and credits the carrier line **73.5** | leave `resolveReturnedCredits` unpatched → 257,000 / 73.0 |
-| T7 | **rule 20** — sale at 73.5, then change the override to 73.0, then refund; carrier line and every ledger net to **0 per currency** | make the refund recompute from the item instead of reading `credits_delta` |
-| T8 | short transfer: base 73.5, operator returns 73.0 → charge **1,830,000** (decision 4) | clamp kept against computed → 1,780,000 |
-| T9 | e2e desktop + web: set the override in Settings, sell Only-Days, assert autofill and charge | — |
+| #   | Guards                                                                                                                             | Fails-first proof                                                          |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| T1  | `resolveMaxReturnedCredits` returns the override when set, computed when NULL                                                      | drop the override branch → 73 not 73.5                                     |
+| T2  | cap: 73.5 accepted, 73.51 / 74 / 83 rejected, 72.9 rejected (downward)                                                             | widen the cap → 74 passes                                                  |
+| T3  | v160 backfills exactly 6 rows; leaves non-77.28 and non-365 rows NULL                                                              | drop the `credits = 77.28` filter → more rows move                         |
+| T4  | service blocks a `credits` edit that strands a stored override                                                                     | remove the reverse-edge check → save succeeds                              |
+| T5  | `deriveItemEconomics` yields rate 89,371 and table 103,671 / 96,521 / 94,138 at 73.5                                               | leave economics on face → old numbers                                      |
+| T6  | Only-Days sale with override books stamp **299,500** and credits the carrier line **73.5**                                         | leave `resolveReturnedCredits` unpatched → 257,000 / 73.0                  |
+| T7  | **rule 20** — sale at 73.5, then change the override to 73.0, then refund; carrier line and every ledger net to **0 per currency** | make the refund recompute from the item instead of reading `credits_delta` |
+| T8  | short transfer: base 73.5, operator returns 73.0 → charge **1,830,000** (decision 4)                                               | clamp kept against computed → 1,780,000                                    |
+| T9  | e2e desktop + web: set the override in Settings, sell Only-Days, assert autofill and charge                                        | —                                                                          |
 
 E2E must follow the [e2e README](../../../frontend/tests/e2e-electron/README.md) and
 **rule 15** — match the row by identity (`item_key` / `service_type`), assert **deltas**

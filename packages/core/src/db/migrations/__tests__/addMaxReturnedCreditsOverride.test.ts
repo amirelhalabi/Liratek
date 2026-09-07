@@ -2,7 +2,7 @@
  * Migration v160 — `mobile_service_items.max_returned_credits_usd`.
  *
  * The column is trivial; the BACKFILL is what needs guarding. The owner scoped
- * it deliberately narrowly (2026-08-30): only the 365-day 77.28 rows get 73.5,
+ * it deliberately narrowly (2026-09-07): only the 365-day 77.28 rows get 73.5,
  * even though all twelve catalog card types would gain half a dollar from a
  * plausible customer balance. A backfill that quietly widened would change what
  * the shop books on cards nobody has verified at the counter — silently, and on

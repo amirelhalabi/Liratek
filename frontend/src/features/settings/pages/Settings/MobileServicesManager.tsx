@@ -1583,7 +1583,7 @@ export default function MobileServicesManager() {
                                         // economics block, so Recovered/Rate-$
                                         // and the resale table show the SAME
                                         // recovery the sale books (owner
-                                        // decision 2026-08-30).
+                                        // decision 2026-09-07).
                                         const economics = deriveItemEconomics({
                                           costLbp: item.cost_lbp,
                                           daysCostLbp: item.days_cost_lbp,

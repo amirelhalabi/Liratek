@@ -82,7 +82,7 @@ function daysCostLbpConsistencyError(candidate: {
 
 /**
  * v160 — the write-path guard for `max_returned_credits_usd` (owner decision
- * 2026-08-30: a save that strands an override is REJECTED, never silently
+ * 2026-09-07: a save that strands an override is REJECTED, never silently
  * auto-cleared).
  *
  * **Checks BOTH directions from one call.** The pairing breaks from either

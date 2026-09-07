@@ -159,7 +159,7 @@ describe("resolveReturnedCredits — the sale-time default", () => {
   });
 });
 
-describe("deriveItemEconomics — one number everywhere (owner, 2026-08-30)", () => {
+describe("deriveItemEconomics — one number everywhere (owner, 2026-09-07)", () => {
   const base = {
     costLbp: 7_728_000,
     daysCostLbp: 1_159_200,

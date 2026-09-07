@@ -1543,7 +1543,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
   });
 
   // ───────────────────────────────────────────────────────────────────────────
-  // v160 — per-card max-returned override (owner interview 2026-08-30)
+  // v160 — per-card max-returned override (owner interview 2026-09-07)
   // ───────────────────────────────────────────────────────────────────────────
 
   /**

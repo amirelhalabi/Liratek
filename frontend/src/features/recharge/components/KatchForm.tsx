@@ -177,7 +177,7 @@ function resolveOnlyDaysPricing(
   // v160: the base is the card's OVERRIDE when set, else the computed bare-card
   // maximum (rule 14 — `resolveMaxReturnedCredits` owns `override ?? computed`).
   // This is the line that decides what the customer pays: owner decision
-  // 2026-08-30 is that a short transfer IS billed, so returning 73 against a
+  // 2026-09-07 is that a short transfer IS billed, so returning 73 against a
   // 73.5 base bills the 0.5 difference rather than the shop absorbing it.
   const keptCredits = hasFaceCredits
     ? Math.max(

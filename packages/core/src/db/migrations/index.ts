@@ -7733,7 +7733,7 @@ export const MIGRATIONS: Migration[] = [
     version: 147,
     name: "seed_sell_days_lbp_from_validity_days",
     description:
-      "TELECOM_CREDIT_RATE_PLAN.md (owner-confirmed 2026-08-05): populates mobile_service_items.sell_days_lbp — the customer price for a days-only sale — from the item's validity_days, using the shared TELECOM_DAYS_SELL_PRICE_LBP table (10d 100,000 / 30d 250,000 / 60d 500,000 / 90d 750,000 / 365d 2,300,000). SUPERSEDED FIGURE — the annual was repriced to 1,780,000 on 2026-08-29 (v159). This migration reads the LIVE table rather than a pinned literal, so on a database created after that date it seeds 1,780,000 for 365 days, NOT the 2,300,000 written above. Read telecomCredit.ts for the current curve; never quote a price out of a migration description. Keyed on the DAY COUNT and not the card, because the customer is buying days: two cards granting 30 days sell those days for the same price even though they cost the shop different amounts, so five numbers populate all 39 Only-Days candidates. The curve is exactly linear at 8,333 LBP/day from 30 through 90 days and then 6,301 LBP/day for the year, a ~24% annual bulk discount; the 10-day figure is the catalog's own long-standing validity sell price (100,000) rather than the strict linear 83,333, because at 83,333 the alfa 4.5 card (days_cost 83,500) would sell its days at a 167 LBP loss and 10-day validity is rarely sold anyway. REJECTED ALTERNATIVE: a single observed sale (the 7.58 card at 300,000 for '1 month + $1.5 kept') implies 30d = 150,000 once the kept credit is priced at 100,000/$, i.e. card-derived days priced below a standalone validity charge — but that prices a month at 5,000/day while still pricing three months at 8,333/day (more per day for a longer commitment) and lands on EXACTLY zero margin for both 10-face cards, whose days_cost is precisely 150,000; under the shipped table that sale reads instead as a 100,000 discount off 400,000, consistent with the shop's habit of discounting (the annual goes $23 -> $20 as an offer). Scoped to genuine Only-Days candidates (credits > 0 AND validity_days > 0), which excludes both the standalone Validity products (days but no credit, nothing to return) and the credit-only cards (credit but no days, nothing to sell). Only ever fills a NULL, so any price an operator has already typed is preserved without needing an override marker. A day count absent from the table is SKIPPED rather than interpolated — the curve is discounted at the annual, so interpolating would invent a price the owner never agreed to; the catalog's 20/120/180/360-day validity products need an owner price, not arithmetic.",
+      "TELECOM_CREDIT_RATE_PLAN.md (owner-confirmed 2026-08-05): populates mobile_service_items.sell_days_lbp — the customer price for a days-only sale — from the item's validity_days, using the shared TELECOM_DAYS_SELL_PRICE_LBP table (10d 100,000 / 30d 250,000 / 60d 500,000 / 90d 750,000 / 365d 2,300,000). SUPERSEDED FIGURE — the annual was repriced to 1,780,000 on 2026-09-07 (v159). This migration reads the LIVE table rather than a pinned literal, so on a database created after that date it seeds 1,780,000 for 365 days, NOT the 2,300,000 written above. Read telecomCredit.ts for the current curve; never quote a price out of a migration description. Keyed on the DAY COUNT and not the card, because the customer is buying days: two cards granting 30 days sell those days for the same price even though they cost the shop different amounts, so five numbers populate all 39 Only-Days candidates. The curve is exactly linear at 8,333 LBP/day from 30 through 90 days and then 6,301 LBP/day for the year, a ~24% annual bulk discount; the 10-day figure is the catalog's own long-standing validity sell price (100,000) rather than the strict linear 83,333, because at 83,333 the alfa 4.5 card (days_cost 83,500) would sell its days at a 167 LBP loss and 10-day validity is rarely sold anyway. REJECTED ALTERNATIVE: a single observed sale (the 7.58 card at 300,000 for '1 month + $1.5 kept') implies 30d = 150,000 once the kept credit is priced at 100,000/$, i.e. card-derived days priced below a standalone validity charge — but that prices a month at 5,000/day while still pricing three months at 8,333/day (more per day for a longer commitment) and lands on EXACTLY zero margin for both 10-face cards, whose days_cost is precisely 150,000; under the shipped table that sale reads instead as a 100,000 discount off 400,000, consistent with the shop's habit of discounting (the annual goes $23 -> $20 as an offer). Scoped to genuine Only-Days candidates (credits > 0 AND validity_days > 0), which excludes both the standalone Validity products (days but no credit, nothing to return) and the credit-only cards (credit but no days, nothing to sell). Only ever fills a NULL, so any price an operator has already typed is preserved without needing an override marker. A day count absent from the table is SKIPPED rather than interpolated — the curve is discounted at the annual, so interpolating would invent a price the owner never agreed to; the catalog's 20/120/180/360-day validity products need an owner price, not arithmetic.",
     type: "typescript" as const,
     up(db: Database.Database) {
       const rows = db
@@ -9311,7 +9311,7 @@ export const MIGRATIONS: Migration[] = [
     version: 159,
     name: "reprice_annual_sell_days_lbp",
     description:
-      "Owner-confirmed 2026-08-29: reprices the 365-day days-only sale from 2,300,000 to " +
+      "Owner-confirmed 2026-09-07: reprices the 365-day days-only sale from 2,300,000 to " +
       "1,780,000 LBP, deepening the annual bulk discount from ~24% to ~41% off the 8,333 " +
       "LBP/day rate the 30/60/90-day tiers run at (4,877 LBP/day for the year). This is a " +
       "PRICING decision, not a correction: v147's 2,300,000 was arithmetically fine, the shop " +
@@ -9337,7 +9337,7 @@ export const MIGRATIONS: Migration[] = [
       // catching up would rewrite rows this migration never meant to touch.
       // House pattern (every other migration does this): a migration must be a
       // no-op on a database that has no such table, or it throws and takes the
-      // whole runner down with it. Added 2026-08-30 after this migration broke
+      // whole runner down with it. Added 2026-09-07 after this migration broke
       // PartnersSystemAssociationFkMigrationViaRunner's rollback round-trip
       // with "no such table: mobile_service_items".
       const hasItems = db
@@ -9353,7 +9353,7 @@ export const MIGRATIONS: Migration[] = [
       }
 
       const OLD_ANNUAL_LBP = 2_300_000; // v147's price
-      const NEW_ANNUAL_LBP = 1_780_000; // owner-confirmed 2026-08-29
+      const NEW_ANNUAL_LBP = 1_780_000; // owner-confirmed 2026-09-07
 
       const result = db
         .prepare(
@@ -9393,7 +9393,7 @@ export const MIGRATIONS: Migration[] = [
       }
 
       const OLD_ANNUAL_LBP = 2_300_000; // v147's price
-      const NEW_ANNUAL_LBP = 1_780_000; // owner-confirmed 2026-08-29
+      const NEW_ANNUAL_LBP = 1_780_000; // owner-confirmed 2026-09-07
 
       const result = db
         .prepare(
@@ -9415,7 +9415,7 @@ export const MIGRATIONS: Migration[] = [
     version: 160,
     name: "add_max_returned_credits_override",
     description:
-      "Owner interview 2026-08-30 — per-card override of the returnable credit maximum. " +
+      "Owner interview 2026-09-07 — per-card override of the returnable credit maximum. " +
       "maxReturnableCredits() models a BARE card (nothing on the line but the card's own " +
       "credit) and for the alfa 77.28 card that yields $73.00: 24 messages x $3.16 spends " +
       "$75.84, leaves $1.44, and a final $1.50 message needs $1.66. In practice the " +

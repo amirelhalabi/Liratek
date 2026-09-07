@@ -15,7 +15,7 @@
  *
  * The annual figure the assertions below expect is 1,780,000, NOT the 2,300,000
  * v147 originally shipped: v147 reads the live `TELECOM_DAYS_SELL_PRICE_LBP`
- * rather than a pinned literal, so repricing the table (v159, 2026-08-29)
+ * rather than a pinned literal, so repricing the table (v159, 2026-09-07)
  * changes what v147 seeds into a fresh database. That coupling is intentional —
  * one definition of the curve (rule 14) — and this test is the thing that
  * catches it drifting.
