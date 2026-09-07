@@ -28,7 +28,11 @@ const CLEAN_ROUTES = [
   "/suppliers",
   "/partners",
   "/customer-sessions",
-  "/profits",
+  // "/profits" intentionally excluded — the profits password gate
+  // (PROFITS_GATE_CONTRACT.md) now legitimately renders a
+  // `input[type="password"]` lock screen for every role, including admin,
+  // which would fail this loop's "didn't bounce to login" proxy assertion.
+  // Covered by its own gate spec: lira-web-029-profits-password-gate.
   "/settings",
   "/audit",
   "/checkpoint-timeline",

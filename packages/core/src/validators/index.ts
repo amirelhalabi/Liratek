@@ -42,3 +42,4 @@ export * from "./productUnit.js";
 // slice).
 export * from "./drawerTransfer.js";
 export * from "./serviceProvider.js";
+export * from "./profits.js";

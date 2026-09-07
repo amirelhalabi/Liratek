@@ -150,7 +150,13 @@ export type SupplierLedgerEntryType =
    *  Negative ledger amount (mirror of PAYMENT — reduces what we owe), NO
    *  cash movement (no drawer/payments row) — see SupplierRepository's
    *  _postSupplierDiscount. */
-  | "DISCOUNT";
+  | "DISCOUNT"
+  /** SUPPLIER_STOCK_INTAKE_PLAN.md (migration v164): receiving stock with a
+   *  supplier attached writes ONE positive ledger row (+qty * unit cost) —
+   *  see recordStockIntake. Balance is the ledger sum ONLY; sales/refunds/
+   *  cost edits never touch it (that recompute-from-live-inventory bug is
+   *  exactly what this entry type replaces — see getProductSupplierBalances). */
+  | "STOCK_INTAKE";
 
 export interface SupplierLedgerEntryEntity {
   id: number;
@@ -931,6 +937,98 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
   }
 
+  /**
+   * SUPPLIER_STOCK_INTAKE_PLAN.md: the ONLY write path that books stock
+   * intake against a supplier. Writes ONE 'STOCK_INTAKE' supplier_ledger row
+   * (+qty * unit cost — the shop now owes the supplier that much more) and
+   * its own unified transaction, inside ONE db.transaction(). No payments
+   * row, no drawer delta, profit 0 — mirrors the no-drawer ADJUSTMENT branch
+   * of addLedgerEntry, but kept as its own method (not routed through
+   * addLedgerEntry) because the caller (InventoryService.receiveStock) needs
+   * the raw ledgerEntryId/transactionId pair back to stamp the cost batch
+   * row (ledger_entry_id/transaction_id), which addLedgerEntry's void {id}
+   * shape doesn't carry.
+   *
+   * Reversal owner (rule 20): voiding the SUPPLIER_STOCK_INTAKE transaction
+   * is the generic TransactionRepository void path (source_table
+   * 'supplier_ledger' → soft-voids this row) PLUS StockBatchRepository
+   * .deleteBatchForVoid, wired by whichever agent owns the void cascade —
+   * this method only creates the row that void must find.
+   */
+  recordStockIntake(data: {
+    supplier_id: number;
+    product_id: number;
+    product_name: string;
+    quantity: number;
+    unit_cost_usd: number;
+    // REQUIRED, not nullable: this value flows straight into
+    // createTransaction's user_id, and transactions.user_id is INTEGER NOT
+    // NULL — passing null there is a constraint violation at runtime, on the
+    // money path. This codebase deliberately stripped actor fallbacks
+    // (|| 1 / ?? 1) from SupplierRepository so every method requires a real
+    // actor and every caller passes the authenticated user; a missing actor
+    // here is the caller's bug and must fail there, not be papered over with
+    // an invented id.
+    created_by: number;
+  }): { ledgerEntryId: number; transactionId: number } {
+    try {
+      const tenantId = getCurrentTenantId();
+      const amountUsd =
+        Math.round(data.quantity * data.unit_cost_usd * 100) / 100;
+
+      const run = this.db.transaction(() => {
+        const note = `${data.quantity} × ${data.product_name} @ $${data.unit_cost_usd}`;
+        // No source_ref_table/id here (this row is never link-mode and
+        // never auto-hidden), so the schema-drift guard the other branches
+        // need (_supplierLedgerHasSourceRefColumns) doesn't apply — plain
+        // INSERT is safe against both column shapes.
+        const stmt = this.db.prepare(`
+            INSERT INTO supplier_ledger (
+              supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto, tenant_id, created_at
+            ) VALUES (?, 'STOCK_INTAKE', ?, 0, ?, ?, 0, ?, CURRENT_TIMESTAMP)
+          `);
+        const res = stmt.run(
+          data.supplier_id,
+          amountUsd,
+          note,
+          data.created_by,
+          tenantId,
+        );
+        const ledgerEntryId = Number(res.lastInsertRowid);
+
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.SUPPLIER_STOCK_INTAKE as TransactionType,
+          source_table: "supplier_ledger",
+          source_id: ledgerEntryId,
+          user_id: data.created_by,
+          amount_usd: amountUsd,
+          amount_lbp: 0,
+          profit_usd: 0,
+          profit_lbp: 0,
+          summary: `Stock received: ${data.quantity} × ${data.product_name} — ${this._getSupplierName(data.supplier_id)}`,
+          metadata_json: {
+            supplier_id: data.supplier_id,
+            product_id: data.product_id,
+            entry_type: "STOCK_INTAKE",
+          },
+        });
+
+        this.db
+          .prepare(
+            `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(txnId, ledgerEntryId, tenantId);
+
+        return { ledgerEntryId, transactionId: txnId };
+      });
+      return run();
+    } catch (e) {
+      throw new DatabaseError("Failed to record supplier stock intake", {
+        cause: e,
+      });
+    }
+  }
+
   getSupplierLedger(
     supplierId: number,
     limit = 200,
@@ -1010,40 +1108,57 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
-   * Balance for product suppliers: inventory cost minus payments.
-   * inventory cost = Σ(p.quantity * p.cost) for products from this supplier.
-   * payments = existing supplier_ledger entries (PAYMENT stored as negative).
-   * Returns only is_system = 0 suppliers that have a linked product_suppliers row.
+   * Rule 14 — the ONE ledger-sum SELECT shared by getProductSupplierBalances
+   * and getSupplierBalances: both want "SUM of non-refunded supplier_ledger
+   * rows per supplier", differing only in which suppliers are in scope. Never
+   * paste this SUM/JOIN a second time — add a new caller by passing a WHERE.
+   */
+  private _ledgerBalanceQuery(whereClause: string): string {
+    return `
+        SELECT
+          s.id as supplier_id,
+          COALESCE(SUM(l.amount_usd), 0) as total_usd,
+          COALESCE(SUM(l.amount_lbp), 0) as total_lbp
+        FROM suppliers s
+        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id AND l.tenant_id = s.tenant_id AND ${ledgerNotRefunded("l.")}
+        WHERE ${whereClause}
+        GROUP BY s.id
+        ORDER BY s.name ASC
+      `;
+  }
+
+  /**
+   * SUPPLIER_STOCK_INTAKE_PLAN.md — LEDGER-ONLY balance, restricted to
+   * is_system = 0 suppliers that have a linked product_suppliers row.
+   *
+   * This REPLACES the old recompute-from-live-inventory query, which had two
+   * bugs that die with this rewrite:
+   *  (a) it JOINed product_suppliers directly onto suppliers without
+   *      aggregating first, then GROUPed BY s.id — so a supplier linked to N
+   *      product_suppliers rows had its ledger SUM(l.amount_usd) silently
+   *      multiplied by N (the join fans out before the aggregate runs);
+   *  (b) it added SUM(live stock_quantity * live cost_price_usd) on top of
+   *      the ledger — so a POS sale (lowers stock) shrank what the shop
+   *      "owed", a refund raised it, and a cost-price edit re-priced
+   *      already-settled history. This is the entire recompute bug the
+   *      stock-intake project exists to fix: balance is now the ledger sum
+   *      ONLY (event-based booking via recordStockIntake), matching
+   *      getSupplierBalances' definition exactly.
+   *
+   * total_lbp now reflects real LBP payment legs (supplier_ledger.amount_lbp)
+   * instead of the old hardcoded 0.
    */
   getProductSupplierBalances(): SupplierBalance[] {
     try {
       const tenantId = getCurrentTenantId();
       return this.query<SupplierBalance>(
-        `
-        SELECT
-          s.id as supplier_id,
-          ROUND(
-            COALESCE(inv.inv_usd, 0) + COALESCE(SUM(l.amount_usd), 0),
-            2
-          ) as total_usd,
-          0 as total_lbp
-        FROM suppliers s
-        JOIN product_suppliers ps ON ps.supplier_id = s.id AND ps.tenant_id = s.tenant_id
-        LEFT JOIN (
-          SELECT ps2.supplier_id, ps2.tenant_id,
-                 SUM(p.stock_quantity * p.cost_price_usd) as inv_usd
-          FROM product_suppliers ps2
-          JOIN products p ON LOWER(p.supplier) = LOWER(ps2.name) AND p.is_active = 1
-            AND p.tenant_id = ps2.tenant_id
-          WHERE ps2.supplier_id IS NOT NULL AND ps2.tenant_id = ?
-          GROUP BY ps2.supplier_id, ps2.tenant_id
-        ) inv ON inv.supplier_id = s.id AND inv.tenant_id = s.tenant_id
-        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id AND l.tenant_id = s.tenant_id AND ${ledgerNotRefunded("l.")}
-        WHERE s.is_system = 0 AND s.is_active = 1 AND s.tenant_id = ?
-        GROUP BY s.id
-        ORDER BY s.name ASC
-      `,
-        tenantId,
+        this._ledgerBalanceQuery(`
+          s.is_system = 0 AND s.is_active = 1 AND s.tenant_id = ?
+          AND EXISTS (
+            SELECT 1 FROM product_suppliers ps
+            WHERE ps.supplier_id = s.id AND ps.tenant_id = s.tenant_id
+          )
+        `),
         tenantId,
       );
     } catch (e) {
@@ -1069,17 +1184,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
                       (SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = s.tenant_id),
                       'OMT'))`;
       return this.query<SupplierBalance>(
-        `
-        SELECT
-          s.id as supplier_id,
-          COALESCE(SUM(l.amount_usd), 0) as total_usd,
-          COALESCE(SUM(l.amount_lbp), 0) as total_lbp
-        FROM suppliers s
-        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id AND l.tenant_id = s.tenant_id AND ${ledgerNotRefunded("l.")}
-        WHERE ${filter}
-        GROUP BY s.id
-        ORDER BY s.name ASC
-      `,
+        this._ledgerBalanceQuery(filter),
         tenantId,
       );
     } catch (e) {
@@ -2445,9 +2550,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   /**
    * CQ-10 — post ONE COUNTERPARTY_DISCOUNT transaction (+ its owning
    * 'DISCOUNT' supplier_ledger row) for a supplier forgiving part of what the
-   * shop owes them. Used by BOTH entry paths: bundled (called from inside
-   * recordSupplierCashflow's transaction, PAY direction only) and standalone
-   * (writeOffSupplierDebt, its own transaction).
+   * shop owes them. D8: the standalone write-off caller was removed — this is
+   * now called ONLY from recordSupplierCashflow's PAY-direction branch
+   * (bundled discount), inside that flow's own db.transaction().
    *
    * amount_usd/amount_lbp = 0 (no cash moved); profit_usd/profit_lbp =
    * POSITIVE the forgiven amount (D1: a supplier discount is a gain — the
@@ -2521,9 +2626,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
-   * Per-supplier net balance (+ = shop owes supplier). Used by
-   * SupplierService.writeOffSupplierDebt to validate a write-off against the
-   * OUTSTANDING balance per currency — mirrors DebtRepository.getClientBalance.
+   * Per-supplier net balance (+ = shop owes supplier). D8: the standalone
+   * write-off that used to be this method's only production caller
+   * (SupplierService.writeOffSupplierDebt) was removed — this now exists as
+   * the "nets to 0 across void/reverse cycles" oracle asserted directly by
+   * `FinancialServiceRepository.partner.test.ts` and
+   * `TransactionRepository.supplierSiblingVoidCascade.test.ts` (rule 17/20).
    */
   getSupplierBalance(supplierId: number): {
     balance_usd: number;
@@ -2547,41 +2655,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     };
   }
 
-  /**
-   * CQ-10 (D4: admin-only, enforced by the caller) — standalone write-off: no
-   * cashflow attached, just forgive part of what the shop owes a supplier.
-   * Validation (positive amount, does not exceed the outstanding balance per
-   * currency) lives in SupplierService.writeOffSupplierDebt.
-   */
-  writeOffSupplierDebt(data: {
-    supplier_id: number;
-    amount_usd: number;
-    amount_lbp: number;
-    reason?: string;
-    created_by: number;
-  }): { id: number } {
-    try {
-      const tenantId = getCurrentTenantId();
-      const run = this.db.transaction(() => {
-        const txnId = this._postSupplierDiscount(
-          data.supplier_id,
-          {
-            amount_usd: data.amount_usd,
-            amount_lbp: data.amount_lbp,
-            reason: data.reason,
-          },
-          data.created_by,
-          tenantId,
-        );
-        return { id: txnId };
-      });
-      return run();
-    } catch (e) {
-      throw new DatabaseError("Failed to write off supplier debt", {
-        cause: e,
-      });
-    }
-  }
+  // D8: writeOffSupplierDebt (standalone write-off, its own transaction) was
+  // REMOVED — the owner decided the bundled Pay-form discount is the only
+  // supported path. `_postSupplierDiscount` above stays; it is also called
+  // from recordSupplierCashflow's PAY-direction branch.
 }
 
 let supplierRepositoryInstance: SupplierRepository | null = null;

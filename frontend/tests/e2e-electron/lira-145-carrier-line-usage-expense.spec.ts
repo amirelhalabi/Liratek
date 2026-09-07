@@ -87,7 +87,12 @@
  *                                   current credits (test (c))
  */
 
-import { test, expect, navigateTo } from "./fixtures";
+import {
+  test,
+  expect,
+  navigateTo,
+  ensureProfitsUnlocked,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
@@ -424,6 +429,13 @@ async function findUsageTxn(
 // ===========================================================================
 
 test.describe("LIRA-145 — carrier-line credit usage books a Line_Usage expense", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle (snapshot() reads
+  // profits.summary()).
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test("(a) recording usage from the Recharge panel debits the CARRIER drawer and the line by the same amount, books one EXPENSE, and moves no cash", async ({
     appPage,
   }) => {

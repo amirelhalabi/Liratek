@@ -9884,6 +9884,391 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 163,
+    name: "profits_module_visible_to_all_roles",
+    description:
+      "The 'profits' module was admin_only = 1, gating the ENTIRE /profits page (route, IPC " +
+        "handlers, REST routes) behind the admin role. Per the Profits password gate feature, " +
+        "the page is now reachable by staff too — it flips admin_only to 0 so ModuleService/the " +
+        "route table stop hiding it from staff — but access is instead protected by a per-page " +
+        "password (system_settings key 'profits_password_hash', see " +
+        "packages/core/src/constants/profitsAccess.ts and ProfitsAccessService). '/profits' " +
+        "ALWAYS shows a password screen first, admin included; a correct password unlocks the " +
+        "page and the 7 profit data endpoints for 15 minutes, and navigating away locks it again " +
+        "immediately. If no password has been set yet, nobody enters (fail closed) — the lock " +
+        "screen tells the operator an admin must set one in Settings > Profits Password. The " +
+        "route/IPC (profits:* channels)/REST (profits data routes swap requireRole(['admin']) " +
+        "for requireProfitsUnlock) gates changed together with this migration.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Same defensive shape as v160/v161/v162: migration-runner test
+      // harnesses build minimal per-migration fixture DBs and replay EVERY
+      // migration over them, so a bare UPDATE here must not assume
+      // 'modules' exists.
+      const hasModules = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'modules'`,
+        )
+        .get();
+      if (!hasModules) {
+        console.log("Migration v163 skipped: 'modules' table not present");
+        return;
+      }
+
+      // Deliberately UNSCOPED by tenant_id, matching v162's precedent: the
+      // frontend route table / module visibility rule is compiled once, not
+      // per tenant, so every tenant's 'profits' row must become reachable by
+      // staff at once. Keyed on `key = 'profits'` (identity, not the old
+      // admin_only value) so this stays idempotent and legible on re-run.
+      const result = db
+        .prepare(`UPDATE modules SET admin_only = 0 WHERE key = ?`)
+        .run("profits");
+
+      console.log(
+        `Migration v163: 'profits' module admin_only cleared (now visible to staff) on ${result.changes} row(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      const hasModules = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'modules'`,
+        )
+        .get();
+      if (!hasModules) {
+        console.log(
+          "Migration v163 rollback skipped: 'modules' table not present",
+        );
+        return;
+      }
+
+      // Exact reverse of up() — same deliberate cross-tenant scope, same
+      // identity-keyed predicate.
+      const result = db
+        .prepare(`UPDATE modules SET admin_only = 1 WHERE key = ?`)
+        .run("profits");
+
+      console.log(
+        `Migration v163 rolled back: 'profits' module admin_only restored to 1 (admin-only again) on ${result.changes} row(s)`,
+      );
+    },
+  },
+  {
+    version: 164,
+    name: "add_product_stock_batches_and_intake_ledger_type",
+    description:
+      "SUPPLIER_STOCK_INTAKE_PLAN.md — product-supplier 'owed' is today RECOMPUTED as " +
+        "SUM(live stock x live cost) + SUM(supplier_ledger) in " +
+        "SupplierRepository.getProductSupplierBalances, so a POS sale silently lowers what the " +
+        "shop 'owes', a refund raises it, and a cost edit re-prices history — no intake path " +
+        "ever wrote a supplier row. This switches to event-based booking: adding stock with a " +
+        "supplier writes ONE supplier_ledger 'STOCK_INTAKE' row (+qty x unit cost) and the " +
+        "balance becomes the ledger sum ONLY; sales/refunds/deletes/cost edits never touch it " +
+        "again. Two new tables carry the other half of the design — FIFO cost batches, so a " +
+        "sale consumes the OLDEST batch first and stamps the resulting weighted cost onto " +
+        "sale_items.cost_price_snapshot_usd (every profit query already reads that column, so " +
+        "no profit code changes): product_stock_batches (one row per intake/opening-stock " +
+        "event, books_debt distinguishing a real intake from the owner's per-entry 'old stock' " +
+        "checkbox which creates a batch but skips the ledger row) and " +
+        "stock_batch_consumptions (the FIFO draw-down audit trail, reversible per sale_item via " +
+        "is_restored). supplier_ledger.entry_type gains 'STOCK_INTAKE' the same way v131 added " +
+        "'DISCOUNT' — SQLite can't ALTER a CHECK, so the table is recreated preserving all rows " +
+        "+ its index (v83/v98/v99/v127/v131's rebuild pattern), technique copied line for line. " +
+        "Owner decision D11: existing stock predates any supplier relationship worth billing " +
+        "for, so it is backfilled as ONE 'opening' batch per active, non-deleted, in-stock " +
+        "product (is_opening=1, books_debt=0, supplier_id NULL, quantity/quantity_remaining = " +
+        "the live stock_quantity, unit_cost_usd = the live cost_price_usd) — settled stock that " +
+        "books NO debt, so the switch to event-based booking does not retroactively invent a " +
+        "supplier balance nobody agreed to.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Always safe to create regardless of fixture-db shape (rule: FK
+      // clauses referencing another table are not resolved/enforced at
+      // CREATE TABLE time in SQLite — only at insert, under
+      // PRAGMA foreign_keys=ON), same latitude v155/v157 rely on elsewhere.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS product_stock_batches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          product_id INTEGER NOT NULL REFERENCES products(id),
+          supplier_id INTEGER REFERENCES suppliers(id),
+          quantity INTEGER NOT NULL CHECK(quantity > 0),
+          quantity_remaining INTEGER NOT NULL CHECK(quantity_remaining >= 0),
+          unit_cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+          books_debt INTEGER NOT NULL DEFAULT 0,
+          ledger_entry_id INTEGER REFERENCES supplier_ledger(id),
+          transaction_id INTEGER REFERENCES transactions(id),
+          is_opening INTEGER NOT NULL DEFAULT 0,
+          created_by INTEGER REFERENCES users(id),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_product_stock_batches_tenant_product_id ON product_stock_batches(tenant_id, product_id, id);
+        CREATE INDEX IF NOT EXISTS idx_product_stock_batches_tenant_supplier ON product_stock_batches(tenant_id, supplier_id);
+        CREATE INDEX IF NOT EXISTS idx_product_stock_batches_tenant_transaction ON product_stock_batches(tenant_id, transaction_id);
+
+        -- sale_item_id / custom_service_id are sibling owner columns, exactly one populated
+        -- per row: a custom service backed by inventory also draws down a batch, but its id
+        -- cannot be stored in sale_item_id without violating that column's own FK to
+        -- sale_items — and voiding the service needs a real way back to its consumption rows
+        -- to restore the unit. A single polymorphic owner_id + type column was rejected in
+        -- favor of one real FK per source: only a real FOREIGN KEY lets SQLite itself enforce
+        -- (and ON DELETE SET NULL clean up) the link, which a type-tagged owner_id cannot.
+        CREATE TABLE IF NOT EXISTS stock_batch_consumptions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          batch_id INTEGER NOT NULL REFERENCES product_stock_batches(id),
+          sale_item_id INTEGER REFERENCES sale_items(id) ON DELETE SET NULL,
+          custom_service_id INTEGER REFERENCES custom_services(id) ON DELETE SET NULL,
+          product_id INTEGER NOT NULL REFERENCES products(id),
+          quantity INTEGER NOT NULL,
+          unit_cost_usd DECIMAL(10,2) NOT NULL,
+          reason TEXT NOT NULL DEFAULT 'SALE' CHECK(reason IN ('SALE','ADJUSTMENT','SERVICE')),
+          is_restored INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_sale_item ON stock_batch_consumptions(tenant_id, sale_item_id);
+        CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_custom_service ON stock_batch_consumptions(tenant_id, custom_service_id);
+        CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_batch ON stock_batch_consumptions(tenant_id, batch_id);
+      `);
+
+      // supplier_ledger.entry_type CHECK widened to include 'STOCK_INTAKE' —
+      // v131's rebuild technique (create-new / copy / drop / rename /
+      // recreate index), NOT copied blind: v131 predates v136's
+      // source_ref_table/source_ref_id columns (added by ALTER TABLE, so
+      // they exist on every real chain this migration actually runs against)
+      // and its own idx_supplier_ledger_source_ref index. Omitting either
+      // from the new table/copy/index-recreate would silently drop that
+      // data and that index on every real database — both are carried
+      // through here even though the plan's copy-paste instruction named
+      // only v131.
+      // Guarded — same rationale as the hasProducts guard below: a migration-
+      // runner fixture DB may not have created supplier_ledger yet, and the
+      // CHECK-widening rebuild (rename-copy-drop-rename) requires the table
+      // to already exist. Skip the rebuild entirely when it's absent; there
+      // is nothing to widen and no rows to preserve.
+      const hasSupplierLedger = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supplier_ledger'`,
+        )
+        .get();
+      if (!hasSupplierLedger) {
+        console.log(
+          "Migration v164: supplier_ledger CHECK-widen skipped ('supplier_ledger' table not present)",
+        );
+      } else {
+        db.exec(`
+          CREATE TABLE supplier_ledger_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER REFERENCES tenants(id),
+            supplier_id INTEGER NOT NULL,
+            entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT', 'STOCK_INTAKE')),
+            amount_usd REAL NOT NULL DEFAULT 0,
+            amount_lbp REAL NOT NULL DEFAULT 0,
+            note TEXT,
+            created_by INTEGER,
+            transaction_id INTEGER,
+            is_auto INTEGER NOT NULL DEFAULT 0,
+            is_refunded INTEGER NOT NULL DEFAULT 0,
+            refunded_at DATETIME,
+            source_ref_table TEXT DEFAULT NULL,
+            source_ref_id INTEGER DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+            FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+          );
+
+          INSERT INTO supplier_ledger_new (id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, created_at)
+          SELECT id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, created_at
+          FROM supplier_ledger;
+
+          DROP TABLE supplier_ledger;
+          ALTER TABLE supplier_ledger_new RENAME TO supplier_ledger;
+
+          CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+          CREATE INDEX IF NOT EXISTS idx_supplier_ledger_source_ref ON supplier_ledger(source_ref_table, source_ref_id);
+        `);
+      }
+
+      // Backfill D11: existing stock is settled and books NO debt. Guarded —
+      // migration-runner fixture tests build minimal per-migration DBs, and a
+      // bare INSERT...SELECT FROM products fails one of those on a fixture
+      // that never created the table (same shape as v160/v161/v162's guard).
+      const hasProducts = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'products'`,
+        )
+        .get();
+      if (!hasProducts) {
+        console.log(
+          "Migration v164: opening-batch backfill skipped ('products' table not present)",
+        );
+      } else {
+        const result = db
+          .prepare(
+            `INSERT INTO product_stock_batches
+                (tenant_id, product_id, supplier_id, quantity, quantity_remaining, unit_cost_usd,
+                 books_debt, ledger_entry_id, transaction_id, is_opening, created_by)
+             SELECT tenant_id, id, NULL, stock_quantity, stock_quantity, cost_price_usd,
+                    0, NULL, NULL, 1, NULL
+               FROM products
+              WHERE is_active = 1 AND is_deleted = 0 AND stock_quantity > 0`,
+          )
+          .run();
+        console.log(
+          `Migration v164: backfilled ${result.changes} opening stock batch row(s) (is_opening=1, books_debt=0)`,
+        );
+      }
+
+      console.log(
+        "Migration v164: product_stock_batches + stock_batch_consumptions created; " +
+          "supplier_ledger.entry_type widened with 'STOCK_INTAKE'",
+      );
+    },
+    down(db: Database.Database) {
+      // Guarded — migration-runner fixture tests build minimal per-migration
+      // DBs that may never have created supplier_ledger (same shape as
+      // up()'s hasProducts guard above). Without this, rolling back on such
+      // a fixture throws "no such table: supplier_ledger" and leaves the DB
+      // wedged mid-rollback.
+      const hasSupplierLedger = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supplier_ledger'`,
+        )
+        .get();
+      if (!hasSupplierLedger) {
+        console.log(
+          "Migration v164 down(): supplier_ledger rebuild skipped ('supplier_ledger' table not present)",
+        );
+      } else {
+        // Delete any STOCK_INTAKE rows first — unlike v131's down() (which
+        // relabels DISCOUNT to the pre-existing ADJUSTMENT so the narrower
+        // rebuilt CHECK doesn't reject them), STOCK_INTAKE has no equally
+        // truthful predecessor label to fall back to (it is not a manual
+        // ADJUSTMENT — it is machine-written from a real intake event), so the
+        // rows are removed instead of relabeled.
+        db.exec(
+          `DELETE FROM supplier_ledger WHERE entry_type = 'STOCK_INTAKE'`,
+        );
+
+        // Mirrors up()'s widened shape minus 'STOCK_INTAKE' — source_ref_table/
+        // source_ref_id (v136) and their index are pre-existing columns this
+        // migration never owned, so down() must keep carrying them too.
+        db.exec(`
+          CREATE TABLE supplier_ledger_old (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER REFERENCES tenants(id),
+            supplier_id INTEGER NOT NULL,
+            entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT')),
+            amount_usd REAL NOT NULL DEFAULT 0,
+            amount_lbp REAL NOT NULL DEFAULT 0,
+            note TEXT,
+            created_by INTEGER,
+            transaction_id INTEGER,
+            is_auto INTEGER NOT NULL DEFAULT 0,
+            is_refunded INTEGER NOT NULL DEFAULT 0,
+            refunded_at DATETIME,
+            source_ref_table TEXT DEFAULT NULL,
+            source_ref_id INTEGER DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+            FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+          );
+
+          INSERT INTO supplier_ledger_old (id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, created_at)
+          SELECT id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, created_at
+          FROM supplier_ledger;
+
+          DROP TABLE supplier_ledger;
+          ALTER TABLE supplier_ledger_old RENAME TO supplier_ledger;
+
+          CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+          CREATE INDEX IF NOT EXISTS idx_supplier_ledger_source_ref ON supplier_ledger(source_ref_table, source_ref_id);
+        `);
+      }
+
+      db.exec(`
+        DROP TABLE IF EXISTS stock_batch_consumptions;
+        DROP TABLE IF EXISTS product_stock_batches;
+      `);
+
+      console.log(
+        "Migration v164 rolled back: product_stock_batches + stock_batch_consumptions dropped; " +
+          "'STOCK_INTAKE' removed from supplier_ledger.entry_type (STOCK_INTAKE rows deleted)",
+      );
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v165 — unit cost on stock_adjustments (owner-reported 2026-09-07)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 165,
+    name: "add_unit_cost_to_stock_adjustments",
+    description:
+      "Owner report 2026-09-07: receiving 2 iPhones at $1,300 on top of 2 already held at " +
+        "$1,200 is booked correctly (two cost batches, four units), but the adjustment history " +
+        "row reads '+2 (2 -> 4)' with no mention of the $1,300 because stock_adjustments has no " +
+        "cost column. Adds unit_cost_usd, NULLABLE with NO backfill: historical adjustments " +
+        "never recorded a cost, and inventing one for them would be fabricating financial " +
+        "history. Only ProductRepository.receiveStock (a real delivery with a known unit cost) " +
+        "writes it going forward; the plain increase/decrease/correction paths " +
+        "(adjustStock/adjustStockDelta/decreaseStockForAdjustment) keep writing NULL because no " +
+        "cost applies to shrinkage or a plain count correction.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasTable = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stock_adjustments'`,
+        )
+        .get();
+      if (!hasTable) {
+        console.log(
+          "Migration v165 skipped: 'stock_adjustments' table not present",
+        );
+        return;
+      }
+
+      db.exec(
+        `ALTER TABLE stock_adjustments ADD COLUMN unit_cost_usd DECIMAL(10,2) DEFAULT NULL`,
+      );
+
+      console.log(
+        "Migration v165: stock_adjustments.unit_cost_usd added (nullable, no backfill)",
+      );
+    },
+    down(db: Database.Database) {
+      const hasTable = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stock_adjustments'`,
+        )
+        .get();
+      if (!hasTable) {
+        console.log(
+          "Migration v165 rollback skipped: 'stock_adjustments' table not present",
+        );
+        return;
+      }
+
+      // Same native DROP COLUMN this codebase already uses for v157's
+      // rollback (products.warranty_months / product_categories.
+      // tracks_imei_units / sale_items.warranty_until) — no CHECK/index
+      // touches this column, so a full table rebuild (v131/v164's technique)
+      // is unnecessary here; SQLite's own ALTER ... DROP COLUMN suffices.
+      const cols = db
+        .prepare("PRAGMA table_info(stock_adjustments)")
+        .all() as { name: string }[];
+      if (cols.some((c) => c.name === "unit_cost_usd")) {
+        db.exec(`ALTER TABLE stock_adjustments DROP COLUMN unit_cost_usd`);
+      }
+
+      console.log(
+        "Migration v165 rolled back: stock_adjustments.unit_cost_usd dropped",
+      );
+    },
+  },
+  {
+    version: 166,
     name: "add_expenses_source_ref",
     description:
       "Owner decision 2026-09-06: the SMS transfer fee on a CREDIT_TRANSFER recharge stops " +
@@ -9911,7 +10296,7 @@ export const MIGRATIONS: Migration[] = [
         )
         .get();
       if (!hasExpenses) {
-        console.log("Migration v163 skipped: 'expenses' table not present");
+        console.log("Migration v166 skipped: 'expenses' table not present");
         return;
       }
       const cols = db.prepare("PRAGMA table_info(expenses)").all() as {
@@ -9931,7 +10316,7 @@ export const MIGRATIONS: Migration[] = [
         `CREATE INDEX IF NOT EXISTS idx_expenses_source_ref ON expenses(source_ref_table, source_ref_id)`,
       );
       console.log(
-        "Migration v163: added expenses.source_ref_table/source_ref_id + index",
+        "Migration v166: added expenses.source_ref_table/source_ref_id + index",
       );
     },
     down(db: Database.Database) {
@@ -9942,7 +10327,7 @@ export const MIGRATIONS: Migration[] = [
         .get();
       if (!hasExpenses) {
         console.log(
-          "Migration v163 rollback skipped: 'expenses' table not present",
+          "Migration v166 rollback skipped: 'expenses' table not present",
         );
         return;
       }
@@ -9950,7 +10335,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`ALTER TABLE expenses DROP COLUMN source_ref_id`);
       db.exec(`ALTER TABLE expenses DROP COLUMN source_ref_table`);
       console.log(
-        "Migration v163 rolled back: expenses source_ref_table/source_ref_id + index removed",
+        "Migration v166 rolled back: expenses source_ref_table/source_ref_id + index removed",
       );
     },
   },

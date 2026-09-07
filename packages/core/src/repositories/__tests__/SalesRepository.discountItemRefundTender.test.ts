@@ -159,6 +159,44 @@ function createTestDb(): Database.Database {
       tenant_id        INTEGER NOT NULL DEFAULT 1,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- SUPPLIER_STOCK_INTAKE_PLAN.md v164 — production code now unconditionally
+    -- touches these two tables from SalesRepository.processSale/refundSaleItem
+    -- and TransactionRepository._restoreStock (StockBatchRepository.consume /
+    -- restoreForSaleItem), even for a product with no batch history: a missing
+    -- table here makes the whole file die in setup looking like an assertion
+    -- failure (see CLAUDE.md's "Test schemas silently void whole files" note).
+    CREATE TABLE product_stock_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      product_id INTEGER NOT NULL,
+      supplier_id INTEGER,
+      quantity INTEGER NOT NULL,
+      quantity_remaining INTEGER NOT NULL,
+      unit_cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+      books_debt INTEGER NOT NULL DEFAULT 0,
+      ledger_entry_id INTEGER,
+      transaction_id INTEGER,
+      is_opening INTEGER NOT NULL DEFAULT 0,
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE stock_batch_consumptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      batch_id INTEGER NOT NULL,
+      sale_item_id INTEGER,
+      custom_service_id INTEGER,
+      product_id INTEGER NOT NULL,
+      quantity INTEGER NOT NULL,
+      unit_cost_usd DECIMAL(10,2) NOT NULL,
+      reason TEXT NOT NULL DEFAULT 'SALE',
+      is_restored INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   db.prepare(`INSERT INTO users (id, username) VALUES (1, 'cashier')`).run();
   db.prepare(

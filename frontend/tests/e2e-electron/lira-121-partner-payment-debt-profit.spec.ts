@@ -22,7 +22,7 @@
  * Rule 15: fresh partner/client per test; delta + identity asserts only.
  */
 
-import { test, expect, seedClient } from "./fixtures";
+import { test, expect, seedClient, ensureProfitsUnlocked } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
@@ -121,6 +121,12 @@ async function createPartner(page: Page, label: string): Promise<number> {
 }
 
 test.describe("LIRA-121 — partner cash-moved entries, client-debt profit deferral, gated side views", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test("PFT-7b: cash-moved add-debt/add-credit move General; a paper entry does not", async ({
     appPage,
   }) => {

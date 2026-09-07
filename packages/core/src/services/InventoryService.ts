@@ -20,6 +20,8 @@ import {
   getProductUnitRepository,
   CategoryRepository,
   getCategoryRepository,
+  StockBatchRepository,
+  getStockBatchRepository,
   type ProductDTO,
   type CreateProductData,
   type UpdateProductData,
@@ -29,6 +31,7 @@ import {
   type ProductFilterOptions,
   type StockAdjustmentWithUser,
   type ProductUnitEntity,
+  type StockBatchEntity,
 } from "../repositories/index.js";
 import type { ProductListFilters } from "../validators/product.js";
 import { ValidationError, NotFoundError } from "../utils/errors.js";
@@ -62,6 +65,13 @@ export interface StockAdjustmentResult {
   error?: string;
 }
 
+/** Result of {@link InventoryService.receiveStock}. */
+export interface ReceiveStockResult {
+  success: boolean;
+  error?: string;
+  batch_id?: number;
+}
+
 /**
  * Result of {@link InventoryService.resolveScanCode} — the resolved
  * product plus the specific unit the scanned code identified, when the
@@ -85,6 +95,7 @@ export class InventoryService {
   private productRepo: ProductRepository;
   private stockAdjustmentRepo: StockAdjustmentRepository;
   private productUnitRepo: ProductUnitRepository;
+  private stockBatchRepo: StockBatchRepository;
   /**
    * Injected override for the category repo, or `null` until the default
    * singleton is resolved on first use. Deliberately NOT resolved in the
@@ -101,12 +112,14 @@ export class InventoryService {
     stockAdjustmentRepo?: StockAdjustmentRepository,
     productUnitRepo?: ProductUnitRepository,
     categoryRepo?: CategoryRepository,
+    stockBatchRepo?: StockBatchRepository,
   ) {
     this.productRepo = productRepo ?? getProductRepository();
     this.stockAdjustmentRepo =
       stockAdjustmentRepo ?? getStockAdjustmentRepository();
     this.productUnitRepo = productUnitRepo ?? getProductUnitRepository();
     this.categoryRepoRef = categoryRepo ?? null;
+    this.stockBatchRepo = stockBatchRepo ?? getStockBatchRepository();
   }
 
   private get categoryRepo(): CategoryRepository {
@@ -274,9 +287,19 @@ export class InventoryService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Create a new product
+   * Create a new product.
+   *
+   * `userId` attributes the opening-stock batch/supplier-debit this create
+   * may book (SUPPLIER_STOCK_INTAKE_PLAN.md) — optional, defaulting to
+   * `null` so every pre-existing caller keeps compiling. A create can now
+   * book real supplier debt, so a caller with an authenticated actor (the
+   * IPC handler / REST route) MUST pass it; an unattributed row here is a
+   * genuine audit-trail gap.
    */
-  createProduct(data: CreateProductData): ProductResult {
+  createProduct(
+    data: CreateProductData,
+    userId: number | null = null,
+  ): ProductResult {
     // Barcode behavior:
     // - If blank, auto-generate a unique 8-digit numeric barcode.
     // - If provided and duplicates exist, return a structured duplicate error.
@@ -324,15 +347,18 @@ export class InventoryService {
 
     try {
       const categoryName = data.category.trim();
-      const result = this.productRepo.createProduct({
-        ...data,
-        barcode,
-        name: data.name.trim(),
-        category: categoryName,
-        // See resolveCategoryId: the category name is resolved HERE so IPC
-        // and REST both stamp category_id (rule 14/19b).
-        category_id: this.resolveCategoryId(categoryName, data.category_id),
-      });
+      const result = this.productRepo.createProduct(
+        {
+          ...data,
+          barcode,
+          name: data.name.trim(),
+          category: categoryName,
+          // See resolveCategoryId: the category name is resolved HERE so IPC
+          // and REST both stamp category_id (rule 14/19b).
+          category_id: this.resolveCategoryId(categoryName, data.category_id),
+        },
+        userId,
+      );
       return { success: true, id: result.id };
     } catch (error) {
       const repoCode = getRepoConstraintCode(error);
@@ -388,6 +414,17 @@ export class InventoryService {
       min_stock_level: number;
       image_url?: string | null;
       supplier?: string | null;
+      /** Owner decision D13 (SUPPLIER_STOCK_INTAKE_PLAN.md): accepted for
+       *  compatibility with existing callers' payload shape and
+       *  DELIBERATELY IGNORED — the edit form's Quantity field is now
+       *  read-only; every quantity change goes through
+       *  `receiveStock`/`adjustStock`/`adjustStockDelta` instead, which
+       *  book a batch (and, for `receiveStock`, a supplier debit) at the
+       *  time of the change. Forwarding this straight to a raw UPDATE
+       *  would silently move `stock_quantity` with no batch, no audit
+       *  row, and no cost — exactly the un-audited overwrite `category`/
+       *  `category_id` above already guard against, for the same reason:
+       *  see `ProductRepository.updateProductFull`'s matching comment. */
       stock_quantity?: number;
     },
   ): ProductResult {
@@ -597,6 +634,65 @@ export class InventoryService {
   // ---------------------------------------------------------------------------
 
   /**
+   * Receive stock for an existing product (Supplier Stock Intake,
+   * SUPPLIER_STOCK_INTAKE_PLAN.md). Resolves/auto-creates the supplier
+   * link from the supplier NAME, raises `products.stock_quantity`, sets
+   * `cost_price_usd = unit_cost_usd` (owner decision D4: newest price
+   * wins), writes the `stock_adjustments` audit row, creates the FIFO
+   * cost batch, and books a `SUPPLIER_STOCK_INTAKE` supplier-ledger debit
+   * unless `is_old_stock` is set or there is no supplier — ALL inside ONE
+   * db transaction owned by `ProductRepository.receiveStock` (rule 13:
+   * this service holds no SQL of its own).
+   */
+  receiveStock(data: {
+    product_id: number;
+    quantity: number;
+    unit_cost_usd: number;
+    supplier?: string | null;
+    is_old_stock: boolean;
+    reason?: string;
+    userId: number | null;
+  }): ReceiveStockResult {
+    if (!data.product_id) {
+      return { success: false, error: "Product ID required" };
+    }
+    if (!this.productRepo.exists(data.product_id)) {
+      return { success: false, error: "Product not found" };
+    }
+    if (!Number.isInteger(data.quantity) || data.quantity <= 0) {
+      return { success: false, error: "Quantity must be a positive integer" };
+    }
+    if (data.unit_cost_usd < 0) {
+      return { success: false, error: "Unit cost cannot be negative" };
+    }
+
+    try {
+      const { batch_id } = this.productRepo.receiveStock({
+        product_id: data.product_id,
+        quantity: data.quantity,
+        unit_cost_usd: data.unit_cost_usd,
+        supplier: data.supplier ?? null,
+        is_old_stock: data.is_old_stock,
+        reason: data.reason,
+        created_by: data.userId ?? null,
+      });
+      inventoryLogger.info(
+        {
+          productId: data.product_id,
+          quantity: data.quantity,
+          unitCostUsd: data.unit_cost_usd,
+          batchId: batch_id,
+        },
+        "Stock received",
+      );
+      return { success: true, batch_id };
+    } catch (error) {
+      inventoryLogger.error({ error, data }, "receiveStock failed");
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
+  /**
    * Set stock to absolute value.
    *
    * LIRA-077: `reason` and `userId` are required — every manual correction
@@ -623,16 +719,12 @@ export class InventoryService {
     }
 
     try {
-      const changed = this.productRepo.adjustStock(
-        id,
-        newQuantity,
-        reason.trim(),
-        userId ?? null,
-      );
-      if (!changed) {
+      const current = this.productRepo.findById(id);
+      if (!current) {
         return { success: false, error: "Product not found" };
       }
-      return { success: true };
+      const delta = newQuantity - current.stock_quantity;
+      return this.applyStockDelta(id, delta, reason.trim(), userId);
     } catch (error) {
       return { success: false, error: toErrorString(error) };
     }
@@ -657,15 +749,79 @@ export class InventoryService {
     }
 
     try {
-      const changed = this.productRepo.adjustStockDelta(
-        id,
-        delta,
-        reason.trim(),
-        userId ?? null,
-      );
-      if (!changed) {
+      const current = this.productRepo.findById(id);
+      if (!current) {
         return { success: false, error: "Product not found" };
       }
+      return this.applyStockDelta(id, delta, reason.trim(), userId);
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
+  /**
+   * Shared correction path for both {@link adjustStock} (set-absolute) and
+   * {@link adjustStockDelta} (increment/decrement) — rule 14: one place
+   * decides how a manual quantity correction is booked, not two.
+   *
+   * A DECREASE (`delta < 0`) is shrinkage/loss, NOT a return to the
+   * supplier: it consumes batches FIFO (`reason: 'ADJUSTMENT'`, keeping
+   * batches in sync with `stock_quantity`) and must NEVER touch the
+   * supplier ledger — the shop still owes the supplier for units it
+   * already received, whether they were sold, lost, or miscounted.
+   * //TODO (owner, deferred 2026-09-06): "Return to supplier" — a typed
+   * option here that also reduces the supplier debt. See
+   * docs/plans/todo_plans/SUPPLIER_STOCK_INTAKE_PLAN.md §1 "Deferred".
+   * Until then a decrease is shrinkage/loss: the shop still owes the
+   * supplier.
+   *
+   * An INCREASE (`delta > 0`) is routed through the SAME booking path as
+   * any other delivery (`ProductRepository.receiveStock`, via
+   * `bookIntakeAndBatch`) rather than duplicating that logic here (rule
+   * 14): it books like any other delivery — a batch, and (when the
+   * product already has a supplier) the same `SUPPLIER_STOCK_INTAKE`
+   * debit an explicit intake would book — at the product's CURRENT
+   * `cost_price_usd` (an adjustment carries no unit-cost input of its
+   * own). `is_old_stock: false` deliberately, so a manual "add N units"
+   * correction on a supplied product behaves exactly like receiving that
+   * same delivery through the intake form.
+   */
+  private applyStockDelta(
+    id: number,
+    delta: number,
+    reason: string,
+    userId: number | null,
+  ): StockAdjustmentResult {
+    if (delta === 0) {
+      return { success: true };
+    }
+
+    if (delta < 0) {
+      const changed = this.productRepo.decreaseStockForAdjustment(
+        id,
+        -delta,
+        reason,
+        userId ?? null,
+      );
+      return changed
+        ? { success: true }
+        : { success: false, error: "Product not found" };
+    }
+
+    const product = this.productRepo.findById(id);
+    if (!product) {
+      return { success: false, error: "Product not found" };
+    }
+    try {
+      this.productRepo.receiveStock({
+        product_id: id,
+        quantity: delta,
+        unit_cost_usd: product.cost_price_usd,
+        supplier: product.supplier,
+        is_old_stock: false,
+        reason,
+        created_by: userId ?? null,
+      });
       return { success: true };
     } catch (error) {
       return { success: false, error: toErrorString(error) };
@@ -681,6 +837,17 @@ export class InventoryService {
       return this.stockAdjustmentRepo.getByProduct(productId);
     }
     return this.stockAdjustmentRepo.getRecent();
+  }
+
+  /**
+   * A product's remaining cost batches (FIFO order, oldest first) — "where
+   * are the other units and what did each one cost" (owner report
+   * 2026-09-07). Passthrough only: `StockBatchRepository.listOpenByProduct`
+   * already holds the query and the FIFO ordering (rule 13/14 — no second
+   * copy of either here).
+   */
+  getOpenStockBatches(productId: number): StockBatchEntity[] {
+    return this.stockBatchRepo.listOpenByProduct(productId);
   }
 
   /**

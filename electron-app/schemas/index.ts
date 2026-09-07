@@ -27,7 +27,7 @@ import {
   supplierSettleSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
-  supplierWriteOffSchema,
+  receiveStockSchema,
   partnerRecordTransactionSchema,
   partnerSettleSchema,
   partnerWriteOffSchema,
@@ -99,7 +99,7 @@ import {
   type SupplierSettleInput,
   type SupplierCashflowInput,
   type SupplierPurchaseCreateInput,
-  type SupplierWriteOffInput,
+  type ReceiveStockInput,
   type PartnerRecordTransactionInput,
   type PartnerSettleInput,
   type PartnerWriteOffInput,
@@ -136,6 +136,13 @@ import {
   type ResolveScanCodeInput,
   type CreateCategoryInput,
   type UpdateCategoryInput,
+  // Frozen contract names these two PascalCase (packages/core/src/validators/
+  // profits.ts) — aliased on import to avoid colliding with the local
+  // re-exports of the same name a few lines below.
+  SetProfitsPasswordSchema as coreSetProfitsPasswordSchema,
+  UnlockProfitsSchema as coreUnlockProfitsSchema,
+  type SetProfitsPasswordInput,
+  type UnlockProfitsInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -187,6 +194,11 @@ const ProductBaseShape = z.object({
   // form; NULL/omitted = no warranty. tracks_imei_units is NOT a product
   // write field — it lives on the category (see UpdateCategorySchema).
   warranty_months: z.number().int().nonnegative().optional().nullable(),
+  // Supplier stock intake (D-plan): per-entry "old stock" checkbox — creates
+  // a cost batch but skips the supplier_ledger debit. Mirrors
+  // packages/core/src/validators/product.ts's createProductSchema field
+  // (rule 14) so desktop create-product can carry it alongside receiveStock.
+  is_old_stock: z.boolean().default(false).optional(),
 });
 
 /** Create: id must NOT be sent — the database auto-generates it. */
@@ -236,6 +248,13 @@ export const BatchDeleteProductIdsSchema =
 // zod 4, this workspace types against zod 3); the runtime API used is identical.
 export const StockAdjustSchema =
   stockAdjustSchema as unknown as z.ZodSchema<StockAdjustInput>;
+
+// Supplier stock intake: shared with the REST route and InventoryService.
+// receiveStock (rule 14/19b). Cast bridges the zod major mismatch (core
+// types against zod 4, this workspace types against zod 3); the runtime API
+// used is identical.
+export const ReceiveStockSchema =
+  receiveStockSchema as unknown as z.ZodSchema<ReceiveStockInput>;
 
 // The product-list filter contract lives in packages/core/src/validators/product.ts
 // so the Electron IPC handler and the REST route validate against ONE schema
@@ -1043,12 +1062,11 @@ export const SupplierCashflowSchema =
 export const SupplierPurchaseCreateSchema =
   supplierPurchaseCreateSchema as unknown as z.ZodSchema<SupplierPurchaseCreateInput>;
 
-// CQ-10 (D4: admin-only on both transports) — standalone supplier write-off.
-// Lifted to packages/core/src/validators/supplier.ts so the IPC handler
-// (suppliers:write-off) and the REST route (POST /api/suppliers/:id/write-off)
-// validate against ONE schema (rule 14). Cast bridges the zod-major mismatch.
-export const SupplierWriteOffSchema =
-  supplierWriteOffSchema as unknown as z.ZodSchema<SupplierWriteOffInput>;
+// NOTE: the standalone supplier write-off (CQ-10) was REMOVED (owner decision
+// D8, SUPPLIER_STOCK_INTAKE_PLAN.md) — SupplierWriteOffSchema/
+// supplierWriteOffSchema/SupplierService.writeOffSupplierDebt no longer
+// exist. The bundled Pay-form discount (recordSupplierCashflow's `discount`
+// field) is the surviving forgiveness path.
 
 // =============================================================================
 // Vouchers (Gift Cards)
@@ -1158,6 +1176,19 @@ export const CreateCategorySchema =
   createCategorySchema as unknown as z.ZodSchema<CreateCategoryInput>;
 export const UpdateCategorySchema =
   updateCategorySchema as unknown as z.ZodSchema<UpdateCategoryInput>;
+
+// =============================================================================
+// Profits password gate (frozen contract)
+// =============================================================================
+
+// Both schemas live in packages/core/src/validators/profits.ts so the IPC
+// handlers (profitHandlers.ts) and the REST routes (backend/src/api/profits.ts)
+// validate against ONE schema each (rule 14). Casts bridge the zod-major
+// mismatch (core=zod4, this workspace=zod3); runtime API used is identical.
+export const SetProfitsPasswordSchema =
+  coreSetProfitsPasswordSchema as unknown as z.ZodSchema<SetProfitsPasswordInput>;
+export const UnlockProfitsSchema =
+  coreUnlockProfitsSchema as unknown as z.ZodSchema<UnlockProfitsInput>;
 
 // =============================================================================
 // Helpers

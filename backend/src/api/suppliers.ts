@@ -14,7 +14,6 @@ import {
   supplierSettleSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
-  supplierWriteOffSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
@@ -119,6 +118,27 @@ router.get("/product-balances", requireAuth, async (_req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to get product supplier balances",
+    });
+  }
+});
+
+// GET /api/suppliers/product-stock-value — SUM(quantity_remaining *
+// unit_cost_usd) per supplier from `product_stock_batches`
+// (SUPPLIER_STOCK_INTAKE_PLAN.md), the informational counterpart to
+// /product-balances above now that "owed" is booked from `supplier_ledger`
+// rather than recomputed from live stock. Same no-extra-role-gate read
+// baseline as every other GET in this section. Declared here, before the
+// parameterized `/:id/...` routes below, matching this file's own
+// static-before-param convention (see /balances, /unsettled, etc. above).
+router.get("/product-stock-value", requireAuth, async (_req, res) => {
+  try {
+    const stockValue = supplierService.getProductSupplierStockValue();
+    res.json({ success: true, stockValue });
+  } catch (error) {
+    logger.error({ error }, "Get product supplier stock value error");
+    res.status(500).json({
+      success: false,
+      error: "Failed to get product supplier stock value",
     });
   }
 });
@@ -408,47 +428,12 @@ router.post(
   },
 );
 
-// POST /api/suppliers/:id/write-off (admin-only, D4) — forgive part of what
-// the shop owes a supplier, with NO cashflow attached (mirrors
-// suppliers:write-off). `supplier_id` is sourced from the URL, same pattern
-// as /:id/ledger, /:id/settle, /:id/cashflow above.
-router.post(
-  "/:id/write-off",
-  requireAuth,
-  requireRole(["admin"]),
-  (req: AuthRequest, _res, next) => {
-    req.body = { ...req.body, supplier_id: Number(req.params.id) };
-    next();
-  },
-  validateRequest(supplierWriteOffSchema),
-  (req: AuthRequest, res) => {
-    try {
-      const result = supplierService.writeOffSupplierDebt({
-        ...req.body,
-        created_by: req.user!.userId,
-      });
-      if (result.success) {
-        // Mirrors supplierHandlers.ts's suppliers:write-off audit
-        // (write_off/supplier_write_off).
-        auditRest(req, {
-          action: "write_off",
-          entity_type: "supplier_write_off",
-          summary: `Supplier write-off for #${req.body.supplier_id}: $${req.body.amount_usd} + ${req.body.amount_lbp} LBP`,
-          metadata: {
-            supplier_id: req.body.supplier_id,
-            amount_usd: req.body.amount_usd,
-            amount_lbp: req.body.amount_lbp,
-          },
-        });
-      }
-      res.json(result);
-    } catch (error) {
-      logger.error({ error }, "Write off supplier debt error");
-      res
-        .status(500)
-        .json({ success: false, error: "Failed to write off supplier debt" });
-    }
-  },
-);
+// NOTE: the standalone supplier write-off (`POST /:id/write-off`,
+// `supplierWriteOffSchema`, `SupplierService.writeOffSupplierDebt`) was
+// REMOVED per owner decision D8 (SUPPLIER_STOCK_INTAKE_PLAN.md) — the
+// bundled Pay-form discount on `/:id/cashflow` above stays and is the only
+// remaining way to reduce what's owed without a cashflow leg. This is
+// UNRELATED to the separate, still-live `debts`/`partners` write-off
+// features elsewhere in the app — those are untouched.
 
 export default router;

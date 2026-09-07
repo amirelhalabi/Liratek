@@ -1,6 +1,15 @@
 import type { CartItem } from "@liratek/ui";
 import type { CheckoutDraftData } from "./types";
 
+function WarrantyBadge({ months }: { months: number | null | undefined }) {
+  if (!months || months <= 0) return null;
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-950/60 border border-red-500/60 text-xs font-semibold text-red-400 shrink-0">
+      🛡 {months} month{months === 1 ? "" : "s"}
+    </span>
+  );
+}
+
 interface CartItemsListProps {
   items: CartItem[];
   onEdit?: (checkoutData: CheckoutDraftData) => void;
@@ -51,7 +60,10 @@ export function CartItemsList({
             className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-800/40 transition-colors"
           >
             <div className="flex-1 min-w-0 mr-3">
-              <p className="text-sm text-slate-200 truncate">{item.name}</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm text-slate-200 truncate">{item.name}</p>
+                <WarrantyBadge months={item.warranty_months} />
+              </div>
               <p className="text-xs text-slate-500">
                 {item.quantity} × ${item.retail_price.toFixed(2)}
               </p>

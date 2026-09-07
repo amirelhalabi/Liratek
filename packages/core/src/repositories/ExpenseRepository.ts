@@ -76,7 +76,7 @@ export interface CreateExpenseData {
    */
   extra_metadata?: Record<string, unknown>;
   /**
-   * Generic back-link (migration v163, same shape as
+   * Generic back-link (migration v166, same shape as
    * `supplier_ledger.source_ref_table`/`source_ref_id` from v136) to the
    * PARENT unified transaction's own source row — e.g. `'recharges'`/<recharge
    * id> for the SMS transfer fee expense a CREDIT_TRANSFER recharge books.
@@ -109,7 +109,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   }
 
   /**
-   * True when the connected `expenses` table already carries the v163
+   * True when the connected `expenses` table already carries the v166
    * source_ref_table/source_ref_id columns. Mirrors
    * `SupplierRepository._supplierLedgerHasSourceRefColumns` exactly: many
    * `packages/core` jest specs hand-roll a fresh in-memory schema per file

@@ -66,7 +66,6 @@ jest.mock("@liratek/ui", () => {
       settleTransactions: mockSettleTransactions,
       recordSupplierCashflow: jest.fn(),
       addSupplierLedgerEntry: jest.fn(),
-      supplierWriteOff: jest.fn(),
       getSupplierPurchases: jest.fn(),
       createSupplierPurchase: jest.fn(),
     }),

@@ -95,6 +95,7 @@ import {
   type ProductUnitEntity,
 } from "./ProductUnitRepository.js";
 import { addMonthsIso } from "../utils/dates.js";
+import { getStockBatchRepository } from "./StockBatchRepository.js";
 
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
@@ -488,7 +489,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           saleId = saleResult.lastInsertRowid as number;
         }
 
-        // Create unified transaction row
+        // Seed the unified transaction row's profit stamp. This is only the
+        // PROVISIONAL figure — item processing further below (FIFO batch
+        // consumption) corrects it with each line's real cost before
+        // createTransaction actually writes the row, because this loop runs
+        // before any sale_item exists and has no batch to weight against.
         // Calculate profit from items (sold_price - cost_price) × quantity,
         // minus the sale-level discount — the discount comes straight out of
         // the shop's margin (final_amount = total − discount), so gross item
@@ -505,6 +510,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const productMetaByIndex: {
           name: string;
           warrantyMonths: number | null;
+          costPriceUsd: number;
         }[] = [];
         for (const item of sale.items) {
           const productRow = db
@@ -525,6 +531,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           productMetaByIndex.push({
             name,
             warrantyMonths: productRow?.warranty_months ?? null,
+            costPriceUsd: costPrice,
           });
         }
         saleProfitUsd -= sale.discount || 0;
@@ -534,6 +541,259 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // One label for the unified transaction summary AND the debt-ledger
         // note — the Debts history and the audit row must read identically.
         const saleLabel = `Sale #${saleId}: ${itemsLabel} — $${sale.final_amount}${discountTail}`;
+
+        // Process Items & Update Stock. This now runs BEFORE the unified
+        // transaction row is created (below): FIFO consumption inside this
+        // block computes each line's REAL cost and must correct
+        // saleProfitUsd with it before that stamp is written — see the
+        // comment inside the completed-sale FIFO branch for why the early
+        // loop above couldn't get this right on its own.
+        const itemStmt = db.prepare(`
+          INSERT INTO sale_items (
+            sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei, warranty_until, tenant_id
+          ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?), ?, ?, ?)
+        `);
+
+        const stockStmt = db.prepare(
+          allowOutOfStock
+            ? `UPDATE products
+               SET stock_quantity = stock_quantity - ?
+               WHERE id = ? AND tenant_id = ?`
+            : `UPDATE products
+               SET stock_quantity = stock_quantity - ?
+               WHERE id = ? AND tenant_id = ? AND stock_quantity >= ?`,
+        );
+
+        // LIRA-143 phase 4 (owner decision #5 + drift rule #6): unit
+        // consumption + the registered-stock strictness check only apply to
+        // a COMPLETED sale on a connection that actually has product_units
+        // (guards every hand-built test schema predating this phase, and
+        // every draft — a draft never moves stock either).
+        const productUnitsActive =
+          status === "completed" && this._productUnitsTableExists();
+
+        // Adversarial-review finding 1 fix: the strictness exclusion below
+        // must be scoped to every unit id referenced ANYWHERE in this
+        // request, not just the ones an earlier forEach iteration happened
+        // to reach first — otherwise the exact same payload passes or fails
+        // depending on cart line order (a plain surplus line placed AHEAD
+        // of its sibling unit lines saw an empty exclusion set and was
+        // wrongly rejected). Collected in one pass over `sale.items` before
+        // any line is processed. A duplicate claim is caught and rejected
+        // HERE too — this replaces the old per-line `claimedUnitIds.has(...)`
+        // check inside the loop, same message, just detected up front.
+        const requestUnitIds = new Set<number>();
+        if (productUnitsActive) {
+          for (const item of sale.items) {
+            if (item.product_unit_id == null) continue;
+            if (requestUnitIds.has(item.product_unit_id)) {
+              throw new BusinessRuleError(
+                `Product unit #${item.product_unit_id} is claimed by more than one line in this sale`,
+              );
+            }
+            requestUnitIds.add(item.product_unit_id);
+          }
+        }
+
+        const findUnitStmt = productUnitsActive
+          ? db.prepare(
+              `SELECT id, tenant_id, product_id, imei, status, sale_item_id, is_defective, warranty_override_until, created_at, updated_at
+               FROM product_units WHERE id = ? AND tenant_id = ?`,
+            )
+          : null;
+
+        // The sale-wide business date the warranty clock starts from (owner
+        // decision #4): backdated `transaction_time` when set, else "now" —
+        // the same convention the sale/transaction rows themselves use.
+        const saleDateIso = (
+          sale.transaction_time ?? new Date().toISOString()
+        ).slice(0, 10);
+
+        sale.items.forEach((item, index) => {
+          let imeiToWrite = item.imei || null;
+          let matchedUnit: ProductUnitEntity | null = null;
+
+          if (productUnitsActive) {
+            if (item.product_unit_id != null) {
+              // Duplicate-claim detection now happens up front (see
+              // `requestUnitIds` above) — reaching here means this id is
+              // unique across the request.
+              const unit = findUnitStmt!.get(item.product_unit_id, tenantId) as
+                | ProductUnitEntity
+                | undefined;
+              const productName = productMetaByIndex[index].name;
+              if (!unit) {
+                throw new BusinessRuleError(
+                  `Product unit #${item.product_unit_id} not found`,
+                );
+              }
+              if (unit.status !== "IN_STOCK") {
+                throw new BusinessRuleError(
+                  `Product unit #${item.product_unit_id} on "${productName}" is not in stock (status: ${unit.status})`,
+                );
+              }
+              if (unit.product_id !== item.product_id) {
+                throw new BusinessRuleError(
+                  `Product unit #${item.product_unit_id} does not belong to "${productName}"`,
+                );
+              }
+              if (item.quantity !== 1) {
+                throw new BusinessRuleError(
+                  `"${productName}": unit-tracked lines are one-unit-per-line — sell ${item.quantity} phones as ${item.quantity} separate lines`,
+                );
+              }
+              matchedUnit = unit;
+              imeiToWrite = unit.imei;
+            } else {
+              // Strictness (owner decision #5 + drift rule #6): if this
+              // product has any IN_STOCK registered units NOT referenced by
+              // ANY line anywhere in this same request (request-scoped, not
+              // iteration-order-scoped — adversarial-review finding 1), the
+              // operator must identify which unit is being sold — never
+              // silently guess. Zero unclaimed registered units (none ever
+              // registered, or all referenced by some line in this
+              // request) proceeds exactly as today, including surplus
+              // unregistered stock (drift).
+              const excludeList = [...requestUnitIds];
+              const excludeClause =
+                excludeList.length > 0
+                  ? `AND id NOT IN (${excludeList.map(() => "?").join(", ")})`
+                  : "";
+              const countRow = db
+                .prepare(
+                  `SELECT COUNT(*) AS count FROM product_units
+                   WHERE tenant_id = ? AND product_id = ? AND status = 'IN_STOCK' ${excludeClause}`,
+                )
+                .get(tenantId, item.product_id, ...excludeList) as {
+                count: number;
+              };
+              if (countRow.count > 0) {
+                const productName = productMetaByIndex[index].name;
+                throw new BusinessRuleError(
+                  `"${productName}" has ${countRow.count} IMEI-registered unit(s) in stock — identify the unit being sold (scan its IMEI or pick it on the cart line)`,
+                );
+              }
+            }
+          }
+
+          // Warranty stamp (owner decision #4): ANY product with
+          // warranty_months stamps sale date + months, unit-tracked or not.
+          // Only on a completed sale — a draft's date isn't the sale date,
+          // and the completed re-submit stamps fresh.
+          const warrantyMonths = productMetaByIndex[index].warrantyMonths;
+          const warrantyUntil =
+            status === "completed" && warrantyMonths
+              ? addMonthsIso(saleDateIso, warrantyMonths)
+              : null;
+
+          const itemResult = itemStmt.run(
+            saleId,
+            item.product_id,
+            item.quantity,
+            item.price,
+            item.product_id,
+            tenantId,
+            imeiToWrite,
+            warrantyUntil,
+            tenantId,
+          );
+
+          if (matchedUnit) {
+            getProductUnitRepository().markSold(
+              matchedUnit.id,
+              Number(itemResult.lastInsertRowid),
+            );
+          }
+
+          // Update Stock: ONLY IF COMPLETED.
+          if (status === "completed") {
+            if (allowOutOfStock) {
+              // Shop opted into out-of-stock sales: decrement blindly (stock may
+              // go negative; the shortfall is surfaced in the Negative-Stock
+              // report for reconciliation).
+              stockStmt.run(item.quantity, item.product_id, tenantId);
+            } else {
+              // Guarded conditional write: the `stock_quantity >= ?` clause plus
+              // the rows-affected check stop two concurrent sales from
+              // overselling the last unit(s) into negative stock. If nothing
+              // updated, stock is insufficient (or the product/tenant row is
+              // gone) → abort the sale (the surrounding db.transaction
+              // auto-rolls-back the whole sale).
+              const stockRes = stockStmt.run(
+                item.quantity,
+                item.product_id,
+                tenantId,
+                item.quantity,
+              );
+              if (stockRes.changes === 0) {
+                const p = db
+                  .prepare(
+                    `SELECT name, stock_quantity FROM products WHERE id = ? AND tenant_id = ?`,
+                  )
+                  .get(item.product_id, tenantId) as
+                  | { name?: string; stock_quantity?: number }
+                  | undefined;
+                throw new BusinessRuleError(
+                  `Not enough stock for "${p?.name ?? `product #${item.product_id}`}" (${p?.stock_quantity ?? 0} available)`,
+                );
+              }
+            }
+          }
+
+          // FIFO batch consumption (Supplier Stock Intake, rule: profit
+          // never changes — this is the ONLY integration point). This must
+          // run AFTER the sale_items INSERT above because `consume()` wants
+          // this line's `sale_item_id` to attribute the consumption rows it
+          // writes (so a later refund can find and reverse exactly this
+          // line's draw-down); it must ALSO run inside this SAME db
+          // transaction as the rest of the sale so a genuine DB failure in
+          // `consume()` rolls the whole sale back rather than leaving stock
+          // decremented with no matching batch draw-down. Only for a
+          // COMPLETED sale — a draft moves no stock (guarded above) and
+          // must consume no batches either, or a later completion would
+          // double-consume. The resulting weighted unit cost OVERWRITES the
+          // product's-current-cost_price_usd value the INSERT above
+          // stamped via its subquery, replacing it with what this line
+          // actually cost based on the batches it was drawn from;
+          // uncovered units (legacy stock with no batches, or an
+          // allowOutOfStock oversell) fall back to that same
+          // current-cost_price_usd value via `fallbackUnitCostUsd`, so
+          // behaviour for a product with no batch history is unchanged.
+          if (status === "completed") {
+            const saleItemId = Number(itemResult.lastInsertRowid);
+            const { weightedUnitCostUsd } = getStockBatchRepository().consume(
+              item.product_id,
+              item.quantity,
+              {
+                saleItemId,
+                reason: "SALE",
+                fallbackUnitCostUsd: productMetaByIndex[index].costPriceUsd,
+              },
+            );
+            db.prepare(
+              `UPDATE sale_items SET cost_price_snapshot_usd = ? WHERE id = ? AND tenant_id = ?`,
+            ).run(weightedUnitCostUsd, saleItemId, tenantId);
+
+            // Correct saleProfitUsd with this line's REAL cost. The early
+            // loop above ran before this sale_item existed, so it had no
+            // FIFO batch to weight against and could only price this line
+            // at the product's CURRENT cost_price_usd — captured as
+            // productMetaByIndex[index].costPriceUsd. That figure drifts
+            // from what this line actually cost once a later restock moves
+            // the product's price. Undo that provisional cost's
+            // contribution and replace it with the real FIFO-weighted cost,
+            // scaled by this line's own quantity. This must happen here,
+            // before createTransaction runs (below) — the stamp has to be
+            // right on the first write, or it and sale_items.
+            // cost_price_snapshot_usd (just corrected above) permanently
+            // disagree, and the Profits page (which reads the transaction
+            // stamp) shows the wrong number for a sale that sale_items
+            // itself already has right.
+            const provisionalCostUsd = productMetaByIndex[index].costPriceUsd;
+            saleProfitUsd +=
+              (provisionalCostUsd - weightedUnitCostUsd) * item.quantity;
+          }
+        });
 
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SALE,
@@ -549,7 +809,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           amount_lbp: 0,
           // Item margins − discount, plus any change the operator kept as
           // profit (T3 keep-change) — stamped per currency at create time so
-          // the generic void's stamp negation reverses it symmetrically.
+          // the generic void's stamp negation reverses it symmetrically. By
+          // this point saleProfitUsd already carries the FIFO correction
+          // applied in the item-processing loop above, so this is the
+          // sale's REAL margin, never the early loop's provisional one.
           profit_usd: saleProfitUsd + (sale.kept_change_usd || 0),
           profit_lbp: sale.kept_change_lbp || 0,
           exchange_rate: sale.exchange_rate,
@@ -758,200 +1021,6 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           );
           upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
         }
-
-        // Process Items & Update Stock
-        const itemStmt = db.prepare(`
-          INSERT INTO sale_items (
-            sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei, warranty_until, tenant_id
-          ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?), ?, ?, ?)
-        `);
-
-        const stockStmt = db.prepare(
-          allowOutOfStock
-            ? `UPDATE products
-               SET stock_quantity = stock_quantity - ?
-               WHERE id = ? AND tenant_id = ?`
-            : `UPDATE products
-               SET stock_quantity = stock_quantity - ?
-               WHERE id = ? AND tenant_id = ? AND stock_quantity >= ?`,
-        );
-
-        // LIRA-143 phase 4 (owner decision #5 + drift rule #6): unit
-        // consumption + the registered-stock strictness check only apply to
-        // a COMPLETED sale on a connection that actually has product_units
-        // (guards every hand-built test schema predating this phase, and
-        // every draft — a draft never moves stock either).
-        const productUnitsActive =
-          status === "completed" && this._productUnitsTableExists();
-
-        // Adversarial-review finding 1 fix: the strictness exclusion below
-        // must be scoped to every unit id referenced ANYWHERE in this
-        // request, not just the ones an earlier forEach iteration happened
-        // to reach first — otherwise the exact same payload passes or fails
-        // depending on cart line order (a plain surplus line placed AHEAD
-        // of its sibling unit lines saw an empty exclusion set and was
-        // wrongly rejected). Collected in one pass over `sale.items` before
-        // any line is processed. A duplicate claim is caught and rejected
-        // HERE too — this replaces the old per-line `claimedUnitIds.has(...)`
-        // check inside the loop, same message, just detected up front.
-        const requestUnitIds = new Set<number>();
-        if (productUnitsActive) {
-          for (const item of sale.items) {
-            if (item.product_unit_id == null) continue;
-            if (requestUnitIds.has(item.product_unit_id)) {
-              throw new BusinessRuleError(
-                `Product unit #${item.product_unit_id} is claimed by more than one line in this sale`,
-              );
-            }
-            requestUnitIds.add(item.product_unit_id);
-          }
-        }
-
-        const findUnitStmt = productUnitsActive
-          ? db.prepare(
-              `SELECT id, tenant_id, product_id, imei, status, sale_item_id, is_defective, warranty_override_until, created_at, updated_at
-               FROM product_units WHERE id = ? AND tenant_id = ?`,
-            )
-          : null;
-
-        // The sale-wide business date the warranty clock starts from (owner
-        // decision #4): backdated `transaction_time` when set, else "now" —
-        // the same convention the sale/transaction rows themselves use.
-        const saleDateIso = (
-          sale.transaction_time ?? new Date().toISOString()
-        ).slice(0, 10);
-
-        sale.items.forEach((item, index) => {
-          let imeiToWrite = item.imei || null;
-          let matchedUnit: ProductUnitEntity | null = null;
-
-          if (productUnitsActive) {
-            if (item.product_unit_id != null) {
-              // Duplicate-claim detection now happens up front (see
-              // `requestUnitIds` above) — reaching here means this id is
-              // unique across the request.
-              const unit = findUnitStmt!.get(item.product_unit_id, tenantId) as
-                | ProductUnitEntity
-                | undefined;
-              const productName = productMetaByIndex[index].name;
-              if (!unit) {
-                throw new BusinessRuleError(
-                  `Product unit #${item.product_unit_id} not found`,
-                );
-              }
-              if (unit.status !== "IN_STOCK") {
-                throw new BusinessRuleError(
-                  `Product unit #${item.product_unit_id} on "${productName}" is not in stock (status: ${unit.status})`,
-                );
-              }
-              if (unit.product_id !== item.product_id) {
-                throw new BusinessRuleError(
-                  `Product unit #${item.product_unit_id} does not belong to "${productName}"`,
-                );
-              }
-              if (item.quantity !== 1) {
-                throw new BusinessRuleError(
-                  `"${productName}": unit-tracked lines are one-unit-per-line — sell ${item.quantity} phones as ${item.quantity} separate lines`,
-                );
-              }
-              matchedUnit = unit;
-              imeiToWrite = unit.imei;
-            } else {
-              // Strictness (owner decision #5 + drift rule #6): if this
-              // product has any IN_STOCK registered units NOT referenced by
-              // ANY line anywhere in this same request (request-scoped, not
-              // iteration-order-scoped — adversarial-review finding 1), the
-              // operator must identify which unit is being sold — never
-              // silently guess. Zero unclaimed registered units (none ever
-              // registered, or all referenced by some line in this
-              // request) proceeds exactly as today, including surplus
-              // unregistered stock (drift).
-              const excludeList = [...requestUnitIds];
-              const excludeClause =
-                excludeList.length > 0
-                  ? `AND id NOT IN (${excludeList.map(() => "?").join(", ")})`
-                  : "";
-              const countRow = db
-                .prepare(
-                  `SELECT COUNT(*) AS count FROM product_units
-                   WHERE tenant_id = ? AND product_id = ? AND status = 'IN_STOCK' ${excludeClause}`,
-                )
-                .get(tenantId, item.product_id, ...excludeList) as {
-                count: number;
-              };
-              if (countRow.count > 0) {
-                const productName = productMetaByIndex[index].name;
-                throw new BusinessRuleError(
-                  `"${productName}" has ${countRow.count} IMEI-registered unit(s) in stock — identify the unit being sold (scan its IMEI or pick it on the cart line)`,
-                );
-              }
-            }
-          }
-
-          // Warranty stamp (owner decision #4): ANY product with
-          // warranty_months stamps sale date + months, unit-tracked or not.
-          // Only on a completed sale — a draft's date isn't the sale date,
-          // and the completed re-submit stamps fresh.
-          const warrantyMonths = productMetaByIndex[index].warrantyMonths;
-          const warrantyUntil =
-            status === "completed" && warrantyMonths
-              ? addMonthsIso(saleDateIso, warrantyMonths)
-              : null;
-
-          const itemResult = itemStmt.run(
-            saleId,
-            item.product_id,
-            item.quantity,
-            item.price,
-            item.product_id,
-            tenantId,
-            imeiToWrite,
-            warrantyUntil,
-            tenantId,
-          );
-
-          if (matchedUnit) {
-            getProductUnitRepository().markSold(
-              matchedUnit.id,
-              Number(itemResult.lastInsertRowid),
-            );
-          }
-
-          // Update Stock: ONLY IF COMPLETED.
-          if (status === "completed") {
-            if (allowOutOfStock) {
-              // Shop opted into out-of-stock sales: decrement blindly (stock may
-              // go negative; the shortfall is surfaced in the Negative-Stock
-              // report for reconciliation).
-              stockStmt.run(item.quantity, item.product_id, tenantId);
-            } else {
-              // Guarded conditional write: the `stock_quantity >= ?` clause plus
-              // the rows-affected check stop two concurrent sales from
-              // overselling the last unit(s) into negative stock. If nothing
-              // updated, stock is insufficient (or the product/tenant row is
-              // gone) → abort the sale (the surrounding db.transaction
-              // auto-rolls-back the whole sale).
-              const stockRes = stockStmt.run(
-                item.quantity,
-                item.product_id,
-                tenantId,
-                item.quantity,
-              );
-              if (stockRes.changes === 0) {
-                const p = db
-                  .prepare(
-                    `SELECT name, stock_quantity FROM products WHERE id = ? AND tenant_id = ?`,
-                  )
-                  .get(item.product_id, tenantId) as
-                  | { name?: string; stock_quantity?: number }
-                  | undefined;
-                throw new BusinessRuleError(
-                  `Not enough stock for "${p?.name ?? `product #${item.product_id}`}" (${p?.stock_quantity ?? 0} available)`,
-                );
-              }
-            }
-          }
-        });
 
         // Handle Debt (If Partial Payment AND Completed)
         // Deferred (session basket): the basket recorder creates ONE debt entry
@@ -1536,6 +1605,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       db.prepare(
         `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
       ).run(params.refundQuantity, item.product_id, tenantId);
+
+      // 9a. Give the refunded units back to the batches they were FIFO-
+      // consumed from (newest-consumption-first — see
+      // StockBatchRepository.restoreForSaleItem), so `stock_quantity` and
+      // batch cover stay in step after an item refund exactly like they do
+      // after processSale's consumption.
+      getStockBatchRepository().restoreForSaleItem(
+        params.saleItemId,
+        params.refundQuantity,
+      );
 
       // 9b. LIRA-143 phase 4 — flip up to `refundQuantity` SOLD product_units
       // linked to THIS sale_item back to IN_STOCK. No extras here: the

@@ -88,6 +88,22 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("inventory:adjust-stock", payload),
     getStockAdjustments: (productId?: number) =>
       ipcRenderer.invoke("inventory:get-stock-adjustments", productId),
+    /** A product's remaining cost batches (FIFO/oldest-first) — "where are
+     *  my other units and what did each one cost" (owner report
+     *  2026-09-07). */
+    getOpenStockBatches: (productId: number) =>
+      ipcRenderer.invoke("inventory:get-open-stock-batches", productId),
+    // Supplier stock intake (SUPPLIER_STOCK_INTAKE_PLAN.md) — raises stock,
+    // writes a cost batch, and books a supplier_ledger debit unless
+    // is_old_stock or no supplier.
+    receiveStock: (data: {
+      product_id: number;
+      quantity: number;
+      unit_cost_usd: number;
+      supplier?: string | null;
+      is_old_stock: boolean;
+      reason?: string;
+    }) => ipcRenderer.invoke("inventory:receive-stock", data),
     getLowStockProducts: () =>
       ipcRenderer.invoke("inventory:get-low-stock-products"),
     getNegativeStock: () => ipcRenderer.invoke("inventory:get-negative-stock"),
@@ -603,14 +619,14 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
       exchange_rate?: number;
     }) => ipcRenderer.invoke("suppliers:record-cashflow", data),
-    // CQ-10 (D4): standalone write-off — admin-only, no cashflow attached.
-    writeOff: (data: {
-      supplier_id: number;
-      amount_usd: number;
-      amount_lbp: number;
-      reason?: string;
-    }) => ipcRenderer.invoke("suppliers:write-off", data),
+    // NOTE: the standalone write-off (CQ-10) was REMOVED (owner decision D8,
+    // SUPPLIER_STOCK_INTAKE_PLAN.md) — the bundled Pay-form discount above
+    // (recordCashflow's `discount` field) is the surviving forgiveness path.
     getProductBalances: () => ipcRenderer.invoke("suppliers:product-balances"),
+    // Event-based product-supplier stock value (StockBatchRepository sum of
+    // open batches), replacing the recomputed-from-live-stock balance model.
+    getProductStockValue: () =>
+      ipcRenderer.invoke("suppliers:product-stock-value"),
     getProductItems: (supplierId: number) =>
       ipcRenderer.invoke("suppliers:product-items", supplierId),
     getPurchases: (supplierId: number) =>
@@ -1202,6 +1218,15 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("profits:by-client", from, to, limit),
     pending: (from: string, to: string) =>
       ipcRenderer.invoke("profits:pending", from, to),
+    // Profits password gate (frozen contract). passwordStatus returns the
+    // RAW { isSet } shape (reads are raw, writes are the envelope — the
+    // adapter contract); the other three return { success, error? }.
+    passwordStatus: () => ipcRenderer.invoke("profits:password-status"),
+    setPassword: (password: string) =>
+      ipcRenderer.invoke("profits:set-password", { password }),
+    unlock: (password: string) =>
+      ipcRenderer.invoke("profits:unlock", { password }),
+    lock: () => ipcRenderer.invoke("profits:lock"),
   },
 
   // Rates

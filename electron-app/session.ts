@@ -2,7 +2,7 @@ import { safeStorage, app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { logger } from "@liratek/core";
+import { logger, PROFITS_UNLOCK_TTL_MS } from "@liratek/core";
 
 export type UserRole = "admin" | "staff";
 
@@ -10,6 +10,12 @@ interface SessionData {
   userId: number;
   role: UserRole;
   lastActivity: number; // epoch ms
+  // Profits password gate (frozen contract) — set by profits:unlock, cleared
+  // by profits:lock or navigating away from /profits. Lives directly on the
+  // session (not a separate map) so logout (clearSession) and idle purge
+  // (purgeExpiredSessions) drop it automatically along with everything else —
+  // see the doc comments on both below.
+  profitsUnlockedAt?: number; // epoch ms
 }
 
 interface StoredSession {
@@ -190,6 +196,9 @@ export function setSession(
   sessions.set(webContentsId, { userId, role, lastActivity: Date.now() });
 }
 
+// Deletes the whole SessionData entry, so `profitsUnlockedAt` (a field ON
+// SessionData, not a separate map) is dropped along with it — logging out
+// always relocks Profits too, with nothing left to resurrect a stale unlock.
 export function clearSession(webContentsId: number) {
   sessions.delete(webContentsId);
 }
@@ -214,6 +223,67 @@ export function isAuthenticated(webContentsId: number): boolean {
   return !!sessions.get(webContentsId);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Profits password gate (frozen contract) — server-side unlock state.
+// A correct password unlocks BOTH the /profits page and its 7 data channels
+// for PROFITS_UNLOCK_TTL_MS; navigating away from /profits revokes it
+// immediately (client unmount calls profits:lock). Admin does NOT bypass
+// this on role alone — the owner's decision is "everyone types it".
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Record a live Profits unlock on the caller's session. No-op if the caller
+ * has no session at all (an unauthenticated call never reaches this — the
+ * profits:unlock handler already required an admin/staff role first).
+ * `now` is injectable for tests (SOLID/DIP) — the default is Date.now().
+ */
+export function grantProfitsUnlock(
+  webContentsId: number,
+  now = Date.now(),
+): void {
+  const session = sessions.get(webContentsId);
+  if (!session) return;
+  session.profitsUnlockedAt = now;
+}
+
+/** Revoke the caller's Profits unlock without touching the rest of the session. */
+export function revokeProfitsUnlock(webContentsId: number): void {
+  const session = sessions.get(webContentsId);
+  if (session) delete session.profitsUnlockedAt;
+}
+
+/**
+ * True only when the session exists AND has an unlock AND that unlock is
+ * still within PROFITS_UNLOCK_TTL_MS (imported from @liratek/core, rule 14 —
+ * never hardcode the 15-minute window here). `now` is injectable for tests.
+ */
+export function hasProfitsUnlock(
+  webContentsId: number,
+  now = Date.now(),
+): boolean {
+  const session = sessions.get(webContentsId);
+  if (!session || session.profitsUnlockedAt === undefined) return false;
+  return now - session.profitsUnlockedAt < PROFITS_UNLOCK_TTL_MS;
+}
+
+/**
+ * Combined gate for the 7 profits data channels (summary/by-module/by-date/
+ * by-payment-method/by-user/by-client/pending): requires an authenticated
+ * admin-or-staff session AND a live password unlock. Distinct error strings
+ * so the caller (and the UI) can tell "log in" from "type the password"
+ * apart.
+ */
+export function requireProfitsAccess(
+  webContentsId: number,
+): { ok: true } | { ok: false; error: string } {
+  const auth = requireRole(webContentsId, ["admin", "staff"]);
+  if (!auth.ok) return { ok: false, error: auth.error };
+  if (!hasProfitsUnlock(webContentsId)) {
+    return { ok: false, error: "Profits locked" };
+  }
+  return { ok: true };
+}
+
 // In-memory session idle timeout. Matches the DB-side inactive-session
 // cleanup (SessionRepository.deleteInactiveSessions) so both layers expire
 // together. Enforced by the periodic cleanup interval in main.ts.
@@ -222,7 +292,8 @@ export const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 /**
  * Purge in-memory sessions idle past SESSION_TIMEOUT_MS.
  * Returns the webContents ids of purged sessions so callers can notify
- * the affected renderers.
+ * the affected renderers. Deletes the whole SessionData entry, so an idle
+ * timeout also drops any live `profitsUnlockedAt` — same as clearSession.
  */
 export function purgeExpiredSessions(now = Date.now()): number[] {
   const purged: number[] = [];

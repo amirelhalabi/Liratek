@@ -22,6 +22,13 @@ import {
   StockAdjustmentRepository,
   resetStockAdjustmentRepository,
 } from "../../repositories/StockAdjustmentRepository.js";
+import { resetStockBatchRepository } from "../../repositories/StockBatchRepository.js";
+import { resetProductSupplierRepository } from "../../repositories/ProductSupplierRepository.js";
+import { resetSupplierRepository } from "../../repositories/SupplierRepository.js";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext.js";
 import { InventoryService } from "../InventoryService.js";
 
 function createTestDb(): Database.Database {
@@ -58,16 +65,72 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE stock_adjustments (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      tenant_id    INTEGER DEFAULT 1,
-      product_id   INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-      delta        INTEGER NOT NULL,
-      old_quantity INTEGER NOT NULL,
-      new_quantity INTEGER NOT NULL,
-      reason       TEXT NOT NULL,
-      user_id      INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at   TEXT DEFAULT CURRENT_TIMESTAMP
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id     INTEGER DEFAULT 1,
+      product_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      delta         INTEGER NOT NULL,
+      old_quantity  INTEGER NOT NULL,
+      new_quantity  INTEGER NOT NULL,
+      reason        TEXT NOT NULL,
+      user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      -- v165: nullable, no backfill — only ProductRepository.receiveStock
+      -- (a real delivery) writes a value; adjustStock/adjustStockDelta keep
+      -- writing NULL. StockAdjustmentRepository.create()'s INSERT column
+      -- list references this column unconditionally, so its absence fails
+      -- db.prepare() for EVERY adjustment in this suite, not just the ones
+      -- that go through receiveStock.
+      unit_cost_usd DECIMAL(10,2) DEFAULT NULL,
+      created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- LIRA-164 (Supplier Stock Intake): an INCREASE now routes through
+    -- ProductRepository.receiveStock -> bookIntakeAndBatch, which always
+    -- creates a FIFO batch (product_stock_batches), and a DECREASE consumes
+    -- batches via StockBatchRepository.consume, which unconditionally
+    -- prepares an INSERT against stock_batch_consumptions even when there is
+    -- nothing to consume. Both tables must exist or every adjustStock*/
+    -- adjustStockDelta call in this suite dies in setup, not in assertions.
+    -- No REFERENCES clauses here (unlike the real schema/migration v164):
+    -- SQLite resolves a foreign key TARGET at INSERT time, not CREATE time,
+    -- and this fixture never creates 'suppliers'/'supplier_ledger'/
+    -- 'transactions' — core jest runs with foreign_keys=ON, so a
+    -- REFERENCES to a table that doesn't exist here fails the INSERT with
+    -- "no such table: main.transactions", which 'createBatch' catches and
+    -- rewraps as "Failed to create stock batch" (a message pointing at the
+    -- wrong layer entirely — this cost real time to trace). Match the
+    -- convention already used by the passing fixtures (e.g.
+    -- CustomServiceRepository.stock.test.ts) — plain INTEGER columns, no FKs.
+    CREATE TABLE product_stock_batches (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER DEFAULT 1,
+      product_id         INTEGER NOT NULL,
+      supplier_id        INTEGER,
+      quantity           INTEGER NOT NULL CHECK(quantity > 0),
+      quantity_remaining INTEGER NOT NULL CHECK(quantity_remaining >= 0),
+      unit_cost_usd      DECIMAL(10,2) NOT NULL DEFAULT 0,
+      books_debt         INTEGER NOT NULL DEFAULT 0,
+      ledger_entry_id    INTEGER,
+      transaction_id     INTEGER,
+      is_opening         INTEGER NOT NULL DEFAULT 0,
+      created_by         INTEGER,
+      created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE stock_batch_consumptions (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER DEFAULT 1,
+      batch_id           INTEGER NOT NULL,
+      sale_item_id       INTEGER,
+      custom_service_id  INTEGER,
+      product_id         INTEGER NOT NULL,
+      quantity           INTEGER NOT NULL,
+      unit_cost_usd      DECIMAL(10,2) NOT NULL,
+      reason             TEXT NOT NULL DEFAULT 'SALE' CHECK(reason IN ('SALE','ADJUSTMENT','SERVICE')),
+      is_restored         INTEGER NOT NULL DEFAULT 0,
+      created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
@@ -102,7 +165,32 @@ describe("InventoryService — stock adjustment (LIRA-077)", () => {
     (
       globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
     ).__LIRATEK_TEST_DB__ = db;
+    // LIRA-164 (Supplier Stock Intake): every repository this feature
+    // touches (StockBatchRepository/SupplierRepository/ProductRepository's
+    // own tenant-scoped statements) resolves `getCurrentTenantId()`, and
+    // tenant resolution in this codebase is FAIL-CLOSED — with no context
+    // established it THROWS rather than defaulting to tenant 1. That throw
+    // is caught inside `StockBatchRepository.createBatch`'s try/catch and
+    // rethrown as "Failed to create stock batch", a message that points at
+    // the batch-insert layer and gives no hint that the real problem is a
+    // missing tenant context several calls up — this cost real time to
+    // trace. MUST run before `service` is constructed/used. See
+    // StockBatchRepository.fifoAndReversal.test.ts for the same call.
+    initFixedTenantContext(1);
     resetStockAdjustmentRepository();
+    // LIRA-164 (Supplier Stock Intake): an INCREASE now routes through
+    // ProductRepository.receiveStock -> bookIntakeAndBatch, which reaches
+    // getStockBatchRepository() (always, to create the batch) and, when the
+    // product has a supplier, getProductSupplierRepository()/
+    // getSupplierRepository() (to resolve the link and book the debit) —
+    // all fetched as module-level singletons, NOT the ProductRepository
+    // instance this file constructs fresh below. Without resetting them
+    // here too, a singleton left bound to an earlier test file's (closed)
+    // db throws "Failed to create stock batch" the moment any test in this
+    // file adjusts stock upward.
+    resetStockBatchRepository();
+    resetProductSupplierRepository();
+    resetSupplierRepository();
     service = new InventoryService(
       new ProductRepository(),
       new StockAdjustmentRepository(),
@@ -115,6 +203,10 @@ describe("InventoryService — stock adjustment (LIRA-077)", () => {
     ).__LIRATEK_TEST_DB__;
     db.close();
     resetStockAdjustmentRepository();
+    resetStockBatchRepository();
+    resetProductSupplierRepository();
+    resetSupplierRepository();
+    resetTenantContext();
   });
 
   describe("adjustStock (absolute set)", () => {

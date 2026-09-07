@@ -133,7 +133,7 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'USD', 5000);
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'LBP', 100000000);
 
-    -- expenses (migration v163 shape) — needed because the SMS transfer fee
+    -- expenses (migration v166 shape) — needed because the SMS transfer fee
     -- on a CREDIT_TRANSFER now books through ExpenseRepository.createExpense
     -- instead of a bare payment leg on the recharge's own transaction.
     CREATE TABLE expenses (

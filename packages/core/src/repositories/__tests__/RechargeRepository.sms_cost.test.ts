@@ -12,7 +12,7 @@
  *     leg on the recharge's own transaction (the pre-cutover shape)
  *   - Records the deduction as an SMS_COST payment leg in the payments table
  *   - Books an `SMS_Transfer_Fee` expense row linked back to the recharge
- *     via source_ref_table/source_ref_id (migration v163, rule 20)
+ *     via source_ref_table/source_ref_id (migration v166, rule 20)
  *   - Stores the FULL GROSS commission in profit_usd/profit_lbp — the SMS
  *     fee no longer reduces it
  *   - Does NOT deduct SMS cost for non-CREDIT_TRANSFER types (DAYS, ALFA_GIFT)
@@ -166,7 +166,7 @@ function createTestDb(): Database.Database {
       ON carrier_lines(tenant_id, carrier)
       WHERE is_primary = 1;
 
-    -- expenses (migration v163 shape) — needed because the SMS transfer fee
+    -- expenses (migration v166 shape) — needed because the SMS transfer fee
     -- now books through ExpenseRepository.createExpense instead of a bare
     -- payment leg on the recharge's own transaction.
     CREATE TABLE expenses (

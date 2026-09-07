@@ -78,7 +78,13 @@
  * which mocks the summary response directly.
  */
 
-import { test, expect, navigateTo } from "./fixtures";
+import {
+  test,
+  expect,
+  navigateTo,
+  ensureProfitsUnlocked,
+  unlockProfitsPage,
+} from "./fixtures";
 import type { Page, Locator } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
 import { settleModalRoot, beforeContentBlock } from "./helpers/katshSettlement";
@@ -155,6 +161,13 @@ async function getProfitFigures(
   commissionCount: number;
   deferredClientDebtUsd: number;
 }> {
+  // Visiting /profits and navigating away re-locks (the gate unmounts and
+  // calls profits:lock) — that's required behaviour, not a bug. Any helper
+  // doing a profits IPC read must therefore ensure its OWN unlock rather
+  // than rely on the once-per-test beforeEach unlock, or it breaks the
+  // moment a page-driven read (which visits /profits then navigates away)
+  // runs earlier in the same test. ensureProfitsUnlocked is idempotent.
+  await ensureProfitsUnlocked(page);
   return page.evaluate(
     async (args: { from: string; to: string }) => {
       const w = window as unknown as Api;
@@ -180,6 +193,7 @@ async function readProfitsPageFigures(
 ): Promise<{ commissionUsd: number; deferredClientDebtUsd: number }> {
   await navigateTo(page, "/");
   await navigateTo(page, "/profits");
+  await unlockProfitsPage(page);
   await expect(page.getByText("Net Profit (USD)")).toBeVisible({
     timeout: 15_000,
   });
@@ -348,6 +362,12 @@ async function settleOmtRow(
 }
 
 test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT settlement)", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test.afterEach(async ({ appPage }) => {
     await closeAllActiveSessions(appPage).catch(() => {});
   });

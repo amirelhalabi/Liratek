@@ -238,6 +238,18 @@ export const TRANSACTION_PRESENTATION: Record<
     color: "text-indigo-200",
     direction: null,
   },
+  // SUPPLIER_STOCK_INTAKE_PLAN.md — receiving stock on credit books ONE
+  // supplier_ledger debit (source_table 'supplier_ledger') and NO payment
+  // legs/drawer delta at all — same "paper, no cash moved" shape as
+  // SUPPLIER_ADJUSTMENT immediately above, hence the identical blank badge.
+  // Reversible (NOT in core's NON_REVERSIBLE_TRANSACTION_TYPES) so the void
+  // path can undo a mistaken delivery — see ACTIONABLE_TYPES in
+  // auditConstants.ts, which is what actually renders the Void button.
+  SUPPLIER_STOCK_INTAKE: {
+    label: "Stock Received",
+    color: "text-indigo-200",
+    direction: null,
+  },
   // CQ-10: one label for all three counterparty kinds (debt/supplier/
   // partner) — the row's metadata.counterparty says which. Fuchsia is
   // otherwise unused, keeping "Discount" distinct from every other family.

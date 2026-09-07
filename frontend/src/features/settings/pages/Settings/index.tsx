@@ -12,6 +12,7 @@ import IntegrationsConfig from "./IntegrationsConfig";
 import CategoriesManager from "./CategoriesManager";
 import MobileServicesManager from "./MobileServicesManager";
 import CarrierLinesManager from "./CarrierLinesManager";
+import ProfitsPasswordPanel from "./ProfitsPasswordPanel";
 
 type TabKey =
   | "shop"
@@ -23,7 +24,8 @@ type TabKey =
   | "diagnostics"
   | "integrations"
   | "mobile-services"
-  | "carrier-lines";
+  | "carrier-lines"
+  | "profits";
 
 /** Every valid tab key — the single source of truth for the `?tab=` deep
  *  link below, so a new tab automatically becomes a valid deep-link target
@@ -39,6 +41,7 @@ const TAB_KEYS: readonly TabKey[] = [
   "integrations",
   "mobile-services",
   "carrier-lines",
+  "profits",
 ];
 
 function isTabKey(value: string | null): value is TabKey {
@@ -75,6 +78,7 @@ export default function Settings() {
     { key: "modules", label: "Modules & Drawers" },
     { key: "currencies", label: "Currencies & Rates" },
     { key: "users", label: "Users" },
+    { key: "profits", label: "Profits Password" },
     { key: "integrations", label: "Integrations" },
     { key: "mobile-services", label: "Mobile Services" },
     { key: "carrier-lines", label: "Carrier Lines" },
@@ -105,6 +109,7 @@ export default function Settings() {
           {active === "modules" && <ModulesManager />}
           {active === "currencies" && <CurrencyManager />}
           {active === "users" && <UsersManager />}
+          {active === "profits" && <ProfitsPasswordPanel />}
           {active === "integrations" && <IntegrationsConfig />}
           {active === "mobile-services" && <MobileServicesManager />}
           {active === "carrier-lines" && <CarrierLinesManager />}

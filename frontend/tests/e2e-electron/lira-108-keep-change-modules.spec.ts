@@ -15,7 +15,12 @@
  * green as soon as core is rebuilt). Proof run recorded in the plan.
  */
 
-import { test, expect, seedProduct as _sp } from "./fixtures";
+import {
+  test,
+  expect,
+  seedProduct as _sp,
+  ensureProfitsUnlocked,
+} from "./fixtures";
 
 test.describe.configure({ retries: 0 });
 
@@ -61,6 +66,12 @@ type Api = {
 };
 
 test.describe("LIRA-108 — keep-change across modules", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test("custom service: kept $5 joins the profit stamp (margin 30 → delta 35)", async ({
     appPage,
   }) => {

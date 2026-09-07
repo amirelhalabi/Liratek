@@ -22,6 +22,17 @@ export const createProductSchema = z.object({
   // form; NULL/omitted = no warranty. NOT tracks_imei_units — that lives on
   // the category, not the product.
   warranty_months: positiveIntegerSchema.optional().nullable(),
+  // SUPPLIER_STOCK_INTAKE_PLAN.md — per-entry, transient (see
+  // ProductRepository.CreateProductData's matching field): when this
+  // create carries a `supplier` AND a `stock` > 0, `false` (the default)
+  // books a SUPPLIER_STOCK_INTAKE debit for the opening quantity; `true`
+  // skips it (pre-existing inventory being backfilled). This schema speaks
+  // the REST field names (`cost_price_usd`, `stock`, …) — the desktop IPC
+  // side speaks `cost_price`/`stock_quantity` (see the createProductSchema
+  // doc-comment convention note below and `InventoryHandlers`'s own
+  // field-name mapping); `is_old_stock` is spelled identically on both
+  // transports, so no mapping is needed for this one field.
+  is_old_stock: z.boolean().default(false),
 });
 
 export const updateProductSchema = z.object({

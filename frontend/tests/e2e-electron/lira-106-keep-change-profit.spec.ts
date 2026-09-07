@@ -18,7 +18,7 @@
  * assertion below fails (proof run recorded in the plan).
  */
 
-import { test, expect, seedProduct } from "./fixtures";
+import { test, expect, seedProduct, ensureProfitsUnlocked } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
@@ -62,6 +62,12 @@ async function generalUsd(page: Page): Promise<number> {
 }
 
 test.describe("LIRA-106 — keep change books as profit", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test("kept change joins the profit stamp, drawer keeps the tender, refund nets both to 0", async ({
     appPage,
   }) => {

@@ -44,7 +44,12 @@
  *    profit-delta test fails by exactly `returnedCredits * R`.
  */
 
-import { test, expect, navigateTo } from "./fixtures";
+import {
+  test,
+  expect,
+  navigateTo,
+  ensureProfitsUnlocked,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
@@ -312,6 +317,12 @@ test.describe("LIRA-157 — carrier-line validity rule", () => {
 });
 
 test.describe("LIRA-153 — Only-Days profit nets the returned credit", () => {
+  // profits:* IPC is password-gated since the profits-gate change; unlock
+  // before reading profit numbers as an oracle.
+  test.beforeEach(async ({ appPage }) => {
+    await ensureProfitsUnlocked(appPage);
+  });
+
   test("an Only-Days sale books a POSITIVE margin, not the whole card as a loss", async ({
     appPage,
   }) => {

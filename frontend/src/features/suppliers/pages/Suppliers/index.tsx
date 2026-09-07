@@ -8,7 +8,7 @@ import {
   PageHeader,
   type PaymentLine,
 } from "@liratek/ui";
-import { Eraser, Plus, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Plus, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -19,12 +19,11 @@ import {
   useSuppliersQuery,
   useSupplierBalancesQuery,
   useProductSupplierBalancesQuery,
-  useProductItemsQuery,
+  useProductStockValueQuery,
   useSupplierLedgerQuery,
   useAllTransactionsQuery,
   useSupplierCashflowMutation,
   useSupplierLedgerEntryMutation,
-  useSupplierWriteOffMutation,
   useUnsettledTransactionsQuery,
   useSettleTransactionsMutation,
   type UnsettledSupplierTransaction,
@@ -73,7 +72,15 @@ type LedgerEntry = {
     | "ADJUSTMENT"
     | "SETTLEMENT"
     | "CASH_PRIZE"
-    | "SUPPLIER_PAYS_US";
+    | "SUPPLIER_PAYS_US"
+    // CQ-10 (recordSupplierCashflow's bundled Pay-form discount) — the local
+    // union here had drifted from the backend's real entry_type set (missing
+    // both this and STOCK_INTAKE below); adding it so a discount row renders
+    // its real type instead of falling through untyped.
+    | "DISCOUNT"
+    // SUPPLIER_STOCK_INTAKE_PLAN.md — receiving stock on credit; +qty×cost,
+    // written by SupplierRepository.recordStockIntake.
+    | "STOCK_INTAKE";
   amount_usd: number;
   amount_lbp: number;
   note: string | null;
@@ -257,7 +264,9 @@ function EntryTypeBadge({
       ? "SALE COST"
       : type === "SUPPLIER_PAYS_US"
         ? "PAID US"
-        : type;
+        : type === "STOCK_INTAKE"
+          ? "Stock Received"
+          : type;
   return (
     <span
       className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${color}`}
@@ -341,14 +350,10 @@ export default function SuppliersPage() {
   const [cashflowDiscount, setCashflowDiscount] = useState(0);
   const [cashflowDiscountReason, setCashflowDiscountReason] = useState("");
 
-  // CQ-10 (D4): standalone "Write off" modal (admin-only, pure forgiveness —
-  // the supplier forgives what we owe them, no cash movement).
-  const [showWriteOffModal, setShowWriteOffModal] = useState(false);
-  useModalFocusFix(showWriteOffModal);
-  const [writeOffAmountUsd, setWriteOffAmountUsd] = useState("");
-  const [writeOffAmountLbp, setWriteOffAmountLbp] = useState("");
-  const [writeOffReason, setWriteOffReason] = useState("");
-  const [writeOffSubmitting, setWriteOffSubmitting] = useState(false);
+  // SUPPLIER_STOCK_INTAKE_PLAN.md owner decision D8: the standalone
+  // "Write off" modal (CQ-10) is REMOVED — the bundled Pay-form discount
+  // (cashflowDiscount above, MultiPaymentInput's showDiscount) is now the
+  // ONLY forgiveness path. Do not resurrect a standalone write-off UI here.
 
   // LIRA-080: "Add Credit / Debt" modal (admin+staff). CREDIT = shop owes the
   // supplier more (ledger +); DEBIT = reduces what we owe / they owe us
@@ -433,9 +438,6 @@ export default function SuppliersPage() {
   const unsettledQuery = useUnsettledTransactionsQuery(
     isProductSupplier ? null : (selectedSupplier?.provider ?? null),
   );
-  const productItemsQuery = useProductItemsQuery(
-    isProductSupplier ? selectedSupplierId : null,
-  );
 
   // ── Derived data (pure computations, no state) ────────────────────────────
   const suppliers = (suppliersQuery.data ?? []) as Supplier[];
@@ -446,14 +448,6 @@ export default function SuppliersPage() {
   const allTxns = (allTxnsQuery.data ?? []) as SupplierTxn[];
   const unsettledTxns = (unsettledQuery.data ??
     []) as UnsettledSupplierTransaction[];
-  const productItems = (productItemsQuery.data ?? []) as Array<{
-    product_id: number;
-    name: string;
-    quantity: number;
-    cost: number;
-    total: number;
-    created_at: string;
-  }>;
 
   const sortedSuppliers = useMemo(
     () =>
@@ -482,18 +476,6 @@ export default function SuppliersPage() {
   const activeBalanceMap =
     viewCategory === "products" ? productBalanceBySupplier : balanceBySupplier;
 
-  // CQ-10: selected supplier's current balance, per currency — positive
-  // means we owe THEM (see describeBalance), which is exactly the condition
-  // under which they have something left to forgive (write-off).
-  const selectedBalanceUsd = Number(
-    activeBalanceMap.get(selectedSupplierId ?? -1)?.total_usd ?? 0,
-  );
-  const selectedBalanceLbp = Number(
-    activeBalanceMap.get(selectedSupplierId ?? -1)?.total_lbp ?? 0,
-  );
-  const canWriteOffSupplier =
-    selectedBalanceUsd > BALANCE_EPS || selectedBalanceLbp > BALANCE_EPS;
-
   const totalOwed = useMemo(() => {
     let usd = 0;
     let lbp = 0;
@@ -514,11 +496,9 @@ export default function SuppliersPage() {
   );
 
   /**
-   * Suggested amount, currency, and default PAY/RECEIVE direction for the Pay/Receive tab.
-   *
-   * Products → inventory total (Σ qty × cost), always USD. Direction = PAY (we always owe).
-   *
-   * Companies — three cases:
+   * Suggested amount, currency, and default PAY/RECEIVE direction for the
+   * Pay/Receive tab — three cases, shared by BOTH product and company
+   * suppliers:
    *   Pure USD balance → USD amount, direction from sign.
    *   Pure LBP balance → LBP amount, direction from sign.
    *   Mixed (e.g. we owe LBP + supplier owes us USD) →
@@ -527,17 +507,24 @@ export default function SuppliersPage() {
    *
    * Positive amount = we owe the supplier → PAY.
    * Negative amount = supplier owes us   → RECEIVE (form receives |amount|).
+   *
+   * SUPPLIER_STOCK_INTAKE_PLAN.md (D9 follow-up, item 4) — a product
+   * supplier used to get its OWN branch here: USD-only, clamped to
+   * `Math.max(0, total_usd)`, direction hardcoded PAY ("we always owe").
+   * That assumption predates `getProductSupplierBalances` going ledger-only
+   * with a REAL `total_lbp` (previously hardcoded 0) — a product supplier
+   * can now genuinely carry an LBP component (an LBP Pay/Receive payment, a
+   * bundled discount posted in LBP) or even a negative balance (an
+   * overpayment — "they owe us"), neither of which the old branch could
+   * represent. Product and company suppliers now share the exact same
+   * three-case logic; nothing about the general case assumed "always USD,
+   * always PAY" in the first place.
    */
   const { payAmount, payCurrency, defaultDirection } = useMemo<{
     payAmount: number;
     payCurrency: "USD" | "LBP";
     defaultDirection: "PAY" | "RECEIVE";
   }>(() => {
-    if (isProductSupplier) {
-      const bal = activeBalanceMap.get(selectedSupplierId ?? 0);
-      const owed = Math.max(0, Number(bal?.total_usd ?? 0));
-      return { payAmount: owed, payCurrency: "USD", defaultDirection: "PAY" };
-    }
     const bal = activeBalanceMap.get(selectedSupplierId ?? 0);
     const usd = Number(bal?.total_usd ?? 0);
     const lbp = Number(bal?.total_lbp ?? 0);
@@ -565,37 +552,59 @@ export default function SuppliersPage() {
       payCurrency: "USD",
       defaultDirection: usd >= 0 ? "PAY" : "RECEIVE",
     };
-  }, [
-    isProductSupplier,
-    productItems,
-    activeBalanceMap,
-    selectedSupplierId,
-    exchangeRate,
-  ]);
+  }, [activeBalanceMap, selectedSupplierId, exchangeRate]);
 
-  // FIFO payment coverage per product item.
-  // totalPaid = totalProductCosts − currentBalance (balance = costs − payments).
-  const itemsWithCoverage = useMemo(() => {
-    if (!isProductSupplier || productItems.length === 0) return [];
-    const bal = activeBalanceMap.get(selectedSupplierId ?? 0);
-    const currentBalanceUsd = Math.max(0, Number(bal?.total_usd ?? 0));
-    const totalProductCosts = productItems.reduce((s, i) => s + i.total, 0);
-    const totalPaid = Math.max(0, totalProductCosts - currentBalanceUsd);
+  // SUPPLIER_STOCK_INTAKE_PLAN.md (D9) — the old FIFO "payment coverage"
+  // math (itemsWithCoverage) assumed the balance was RECOMPUTED from live
+  // stock × live cost, so "how much of this item's cost is paid" could be
+  // backed out from (totalCosts − currentBalance). Now that the balance is
+  // ledger-only (event-based booking — a STOCK_INTAKE debit at intake time,
+  // untouched by later sales/refunds/cost edits), that backward math no
+  // longer corresponds to anything real: there is no per-item "paid" amount
+  // to recover, only a chronological ledger of deliveries and payments. The
+  // Purchases tab below reads `ledger` directly instead (same query already
+  // used by the Payments section for company suppliers) — no separate
+  // derivation needed, so nothing replaces this block but the ledger filter
+  // inline at the render site.
 
-    let remaining = totalPaid;
-    return productItems.map((item) => {
-      if (remaining >= item.total - 0.005) {
-        remaining = Math.max(0, remaining - item.total);
-        return { ...item, paid: item.total, status: "PAID" as const };
-      } else if (remaining > 0.005) {
-        const paid = remaining;
-        remaining = 0;
-        return { ...item, paid, status: "PARTIAL" as const };
-      } else {
-        return { ...item, paid: 0, status: "UNPAID" as const };
-      }
-    });
-  }, [isProductSupplier, productItems, activeBalanceMap, selectedSupplierId]);
+  // D9 — informational "Stock on hand" value, fed by the NEW
+  // getSupplierProductStockValue read: SUM(quantity_remaining ×
+  // unit_cost_usd) over open cost batches. This is INVENTORY VALUE, not
+  // debt — conflating the two (recomputing "owed" from live stock × live
+  // cost) was the original bug this whole plan fixes. Never feed this into
+  // the balance/owed figures above.
+  const stockValueQuery = useProductStockValueQuery();
+  const stockValueBySupplier = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const row of (stockValueQuery.data ?? []) as Array<{
+      supplier_id: number;
+      stock_value_usd: number;
+    }>) {
+      map.set(row.supplier_id, Number(row.stock_value_usd ?? 0));
+    }
+    return map;
+  }, [stockValueQuery.data]);
+  const selectedStockValueUsd = stockValueBySupplier.get(
+    selectedSupplierId ?? -1,
+  );
+
+  // D9 — Purchases tab history: STOCK_INTAKE (deliveries) and PAYMENT rows
+  // from the same ledger query the Payments section already fetches,
+  // newest first (getSupplierLedger already orders newest-first — see its
+  // own doc comment — so no client-side re-sort is needed here).
+  // recordStockIntake stamps `note` as "<qty> × <name> @ $<cost>" — reusing
+  // that string is preferred over re-parsing qty/cost back out of it (rule
+  // 14: the note IS the one formatted description, not a second one).
+  const purchaseHistory = useMemo(
+    () =>
+      isProductSupplier
+        ? ledger.filter(
+            (row) =>
+              row.entry_type === "STOCK_INTAKE" || row.entry_type === "PAYMENT",
+          )
+        : [],
+    [isProductSupplier, ledger],
+  );
 
   // Auto-set PAY/RECEIVE direction whenever the Pay/Receive tab becomes active
   // or the selected supplier changes. The user can still override it manually.
@@ -670,7 +679,6 @@ export default function SuppliersPage() {
     selectedSupplierId,
     selectedSupplier?.provider ?? null,
   );
-  const supplierWriteOff = useSupplierWriteOffMutation(selectedSupplierId);
 
   // LIRA-080 — the paper (no-cash) side of "Add Credit / Debt".
   const supplierLedgerEntry = useSupplierLedgerEntryMutation(
@@ -738,41 +746,6 @@ export default function SuppliersPage() {
       alert("Failed to record entry");
     } finally {
       setAdjustSubmitting(false);
-    }
-  };
-
-  const handleSupplierWriteOff = async () => {
-    if (!selectedSupplierId) return;
-    const amountUsd = Math.min(
-      Math.max(0, parseFloat(writeOffAmountUsd.replace(/,/g, "")) || 0),
-      Math.max(0, selectedBalanceUsd),
-    );
-    const amountLbp = Math.min(
-      Math.max(0, parseFloat(writeOffAmountLbp.replace(/,/g, "")) || 0),
-      Math.max(0, selectedBalanceLbp),
-    );
-    if (amountUsd <= 0 && amountLbp <= 0) return;
-    setWriteOffSubmitting(true);
-    try {
-      const result = await supplierWriteOff.mutateAsync({
-        supplier_id: selectedSupplierId,
-        amount_usd: amountUsd,
-        amount_lbp: amountLbp,
-        ...(writeOffReason.trim() ? { reason: writeOffReason.trim() } : {}),
-      });
-      if ((result as { success: boolean }).success) {
-        appEvents.emit("notification:show", "Balance written off.", "success");
-        setShowWriteOffModal(false);
-        setWriteOffAmountUsd("");
-        setWriteOffAmountLbp("");
-        setWriteOffReason("");
-      } else {
-        alert((result as { error?: string }).error || "Failed");
-      }
-    } catch {
-      alert("Failed to write off balance");
-    } finally {
-      setWriteOffSubmitting(false);
     }
   };
 
@@ -1323,23 +1296,10 @@ export default function SuppliersPage() {
                         Add Credit / Debt
                       </button>
                     )}
-                  {/* CQ-10 (D4): standalone write-off — admin-only, only when
-                      we owe the supplier something left to forgive. */}
-                  {isAdmin && canWriteOffSupplier && (
-                    <button
-                      onClick={() => {
-                        setWriteOffAmountUsd("");
-                        setWriteOffAmountLbp("");
-                        setWriteOffReason("");
-                        setShowWriteOffModal(true);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
-                      title="Supplier forgives part of what we owe them"
-                    >
-                      <Eraser className="w-4 h-4" />
-                      Write off
-                    </button>
-                  )}
+                  {/* SUPPLIER_STOCK_INTAKE_PLAN.md D8: the standalone
+                      "Write off" button/modal is REMOVED — the bundled
+                      Pay-form discount (Pay/Receive tab) is the only
+                      surviving forgiveness path. */}
                   <button
                     onClick={() => {
                       suppliersQuery.refetch();
@@ -1356,7 +1316,9 @@ export default function SuppliersPage() {
                       // allTxnsQuery above (the query itself is `enabled:
                       // !!provider`, which is null for a product supplier).
                       if (!isProductSupplier) unsettledQuery.refetch();
-                      if (isProductSupplier) productItemsQuery.refetch();
+                      if (isProductSupplier) {
+                        stockValueQuery.refetch();
+                      }
                     }}
                     className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
                   >
@@ -1396,100 +1358,101 @@ export default function SuppliersPage() {
                 </div>
               )}
 
-              {/* Tab: Purchases — product items with FIFO payment coverage */}
+              {/* Tab: Purchases — SUPPLIER_STOCK_INTAKE_PLAN.md D9. Replaces
+                  the old FIFO "payment coverage" table (client-computed
+                  PAID/PARTIAL/UNPAID from a balance that no longer means
+                  that — see purchaseHistory's own comment above) with a real
+                  chronological ledger history — deliveries received and
+                  payments made, newest first — plus a separate
+                  informational stock-on-hand VALUE line. The two numbers are
+                  deliberately never combined into one figure: "Stock on
+                  hand" is what inventory is worth right now (event-based,
+                  FIFO-remaining), "Balance" above is what we still owe (the
+                  ledger sum) — conflating them was the original bug. */}
               {selectedSupplier.is_active !== 0 && activeTab === "items" && (
                 <div>
-                  {productItemsQuery.isLoading ? (
-                    <div className="text-slate-400 text-sm py-6 text-center">
-                      Loading items…
+                  <div className="flex items-center justify-between mb-3 px-1">
+                    <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      Purchase History
+                    </h3>
+                    <div className="text-xs text-slate-400">
+                      Stock on hand:{" "}
+                      <span className="font-mono font-semibold text-orange-300">
+                        {stockValueQuery.isLoading
+                          ? "…"
+                          : `$${(selectedStockValueUsd ?? 0).toFixed(2)}`}
+                      </span>
+                      <span className="text-slate-600"> (inventory value, not debt)</span>
                     </div>
-                  ) : itemsWithCoverage.length === 0 ? (
+                  </div>
+                  {ledgerQuery.isLoading ? (
+                    <div className="text-slate-400 text-sm py-6 text-center">
+                      Loading purchase history…
+                    </div>
+                  ) : purchaseHistory.length === 0 ? (
                     <div className="text-slate-500 text-sm py-6 text-center">
-                      No inventory items found for {selectedSupplier.name}.
+                      No deliveries or payments recorded yet for{" "}
+                      {selectedSupplier.name}.
                     </div>
                   ) : (
                     <div className="border border-slate-700 rounded-xl overflow-hidden">
                       <div className="grid grid-cols-12 bg-slate-900/60 text-slate-300 text-xs font-semibold px-4 py-2">
-                        <div className="col-span-3">Product</div>
-                        <div className="col-span-1 text-right">Qty</div>
-                        <div className="col-span-2 text-right">Cost</div>
-                        <div className="col-span-1 text-right">Total</div>
-                        <div className="col-span-1 text-right">Paid</div>
-                        <div className="col-span-2 text-right">Status</div>
+                        <div className="col-span-2">Type</div>
+                        <div className="col-span-6">Detail</div>
+                        <div className="col-span-2 text-right">Amount</div>
                         <div className="col-span-2 text-right">Date</div>
                       </div>
                       <div className="max-h-[45vh] overflow-y-auto divide-y divide-slate-700">
-                        {itemsWithCoverage.map((item) => (
+                        {purchaseHistory.map((row) => (
                           <div
-                            key={item.product_id}
-                            className="grid grid-cols-12 px-4 py-2.5 text-sm items-center hover:bg-slate-700/30"
+                            key={row.id}
+                            className={`grid grid-cols-12 px-4 py-2.5 text-sm items-center hover:bg-slate-700/30 ${row.is_refunded ? "opacity-60" : ""}`}
                           >
-                            <div className="col-span-3 text-white font-medium truncate">
-                              {item.name}
-                            </div>
-                            <div className="col-span-1 text-right font-mono text-slate-300">
-                              {item.quantity}
-                            </div>
-                            <div className="col-span-2 text-right font-mono text-slate-300">
-                              ${item.cost.toFixed(2)}
-                            </div>
-                            <div className="col-span-1 text-right font-mono text-orange-300 font-semibold">
-                              ${item.total.toFixed(2)}
-                            </div>
-                            <div className="col-span-1 text-right font-mono text-slate-300 text-xs">
-                              ${item.paid.toFixed(2)}
-                            </div>
-                            <div className="col-span-2 text-right">
-                              {item.status === "PAID" && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
-                                  Paid
+                            <div className="col-span-2">
+                              <EntryTypeBadge
+                                type={row.entry_type}
+                                direction={ledgerRowDirection(
+                                  row.amount_usd,
+                                  row.amount_lbp,
+                                )}
+                              />
+                              {!!row.is_refunded && (
+                                <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
+                                  VOIDED
                                 </span>
                               )}
-                              {item.status === "PARTIAL" && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">
-                                  Partial
-                                </span>
-                              )}
-                              {item.status === "UNPAID" && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-400 border border-slate-600">
-                                  Unpaid
-                                </span>
-                              )}
+                            </div>
+                            <div className="col-span-6 text-slate-300 truncate text-xs">
+                              {row.entry_type === "STOCK_INTAKE"
+                                ? // recordStockIntake's note is already the
+                                  // formatted "<qty> × <name> @ $<cost>"
+                                  // description (rule 14 — reuse it, don't
+                                  // re-parse qty/cost back out of it).
+                                  row.note || "Stock received"
+                                : row.note || "Payment"}
+                            </div>
+                            <div
+                              className={`col-span-2 text-right font-mono text-xs ${
+                                row.is_refunded
+                                  ? "line-through text-slate-500"
+                                  : balanceColor(
+                                      row.amount_usd !== 0
+                                        ? row.amount_usd
+                                        : row.amount_lbp,
+                                    )
+                              }`}
+                            >
+                              {row.amount_usd !== 0
+                                ? `${row.amount_usd > 0 ? "+" : ""}$${row.amount_usd.toFixed(2)}`
+                                : row.amount_lbp !== 0
+                                  ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()} LBP`
+                                  : "—"}
                             </div>
                             <div className="col-span-2 text-right text-xs text-slate-400">
-                              {item.created_at
-                                ? parseDbDate(item.created_at).toLocaleString()
-                                : "—"}
+                              {parseDbDate(row.created_at).toLocaleString()}
                             </div>
                           </div>
                         ))}
-                      </div>
-                      <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
-                        <span>
-                          {
-                            itemsWithCoverage.filter((i) => i.status === "PAID")
-                              .length
-                          }{" "}
-                          paid ·{" "}
-                          {
-                            itemsWithCoverage.filter(
-                              (i) => i.status === "PARTIAL",
-                            ).length
-                          }{" "}
-                          partial ·{" "}
-                          {
-                            itemsWithCoverage.filter(
-                              (i) => i.status === "UNPAID",
-                            ).length
-                          }{" "}
-                          unpaid
-                        </span>
-                        <span className="font-mono font-bold text-white">
-                          Outstanding: $
-                          {itemsWithCoverage
-                            .reduce((s, i) => s + (i.total - i.paid), 0)
-                            .toFixed(2)}
-                        </span>
                       </div>
                     </div>
                   )}
@@ -2221,103 +2184,6 @@ export default function SuppliersPage() {
                   className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20"
                 >
                   {adjustSubmitting ? "Processing..." : "Save entry"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CQ-10 (D4): standalone "Write off" modal — admin-only, pure
-          forgiveness (the supplier forgives what we owe them), no cash
-          movement. Capped client-side at the outstanding balance per
-          currency; the backend re-validates. */}
-      {showWriteOffModal && selectedSupplier && (
-        <div
-          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-          role="presentation"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setShowWriteOffModal(false);
-          }}
-        >
-          <div
-            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl"
-            role="presentation"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-bold text-white mb-1">Write off</h3>
-            <p className="text-xs text-slate-400 mb-4">
-              {selectedSupplier.name} forgives part of what we owe them — no
-              cash movement.
-            </p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                  Amount (USD) — owed $
-                  {Math.max(0, selectedBalanceUsd).toFixed(2)}
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={writeOffAmountUsd}
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/,/g, "");
-                    if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
-                      setWriteOffAmountUsd(raw);
-                    }
-                  }}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                  placeholder="0.00"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                  Amount (LBP) — owed{" "}
-                  {Math.max(0, selectedBalanceLbp).toLocaleString()}
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={writeOffAmountLbp}
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/,/g, "");
-                    if (raw === "" || /^\d+$/.test(raw)) {
-                      setWriteOffAmountLbp(raw);
-                    }
-                  }}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                  placeholder="0"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                  Reason
-                </label>
-                <input
-                  type="text"
-                  value={writeOffReason}
-                  onChange={(e) => setWriteOffReason(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                  placeholder="Optional reason..."
-                />
-              </div>
-
-              <div className="pt-2 flex gap-3">
-                <button
-                  onClick={() => setShowWriteOffModal(false)}
-                  className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  disabled={
-                    writeOffSubmitting ||
-                    (!writeOffAmountUsd.trim() && !writeOffAmountLbp.trim())
-                  }
-                  onClick={handleSupplierWriteOff}
-                  className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-orange-600 hover:bg-orange-500 shadow-orange-900/20"
-                >
-                  {writeOffSubmitting ? "Processing..." : "Write off"}
                 </button>
               </div>
             </div>

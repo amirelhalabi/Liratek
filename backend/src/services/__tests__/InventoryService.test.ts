@@ -67,6 +67,15 @@ describe("InventoryService", () => {
       batchSoftDelete: jest.fn(),
       adjustStock: jest.fn(),
       adjustStockDelta: jest.fn(),
+      // LIRA-164 (Supplier Stock Intake): InventoryService.adjustStock/
+      // adjustStockDelta no longer call ProductRepository.adjustStock/
+      // adjustStockDelta directly — an INCREASE is routed through
+      // receiveStock (same booking path as an explicit intake) and a
+      // DECREASE through decreaseStockForAdjustment (FIFO batch consumption,
+      // never touches the supplier ledger). See InventoryService.ts's
+      // `applyStockDelta` doc comment for the owner decision.
+      receiveStock: jest.fn(),
+      decreaseStockForAdjustment: jest.fn(),
       deductStockForSale: jest.fn(),
       getStockStats: jest.fn(),
       findLowStock: jest.fn(),
@@ -255,13 +264,23 @@ describe("InventoryService", () => {
       // `category_id` NULL is what made `tracks_imei_units` always 0 for
       // web-created products (LIRA-143 decision #9).
       expect(mockCategoryRepo.getOrCreate).toHaveBeenCalledWith("Electronics");
-      expect(mockRepo.createProduct).toHaveBeenCalledWith({
-        ...validProductData,
-        barcode: "123456",
-        name: "Test Product",
-        category: "Electronics",
-        category_id: STUB_CATEGORY_ID,
-      });
+      // LIRA-164 (Supplier Stock Intake): createProduct now threads the
+      // acting user id through to ProductRepository.createProduct as a
+      // SECOND argument — a create that carries a supplier + opening stock
+      // books a SUPPLIER_STOCK_INTAKE debit, and an un-attributed booking is
+      // a real audit-trail gap (SUPPLIER_STOCK_INTAKE_PLAN.md). This call
+      // site didn't pass a userId, so the service's own default (`null`)
+      // flows through unchanged.
+      expect(mockRepo.createProduct).toHaveBeenCalledWith(
+        {
+          ...validProductData,
+          barcode: "123456",
+          name: "Test Product",
+          category: "Electronics",
+          category_id: STUB_CATEGORY_ID,
+        },
+        null,
+      );
       expect(result).toEqual({ success: true, id: 1 });
     });
 
@@ -551,18 +570,63 @@ describe("InventoryService", () => {
   // Stock Management
   // ===========================================================================
 
+  // LIRA-164 (Supplier Stock Intake, owner decisions D2-D4): an adjustment
+  // that RAISES stock is now a delivery — it books like any other intake
+  // (FIFO batch + supplier debit when applicable) via
+  // `ProductRepository.receiveStock`, at the product's CURRENT
+  // `cost_price_usd`/`supplier` (an adjustment carries no cost input of its
+  // own). An adjustment that LOWERS stock stays a correction — it FIFO-
+  // consumes batches via `decreaseStockForAdjustment` and never touches the
+  // supplier ledger (shrinkage/loss, not a return). Neither branch calls the
+  // repo's own `adjustStock`/`adjustStockDelta` anymore — those are ONLY
+  // reached by `ProductRepository`'s own callers, not by this service — so
+  // with a fully mocked repository `findById` must return a real product
+  // (cost_price_usd/supplier) for the service to compute the delta and
+  // route it correctly.
   describe("adjustStock", () => {
-    it("adjusts stock to absolute value", () => {
-      mockRepo.adjustStock.mockReturnValue(true);
+    it("adjusts stock to absolute value — an INCREASE routes through receiveStock (owner decision D2/D4)", () => {
+      mockRepo.findById.mockReturnValue({
+        id: 1,
+        stock_quantity: 30,
+        cost_price_usd: 5,
+        supplier: "Acme Distributors",
+      } as any);
+      mockRepo.receiveStock.mockReturnValue({ batch_id: 7 });
 
       const result = service.adjustStock(1, 50, "Physical recount", 3);
 
-      expect(mockRepo.adjustStock).toHaveBeenCalledWith(
+      expect(mockRepo.receiveStock).toHaveBeenCalledWith({
+        product_id: 1,
+        quantity: 20, // 50 - 30
+        unit_cost_usd: 5,
+        supplier: "Acme Distributors",
+        is_old_stock: false,
+        reason: "Physical recount",
+        created_by: 3,
+      });
+      expect(mockRepo.adjustStock).not.toHaveBeenCalled();
+      expect(mockRepo.decreaseStockForAdjustment).not.toHaveBeenCalled();
+      expect(result).toEqual({ success: true });
+    });
+
+    it("adjusts stock to absolute value — a DECREASE routes through decreaseStockForAdjustment (owner decision D3)", () => {
+      mockRepo.findById.mockReturnValue({
+        id: 1,
+        stock_quantity: 30,
+        cost_price_usd: 5,
+        supplier: null,
+      } as any);
+      mockRepo.decreaseStockForAdjustment.mockReturnValue(true);
+
+      const result = service.adjustStock(1, 12, "Physical recount", 3);
+
+      expect(mockRepo.decreaseStockForAdjustment).toHaveBeenCalledWith(
         1,
-        50,
+        18, // 30 - 12
         "Physical recount",
         3,
       );
+      expect(mockRepo.receiveStock).not.toHaveBeenCalled();
       expect(result).toEqual({ success: true });
     });
 
@@ -585,11 +649,27 @@ describe("InventoryService", () => {
       const result = service.adjustStock(1, 50, "   ", 1);
 
       expect(result).toEqual({ success: false, error: "Reason is required" });
-      expect(mockRepo.adjustStock).not.toHaveBeenCalled();
+      expect(mockRepo.findById).not.toHaveBeenCalled();
+      expect(mockRepo.receiveStock).not.toHaveBeenCalled();
+      expect(mockRepo.decreaseStockForAdjustment).not.toHaveBeenCalled();
     });
 
-    it("handles repository error", () => {
-      mockRepo.adjustStock.mockImplementation(() => {
+    it("returns 'Product not found' when the repository has no matching product", () => {
+      mockRepo.findById.mockReturnValue(undefined as any);
+
+      const result = service.adjustStock(999, 50, "recount", 1);
+
+      expect(result).toEqual({ success: false, error: "Product not found" });
+    });
+
+    it("handles a repository error from the receiveStock booking path", () => {
+      mockRepo.findById.mockReturnValue({
+        id: 1,
+        stock_quantity: 30,
+        cost_price_usd: 5,
+        supplier: null,
+      } as any);
+      mockRepo.receiveStock.mockImplementation(() => {
         throw new Error("DB error");
       });
 
@@ -600,31 +680,48 @@ describe("InventoryService", () => {
   });
 
   describe("adjustStockDelta", () => {
-    it("increments stock", () => {
-      mockRepo.adjustStockDelta.mockReturnValue(true);
+    it("increments stock — routes through receiveStock (owner decision D2/D4)", () => {
+      mockRepo.findById.mockReturnValue({
+        id: 1,
+        stock_quantity: 30,
+        cost_price_usd: 8,
+        supplier: "Acme Distributors",
+      } as any);
+      mockRepo.receiveStock.mockReturnValue({ batch_id: 9 });
 
       const result = service.adjustStockDelta(1, 10, "Restock delivery", 3);
 
-      expect(mockRepo.adjustStockDelta).toHaveBeenCalledWith(
-        1,
-        10,
-        "Restock delivery",
-        3,
-      );
+      expect(mockRepo.receiveStock).toHaveBeenCalledWith({
+        product_id: 1,
+        quantity: 10,
+        unit_cost_usd: 8,
+        supplier: "Acme Distributors",
+        is_old_stock: false,
+        reason: "Restock delivery",
+        created_by: 3,
+      });
+      expect(mockRepo.adjustStockDelta).not.toHaveBeenCalled();
       expect(result).toEqual({ success: true });
     });
 
-    it("decrements stock", () => {
-      mockRepo.adjustStockDelta.mockReturnValue(true);
+    it("decrements stock — routes through decreaseStockForAdjustment (owner decision D3), never the supplier ledger", () => {
+      mockRepo.findById.mockReturnValue({
+        id: 1,
+        stock_quantity: 30,
+        cost_price_usd: 8,
+        supplier: "Acme Distributors",
+      } as any);
+      mockRepo.decreaseStockForAdjustment.mockReturnValue(true);
 
       const result = service.adjustStockDelta(1, -5, "Damaged units", 3);
 
-      expect(mockRepo.adjustStockDelta).toHaveBeenCalledWith(
+      expect(mockRepo.decreaseStockForAdjustment).toHaveBeenCalledWith(
         1,
-        -5,
+        5,
         "Damaged units",
         3,
       );
+      expect(mockRepo.receiveStock).not.toHaveBeenCalled();
       expect(result).toEqual({ success: true });
     });
 
@@ -638,7 +735,18 @@ describe("InventoryService", () => {
       const result = service.adjustStockDelta(1, 10, "", 1);
 
       expect(result).toEqual({ success: false, error: "Reason is required" });
+      expect(mockRepo.findById).not.toHaveBeenCalled();
       expect(mockRepo.adjustStockDelta).not.toHaveBeenCalled();
+      expect(mockRepo.receiveStock).not.toHaveBeenCalled();
+      expect(mockRepo.decreaseStockForAdjustment).not.toHaveBeenCalled();
+    });
+
+    it("returns 'Product not found' when the repository has no matching product", () => {
+      mockRepo.findById.mockReturnValue(undefined as any);
+
+      const result = service.adjustStockDelta(999, 10, "recount", 1);
+
+      expect(result).toEqual({ success: false, error: "Product not found" });
     });
   });
 

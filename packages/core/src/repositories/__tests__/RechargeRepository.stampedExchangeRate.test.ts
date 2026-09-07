@@ -133,7 +133,7 @@ describe("RechargeRepository — SEND stamps the tendered rate", () => {
         created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
-    -- expenses (migration v163 shape) -- needed because the SMS transfer fee
+    -- expenses (migration v166 shape) -- needed because the SMS transfer fee
     -- on a CREDIT_TRANSFER now books through ExpenseRepository.createExpense
     -- instead of a bare payment leg on the recharge's own transaction.
     CREATE TABLE expenses (
@@ -394,7 +394,7 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- expenses (migration v163 shape) -- needed because the SMS transfer
+      -- expenses (migration v166 shape) -- needed because the SMS transfer
       -- fee on a CREDIT_TRANSFER now books through
       -- ExpenseRepository.createExpense instead of a bare payment leg on the
       -- recharge's own transaction.

@@ -84,6 +84,15 @@ export * from "./utils/lotMarketRate.js";
 // above for the exact failure mode this avoids.
 export * from "./utils/insuranceFulfillment.js";
 
+// Profits password gate constants (PROFITS_PASSWORD_SETTING_KEY,
+// PROFITS_UNLOCK_TTL_MS, PROFITS_PASSWORD_MIN_LENGTH) — pure string/number
+// constants, no Node.js deps. ProfitsPasswordGate.tsx imports
+// PROFITS_UNLOCK_TTL_MS to drive its client-side unlock timer instead of
+// hardcoding 15 minutes a second time (rule 14). Must be exported HERE, not
+// only from index.ts — see the telecomCredit.js note above for the exact
+// failure mode this avoids.
+export * from "./constants/profitsAccess.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

@@ -7,6 +7,15 @@ import {
 } from "@/features/sales/utils/cartGate";
 import { getCartLineKey } from "@/features/sales/utils/cartLineKey";
 
+function WarrantyBadge({ months }: { months: number | null | undefined }) {
+  if (!months || months <= 0) return null;
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-950/60 border border-red-500/60 text-xs font-semibold text-red-400 shrink-0">
+      🛡 {months} month{months === 1 ? "" : "s"}
+    </span>
+  );
+}
+
 interface CartLineRowProps {
   item: CartItem;
   /** The full cart, used only to filter units already claimed by OTHER
@@ -57,13 +66,13 @@ export function CartLineRow({
   );
 
   return (
-    <div className="bg-slate-700/30 rounded-xl p-3 border border-slate-700/50 flex gap-3 group hover:bg-slate-700/50 transition-all">
+    <div className="bg-slate-700/30 rounded-xl p-3 border border-slate-700/50 flex items-end gap-3 group hover:bg-slate-700/50 transition-all">
       <div className="flex-1">
-        <h4 className="font-medium text-slate-200 text-sm line-clamp-1">
-          {item.name}
-        </h4>
-        <div className="text-xs text-slate-500 mt-1">
-          ${item.retail_price.toFixed(2)} / unit
+        <div className="flex items-center gap-1.5">
+          <h4 className="font-medium text-slate-200 text-sm line-clamp-1">
+            {item.name}
+          </h4>
+          <WarrantyBadge months={item.warranty_months} />
         </div>
 
         {mode === "unit-picker" && (
@@ -82,7 +91,7 @@ export function CartLineRow({
                   onSelectUnit(lineKey, { id: unit.id, imei: unit.imei });
                 }
               }}
-              className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-2 py-1 text-[10px] text-white focus:border-violet-500/50 outline-none font-mono"
+              className="w-full h-[30px] bg-slate-900 border border-slate-700/50 rounded-lg px-2 text-[10px] text-white focus:border-violet-500/50 outline-none font-mono"
             >
               <option value="">Select IMEI / Serial…</option>
               {unitOptions.map((u) => (

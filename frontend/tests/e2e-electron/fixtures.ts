@@ -11,6 +11,7 @@
 import {
   test as base,
   _electron,
+  expect,
   type Browser,
   type ElectronApplication,
   type Page,
@@ -592,6 +593,8 @@ export async function navigateTo(page: Page, route: string) {
     // 10s per visit across lira-088/093/094).
     "/custom-services": '#svc-cost, button:has-text("Submit Service")',
     "/customer-sessions": "text=Customer Session",
+    "/profits":
+      '[data-testid="profits-lock-screen"], [data-testid="profits-no-password-set"], [data-testid="profits-gate-loading"]',
   };
   const anchor = routeAnchors[path];
   if (anchor) {
@@ -599,6 +602,132 @@ export async function navigateTo(page: Page, route: string) {
       // page loaded but anchor not found — proceed without blocking
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Profits password gate helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared password used by every spec that needs to unlock the profits
+ * password gate to read `window.api.profits.*` as a measuring instrument
+ * (LIRA-071 introduced the gate; see profits.setPassword/unlock below).
+ * Never duplicate this literal in a spec file (CLAUDE.md rule 14) — import
+ * this constant instead.
+ */
+export const E2E_PROFITS_PASSWORD = "Profits1!";
+
+/** Minimal typed view of the profits IPC surface used by this helper. */
+type ProfitsGateApi = {
+  profits: {
+    passwordStatus: () => Promise<{ isSet: boolean }>;
+    setPassword: (
+      password: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    unlock: (
+      password: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+  };
+};
+
+/**
+ * Ensure the shared Electron instance's profits gate is unlocked for the
+ * CURRENT webContents before any spec reads `window.api.profits.*` as an
+ * oracle for unrelated behaviour (sale/debt/partner/commission correctness).
+ *
+ * Why this exists: since the profits password gate (LIRA-071), every
+ * `profits:*` IPC channel throws "Profits locked" until the page has been
+ * unlocked with the correct password. Specs that only care about the
+ * resulting profit numbers — not the gate itself — must not have to drive
+ * the lock-screen UI; this does the unlock purely over IPC.
+ *
+ * Idempotent/safe to call repeatedly and from every spec that needs it:
+ * the unlock is per-webContents with a PROFITS_UNLOCK_TTL_MS (15 minute)
+ * TTL and is revoked the instant the /profits page unmounts (the gate's
+ * unmount effect calls `profits:lock`), so no spec may assume an earlier
+ * spec left the gate unlocked — always call this before touching
+ * `window.api.profits.*`, even mid-file.
+ */
+export async function ensureProfitsUnlocked(page: Page): Promise<void> {
+  await page.evaluate(async (password) => {
+    const api = (window as unknown as { api: ProfitsGateApi }).api;
+    const status = await api.profits.passwordStatus();
+    if (!status.isSet) {
+      // The shared session is logged in as admin — setPassword is
+      // admin-only and this is therefore permitted.
+      await api.profits.setPassword(password);
+    }
+    const result = await api.profits.unlock(password);
+    if (!result.success) {
+      throw new Error(
+        `ensureProfitsUnlocked: profits.unlock failed unexpectedly — ${
+          result.error ?? "no error message"
+        }. A silent failure here would otherwise resurface as a baffling ` +
+          `"Profits locked" deep inside an unrelated assertion.`,
+      );
+    }
+  }, E2E_PROFITS_PASSWORD);
+}
+
+/**
+ * Unlock the /profits page's UI lock screen for specs that read profit
+ * figures from the RENDERED PAGE (not `window.api.profits.*` directly).
+ * Unlike `ensureProfitsUnlocked` (IPC-only), the gate's `unlocked` state
+ * lives in React component state — an IPC-only unlock never flips it, so
+ * the lock screen stays mounted and any assertion on page content (e.g.
+ * "Net Profit (USD)") times out. Call this AFTER navigating to `/profits`
+ * and BEFORE asserting on page content.
+ *
+ * Idempotent: returns immediately if the gate is already unlocked.
+ */
+export async function unlockProfitsPage(page: Page): Promise<void> {
+  // `isVisible()` does NOT auto-wait — it's an immediate, point-in-time
+  // check, and there are THREE races that can make a point-in-time sample
+  // find neither gated testid present:
+  //   1. `navigateTo`'s route-anchor race — until the `/profits` entry was
+  //      added to `routeAnchors`, `navigateTo(page, "/profits")` returned as
+  //      soon as the hash changed, before React had even mounted the route.
+  //      At that instant NOTHING is rendered, so both gated testids are
+  //      absent for a reason that has nothing to do with the gate.
+  //   2. ProfitsPasswordGate's own `statusLoading` state (a bare "Loading..."
+  //      div, tagged "profits-gate-loading") while it awaits
+  //      getProfitsPasswordStatus() — again both gated testids are absent.
+  //   3. The settled state itself, which is exactly one of
+  //      "profits-no-password-set" or "profits-lock-screen".
+  //
+  // A sampling check (`isVisible()` then branch) can catch any of the first
+  // two absences and wrongly conclude "already unlocked", returning without
+  // typing anything — the real lock screen then appears a moment later with
+  // the password never entered, and the failure only surfaces ~15s later in
+  // an unrelated "Net Profit (USD)" assertion. So: wait for one of the two
+  // DECIDED states to actually appear before doing anything else. Call this
+  // immediately after `navigateTo(page, "/profits")`.
+  //
+  // Never reintroduce a silent no-op here (e.g. "if lock screen isn't
+  // visible, assume already unlocked and return") — every visit to
+  // `/profits` re-prompts by design, so after a real navigation exactly one
+  // of the two gated states MUST appear. If neither does, that is a genuine
+  // failure and this wait should fail loudly with Playwright's diagnostic
+  // instead of silently doing nothing.
+  const lockScreen = page.getByTestId("profits-lock-screen");
+  const noPasswordSet = page.getByTestId("profits-no-password-set");
+  await expect(lockScreen.or(noPasswordSet).first()).toBeVisible({
+    timeout: 15_000,
+  });
+
+  if (await noPasswordSet.isVisible().catch(() => false)) {
+    throw new Error(
+      "unlockProfitsPage: no profits password is set for this session — " +
+        "call ensureProfitsUnlocked(page) first, which sets one via IPC " +
+        "before unlocking.",
+    );
+  }
+
+  await page
+    .getByTestId("profits-password-input")
+    .fill(E2E_PROFITS_PASSWORD);
+  await page.getByTestId("profits-unlock-submit").click();
+  await expect(lockScreen).toHaveCount(0, { timeout: 15_000 });
 }
 
 // ---------------------------------------------------------------------------

@@ -75,6 +75,13 @@ export default function ProductForm({
     attempted: string;
     suggested: string;
   }>(null);
+  // Supplier stock-intake — "old stock" checkbox (owner decisions D6/D13).
+  // Deliberately NOT part of `formData` and NEVER read from `product`: it
+  // must default unchecked and reset every time the form opens, otherwise a
+  // product marked "old" once would silently skip booking supplier debt on
+  // every later restock. Only meaningful on CREATE — an update no longer
+  // touches stock_quantity at all (D13), so there is nothing to (not) book.
+  const [isOldStock, setIsOldStock] = useState(false);
   const [formData, setFormData] = useState(() => {
     if (initialFormData) {
       return initialFormData;
@@ -152,15 +159,21 @@ export default function ProductForm({
   useEffect(() => {
     const loadSuppliers = async () => {
       try {
-        const data =
-          (await window.api?.inventory?.getProductSuppliers?.()) || [];
+        // Rule 19a: dual-transport via useApi() — a raw `window.api` call
+        // takes the wrong branch in the browser and crashes under the
+        // web-test shim. Use the curated `product_suppliers` list here, NOT
+        // `getProductFilterOptions().suppliers` (distinct names already
+        // attached to a listable product): a supplier created in Settings,
+        // or one whose only products were deleted, must still be pickable
+        // here — a supplier must be selectable before it has any products.
+        const data = await api.getProductSuppliers();
         setSupplierNames(Array.isArray(data) ? data : []);
       } catch {
         setSupplierNames([]);
       }
     };
     loadSuppliers();
-  }, []);
+  }, [api]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -403,11 +416,14 @@ ${labels}
         };
         result = await api.updateProduct(product.id, updatePayload);
       } else {
-        // Create: never send id — the database auto-generates it
+        // Create: never send id — the database auto-generates it.
+        // `is_old_stock` is CREATE-only (D13): update no longer moves
+        // stock_quantity at all, so the flag would have nothing to act on.
         const createPayload = {
           ...formData,
           supplier: formData.supplier || null,
           warranty_months: warrantyMonthsValue,
+          is_old_stock: isOldStock,
         };
         result = await api.createProduct(createPayload);
       }
@@ -619,29 +635,53 @@ ${labels}
                 </datalist>
               </div>
 
-              {/* Row 3: Supplier | Quantity */}
+              {/* Row 3: Supplier (+ compact "Old" toggle) | Quantity */}
               <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">
-                  Supplier
-                </label>
-                <input
-                  type="text"
-                  list="supplier-options"
-                  value={formData.supplier ?? ""}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      supplier: e.target.value,
-                    }))
-                  }
-                  placeholder="Select or type supplier name"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
-                />
-                <datalist id="supplier-options">
-                  {supplierNames.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-slate-400 mb-1">
+                      Supplier
+                    </label>
+                    <input
+                      type="text"
+                      list="supplier-options"
+                      value={formData.supplier ?? ""}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          supplier: e.target.value,
+                        }))
+                      }
+                      placeholder="Select or type supplier name"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
+                    />
+                    {/* Sourced from the curated `product_suppliers` table
+                        (api.getProductSuppliers), not distinct names already
+                        in use on products: the owner creates a supplier in
+                        Settings first, then adds products to it, so it must
+                        be pickable here before it has any products. */}
+                    <datalist id="supplier-options">
+                      {supplierNames.map((name) => (
+                        <option key={name} value={name} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="shrink-0">
+                    <label className="block text-sm font-medium text-slate-400 mb-1">
+                      Old
+                    </label>
+                    {/* mt-[11px] centres the 16px box against the 38px input
+                        beside it — not cosmetic spacing. */}
+                    <input
+                      type="checkbox"
+                      checked={isOldStock}
+                      onChange={(e) => setIsOldStock(e.target.checked)}
+                      title="Old stock — don't add to supplier debt"
+                      aria-label="Old stock — don't add to supplier debt"
+                      className="w-4 h-4 mt-[11px] rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Row 4: Cost Price | Retail Price */}
@@ -696,8 +736,23 @@ ${labels}
                   type="number"
                   value={formData.stock_quantity}
                   onChange={handleChange}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                  // D13: InventoryService.updateProduct silently ignores
+                  // stock_quantity on an edit — quantity changes now only
+                  // happen through a real intake/adjustment event (batches,
+                  // supplier ledger, FIFO cost). Editing this field on an
+                  // existing product would quietly do nothing, so it's
+                  // disabled here rather than left as a silent no-op. CREATE
+                  // keeps it editable: a brand-new product's first entry IS
+                  // its opening intake.
+                  disabled={!!product}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
+                {product && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Use "Adjust Stock" from the product list to change
+                    quantity.
+                  </p>
+                )}
               </div>
 
               <div>

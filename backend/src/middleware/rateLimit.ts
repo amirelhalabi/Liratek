@@ -114,6 +114,45 @@ export const strictLimiter = rateLimit({
 });
 
 /**
+ * Rate limiter for the profits-unlock endpoint (password gate, frozen
+ * contract PROFITS_GATE_CONTRACT.md).
+ * - ~5 FAILED attempts per 15 minutes per IP (skipSuccessfulRequests: true)
+ * - Cloned from `authLimiter`, deliberately NOT `strictLimiter`:
+ *   `strictLimiter` counts successful requests too, and the owner chose
+ *   "re-prompt on every visit to /profits" — a legitimate user visiting the
+ *   page 10 times in 15 minutes would get 429'd on correct passwords if
+ *   successes counted toward the limit.
+ */
+export const profitsUnlockLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: envLimit("PROFITS_UNLOCK_RATE_LIMIT_MAX", 5), // failed attempts per window
+  message: {
+    success: false,
+    error:
+      "Too many unlock attempts from this IP, please try again after 15 minutes.",
+    retryAfter: "15 minutes",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // Don't count successful unlocks
+  handler: (req, res) => {
+    logger.warn(
+      {
+        ip: req.ip,
+        path: req.path,
+      },
+      "Rate limit exceeded - profits unlock",
+    );
+    res.status(429).json({
+      success: false,
+      error:
+        "Too many unlock attempts from this IP, please try again after 15 minutes.",
+      retryAfter: "15 minutes",
+    });
+  },
+});
+
+/**
  * Lenient rate limiter for read-only operations
  * - 300 requests per 15 minutes per IP
  * - For GET endpoints that are safe to call frequently

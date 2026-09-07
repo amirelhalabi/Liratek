@@ -8,7 +8,6 @@ import {
   SupplierSettleSchema,
   SupplierCashflowSchema,
   SupplierPurchaseCreateSchema,
-  SupplierWriteOffSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -184,31 +183,18 @@ export function registerSupplierHandlers(): void {
     return result;
   });
 
-  /** CQ-10 (D4): standalone write-off — forgive part of what the shop owes
-   *  a supplier, with NO cashflow attached. Admin-only. */
-  ipcMain.handle("suppliers:write-off", (e, data: unknown) => {
-    const auth = requireRole(e.sender.id, ["admin"]);
-    if (!auth.ok) return { success: false, error: auth.error };
+  // NOTE: the standalone `suppliers:write-off` channel (CQ-10) was REMOVED
+  // (owner decision D8, SUPPLIER_STOCK_INTAKE_PLAN.md) —
+  // SupplierService.writeOffSupplierDebt no longer exists. The bundled
+  // Pay-form discount on `suppliers:record-cashflow` above is the surviving
+  // forgiveness path.
 
-    const v = validatePayload(SupplierWriteOffSchema, data);
-    if (!v.ok) return { success: false, error: v.error };
-
-    const result = service.writeOffSupplierDebt({
-      ...v.data,
-      created_by: auth.userId,
-    });
-    if (result.success) {
-      audit(e.sender.id, {
-        action: "write_off",
-        entity_type: "supplier_write_off",
-        summary: `Supplier write-off for #${v.data.supplier_id}: $${v.data.amount_usd} + ${v.data.amount_lbp} LBP`,
-        metadata: {
-          supplier_id: v.data.supplier_id,
-          amount_usd: v.data.amount_usd,
-          amount_lbp: v.data.amount_lbp,
-        },
-      });
-    }
-    return result;
+  /** Event-based product-supplier stock value: SUM(quantity_remaining *
+   *  unit_cost_usd) per supplier over open batches (StockBatchRepository).
+   *  Read-only, same no-auth-gate treatment as `suppliers:product-balances`
+   *  above — every renderer that can reach the IPC bridge is an
+   *  authenticated app session. */
+  ipcMain.handle("suppliers:product-stock-value", () => {
+    return service.getProductSupplierStockValue();
   });
 }

@@ -3,12 +3,35 @@ import {
   SettingEntity,
   getSettingsRepository,
 } from "../repositories/SettingsRepository.js";
+import { PROFITS_PASSWORD_SETTING_KEY } from "../constants/profitsAccess.js";
 import { settingsLogger } from "../utils/logger.js";
 
 export interface SettingResult {
   success: boolean;
   error?: string;
 }
+
+/**
+ * Setting keys that must NEVER round-trip through the generic settings pipe.
+ *
+ * `GET /api/settings` (backend/src/api/settings.ts) is DELIBERATELY
+ * unauthenticated, and the IPC channels `settings:get-all` / `db:get-settings`
+ * / `db:get-setting` (electron-app/handlers/dbHandlers.ts) carry no role
+ * check — so anything stored in `system_settings` is effectively
+ * world-readable through those surfaces. A secret stored under a plain
+ * key_name (e.g. the profits password hash) would leak through them.
+ *
+ * `PROFITS_PASSWORD_SETTING_KEY` is redacted from every read below and its
+ * writes are rejected here — the password is set ONLY through
+ * `ProfitsAccessService`, which talks to `SettingsRepository` directly.
+ * `PUT /api/settings/:key` also currently has `authenticateJWT` but NO
+ * `requireRole`, so without the write-guard any authenticated staff user
+ * could overwrite the hash through the generic endpoint.
+ *
+ * Do not remove a key from this set without adding an authenticated,
+ * role-gated replacement read/write path for it first.
+ */
+const SENSITIVE_SETTING_KEYS = new Set<string>([PROFITS_PASSWORD_SETTING_KEY]);
 
 export class SettingsService {
   private repo: SettingsRepository;
@@ -22,7 +45,9 @@ export class SettingsService {
    */
   getAllSettings(): SettingEntity[] {
     try {
-      return this.repo.getAllSettings();
+      return this.repo
+        .getAllSettings()
+        .filter((setting) => !SENSITIVE_SETTING_KEYS.has(setting.key_name));
     } catch (error) {
       settingsLogger.error({ error }, "SettingsService.getAllSettings error");
       return [];
@@ -33,6 +58,7 @@ export class SettingsService {
    * Get a setting by key
    */
   getSetting(key: string): SettingEntity | undefined {
+    if (SENSITIVE_SETTING_KEYS.has(key)) return undefined;
     try {
       return this.repo.getSetting(key);
     } catch (error) {
@@ -45,6 +71,7 @@ export class SettingsService {
    * Get setting value by key
    */
   getSettingValue(key: string): { value: string } | undefined {
+    if (SENSITIVE_SETTING_KEYS.has(key)) return undefined;
     try {
       const value = this.repo.getSettingValue(key);
       return value !== undefined ? { value } : undefined;
@@ -118,6 +145,16 @@ export class SettingsService {
    * Update a setting (upsert)
    */
   updateSetting(key: string, value: string): SettingResult {
+    if (SENSITIVE_SETTING_KEYS.has(key)) {
+      settingsLogger.warn(
+        { key },
+        "SettingsService.updateSetting rejected write to a sensitive key",
+      );
+      return {
+        success: false,
+        error: `Setting '${key}' cannot be written through the generic settings pipe`,
+      };
+    }
     try {
       this.repo.upsertSetting(key, value);
       return { success: true };

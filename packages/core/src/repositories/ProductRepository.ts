@@ -10,9 +10,12 @@ import {
   type FindOptions,
   type PaginatedResult,
 } from "./BaseRepository.js";
-import { DatabaseError } from "../utils/errors.js";
+import { DatabaseError, ValidationError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getStockAdjustmentRepository } from "./StockAdjustmentRepository.js";
+import { getProductSupplierRepository } from "./ProductSupplierRepository.js";
+import { getStockBatchRepository } from "./StockBatchRepository.js";
+import { getSupplierRepository } from "./SupplierRepository.js";
 import type { ProductListFilters } from "../validators/product.js";
 
 // =============================================================================
@@ -66,6 +69,14 @@ export interface ProductDTO {
   /** LIRA-143 v157 (decision #4): duration on the MODEL; NULL = no
    *  warranty. The clock starts at sale time, not here. */
   warranty_months: number | null;
+  /** Count of DISTINCT unit costs among this product's open (quantity_
+   *  remaining > 0) stock batches — 0/1 = single cost, 2+ = mixed-cost
+   *  stock the list should flag. Correlated subquery, not a per-row fetch:
+   *  see `StockBatchRepository.listOpenByProduct` for the actual batches.
+   *  Optional (not every ProductDTO source computes it — e.g. `search()`'s
+   *  narrower SELECT list, or a hand-built test fixture); treat a missing
+   *  value as "unknown", not "single cost". */
+  cost_tiers?: number;
 }
 
 export interface CreateProductData {
@@ -83,6 +94,13 @@ export interface CreateProductData {
   /** LIRA-143 v157 (decision #4): NULL = no warranty. Set on the product
    *  form; NOT inherited from the category (tracks_imei_units is). */
   warranty_months?: number | null;
+  /** SUPPLIER_STOCK_INTAKE_PLAN.md — per-entry, transient (never persisted
+   *  on the product row): when a supplier is set AND `stock_quantity > 0`,
+   *  this is the ONE flag that decides whether the opening quantity books a
+   *  `SUPPLIER_STOCK_INTAKE` supplier-ledger debit (see
+   *  `ProductRepository.shouldBookIntakeDebt`, rule 14 — the same
+   *  predicate `receiveStock` uses). Default false = "yes, book it". */
+  is_old_stock?: boolean;
 }
 
 export interface UpdateProductData {
@@ -192,6 +210,22 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    * the number on screen.
    */
   private static readonly PROFIT_PCT_EXPR = `CASE WHEN p.cost_price_usd > 0 THEN (p.selling_price_usd - p.cost_price_usd) * 100.0 / p.cost_price_usd WHEN p.selling_price_usd > 0 THEN 100 ELSE 0 END`;
+
+  /**
+   * Number of DISTINCT unit costs among a product's still-open stock
+   * batches — the list's "mixed cost" flag. A correlated subquery (one
+   * scalar per product row) rather than a per-product batch fetch from the
+   * frontend, so the list stays one query regardless of row count; a caller
+   * that needs the actual batches uses `StockBatchRepository.
+   * listOpenByProduct` instead. Tenant-scoped on both sides of the join
+   * (rule: CI's tenant-scoping linter checks every query, not just the
+   * outer one).
+   */
+  private static readonly COST_TIERS_SUBQUERY = `(SELECT COUNT(DISTINCT b.unit_cost_usd)
+     FROM product_stock_batches b
+    WHERE b.product_id = p.id
+      AND b.tenant_id = p.tenant_id
+      AND b.quantity_remaining > 0)`;
 
   /** `(?, ?, ?)` for a dynamic `IN` list — placeholders only, never values. */
   private static placeholders(count: number): string {
@@ -315,7 +349,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           p.category_id,
           p.warranty_months,
           COALESCE(pc.name, p.category) as category,
-          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units
+          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units,
+          ${ProductRepository.COST_TIERS_SUBQUERY} AS cost_tiers
         FROM ${this.tableName} p
         LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
         WHERE ${ProductRepository.LISTABLE_PRODUCTS_WHERE}
@@ -461,7 +496,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           p.category_id,
           p.warranty_months,
           COALESCE(pc.name, p.category) as category,
-          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units
+          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units,
+          ${ProductRepository.COST_TIERS_SUBQUERY} AS cost_tiers
         FROM ${this.tableName} p
         LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
         WHERE p.id = ? AND p.is_active = 1 AND p.is_deleted = 0 AND p.tenant_id = ?
@@ -498,83 +534,330 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   }
 
   /**
-   * Create a new product
+   * Resolve a supplier NAME to its linked `suppliers.id`, auto-creating the
+   * `product_suppliers` (+ backing `suppliers`) row when it doesn't exist
+   * yet (`ProductSupplierRepository.getOrCreate`). Returns `null` for a
+   * blank/absent name — "no supplier" is a valid, common case (opening
+   * stock with no known source).
+   *
+   * `ProductSupplierRepository.getOrCreate` returns the `product_suppliers`
+   * row id, NOT `suppliers.id` — the two are linked 1:1 via
+   * `product_suppliers.supplier_id`, which is what `product_stock_batches.
+   * supplier_id` and `SupplierRepository.recordStockIntake` actually need
+   * (the batch/ledger schema references `suppliers(id)`). The extra lookup
+   * below reads that link column directly off `product_suppliers` — a
+   * plain read of another repository's table, the same pattern
+   * `findAllProducts` already uses to LEFT JOIN `product_categories`.
    */
-  createProduct(data: CreateProductData): { id: number } {
+  private resolveSupplierId(supplierName: string | null): number | null {
+    if (!supplierName) return null;
     const tenantId = getCurrentTenantId();
-    try {
-      const stmt = this.db.prepare(`
-        INSERT INTO ${this.tableName} (
-          barcode, name, category, category_id, cost_price_usd, selling_price_usd,
-          stock_quantity, min_stock_level, image_url, item_type, supplier, warranty_months, created_at, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-      `);
+    const productSupplierId =
+      getProductSupplierRepository().getOrCreate(supplierName);
+    const link = this.db
+      .prepare(
+        `SELECT supplier_id FROM product_suppliers WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(productSupplierId, tenantId) as
+      | { supplier_id: number | null }
+      | undefined;
+    return link?.supplier_id ?? null;
+  }
 
-      const result = stmt.run(
-        data.barcode,
-        data.name,
-        data.category,
-        data.category_id ?? null,
-        data.cost_price,
-        data.retail_price,
-        data.stock_quantity ?? 0,
-        data.min_stock_level ?? 5,
-        data.image_url ?? null,
-        data.item_type ?? "Product",
-        data.supplier ?? null,
-        data.warranty_months ?? null,
+  /**
+   * Rule-14 single definition of "does this stock movement book a supplier
+   * debt": only when it is actually tied to a resolved supplier AND the
+   * caller hasn't flagged it as pre-existing ("old stock") inventory being
+   * backfilled rather than newly purchased. Reused verbatim by
+   * `receiveStock` and `createProduct`'s opening-stock path — do not
+   * re-derive this condition at either call site (SUPPLIER_STOCK_INTAKE_
+   * PLAN.md).
+   */
+  private static shouldBookIntakeDebt(
+    supplierId: number | null,
+    isOldStock: boolean,
+  ): boolean {
+    return supplierId !== null && !isOldStock;
+  }
+
+  /**
+   * Books a `SUPPLIER_STOCK_INTAKE` supplier-ledger debit (when
+   * applicable) and ALWAYS creates the FIFO cost batch for a quantity of
+   * stock entering one product. The ONE composing unit of work shared by
+   * `receiveStock()` (existing product, explicit intake form) and
+   * `createProduct()`'s opening-stock path (a brand-new — or
+   * barcode-reactivated — product created with `stock_quantity > 0` and a
+   * supplier already attached): rule 14 forbids writing this
+   * booking/batch logic twice.
+   *
+   * MUST be called from inside the caller's own `this.transaction(...)` —
+   * it does not open one itself, so its writes commit/roll back with
+   * whatever product mutation (INSERT or UPDATE) triggered it.
+   *
+   * A `quantity <= 0` is a no-op (batch_id 0, nothing booked) — a new
+   * product created with zero opening stock has nothing to receive yet.
+   */
+  private bookIntakeAndBatch(params: {
+    product_id: number;
+    product_name: string;
+    quantity: number;
+    unit_cost_usd: number;
+    supplier_name: string | null;
+    is_old_stock: boolean;
+    created_by: number | null;
+  }): { batch_id: number } {
+    if (params.quantity <= 0) {
+      return { batch_id: 0 };
+    }
+
+    const supplierId = this.resolveSupplierId(params.supplier_name);
+    const booksDebt = ProductRepository.shouldBookIntakeDebt(
+      supplierId,
+      params.is_old_stock,
+    );
+
+    let ledgerEntryId: number | null = null;
+    let transactionId: number | null = null;
+    if (booksDebt && supplierId !== null) {
+      // `recordStockIntake` requires a REAL `created_by: number` —
+      // `transactions.user_id` is NOT NULL, and this codebase deliberately
+      // removed every `|| 1`/`?? 1` placeholder-actor default from
+      // SupplierRepository in favor of every caller passing the
+      // authenticated user. Never invent an id (0 or otherwise) here
+      // either: a debt IS genuinely owed (booksDebt is true) and silently
+      // skipping the booking to dodge a missing actor would lose the debt
+      // — the exact bug this feature exists to fix. Fail loudly instead,
+      // so a transport that forgot to authenticate surfaces immediately
+      // rather than quietly corrupting the ledger. Both transports
+      // authenticate before reaching this layer, so this should never
+      // actually throw in production.
+      if (params.created_by === null) {
+        throw new ValidationError(
+          "An authenticated user is required to book supplier debt",
+        );
+      }
+      const booked = getSupplierRepository().recordStockIntake({
+        supplier_id: supplierId,
+        product_id: params.product_id,
+        product_name: params.product_name,
+        quantity: params.quantity,
+        unit_cost_usd: params.unit_cost_usd,
+        created_by: params.created_by,
+      });
+      ledgerEntryId = booked.ledgerEntryId;
+      transactionId = booked.transactionId;
+    }
+
+    const batchId = getStockBatchRepository().createBatch({
+      product_id: params.product_id,
+      supplier_id: supplierId,
+      quantity: params.quantity,
+      unit_cost_usd: params.unit_cost_usd,
+      books_debt: booksDebt,
+      ledger_entry_id: ledgerEntryId,
+      transaction_id: transactionId,
+      created_by: params.created_by,
+    });
+
+    return { batch_id: batchId };
+  }
+
+  /**
+   * Receive stock for an EXISTING product (Supplier Stock Intake,
+   * SUPPLIER_STOCK_INTAKE_PLAN.md). Raises `stock_quantity` by `quantity`,
+   * sets `cost_price_usd = unit_cost_usd` (owner decision D4: newest price
+   * wins), writes the `stock_adjustments` audit row, and — via
+   * `bookIntakeAndBatch` — creates the cost batch and books the supplier
+   * debit unless `is_old_stock` or there is no supplier. ALL inside ONE db
+   * transaction (rule 13 — `InventoryService.receiveStock` holds no SQL).
+   */
+  receiveStock(data: {
+    product_id: number;
+    quantity: number;
+    unit_cost_usd: number;
+    supplier?: string | null;
+    is_old_stock: boolean;
+    reason?: string;
+    created_by: number | null;
+  }): { batch_id: number } {
+    const tenantId = getCurrentTenantId();
+    return this.transaction(() => {
+      const product = this.db
+        .prepare(
+          `SELECT name, stock_quantity FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`,
+        )
+        .get(data.product_id, tenantId) as
+        | { name: string; stock_quantity: number }
+        | undefined;
+      if (!product) {
+        throw new DatabaseError("Product not found", {
+          entityId: data.product_id,
+        });
+      }
+
+      const oldQuantity = product.stock_quantity;
+      const newQuantity = oldQuantity + data.quantity;
+      this.execute(
+        `UPDATE ${this.tableName}
+         SET stock_quantity = ?, cost_price_usd = ?, updated_at = datetime('now')
+         WHERE id = ? AND tenant_id = ?`,
+        newQuantity,
+        data.unit_cost_usd,
+        data.product_id,
         tenantId,
       );
 
-      return { id: result.lastInsertRowid as number };
-    } catch (error) {
-      const code = (error as { code?: string })?.code;
-      if (code === "SQLITE_CONSTRAINT_UNIQUE" && data.barcode) {
-        // Check if the collision is with a soft-deleted product — reactivate it
-        // Check both is_active=0 OR is_deleted=1
-        const deleted = this.queryOne<ProductEntity>(
-          `SELECT id FROM ${this.tableName} WHERE barcode = ? AND (is_active = 0 OR is_deleted = 1) AND tenant_id = ?`,
+      getStockAdjustmentRepository().create({
+        product_id: data.product_id,
+        delta: data.quantity,
+        old_quantity: oldQuantity,
+        new_quantity: newQuantity,
+        reason: data.reason?.trim() || "Stock received",
+        user_id: data.created_by,
+        unit_cost_usd: data.unit_cost_usd,
+      });
+
+      return this.bookIntakeAndBatch({
+        product_id: data.product_id,
+        product_name: product.name,
+        quantity: data.quantity,
+        unit_cost_usd: data.unit_cost_usd,
+        supplier_name: data.supplier?.trim() || null,
+        is_old_stock: data.is_old_stock,
+        created_by: data.created_by,
+      });
+    });
+  }
+
+  /**
+   * Create a new product.
+   *
+   * Wrapped in `this.transaction(...)` (SUPPLIER_STOCK_INTAKE_PLAN.md): when
+   * the new product has a supplier AND an opening `stock_quantity > 0`
+   * (either the plain INSERT below, or the barcode-collision REACTIVATION
+   * branch that revives a soft-deleted row with a new quantity),
+   * `bookIntakeAndBatch` runs in the SAME transaction as the product
+   * write, so a mid-failure can never leave a product's opening stock
+   * un-batched/un-costed or a batch dangling with no product.
+   *
+   * `userId` attributes the opening-stock batch/ledger row when this create
+   * books one — optional, defaulting to `null`, so every pre-existing
+   * caller that only ever created products (never moved money) keeps
+   * compiling unchanged. A create can now book real supplier debt, so an
+   * unattributed row here is a genuine audit-trail gap; callers that DO
+   * have an authenticated actor (the IPC handler / REST route) must pass it.
+   */
+  createProduct(
+    data: CreateProductData,
+    userId: number | null = null,
+  ): { id: number } {
+    const tenantId = getCurrentTenantId();
+    return this.transaction(() => {
+      let productId: number;
+      let effectiveSupplier: string | null;
+
+      try {
+        const stmt = this.db.prepare(`
+          INSERT INTO ${this.tableName} (
+            barcode, name, category, category_id, cost_price_usd, selling_price_usd,
+            stock_quantity, min_stock_level, image_url, item_type, supplier, warranty_months, created_at, tenant_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+        `);
+
+        const result = stmt.run(
           data.barcode,
+          data.name,
+          data.category,
+          data.category_id ?? null,
+          data.cost_price,
+          data.retail_price,
+          data.stock_quantity ?? 0,
+          data.min_stock_level ?? 5,
+          data.image_url ?? null,
+          data.item_type ?? "Product",
+          data.supplier ?? null,
+          data.warranty_months ?? null,
           tenantId,
         );
-        if (deleted) {
-          this.db
-            .prepare(
-              `UPDATE ${this.tableName} SET
-                name = ?, category = COALESCE(?, category), category_id = COALESCE(?, category_id),
-                cost_price_usd = ?, selling_price_usd = ?,
-                stock_quantity = ?, min_stock_level = ?,
-                image_url = COALESCE(?, image_url), item_type = COALESCE(?, item_type),
-                supplier = COALESCE(?, supplier), warranty_months = ?,
-                is_active = 1, is_deleted = 0,
-                created_at = COALESCE(created_at, datetime('now')),
-                updated_at = datetime('now')
-              WHERE id = ? AND tenant_id = ?`,
-            )
-            .run(
-              data.name,
-              data.category,
-              data.category_id ?? null,
-              data.cost_price,
-              data.retail_price,
-              data.stock_quantity ?? 0,
-              data.min_stock_level ?? 5,
-              data.image_url ?? null,
-              data.item_type ?? "Product",
-              data.supplier ?? null,
-              data.warranty_months ?? null,
-              deleted.id,
-              tenantId,
-            );
-          return { id: deleted.id };
+
+        productId = result.lastInsertRowid as number;
+        effectiveSupplier = data.supplier ?? null;
+      } catch (error) {
+        const code = (error as { code?: string })?.code;
+        if (code === "SQLITE_CONSTRAINT_UNIQUE" && data.barcode) {
+          // Check if the collision is with a soft-deleted product — reactivate it
+          // Check both is_active=0 OR is_deleted=1
+          const deleted = this.queryOne<
+            Pick<ProductEntity, "id" | "supplier">
+          >(
+            `SELECT id, supplier FROM ${this.tableName} WHERE barcode = ? AND (is_active = 0 OR is_deleted = 1) AND tenant_id = ?`,
+            data.barcode,
+            tenantId,
+          );
+          if (deleted) {
+            this.db
+              .prepare(
+                `UPDATE ${this.tableName} SET
+                  name = ?, category = COALESCE(?, category), category_id = COALESCE(?, category_id),
+                  cost_price_usd = ?, selling_price_usd = ?,
+                  stock_quantity = ?, min_stock_level = ?,
+                  image_url = COALESCE(?, image_url), item_type = COALESCE(?, item_type),
+                  supplier = COALESCE(?, supplier), warranty_months = ?,
+                  is_active = 1, is_deleted = 0,
+                  created_at = COALESCE(created_at, datetime('now')),
+                  updated_at = datetime('now')
+                WHERE id = ? AND tenant_id = ?`,
+              )
+              .run(
+                data.name,
+                data.category,
+                data.category_id ?? null,
+                data.cost_price,
+                data.retail_price,
+                data.stock_quantity ?? 0,
+                data.min_stock_level ?? 5,
+                data.image_url ?? null,
+                data.item_type ?? "Product",
+                data.supplier ?? null,
+                data.warranty_months ?? null,
+                deleted.id,
+                tenantId,
+              );
+            productId = deleted.id;
+            // COALESCE(?, supplier) above keeps the pre-existing supplier
+            // when data.supplier is blank — the booking below must agree
+            // with what actually ended up on the row, not just what this
+            // call passed in.
+            effectiveSupplier = data.supplier ?? deleted.supplier ?? null;
+          } else {
+            throw new DatabaseError("Barcode already exists", {
+              cause: error,
+              code: "DUPLICATE_BARCODE",
+            });
+          }
+        } else {
+          throw new DatabaseError("Failed to create product", {
+            cause: error,
+          });
         }
-        throw new DatabaseError("Barcode already exists", {
-          cause: error,
-          code: "DUPLICATE_BARCODE",
+      }
+
+      const supplierName = effectiveSupplier?.trim() || null;
+      const openingQuantity = data.stock_quantity ?? 0;
+      if (supplierName && openingQuantity > 0) {
+        this.bookIntakeAndBatch({
+          product_id: productId,
+          product_name: data.name,
+          quantity: openingQuantity,
+          unit_cost_usd: data.cost_price,
+          supplier_name: supplierName,
+          is_old_stock: data.is_old_stock ?? false,
+          created_by: userId,
         });
       }
-      throw new DatabaseError("Failed to create product", { cause: error });
-    }
+
+      return { id: productId };
+    });
   }
 
   /**
@@ -724,6 +1007,17 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       min_stock_level: number;
       image_url?: string | null;
       supplier?: string | null;
+      /** Owner decision D13 (SUPPLIER_STOCK_INTAKE_PLAN.md): accepted for
+       *  compatibility with existing callers' payload shape and
+       *  DELIBERATELY IGNORED — this method no longer writes
+       *  `stock_quantity`. Quantity is now an EVENT (a batch + optional
+       *  supplier-ledger debit via `InventoryService.receiveStock` /
+       *  `adjustStockDelta`), not a field an edit form can silently
+       *  overwrite: an un-audited overwrite here would either book a
+       *  supplier debt at whatever stale `cost_price` happens to be on the
+       *  form, or (worse) silently skip booking one entirely while still
+       *  moving the number the operator sees — same reasoning as the
+       *  `category`/`category_id` compatibility fields above. */
       stock_quantity?: number;
       /** LIRA-143 v157 (decision #4): NULL = no warranty. */
       warranty_months?: number | null;
@@ -737,7 +1031,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           category_id = COALESCE(?, category_id),
           cost_price_usd = ?,
           selling_price_usd = ?, min_stock_level = ?, image_url = ?,
-          supplier = ?, stock_quantity = COALESCE(?, stock_quantity),
+          supplier = ?,
           warranty_months = ?,
           updated_at = datetime('now')
         WHERE id = ? AND tenant_id = ?
@@ -753,7 +1047,6 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.min_stock_level,
         data.image_url ?? null,
         data.supplier ?? null,
-        data.stock_quantity ?? null,
         data.warranty_months ?? null,
         id,
         getCurrentTenantId(),
@@ -816,6 +1109,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
             new_quantity: newQuantity,
             reason,
             user_id: userId,
+            unit_cost_usd: null,
           });
         }
         return result.changes > 0;
@@ -865,6 +1159,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
             new_quantity: newQuantity,
             reason,
             user_id: userId,
+            unit_cost_usd: null,
           });
         }
         return result.changes > 0;
@@ -875,6 +1170,49 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         entityId: id,
       });
     }
+  }
+
+  /**
+   * Manual DECREASE correction (shrinkage/loss/miscount) — the SAME entry
+   * point `InventoryService.applyStockDelta` uses for a negative
+   * `adjustStock`/`adjustStockDelta` call. FIFO-consumes batches
+   * (`StockBatchRepository.consume`, `reason: 'ADJUSTMENT'`) so batches
+   * never drift from `stock_quantity`, and NEVER touches the supplier
+   * ledger — a decrease is shrinkage/loss, not a return to the supplier;
+   * the shop still owes for units it already received.
+   * //TODO (owner, deferred 2026-09-06): "Return to supplier" — a typed
+   * option here that also reduces the supplier debt. See
+   * docs/plans/todo_plans/SUPPLIER_STOCK_INTAKE_PLAN.md §1 "Deferred".
+   * Until then a decrease is shrinkage/loss: the shop still owes the
+   * supplier.
+   *
+   * Both the batch consumption and the `stock_quantity` decrement (+ its
+   * audit row, via the existing `adjustStockDelta`) run inside ONE
+   * transaction — a mid-failure can never leave batches out of sync with
+   * the live count.
+   */
+  decreaseStockForAdjustment(
+    id: number,
+    quantity: number,
+    reason: string,
+    userId: number | null,
+  ): boolean {
+    const tenantId = getCurrentTenantId();
+    return this.transaction(() => {
+      const product = this.db
+        .prepare(
+          `SELECT cost_price_usd FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`,
+        )
+        .get(id, tenantId) as { cost_price_usd: number } | undefined;
+      if (!product) return false;
+
+      getStockBatchRepository().consume(id, quantity, {
+        reason: "ADJUSTMENT",
+        fallbackUnitCostUsd: product.cost_price_usd,
+      });
+
+      return this.adjustStockDelta(id, -quantity, reason, userId);
+    });
   }
 
   /**

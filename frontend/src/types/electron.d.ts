@@ -587,6 +587,9 @@ export interface ElectronAPI {
       item_type?: string;
       supplier?: string | null;
       is_active?: number;
+      /** Supplier stock intake (D-plan): skips the supplier_ledger debit on
+       *  the opening batch this create writes when a supplier is set. */
+      is_old_stock?: boolean;
     }) => Promise<{
       success: boolean;
       id?: number;
@@ -636,11 +639,40 @@ export interface ElectronAPI {
         new_quantity: number;
         reason: string;
         user_id: number | null;
+        /** Migration v165: null except for a real delivery
+         *  (ProductRepository.receiveStock) — no cost applies to a plain
+         *  increase/decrease/set-absolute correction, and a pre-v165 row
+         *  never recorded one. */
+        unit_cost_usd: number | null;
         username: string | null;
         created_at: string;
         updated_at: string;
       }>
     >;
+    /** A product's remaining cost batches (FIFO/oldest-first) — "where are
+     *  my other units and what did each one cost" (owner report
+     *  2026-09-07). Safe to reference the real core entity directly here
+     *  (unlike frontend/src/api/backendApi.ts, ElectronApiAdapter.ts and
+     *  packages/ui/src/api/types.ts, which hand-mirror it structurally
+     *  instead): this ambient .d.ts is type-checked against @liratek/core's
+     *  real "types" package-entry (dist/index.d.ts) — it is never bundled by
+     *  Vite nor loaded by frontend jest, so the browser.ts-only entrypoint
+     *  those tools alias to doesn't apply here, same as the
+     *  Product/ProductListFilters references already used above. */
+    getOpenStockBatches: (
+      productId: number,
+    ) => Promise<Array<import("@liratek/core").StockBatchEntity>>;
+    /** Supplier stock intake (SUPPLIER_STOCK_INTAKE_PLAN.md) — raises stock,
+     *  writes a cost batch, and books a supplier_ledger debit unless
+     *  is_old_stock or no supplier is set. */
+    receiveStock: (data: {
+      product_id: number;
+      quantity: number;
+      unit_cost_usd: number;
+      supplier?: string | null;
+      is_old_stock: boolean;
+      reason?: string;
+    }) => Promise<{ success: boolean; error?: string; batch_id?: number }>;
     getStockStats: () => Promise<{
       stock_budget_usd: number;
       stock_count: number;
@@ -1447,7 +1479,9 @@ export interface ElectronAPI {
           | "ADJUSTMENT"
           | "SETTLEMENT"
           | "SALE_COST"
-          | "CASH_PRIZE";
+          | "CASH_PRIZE"
+          | "STOCK_INTAKE"
+          | "DISCOUNT";
         amount_usd: number;
         amount_lbp: number;
         note: string | null;
@@ -1542,17 +1576,17 @@ export interface ElectronAPI {
        *  RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    /** CQ-10: standalone supplier write-off (admin-only) — the supplier
-     *  forgives what we owe them; capped server-side at the outstanding
-     *  balance per currency. */
-    writeOff: (data: {
-      supplier_id: number;
-      amount_usd: number;
-      amount_lbp: number;
-      reason?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    // NOTE: the standalone write-off (CQ-10) was REMOVED (owner decision D8,
+    // SUPPLIER_STOCK_INTAKE_PLAN.md) — the bundled Pay-form discount above
+    // (recordCashflow's `discount` field) is the surviving forgiveness path.
     getProductBalances: () => Promise<
       Array<{ supplier_id: number; total_usd: number; total_lbp: number }>
+    >;
+    /** Event-based product-supplier stock value: SUM(quantity_remaining *
+     *  unit_cost_usd) per supplier over open batches — replaces the
+     *  recomputed-from-live-stock balance model. */
+    getProductStockValue: () => Promise<
+      Array<{ supplier_id: number; stock_value_usd: number }>
     >;
     getProductItems: (supplierId: number) => Promise<
       Array<{
@@ -2688,6 +2722,14 @@ export interface ElectronAPI {
       clientId?: number,
     ) => Promise<any[]>;
     pending: (startDate: string, endDate: string) => Promise<any[]>;
+    // Profits password gate (frozen contract). passwordStatus returns the
+    // RAW shape (reads are raw); the other three return the write envelope.
+    passwordStatus: () => Promise<{ isSet: boolean }>;
+    setPassword: (
+      password: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    unlock: (password: string) => Promise<{ success: boolean; error?: string }>;
+    lock: () => Promise<{ success: boolean; error?: string }>;
   };
 
   // Diagnostics

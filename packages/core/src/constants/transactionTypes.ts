@@ -165,6 +165,25 @@ export const TRANSACTION_TYPES = {
    *  supplier_ledger.entry_type stays the pre-existing 'ADJUSTMENT' enum value
    *  (no migration). */
   SUPPLIER_ADJUSTMENT: "SUPPLIER_ADJUSTMENT",
+  /** SUPPLIER_STOCK_INTAKE_PLAN.md (migration v164) — receiving stock with a
+   *  supplier attached (InventoryService.receiveStock, unless the owner's
+   *  per-entry "old stock" checkbox is on): SupplierRepository.recordStockIntake
+   *  writes ONE supplier_ledger 'STOCK_INTAKE' row (+qty x unit cost) and this
+   *  transaction as its unified-view mirror, source_table 'supplier_ledger' /
+   *  source_id the ledger row. No payments row, no drawer delta, profit 0 —
+   *  same shape as SUPPLIER_ADJUSTMENT, so the Transactions viewer badge is
+   *  deliberately blank (getCashFlowDirection) since no cash moved. UNLIKE
+   *  SUPPLIER_ADJUSTMENT, this stays OUT of NON_REVERSIBLE_TRANSACTION_TYPES:
+   *  the generic void/refund path IS a valid reversal owner here (rule 20) —
+   *  voiding soft-refunds the supplier_ledger row (same generic ledger-row
+   *  reversal SUPPLIER_PAYMENT already uses) and StockBatchRepository.
+   *  deleteBatchForVoid deletes the paired cost batch, refusing the void if
+   *  any unit has already been FIFO-consumed by a sale. Must render the Void
+   *  button, so it belongs in ACTIONABLE_TYPES too (frontend/src/features/
+   *  audit/auditConstants.ts — that file, and getCashFlowDirection's home,
+   *  are both outside this file's ownership; see the build handoff notes).
+   */
+  SUPPLIER_STOCK_INTAKE: "SUPPLIER_STOCK_INTAKE",
 
   // Closing / Checkpoint
   CHECKPOINT: "CHECKPOINT",

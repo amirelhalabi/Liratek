@@ -25,6 +25,10 @@ export interface StockAdjustmentEntity {
   new_quantity: number;
   reason: string;
   user_id: number | null;
+  /** Migration v165: NULL for every path except `ProductRepository.
+   *  receiveStock` (a real delivery with a known unit cost) — no cost
+   *  applies to a plain increase/decrease/set-absolute correction. */
+  unit_cost_usd: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -38,10 +42,15 @@ export interface StockAdjustmentWithUser extends StockAdjustmentEntity {
   username: string | null;
 }
 
+/** `unit_cost_usd` is optional on INPUT even though the row always carries the
+ *  column (v165): only a delivery through `receiveStock` knows a unit cost, and
+ *  a plain correction legitimately has none. Requiring it here would force every
+ *  correction call site to pass an explicit null for a value that does not
+ *  apply. */
 export type CreateStockAdjustmentData = Omit<
   StockAdjustmentEntity,
-  "id" | "created_at" | "updated_at"
->;
+  "id" | "created_at" | "updated_at" | "unit_cost_usd"
+> & { unit_cost_usd?: number | null };
 
 // =============================================================================
 // Repository
@@ -49,7 +58,7 @@ export type CreateStockAdjustmentData = Omit<
 
 const SELECT_WITH_USER = `
   SELECT sa.id, sa.product_id, sa.delta, sa.old_quantity, sa.new_quantity,
-         sa.reason, sa.user_id, sa.created_at, sa.updated_at, u.username
+         sa.reason, sa.user_id, sa.unit_cost_usd, sa.created_at, sa.updated_at, u.username
   FROM stock_adjustments sa
   LEFT JOIN users u ON u.id = sa.user_id
 `;
@@ -60,7 +69,7 @@ export class StockAdjustmentRepository extends BaseRepository<StockAdjustmentEnt
   }
 
   protected getColumns(): string {
-    return "id, product_id, delta, old_quantity, new_quantity, reason, user_id, created_at, updated_at";
+    return "id, product_id, delta, old_quantity, new_quantity, reason, user_id, unit_cost_usd, created_at, updated_at";
   }
 
   /**
@@ -72,8 +81,8 @@ export class StockAdjustmentRepository extends BaseRepository<StockAdjustmentEnt
   create(data: CreateStockAdjustmentData): StockAdjustmentEntity {
     const stmt = this.db.prepare(`
       INSERT INTO stock_adjustments
-        (tenant_id, product_id, delta, old_quantity, new_quantity, reason, user_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        (tenant_id, product_id, delta, old_quantity, new_quantity, reason, user_id, unit_cost_usd, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     `);
     const result = stmt.run(
       getCurrentTenantId(),
@@ -83,6 +92,9 @@ export class StockAdjustmentRepository extends BaseRepository<StockAdjustmentEnt
       data.new_quantity,
       data.reason,
       data.user_id,
+      // `?? null` is required, not defensive: the field is optional on input
+      // and better-sqlite3 rejects `undefined` as a bind value outright.
+      data.unit_cost_usd ?? null,
     );
     return this.findByIdOrFail(Number(result.lastInsertRowid));
   }

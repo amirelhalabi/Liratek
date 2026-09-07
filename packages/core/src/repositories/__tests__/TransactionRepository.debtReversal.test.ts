@@ -163,6 +163,49 @@ function createTestDb(): Database.Database {
       tenant_id      INTEGER DEFAULT 1
     );
 
+    -- Supplier Stock Intake (LIRA-164): a sale/custom-service refund
+    -- unconditionally calls StockBatchRepository.restoreForSaleItem /
+    -- restoreForCustomService, which query/prepare against both tables
+    -- regardless of whether any batch was actually consumed — so both must
+    -- exist for the sale-refund test below, not just the money tables.
+    -- No REFERENCES clauses (core jest runs with foreign_keys=ON; SQLite
+    -- resolves a FK target at INSERT time, and a REFERENCES to a table this
+    -- fixture never creates would fail the insert with "no such table",
+    -- caught and rewrapped by StockBatchRepository as a misleading "Failed
+    -- to create stock batch" — matches the plain-INTEGER convention already
+    -- used by the passing fixtures, e.g. CustomServiceRepository.stock.test.ts).
+    CREATE TABLE product_stock_batches (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER DEFAULT 1,
+      product_id         INTEGER NOT NULL,
+      supplier_id        INTEGER,
+      quantity           INTEGER NOT NULL CHECK(quantity > 0),
+      quantity_remaining INTEGER NOT NULL CHECK(quantity_remaining >= 0),
+      unit_cost_usd      DECIMAL(10,2) NOT NULL DEFAULT 0,
+      books_debt         INTEGER NOT NULL DEFAULT 0,
+      ledger_entry_id    INTEGER,
+      transaction_id     INTEGER,
+      is_opening         INTEGER NOT NULL DEFAULT 0,
+      created_by         INTEGER,
+      created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE stock_batch_consumptions (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER DEFAULT 1,
+      batch_id           INTEGER NOT NULL,
+      sale_item_id       INTEGER,
+      custom_service_id  INTEGER,
+      product_id         INTEGER NOT NULL,
+      quantity           INTEGER NOT NULL,
+      unit_cost_usd      DECIMAL(10,2) NOT NULL,
+      reason             TEXT NOT NULL DEFAULT 'SALE' CHECK(reason IN ('SALE','ADJUSTMENT','SERVICE')),
+      is_restored        INTEGER NOT NULL DEFAULT 0,
+      created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE custom_services (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id    INTEGER,

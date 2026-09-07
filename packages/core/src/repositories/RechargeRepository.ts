@@ -699,7 +699,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // 30,600 on Profits; both now read 45,000, with the 14,400 LBP fee
         // showing up as an expense line). Total net profit is unchanged —
         // the cost only moved from an invisible netting here to a visible
-        // expense line. Cutover, not restatement (migration v163): existing
+        // expense line. Cutover, not restatement (migration v166): existing
         // recharges keep the NET figure they were stamped with pre-cutover.
         const rechargeCommission = data.price - data.cost;
         // Carrier SMS rules live in ONE place (rule 14, LIRA-090 spec §2.1) —
@@ -1061,7 +1061,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // `insertPayment`/`upsertBalanceDelta` pair used to — the money
         // moves exactly ONCE, just through the expense's own leg instead of
         // this transaction's. `source_ref_table`/`source_ref_id` (migration
-        // v163) link this expense back to the recharge so
+        // v166) link this expense back to the recharge so
         // `TransactionRepository._cascadeExpenseSiblingVoid` reverses it
         // when the recharge is voided/refunded (rule 20).
         if (data.type === "CREDIT_TRANSFER" && smsCostUsd > 0) {

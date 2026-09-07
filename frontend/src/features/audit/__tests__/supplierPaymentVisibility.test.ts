@@ -97,6 +97,8 @@ describe("FILTER_GROUPS — Suppliers and Partners are first-class groups (CQ-8)
       "Supplier Credit",
       // LIRA-080: the paper (no-cash) "Add Credit / Debt" entry.
       "Supplier Adjustment",
+      // SUPPLIER_STOCK_INTAKE_PLAN.md — receiving stock on credit.
+      "Stock Received",
     ]);
     expect(suppliers?.options.every((o) => !!o.type)).toBe(true);
   });

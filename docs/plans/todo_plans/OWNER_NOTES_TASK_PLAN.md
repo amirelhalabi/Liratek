@@ -407,14 +407,25 @@ different surface; the Dashboard itself has no such coloring today.
 
 ---
 
-#### LIRA-090: Supplier — record debt first, attach inventory products later ❌ NOT DONE
+#### LIRA-090: Supplier — record debt first, attach inventory products later ⚠️ SUPERSEDED 2026-09-06
+
+**SUPERSEDED by `docs/plans/todo_plans/SUPPLIER_STOCK_INTAKE_PLAN.md`** (event-based supplier
+stock intake, migration v164, shipped 2026-09-07). The owner's underlying need — a supplier debt
+that tracks specific inventory items instead of a lump sum — was met by booking one
+`supplier_ledger` `STOCK_INTAKE` row per delivery (`SupplierRepository.recordStockIntake`), linked
+to a FIFO cost batch (`StockBatchRepository`) that IS the per-item link this ticket asked for, in
+place of the many-to-many linking table this ticket originally proposed. Re-adding items already
+tied to a recorded debt does not double-book, because a NEW delivery is always a NEW batch/ledger
+row by design — there is nothing to accidentally re-record. This ticket's acceptance criteria are
+therefore satisfied by a different, simpler design than the one drafted below; left in place
+un-edited as the historical record of the original ask.
 
 | Field                | Value                 |
 | -------------------- | --------------------- |
 | **Epic**             | Suppliers / Inventory |
 | **Type**             | Feature               |
 | **Priority**         | Medium                |
-| **Status**           | TODO                  |
+| **Status**           | SUPERSEDED            |
 | **Affected Modules** | Suppliers, Inventory  |
 | **Depends On**       | —                     |
 
