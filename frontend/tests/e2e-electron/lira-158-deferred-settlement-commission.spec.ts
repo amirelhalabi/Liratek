@@ -161,6 +161,13 @@ async function getProfitFigures(
   commissionCount: number;
   deferredClientDebtUsd: number;
 }> {
+  // Visiting /profits and navigating away re-locks (the gate unmounts and
+  // calls profits:lock) — that's required behaviour, not a bug. Any helper
+  // doing a profits IPC read must therefore ensure its OWN unlock rather
+  // than rely on the once-per-test beforeEach unlock, or it breaks the
+  // moment a page-driven read (which visits /profits then navigates away)
+  // runs earlier in the same test. ensureProfitsUnlocked is idempotent.
+  await ensureProfitsUnlocked(page);
   return page.evaluate(
     async (args: { from: string; to: string }) => {
       const w = window as unknown as Api;

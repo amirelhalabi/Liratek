@@ -275,21 +275,36 @@ test.describe("LIRA-120 — partner settlement realizes profit and moves money",
     ).toBeCloseTo(0, 2);
   });
 
-  test("partial settlement keeps the source pending; completing it realizes (FIFO)", async ({
+  test("partial settlement recognises markup proportionally (#74); completing it realizes the remainder", async ({
     appPage,
   }) => {
     const ts = Date.now();
     const partnerId = await createPartner(appPage, "L120P");
 
+    // Named constants (rule 14) — reused below instead of pasting the same
+    // magic numbers into the recharge payload and both settle calls.
+    const PRICE_USD = 80.13;
+    const COST_USD = 50;
+    const MARKUP_USD = PRICE_USD - COST_USD; // 30.13 total markup
+    const OBLIGATION_USD = PRICE_USD; // FOR_RECHARGE partner obligation
+    const FIRST_SETTLE_USD = 40; // partial payment
+    const SECOND_SETTLE_USD = OBLIGATION_USD - FIRST_SETTLE_USD; // 40.13, balance to 0
+    // Commit 5d61f9a4 (#74) replaced the old all-or-nothing model: a
+    // partially-settled FOR_ row now recognises markup IN PROPORTION to how
+    // much of the obligation the partner has actually paid, rather than
+    // deferring the whole markup until it's fully covered.
+    const EXPECTED_PARTIAL_USD =
+      MARKUP_USD * (FIRST_SETTLE_USD / OBLIGATION_USD);
+
     const created = await appPage.evaluate(
-      async ({ partnerId, ts }) => {
+      async ({ partnerId, ts, price, cost }) => {
         const w = window as unknown as Api;
         const r = await w.api.recharge.process({
           provider: "MTC",
           type: "VOUCHER",
-          amount: 80.13,
-          cost: 50,
-          price: 80.13,
+          amount: price,
+          cost,
+          price,
           currency: "USD",
           partnerId,
           partnerMode: "FOR",
@@ -297,51 +312,61 @@ test.describe("LIRA-120 — partner settlement realizes profit and moves money",
         });
         return { error: r.error ?? null };
       },
-      { partnerId, ts },
+      { partnerId, ts, price: PRICE_USD, cost: COST_USD },
     );
     expect(created.error).toBeNull();
 
     const s0 = await summaryOf(appPage);
 
-    // Half-settle: the FOR_RECHARGE row stays partially covered → pending.
-    const half = await appPage.evaluate(async (partnerId) => {
-      const w = window as unknown as Api;
-      const r = await w.api.partners.settle({
-        partnerId,
-        amount: 40,
-        currency: "USD",
-        settlementMethod: "CASH",
-      });
-      return { ok: r.success, error: r.error ?? null };
-    }, partnerId);
+    // Half-settle: proportional recognition (#74) — NOT all-or-nothing.
+    const half = await appPage.evaluate(
+      async ({ partnerId, amount }) => {
+        const w = window as unknown as Api;
+        const r = await w.api.partners.settle({
+          partnerId,
+          amount,
+          currency: "USD",
+          settlementMethod: "CASH",
+        });
+        return { ok: r.success, error: r.error ?? null };
+      },
+      { partnerId, amount: FIRST_SETTLE_USD },
+    );
     expect(half.error).toBeNull();
     expect(half.ok).toBe(true);
 
     const s1 = await summaryOf(appPage);
-    expect(s1.recharges.profit_usd - s0.recharges.profit_usd).toBeCloseTo(0, 2);
+    const partialRecognized = s1.recharges.profit_usd - s0.recharges.profit_usd;
+    expect(partialRecognized).toBeCloseTo(EXPECTED_PARTIAL_USD, 2);
+    // Guard: proves "proportional", not merely a number match.
+    expect(partialRecognized).toBeGreaterThan(0); // no longer all-or-nothing
+    expect(partialRecognized).toBeLessThan(MARKUP_USD); // full markup not recognised early
 
-    // Complete the settlement → fully covered → markup realizes.
-    const rest = await appPage.evaluate(async (partnerId) => {
-      const w = window as unknown as Api;
-      const r = await w.api.partners.settle({
-        partnerId,
-        amount: 40.13,
-        currency: "USD",
-        settlementMethod: "CASH",
-      });
-      return {
-        ok: r.success,
-        error: r.error ?? null,
-        bal: (await w.api.partners.getBalance(partnerId)).usd,
-      };
-    }, partnerId);
+    // Complete the settlement → fully covered → remainder of markup realizes.
+    const rest = await appPage.evaluate(
+      async ({ partnerId, amount }) => {
+        const w = window as unknown as Api;
+        const r = await w.api.partners.settle({
+          partnerId,
+          amount,
+          currency: "USD",
+          settlementMethod: "CASH",
+        });
+        return {
+          ok: r.success,
+          error: r.error ?? null,
+          bal: (await w.api.partners.getBalance(partnerId)).usd,
+        };
+      },
+      { partnerId, amount: SECOND_SETTLE_USD },
+    );
     expect(rest.error).toBeNull();
     expect(rest.ok).toBe(true);
     expect(rest.bal).toBeCloseTo(0, 2);
 
     const s2 = await summaryOf(appPage);
     expect(s2.recharges.profit_usd - s0.recharges.profit_usd).toBeCloseTo(
-      30.13,
+      MARKUP_USD,
       2,
     );
   });
