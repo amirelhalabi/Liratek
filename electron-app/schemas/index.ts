@@ -143,6 +143,11 @@ import {
   UnlockProfitsSchema as coreUnlockProfitsSchema,
   type SetProfitsPasswordInput,
   type UnlockProfitsInput,
+  // LIRA-176 phase 4 — no local duplicate for this one (it's brand new), so
+  // it re-exports straight from core via the same cast-bridge pattern as
+  // RechargeSchema/SaleProcessSchema above.
+  getMaintenanceStatusHistorySchema,
+  type GetMaintenanceStatusHistoryInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -346,7 +351,32 @@ export const MaintenanceJobSchema = z.object({
   // desktop path silently strips them.
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
+  // LIRA-176 phase 4 — same rule-14 local-duplicate trap as kept_change_*
+  // above: this file's MaintenanceJobSchema (not core's saveMaintenanceJobSchema)
+  // is what the desktop IPC handler actually validates against
+  // (electron-app/handlers/maintenanceHandlers.ts), so `parts` must be
+  // mirrored here too or Zod silently strips it from every desktop save,
+  // even though core's schema and MaintenanceService both support it. MUST
+  // stay .optional() with NO .default([]) — an omitted `parts` key means
+  // "leave the job's parts untouched" (see MaintenanceRepository.syncParts).
+  parts: z
+    .array(
+      z.object({
+        id: z.number().int().positive().optional(),
+        product_id: z.number().int().positive(),
+        quantity: z.number().int().positive(),
+        unit_price_usd: z.number().min(0).optional(),
+      }),
+    )
+    .optional(),
 });
+
+// LIRA-176 phase 4 — brand new, no local duplicate: re-exported straight
+// from core via the same cast-bridge pattern as RechargeSchema above (core
+// types against zod 4, this workspace against zod 3; the runtime API is
+// identical).
+export const GetMaintenanceStatusHistorySchema =
+  getMaintenanceStatusHistorySchema as unknown as z.ZodSchema<GetMaintenanceStatusHistoryInput>;
 
 // =============================================================================
 // Recharge

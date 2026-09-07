@@ -10447,6 +10447,237 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 170,
+    name: "maintenance_parts_and_stock_link",
+    description:
+      "LIRA-176 — recovered/re-added after a parallel-session commit (a83d99d8, which added v169) " +
+      "left this repo's migrations/index.ts byte-identical to HEAD, wiping the two uncommitted " +
+      "LIRA-176 migrations from the file even though create_db.sql, the repository, and all " +
+      "app-layer code survived intact. Originally authored as v167 and renumbered to v170 " +
+      "because the migration runner selects pending work by version against the database's " +
+      "current version — reinstating it as v167 would make any database that already reached " +
+      "v169 skip it permanently. Adds maintenance_parts (parts attached to a maintenance job " +
+      "that decrement stock, mirroring the custom_services/sale_items precedent from v152) plus " +
+      "maintenance.parts_cost_usd/parts_price_usd (denormalised sums over maintenance_parts, " +
+      "maintained by MaintenanceRepository) and stock_batch_consumptions.maintenance_part_id " +
+      "(traces a part consumption back to the maintenance job that caused it, same shape as " +
+      "sale_item_id/custom_service_id). Parts are USD-only because products only has " +
+      "cost_price_usd/selling_price_usd -- owner decision 2026-09-07 ('option 4'): an " +
+      "LBP-priced job bills labour in LBP and parts in USD with no conversion, which is why " +
+      "there is no LBP twin of the two new maintenance columns. unit_cost_usd/unit_price_usd " +
+      "are attach-time snapshots so a later product price change never re-prices a historical " +
+      "job (same reasoning as sale_items.cost_price_snapshot_usd). stock_restored is the " +
+      "idempotency guard stopping a refunded-then-deleted job returning its stock twice. " +
+      "stock_batch_consumptions.reason deliberately stays 'SERVICE' -- a 'MAINTENANCE' value " +
+      "would need a full SQLite table rebuild to alter the CHECK constraint, and " +
+      "maintenance_part_id already identifies the source; do not alter that CHECK.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasMaintenance = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'maintenance'`,
+        )
+        .get();
+      if (!hasMaintenance) {
+        console.log("Migration v170 skipped: 'maintenance' table not present");
+        return;
+      }
+
+      const maintenanceCols = db
+        .prepare("PRAGMA table_info(maintenance)")
+        .all() as { name: string }[];
+      if (!maintenanceCols.some((c) => c.name === "parts_cost_usd")) {
+        db.exec(
+          `ALTER TABLE maintenance ADD COLUMN parts_cost_usd DECIMAL(10, 2) NOT NULL DEFAULT 0;`,
+        );
+      }
+      if (!maintenanceCols.some((c) => c.name === "parts_price_usd")) {
+        db.exec(
+          `ALTER TABLE maintenance ADD COLUMN parts_price_usd DECIMAL(10, 2) NOT NULL DEFAULT 0;`,
+        );
+      }
+
+      const hasMaintenanceParts = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'maintenance_parts'`,
+        )
+        .get();
+      if (!hasMaintenanceParts) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS maintenance_parts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER REFERENCES tenants(id),
+            maintenance_id INTEGER NOT NULL REFERENCES maintenance(id) ON DELETE CASCADE,
+            product_id INTEGER NOT NULL REFERENCES products(id),
+            product_name TEXT NOT NULL,
+            quantity INTEGER NOT NULL CHECK(quantity > 0),
+            unit_cost_usd  DECIMAL(10,2) NOT NULL DEFAULT 0,
+            unit_price_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+            stock_restored INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_maintenance_parts_tenant_job ON maintenance_parts(tenant_id, maintenance_id)`,
+        );
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_maintenance_parts_tenant_product ON maintenance_parts(tenant_id, product_id)`,
+        );
+      }
+
+      const hasStockBatchConsumptions = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stock_batch_consumptions'`,
+        )
+        .get();
+      if (hasStockBatchConsumptions) {
+        const sbcCols = db
+          .prepare("PRAGMA table_info(stock_batch_consumptions)")
+          .all() as { name: string }[];
+        if (!sbcCols.some((c) => c.name === "maintenance_part_id")) {
+          db.exec(
+            `ALTER TABLE stock_batch_consumptions ADD COLUMN maintenance_part_id INTEGER REFERENCES maintenance_parts(id) ON DELETE SET NULL;`,
+          );
+        }
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_maint_part ON stock_batch_consumptions(tenant_id, maintenance_part_id)`,
+        );
+      }
+
+      console.log(
+        "Migration v170: maintenance_parts created; maintenance.parts_cost_usd/parts_price_usd " +
+          "and stock_batch_consumptions.maintenance_part_id added",
+      );
+    },
+    down(db: Database.Database) {
+      const hasStockBatchConsumptions = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'stock_batch_consumptions'`,
+        )
+        .get();
+      if (hasStockBatchConsumptions) {
+        const sbcCols = db
+          .prepare("PRAGMA table_info(stock_batch_consumptions)")
+          .all() as { name: string }[];
+        if (sbcCols.some((c) => c.name === "maintenance_part_id")) {
+          db.exec(
+            `DROP INDEX IF EXISTS idx_stock_batch_consumptions_tenant_maint_part;`,
+          );
+          db.exec(
+            `ALTER TABLE stock_batch_consumptions DROP COLUMN maintenance_part_id;`,
+          );
+        }
+      }
+
+      db.exec(`DROP TABLE IF EXISTS maintenance_parts;`);
+
+      const hasMaintenance = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'maintenance'`,
+        )
+        .get();
+      if (hasMaintenance) {
+        const maintenanceCols = db
+          .prepare("PRAGMA table_info(maintenance)")
+          .all() as { name: string }[];
+        if (maintenanceCols.some((c) => c.name === "parts_price_usd")) {
+          db.exec(`ALTER TABLE maintenance DROP COLUMN parts_price_usd;`);
+        }
+        if (maintenanceCols.some((c) => c.name === "parts_cost_usd")) {
+          db.exec(`ALTER TABLE maintenance DROP COLUMN parts_cost_usd;`);
+        }
+      }
+
+      console.log(
+        "Migration v170 rolled back: maintenance_parts, parts_cost_usd/parts_price_usd, and " +
+          "maintenance_part_id dropped",
+      );
+    },
+  },
+  {
+    version: 171,
+    name: "maintenance_status_history",
+    description:
+      "LIRA-176 — companion to v170; see that migration's description for the recovery context " +
+      "(originally authored as v168, renumbered to v171 for the same reason v167->v170 was " +
+      "renumbered: the runner selects pending work by version, so 167/168 would be skipped " +
+      "forever by any database already at v169). Adds maintenance_status_history, the status " +
+      "timeline for a maintenance job (Received -> In_Progress -> Ready -> Delivered -> " +
+      "Delivered_Paid), and backfills one row per EXISTING maintenance job so the timeline is " +
+      "never missing a starting point for jobs created before this migration: from_status NULL, " +
+      "to_status = the job's current status, tenant_id/created_at copied from the job itself. " +
+      "The backfill is guarded by a COUNT(*) check against maintenance_status_history so a " +
+      "migration replay cannot double-insert.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasMaintenance = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'maintenance'`,
+        )
+        .get();
+      if (!hasMaintenance) {
+        console.log("Migration v171 skipped: 'maintenance' table not present");
+        return;
+      }
+
+      const hasHistory = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'maintenance_status_history'`,
+        )
+        .get();
+      if (!hasHistory) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS maintenance_status_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER REFERENCES tenants(id),
+            maintenance_id INTEGER NOT NULL REFERENCES maintenance(id) ON DELETE CASCADE,
+            from_status TEXT,
+            to_status TEXT NOT NULL,
+            changed_by INTEGER REFERENCES users(id),
+            note TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_maintenance_status_history_tenant_job ON maintenance_status_history(tenant_id, maintenance_id, id)`,
+        );
+      }
+
+      const existingCount = (
+        db
+          .prepare(`SELECT COUNT(*) AS count FROM maintenance_status_history`)
+          .get() as { count: number }
+      ).count;
+
+      if (existingCount === 0) {
+        const result = db.exec(`
+          INSERT INTO maintenance_status_history
+            (tenant_id, maintenance_id, from_status, to_status, created_at, updated_at)
+          SELECT tenant_id, id, NULL, status, created_at, created_at
+          FROM maintenance
+        `);
+        void result;
+      }
+
+      const backfilledCount = (
+        db
+          .prepare(`SELECT COUNT(*) AS count FROM maintenance_status_history`)
+          .get() as { count: number }
+      ).count;
+
+      console.log(
+        `Migration v171: maintenance_status_history created; ${backfilledCount} row(s) present ` +
+          `after backfill`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS maintenance_status_history;`);
+      console.log("Migration v171 rolled back: maintenance_status_history dropped");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

@@ -9,6 +9,7 @@ import {
   useApi,
   appEvents,
   type PaymentLine,
+  type Money,
 } from "@liratek/ui";
 import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -38,7 +39,17 @@ import {
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
-} & { clientId?: number | null; paidUSD?: number; paidLBP?: number };
+} & {
+  clientId?: number | null;
+  paidUSD?: number;
+  paidLBP?: number;
+  /**
+   * Currency that `total_amount`/`discount`/`final_amount` are expressed in
+   * (mirrors the `currency` prop, defaulted to "USD" via `totalCurrency`).
+   * Always set by `getPaymentData` — see CheckoutModal.tsx.
+   */
+  currency: "USD" | "LBP";
+};
 
 interface CheckoutModalProps {
   items?: CartItem[];
@@ -61,6 +72,27 @@ interface CheckoutModalProps {
    * when this prop is omitted.
    */
   currency?: "USD" | "LBP";
+  /**
+   * Amounts owed in a currency OTHER than `currency`, merged into the
+   * per-currency totals array passed to MultiPaymentInput — e.g. maintenance
+   * parts (always USD, never converted) billed alongside LBP-priced labour.
+   * Zero-amount entries are filtered out, so an empty/all-zero array is
+   * indistinguishable from the prop being absent. This modal's `discount`
+   * (and any `maxDiscount` cap passed to MultiPaymentInput) stays scoped to
+   * `totalCurrency` and never applies here: a maintenance discount is a
+   * labour discount, and letting it eat into parts would silently cut into
+   * part margins. Optional — omitting it leaves every existing caller
+   * byte-identical to today.
+   */
+  extraTotals?: Money[] | undefined;
+  /**
+   * LIRA-176 7b: caps the discount input to `totalCurrency` (never applies
+   * to `extraTotals`) — e.g. maintenance passes the labour price so a
+   * discount can never eat into the parts total merged into `totalAmount`.
+   * Omitting it (every existing caller) leaves the discount input uncapped,
+   * byte-identical to today.
+   */
+  maxDiscount?: number | undefined;
   onClose?: () => void;
   onComplete: (paymentData: PaymentData) => Promise<void>;
   onSaveDraft: (paymentData: PaymentData) => Promise<void>;
@@ -98,6 +130,8 @@ export default function CheckoutModal({
   allowForPartner = false,
   totalAmount,
   currency,
+  extraTotals,
+  maxDiscount,
   onClose,
   onComplete,
   onSaveDraft,
@@ -353,6 +387,25 @@ export default function CheckoutModal({
     : isNewClientInfoComplete;
 
   const finalAmount = Math.max(0, totalAmount - (discount ?? 0));
+  // LIRA-176 7a: amounts owed in a currency other than totalCurrency (e.g.
+  // maintenance USD parts on an LBP-priced job), merged into the totals array
+  // handed to MultiPaymentInput. Zero-amount entries filtered so an empty or
+  // all-zero extraTotals is indistinguishable from the prop being absent —
+  // allTotals then collapses to the single original entry and every existing
+  // caller (which never passes extraTotals) is unaffected.
+  const nonZeroExtraTotals: Money[] = (extraTotals ?? []).filter(
+    (t) => t.amount !== 0,
+  );
+  const allTotals: Money[] = [
+    { amount: finalAmount, currency: totalCurrency },
+    ...nonZeroExtraTotals,
+  ];
+  const hasMultipleCurrencyTotals = nonZeroExtraTotals.length > 0;
+  /** Format an amount in an arbitrary currency (used only on the
+   *  multi-currency summary branch below — fmtTotal above stays the
+   *  single-currency formatter for the byte-identical original case). */
+  const fmtMoneyFor = (v: number, curr: string) =>
+    curr === "LBP" ? `${Math.round(v).toLocaleString()} LBP` : `$${v.toFixed(2)}`;
   const effectiveExchangeRate = parseFloat(customExchangeRate) || exchangeRate;
   // Total paid, converted into the job's currency for settlement comparison.
   const totalPaidInTotalCurrency = isLbpTotal
@@ -894,25 +947,49 @@ export default function CheckoutModal({
                     <DecimalInput
                       data-testid="checkout-discount-input"
                       value={discount}
-                      onChange={(v) => setDiscount(v)}
+                      onChange={(v) =>
+                        setDiscount(
+                          maxDiscount != null ? Math.min(v, maxDiscount) : v,
+                        )
+                      }
                       className={`w-full bg-slate-800 border border-slate-700 rounded-xl ${isLbpTotal ? "pl-10" : "pl-7"} pr-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 text-right`}
                       placeholder="0"
                     />
                   </div>
                 </div>
-                <div className="border-t border-slate-700 pt-3 flex justify-between items-center">
-                  <span className="text-lg font-bold text-white">
-                    Net Total
-                  </span>
-                  <span className="text-2xl font-bold text-violet-400">
-                    {fmtTotal(finalAmount)}
-                  </span>
-                </div>
-                <div className="text-right text-xs text-slate-500">
-                  {isLbpTotal
-                    ? `≈ $${(finalAmount / effectiveExchangeRate).toFixed(2)} USD`
-                    : `≈ ${(finalAmount * effectiveExchangeRate).toLocaleString()} LBP`}
-                </div>
+                {hasMultipleCurrencyTotals ? (
+                  <div className="border-t border-slate-700 pt-3 space-y-2">
+                    {allTotals.map((t) => (
+                      <div
+                        key={t.currency}
+                        className="flex justify-between items-center"
+                      >
+                        <span className="text-lg font-bold text-white">
+                          Net Total ({t.currency})
+                        </span>
+                        <span className="text-2xl font-bold text-violet-400">
+                          {fmtMoneyFor(t.amount, t.currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <div className="border-t border-slate-700 pt-3 flex justify-between items-center">
+                      <span className="text-lg font-bold text-white">
+                        Net Total
+                      </span>
+                      <span className="text-2xl font-bold text-violet-400">
+                        {fmtTotal(finalAmount)}
+                      </span>
+                    </div>
+                    <div className="text-right text-xs text-slate-500">
+                      {isLbpTotal
+                        ? `≈ $${(finalAmount / effectiveExchangeRate).toFixed(2)} USD`
+                        : `≈ ${(finalAmount * effectiveExchangeRate).toLocaleString()} LBP`}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -979,7 +1056,7 @@ export default function CheckoutModal({
                 <>
                   <MultiPaymentInput
                     key={`payment-${paymentInputKey}`}
-                    totals={[{ amount: finalAmount, currency: totalCurrency }]}
+                    totals={allTotals}
                     currency={totalCurrency}
                     totalAmountCurrency={totalCurrency}
                     {...(draftInitialLines

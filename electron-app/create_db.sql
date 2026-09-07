@@ -586,8 +586,56 @@ CREATE TABLE IF NOT EXISTS maintenance (
     edited_at TEXT DEFAULT NULL,
     is_refunded INTEGER DEFAULT 0,
     refunded_at TEXT DEFAULT NULL,
+    -- Migration v170: denormalised sums over maintenance_parts, maintained by
+    -- MaintenanceRepository. Parts are priced in USD only (products has no LBP
+    -- cost/price columns) -- owner decision 2026-09-07 ('option 4'): an LBP-priced
+    -- job bills labour in LBP and parts in USD, with no conversion.
+    parts_cost_usd DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    parts_price_usd DECIMAL(10, 2) NOT NULL DEFAULT 0,
     FOREIGN KEY (client_id) REFERENCES clients(id)
 );
+
+-- Migration v170: parts attached to a maintenance job that decrement stock,
+-- mirroring the custom_services/sale_items precedent (migration v152).
+-- unit_cost_usd/unit_price_usd are snapshots taken when the part is attached,
+-- so a later product price change never re-prices a historical job (same
+-- reasoning as sale_items.cost_price_snapshot_usd). stock_restored is the
+-- idempotency guard against a refunded-then-deleted job returning stock twice
+-- (mirrors stock_batch_consumptions.is_restored).
+CREATE TABLE IF NOT EXISTS maintenance_parts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
+  maintenance_id INTEGER NOT NULL REFERENCES maintenance(id) ON DELETE CASCADE,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  product_name TEXT NOT NULL,
+  quantity INTEGER NOT NULL CHECK(quantity > 0),
+  unit_cost_usd  DECIMAL(10,2) NOT NULL DEFAULT 0,
+  unit_price_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+  stock_restored INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_maintenance_parts_tenant_job
+  ON maintenance_parts(tenant_id, maintenance_id);
+CREATE INDEX IF NOT EXISTS idx_maintenance_parts_tenant_product
+  ON maintenance_parts(tenant_id, product_id);
+
+-- Migration v171: status timeline for a maintenance job (Received ->
+-- In_Progress -> Ready -> Delivered -> Delivered_Paid); from_status is NULL
+-- on a job's first row.
+CREATE TABLE IF NOT EXISTS maintenance_status_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
+  maintenance_id INTEGER NOT NULL REFERENCES maintenance(id) ON DELETE CASCADE,
+  from_status TEXT,
+  to_status TEXT NOT NULL,
+  changed_by INTEGER REFERENCES users(id),
+  note TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_maintenance_status_history_tenant_job
+  ON maintenance_status_history(tenant_id, maintenance_id, id);
 
 -- Expenses
 CREATE TABLE IF NOT EXISTS expenses (
@@ -1386,6 +1434,9 @@ CREATE TABLE IF NOT EXISTS stock_batch_consumptions (
   batch_id INTEGER NOT NULL REFERENCES product_stock_batches(id),
   sale_item_id INTEGER REFERENCES sale_items(id) ON DELETE SET NULL,
   custom_service_id INTEGER REFERENCES custom_services(id) ON DELETE SET NULL,
+  -- Migration v170: traces a part consumption back to the maintenance job that
+  -- caused it, same shape as sale_item_id/custom_service_id above.
+  maintenance_part_id INTEGER REFERENCES maintenance_parts(id) ON DELETE SET NULL,
   product_id INTEGER NOT NULL REFERENCES products(id),
   quantity INTEGER NOT NULL,
   unit_cost_usd DECIMAL(10,2) NOT NULL,
@@ -1396,6 +1447,7 @@ CREATE TABLE IF NOT EXISTS stock_batch_consumptions (
 );
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_sale_item ON stock_batch_consumptions(tenant_id, sale_item_id);
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_custom_service ON stock_batch_consumptions(tenant_id, custom_service_id);
+CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_maint_part ON stock_batch_consumptions(tenant_id, maintenance_part_id);
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_batch ON stock_batch_consumptions(tenant_id, batch_id);
 
 -- Multi-tenancy indexes (high-volume tables)
@@ -2065,4 +2117,11 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v166 adds expenses.source_ref_table/source_ref_id + index — already
     -- declared on the expenses table above, so a fresh DB needs no separate
     -- ALTER, same shape as v165's marker note above.
-    (166, 'add_expenses_source_ref');
+    (166, 'add_expenses_source_ref'),
+    (169, 'rebackfill_max_returned_credits_override'),
+    -- LIRA-176: originally authored as v167/v168, renumbered to v170/v171 after
+    -- a parallel-session commit (a83d99d8) took v169 while these two were
+    -- still uncommitted -- see migrations/index.ts v170/v171 for the full
+    -- recovery context.
+    (170, 'maintenance_parts_and_stock_link'),
+    (171, 'maintenance_status_history');

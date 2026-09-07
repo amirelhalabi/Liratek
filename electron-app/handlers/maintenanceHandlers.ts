@@ -7,7 +7,11 @@ import {
   getUserRepository,
   type SaveJobParams,
 } from "@liratek/core";
-import { MaintenanceJobSchema, validatePayload } from "../schemas/index.js";
+import {
+  MaintenanceJobSchema,
+  GetMaintenanceStatusHistorySchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerMaintenanceHandlers(): void {
   const service = getMaintenanceService();
@@ -39,6 +43,35 @@ export function registerMaintenanceHandlers(): void {
   // Get Jobs
   ipcMain.handle("maintenance:get-jobs", (_event, statusFilter?: string) => {
     return service.getJobs(statusFilter);
+  });
+
+  // Get one job's status transition history (LIRA-176 phase 6). No
+  // requireRole call, matching maintenance:get-jobs above — this file's
+  // existing read channel carries no role restriction, so this one doesn't
+  // introduce a new one either. Reads return the RAW array, matching
+  // maintenance:get-jobs's own `return service.getJobs(...)` — a validation
+  // failure or thrown error is logged and swallowed to `[]`, the same way
+  // MaintenanceService.getJobs already swallows its own errors, so the
+  // renderer never gets a shape it doesn't expect.
+  ipcMain.handle("maintenance:getStatusHistory", (_event, data: unknown) => {
+    const v = validatePayload(GetMaintenanceStatusHistorySchema, data);
+    if (!v.ok) {
+      maintenanceLogger.error(
+        { error: v.error },
+        "maintenance:getStatusHistory validation failed",
+      );
+      return [];
+    }
+
+    try {
+      return service.getStatusHistory(v.data.id);
+    } catch (error) {
+      maintenanceLogger.error(
+        { error },
+        "maintenance:getStatusHistory failed",
+      );
+      return [];
+    }
   });
 
   // Delete / Cancel

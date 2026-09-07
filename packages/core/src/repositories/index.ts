@@ -281,11 +281,27 @@ export type {
 } from "./SupplierRepository.js";
 
 // Maintenance Repository
-export { MaintenanceRepository } from "./MaintenanceRepository.js";
+export {
+  MaintenanceRepository,
+  MAINTENANCE_AMOUNT_EDIT_BLOCKED_ERROR,
+  MAINTENANCE_PARTS_EDIT_BLOCKED_ERROR,
+} from "./MaintenanceRepository.js";
 export type {
   MaintenanceJob,
   MaintenanceRow,
+  MaintenancePaymentLine,
+  MaintenancePartInput,
+  MaintenancePartRow,
+  MaintenanceStatusHistoryRow,
 } from "./MaintenanceRepository.js";
+
+// Maintenance parts stock helpers (shared by MaintenanceRepository and,
+// from LIRA-176 phase 4, TransactionRepository's void/refund path — kept in
+// their own module to avoid an import cycle; see maintenancePartsStock.ts).
+export {
+  restoreMaintenanceJobParts,
+  recomputeMaintenancePartsTotals,
+} from "./maintenancePartsStock.js";
 
 // Settings Repository
 export {

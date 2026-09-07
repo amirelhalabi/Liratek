@@ -19,6 +19,7 @@ import {
   hasCommissionModelColumn,
   hasSettlementAllocationsTable,
   maintenanceCompleted,
+  maintenanceCostUsd,
   notDebtPending,
   notPartnerPending,
   notRefunded,
@@ -1220,10 +1221,32 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     );
     let maintProfit: { profit_usd: number };
     if (!hasTransactionsTable) {
+      // Rule 14: this used to hand-roll `final_amount_usd - cost_usd`
+      // inline, a second copy of the maintenance-profit formula. Now
+      // wrong on its own terms too: `final_amount_usd` carries the
+      // parts price (LIRA-176) while bare `cost_usd` is labour cost
+      // only, so the old inline form overstated profit by the parts
+      // cost. Uses the shared `maintenanceCostUsd` fragment so it can't
+      // drift from `ProfitRepository` again.
+      //
+      // NOTE (LIRA-176 phase 5 follow-up) -- DELIBERATELY NO BACKTICKS in
+      // this paragraph, on purpose: this comment block must stay ABOVE the
+      // "const ... = this.db" line assigning this query, never sitting
+      // between the prepare call's opening parenthesis and the SQL
+      // template literal's opening backtick. The profit-recognition drift
+      // guard's query-unit detector in sqlQueryUnits.ts only tolerates
+      // whitespace in that gap (and treats ANY backtick pair anywhere in
+      // its scanned source as a potential SQL-string delimiter), so a
+      // comment sitting there -- or a comment ABOVE this line that itself
+      // uses backtick-quoted code spans -- can make this unit, or its
+      // sibling below, silently invisible to the guard, or even worse
+      // spawn a bogus phantom unit. See profitRecognition.guard.test.ts's
+      // EXCLUDED_UNITS entry for maintProfitDegraded for the incident this
+      // caused.
       const maintProfitDegraded = this.db
         .prepare(
           `SELECT
-            COALESCE(SUM(final_amount_usd - cost_usd), 0) as profit_usd
+            COALESCE(SUM(final_amount_usd - ${maintenanceCostUsd("maintenance")}), 0) as profit_usd
            FROM maintenance
            WHERE ${todayLocal("created_at")} AND ${maintenanceCompleted("maintenance")}
              AND ${notRefunded("maintenance")} AND tenant_id = ?`,
@@ -1231,10 +1254,21 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         .get(tenantId) as { profit_usd: number };
       maintProfit = maintProfitDegraded;
     } else {
+      // Rule 14: same shared-fragment fix as the degraded branch above —
+      // `final_amount_usd - cost_usd` was a duplicate of the
+      // maintenance-profit formula and, since parts (LIRA-176) landed
+      // in `final_amount_usd` but not in bare `cost_usd`, it also
+      // overstated profit by the parts cost.
+      //
+      // NOTE (LIRA-176 phase 5 follow-up) -- same guard-visibility
+      // constraint as maintProfitDegraded above, same reason this
+      // paragraph avoids backtick-quoted code spans: keep this comment
+      // above the const line, not between the prepare call's opening
+      // parenthesis and the backtick.
       const maintProfitGated = this.db
         .prepare(
           `SELECT
-            COALESCE(SUM(final_amount_usd - cost_usd), 0) as profit_usd
+            COALESCE(SUM(final_amount_usd - ${maintenanceCostUsd("maintenance")}), 0) as profit_usd
            FROM maintenance
            WHERE ${todayLocal("created_at")} AND ${maintenanceCompleted("maintenance")}
              AND ${notRefunded("maintenance")}

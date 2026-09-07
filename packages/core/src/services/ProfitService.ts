@@ -36,6 +36,20 @@ export interface ProfitByModule {
   profit_usd: number;
   profit_lbp: number;
   count: number;
+  /** MAINTENANCE row only (LIRA-176): parts are always USD (owner decision
+   *  2026-09-07, "option 4" — never converted), so this labour/parts split
+   *  only ever has a USD side. */
+  parts_revenue_usd?: number;
+  parts_cost_usd?: number;
+  parts_profit_usd?: number;
+  /** profit_usd minus parts_profit_usd. Note `profit_usd` also carries any
+   *  T3 kept-change gain, so a kept-change gain is attributed to labour by
+   *  this subtraction — a deliberate, documented approximation (kept change
+   *  is a rounding gain on the payment, not a part margin), not a bug. */
+  labour_profit_usd?: number;
+  /** LBP has no parts leg at all, so this is just profit_lbp restated for
+   *  symmetry with labour_profit_usd. */
+  labour_profit_lbp?: number;
 }
 
 export interface ProfitByDate {
@@ -598,9 +612,18 @@ export class ProfitService {
         });
       }
 
-      // Maintenance.
+      // Maintenance. LIRA-176: one Maintenance row, with a labour-vs-parts
+      // detail breakdown attached — parts are always USD (owner decision
+      // 2026-09-07), so the split only has a USD side. `profit_usd` also
+      // carries T3 kept-change; subtracting the parts margin out of it
+      // attributes that kept-change gain to labour (documented approximation,
+      // not an oversight — see the field doc on ProfitByModule).
       const maintRow = this.repo.getMaintenanceTotals(fromDt, toDt);
       if (maintRow.count > 0) {
+        const partsRevenueUsd = maintRow.parts_revenue_usd;
+        const partsCostUsd = maintRow.parts_cost_usd;
+        const partsProfitUsd = partsRevenueUsd - partsCostUsd;
+        const labourProfitUsd = maintRow.profit_usd - partsProfitUsd;
         results.push({
           module: "MAINTENANCE",
           label: "Maintenance",
@@ -611,6 +634,11 @@ export class ProfitService {
           profit_usd: maintRow.profit_usd,
           profit_lbp: maintRow.profit_lbp,
           count: maintRow.count,
+          parts_revenue_usd: partsRevenueUsd,
+          parts_cost_usd: partsCostUsd,
+          parts_profit_usd: partsProfitUsd,
+          labour_profit_usd: labourProfitUsd,
+          labour_profit_lbp: maintRow.profit_lbp,
         });
       }
 

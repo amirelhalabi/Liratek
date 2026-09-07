@@ -46,6 +46,7 @@ import { isPendingSupplierSettlement } from "./FinancialServiceRepository.js";
 import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 import { getProductUnitRepository } from "./ProductUnitRepository.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
+import { restoreMaintenanceJobParts } from "./maintenancePartsStock.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -1493,6 +1494,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         this._restoreCustomServiceStock(original.source_id);
       }
 
+      // 6b. LIRA-176 phase 4, rule 20 — if this transaction IS a maintenance
+      // job that consumed parts, restore whatever units it drew. Runs here
+      // (not duplicated in MaintenanceService/MaintenanceRepository) so a
+      // maintenance job voided directly from the Transactions page —
+      // bypassing the maintenance module entirely — still returns its parts
+      // exactly once; the `stock_restored` guard inside
+      // `restoreMaintenanceJobParts` is what makes "exactly once" true even
+      // if the job is later edited or deleted. No-op for every other
+      // source_table/a job with no attached parts.
+      if (original.source_table === "maintenance" && original.source_id) {
+        this._restoreMaintenancePartsStock(original.source_id);
+      }
+
       // 7. Supplier payment: un-apply the FIFO purchase coverage the payment
       // consumed (the ledger row itself is soft-voided by step 4).
       this._unapplySupplierPurchaseCoverage(original);
@@ -1733,6 +1747,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // than in CustomServiceRepository.
       if (original.source_table === "custom_services" && original.source_id) {
         this._restoreCustomServiceStock(original.source_id);
+      }
+
+      // 5b. LIRA-176 phase 4, rule 20 — same maintenance-parts stock restore
+      // as voidTransaction's identical step. See that step's doc for why
+      // this lives here rather than in the maintenance module.
+      if (original.source_table === "maintenance" && original.source_id) {
+        this._restoreMaintenancePartsStock(original.source_id);
       }
 
       // 6. Supplier payment: un-apply the FIFO purchase coverage
@@ -3058,6 +3079,27 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       row.product_id,
       tenantId,
     );
+  }
+
+  /**
+   * LIRA-176 phase 4, rule 20 — restore every not-yet-restored part on a
+   * maintenance job whose transaction is being voided/refunded.
+   *
+   * Delegates to the standalone `restoreMaintenanceJobParts` helper in
+   * `maintenancePartsStock.js` rather than `MaintenanceRepository` directly:
+   * `MaintenanceRepository` already imports `getTransactionRepository`, so
+   * the reverse import here would create a cycle. This lives on
+   * `TransactionRepository` (mirroring `_restoreCustomServiceStock`) so a
+   * maintenance job voided directly from the Transactions page — bypassing
+   * the maintenance module entirely — still returns its parts exactly once;
+   * the `stock_restored` guard inside the shared helper is what makes
+   * "exactly once" true even if the job is later edited or deleted.
+   */
+  private _restoreMaintenancePartsStock(maintenanceId: number): void {
+    restoreMaintenanceJobParts(this.db, {
+      maintenanceId,
+      tenantId: getCurrentTenantId(),
+    });
   }
 
   /**

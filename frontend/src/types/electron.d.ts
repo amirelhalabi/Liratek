@@ -1895,6 +1895,17 @@ export interface ElectronAPI {
       exchange_rate?: number;
       status?: "Received" | "In_Progress" | "Ready" | "Delivered";
       transaction_time?: string;
+      // LIRA-176 phase 6 — attached parts. `undefined` means "leave the
+      // job's parts untouched"; never default this to [] at any call site
+      // (see MaintenanceRepository.syncParts's doc comment) or a
+      // status-only resave wipes the job's parts and leaks stock.
+      parts?: Array<{
+        id?: number;
+        product_id: number;
+        quantity: number;
+        unit_price_usd?: number;
+      }>;
+      allowOutOfStock?: boolean;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getJobs: (statusFilter?: string) => Promise<
       Array<{
@@ -1913,6 +1924,35 @@ export interface ElectronAPI {
         created_at: string;
         paid_usd: number;
         paid_lbp: number;
+        parts_cost_usd?: number;
+        parts_price_usd?: number;
+        // LIRA-176 phase 6 — jobs list now carries each job's attached parts.
+        parts: Array<{
+          id: number;
+          maintenance_id: number;
+          product_id: number;
+          product_name: string;
+          quantity: number;
+          unit_cost_usd: number;
+          unit_price_usd: number;
+          stock_restored: number;
+          created_at: string;
+          updated_at: string;
+        }>;
+      }>
+    >;
+    // LIRA-176 phase 6 — one job's status transition history, chronological
+    // (oldest first). A read — returns the RAW array (empty on failure),
+    // matching getJobs above, never an envelope.
+    getStatusHistory: (jobId: number) => Promise<
+      Array<{
+        id: number;
+        maintenance_id: number;
+        from_status: string | null;
+        to_status: string;
+        changed_by: number | null;
+        note: string | null;
+        created_at: string;
       }>
     >;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;

@@ -11,6 +11,7 @@ import type {
   UnsettledSummary,
   OMTAnalytics,
   DailyStatsSnapshot,
+  MaintenanceStatusHistoryRow,
 } from "@liratek/ui";
 
 export type { ProductListFilters };
@@ -1568,6 +1569,28 @@ export async function deleteMaintenanceJob(id: number) {
     `/api/maintenance/jobs/${id}`,
     {
       method: "DELETE",
+    },
+  );
+}
+
+// LIRA-176 phase 6 — one job's status transition history. A read: returns
+// the RAW array on both transports (dual-transport contract — reads return
+// the raw IPC shape, writes return the envelope). The REST route still
+// answers `{ success, data?, error? }` on the wire (same as
+// getMaintenanceJobs's `res.jobs` unwrap below), so this function pulls the
+// array back out, falling back to `[]`.
+export async function getMaintenanceStatusHistory(
+  jobId: number,
+): Promise<MaintenanceStatusHistoryRow[]> {
+  return ipcOrHttp(
+    () => getElectronApi().maintenance.getStatusHistory(jobId),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: MaintenanceStatusHistoryRow[];
+        error?: string;
+      }>(`/api/maintenance/jobs/${jobId}/history`);
+      return res.data ?? [];
     },
   );
 }

@@ -161,6 +161,40 @@ function webApiShimBody(): void {
     "maintenance.delete": async ([id]) =>
       rest("DELETE", `/api/maintenance/jobs/${id}`),
 
+    // ── Inventory (products) — LIRA-176 8b (lira-web-030): the maintenance
+    //    parts spec seeds its own "Parts"-category product directly (the
+    //    shared seedProduct() helper hardcodes category "General") and reads
+    //    stock back around the attach/refund actions. REST field names differ
+    //    from the IPC payload (createProductSchema: cost_price_usd/stock/
+    //    min_stock_threshold vs the IPC cost_price/stock_quantity/
+    //    min_stock_level) — same remap seedProduct's own web branch does.
+    "inventory.createProduct": async ([product]) => {
+      const p = (product ?? {}) as Record<string, unknown>;
+      return rest("POST", "/api/inventory/products", {
+        name: p.name,
+        category: p.category,
+        ...(p.barcode ? { barcode: p.barcode } : {}),
+        cost_price_usd: p.cost_price,
+        retail_price_usd: p.retail_price,
+        stock: p.stock_quantity ?? 0,
+        min_stock_threshold: p.min_stock_level ?? 0,
+      });
+    },
+    "inventory.getProduct": async ([id]) =>
+      (await rest("GET", `/api/inventory/products/${id}`)).product,
+
+    // ── Transactions (by-source lookup) — LIRA-176 8b: resolve the unified
+    //    transaction for a maintenance job the same way the History-modal
+    //    Print button does, to read back amount_usd/amount_lbp/profit_usd/
+    //    profit_lbp around a parts checkout. ──
+    "transactions.getBySource": async ([sourceTable, sourceId]) =>
+      (
+        await rest(
+          "GET",
+          `/api/transactions/by-source/${sourceTable}/${sourceId}`,
+        )
+      ).transaction,
+
     // ── Dashboard / rates (reads) ──
     "dashboard.getDrawerBalances": async () =>
       (await rest("GET", "/api/dashboard/drawer-balances")).balances,

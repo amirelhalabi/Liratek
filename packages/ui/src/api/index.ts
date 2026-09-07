@@ -11,6 +11,7 @@ export type {
   DebtorSummary,
   DebtLedgerEntity,
   StockAdjustmentEntity,
+  MaintenanceStatusHistoryRow,
   CarrierLineEntity,
   CarrierLineWriteResult,
   CarrierLineUsagePayload,

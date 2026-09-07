@@ -104,6 +104,30 @@ export type StockAdjustmentEntity = {
 };
 
 /**
+ * One status transition on a maintenance job's history timeline. Mirrors
+ * `MaintenanceStatusHistoryRow`
+ * (packages/core/src/repositories/MaintenanceRepository.ts) field-for-field;
+ * hand-kept in sync (same convention as `StockAdjustmentEntity` above)
+ * rather than imported, since `@liratek/core` resolves to browser.ts for
+ * Vite and frontend jest and this entity isn't exported there. (Note:
+ * `StockBatchRow` is NOT a precedent for this — it's declared locally in
+ * `frontend/src/api/backendApi.ts` and never re-exported from `@liratek/ui`
+ * at all.) Must be listed in this file's barrel (`./index.ts`'s
+ * `export type { ... }` allowlist) to actually be visible to consumers —
+ * `ApiAdapter` below references it in its own signature, so it has to be
+ * public.
+ */
+export type MaintenanceStatusHistoryRow = {
+  id: number;
+  maintenance_id: number;
+  from_status: string | null;
+  to_status: string;
+  changed_by: number | null;
+  note: string | null;
+  created_at: string;
+};
+
+/**
  * One row of a product's remaining cost batches — a product can hold stock
  * bought at several different prices (owner report 2026-09-07: 2 iPhones
  * received at $1,300 on top of 2 already held at $1,200, with no way to see
@@ -1012,6 +1036,11 @@ export type ApiAdapter = {
   getMaintenanceJobs: (statusFilter?: string) => Promise<any[]>;
   saveMaintenanceJob: (payload: any) => Promise<ApiResult & { id?: number }>;
   deleteMaintenanceJob: (id: number) => Promise<ApiResult>;
+  // LIRA-176 phase 6 — one job's status transition history. Reads return the
+  // RAW array (not the envelope) — see the dual-transport contract.
+  getMaintenanceStatusHistory: (
+    jobId: number,
+  ) => Promise<MaintenanceStatusHistoryRow[]>;
 
   // ---------------------------------------------------------------------------
   // Currencies (CRUD)

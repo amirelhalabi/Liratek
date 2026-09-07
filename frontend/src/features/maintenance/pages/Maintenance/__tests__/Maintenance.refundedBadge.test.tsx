@@ -18,6 +18,10 @@ jest.mock("@liratek/ui", () => ({
     getMaintenanceJobs: mockGetMaintenanceJobs,
     saveMaintenanceJob: jest.fn(),
     deleteMaintenanceJob: jest.fn(),
+    // LIRA-176 7b — status timeline + parts editor, fetched/queried when a
+    // job is loaded into the form.
+    getMaintenanceStatusHistory: jest.fn().mockResolvedValue([]),
+    getProducts: jest.fn().mockResolvedValue([]),
     // useAutoPrintReceipt -> useShopInfo() calls this on mount.
     getAllSettings: jest.fn().mockResolvedValue([]),
   }),
@@ -28,6 +32,10 @@ jest.mock("@/features/sessions/context/SessionContext", () => ({
     activeSession: null,
     addToCart: jest.fn(),
   }),
+}));
+
+jest.mock("@/features/auth/context/AuthContext", () => ({
+  useAuth: () => ({ user: { id: 1, username: "staff", role: "staff" } }),
 }));
 
 describe("Maintenance jobs list — refunded badge", () => {

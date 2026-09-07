@@ -218,6 +218,79 @@ describe("buildServiceReceiptText", () => {
     expect(r.indexOf("Credits $6")).toBeLessThan(r.indexOf("720,000 LBP"));
   });
 
+  // LIRA-176 phase 8b (item 8) — maintenance parts lines, "option 4":
+  // parts are always USD, never converted, and print PRICE ONLY (no cost,
+  // no margin — the receipt must never leak the shop's cost, same guard as
+  // "NEVER leaks cost/price/profit" above).
+  it("prints MAINTENANCE parts lines (price only), quantity shown only when > 1", () => {
+    const r = build({
+      txn: {
+        id: 601,
+        type: "MAINTENANCE",
+        summary: null,
+        note: "Cracked screen replacement",
+        client_name: "Sami",
+        client_phone: "70111222",
+        created_at: "2026-09-01T10:00:00Z",
+        metadata: {
+          final_amount: 100,
+          currency: "USD",
+          parts_price_usd: 55,
+          parts: [
+            { name: "Screen Assembly", quantity: 1, unit_price_usd: 40 },
+            { name: "Screw Kit", quantity: 3, unit_price_usd: 5 },
+          ],
+        },
+      },
+      legs: [
+        { method: "CASH", currency_code: "USD", amount: 155, direction: "IN" },
+      ],
+    });
+    // Single-unit part reads as a plain name — no "x1" suffix.
+    expect(r).toContain("Screen Assembly");
+    expect(r).not.toContain("Screen Assembly x1");
+    expect(r).toContain("$40.00");
+    // Multi-unit part shows "Name xN" and the LINE total (5 x 3 = 15), not
+    // the unit price.
+    expect(r).toContain("Screw Kit x3");
+    expect(r).toContain("$15.00");
+    // Price only — no cost/margin ever leaks onto a customer receipt.
+    expect(r.toLowerCase()).not.toContain("cost");
+    expect(r.toLowerCase()).not.toContain("margin");
+  });
+
+  it("a MAINTENANCE receipt with no metadata.parts is byte-identical whether the key is absent or an empty array", () => {
+    const baseTxn = {
+      id: 602,
+      type: "MAINTENANCE",
+      summary: null,
+      note: "Battery swap",
+      client_name: null,
+      client_phone: null,
+      created_at: "2026-09-01T10:00:00Z",
+    };
+    const legs = [
+      { method: "CASH", currency_code: "USD", amount: 50, direction: "IN" as const },
+    ];
+
+    const keyAbsent = build({
+      txn: { ...baseTxn, metadata: { final_amount: 50, currency: "USD" } },
+      legs,
+    });
+    const keyEmpty = build({
+      txn: {
+        ...baseTxn,
+        metadata: { final_amount: 50, currency: "USD", parts: [] },
+      },
+      legs,
+    });
+
+    expect(keyAbsent).toBe(keyEmpty);
+    // No stray part-line artifacts (e.g. a lingering "xN" quantity suffix)
+    // leaked into a receipt that has no parts at all.
+    expect(keyAbsent).not.toMatch(/\bx\d+\b/);
+  });
+
   it("handles an LBP-only recharge with no legs", () => {
     const r = build({
       txn: {

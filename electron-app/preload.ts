@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer, webFrame } from "electron";
 // dependency on @liratek/core (which is main-process only). preload.ts is
 // compiled to CommonJS (tsconfig.preload.json, module: Node16) while core is
 // ESM, hence the explicit resolution-mode attribute — without it TS1541.
-import type { ProductListFilters } from "@liratek/core" with {
+import type { ProductListFilters, SaveJobParams } from "@liratek/core" with {
   "resolution-mode": "import",
 };
 
@@ -773,9 +773,16 @@ contextBridge.exposeInMainWorld("api", {
 
   // Maintenance
   maintenance: {
-    save: (job: unknown) => ipcRenderer.invoke("maintenance:save", job),
+    // LIRA-176 phase 6 — `job: unknown` used to let every field (including
+    // `parts`/`allowOutOfStock`) through silently untyped. Typed against
+    // core's own SaveJobParams (rule 12: the data param type must list every
+    // field the frontend sends) so a future refactor that drops a field here
+    // is a compile error, not a silent no-op.
+    save: (job: SaveJobParams) => ipcRenderer.invoke("maintenance:save", job),
     getJobs: (statusFilter?: string) =>
       ipcRenderer.invoke("maintenance:get-jobs", statusFilter),
+    getStatusHistory: (jobId: number) =>
+      ipcRenderer.invoke("maintenance:getStatusHistory", { id: jobId }),
     delete: (id: number) => ipcRenderer.invoke("maintenance:delete", id),
     updateMetadata: (data: {
       id: number;

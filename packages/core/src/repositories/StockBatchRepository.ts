@@ -101,7 +101,10 @@ interface ConsumptionRow {
  * tables at once, so nothing would stop it pointing at a row that never
  * existed in either.
  */
-type ConsumptionOwnerColumn = "sale_item_id" | "custom_service_id";
+type ConsumptionOwnerColumn =
+  | "sale_item_id"
+  | "custom_service_id"
+  | "maintenance_part_id";
 
 // =============================================================================
 // Constants
@@ -247,6 +250,10 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
        *  by exactly one source), both are optional so a caller passes only
        *  the one that applies. */
       customServiceId?: number | null;
+      /** A maintenance job's attached part consuming batch units. Mutually
+       *  exclusive in practice with saleItemId/customServiceId (a consumption
+       *  row is owned by exactly one source). */
+      maintenancePartId?: number | null;
       reason: ConsumeReason;
       fallbackUnitCostUsd: number;
     },
@@ -276,9 +283,9 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
 
     const insertConsumption = this.db.prepare(
       `INSERT INTO stock_batch_consumptions (
-        tenant_id, batch_id, sale_item_id, custom_service_id, product_id,
-        quantity, unit_cost_usd, reason, is_restored, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        tenant_id, batch_id, sale_item_id, custom_service_id, maintenance_part_id,
+        product_id, quantity, unit_cost_usd, reason, is_restored, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
     const decrementBatch = this.db.prepare(
       `UPDATE product_stock_batches
@@ -297,6 +304,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
         batch.id,
         opts.saleItemId ?? null,
         opts.customServiceId ?? null,
+        opts.maintenancePartId ?? null,
         productId,
         takeQty,
         batch.unit_cost_usd,
@@ -421,6 +429,26 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
    */
   restoreForCustomService(customServiceId: number, quantity?: number): void {
     this._restoreConsumptions("custom_service_id", customServiceId, quantity);
+  }
+
+  /**
+   * Maintenance-part void/refund path — a maintenance job's attached part
+   * consumes a batch unit the same way a sale item does, but it cannot use
+   * `sale_item_id` (that foreign key points at `sale_items`, not
+   * `maintenance_parts` — using it here would either violate the FK or
+   * silently misattribute the row) nor `custom_service_id` (that points at
+   * `custom_services`). Refunding or voiding the job, deleting an unpaid job,
+   * or removing the part line must return those units the same way a sale
+   * refund does, or the create-then-reverse cycle leaks batch cover
+   * permanently and later sales silently fall through to fallback pricing.
+   * See `_restoreConsumptions` for the full semantics.
+   */
+  restoreForMaintenancePart(maintenancePartId: number, quantity?: number): void {
+    this._restoreConsumptions(
+      "maintenance_part_id",
+      maintenancePartId,
+      quantity,
+    );
   }
 
   /**

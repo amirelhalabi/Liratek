@@ -417,6 +417,29 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "(`customProfitPartnerOnly`/`customProfitDebtOnly`/`customProfitFull`) " +
     "each call at least one GATE_FRAGMENT literally and need no exclusion. " +
     "NO RESIDUAL GAP.",
+  // LIRA-176 phase 5 follow-up (2026-09-07) — this entry was briefly
+  // REMOVED, then RESTORED once the actual cause was fixed at its source.
+  // What happened: phase 5 rewrote this branch's cost expression to call
+  // the shared maintenanceCostUsd("maintenance") fragment and, in the same
+  // edit, placed its explanatory comment INSIDE the .prepare() call —
+  // between the opening parenthesis and the SQL template literal's opening
+  // backtick — for both this branch and its sibling maintProfitGated.
+  // collectQueryUnits's .prepare() detector (sqlQueryUnits.ts) only
+  // tolerates whitespace in that exact gap, so the comment there made the
+  // whole unit invisible to the guard on both branches at once: this key
+  // stopped matching any parsed unit (hence "stale"), and — worse —
+  // maintProfitGated's real notDebtPending() call also went unseen, so a
+  // future regression there would have passed silently. Deleting the key
+  // would have made the suite green while leaving both queries permanently
+  // unmonitored, which is a coverage regression, not a fix. The actual fix
+  // was moving both comment blocks in ClosingRepository.ts back above
+  // their "const ... = this.db" lines, restoring the shape every other
+  // parseable unit in this file already has (bare whitespace between
+  // .prepare( and the backtick) — verified with a debug dump of
+  // collectQueryUnits over the current ClosingRepository.ts showing both
+  // maintProfitDegraded and maintProfitGated parsed again, with correct SQL
+  // bodies and no phantom units. With the unit visible again, this entry's
+  // original justification (below, unchanged) is correct once more:
   "ClosingRepository:getDailyStatsSnapshot:maintProfitDegraded":
     "LIRA-158 FIX (unchanged by LIRA-160, restated): `LOWER(status) = " +
     "'completed'` used to never match any row — maintenance.status's real " +

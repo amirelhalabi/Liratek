@@ -16,6 +16,13 @@ const paymentLineSchema = z.object({
   amount: z.number(),
 });
 
+const maintenancePartSchema = z.object({
+  id: positiveIntegerSchema.optional(),
+  product_id: positiveIntegerSchema,
+  quantity: positiveIntegerSchema,
+  unit_price_usd: z.number().min(0).optional(),
+});
+
 export const saveMaintenanceJobSchema = z.object({
   id: positiveIntegerSchema.optional(), // For updates
   device_name: z.string().min(1).max(255),
@@ -47,6 +54,11 @@ export const saveMaintenanceJobSchema = z.object({
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
   transaction_time: transactionTimeSchema,
+  // MUST stay .optional() with NO .default([]) — an omitted `parts` key means
+  // "leave the job's parts untouched", and a default of [] would turn every
+  // legacy payload (and every status-transition resave, which sends no parts
+  // key) into "delete all parts", silently wiping parts and leaking stock.
+  parts: z.array(maintenancePartSchema).optional(),
 });
 
 export const getMaintenanceJobsSchema = z.object({
@@ -62,5 +74,12 @@ export const getMaintenanceJobsSchema = z.object({
     .optional(),
 });
 
+export const getMaintenanceStatusHistorySchema = z.object({
+  id: positiveIntegerSchema,
+});
+
 export type SaveMaintenanceJobInput = z.infer<typeof saveMaintenanceJobSchema>;
 export type GetMaintenanceJobsInput = z.infer<typeof getMaintenanceJobsSchema>;
+export type GetMaintenanceStatusHistoryInput = z.infer<
+  typeof getMaintenanceStatusHistorySchema
+>;

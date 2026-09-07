@@ -98,4 +98,33 @@ router.delete(
   },
 );
 
+// GET /api/maintenance/jobs/:id/history - one job's status transition
+// history, chronological (oldest first). Mirrors the IPC
+// "maintenance:getStatusHistory" channel, which carries no requireRole call
+// of its own (same as "maintenance:get-jobs" above) — so this route adds
+// none beyond the router-level authenticateJWT either, to match. `id` is
+// parsed manually (not via getMaintenanceStatusHistorySchema through
+// validateParams) — that schema's `id` is a plain z.number(), which fails
+// against a URL param (always a string) the same way the DELETE route above
+// would if it used it; parseInt+isNaN mirrors that proven-working DELETE
+// route in this same file instead.
+router.get("/jobs/:id/history", (req, res): void => {
+  try {
+    const jobId = parseInt(req.params.id, 10);
+    if (isNaN(jobId)) {
+      // Rule 19c: HTTP 200 even on failure.
+      res.status(200).json({ success: false, error: "Invalid job ID" });
+      return;
+    }
+
+    const history = maintenanceService.getStatusHistory(jobId);
+    res.status(200).json({ success: true, data: history });
+  } catch (error) {
+    logger.error({ error }, "Get maintenance status history error");
+    res
+      .status(200)
+      .json({ success: false, error: "Failed to fetch status history" });
+  }
+});
+
 export default router;

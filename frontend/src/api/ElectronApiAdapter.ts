@@ -213,6 +213,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getMaintenanceJobs(statusFilter);
   saveMaintenanceJob = (payload: any) => api.saveMaintenanceJob(payload);
   deleteMaintenanceJob = (id: number) => api.deleteMaintenanceJob(id);
+  getMaintenanceStatusHistory = (jobId: number) =>
+    api.getMaintenanceStatusHistory(jobId);
 
   // ---------------------------------------------------------------------------
   // Currencies (CRUD)

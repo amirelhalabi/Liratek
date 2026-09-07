@@ -82,6 +82,8 @@ export interface MaintTotalsRow {
   profit_usd: number;
   profit_lbp: number;
   count: number;
+  parts_revenue_usd: number;
+  parts_cost_usd: number;
 }
 
 export interface LotoTotalsRow {
@@ -972,6 +974,19 @@ export function maintenanceCompleted(alias: string): string {
 }
 
 /**
+ * Total maintenance USD cost = labour USD cost + parts cost. ONE definition
+ * (rule 14) — `maintenance.cost_usd` means LABOUR cost only, so every query
+ * that used it as "the job's cost" understates by the parts cost once a job
+ * has parts. Takes an alias, mirroring `maintenanceCompleted` above, so
+ * ClosingRepository's unaliased `FROM maintenance` can reuse it too.
+ * There is deliberately NO `_lbp` twin: parts are always USD and never
+ * converted, so `cost_lbp` is already complete.
+ */
+export function maintenanceCostUsd(alias: string): string {
+  return `(${alias}.cost_usd + ${alias}.parts_cost_usd)`;
+}
+
+/**
  * DBT-2 / PFT-6 (proportional recognition, 2026-09-05 — Step 2 of
  * docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md) — the
  * transactions-alias counterpart of the (literal-`refTable`) fragment
@@ -1754,11 +1769,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         `SELECT
           COALESCE(SUM(m.final_amount_usd), 0) AS revenue_usd,
           COALESCE(SUM(m.final_amount_lbp), 0) AS revenue_lbp,
-          COALESCE(SUM(m.cost_usd), 0) AS cost_usd,
+          COALESCE(SUM(${maintenanceCostUsd("m")}), 0) AS cost_usd,
           COALESCE(SUM(m.cost_lbp), 0) AS cost_lbp,
           COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
           COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
-          COUNT(*) AS count
+          COUNT(*) AS count,
+          COALESCE(SUM(m.parts_price_usd), 0) AS parts_revenue_usd,
+          COALESCE(SUM(m.parts_cost_usd), 0) AS parts_cost_usd
         FROM maintenance m
         JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
         WHERE ${maintenanceCompleted("m")}
@@ -2407,7 +2424,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             DATE(m.created_at, 'localtime') AS d,
             COALESCE(SUM(m.final_amount_usd), 0) AS revenue_usd,
             COALESCE(SUM(m.final_amount_lbp), 0) AS revenue_lbp,
-            COALESCE(SUM(m.cost_usd), 0) AS cost_usd,
+            COALESCE(SUM(${maintenanceCostUsd("m")}), 0) AS cost_usd,
             COALESCE(SUM(m.cost_lbp), 0) AS cost_lbp,
             COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
             COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp

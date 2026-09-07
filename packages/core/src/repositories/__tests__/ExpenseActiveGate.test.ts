@@ -252,7 +252,38 @@ function createTestDb(): Database.Database {
       is_refunded       INTEGER DEFAULT 0,
       created_at        TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at        TEXT DEFAULT CURRENT_TIMESTAMP
+    ,
+  parts_cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+  parts_price_usd DECIMAL(10,2) NOT NULL DEFAULT 0
+);
+
+    CREATE TABLE maintenance_parts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      maintenance_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      unit_cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+      unit_price_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+      stock_restored INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+
+    CREATE TABLE maintenance_status_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      maintenance_id INTEGER NOT NULL,
+      from_status TEXT,
+      to_status TEXT NOT NULL,
+      changed_by INTEGER,
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
   `);
   return db;
 }

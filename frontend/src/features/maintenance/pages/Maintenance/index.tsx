@@ -8,15 +8,50 @@ import {
   Clock,
   ChevronRight,
   Trash2,
+  X,
 } from "lucide-react";
 import CheckoutModal from "@/features/sales/pages/POS/components/CheckoutModal";
 import { appEvents, PageHeader, useApi, DecimalInput } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { useAuth } from "@/features/auth/context/AuthContext";
 import { HistoryModal } from "./components/HistoryModal";
+import PartPicker, {
+  toPartsPayload,
+  partsTotalUsd,
+  type PartLine,
+} from "./components/PartPicker";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
+
+// LIRA-176 phase 6 — a job's attached part line, as returned by getJobs.
+type JobPart = {
+  id: number;
+  maintenance_id: number;
+  product_id: number;
+  product_name: string;
+  quantity: number;
+  unit_cost_usd: number;
+  unit_price_usd: number;
+  stock_restored: number;
+  created_at: string;
+  updated_at: string;
+};
+
+// LIRA-176 phase 6 — one status transition. Mirrors
+// MaintenanceStatusHistoryRow (packages/ui/src/api/types.ts) field-for-field;
+// hand-kept in sync rather than imported (that type isn't re-exported through
+// @liratek/ui's barrel).
+type StatusHistoryRow = {
+  id: number;
+  maintenance_id: number;
+  from_status: string | null;
+  to_status: string;
+  changed_by: number | null;
+  note: string | null;
+  created_at: string;
+};
 
 type MaintenanceJob = {
   id: number;
@@ -37,6 +72,10 @@ type MaintenanceJob = {
   final_amount_usd?: number;
   final_amount_lbp?: number;
   is_refunded?: number;
+  // LIRA-176 phase 6/7b — attached parts + denormalised USD totals.
+  parts?: JobPart[];
+  parts_cost_usd?: number;
+  parts_price_usd?: number;
 };
 
 /** Status tabs for the jobs list (client-side filtered). */
@@ -96,6 +135,8 @@ function statusBadge(status: string): { label: string; className: string } {
 export default function Maintenance() {
   const api = useApi();
   const { activeSession, addToCart: addToSessionCart } = useSession();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   // LIRA-069 W1.d — auto-print on a successful STANDALONE checkout (skipped
   // when a session is active; the session gets its own Print button at
   // checkout, W1.b).
@@ -117,6 +158,10 @@ export default function Maintenance() {
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  // LIRA-176 phase 7b — the parts draft. Owned by this page; PartPicker is a
+  // controlled editor over it. Always USD, never converted.
+  const [parts, setParts] = useState<PartLine[]>([]);
+  const [statusHistory, setStatusHistory] = useState<StatusHistoryRow[]>([]);
   const {
     saveAsClient,
     setSaveAsClient,
@@ -170,10 +215,41 @@ export default function Maintenance() {
     };
   }, [filter]);
 
+  // LIRA-176 phase 7b (task 6) — lazily fetch the status timeline for
+  // whichever job is currently loaded into the form. Not fetched per row in
+  // the jobs list — only for the one job being edited.
+  useEffect(() => {
+    let cancelled = false;
+    const jobId = editingJob?.id;
+    if (jobId == null) {
+      setStatusHistory([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const data = await api.getMaintenanceStatusHistory(jobId);
+        if (!cancelled) setStatusHistory(data);
+      } catch (error) {
+        if (!cancelled) {
+          logger.error("Failed to load status history:", error);
+          setStatusHistory([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editingJob?.id]);
+
   /**
    * Build the currency-scoped pricing fields for a save payload.
    * The unselected currency's columns are zeroed so a job is priced in
    * exactly one currency at a time.
+   *
+   * LABOUR-ONLY. `finalAmount` here is the labour price net of discount —
+   * the backend folds the parts total in on its own side. NEVER add a
+   * parts total into any value passed through this function: doing so
+   * double-counts every part (once here, once in the backend's own fold).
    */
   const buildPricing = (
     costStr: string,
@@ -216,6 +292,7 @@ export default function Maintenance() {
     setClientName("");
     setClientPhone("");
     setTransactionTime(undefined);
+    setParts([]);
     resetSaveAsClient();
   };
 
@@ -234,57 +311,15 @@ export default function Maintenance() {
     }
     setClientName(job.client_name || "");
     setClientPhone(job.client_phone || "");
-  };
-
-  const handleStatusTransition = async (
-    job: MaintenanceJob,
-    e: React.MouseEvent,
-  ) => {
-    e.stopPropagation();
-    const nextStatus: Record<string, Status> = {
-      Received: "In_Progress",
-      In_Progress: "Ready",
-      Ready: "Ready",
-    };
-    const newStatus = nextStatus[job.status];
-    if (!newStatus || newStatus === job.status) return;
-
-    const cur: "USD" | "LBP" = job.currency === "LBP" ? "LBP" : "USD";
-    const result = await api.saveMaintenanceJob({
-      id: job.id,
-      device_name: job.device_name,
-      issue_description: job.issue_description,
-      currency: cur,
-      cost_usd: job.cost_usd ?? 0,
-      price_usd: job.price_usd ?? 0,
-      cost_lbp: job.cost_lbp ?? 0,
-      price_lbp: job.price_lbp ?? 0,
-      client_name: job.client_name || "",
-      client_phone: job.client_phone || "",
-      status: newStatus,
-      paid_usd: job.paid_usd || 0,
-      paid_lbp: job.paid_lbp || 0,
-      discount_usd: job.discount_usd || 0,
-      final_amount_usd: cur === "USD" ? (job.price_usd ?? 0) : 0,
-      final_amount_lbp: cur === "LBP" ? (job.price_lbp ?? 0) : 0,
-    });
-    if (result.success) {
-      const data = await api.getMaintenanceJobs(filter);
-      setJobs(data);
-    }
-  };
-
-  const handleVoid = async (id: number) => {
-    if (confirm("Delete this job?")) {
-      const res = await api.deleteMaintenanceJob(id);
-      if (!res.success) {
-        // Paid jobs are money history — deletion is blocked backend-side.
-        alert(res.error || "Failed to delete job");
-        return;
-      }
-      const data = await api.getMaintenanceJobs(filter);
-      setJobs(data);
-    }
+    setParts(
+      (job.parts ?? []).map((p) => ({
+        id: p.id,
+        product_id: p.product_id,
+        product_name: p.product_name,
+        quantity: p.quantity,
+        unit_price_usd: p.unit_price_usd,
+      })),
+    );
   };
 
   type Status = "Received" | "In_Progress" | "Ready" | "Delivered";
@@ -295,6 +330,9 @@ export default function Maintenance() {
    * at checkout time so an unchanged price+discount round-trips to the same
    * stored value — required for the paid-job amount-immutability guard
    * (MaintenanceRepository.updateJob) to pass on a notes-only edit.
+   *
+   * LABOUR-ONLY, same as `buildPricing` above — never add a parts total
+   * into the value this returns.
    *
    * - USD: `discount_usd` is a real persisted column → final = price − discount_usd.
    * - LBP: there is no `discount_lbp` column (checkout only ever wrote the
@@ -317,6 +355,151 @@ export default function Maintenance() {
     }
     const discountUsd = job.discount_usd ?? 0;
     return Math.max(0, p - discountUsd);
+  };
+
+  /**
+   * The ONE `saveMaintenanceJob` payload builder (CLAUDE.md rule 14) — every
+   * save path (draft, checkout, status transition) routes through this so
+   * the discount survives every one of them. Before this existed,
+   * `handleStatusTransition` recomputed `final_amount` from the raw price,
+   * silently discarding any discount already stored on the job; routing it
+   * through `buildPricing`/`computeFinalAmount` like the other two paths
+   * fixes that.
+   *
+   * `parts` is deliberately omitted from the parameter list when the caller
+   * doesn't pass it — never defaulted to `[]` — so the payload's `parts` key
+   * is only present when a caller that actually owns the parts editor
+   * (draft save, checkout) supplies it. A status transition passes no
+   * `parts`, so the key is absent and the backend leaves the job's parts
+   * untouched.
+   */
+  const buildJobPayload = (params: {
+    id?: number | undefined;
+    deviceName: string;
+    issue: string;
+    cost: string;
+    price: string;
+    currency: "USD" | "LBP";
+    status: Status;
+    clientName: string;
+    clientPhone: string;
+    /** The job this save is based on — used to preserve an existing
+     *  discount (via `computeFinalAmount`) and to fall back paid_usd/
+     *  paid_lbp/discount_usd when the caller doesn't override them. */
+    priorJob: MaintenanceJob | null;
+    clientOverride?:
+      | {
+          client_id?: number | null | undefined;
+          client_name?: string | undefined;
+          client_phone?: string | undefined;
+        }
+      | undefined;
+    /** Final amount (labour-only), already computed by the caller —
+     *  checkout passes its own (see handleCheckoutComplete's
+     *  `labourFinal`). Omit to derive it from
+     *  `computeFinalAmount(priorJob, price, currency)`, which is what
+     *  preserves an existing discount on a draft resave or a status-only
+     *  transition. */
+    finalAmount?: number | undefined;
+    discountUsd?: number | undefined;
+    paidUsd?: number | undefined;
+    paidLbp?: number | undefined;
+    /** Omit entirely to leave the job's parts untouched. Never pass `[]`
+     *  to mean "no change" — an explicit empty array deletes every part
+     *  and returns its stock. */
+    parts?: PartLine[] | undefined;
+    checkout?:
+      | {
+          exchange_rate: number;
+          payments: unknown[];
+          paid_by: string;
+          change_given_usd: number;
+          change_given_lbp: number;
+        }
+      | undefined;
+    transactionTime?: string | undefined;
+  }) => {
+    const finalAmount =
+      params.finalAmount ??
+      computeFinalAmount(params.priorJob, params.price, params.currency);
+
+    return {
+      ...(params.id != null ? { id: params.id } : {}),
+      device_name: params.deviceName,
+      issue_description: params.issue,
+      ...buildPricing(params.cost, params.price, params.currency, finalAmount),
+      ...(params.clientOverride?.client_id != null
+        ? { client_id: params.clientOverride.client_id }
+        : {}),
+      client_name: params.clientOverride?.client_name || params.clientName,
+      client_phone: params.clientOverride?.client_phone || params.clientPhone,
+      status: params.status,
+      paid_usd: params.paidUsd ?? params.priorJob?.paid_usd ?? 0,
+      paid_lbp: params.paidLbp ?? params.priorJob?.paid_lbp ?? 0,
+      discount_usd: params.discountUsd ?? params.priorJob?.discount_usd ?? 0,
+      ...(params.parts !== undefined
+        ? { parts: toPartsPayload(params.parts) }
+        : {}),
+      ...(params.checkout
+        ? {
+            exchange_rate: params.checkout.exchange_rate,
+            payments: params.checkout.payments,
+            paid_by: params.checkout.paid_by,
+            change_given_usd: params.checkout.change_given_usd,
+            change_given_lbp: params.checkout.change_given_lbp,
+          }
+        : {}),
+      transaction_time: params.transactionTime,
+    };
+  };
+
+  const handleStatusTransition = async (
+    job: MaintenanceJob,
+    e: React.MouseEvent,
+  ) => {
+    e.stopPropagation();
+    const nextStatus: Record<string, Status> = {
+      Received: "In_Progress",
+      In_Progress: "Ready",
+      Ready: "Ready",
+    };
+    const newStatus = nextStatus[job.status];
+    if (!newStatus || newStatus === job.status) return;
+
+    const cur: "USD" | "LBP" = job.currency === "LBP" ? "LBP" : "USD";
+    const priceStr = String(cur === "LBP" ? (job.price_lbp ?? 0) : (job.price_usd ?? 0));
+    const costStr = String(cur === "LBP" ? (job.cost_lbp ?? 0) : (job.cost_usd ?? 0));
+    const payload = buildJobPayload({
+      id: job.id,
+      deviceName: job.device_name,
+      issue: job.issue_description,
+      cost: costStr,
+      price: priceStr,
+      currency: cur,
+      status: newStatus,
+      clientName: job.client_name || "",
+      clientPhone: job.client_phone || "",
+      priorJob: job,
+      // No `parts` key — a status transition never touches parts.
+    });
+    const result = await api.saveMaintenanceJob(payload);
+    if (result.success) {
+      const data = await api.getMaintenanceJobs(filter);
+      setJobs(data);
+    }
+  };
+
+  const handleVoid = async (id: number) => {
+    if (confirm("Delete this job?")) {
+      const res = await api.deleteMaintenanceJob(id);
+      if (!res.success) {
+        // Paid jobs are money history — deletion is blocked backend-side.
+        alert(res.error || "Failed to delete job");
+        return;
+      }
+      const data = await api.getMaintenanceJobs(filter);
+      setJobs(data);
+    }
   };
 
   /**
@@ -348,27 +531,23 @@ export default function Maintenance() {
   }) => {
     await trySaveAsClient();
 
-    const jobData = {
-      ...(editingJob?.id != null ? { id: editingJob.id } : {}),
-      device_name: deviceName,
-      issue_description: issue,
-      ...buildPricing(
-        cost,
-        price,
-        currency,
-        computeFinalAmount(editingJob, price, currency),
-      ),
-      ...(clientOverride?.client_id != null
-        ? { client_id: clientOverride.client_id }
-        : {}),
-      client_name: clientOverride?.client_name || clientName,
-      client_phone: clientOverride?.client_phone || clientPhone,
+    // The draft path OWNS the parts editor — `parts` is always passed
+    // (possibly `[]` for a job with none), never omitted.
+    const jobData = buildJobPayload({
+      id: editingJob?.id,
+      deviceName,
+      issue,
+      cost,
+      price,
+      currency,
       status: (editingJob?.status as Status) || "Received",
-      paid_usd: editingJob?.paid_usd || 0,
-      paid_lbp: editingJob?.paid_lbp || 0,
-      discount_usd: editingJob?.discount_usd || 0,
-      transaction_time: transactionTime,
-    };
+      clientName,
+      clientPhone,
+      priorJob: editingJob,
+      clientOverride,
+      parts,
+      transactionTime,
+    });
 
     const result = await api.saveMaintenanceJob(jobData);
     if (result.success) {
@@ -391,31 +570,55 @@ export default function Maintenance() {
         ? paymentData.currency
         : currency;
 
-    const jobData = {
-      ...(editingJob?.id != null ? { id: editingJob.id } : {}),
-      device_name: deviceName,
-      issue_description: issue,
-      ...buildPricing(cost, price, cur, paymentData.final_amount),
-      ...(paymentData.client_id != null
-        ? { client_id: paymentData.client_id }
-        : {}),
-      client_name: paymentData.client_name || clientName,
-      client_phone: paymentData.client_phone || clientPhone,
+    const partsPriceUsdAtCheckout = partsTotalUsd(parts);
+    // LIRA-176 7b: CheckoutModal's `totalAmount` merges parts into a USD
+    // job's total (parts ride in the SAME currency as labour there — see
+    // the CheckoutModal props below) but NEVER into an LBP job's total
+    // (parts ride as a separate `extraTotals` USD entry instead). So
+    // converting the modal's `final_amount` back to the labour-only figure
+    // the backend expects is asymmetric per currency — do NOT "simplify"
+    // this to one formula, or one side silently double-counts parts.
+    const labourFinal =
+      cur === "USD"
+        ? Math.max(0, (paymentData.final_amount || 0) - partsPriceUsdAtCheckout)
+        : Math.max(0, paymentData.final_amount || 0);
+
+    const jobData = buildJobPayload({
+      id: editingJob?.id,
+      deviceName,
+      issue,
+      cost,
+      price,
+      currency: cur,
+      status: "Delivered_Paid" as Status,
+      clientName,
+      clientPhone,
+      priorJob: editingJob,
+      clientOverride: {
+        client_id: paymentData.client_id,
+        client_name: paymentData.client_name,
+        client_phone: paymentData.client_phone,
+      },
+      finalAmount: labourFinal,
       // Only USD discounts have a dedicated column; LBP net is captured in
       // final_amount_lbp.
-      discount_usd: cur === "USD" ? paymentData.discount || 0 : 0,
-      paid_usd: paymentData.payment_usd,
-      paid_lbp: paymentData.payment_lbp,
-      exchange_rate: paymentData.exchange_rate,
-      payments: paymentData.payments || [],
-      paid_by: paymentData.payments?.[0]?.method || "CASH",
-      change_given_usd: paymentData.change_given_usd || 0,
-      change_given_lbp: paymentData.change_given_lbp || 0,
-      status: "Delivered_Paid" as Status,
-      transaction_time: transactionTime,
-    };
+      discountUsd: cur === "USD" ? paymentData.discount || 0 : 0,
+      paidUsd: paymentData.payment_usd,
+      paidLbp: paymentData.payment_lbp,
+      parts,
+      checkout: {
+        exchange_rate: paymentData.exchange_rate,
+        payments: paymentData.payments || [],
+        paid_by: paymentData.payments?.[0]?.method || "CASH",
+        change_given_usd: paymentData.change_given_usd || 0,
+        change_given_lbp: paymentData.change_given_lbp || 0,
+      },
+      transactionTime,
+    });
 
-    // If session is active, add to cart instead of submitting
+    // If session is active, add to cart instead of submitting. jobData
+    // already carries `parts` (built above), so nothing extra is needed
+    // here for parts to ride along with the rest of the session basket.
     if (activeSession) {
       const finalAmt = paymentData.final_amount || parseFloat(price) || 0;
       const amountLabel =
@@ -484,6 +687,32 @@ export default function Maintenance() {
   // MAINTENANCE_AMOUNT_EDIT_BLOCKED_ERROR.
   const isAmountLocked = hasMoneyHistory && !isRefundedOrVoided;
 
+  // ── LIRA-176 7b — parts totals + labour-discounted display (task 3/7) ──
+  const partsPriceUsd = partsTotalUsd(parts);
+  // The discounted labour figure the page already computes for a save —
+  // reused here purely for display, never fed back into buildPricing/
+  // computeFinalAmount with parts added (that would double-count).
+  const labourFinalDisplay = computeFinalAmount(editingJob, price, currency);
+  const fmtCurrency = (v: number) =>
+    currency === "LBP"
+      ? `${Math.round(v).toLocaleString()} LBP`
+      : `$${v.toFixed(2)}`;
+
+  const isFormDirty = Boolean(
+    deviceName.trim() ||
+      issue.trim() ||
+      cost.trim() ||
+      price.trim() ||
+      clientName.trim() ||
+      clientPhone.trim() ||
+      parts.length > 0,
+  );
+
+  const handleCancelForm = () => {
+    if (isFormDirty && !confirm("Discard unsaved changes?")) return;
+    handleNewJob();
+  };
+
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
@@ -543,6 +772,25 @@ export default function Maintenance() {
                     const isRefunded = Boolean(job.is_refunded);
                     const canTransition =
                       job.status === "Received" || job.status === "In_Progress";
+                    // LIRA-176 7b (task 5) — parts summary + grand total,
+                    // in place of the labour-only price this row used to
+                    // show. Uses the job's own denormalised
+                    // parts_price_usd (never recomputed from job.parts) —
+                    // one source of truth, no duplicated predicate.
+                    const jobPartsPrice = job.parts_price_usd ?? 0;
+                    const partsSummary = (job.parts ?? [])
+                      .map((p) => `${p.product_name} x${p.quantity}`)
+                      .join(", ");
+                    const hasAmount =
+                      job.currency === "LBP"
+                        ? (job.price_lbp ?? 0) > 0 || jobPartsPrice > 0
+                        : (job.price_usd ?? 0) > 0 || jobPartsPrice > 0;
+                    const grandTotalLabel =
+                      job.currency === "LBP"
+                        ? jobPartsPrice > 0
+                          ? `${Math.round(job.price_lbp ?? 0).toLocaleString()} LBP + $${jobPartsPrice.toFixed(2)}`
+                          : `${Math.round(job.price_lbp ?? 0).toLocaleString()} LBP`
+                        : `$${((job.price_usd ?? 0) + jobPartsPrice).toFixed(2)}`;
                     return (
                       <button
                         key={job.id}
@@ -590,6 +838,14 @@ export default function Maintenance() {
                                 : job.issue_description}
                             </p>
                           )}
+                          {partsSummary && (
+                            <p
+                              className="text-[10px] text-slate-600 mt-0.5 truncate"
+                              title={partsSummary}
+                            >
+                              {partsSummary}
+                            </p>
+                          )}
                         </div>
                         {canTransition && (
                           <button
@@ -604,17 +860,11 @@ export default function Maintenance() {
                             {job.status === "Received" ? "Start" : "Ready"}
                           </button>
                         )}
-                        {job.currency === "LBP"
-                          ? (job.price_lbp ?? 0) > 0 && (
-                              <span className="text-xs font-mono text-emerald-400">
-                                {(job.price_lbp ?? 0).toLocaleString()} LBP
-                              </span>
-                            )
-                          : (job.price_usd ?? 0) > 0 && (
-                              <span className="text-xs font-mono text-emerald-400">
-                                ${job.price_usd?.toFixed(2)}
-                              </span>
-                            )}
+                        {hasAmount && (
+                          <span className="text-xs font-mono text-emerald-400 shrink-0 whitespace-nowrap">
+                            {grandTotalLabel}
+                          </span>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -635,9 +885,19 @@ export default function Maintenance() {
           </div>
           {/* Left: New/Edit Job Form */}
           <div className="order-1 lg:col-span-1 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden">
-            <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-              <Plus className="text-violet-400" size={20} />
-              {editingJob ? "Edit Job" : "New Repair Job"}
+            <h2 className="text-lg font-bold text-white mb-6 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <Plus className="text-violet-400" size={20} />
+                {editingJob ? "Edit Job" : "New Repair Job"}
+              </span>
+              <button
+                type="button"
+                onClick={handleCancelForm}
+                className="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
+                title="Cancel"
+              >
+                <X size={18} />
+              </button>
             </h2>
 
             <div className="space-y-3 flex-1 overflow-auto pr-1 custom-scrollbar">
@@ -769,6 +1029,46 @@ export default function Maintenance() {
                 </div>
               </div>
 
+              {/* Parts (task 2) — always USD, never converted. */}
+              <PartPicker
+                parts={parts}
+                onChange={setParts}
+                disabled={isAmountLocked}
+              />
+
+              {/* Totals (task 3) — labour is the discounted labour figure
+                  the page already computes; parts is the live sum of the
+                  parts draft above. Never merges the two into one currency
+                  when the job is LBP-priced (parts stay USD). */}
+              <div className="bg-slate-900/60 border border-slate-700/40 rounded-lg p-3 space-y-1 text-sm">
+                <div className="flex justify-between text-slate-400">
+                  <span>Labour</span>
+                  <span className="font-mono text-white">
+                    {fmtCurrency(labourFinalDisplay)}
+                  </span>
+                </div>
+                {partsPriceUsd > 0 && (
+                  <div className="flex justify-between text-slate-400">
+                    <span>Parts</span>
+                    <span className="font-mono text-white">
+                      ${partsPriceUsd.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t border-slate-700/50 pt-1 font-semibold text-emerald-400">
+                  <span>
+                    {currency === "LBP" && partsPriceUsd > 0 ? "Due" : "Total"}
+                  </span>
+                  <span className="font-mono">
+                    {currency === "LBP"
+                      ? partsPriceUsd > 0
+                        ? `${fmtCurrency(labourFinalDisplay)} + $${partsPriceUsd.toFixed(2)}`
+                        : fmtCurrency(labourFinalDisplay)
+                      : `$${(labourFinalDisplay + partsPriceUsd).toFixed(2)}`}
+                  </span>
+                </div>
+              </div>
+
               {/* Client Info */}
               <div>
                 <label
@@ -807,6 +1107,87 @@ export default function Maintenance() {
                 onChange={setSaveAsClient}
                 hidden={!showSaveAsClient}
               />
+
+              {/* Status timeline (task 6) — read-only, for the loaded job. */}
+              {editingJob && (
+                <div className="border-t border-slate-700/50 pt-3">
+                  <h4 className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                    <History size={12} />
+                    Status Timeline
+                  </h4>
+                  {statusHistory.length === 0 ? (
+                    <p className="text-[11px] text-slate-600">
+                      No status changes recorded yet.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {statusHistory.map((h) => {
+                        const toBadge = statusBadge(h.to_status);
+                        return (
+                          <li
+                            key={h.id}
+                            className="flex items-center gap-2 text-[11px]"
+                          >
+                            {h.from_status && (
+                              <span className="text-slate-600">
+                                {statusBadge(h.from_status).label} →
+                              </span>
+                            )}
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-medium ${toBadge.className}`}
+                            >
+                              {toBadge.label}
+                            </span>
+                            <span className="text-slate-500 ml-auto whitespace-nowrap">
+                              {parseDbDate(h.created_at).toLocaleString()}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {/* Profit block (task 7) — admins only. */}
+              {isAdmin && editingJob && (
+                <div className="border-t border-slate-700/50 pt-3 space-y-1 text-[11px]">
+                  <h4 className="text-xs font-semibold text-slate-400 mb-1">
+                    Profit
+                  </h4>
+                  {(() => {
+                    const labourCostVal = parseFloat(cost) || 0;
+                    const labourMargin = labourFinalDisplay - labourCostVal;
+                    const partsMargin =
+                      (editingJob.parts_price_usd ?? 0) -
+                      (editingJob.parts_cost_usd ?? 0);
+                    return (
+                      <>
+                        <div className="flex justify-between text-slate-400">
+                          <span>Labour margin</span>
+                          <span className="font-mono text-white">
+                            {fmtCurrency(labourMargin)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-slate-400">
+                          <span>Parts margin</span>
+                          <span className="font-mono text-white">
+                            ${partsMargin.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between border-t border-slate-700/50 pt-1 font-semibold text-emerald-400">
+                          <span>Total</span>
+                          <span className="font-mono">
+                            {currency === "LBP"
+                              ? `${fmtCurrency(labourMargin)} + $${partsMargin.toFixed(2)}`
+                              : `$${(labourMargin + partsMargin).toFixed(2)}`}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
 
             <TransactionTimeOverride
@@ -839,8 +1220,24 @@ export default function Maintenance() {
         <div className="fixed inset-0 z-[60]">
           <CheckoutModal
             allowKeepChange={true}
-            totalAmount={parseFloat(price) || 0}
+            totalAmount={
+              currency === "USD"
+                ? (parseFloat(price) || 0) + partsPriceUsd
+                : parseFloat(price) || 0
+            }
             currency={currency}
+            // LIRA-176 7b (task 4): cap the discount at the labour price so
+            // it can never eat into the parts total merged into
+            // totalAmount above. Only meaningful for a USD job — an LBP
+            // job's totalAmount never includes parts in the first place
+            // (they ride as extraTotals below), so there's nothing for an
+            // LBP discount to eat into.
+            maxDiscount={currency === "USD" ? parseFloat(price) || 0 : undefined}
+            extraTotals={
+              currency === "LBP" && partsPriceUsd > 0
+                ? [{ amount: partsPriceUsd, currency: "USD" }]
+                : undefined
+            }
             onClose={() => setIsCheckoutOpen(false)}
             onComplete={handleCheckoutComplete}
             onSaveDraft={async (data) => {
