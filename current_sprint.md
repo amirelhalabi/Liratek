@@ -3626,3 +3626,101 @@ make sure an LBP profit slice reaches *a* total rather than vanishing.
 **Acceptance:** every module's LBP profit slice reaches either `totalProfitLBP` or a documented,
 deliberate exclusion; rule 17 failing-first per module changed; the shared gate fragments reused, never
 re-texted (rule 14); and LIRA-174's PDF label updated once the figure is genuinely complete.
+
+---
+
+# 2026-09-07 session findings — filed 2026-09-07
+
+---
+
+## LIRA-177: Profits page visible to all roles, gated by a separate per-page password — MEDIUM — SHIPPED, VERIFICATION PARTIAL (2026-09-07)
+
+**Priority:** Medium · **Epic:** Profits / Auth · **Status:** PARTIAL — feature complete and desktop
+e2e green; core jest and the whole web transport are UNVERIFIED (see §5). Do not mark DONE until §5
+is closed.
+
+**Commits (all on `main`):** `12c3dd72` feature · `c074843f` Suspense revoke fix · `a36850a4`
+lira-120/158 spec fixes · `a079bc79` gate-state wait fix.
+
+### 1. Owner spec (recorded, not designed here)
+
+"Profits page should be visible for all user roles, but when accessing that page I want an 'enter
+your password' — we will have a separate password for that page set only by admin user from
+settings." Three follow-up decisions, all owner-answered:
+
+- **Everyone types it** — admin is prompted too, not just staff.
+- **Server-enforced**, not a UI curtain.
+- **Every visit re-prompts**, plus a 15-minute timeout after unlock.
+
+### 2. What shipped
+
+- Migration **v163** flips the `profits` module row to `admin_only = 0` (both roles see the nav
+  item); `create_db.sql` mirrored (rule 10). `/profits` route moved `AdminRoute` → `ProtectedRoute`.
+- `ProfitsAccessService` (core) holds set/verify/isPasswordSet over `SettingsRepository` (rule 13),
+  scrypt via `utils/crypto`. **Fail closed** — nobody enters, admin included, until an admin sets a
+  password in Settings › Profits Password. Short PINs are legal: it enforces
+  `PROFITS_PASSWORD_MIN_LENGTH` (4), deliberately NOT `validatePasswordComplexity`.
+- Both transports (rule 19), one core service, schema shared: 4 IPC channels + 4 REST routes. The 7
+  profit data endpoints swapped `requireRole(["admin"])` for a live-unlock check. Unlock state is
+  per-webContents on desktop and per tenant+user on web, TTL from one shared constant.
+- `ProfitsPasswordGate` wraps the page; unlock lives in component state only (never storage), so
+  unmount re-locks. Keeping `Profits` lazy means its chunk loads only after a successful unlock.
+
+### 3. Security note — the hash could not just live in `system_settings` unguarded
+
+`GET /api/settings` is **deliberately unauthenticated** (`backend/src/api/settings.ts` — the web login
+screen reads the shop name before auth), and IPC `settings:get-all` / `db:get-setting` carry no role
+check. So `SettingsService` now redacts `SENSITIVE_SETTING_KEYS` from every read **and rejects writes
+to them** — the password is set only through `ProfitsAccessService`. The write guard matters
+independently: `PUT /api/settings/:key` has `authenticateJWT` but **no `requireRole`**, so without it
+any authenticated staff user could overwrite the hash through the generic endpoint. **That missing
+`requireRole` is a pre-existing hole this ticket routed around rather than fixed — worth its own
+ticket.**
+
+### 4. Two real bugs found after the first commit, both now fixed
+
+- **Unlock revoked immediately after succeeding** (`c074843f`). `App.tsx` wraps all routes in ONE
+  `<Suspense>` **above** the gate, and `Profits` is lazy **inside** it. On unlock the gate rendered
+  the unloaded chunk → suspended → the boundary above hid the gate's subtree → React 18+ destroys
+  effects for a hidden subtree while **preserving state** → the gate's unmount cleanup fired
+  `profits:lock`. UI unlocked, server locked, every profit call 403/throw. Fixed by giving the gate
+  its own inner `<Suspense>`. **Deleting that boundary reintroduces the bug.**
+- **e2e helper silently typed nothing** (`a079bc79`). `unlockProfitsPage` branched on
+  `isVisible()` — the one Playwright check that does not auto-wait — and returned "already unlocked"
+  during two pre-decision windows: before the route mounted (there was no `/profits` entry in
+  `navigateTo`'s `routeAnchors`) and during the gate's own status fetch. Now one
+  `lockScreen.or(noPasswordSet)` wait, the silent no-op **deleted** (it converted "couldn't find the
+  lock screen" into "success"), and `/profits` added to `routeAnchors`.
+
+### 5. Verification gaps — the reason this is PARTIAL, not DONE
+
+- **Core jest never executed.** `ProfitsAccessService.test.ts` and
+  `SettingsService.profitsRedaction.test.ts` have never run: `node_modules` is missing `@babel/*`, so
+  jest cannot start (needs `yarn install`). These cover the §3 redaction — the least acceptable thing
+  to leave hypothetical.
+- **Web transport has zero automated coverage.** `lira-web-029` written but the web suite never run
+  (rule 19d unproven), and the backend REST route tests were never written at all.
+- **The 15-minute TTL is untested in both transports**, as is the client-side auto-relock timer. Both
+  helpers already take an injectable `now` for exactly this.
+- **Docs not updated:** `FEATURE_GUIDE.md`, `WEB_PARITY_ROADMAP.md`, and the new
+  `PROFITS_UNLOCK_RATE_LIMIT_MAX` env var.
+- **Known design limit (documented, not fixed):** the web unlock map is per-process, so an unlock
+  granted on one worker is invisible to another. Fine for today's single-process backend; needs shared
+  storage before running multiple workers.
+
+### 6. Fallout this caused in existing specs — resolved, but note the pattern
+
+The 7 profit IPC channels are used as a profit **oracle** by 12 specs testing unrelated money flows.
+All 12 now call an idempotent `ensureProfitsUnlocked()` fixture first. Two traps worth remembering:
+lira-071 originally used its own password literal while the fixture used another, which would have
+failed all 12 unlocks; and a once-per-test unlock is **not** enough for any spec that also visits
+`/profits`, because the gate's revoke-on-navigate-away kills it — `getProfitFigures` in lira-158 now
+ensures its own unlock per call.
+
+**Also fixed here, not caused here:** lira-120 asserted a partial partner settlement recognises `0`
+profit — the pre-#74 all-or-nothing model. `5d61f9a4` replaced it with proportional recognition and
+never updated the spec. The implementation is correct; derived independently as
+`markup x covered/obligation = 30.13 x 40/80.13 = 15.040559091...`, matching the observed value to
+every printed digit. The spec now **computes** that expectation from its own constants rather than
+pasting the literal, plus two guards (`> 0`, `< MARKUP_USD`) so it pins the behaviour and not a
+number.
