@@ -234,6 +234,44 @@ export const test = base.extend<
         sharedBrowser = null;
         sharedPage = null;
       }
+
+      // Disk-leak fix: every run creates TEST_USER_DATA_DIR
+      // (liratek-e2e-userdata-<worker>-<run>) in os.tmpdir() and, until now,
+      // NEVER deleted it. Measured 2026-09-07: 101 abandoned dirs, 1.12 GB,
+      // ~32 MB/run, growing forever and once silently starved the owner's C:
+      // drive (which then broke unrelated Write/Bash/Playwright calls in
+      // ways that looked like tool bugs). This fixture is the one place that
+      // reliably runs after sharedApp.close() above, on BOTH pass and fail
+      // (this auto fixture's teardown always runs once `use()` resolves,
+      // Playwright failures included).
+      //
+      // Best-effort ONLY, by design: on Windows the directory can still be
+      // briefly locked by the just-exited Electron process, so a single
+      // rmSync attempt can legitimately throw (EBUSY/EPERM). We must never
+      // let cleanup fail or hang the suite over this — hence try/catch and
+      // fs.rmSync's own bounded maxRetries (NOT an unbounded wait/poll loop).
+      //
+      // Never glob-delete `liratek-e2e-userdata-*` — TEST_USER_DATA_DIR is
+      // this run's own path (worker+run-id scoped); other parallel workers
+      // and concurrent runs on the same machine own their own directories
+      // and must never be touched from here.
+      if (process.env.E2E_KEEP_USERDATA) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[e2e] E2E_KEEP_USERDATA set — retaining user-data dir at ${TEST_USER_DATA_DIR}`,
+        );
+      } else {
+        try {
+          fs.rmSync(TEST_USER_DATA_DIR, {
+            recursive: true,
+            force: true,
+            maxRetries: 3,
+          });
+        } catch {
+          // Best-effort — a stray abandoned dir is a disk-space nuisance,
+          // not a test failure. Never throw from here.
+        }
+      }
     },
     { scope: "worker", auto: true },
   ],
