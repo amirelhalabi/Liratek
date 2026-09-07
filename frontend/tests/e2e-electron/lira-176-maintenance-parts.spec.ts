@@ -150,7 +150,9 @@ test.describe("LIRA-176 — maintenance parts", () => {
     await partResult.click();
     // The line is now in the parts editor (search box cleared, dropdown
     // gone) — confirm the price pre-filled from the product's own price.
-    await expect(appPage.getByDisplayValue("35")).toBeVisible();
+    await expect(
+      appPage.getByTestId(`part-unit-price-${productId}`),
+    ).toHaveValue("35");
 
     const stockBeforeSave = await getStock(appPage, productId);
 
@@ -281,7 +283,9 @@ test.describe("LIRA-176 — maintenance parts", () => {
     const partResult = appPage.getByText(partName, { exact: true }).first();
     await expect(partResult).toBeVisible({ timeout: 10_000 });
     await partResult.click();
-    await expect(appPage.getByDisplayValue("25")).toBeVisible();
+    await expect(
+      appPage.getByTestId(`part-unit-price-${productId}`),
+    ).toHaveValue("25");
 
     // The "Due" row in the totals block reads "<LBP> + $<USD>" — no
     // conversion, no rate — proving the two-currency total surfaces in the

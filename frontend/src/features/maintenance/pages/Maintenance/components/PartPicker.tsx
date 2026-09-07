@@ -234,6 +234,7 @@ export default function PartPicker({
                   onChange={(v) => updateLine(index, { unit_price_usd: v })}
                   disabled={disabled}
                   decimals={2}
+                  data-testid={`part-unit-price-${part.product_id}`}
                   className="w-full bg-slate-800 border border-slate-600 rounded pl-4 pr-1.5 py-1 text-white text-xs font-mono focus:outline-none focus:border-orange-500 disabled:opacity-50"
                 />
               </div>

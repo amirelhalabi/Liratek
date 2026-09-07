@@ -165,7 +165,9 @@ test.describe("LIRA-176 — maintenance parts over REST", () => {
     const partResult = page.getByText(partName, { exact: true }).first();
     await expect(partResult).toBeVisible({ timeout: 10_000 });
     await partResult.click();
-    await expect(page.getByDisplayValue("35")).toBeVisible();
+    await expect(page.getByTestId(`part-unit-price-${productId}`)).toHaveValue(
+      "35",
+    );
 
     const stockBeforeSave = await getStock(page, headers, productId);
 
@@ -257,7 +259,9 @@ test.describe("LIRA-176 — maintenance parts over REST", () => {
     const partResult = page.getByText(partName, { exact: true }).first();
     await expect(partResult).toBeVisible({ timeout: 10_000 });
     await partResult.click();
-    await expect(page.getByDisplayValue("25")).toBeVisible();
+    await expect(page.getByTestId(`part-unit-price-${productId}`)).toHaveValue(
+      "25",
+    );
 
     // The "Due" row reads "<LBP> + $<USD>" — no conversion, no rate.
     const dueLabel = page.getByText("Due", { exact: true });
