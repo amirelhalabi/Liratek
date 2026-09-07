@@ -83,6 +83,7 @@ import {
   expect,
   navigateTo,
   ensureProfitsUnlocked,
+  unlockProfitsPage,
 } from "./fixtures";
 import type { Page, Locator } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
@@ -185,6 +186,7 @@ async function readProfitsPageFigures(
 ): Promise<{ commissionUsd: number; deferredClientDebtUsd: number }> {
   await navigateTo(page, "/");
   await navigateTo(page, "/profits");
+  await unlockProfitsPage(page);
   await expect(page.getByText("Net Profit (USD)")).toBeVisible({
     timeout: 15_000,
   });

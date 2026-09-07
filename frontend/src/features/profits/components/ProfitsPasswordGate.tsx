@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lock, AlertCircle, ShieldAlert } from "lucide-react";
 import { useApi } from "@liratek/ui";
@@ -197,7 +197,35 @@ export function ProfitsPasswordGate({
     );
   }
 
-  return <>{children}</>;
+  // This gate needs its OWN Suspense boundary here, below the gate's own
+  // state/effects, rather than relying on App.tsx's single top-level
+  // <Suspense> above <ProfitsPasswordGate>. Reasoning (do not "simplify"
+  // this away): `<Profits />` is a lazy() page rendered as `children`
+  // INSIDE this gate. The instant `unlocked` flips true, `children` (the
+  // not-yet-loaded Profits chunk) suspends. If the nearest Suspense
+  // boundary is the one ABOVE this gate (App.tsx), React hides this gate's
+  // ENTIRE subtree — including the gate itself — while that chunk loads.
+  // React 18+ DESTROYS effects for a hidden Suspense subtree while
+  // PRESERVING its component state: the gate's unmount cleanup (the one
+  // above that calls `api.lockProfits()`) fires, revoking the server-side
+  // unlock, and then the subtree is shown again with `unlocked` still
+  // `true` in state. Net effect: the UI displays the page as unlocked
+  // while the server has already re-locked it, so every profits IPC/REST
+  // call then fails with "Profits locked". Giving `children` its own
+  // Suspense boundary HERE means the lazy chunk suspends at a boundary
+  // BELOW the gate, so the gate's own tree (and its effects) is never
+  // hidden/destroyed by the chunk load.
+  return (
+    <Suspense
+      fallback={
+        <div className="h-full flex items-center justify-center text-slate-400">
+          Loading...
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
 }
 
 export default ProfitsPasswordGate;

@@ -11,6 +11,7 @@
 import {
   test as base,
   _electron,
+  expect,
   type Browser,
   type ElectronApplication,
   type Page,
@@ -664,6 +665,40 @@ export async function ensureProfitsUnlocked(page: Page): Promise<void> {
       );
     }
   }, E2E_PROFITS_PASSWORD);
+}
+
+/**
+ * Unlock the /profits page's UI lock screen for specs that read profit
+ * figures from the RENDERED PAGE (not `window.api.profits.*` directly).
+ * Unlike `ensureProfitsUnlocked` (IPC-only), the gate's `unlocked` state
+ * lives in React component state — an IPC-only unlock never flips it, so
+ * the lock screen stays mounted and any assertion on page content (e.g.
+ * "Net Profit (USD)") times out. Call this AFTER navigating to `/profits`
+ * and BEFORE asserting on page content.
+ *
+ * Idempotent: returns immediately if the gate is already unlocked.
+ */
+export async function unlockProfitsPage(page: Page): Promise<void> {
+  const noPasswordSet = page.getByTestId("profits-no-password-set");
+  if (await noPasswordSet.isVisible().catch(() => false)) {
+    throw new Error(
+      "unlockProfitsPage: no profits password is set for this session — " +
+        "call ensureProfitsUnlocked(page) first, which sets one via IPC " +
+        "before unlocking.",
+    );
+  }
+
+  const lockScreen = page.getByTestId("profits-lock-screen");
+  if (!(await lockScreen.isVisible().catch(() => false))) {
+    // Already unlocked — nothing to do.
+    return;
+  }
+
+  await page
+    .getByTestId("profits-password-input")
+    .fill(E2E_PROFITS_PASSWORD);
+  await page.getByTestId("profits-unlock-submit").click();
+  await expect(lockScreen).toHaveCount(0);
 }
 
 // ---------------------------------------------------------------------------
