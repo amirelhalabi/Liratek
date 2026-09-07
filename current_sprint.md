@@ -381,7 +381,7 @@ This ticket was itself only caught because the log was inspected rather than the
 - [x] **ROOT CAUSE (db149e6):** the failure is above Node's own `child_process` layer (a
       `--require` spawn hook never fired), i.e. inside yarn's script-dispatch/spawn path when
       the script would spawn Playwright. A direct invocation with no `yarn run`/`yarn
-  workspace` hop never exhibits it. **Windows dev-machine only.**
+workspace` hop never exhibits it. **Windows dev-machine only.**
 
 ### CORRECTION - CI was NOT affected (verified 2026-08-10)
 
@@ -1543,16 +1543,16 @@ attention:
 
 ## LIRA-110: Daily closing sums financial-services commission with ZERO gates — SUPERSEDED by LIRA-158 + LIRA-160
 
-| Field                | Value                                                                  |
-| -------------------- | ---------------------------------------------------------------------- |
-| **Epic**             | Closing / Profits                                                      |
-| **Type**             | Bug (candidate — same class as LIRA-108)                               |
-| **Priority**         | Medium                                                                 |
+| Field                | Value                                                                    |
+| -------------------- | ------------------------------------------------------------------------ |
+| **Epic**             | Closing / Profits                                                        |
+| **Type**             | Bug (candidate — same class as LIRA-108)                                 |
+| **Priority**         | Medium                                                                   |
 | **Status**           | **SUPERSEDED** — split into LIRA-158 (DONE) + LIRA-160 (TODO), see below |
-| **Affected Modules** | Closing                                                                |
-| **Assigned To**      | —                                                                      |
-| **Depends On**       | —                                                                      |
-| **Source Plan**      | Found by LIRA-108's workflow (2026-08-08, confirmed by both reviewers) |
+| **Affected Modules** | Closing                                                                  |
+| **Assigned To**      | —                                                                        |
+| **Depends On**       | —                                                                        |
+| **Source Plan**      | Found by LIRA-108's workflow (2026-08-08, confirmed by both reviewers)   |
 
 ### Summary
 
@@ -2394,28 +2394,28 @@ overrides, so every consumer of `fs.commission` reports a figure that is simply 
 OMT SEND, x=100, f=5. App estimates the shop's cut at $0.50. At settlement the operator enters the
 real $2.00.
 
-| Surface | Shows | Should show |
-| ------- | ----- | ----------- |
-| Suppliers page | **$2.00** on settlement day | — correct today |
-| Profits → Commission | **$0.50**, on the transaction day | $2.00, on settlement day |
+| Surface                    | Shows                             | Should show              |
+| -------------------------- | --------------------------------- | ------------------------ |
+| Suppliers page             | **$2.00** on settlement day       | — correct today          |
+| Profits → Commission       | **$0.50**, on the transaction day | $2.00, on settlement day |
 | Closing → daily commission | **$0.50**, on the transaction day | $2.00, on settlement day |
-| Dashboard analytics | **$0.50** | $2.00 |
+| Dashboard analytics        | **$0.50**                         | $2.00                    |
 
 **The asymmetry is the point:** Suppliers and Profits now permanently disagree about how much
 commission the shop made, and nothing reconciles them.
 
 ### Surfaces, each verified against source
 
-| # | Surface | Location | Verdict |
-| - | ------- | -------- | ------- |
-| 1 | `getRealizedCommissionTotals` | `ProfitRepository.ts` ~:1367 | BROKEN — sums the stale creation-time estimate |
-| 2 | `getPendingCommissionTotals` / `ByProvider` | `ProfitRepository.ts` ~:1407 | BROKEN — shows a dollar figure settlement can override outright |
-| 3 | `getFinancialSettledByCurrency` / `PendingByCurrency` | `ProfitRepository.ts` ~:647 | BROKEN — same cause, one hop away via stamped `t.profit_*` |
-| 4 | `getUnsettledSummaryByProvider` | `FinancialServiceRepository.ts` ~:4430 | ACCEPTABLE — same number as #2 but self-documented inline as an estimate |
-| 5 | `getAnalytics` (Dashboard) | `FinancialServiceRepository.ts` ~:4481 | BROKEN — `is_settled = 1` gate does not fix a stale number underneath |
-| 6 | Closing daily commission (`finProfit`) | `ClosingRepository.ts` ~:693 | **BROKEN, most owner-visible** — verified NOT gated on `is_settled` at all; sums every row's estimate on the transaction day |
-| 7 | Suppliers Outstanding / FIFO / settle tab | `SupplierRepository.ts` ~:1071, ~:1917 | CORRECT — reads the real entered figure from the ledger credit |
-| 8 | D1.1 gross transaction row | transactions consumers | CORRECT — no query sums `t.amount_*` for FINANCIAL_SERVICE; all read `fs.*` |
+| #   | Surface                                               | Location                               | Verdict                                                                                                                      |
+| --- | ----------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `getRealizedCommissionTotals`                         | `ProfitRepository.ts` ~:1367           | BROKEN — sums the stale creation-time estimate                                                                               |
+| 2   | `getPendingCommissionTotals` / `ByProvider`           | `ProfitRepository.ts` ~:1407           | BROKEN — shows a dollar figure settlement can override outright                                                              |
+| 3   | `getFinancialSettledByCurrency` / `PendingByCurrency` | `ProfitRepository.ts` ~:647            | BROKEN — same cause, one hop away via stamped `t.profit_*`                                                                   |
+| 4   | `getUnsettledSummaryByProvider`                       | `FinancialServiceRepository.ts` ~:4430 | ACCEPTABLE — same number as #2 but self-documented inline as an estimate                                                     |
+| 5   | `getAnalytics` (Dashboard)                            | `FinancialServiceRepository.ts` ~:4481 | BROKEN — `is_settled = 1` gate does not fix a stale number underneath                                                        |
+| 6   | Closing daily commission (`finProfit`)                | `ClosingRepository.ts` ~:693           | **BROKEN, most owner-visible** — verified NOT gated on `is_settled` at all; sums every row's estimate on the transaction day |
+| 7   | Suppliers Outstanding / FIFO / settle tab             | `SupplierRepository.ts` ~:1071, ~:1917 | CORRECT — reads the real entered figure from the ledger credit                                                               |
+| 8   | D1.1 gross transaction row                            | transactions consumers                 | CORRECT — no query sums `t.amount_*` for FINANCIAL_SERVICE; all read `fs.*`                                                  |
 
 Item 6 also contradicts owner decision **D10** (cash basis: commission recognised on the day it is
 SETTLED, not the day the transaction happened), which is currently implemented nowhere.
@@ -2453,12 +2453,12 @@ Everything below was verified against source, not inferred.
 (`FinancialServiceRepository.ts` ~:1881, `profit_usd: currency === "USD" ? commission : 0`).
 So the stale estimate reaches reporting by two independent routes:
 
-  a. **`fs.commission`** — the column. Read by `getRealizedCommissionTotals`,
-     `getPendingCommissionTotals`, `getUnsettledSummaryByProvider`, `getAnalytics`, and the
-     Closing screen's `finProfit`.
-  b. **`t.profit_usd` / `t.profit_lbp`** — the STAMP, which is just a copy of (a). Read by at
-     least seven more sites in `ProfitRepository.ts`: ~:656, ~:687, ~:725, ~:1011 (Profits
-     by-module), ~:1123 (by-user / by-client), and the deferred-profit queries ~:1503-1530.
+a. **`fs.commission`** — the column. Read by `getRealizedCommissionTotals`,
+`getPendingCommissionTotals`, `getUnsettledSummaryByProvider`, `getAnalytics`, and the
+Closing screen's `finProfit`.
+b. **`t.profit_usd` / `t.profit_lbp`** — the STAMP, which is just a copy of (a). Read by at
+least seven more sites in `ProfitRepository.ts`: ~:656, ~:687, ~:725, ~:1011 (Profits
+by-module), ~:1123 (by-user / by-client), and the deferred-profit queries ~:1503-1530.
 
 **Fixing only (a) leaves (b) stale.** The by-module Profits row, the per-cashier and per-client
 figures all read the stamp. The original triage listed 8 surfaces because it only traced (a).
@@ -2535,7 +2535,6 @@ fixture does — which is exactly why the whole class was invisible.
 `docs/FEATURE_GUIDE.md` §8/§8.1 (corrected for Phase 2 in `a47db530`);
 commits `43948a35` (the flip) and `a47db530` (docs + this ticket).
 
-
 ---
 
 # LIRA-158 follow-ups — filed 2026-08-31
@@ -2549,9 +2548,10 @@ class rather than fixing this one. LIRA-160/161 then become small changes agains
 
 ---
 
-## LIRA-159: `fs.commission` estimate still reaches THREE ungated reporting surfaces — HIGH
+## LIRA-159: Monthly P&L now reports the SETTLED commission — HIGH — DONE (2026-09-04)
 
-**Priority:** High · **Epic:** Profits/Commission-at-settlement · **Status:** TODO
+**Priority:** High · **Epic:** Profits/Commission-at-settlement · **Status:** **DONE**
+`7d595c24` — "feat(profits,dashboard): Monthly P&L reports the SETTLED commission (LIRA-159)"
 
 `financial_services.commission` permanently holds a creation-time ESTIMATE for `commission_model = 1`
 rows and is never corrected (D6 no stamp-back, by design). LIRA-158 put every Profits/Closing reader
@@ -2560,7 +2560,7 @@ behind `embeddedCommission(alias, supported)`. Three readers were missed.
 **This ticket includes a regression LIRA-158 itself introduced — own it.** Before LIRA-158 the
 Dashboard tile, Profits and Closing all agreed on the estimate. They were consistently wrong, but
 consistent. LIRA-158 corrected two of the three, so `FinancialRepository.getMonthlyPL` now
-*disagrees* with the other surfaces about the same money. That divergence is new, and it is ours.
+_disagrees_ with the other surfaces about the same money. That divergence is new, and it is ours.
 
 **The three surfaces**
 
@@ -2578,6 +2578,7 @@ WHISH is force-zeroed (`FinancialServiceRepository.ts:1329-1331`) and BILL takes
 mis-report. Do not write the fix as if all three shapes behave alike.
 
 **Acceptance**
+
 - `getMonthlyPL` mirrors what `ClosingRepository.getDailyStatsSnapshot` already does (legacy arm via
   `embeddedCommission` + `notRefunded`; settlement arm split bills-only vs cashless with
   `allocationNotDebtPending` + `notPartnerPending`), swapping `todayLocal` for the month bound. Reuse
@@ -2588,6 +2589,15 @@ mis-report. Do not write the fix as if all three shapes behave alike.
   with an `EXCLUDED_UNITS` escape for row-level display reads. That guard already carries a staleness
   assertion — re-derive keys carefully.
 - Rule 17 on each: revert, watch the specific assertion fail, restore.
+
+**Resolution (2026-09-04, `7d595c24`):** `getMonthlyPL`'s commission arms are now COMPOSED from
+`ProfitRepository.getRealizedCommissionTotals` (legacy, `commission_model=0`) +
+`getSupplierCommissionTotals` (AT_SETTLEMENT, model=1) instead of a third hand-rolled
+`SUM(financial_services.commission)` — closing surface 1. The sales arm also gained the
+`notRefunded` gate it never had. Surfaces 2/3 (pending count on both transports) landed via
+`awaiting_settlement_count` (D15). The static guard shipped as
+`constants/__tests__/embeddedCommission.guard.test.ts`. All five rule-17 proofs discharged
+failing-first. Core suite 260 suites / 2754 tests green at merge.
 
 ---
 
@@ -2601,16 +2611,16 @@ below the first pass.
 `ClosingRepository.getDailyStatsSnapshot` books profit for which no cash has arrived. Verified gate
 comparison against each ProfitRepository counterpart:
 
-| Sub-query | Missing gates |
-| --------- | ------------- |
-| `finProfitLegacy` (~:815) | `notPartnerPending`, `notDebtPending` |
-| `rechargeProfit` (~:887) | `notPartnerPending`, `notDebtPending` |
-| `customProfit` (~:904) | `notPartnerPending`, `notDebtPending` |
-| `maintProfit` (~:924) | `notDebtPending` **and** `notRefunded` |
+| Sub-query                 | Missing gates                          |
+| ------------------------- | -------------------------------------- |
+| `finProfitLegacy` (~:815) | `notPartnerPending`, `notDebtPending`  |
+| `rechargeProfit` (~:887)  | `notPartnerPending`, `notDebtPending`  |
+| `customProfit` (~:904)    | `notPartnerPending`, `notDebtPending`  |
+| `maintProfit` (~:924)     | `notDebtPending` **and** `notRefunded` |
 
-**Why this is a real defect and not a design choice.** The snapshot is deliberately a *same-day
-cash-in-hand* view (self-documented at `profitRecognition.guard.test.ts:565-575`) whose only consumer
-is the generated closing PDF. That reading does not excuse these — it *condemns* them: a for-partner
+**Why this is a real defect and not a design choice.** The snapshot is deliberately a _same-day
+cash-in-hand_ view (self-documented at `profitRecognition.guard.test.ts:565-575`) whose only consumer
+is the generated closing PDF. That reading does not excuse these — it _condemns_ them: a for-partner
 or CUSTOMER_ACCOUNT-charged row books as today's profit when **no cash moved at all**. Wrong under
 either reading of the snapshot's purpose.
 
@@ -2667,15 +2677,15 @@ touching the file — confirmed by grep, not assumed. Added `export` to both, ch
 LIRA-161 additions (`loto`, which already carries it per its own resolution note below — `exchange` does
 not, and re-verified as genuinely unnecessary rather than assumed, see below):
 
-| Sub-query | `notPartnerPending` | `notDebtPending` | Notes |
-| --------- | :---: | :---: | ----- |
-| `finProfitLegacy` | ✅ (this ticket, first pass) | ✅ (this follow-up) | Resolves the row's own FINANCIAL_SERVICE transaction id via a new `_sourceTxnIdSubquery(sourceTable, txnType)` scalar-subquery helper (mirrors `ProfitRepository.allocationNotDebtPending`'s resolve-then-gate shape) — no existing fixture reliably has a matching `transactions` row for every legacy fs row (verified: `LIRA158.closingCashBasis.test.ts` test 3 does not), so an INNER JOIN would have silently dropped rows; the scalar subquery degrades a missing match to "not pending" instead, matching pre-change behaviour exactly. |
-| `rechargeProfit` | ✅ | ✅ | Same `_sourceTxnIdSubquery` pattern, `source_table = 'recharges'`, `type = 'RECHARGE'`. |
-| `customProfit` | ✅ | ✅ | Same pattern, `source_table = 'custom_services'`, `type = 'CUSTOM_SERVICE'`. |
-| `maintProfit` | ❌ (correct — `getMaintenanceTotals` itself never gates this; re-verified) | ✅ | Same pattern, `source_table = 'maintenance'`, `type = 'MAINTENANCE'`. |
-| `loto` (LIRA-161 addition) | ✅ (already shipped) | ✅ (this follow-up) | Already JOINs `transactions` directly (unlike the four above) — uses the real `t.id`, no subquery needed. `getLotoTotals` itself carries this gate, so this closes the ONE place the prior pass documented as "provably wider than the counterpart." |
-| `exchange` (LIRA-161 addition) | ✅ (already shipped) | ❌ — **verified unnecessary, not a gap** | Re-confirmed independently (not just re-read from the prior agent's claim): `electron-app/create_db.sql`'s `exchange_transactions` DDL has NO `client_id` column at all, and `ExchangeRepository.createTransaction`'s payout-leg validation (`ExchangeRepository.ts` ~:505-513) explicitly rejects any non-drawer-affecting method, with an inline comment naming CUSTOMER_ACCOUNT as the excluded case ("needs a client_id, which exchange_transactions does not carry"). A table with no client association can never have a `debt_ledger` row referencing it — `notDebtPending` would always no-op. `getExchangeTotals` itself gates only `notRefunded` + `notPartnerPending`, confirming the counterpart carries none either. |
-| `finProfitSettlement` / `billsOnlySettlement` | — | — (recognition-by-construction, unchanged) | Not in scope — no partner_ledger/debt_ledger row is ever keyed to a SUPPLIER_SETTLEMENT transaction id; the CASHLESS half already carries `allocationNotDebtPending` + `notPartnerPending` from LIRA-158 D17, untouched here. |
+| Sub-query                                     |                            `notPartnerPending`                             |              `notDebtPending`              | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------- | :------------------------------------------------------------------------: | :----------------------------------------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `finProfitLegacy`                             |                        ✅ (this ticket, first pass)                        |            ✅ (this follow-up)             | Resolves the row's own FINANCIAL_SERVICE transaction id via a new `_sourceTxnIdSubquery(sourceTable, txnType)` scalar-subquery helper (mirrors `ProfitRepository.allocationNotDebtPending`'s resolve-then-gate shape) — no existing fixture reliably has a matching `transactions` row for every legacy fs row (verified: `LIRA158.closingCashBasis.test.ts` test 3 does not), so an INNER JOIN would have silently dropped rows; the scalar subquery degrades a missing match to "not pending" instead, matching pre-change behaviour exactly.                                                                                                                                                                                   |
+| `rechargeProfit`                              |                                     ✅                                     |                     ✅                     | Same `_sourceTxnIdSubquery` pattern, `source_table = 'recharges'`, `type = 'RECHARGE'`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `customProfit`                                |                                     ✅                                     |                     ✅                     | Same pattern, `source_table = 'custom_services'`, `type = 'CUSTOM_SERVICE'`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `maintProfit`                                 | ❌ (correct — `getMaintenanceTotals` itself never gates this; re-verified) |                     ✅                     | Same pattern, `source_table = 'maintenance'`, `type = 'MAINTENANCE'`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `loto` (LIRA-161 addition)                    |                            ✅ (already shipped)                            |            ✅ (this follow-up)             | Already JOINs `transactions` directly (unlike the four above) — uses the real `t.id`, no subquery needed. `getLotoTotals` itself carries this gate, so this closes the ONE place the prior pass documented as "provably wider than the counterpart."                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `exchange` (LIRA-161 addition)                |                            ✅ (already shipped)                            |  ❌ — **verified unnecessary, not a gap**  | Re-confirmed independently (not just re-read from the prior agent's claim): `electron-app/create_db.sql`'s `exchange_transactions` DDL has NO `client_id` column at all, and `ExchangeRepository.createTransaction`'s payout-leg validation (`ExchangeRepository.ts` ~:505-513) explicitly rejects any non-drawer-affecting method, with an inline comment naming CUSTOMER_ACCOUNT as the excluded case ("needs a client_id, which exchange_transactions does not carry"). A table with no client association can never have a `debt_ledger` row referencing it — `notDebtPending` would always no-op. `getExchangeTotals` itself gates only `notRefunded` + `notPartnerPending`, confirming the counterpart carries none either. |
+| `finProfitSettlement` / `billsOnlySettlement` |                                     —                                      | — (recognition-by-construction, unchanged) | Not in scope — no partner_ledger/debt_ledger row is ever keyed to a SUPPLIER_SETTLEMENT transaction id; the CASHLESS half already carries `allocationNotDebtPending` + `notPartnerPending` from LIRA-158 D17, untouched here.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 **Every schema-drift combination is handled explicitly** (not collapsed into one combined guard): each of
 `finProfitLegacy`/`rechargeProfit`/`customProfit` now has four literal branches (`…Degraded` — neither
@@ -2699,22 +2709,23 @@ path — both fixed by adding the three real production columns (matching `elect
 
 **Rule 17, all five gates, verbatim:**
 
-| Gate | Test | Captured failure (gate removed) |
-| --- | --- | --- |
-| `finProfitLegacy` | `lira160DebtPendingGates` › finProfitLegacy › excludes … | `Expected: 0, Received: 5` |
-| `rechargeProfit` | … › rechargeProfit › excludes … | `Expected: 0, Received: 6` |
-| `customProfit` | … › customProfit › excludes … | `Expected: 0, Received: 15` |
-| `maintProfit` | … › maintProfit › excludes … | `Expected: 0, Received: 30` |
-| `loto` | … › loto › excludes … | `Expected: 0, Received: 4500` |
+| Gate              | Test                                                     | Captured failure (gate removed) |
+| ----------------- | -------------------------------------------------------- | ------------------------------- |
+| `finProfitLegacy` | `lira160DebtPendingGates` › finProfitLegacy › excludes … | `Expected: 0, Received: 5`      |
+| `rechargeProfit`  | … › rechargeProfit › excludes …                          | `Expected: 0, Received: 6`      |
+| `customProfit`    | … › customProfit › excludes …                            | `Expected: 0, Received: 15`     |
+| `maintProfit`     | … › maintProfit › excludes …                             | `Expected: 0, Received: 30`     |
+| `loto`            | … › loto › excludes …                                    | `Expected: 0, Received: 4500`   |
 
 Each: the specific `AND ${notDebtPending(...)}` clause removed from the branch the fixture actually
 exercises, the named test run in isolation (`npx jest ClosingRepository.lira160DebtPendingGates -t
 "<module>"`), the failure above captured, the clause restored, the full suite re-confirmed green.
 
 New coverage: `ClosingRepository.lira160DebtPendingGates.test.ts` (11 tests — an uncovered-debt exclusion
-+ a fully-covered-debt inclusion + a no-debt-row inclusion per module, proving the gate is the real FIFO
-comparison and not a blanket "any debt row exists" check). Every fixture built so the CUSTOMER_ACCOUNT-
-charged row and the cash row disagree (rule 17's own warning against coincidental agreement).
+
+- a fully-covered-debt inclusion + a no-debt-row inclusion per module, proving the gate is the real FIFO
+  comparison and not a blanket "any debt row exists" check). Every fixture built so the CUSTOMER_ACCOUNT-
+  charged row and the cash row disagree (rule 17's own warning against coincidental agreement).
 
 Gates after this follow-up: core **268 suites / 2816 tests**, exit 0 (25.9s); backend **46/633**, exit 0
 (25.8s); frontend **180/1360** (1 skipped), exit 0 (39.7s) — meets or exceeds every baseline.
@@ -2734,7 +2745,7 @@ Three under-counting defects in `getDailyStatsSnapshot`, opposite in sign to LIR
    the closing profit figure.
 2. **For-partner sale margin reaches the snapshot on NO day, ever.** `salesProfit` (~:754) omits
    `salePaidOrPartnerSettled`'s partner-covered OR-branch. Excluding it on the sale's own day is
-   *correct* for a cash view (a for-partner sale has `paid_usd = 0`) — but unlike commission, which
+   _correct_ for a cash view (a for-partner sale has `paid_usd = 0`) — but unlike commission, which
    got `finProfitSettlement`, sales have no settlement-day path, so it is never picked up when the
    partner actually pays.
 3. **`salesProfit` hand-inlines `saleFullyPaid`'s text** instead of calling the exported fragment —
@@ -2955,7 +2966,7 @@ bills-only" is no longer a neutral money-placement question: moving OMT/WHISH co
 drawer credit would make it arrive as actual cash, which under D17's own logic flips it back to
 IMMEDIATE recognition and undoes the deferral the owner just asked for.
 
-**Acceptance:** update the ticket body's Depends On and restate its scope against D17 *before* any
+**Acceptance:** update the ticket body's Depends On and restate its scope against D17 _before_ any
 implementation. This is a re-scoping chore, not code.
 
 ---
@@ -2990,12 +3001,12 @@ cross-env TZ=UTC: SQL 0.00h
 
 `packages/core/package.json`'s `test` script (`cross-env TZ=Asia/Beirut jest ...`) is the only place in
 the repo where `TZ=Asia/Beirut` is actually **set** as an environment variable (verified — grepped the
-whole repo for an assignment shape, not just the string). *Correction to the original framing: the
+whole repo for an assignment shape, not just the string). _Correction to the original framing: the
 literal string `TZ=Asia/Beirut` also appears in roughly a dozen other places — comments in
 `ClosingRepository.ts`, `ProfitRepository.ts`, `localDate.ts`, several test file headers, and
 `docs/plans/done_plans/LOCAL_BUSINESS_DAY_PLAN.md` — all of them documentation telling a human/CI
 operator what TZ to launch with, none of them an actual assignment. "Exactly one place" is true only
-for where the variable is actually SET, not for every place the string appears.*
+for where the variable is actually SET, not for every place the string appears._
 
 Node resolves `Asia/Beirut` through full ICU and correctly gets Beirut's real +3h offset; SQLite's
 `'localtime'` modifier goes through the Windows C runtime's `localtime()`, which cannot parse an IANA
@@ -3022,19 +3033,20 @@ point for investigating T4 than the guess currently recorded there ("suspect tim
 handling").
 
 Two things any investigator must know:
+
 - **Git Bash silently drops `TZ`.** `TZ=Asia/Beirut node -e "console.log(process.env.TZ)"` run from
   MSYS prints `undefined` — a probe run that way measures the OS zone, not the variable, and produced a
   wrong conclusion during this very investigation before being corrected. Only `cross-env` (as
   `packages/core/package.json`'s `test` script already uses) passes it faithfully cross-platform.
-- *Correction to the original framing:* `packages/core/src/repositories/__tests__
-  /ClosingRepository.localBusinessDay.test.ts` does **NOT** manipulate `process.env.TZ` directly —
+- _Correction to the original framing:_ `packages/core/src/repositories/__tests__
+/ClosingRepository.localBusinessDay.test.ts` does **NOT** manipulate `process.env.TZ` directly —
   grepped, no `process.env.TZ =` assignment exists anywhere in the file, or anywhere else in the repo's
   test suite. It does the opposite: its header comment (lines 12-16) explicitly explains why a
   **mid-test** `process.env.TZ` assignment is unreliable (SQLite's `'localtime'` reads the C runtime
   zone once, at process launch) and instead relies on `TZ` being set at process launch (via the
   `cross-env` in the package.json script), backed by a `beforeAll` probe that fails loudly if the
   measured offset is 0 — i.e. if the suite is accidentally run without the TZ launch env. Start there
-  anyway: it's still the right file, just for the "how this is *supposed* to be pinned, and how to tell
+  anyway: it's still the right file, just for the "how this is _supposed_ to be pinned, and how to tell
   if it wasn't" story, not a `process.env.TZ =` example. `ClosingRepository.ts:961-962` separately
   comments that `localDay()` respects `process.env.TZ` (true — it uses Node's `Date` getters, verified).
 
@@ -3103,7 +3115,7 @@ then bail before backend and frontend ever ran. Yarn's `foreach` has no no-bail 
 combination gives "run everything, report everything".
 
 Proven by injection, not assertion. With a deliberately failing scratch test in `packages/core`
-(the *early* workspace, so a bail would hide the rest):
+(the _early_ workspace, so a bail would hide the rest):
 
 ```
 workspace          exit  suites  tests  elapsed  status
@@ -3157,8 +3169,8 @@ native binding loads lazily). Mechanism, read from source: the script fetches a 
 binary via `prebuild-install` — not a from-source compile, which is why it's fast (~1s) — for each of up
 to 4 hardcoded candidate `better-sqlite3` directories that actually exist on disk; both
 `node_modules/better-sqlite3` and `node_modules/@liratek/core/node_modules/better-sqlite3` (the real,
-non-symlinked copy) were rebuilt to electron@31.7.7 (the installed version, verified). *Caution before
-treating this as fully general:* this appears to conflict with an earlier-recorded finding that
+non-symlinked copy) were rebuilt to electron@31.7.7 (the installed version, verified). _Caution before
+treating this as fully general:_ this appears to conflict with an earlier-recorded finding that
 `rebuild:native` fails to restore the ABI specifically after `test:e2e:web`'s own `rebuild:node` (citing
 5+ on-disk `better-sqlite3` copies vs. this script's 4 fixed candidate paths). If that finding still
 holds, the two scenarios (root `yarn test` vs. `test:e2e:web`) differ in some way not yet identified —
@@ -3167,7 +3179,7 @@ result generalizes to it.
 
 ---
 
-## LIRA-171: Dashboard awaiting-settlement test is 12s against a 15s limit — flaky under full-suite load — LOW
+## LIRA-171: Dashboard awaiting-settlement test's 15s timeout was masking an unrelated recharts import — RESOLVED (2026-09-04) — LOW
 
 **Priority:** Low · **Epic:** Test harness · **Status:** RESOLVED (2026-09-04)
 
@@ -3261,7 +3273,7 @@ claims money that has not arrived.
 
 ### What did come out of it
 
-The same interview produced a *different* and larger request: partner obligations should be recognised
+The same interview produced a _different_ and larger request: partner obligations should be recognised
 **proportionally** as the partner pays, rather than all-or-nothing. That is not this ticket — it
 changes the Profits page rather than the closing PDF, and it touches every `FOR_%` module rather than
 sales alone. Filed separately; see the proportional-recognition ticket below.
@@ -3291,7 +3303,7 @@ bugs.
 **Acceptance (sketch, mirroring `finProfitSettlement`'s shape):**
 
 - A new settlement-day source in `getDailyStatsSnapshot`, reading a for-partner sale's margin on the day
-  the PARTNER settles (i.e. when `partner_ledger`'s FOR_% coverage against `reference_table = 'sales'`
+  the PARTNER settles (i.e. when `partner_ledger`'s FOR\_% coverage against `reference_table = 'sales'`
   completes), not the sale's own day — same "recognize on the day the cash event actually happens"
   principle `finProfitSettlement` already applies to OMT/WHISH commission.
 - Reuse `ProfitRepository`'s exported `notPartnerPending` fragment (and `saleFullyPaid`, if exported by
@@ -3327,8 +3339,8 @@ the filer beyond the one item explicitly marked as an inference in §3).
 For modes 1 and 2, an amount with no rate stamped on it was to use "the rate from system configuration."
 
 **Second pass, same day — SUPERSEDES the three-mode spec above.** The owner reviewed the presentation
-requirement and decided one view can carry the same transparency without a mode toggle. Their words: *"I
-think you are correct on this. Let's stick to one view."* The reasoning offered back to them (not their
+requirement and decided one view can carry the same transparency without a mode toggle. Their words: _"I
+think you are correct on this. Let's stick to one view."_ The reasoning offered back to them (not their
 own words, recorded here so the "why" behind the supersession is legible): showing the USD amount, the
 LBP amount, and a rate-stamped USD total together on one document already makes every figure both native
 and auditable — a reader who wants "the LBP figure" or "the USD figure" already has it without a second
@@ -3425,12 +3437,12 @@ surfaced on the snapshot object; only the frontend rendering (this ticket's actu
   changes needed — `ClosingRepository`/`ClosingService`/the IPC handler/the REST route already returned
   the field (LIRA-161); only the frontend-facing types were missing it.
 - **§5 open items resolved:**
-  - *Which fields arrive with no stamped rate*: only the two profit aggregates
+  - _Which fields arrive with no stamped rate_: only the two profit aggregates
     (`totalProfitUSD`/`totalProfitLBP`) get this treatment — see the "stamped rate" item below for why
     the rest of the document's fields don't have a per-row stamped rate to honour at all at this layer.
-  - *Total (LBP) line*: kept, flagged in a source comment in `rateStampedProfit.ts` as the filer's
+  - _Total (LBP) line_: kept, flagged in a source comment in `rateStampedProfit.ts` as the filer's
     inference — a one-line removal if the owner disagrees.
-  - *`sell_rate` accessor*: used `useSellRate().sellRate` (the canonical frontend hook everyone else
+  - _`sell_rate` accessor_: used `useSellRate().sellRate` (the canonical frontend hook everyone else
     reads it from), not a second query — `RateRepository` is a `packages/core` concern already behind
     that hook via IPC/REST.
 - **The "LBP amount" scope risk (this ticket's highest-risk item), verified**: `totalProfitLBP`
@@ -3469,7 +3481,7 @@ surfaced on the snapshot object; only the frontend rendering (this ticket's actu
   0 errors/530 pre-existing warnings unrelated to this change), and full `test` (63s, 181 suites/1370
   tests, up from baseline 180/1360 — +1 new suite, +10 new tests, 1 pre-existing skip) all exit 0. Ran
   `yarn workspace @liratek/ui build`/`typecheck`/`lint` and `yarn workspace @liratek/frontend
-  typecheck`/`lint`/`test` directly (not root `yarn test`) since no `packages/core`/`backend` files were
+typecheck`/`lint`/`test` directly (not root `yarn test`) since no `packages/core`/`backend` files were
   touched. Nothing left undone.
 
 ---
@@ -3482,13 +3494,13 @@ surfaced on the snapshot object; only the frontend rendering (this ticket's actu
 record of an already-diagnosed-as-out-of-scope failure, not a fix — per instruction, the spec itself was
 left untouched.
 
-`frontend/tests/e2e-electron/lira-136-binance-fee-mode-c-ui-driven.spec.ts:157` — *"'Customer pays
-separately' is absent while a session is active"* — fails **only when run as part of the full desktop e2e
+`frontend/tests/e2e-electron/lira-136-binance-fee-mode-c-ui-driven.spec.ts:157` — _"'Customer pays
+separately' is absent while a session is active"_ — fails **only when run as part of the full desktop e2e
 suite** (observed on Ubuntu CI) and **passes when run alone** (verified on Windows). Both directions were
 verified before filing.
 
 **Where it fails:** line 186, `await expect(appPage.locator("#crypto-amount")).toBeVisible({ timeout:
-20_000 })` — i.e. failing during the test's own *setup* (starting a session, navigating to `/recharge`,
+20_000 })` — i.e. failing during the test's own _setup_ (starting a session, navigating to `/recharge`,
 clicking the "Binance" provider button, waiting for the crypto-amount field to render) rather than at its
 actual assertion further down (the "Customer pays separately" absence check). A spec failing inside its
 own setup step, with the same steps succeeding in isolation, is the signature of state left behind by
@@ -3504,8 +3516,8 @@ it started failing.
 SQLite database** across every spec file, run in order, against a **single Electron window per worker** —
 there is no per-file reset. Some earlier spec in the full-suite ordering is leaving behind state (an
 active session that shouldn't be active, a module/provider toggle, a lingering modal/toast, drawer or rate
-state, etc.) that this spec's setup steps don't anticipate and don't defend against. Finding *which*
-earlier spec, and *what* state it leaves, is the actual investigation — this ticket does not attempt that;
+state, etc.) that this spec's setup steps don't anticipate and don't defend against. Finding _which_
+earlier spec, and _what_ state it leaves, is the actual investigation — this ticket does not attempt that;
 it only localizes the failure to the setup step and rules out this branch as the cause.
 
 **Why this is more than a flaky-test annoyance:** this spec is now a concrete, demonstrated blocker for any
@@ -3549,7 +3561,7 @@ auto-dismiss to assert on its own toast content (11 specs do, via `notificationD
 a toast alive for its real 3s/5s type default; if CI's timing (slower/shared runner, different render
 pacing) lines up such that one is still on screen when this spec's setup force-clicks "Binance," the click
 is silently eaten. This is the same class of bug as LIRA-151 (fixed same day: a toast assertion racing the
-2ms default), just the *intercepting* side of it instead of the *asserting* side.
+2ms default), just the _intercepting_ side of it instead of the _asserting_ side.
 
 **Fix — spec-level, NOT harness-level, and here is why that reversed the original preference:** the first
 attempt put a generic toast-dismiss step inside `fixtures.ts`'s shared `navigateTo()` (used by all ~110
@@ -3621,7 +3633,7 @@ label become simply "LBP amount".
 **Not to be confused with the stamped-rate question.** LIRA-174 established that per-row stamped-rate
 conversion is impossible at this layer because the snapshot returns currency-bucketed `SUM`s. That is a
 separate, larger change (pushing conversion inside ~7 module sub-queries). This ticket is narrower:
-make sure an LBP profit slice reaches *a* total rather than vanishing.
+make sure an LBP profit slice reaches _a_ total rather than vanishing.
 
 **Acceptance:** every module's LBP profit slice reaches either `totalProfitLBP` or a documented,
 deliberate exclusion; rule 17 failing-first per module changed; the shared gate fragments reused, never
@@ -3724,3 +3736,324 @@ never updated the spec. The implementation is correct; derived independently as
 every printed digit. The spec now **computes** that expectation from its own constants rather than
 pasting the literal, plus two guards (`> 0`, `< MARKUP_USD`) so it pins the behaviour and not a
 number.
+
+---
+
+## LIRA-179: annual days price repriced 2,300,000 → 1,780,000 — DONE (2026-09-07)
+
+**Priority:** Medium · **Epic:** Recharge / Telecom · **Status:** **DONE** `720e8029` (shipped with
+LIRA-180; the migration itself is v159, committed earlier and swept into `d7e9cb7f`)
+
+### What changed
+
+`TELECOM_DAYS_SELL_PRICE_LBP[365]` moved from 2,300,000 to **1,780,000**, deepening the annual bulk
+discount from ~24% to ~41% off the 8,333 LBP/day rate the 30/60/90-day tiers run at (4,877 LBP/day for
+the year). Migration **v159** repriced the six existing 365-day rows.
+
+**This is a pricing decision, not a correction.** v147's 2,300,000 was arithmetically fine — the shop
+simply charges less for the year now. Only the days SELL line moved: `cost_lbp`, `credits`,
+`days_cost_lbp` and the credit-cost rate R are untouched, so what a card costs is unchanged.
+
+### Where the figure came from
+
+An outside analysis the owner brought in. Its **price** was adopted; its **cost formula** was
+explicitly rejected — see §"Why we kept our formula" below, because this is the part most likely to be
+re-litigated by whoever reads that document next.
+
+### What it costs, on the iPick 7,728,000 / 77.28 / 365d card
+
+```
+Settings "Days margin"     1,140,800 → 620,800   (-520,000)
+BOOKED Only-Days profit      777,000 → 257,000   (-520,000, i.e. -67%)
+Total per card (incl. resale) 1,502,380 → 982,380
+```
+
+**Settings' "Days margin" and the booked profit are different numbers and always were.** The gap is
+exactly `(77.28 − 73) × 85,000 = 363,800` — the SMS haircut priced at R. Settings shows the
+pre-haircut _allocation_ view (`sell_days_lbp − days_cost_lbp`, face-anchored); the profit stamp shows
+the post-haircut _real_ one (`sell_days − cost + recovered × R`). Both are correct for their own
+question, but the Settings figure reads optimistic and nothing on that screen says so. **Open, not
+filed as its own ticket yet** — see LIRA-180 §Follow-ups.
+
+### Why we kept our formula (do not "fix" this)
+
+The outside analysis derived days cost as `cost − recovered × SELL price`, anchoring on what credit
+sells for rather than what it costs. That is a legitimate accounting method (net-realizable-value
+allocation) and answers a real question, but it was rejected as a _cost basis_ for three reasons:
+
+1. **Cost would move when the shop changes its own price.** At 110,000/$ the implied days cost goes
+   **negative** (−302,000 on this card). A cost that goes negative when you raise a price is not a
+   cost — and profit is _stamped at sale time_, so it must be knowable at purchase.
+2. **It makes the resale table vacuous.** `recoveredRateLbp` collapses algebraically to exactly the
+   sell price, so the 1$/2$/3$ decision aid would always read break-even and could never tell the
+   owner whether 100,000/$ is too low. This is Model B, already rejected in `telecomCredit.ts`.
+3. **It changes nothing.** R cancels out of total profit — it only decides attribution between the
+   days line and the credit line.
+
+The analysis also **double-counted**: its two profit lines are algebraically identical (each equals the
+full gross G), so its summary table reads ~2x the real profit. Recorded here so the same document does
+not get re-adopted wholesale later.
+
+### Verification
+
+All six 365-day rows checked against the live catalog before shipping — every one still prices days
+ABOVE `days_cost_lbp` at the new price, thinnest margin +620,800 (iPick 7,728,000). No card sells its
+days at a loss.
+
+### NOT done
+
+- **No e2e spec.** Neither Only-Days spec reads the 365-day table (both self-provision their own
+  `sell_days_lbp`), so nothing existing breaks — but per this file's top note, a ticket is not
+  complete without one.
+
+---
+
+## LIRA-180: per-card "max returned credits" override (v160) — DONE (2026-09-07)
+
+**Priority:** Medium · **Epic:** Recharge / Telecom · **Status:** **DONE** `720e8029` — code, unit and
+integration green; **e2e outstanding**
+
+### The problem
+
+`maxReturnableCredits()` models a **bare** card — nothing on the line but the card's own credit. For
+the alfa 77.28 card that yields **$73.00**: 24 messages × $3.16 spends $75.84, leaves $1.44, and a
+final $1.50 message needs $1.66. In practice the customer's line holds a little of their own credit,
+and **$0.22** of it closes that gap, so the shop actually gets **$73.50** back. The computed figure is
+right about the physics and wrong about the shop.
+
+**Not special to this card** — every credit-bearing card in the catalog sits $0.03–$0.49 from another
+half-dollar (3.79 needs $0.03; 22.73 needs $0.05). The backfill is still scoped to 77.28 only, because
+that is the one with counter experience behind it.
+
+### Owner decisions (interview 2026-09-07)
+
+| #   | Decision                                                                                                                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Per-card field showing the computed value, overridable — the `days_cost_lbp` derived/override pattern, with a one-click reset                                                                                                  |
+| 2   | **Upward only**, capped at one `CREDIT_TRANSFER_STEP_USD` above computed. The catalog-wide shortfall all fits in one step, so the cap is the real mechanism, not an arbitrary bound; it also blocks the 83-for-73.5 typo class |
+| 3   | Applies **everywhere**: sale autofill, kept-credits base (what the customer is charged), profit stamp, carrier-line credit, Settings economics                                                                                 |
+| 4   | **A short transfer IS billed.** Returning 73 against a 73.5 base charges the 0.5 difference (+50,000 LBP). The shop does not absorb a failed transfer                                                                          |
+| 5   | Backfill the six 365-day 77.28 rows only                                                                                                                                                                                       |
+| 6   | A save that strands an override is **rejected**, never auto-cleared                                                                                                                                                            |
+
+**Decision 4 is the sharp edge.** The customer pays 50,000 for credit that burned in SMS fees and never
+landed on their line. Owner-confirmed and deliberate; guarded by a KatchForm test so it cannot drift
+silently. It is the item most likely to cause a counter dispute — if it is ever revisited, that test is
+where the current behaviour is pinned.
+
+### What shipped
+
+`resolveMaxReturnedCredits()` is the ONE definition of `override ?? computed` (rule 14). The cap is
+enforced on the **write** path in BOTH directions — setting the override, and editing `credits`
+underneath a stored one (the second direction is the one that ships as a bug, since nothing in that
+payload mentions the override). The **read** path ignores an out-of-range value rather than trusting
+it, so a row that went stale still prices sales correctly.
+
+`days_cost_lbp` is deliberately untouched: it is face-anchored because it allocates a PURCHASE before
+any sale exists, while this prices what actually comes back from a specific sale. Different questions —
+do not merge them.
+
+### Rule 20
+
+No new ledger row type, so no new reversal owner. Refunds reverse
+`carrier_line_movements.credits_delta` by `transaction_id` rather than recomputing from the catalog,
+so changing an override cannot desync a sale booked before the change. Pinned by a
+create → change-override → refund test that nets every ledger to 0.
+
+### Three near-misses worth remembering
+
+1. **INSERT arity.** Adding the column left `createItem`/`bulkCreate` at 17 columns / 16 values —
+   every insert would have thrown at runtime. Caught by checking parity programmatically, not by eye.
+2. **Test-schema sweep.** The new column voided six hand-rolled test schemas _at setup_, which
+   presents as a broken suite rather than a failed assertion.
+   `telecomDaysCreditValiditySchema.test.ts` was correctly left alone — it builds a pre-v140 table on
+   purpose.
+3. **Migration assumed its table exists.** v160 went straight to `ALTER TABLE` and broke an unrelated
+   suite (`PartnersSystemAssociationFkMigrationViaRunner`'s round trip) with `no such table`, nowhere
+   near this change. Migration tests build minimal DBs and the runner walks every migration over them.
+   Now guarded on `sqlite_master` like v157/v158, with three regression tests.
+
+### Gates
+
+`yarn typecheck` clean; `yarn test` 465 suites / 4,611 tests, 0 failures (backend 622, frontend 1,317,
+core 2,672). Core rebuilt and synced into `node_modules/@liratek/core/dist`.
+
+### Follow-ups (open)
+
+1. **No e2e spec** — set the override in Settings, sell Only-Days, assert the autofill and the charge,
+   on desktop and web. Required by this file's top note.
+2. **Settings shows the allocation margin, not the booked one** (LIRA-179 §). 620,800 vs 257,000 on the
+   77.28 card, differing by the SMS haircut at R. Candidate fix: show both.
+3. **`KatchForm` clamps a return above the base to zero kept credit.** If the shop ever recovers more
+   than the configured maximum, the excess is valued nowhere. Narrow, and only reachable once someone
+   returns above their own override.
+
+---
+
+## LIRA-181: SMS transfer fee becomes an expense — DONE (2026-09-07)
+
+**Priority:** Medium · **Epic:** Recharge / Profits · **Status:** **DONE**
+`d84c04ad` (merge of `sms-fee-expense`; the work itself is `cff444ea`). Owner decision 2026-09-06.
+
+The recharge profit stamp subtracted the SMS transfer fee, so a $3 MTC sale for 300,000 LBP reported
+**30,600 LBP** on Profits while the recharge page's own preview showed the **45,000** gross margin —
+`300,000 − (3 × 85,000) = 45,000`, minus `$0.16 × 90,000 = 14,400`. Two formulas for one concept,
+sharing no definition.
+
+Owner's call: the module shows **gross**, and the fee becomes a visible expense. Total net profit
+unchanged — the cost moved out of recharge margin onto its own line.
+
+Implementation worth recording: the fee **already moved money** (an `SMS_COST` leg plus a
+provider-balance debit, hand-written in `RechargeRepository`), so the change **moves** that debit into
+`ExpenseRepository.createExpense` via `drawer_override` rather than adding a second movement —
+following LIRA-145's `Line_Usage` precedent so the row inherits the existing void/refund and reporting
+machinery. Migration **v163** (renumbered on merge; the commit message and PR description said v166,
+but the shipped migration in `packages/core/src/db/migrations/index.ts` and `create_db.sql` is v163)
+`add_expenses_source_ref` adds `expenses.source_ref_table`/`source_ref_id`. Rule 20:
+`_cascadeExpenseSiblingVoid` is wired into both void and refund. **Cutover, not restatement** —
+existing recharges keep their stamped figure, per D3.
+
+Rule 17 evidence, all executed: reintroducing the subtraction failed the gross assertions
+(`Expected 60000, Received 31360`); disabling `createExpense` failed the expense-link assertions;
+commenting out the cascade left **$0.32 of un-reversed SMS expense stranded on the MTC drawer**
+(`Expected 1000, Received 999.68`). A double-debit guard asserts the MTC drawer moves by exactly
+**−3.16** for a $3 transfer, never −3.32.
+
+Note two consequences: every CREDIT_TRANSFER now writes an **extra EXPENSE transaction row** alongside
+the RECHARGE, and 7 test fixtures needed an `expenses` table added because every credit transfer now
+reaches `createExpense`. Verified at merge: 276 suites / 2903 tests, exit 0.
+
+---
+
+## LIRA-182: partner obligations recognised proportionally — DONE (2026-09-06)
+
+**Priority:** Medium · **Epic:** Profits · **Status:** **DONE**
+`5d61f9a4` (PR #74). Owner decisions 2026-09-05, from the interview that closed LIRA-173.
+
+Partner profit was all-or-nothing: a partner-pending row contributed zero revenue and zero profit
+until the partner settled in full, then jumped to 100%. It is now weighted by the fraction actually
+covered. Scope: **Profits page only**, all `FOR_%` modules. `ClosingRepository` keeps its binary gate,
+`ExchangeRepository` untouched, and all 36 `notDebtPending` sites untouched — **DBT-1 stands**.
+
+Two fragments, `partnerCoverageRatio` and `txnPartnerCoverageRatio`, both **derived at read time and
+never stamped** — a binding constraint, because a refund that unwinds coverage through the existing
+reverse-FIFO then corrects the figure automatically, satisfying rule 20 by construction. Counts are
+never weighted: a partner transaction counts once **any** money arrives
+(`SUM(CASE WHEN ratio > 0 ...)`), because the frontend renders counts as bare integers and a weighted
+count would have printed literally as "3.4 txns".
+
+Record the continuity property, since it is why an existing test passes unchanged: at ratio 0 and
+ratio 1 a row contributes exactly what the gate contributed, so only partially-covered rows differ.
+`LIRA158.settlementAttribution` therefore passes **unedited** — zero-contribution rows are filtered
+out of five grouped queries rather than surfacing as phantom `$0.00` provider rows.
+
+Two bugs found by execution: a bare output-alias in `HAVING` silently resolved to a real joined column
+instead of the aggregate (three of four filters did nothing), and `EXCHANGE_LEG_PROFIT`'s `COALESCE`
+sum needed parenthesising or the weight bound to `leg2` alone and leaked `leg1`.
+
+The merge included a follow-up commit recovering integration work dropped by a `git reset --soft`
+during the original push (caught by CI: 274/2879 with 2 failures vs the intended 277/2901 green).
+Verified on the merged result: core 277 suites / 2901 tests, backend 46/633, frontend 181/1370, all
+exit 0.
+
+**Also fixed as fallout, not by this ticket directly:** lira-120 asserted a partial partner settlement
+recognises `0` profit (the pre-#74 all-or-nothing model), computing `0` under the old model. `5d61f9a4`
+replaced the model with proportional recognition and left the spec unedited until this was caught; the
+spec now derives its expected value independently from its own constants
+(`markup × covered/obligation = 30.13 × 40/80.13 ≈ 15.04`) rather than pasting a literal.
+
+---
+
+## LIRA-183: every LBP row shows 0% margin on Profits → By Module — TODO — Medium
+
+`frontend/src/features/profits/pages/Profits.tsx:1356` calls `formatPct(row.profit_usd, row.revenue_usd)`.
+`formatPct` (`:291`) returns `"0%"` when `total === 0`. An LBP-denominated row has **both USD
+arguments at zero**, so it always prints `0%`.
+
+The MTC recharge row's real margin is ~15% (45,000/300,000 after LIRA-181). **Same root cause as
+LIRA-139**, where the amount sort read only `amount_usd` and every LBP row sorted as zero — a
+USD-only computation on a dual-currency row.
+
+Record the open design fork: a genuinely mixed USD+LBP row needs a rate to produce one percentage.
+The recommendation is to fix the LBP-only case **rate-free** (which is 100% of the observed bug)
+rather than introduce a conversion rate into a reporting percentage — and to flag mixed rows rather
+than silently converting them.
+
+---
+
+## LIRA-184: "sales margin" is hand-written in six places; three ignore quantity — TODO — Medium-High
+
+From the profit-surface audit. Six sites checked directly against source (line numbers corrected from
+the initial pass, which cited `SalesRepository.ts:522` and `:1999` — the real lines are `528` and
+`2078`):
+
+```
+SalesRepository.ts:528      (item.price - costPrice) * item.quantity        qty YES  discount YES  [the stamp]
+ProfitRepository.ts:1268    si.sold_price_usd * si.quantity * weight        qty YES  discount NO
+ProfitRepository.ts:3066    (sold - cost) * si.quantity                     qty YES  discount NO
+ClosingRepository.ts:871    SUM(si.sold_price_usd - si.cost_price_snapshot_usd)   qty NO  discount NO
+FinancialRepository.ts:130  same text                                       qty NO   discount NO
+SalesRepository.ts:2078     same text                                       qty NO   discount NO
+```
+
+The last three are byte-identical copies. **Three of the six ignore quantity entirely**, so a 5-unit
+sale reports the margin of 1.
+
+The sharp part, worth recording: this module's **gate** predicates were properly extracted and shared
+(`saleFullyPaid`, `saleRecognitionWeight`, `notRefunded`) when LIRA-160/161 fixed them — the **value**
+expression was left duplicated. One exported `saleMargin(saleAlias, itemAlias)` fragment closes three
+divergences in one edit (rule 14).
+
+Also note the audit found sales has **no live profit preview at all**, which is why the MTC-class
+preview-vs-stamp bug cannot take that form here — and why nobody would notice these six copies
+drifting.
+
+---
+
+## LIRA-185: profit-surface audit: 73 leads, 6 of 8 modules unverified — TODO — Medium
+
+A workflow audited all 8 modules across 5 surfaces each (module page preview, module table columns,
+the `transactions` profit stamp, the Profits query, the Closing sub-query) and claimed **73
+divergences**.
+
+**State this honestly and prominently:** the adversarial verification phase was killed by an org spend
+limit — 162 of 228 agents failed. Only **sales** completed a verified pass (7 claimed, 7 confirmed, 0
+refuted → LIRA-184). For the other six modules the 73 are **leads, not findings**. Worse, the summary
+arithmetic is misleading: when all three verifiers for a divergence errored, the code saw zero votes
+and dropped it as unconfirmed — so "19 confirmed of 73" does **not** mean 54 were refuted.
+
+All raw output is preserved at `docs/plans/todo_plans/profit-audit-2026-09/` — `raw-workflow-result.json`
+(582 KB) and `journal.jsonl` (456 agent records, all 8 audit agents' full returns). The expensive
+discovery work is banked; re-running only the verification for the six remaining modules is
+comparatively cheap and is the recommended next step.
+
+Note the caveat that the audit read a working tree the owner was editing in parallel, so findings
+touching `SalesRepository`/`TransactionRepository` should be re-checked against current `main`.
+
+---
+
+## LIRA-186: `embeddedCommission.guard.test.ts` keys exclusions by ordinal SQL-unit number — TODO — Low
+
+Its `EXCLUDED_UNITS` entries are keyed by an **ordinal position**, so adding any method that contains
+SQL shifts them. Confirmed concretely in the guard file itself
+(`packages/core/src/constants/__tests__/embeddedCommission.guard.test.ts:473,480`): LIRA-181's new
+`TransactionRepository` method moved a unit from `#20` to `#21`, requiring the key
+(`"TransactionRepository:getCustomerFacingLegs:(query-like #21)"`) and its explanation to be updated
+in an otherwise unrelated change.
+
+Why it matters beyond the annoyance: a guard that breaks when unrelated code is added trains people to
+edit the guard rather than investigate — and this guard exists specifically to stop ungated commission
+reads reaching reports. Key exclusions by something stable (method name plus a distinguishing
+fragment) instead.
+
+---
+
+**Note (not a ticket) — v163 migration missing from `create_db.sql`'s `schema_migrations` seed.**
+Confirmed against current `main`: the seed list jumps `(162, 'rename_omt_whish_route_to_omt_whish')`
+→ `(164, 'add_product_stock_batches_and_intake_ledger_type')` (`electron-app/create_db.sql:2060-2061`).
+`profits_module_visible_to_all_roles` is migration v163 in `packages/core/src/db/migrations/index.ts`
+(line 9886) but is never seeded into `create_db.sql`. Consequence: on a **fresh install** v163 will
+actually RUN (clearing `admin_only` on the `profits` module) rather than being recorded as already
+applied via the fresh schema, so a fresh DB and an upgraded DB can diverge in module visibility. Rule
+10 wants both files updated. This is framed as **the owner's call** — whether `profits` should be
+staff-visible on a brand-new install is a product decision, not something to fix unilaterally.
