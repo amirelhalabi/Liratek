@@ -604,6 +604,13 @@ CREATE TABLE IF NOT EXISTS expenses (
     edited_at TEXT DEFAULT NULL,
     is_refunded INTEGER DEFAULT 0,
     refunded_at TEXT DEFAULT NULL,
+    -- Migration v163: generic back-link to the PARENT unified transaction's
+    -- own source row (mirrors supplier_ledger.source_ref_table/source_ref_id,
+    -- migration v136) — lets TransactionRepository cascade-void an
+    -- auto-generated expense (e.g. the SMS transfer fee expense) when the
+    -- parent transaction (e.g. the recharge) is voided/refunded.
+    source_ref_table TEXT DEFAULT NULL,
+    source_ref_id INTEGER DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -1360,6 +1367,7 @@ CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
 CREATE INDEX IF NOT EXISTS idx_expenses_type ON expenses(expense_type);
 CREATE INDEX IF NOT EXISTS idx_expenses_date_category ON expenses(expense_date, category);
 CREATE INDEX IF NOT EXISTS idx_expenses_type_date ON expenses(expense_type, expense_date DESC);
+CREATE INDEX IF NOT EXISTS idx_expenses_source_ref ON expenses(source_ref_table, source_ref_id);
 
 -- Maintenance indexes
 CREATE INDEX IF NOT EXISTS idx_maintenance_client_id ON maintenance(client_id);

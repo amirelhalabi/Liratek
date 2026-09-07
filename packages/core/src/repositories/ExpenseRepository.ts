@@ -75,6 +75,19 @@ export interface CreateExpenseData {
    * the row's own identity.
    */
   extra_metadata?: Record<string, unknown>;
+  /**
+   * Generic back-link (migration v163, same shape as
+   * `supplier_ledger.source_ref_table`/`source_ref_id` from v136) to the
+   * PARENT unified transaction's own source row — e.g. `'recharges'`/<recharge
+   * id> for the SMS transfer fee expense a CREDIT_TRANSFER recharge books.
+   * Lets `TransactionRepository` find and cascade-void this expense when the
+   * parent transaction is voided/refunded (rule 20). Omit for a
+   * stand-alone expense with no owning transaction (e.g. LIRA-145 line
+   * usage, whose reversal owner is the generic void path on the expense
+   * itself).
+   */
+  source_ref_table?: string;
+  source_ref_id?: number;
 }
 
 export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
@@ -96,28 +109,66 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   }
 
   /**
+   * True when the connected `expenses` table already carries the v163
+   * source_ref_table/source_ref_id columns. Mirrors
+   * `SupplierRepository._supplierLedgerHasSourceRefColumns` exactly: many
+   * `packages/core` jest specs hand-roll a fresh in-memory schema per file
+   * that predates this migration, and an INSERT referencing a column the
+   * connected schema doesn't have would throw. Checked once per call (PRAGMA
+   * is cheap; this is not a hot path) rather than cached.
+   */
+  private _expensesHasSourceRefColumns(): boolean {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(expenses)`)
+      .all() as { name: string }[];
+    return (
+      cols.some((c) => c.name === "source_ref_table") &&
+      cols.some((c) => c.name === "source_ref_id")
+    );
+  }
+
+  /**
    * Create a new expense
    */
   createExpense(data: CreateExpenseData, userId: number): number {
     const paidBy = data.paid_by_method || "CASH";
     const drawerName = paymentMethodToDrawerName(paidBy);
     const tenantId = getCurrentTenantId();
+    const hasSourceRef = this._expensesHasSourceRefColumns();
 
     return this.db.transaction(() => {
-      const stmt = this.db.prepare(`
+      const stmt = hasSourceRef
+        ? this.db.prepare(`
+        INSERT INTO expenses (tenant_id, description, category, paid_by_method, amount_usd, amount_lbp, expense_date, source_ref_table, source_ref_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      `)
+        : this.db.prepare(`
         INSERT INTO expenses (tenant_id, description, category, paid_by_method, amount_usd, amount_lbp, expense_date, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
-      const result = stmt.run(
-        tenantId,
-        data.description,
-        data.category,
-        paidBy,
-        data.amount_usd,
-        data.amount_lbp,
-        data.expense_date,
-        data.transaction_time ?? null,
-      );
+      const result = hasSourceRef
+        ? stmt.run(
+            tenantId,
+            data.description,
+            data.category,
+            paidBy,
+            data.amount_usd,
+            data.amount_lbp,
+            data.expense_date,
+            data.source_ref_table ?? null,
+            data.source_ref_id ?? null,
+            data.transaction_time ?? null,
+          )
+        : stmt.run(
+            tenantId,
+            data.description,
+            data.category,
+            paidBy,
+            data.amount_usd,
+            data.amount_lbp,
+            data.expense_date,
+            data.transaction_time ?? null,
+          );
       const expenseId = Number(result.lastInsertRowid);
 
       // Create unified transaction row

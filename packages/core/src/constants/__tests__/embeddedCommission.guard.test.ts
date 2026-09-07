@@ -470,13 +470,16 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "anywhere, in `_bookCommissionAtSettlement` or otherwise. A value " +
     "nobody reads cannot misreport anything: NOT a reporting aggregate, " +
     "ruled out.",
-  "TransactionRepository:getCustomerFacingLegs:(query-like #20)":
+  "TransactionRepository:getCustomerFacingLegs:(query-like #21)":
     "Per-row REVERSAL-STATE read, not a reporting aggregate. The true " +
     "source is the PRIVATE method `_reverseSupplierSettlement` — " +
     "mis-attributed by {@link collectQueryLikeUnits} to `getCustomerFacingLegs` " +
-    "(nearest preceding public boundary) as its 20th `this.query(`-shaped " +
+    "(nearest preceding public boundary) as its 21st `this.query(`-shaped " +
     "inline-template call in that mis-attributed span (see this const's own " +
-    "doc comment on the ordinal-fragility tradeoff). `SELECT id, provider, " +
+    "doc comment on the ordinal-fragility tradeoff — the ordinal shifted from " +
+    "#20 to #21 when the SMS-fee-expense cutover (owner decision 2026-09-06) " +
+    "inserted `_cascadeExpenseSiblingVoid`/`_expensesHasSourceRefColumns` " +
+    "earlier in this same mis-attributed span). `SELECT id, provider, " +
     "service_type, commission, commission_model FROM financial_services " +
     "WHERE settlement_id = ?` feeds each row into " +
     "`isPendingSupplierSettlement` to decide whether reversing this " +

@@ -1420,6 +1420,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // there is none, or on a legacy (pre-v136) row with no link.
       this._cascadeSupplierSiblingVoid(original, userId);
 
+      // 5c2. Owner decision 2026-09-06, rule 20 — cascade-void the auto SMS
+      // transfer fee expense a CREDIT_TRANSFER recharge (or any other
+      // v163-linked flow) booked as this transaction's own side effect. No-op
+      // when there is none, or on a legacy (pre-v163) row with no link.
+      this._cascadeExpenseSiblingVoid(original, userId);
+
       // 5d. LIRA-085 — if this transaction IS a PARTNER_SETTLEMENT/
       // PARTNER_PAYMENT, restore its own partner_ledger row (+ any bundled
       // CQ-10 discount) and unwind the FIFO covered_amount stamps it
@@ -1663,6 +1669,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4c. LIRA-091 — cascade-void any auto supplier-ledger sibling this
       // transaction's own event created. See voidTransaction's identical step.
       this._cascadeSupplierSiblingVoid(original, userId);
+
+      // 4c2. Owner decision 2026-09-06, rule 20 — cascade-void the auto SMS
+      // transfer fee expense sibling. See voidTransaction's identical step.
+      this._cascadeExpenseSiblingVoid(original, userId);
 
       // 4d. LIRA-085 — PARTNER_SETTLEMENT/PARTNER_PAYMENT ledger + coverage
       // restore. See voidTransaction's identical step.
@@ -2342,6 +2352,70 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     for (const sibling of siblings) {
       if (sibling.transaction_id == null) continue;
       this._voidTransactionInternal(sibling.transaction_id, userId, {
+        allowSplitGroupMember: true,
+      });
+    }
+  }
+
+  /**
+   * True when the connected `expenses` table already carries the v163
+   * source_ref_table/source_ref_id columns. Same shape as
+   * `_cascadeSupplierSiblingVoid`'s identical guard for the v136 migration —
+   * many `packages/core` jest specs hand-roll a fresh in-memory schema per
+   * file that predates v163.
+   */
+  private _expensesHasSourceRefColumns(): boolean {
+    const cols = this.db.prepare(`PRAGMA table_info(expenses)`).all() as {
+      name: string;
+    }[];
+    return (
+      cols.some((c) => c.name === "source_ref_table") &&
+      cols.some((c) => c.name === "source_ref_id")
+    );
+  }
+
+  /**
+   * Cascade-void every auto-generated `expenses` row this transaction's own
+   * event created — currently only the SMS transfer fee expense a
+   * CREDIT_TRANSFER recharge books via `ExpenseRepository.createExpense`'s
+   * `source_ref_table`/`source_ref_id` link (owner decision 2026-09-06: the
+   * SMS fee moved out of the recharge's net profit stamp into its own
+   * expense — rule 20 requires a reversal owner for that new side-effect
+   * row).
+   *
+   * Mirrors `_cascadeSupplierSiblingVoid` exactly: finds the sibling
+   * `expenses` row by `source_ref_table`/`source_ref_id` (pointing back at
+   * `original.source_table`/`source_id`), looks up ITS OWN unified
+   * transaction via `getBySourceId('expenses', expense.id)` (expenses has no
+   * `transaction_id` column of its own — unlike `supplier_ledger` — so the
+   * link is the reverse direction), and reuses `_voidTransactionInternal` on
+   * that transaction so the SAME drawer-reversal/`_markSourceRefunded`
+   * machinery every other expense void uses fires here too (rule 14/20, not
+   * a second reversal path).
+   *
+   * Already-refunded expense siblings and legacy (pre-v163) rows with no
+   * link are excluded/undetectable by the same design as the supplier-ledger
+   * cascade — see that method's doc.
+   */
+  private _cascadeExpenseSiblingVoid(
+    original: TransactionEntity,
+    userId: number,
+  ): void {
+    if (!original.source_table || original.source_id == null) return;
+    if (!this._expensesHasSourceRefColumns()) return;
+    const tenantId = getCurrentTenantId();
+    const siblings = this.query<{ id: number }>(
+      `SELECT id FROM expenses
+        WHERE source_ref_table = ? AND source_ref_id = ? AND tenant_id = ?
+          AND COALESCE(is_refunded, 0) = 0`,
+      original.source_table,
+      original.source_id,
+      tenantId,
+    );
+    for (const sibling of siblings) {
+      const siblingTxn = this.getBySourceId("expenses", sibling.id);
+      if (!siblingTxn) continue;
+      this._voidTransactionInternal(siblingTxn.id, userId, {
         allowSplitGroupMember: true,
       });
     }

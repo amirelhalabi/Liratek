@@ -9882,6 +9882,78 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 163,
+    name: "add_expenses_source_ref",
+    description:
+      "Owner decision 2026-09-06: the SMS transfer fee on a CREDIT_TRANSFER recharge stops " +
+        "netting against recharge profit and becomes its own expense (packages/core/src/repositories/" +
+        "RechargeRepository.ts, routed through ExpenseRepository.createExpense — same LIRA-145 " +
+        "Line_Usage precedent). That expense is a side-effect ROW tied to the recharge transaction, " +
+        "so (rule 20) it needs a reversal owner: voiding/refunding the recharge must cascade-void the " +
+        "sibling expense. expenses gains source_ref_table/source_ref_id — a generic back-link from an " +
+        "auto-generated expense row to the PARENT unified transaction's own source row " +
+        "(source_ref_table/source_ref_id mirror the parent's transactions.source_table/source_id, e.g. " +
+        "'recharges'/<recharge id>) — exact same shape as migration v136's " +
+        "supplier_ledger.source_ref_table/source_ref_id, used by TransactionRepository to find and " +
+        "cascade-void the sibling when the parent is voided/refunded. Nullable, DEFAULT NULL only — " +
+        "never CURRENT_TIMESTAMP (v104 prod-brick lesson) — and guarded by a PRAGMA table_info check " +
+        "so replaying up() on an already-migrated DB is a safe no-op. Pre-link (legacy) rows are NOT " +
+        "backfilled — no heuristic data repair, same limitation v136 documented for its own rollout. " +
+        "Cutover, not restatement: existing recharges keep the profit figure they were stamped with " +
+        "(no backfill of historical transactions.profit_usd/profit_lbp — same D3 convention used for " +
+        "the commission model, migration v161).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasExpenses = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'expenses'`,
+        )
+        .get();
+      if (!hasExpenses) {
+        console.log("Migration v163 skipped: 'expenses' table not present");
+        return;
+      }
+      const cols = db.prepare("PRAGMA table_info(expenses)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "source_ref_table")) {
+        db.exec(
+          `ALTER TABLE expenses ADD COLUMN source_ref_table TEXT DEFAULT NULL`,
+        );
+      }
+      if (!cols.some((c) => c.name === "source_ref_id")) {
+        db.exec(
+          `ALTER TABLE expenses ADD COLUMN source_ref_id INTEGER DEFAULT NULL`,
+        );
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_expenses_source_ref ON expenses(source_ref_table, source_ref_id)`,
+      );
+      console.log(
+        "Migration v163: added expenses.source_ref_table/source_ref_id + index",
+      );
+    },
+    down(db: Database.Database) {
+      const hasExpenses = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'expenses'`,
+        )
+        .get();
+      if (!hasExpenses) {
+        console.log(
+          "Migration v163 rollback skipped: 'expenses' table not present",
+        );
+        return;
+      }
+      db.exec(`DROP INDEX IF EXISTS idx_expenses_source_ref`);
+      db.exec(`ALTER TABLE expenses DROP COLUMN source_ref_id`);
+      db.exec(`ALTER TABLE expenses DROP COLUMN source_ref_table`);
+      console.log(
+        "Migration v163 rolled back: expenses source_ref_table/source_ref_id + index removed",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
