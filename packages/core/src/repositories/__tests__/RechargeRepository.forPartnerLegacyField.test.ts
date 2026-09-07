@@ -156,6 +156,31 @@ function createTestDb(): Database.Database {
       created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- expenses (migration v166 shape) -- needed because the SMS transfer fee
+    -- on a CREDIT_TRANSFER now books through ExpenseRepository.createExpense
+    -- instead of a bare payment leg on the recharge's own transaction.
+    CREATE TABLE expenses (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id         INTEGER DEFAULT 1,
+      description       TEXT,
+      category          TEXT,
+      expense_type      TEXT,
+      amount_usd        DECIMAL(10, 2),
+      amount_lbp        DECIMAL(15, 2),
+      paid_by_method    TEXT DEFAULT 'CASH',
+      status            TEXT NOT NULL DEFAULT 'active',
+      expense_date      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      note              TEXT DEFAULT NULL,
+      edited_by         TEXT DEFAULT NULL,
+      edited_at         TEXT DEFAULT NULL,
+      is_refunded       INTEGER DEFAULT 0,
+      refunded_at       TEXT DEFAULT NULL,
+      source_ref_table  TEXT DEFAULT NULL,
+      source_ref_id     INTEGER DEFAULT NULL,
+      created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE drawer_balances (
       tenant_id INTEGER DEFAULT 1,
       drawer_name   TEXT NOT NULL,

@@ -50,6 +50,26 @@ import {
 } from "./CarrierLineRepository.js";
 import { getCarrierLineService } from "../services/CarrierLineService.js";
 import { isSameLebanesePhone } from "../utils/phoneNumber.js";
+import { getExpenseRepository } from "./ExpenseRepository.js";
+
+// =============================================================================
+// SMS transfer fee → expense constants (owner decision 2026-09-06) — rule 14:
+// defined ONCE here, the single call site below, never re-spelled elsewhere.
+// =============================================================================
+
+/** `expenses.category` for the SMS transfer fee a CREDIT_TRANSFER burns. */
+export const SMS_TRANSFER_EXPENSE_CATEGORY = "SMS_Transfer_Fee";
+
+/**
+ * `expenses.paid_by_method` for the SMS transfer fee expense. Kept as the
+ * SAME label the pre-cutover payment leg used (`"SMS_COST"`) — NOT a
+ * registered `payment_methods` row (deliberately, same reasoning as
+ * `LINE_USAGE_PAID_BY_METHOD`): no cash drawer, no wallet, no customer
+ * tender is involved. The value leaves the carrier's own credit drawer via
+ * `CreateExpenseData.drawer_override`, and this string is only the audit
+ * label for that.
+ */
+export const SMS_TRANSFER_EXPENSE_PAID_BY_METHOD = "SMS_COST";
 
 // =============================================================================
 // Entity Types
@@ -669,9 +689,18 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
         // 2. Create unified transaction row
         // rechargeCommission is denominated in the SALE currency (price and
-        // cost share it), but the SMS cost is a USD figure — for LBP-priced
-        // transfers it must be converted before subtracting, otherwise ~$0.32
-        // is shaved off an LBP amount (currency mixing).
+        // cost share it).
+        //
+        // Owner decision 2026-09-06: the SMS transfer fee no longer nets
+        // against this GROSS margin — it is booked as its OWN expense below
+        // (step 5b) instead of a payment leg on this transaction, so the
+        // recharge page and the Profits page agree on the same figure (a $3
+        // MTC credit sale for 300,000 LBP used to show 45,000 on Recharge vs
+        // 30,600 on Profits; both now read 45,000, with the 14,400 LBP fee
+        // showing up as an expense line). Total net profit is unchanged —
+        // the cost only moved from an invisible netting here to a visible
+        // expense line. Cutover, not restatement (migration v166): existing
+        // recharges keep the NET figure they were stamped with pre-cutover.
         const rechargeCommission = data.price - data.cost;
         // Carrier SMS rules live in ONE place (rule 14, LIRA-090 spec §2.1) —
         // utils/telecomCredit.ts. This now goes through the one SMS transfer
@@ -694,10 +723,6 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           sellRate,
           data.tender_exchange_rate,
         );
-        const smsCostInSaleCurrency =
-          currency === "LBP" ? smsCostUsd * sellRate : smsCostUsd;
-        const netRechargeCommission =
-          rechargeCommission - smsCostInSaleCurrency;
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE,
           source_table: "recharges",
@@ -705,12 +730,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: createdBy,
           amount_usd: currency === "USD" ? data.price : 0,
           amount_lbp: currency === "LBP" ? data.price : 0,
-          // Net commission (sale currency) + kept change (T3, tender-native).
+          // GROSS commission (sale currency) + kept change (T3,
+          // tender-native). The SMS fee no longer nets against this figure —
+          // see the comment above `rechargeCommission`.
           profit_usd:
-            (currency === "USD" ? netRechargeCommission : 0) +
+            (currency === "USD" ? rechargeCommission : 0) +
             (data.kept_change_usd ?? 0),
           profit_lbp:
-            (currency === "LBP" ? netRechargeCommission : 0) +
+            (currency === "LBP" ? rechargeCommission : 0) +
             (data.kept_change_lbp ?? 0),
           client_id: data.clientId ?? null,
           // For-partner recharges label the row with the partner (owner ask:
@@ -1023,18 +1050,44 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           }
         }
 
-        // SMS cost deduction: each CREDIT_TRANSFER requires SMSes to send credits
+        // SMS transfer fee: each CREDIT_TRANSFER requires SMSes to send
+        // credits. Owner decision 2026-09-06 — this no longer posts as a
+        // payment leg on THIS transaction (which used to net it invisibly
+        // out of recharge profit); it books as its own `SMS_Transfer_Fee`
+        // expense via `ExpenseRepository.createExpense`, the SAME LIRA-145
+        // Line_Usage precedent (rule 14: reuse the one EXPENSE writer, don't
+        // hand-roll a second one). `drawer_override` still moves exactly the
+        // SAME provider drawer, currency and magnitude the removed
+        // `insertPayment`/`upsertBalanceDelta` pair used to — the money
+        // moves exactly ONCE, just through the expense's own leg instead of
+        // this transaction's. `source_ref_table`/`source_ref_id` (migration
+        // v166) link this expense back to the recharge so
+        // `TransactionRepository._cascadeExpenseSiblingVoid` reverses it
+        // when the recharge is voided/refunded (rule 20).
         if (data.type === "CREDIT_TRANSFER" && smsCostUsd > 0) {
-          insertPayment.run(
-            txnId,
-            "SMS_COST",
-            providerDrawerName,
-            "USD",
-            -smsCostUsd,
-            `SMS cost: ${smsCount} × $${SMS_TRANSFER_FEE_USD}`,
+          getExpenseRepository().createExpense(
+            {
+              description: `SMS cost: ${smsCount} × $${SMS_TRANSFER_FEE_USD} (${data.provider} ${detail})`,
+              category: SMS_TRANSFER_EXPENSE_CATEGORY,
+              paid_by_method: SMS_TRANSFER_EXPENSE_PAID_BY_METHOD,
+              amount_usd: smsCostUsd,
+              amount_lbp: 0,
+              expense_date: data.transaction_time ?? new Date().toISOString(),
+              transaction_time: data.transaction_time,
+              drawer_override: {
+                drawer_name: providerDrawerName,
+                currency_code: "USD",
+              },
+              source_ref_table: "recharges",
+              source_ref_id: rechargeId,
+              extra_metadata: {
+                recharge_id: rechargeId,
+                sms_count: smsCount,
+                sms_fee_usd: SMS_TRANSFER_FEE_USD,
+              },
+            },
             createdBy,
           );
-          upsertBalanceDelta.run(providerDrawerName, "USD", -smsCostUsd);
         }
 
         // PFT-R (Partner FOR-Transactions, full-amount model): routing is

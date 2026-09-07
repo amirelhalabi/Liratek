@@ -49,8 +49,17 @@ jest.mock("../../db/connection", () => {
 const { setDb } = require("../../db/connection");
 
 function lastTransactionExchangeRate(db: Database.Database): number {
+  // Excludes type = 'EXPENSE': a CREDIT_TRANSFER's SMS transfer fee now books
+  // its own EXPENSE transaction (created AFTER the RECHARGE/TELECOM_CREDIT_
+  // BUYBACK row this file is actually asserting on), which carries no
+  // exchange_rate stamp and would otherwise read back as the "latest" row
+  // here. This file covers both RECHARGE and processCreditBuyback (type
+  // TELECOM_CREDIT_BUYBACK), so the exclusion is deliberately by the ONE
+  // type that's never the row under test, not an allowlist of one.
   const row = db
-    .prepare(`SELECT exchange_rate FROM transactions ORDER BY id DESC LIMIT 1`)
+    .prepare(
+      `SELECT exchange_rate FROM transactions WHERE type != 'EXPENSE' ORDER BY id DESC LIMIT 1`,
+    )
     .get() as { exchange_rate: number };
   return row.exchange_rate;
 }
@@ -123,6 +132,31 @@ describe("RechargeRepository — SEND stamps the tendered rate", () => {
         created_by     INTEGER,
         created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+    -- expenses (migration v166 shape) -- needed because the SMS transfer fee
+    -- on a CREDIT_TRANSFER now books through ExpenseRepository.createExpense
+    -- instead of a bare payment leg on the recharge's own transaction.
+    CREATE TABLE expenses (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id         INTEGER DEFAULT 1,
+      description       TEXT,
+      category          TEXT,
+      expense_type      TEXT,
+      amount_usd        DECIMAL(10, 2),
+      amount_lbp        DECIMAL(15, 2),
+      paid_by_method    TEXT DEFAULT 'CASH',
+      status            TEXT NOT NULL DEFAULT 'active',
+      expense_date      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      note              TEXT DEFAULT NULL,
+      edited_by         TEXT DEFAULT NULL,
+      edited_at         TEXT DEFAULT NULL,
+      is_refunded       INTEGER DEFAULT 0,
+      refunded_at       TEXT DEFAULT NULL,
+      source_ref_table  TEXT DEFAULT NULL,
+      source_ref_id     INTEGER DEFAULT NULL,
+      created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
 
       CREATE TABLE drawer_balances (
         tenant_id INTEGER DEFAULT 1,
@@ -358,6 +392,32 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
         note TEXT,
         created_by INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- expenses (migration v166 shape) -- needed because the SMS transfer
+      -- fee on a CREDIT_TRANSFER now books through
+      -- ExpenseRepository.createExpense instead of a bare payment leg on the
+      -- recharge's own transaction.
+      CREATE TABLE expenses (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id         INTEGER DEFAULT 1,
+        description       TEXT,
+        category          TEXT,
+        expense_type      TEXT,
+        amount_usd        DECIMAL(10, 2),
+        amount_lbp        DECIMAL(15, 2),
+        paid_by_method    TEXT DEFAULT 'CASH',
+        status            TEXT NOT NULL DEFAULT 'active',
+        expense_date      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        note              TEXT DEFAULT NULL,
+        edited_by         TEXT DEFAULT NULL,
+        edited_at         TEXT DEFAULT NULL,
+        is_refunded       INTEGER DEFAULT 0,
+        refunded_at       TEXT DEFAULT NULL,
+        source_ref_table  TEXT DEFAULT NULL,
+        source_ref_id     INTEGER DEFAULT NULL,
+        created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE drawer_balances (

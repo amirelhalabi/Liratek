@@ -1,11 +1,20 @@
 /**
- * RechargeRepository — SMS cost deduction for CREDIT_TRANSFER
+ * RechargeRepository — SMS transfer fee for CREDIT_TRANSFER
+ *
+ * Owner decision 2026-09-06: the SMS transfer fee no longer nets against
+ * recharge profit — it is booked as its own `SMS_Transfer_Fee` expense
+ * (ExpenseRepository.createExpense, LIRA-145 Line_Usage precedent).
  *
  * Verifies that processRecharge() correctly:
  *   - Computes smsCount = ceil(amount / 3) for CREDIT_TRANSFER
- *   - Deducts smsCount × $0.16 from the provider (MTC/Alfa) drawer
+ *   - Deducts smsCount × $0.16 from the provider (MTC/Alfa) drawer EXACTLY
+ *     ONCE — via the SMS expense's own drawer_override leg, not a payment
+ *     leg on the recharge's own transaction (the pre-cutover shape)
  *   - Records the deduction as an SMS_COST payment leg in the payments table
- *   - Reduces profit_usd in the unified transaction by the SMS cost
+ *   - Books an `SMS_Transfer_Fee` expense row linked back to the recharge
+ *     via source_ref_table/source_ref_id (migration v166, rule 20)
+ *   - Stores the FULL GROSS commission in profit_usd/profit_lbp — the SMS
+ *     fee no longer reduces it
  *   - Does NOT deduct SMS cost for non-CREDIT_TRANSFER types (DAYS, ALFA_GIFT)
  *
  * All tests run against an in-memory SQLite database. DebtService is mocked.
@@ -17,7 +26,10 @@ import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext";
-import { resetTransactionRepository } from "../TransactionRepository";
+import {
+  TransactionRepository,
+  resetTransactionRepository,
+} from "../TransactionRepository";
 import { resetCarrierLineRepository } from "../CarrierLineRepository";
 import { resetCarrierLineMovementRepository } from "../CarrierLineMovementRepository";
 import { resetCarrierLineService } from "../../services/CarrierLineService";
@@ -154,6 +166,31 @@ function createTestDb(): Database.Database {
       ON carrier_lines(tenant_id, carrier)
       WHERE is_primary = 1;
 
+    -- expenses (migration v166 shape) — needed because the SMS transfer fee
+    -- now books through ExpenseRepository.createExpense instead of a bare
+    -- payment leg on the recharge's own transaction.
+    CREATE TABLE expenses (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id         INTEGER DEFAULT 1,
+      description       TEXT,
+      category          TEXT,
+      expense_type      TEXT,
+      amount_usd        DECIMAL(10, 2),
+      amount_lbp        DECIMAL(15, 2),
+      paid_by_method    TEXT DEFAULT 'CASH',
+      status            TEXT NOT NULL DEFAULT 'active',
+      expense_date      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      note              TEXT DEFAULT NULL,
+      edited_by         TEXT DEFAULT NULL,
+      edited_at         TEXT DEFAULT NULL,
+      is_refunded       INTEGER DEFAULT 0,
+      refunded_at       TEXT DEFAULT NULL,
+      source_ref_table  TEXT DEFAULT NULL,
+      source_ref_id     INTEGER DEFAULT NULL,
+      created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE carrier_line_movements (
       id                           INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id                    INTEGER DEFAULT 1,
@@ -174,6 +211,48 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances VALUES (1, 'MTC',     'USD', 1000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'Alfa',    'USD', 1000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'General', 'USD', 5000, CURRENT_TIMESTAMP);
+
+    -- Void-path support tables (empty in every test — only present so
+    -- TransactionRepository's generic void/refund queries against them
+    -- don't fail with "no such table"). Same shape as
+    -- ModuleStoreCreditReversal.test.ts, which already exercises void on a
+    -- CREDIT_TRANSFER recharge with this exact table set.
+    CREATE TABLE debt_ledger (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id        INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      amount_usd       REAL NOT NULL DEFAULT 0,
+      amount_lbp       REAL NOT NULL DEFAULT 0,
+      transaction_id   INTEGER,
+      session_id       INTEGER,
+      note             TEXT,
+      due_date         TEXT,
+      created_by       INTEGER,
+      is_refunded      INTEGER DEFAULT 0,
+      refunded_at      TEXT,
+      covered_usd      REAL NOT NULL DEFAULT 0,
+      covered_lbp      REAL NOT NULL DEFAULT 0,
+      tenant_id        INTEGER DEFAULT 1,
+      created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      provider  TEXT
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
+
+    CREATE TABLE sales (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id              INTEGER DEFAULT 1,
+      final_amount_usd       REAL NOT NULL DEFAULT 0,
+      paid_usd               REAL NOT NULL DEFAULT 0,
+      paid_lbp               REAL NOT NULL DEFAULT 0,
+      exchange_rate_snapshot REAL,
+      status                 TEXT NOT NULL DEFAULT 'completed',
+      created_at             TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   return db;
@@ -208,11 +287,35 @@ function latestTxnProfit(db: Database.Database): {
   profit_usd: number;
   profit_lbp: number;
 } {
+  // The RECHARGE transaction, not the SMS expense's own EXPENSE transaction
+  // (which is created afterward and would otherwise be "latest").
   return db
     .prepare(
-      "SELECT profit_usd, profit_lbp FROM transactions ORDER BY id DESC LIMIT 1",
+      "SELECT profit_usd, profit_lbp FROM transactions WHERE type = 'RECHARGE' ORDER BY id DESC LIMIT 1",
     )
     .get() as { profit_usd: number; profit_lbp: number };
+}
+
+function smsExpenses(
+  db: Database.Database,
+): Array<{
+  amount_usd: number;
+  amount_lbp: number;
+  category: string;
+  source_ref_table: string | null;
+  source_ref_id: number | null;
+}> {
+  return db
+    .prepare(
+      "SELECT amount_usd, amount_lbp, category, source_ref_table, source_ref_id FROM expenses WHERE category = 'SMS_Transfer_Fee'",
+    )
+    .all() as Array<{
+    amount_usd: number;
+    amount_lbp: number;
+    category: string;
+    source_ref_table: string | null;
+    source_ref_id: number | null;
+  }>;
 }
 
 // ─── Test suite ───────────────────────────────────────────────────────────────
@@ -365,8 +468,8 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
     });
   });
 
-  describe("CREDIT_TRANSFER — profit_usd in transactions table", () => {
-    it("reduces profit_usd by $0.16 for a 1-SMS transfer", () => {
+  describe("CREDIT_TRANSFER — profit_usd in transactions table (GROSS, owner decision 2026-09-06)", () => {
+    it("stores the FULL gross commission for a 1-SMS transfer — SMS fee no longer nets against it", () => {
       repo.processRecharge({
         provider: "MTC",
         type: "CREDIT_TRANSFER",
@@ -377,11 +480,11 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
         phoneNumber: "03000020",
         userId: 1,
       });
-      // gross commission: 3.00 − 2.50 = 0.50; net: 0.50 − 0.16 = 0.34
-      expect(latestTxnProfit(db).profit_usd).toBeCloseTo(0.34, 4);
+      // gross commission: 3.00 − 2.50 = 0.50 (was 0.34 net pre-cutover)
+      expect(latestTxnProfit(db).profit_usd).toBeCloseTo(0.5, 4);
     });
 
-    it("reduces profit_usd by $0.32 for a 2-SMS transfer", () => {
+    it("stores the FULL gross commission for a 2-SMS transfer — SMS fee no longer nets against it", () => {
       repo.processRecharge({
         provider: "MTC",
         type: "CREDIT_TRANSFER",
@@ -392,8 +495,8 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
         phoneNumber: "03000021",
         userId: 1,
       });
-      // gross: 1.00; net: 1.00 − 0.32 = 0.68
-      expect(latestTxnProfit(db).profit_usd).toBeCloseTo(0.68, 4);
+      // gross: 1.00 (was 0.68 net pre-cutover)
+      expect(latestTxnProfit(db).profit_usd).toBeCloseTo(1.0, 4);
     });
 
     it("leaves profit_lbp at 0 (CREDIT_TRANSFER is USD)", () => {
@@ -408,6 +511,47 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
         userId: 1,
       });
       expect(latestTxnProfit(db).profit_lbp).toBe(0);
+    });
+  });
+
+  describe("CREDIT_TRANSFER — SMS fee books as its own expense (rule 20 link)", () => {
+    it("creates an SMS_Transfer_Fee expense for $0.16, linked to the recharge", () => {
+      repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 3,
+        cost: 2.5,
+        price: 3.0,
+        paid_by_method: "CASH",
+        phoneNumber: "03000023",
+        userId: 1,
+      });
+      const rechargeId = (
+        db.prepare("SELECT id FROM recharges ORDER BY id DESC LIMIT 1").get() as {
+          id: number;
+        }
+      ).id;
+      const expenses = smsExpenses(db);
+      expect(expenses).toHaveLength(1);
+      expect(expenses[0].amount_usd).toBeCloseTo(0.16, 4);
+      expect(expenses[0].amount_lbp).toBe(0);
+      expect(expenses[0].source_ref_table).toBe("recharges");
+      expect(expenses[0].source_ref_id).toBe(rechargeId);
+    });
+
+    it("does not create an SMS_Transfer_Fee expense for a non-CREDIT_TRANSFER type", () => {
+      repo.processRecharge({
+        provider: "MTC",
+        type: "DAYS",
+        amount: 10,
+        cost: 0.3 * 85_000,
+        price: 100_000,
+        currency: "LBP",
+        paid_by_method: "CASH",
+        phoneNumber: "03000024",
+        userId: 1,
+      });
+      expect(smsExpenses(db)).toHaveLength(0);
     });
   });
 
@@ -491,16 +635,18 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // LBP-priced CREDIT_TRANSFER — SMS cost must be CONVERTED before subtracting
-  // (profit-audit fix 3). Pre-fix the USD SMS cost was subtracted from the LBP
-  // commission verbatim: 60,000 LBP − $0.32 = 59,999.68 "LBP" — the deduction
-  // effectively vanished (understated cost, overstated profit).
+  // LBP-priced CREDIT_TRANSFER — the SMS fee is a USD figure; it is booked to
+  // its OWN expense (still USD, never converted/mixed into profit_lbp) rather
+  // than netted against the LBP commission. Owner decision 2026-09-06
+  // superseded the older "convert before subtracting" fix — the conversion
+  // question no longer applies because nothing is subtracted from profit_lbp
+  // at all.
   // ═══════════════════════════════════════════════════════════════════════════
 
-  describe("CREDIT_TRANSFER — LBP-priced transfer converts the SMS cost", () => {
-    it("subtracts smsCostUsd × sellRate from profit_lbp (2 SMS at fallback 89,500)", () => {
+  describe("CREDIT_TRANSFER — LBP-priced transfer: gross profit_lbp, SMS fee expensed in USD", () => {
+    it("stores the FULL gross commission in profit_lbp, with the SMS fee booked as a separate USD expense", () => {
       // 6 USD credits sent, priced 600,000 LBP, cost 540,000 LBP.
-      // smsCount = ceil(6/3) = 2 → $0.32 → × 89,500 = 28,640 LBP.
+      // smsCount = ceil(6/3) = 2 → $0.32.
       repo.processRecharge({
         provider: "MTC",
         type: "CREDIT_TRANSFER",
@@ -513,9 +659,195 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
         userId: 1,
       });
       const profit = latestTxnProfit(db);
-      // gross 60,000 LBP − 28,640 LBP = 31,360 LBP
-      expect(profit.profit_lbp).toBeCloseTo(60_000 - 0.32 * 89_500, 2);
+      // gross 600,000 − 540,000 = 60,000 LBP, untouched by the SMS fee.
+      expect(profit.profit_lbp).toBeCloseTo(60_000, 2);
       expect(profit.profit_usd).toBe(0);
+
+      const expenses = smsExpenses(db);
+      expect(expenses).toHaveLength(1);
+      expect(expenses[0].amount_usd).toBeCloseTo(0.32, 4);
+      expect(expenses[0].amount_lbp).toBe(0);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Drawer-moves-exactly-once guard (owner's explicit ask): the SMS expense's
+  // own drawer_override leg must move the provider drawer by the EXACT same
+  // magnitude the pre-cutover direct payment leg used to — not on top of it.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("CREDIT_TRANSFER — provider drawer moves by the SAME magnitude as the pre-cutover leg (double-debit guard)", () => {
+    it("MTC drawer moves by exactly -3.16 for a $3 transfer (stock -3.00 + SMS -0.16), never -3.32", () => {
+      const before = drawerBalance(db, "MTC", "USD");
+      repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 3,
+        cost: 2.5,
+        price: 3.0,
+        paid_by_method: "CASH",
+        phoneNumber: "03000030",
+        userId: 1,
+      });
+      const delta = drawerBalance(db, "MTC", "USD") - before;
+      // This is the exact magnitude the pre-cutover direct
+      // insertPayment/upsertBalanceDelta pair produced (see the deleted
+      // "deducts $0.16 (1 SMS) for a $3.00 transfer" assertion this test
+      // reproduces) — proving the money moves through the expense's own leg
+      // INSTEAD OF the old leg, not IN ADDITION TO it.
+      expect(delta).toBeCloseTo(-3.16, 4);
+      // Exactly ONE SMS_COST leg posted against the MTC drawer — a
+      // double-debit would show 2.
+      const smsLegs = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM payments WHERE drawer_name = 'MTC' AND method = 'SMS_COST'`,
+        )
+        .get() as { n: number };
+      expect(smsLegs.n).toBe(1);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Rule 20 proof: create → void nets every touched ledger to exactly zero,
+  // per currency. This is the executable proof that
+  // TransactionRepository._cascadeExpenseSiblingVoid actually reverses the
+  // SMS expense sibling when the recharge is voided — not just that the
+  // expense was created.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("CREDIT_TRANSFER — create then void nets every ledger to zero (rule 20)", () => {
+    function rechargeTxnId(db: Database.Database): number {
+      return (
+        db
+          .prepare(
+            `SELECT id FROM transactions WHERE type = 'RECHARGE' AND status = 'ACTIVE' ORDER BY id DESC LIMIT 1`,
+          )
+          .get() as { id: number }
+      ).id;
+    }
+
+    function expenseRow(db: Database.Database): {
+      id: number;
+      is_refunded: number;
+      amount_usd: number;
+    } {
+      return db
+        .prepare(
+          `SELECT id, is_refunded, amount_usd FROM expenses WHERE category = 'SMS_Transfer_Fee' ORDER BY id DESC LIMIT 1`,
+        )
+        .get() as { id: number; is_refunded: number; amount_usd: number };
+    }
+
+    it("MTC $6 CREDIT_TRANSFER (2 SMS): void nets the MTC drawer to 0 and refunds the SMS expense", () => {
+      const mtcBefore = drawerBalance(db, "MTC", "USD");
+      const generalBefore = drawerBalance(db, "General", "USD");
+
+      const result = repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 6,
+        cost: 5.0,
+        price: 6.0,
+        paid_by_method: "CASH",
+        phoneNumber: "03000040",
+        userId: 1,
+      });
+      expect(result.success).toBe(true);
+
+      // Sanity: the create side did move money and did book the expense —
+      // otherwise "nets to zero" would be trivially true for the wrong
+      // reason (nothing moved in the first place).
+      expect(drawerBalance(db, "MTC", "USD")).not.toBeCloseTo(mtcBefore, 4);
+      expect(drawerBalance(db, "General", "USD")).not.toBeCloseTo(
+        generalBefore,
+        4,
+      );
+      const expenseBeforeVoid = expenseRow(db);
+      expect(expenseBeforeVoid.is_refunded).toBe(0);
+      expect(expenseBeforeVoid.amount_usd).toBeCloseTo(0.32, 4);
+
+      const txnRepo = new TransactionRepository();
+      txnRepo.voidTransaction(rechargeTxnId(db), 1);
+
+      // Every drawer touched by create() is back to its pre-create balance —
+      // MTC (stock + SMS fee) AND General (customer cash), per currency.
+      expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(mtcBefore, 4);
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(
+        generalBefore,
+        4,
+      );
+
+      // The SMS expense sibling was cascade-voided (rule 20) — soft-voided
+      // via the SAME _markSourceRefunded machinery every other expense void
+      // uses.
+      const expenseAfterVoid = expenseRow(db);
+      expect(expenseAfterVoid.is_refunded).toBe(1);
+
+      // Every payments leg tied to the MTC drawer nets to zero: the original
+      // stock (-6) + SMS (-0.32) + their two void-reversal legs (+6 + 0.32).
+      const mtcLegSum = db
+        .prepare(
+          `SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE drawer_name = 'MTC' AND currency_code = 'USD'`,
+        )
+        .get() as { total: number };
+      expect(mtcLegSum.total).toBeCloseTo(0, 4);
+
+      // Void does NOT negate profit_usd on a reversal row (only refund
+      // does — the real invariant, matching ProfitRepository's own
+      // aggregate queries which all filter `status = 'ACTIVE'`, e.g.
+      // `getCounterpartyDiscountTotals` — see ProfitRepository.ts:1378): the
+      // VOIDED original still carries its stamped 1.00, but no longer
+      // contributes to any ACTIVE-only profit read.
+      const activeProfitSum = db
+        .prepare(
+          `SELECT COALESCE(SUM(profit_usd), 0) AS total FROM transactions WHERE source_table = 'recharges' AND source_id = ? AND status = 'ACTIVE'`,
+        )
+        .get(
+          (
+            db
+              .prepare(`SELECT id FROM recharges ORDER BY id DESC LIMIT 1`)
+              .get() as { id: number }
+          ).id,
+        ) as { total: number };
+      expect(activeProfitSum.total).toBeCloseTo(0, 4);
+    });
+
+    it("LBP-priced MTC CREDIT_TRANSFER: void nets General LBP, MTC USD, and profit_lbp all to 0", () => {
+      const mtcBefore = drawerBalance(db, "MTC", "USD");
+
+      const result = repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 6,
+        cost: 540_000,
+        price: 600_000,
+        currency: "LBP",
+        paid_by_method: "CASH",
+        phoneNumber: "03000041",
+        userId: 1,
+      });
+      expect(result.success).toBe(true);
+      expect(drawerBalance(db, "MTC", "USD")).not.toBeCloseTo(mtcBefore, 4);
+
+      const txnRepo = new TransactionRepository();
+      txnRepo.voidTransaction(rechargeTxnId(db), 1);
+
+      expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(mtcBefore, 4);
+      expect(expenseRow(db).is_refunded).toBe(1);
+
+      // Same ACTIVE-only invariant as the USD case above.
+      const activeProfitSum = db
+        .prepare(
+          `SELECT COALESCE(SUM(profit_lbp), 0) AS total FROM transactions WHERE source_table = 'recharges' AND source_id = ? AND status = 'ACTIVE'`,
+        )
+        .get(
+          (
+            db
+              .prepare(`SELECT id FROM recharges ORDER BY id DESC LIMIT 1`)
+              .get() as { id: number }
+          ).id,
+        ) as { total: number };
+      expect(activeProfitSum.total).toBeCloseTo(0, 4);
     });
   });
 });
