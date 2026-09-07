@@ -4073,8 +4073,26 @@ staff-visible on a brand-new install is a product decision, not something to fix
 
 ## LIRA-178: `PUT /api/settings/:key` has `authenticateJWT` but no `requireRole` — any staff user can write any setting — MEDIUM
 
-**Priority:** Medium · **Epic:** Auth / Settings · **Status:** TODO · **Found:** 2026-09-07, while
-building LIRA-177 (pre-existing; **not** introduced by that ticket)
+**Priority:** Medium · **Epic:** Auth / Settings · **Status:** **DONE** (2026-09-07) · **Found:**
+2026-09-07, while building LIRA-177 (pre-existing; **not** introduced by that ticket)
+
+**Shipped.** `requireRole(["admin"])` added to `PUT /:key` after the router-level
+`authenticateJWT`, mirroring the IPC twins. `GET /:key` deliberately left open to any
+authenticated role, now with a comment saying so is a decision (settings drive UI rendering for
+every role) rather than the same oversight repeated. Guard proven failing-first per rule 17 by
+execution, not inspection: removing it makes exactly one assertion fail — "staff gets 403 and the
+setting is NOT written" — with 403 expected, 200 received. 5 tests in
+`backend/src/api/__tests__/settingsRoleGate.api.test.ts`.
+
+**A second, unrelated bug fell out of writing those tests, and it was LIRA-177's fault, not this
+ticket's.** `PUT /:key` discarded `updateSetting`'s return value and hardcoded
+`res.json({ success: true })`. LIRA-177 had added the `SENSITIVE_SETTING_KEYS` write guard, which
+returns `{ success: false, error }` — so REST reported SUCCESS for a write it had rejected, and
+audited a row for a write that never happened, while the IPC twins (`return result`) reported it
+correctly. A rule-19c parity break: same input, two different answers by transport. Now the route
+propagates the real result and returns BEFORE `auditRest`, so a rejected write is never audited.
+Impact was limited today (only one key is sensitive and the UI never writes it through this
+route), but the moment another key joins that set, REST would silently pretend to write it.
 
 `backend/src/api/settings.ts` mounts `router.use(authenticateJWT)` and then defines
 `PUT /:key` with **no role check**. Every other admin-ish write path in that layer pairs
