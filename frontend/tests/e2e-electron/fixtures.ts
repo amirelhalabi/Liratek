@@ -593,6 +593,8 @@ export async function navigateTo(page: Page, route: string) {
     // 10s per visit across lira-088/093/094).
     "/custom-services": '#svc-cost, button:has-text("Submit Service")',
     "/customer-sessions": "text=Customer Session",
+    "/profits":
+      '[data-testid="profits-lock-screen"], [data-testid="profits-no-password-set"], [data-testid="profits-gate-loading"]',
   };
   const anchor = routeAnchors[path];
   if (anchor) {
@@ -679,7 +681,40 @@ export async function ensureProfitsUnlocked(page: Page): Promise<void> {
  * Idempotent: returns immediately if the gate is already unlocked.
  */
 export async function unlockProfitsPage(page: Page): Promise<void> {
+  // `isVisible()` does NOT auto-wait — it's an immediate, point-in-time
+  // check, and there are THREE races that can make a point-in-time sample
+  // find neither gated testid present:
+  //   1. `navigateTo`'s route-anchor race — until the `/profits` entry was
+  //      added to `routeAnchors`, `navigateTo(page, "/profits")` returned as
+  //      soon as the hash changed, before React had even mounted the route.
+  //      At that instant NOTHING is rendered, so both gated testids are
+  //      absent for a reason that has nothing to do with the gate.
+  //   2. ProfitsPasswordGate's own `statusLoading` state (a bare "Loading..."
+  //      div, tagged "profits-gate-loading") while it awaits
+  //      getProfitsPasswordStatus() — again both gated testids are absent.
+  //   3. The settled state itself, which is exactly one of
+  //      "profits-no-password-set" or "profits-lock-screen".
+  //
+  // A sampling check (`isVisible()` then branch) can catch any of the first
+  // two absences and wrongly conclude "already unlocked", returning without
+  // typing anything — the real lock screen then appears a moment later with
+  // the password never entered, and the failure only surfaces ~15s later in
+  // an unrelated "Net Profit (USD)" assertion. So: wait for one of the two
+  // DECIDED states to actually appear before doing anything else. Call this
+  // immediately after `navigateTo(page, "/profits")`.
+  //
+  // Never reintroduce a silent no-op here (e.g. "if lock screen isn't
+  // visible, assume already unlocked and return") — every visit to
+  // `/profits` re-prompts by design, so after a real navigation exactly one
+  // of the two gated states MUST appear. If neither does, that is a genuine
+  // failure and this wait should fail loudly with Playwright's diagnostic
+  // instead of silently doing nothing.
+  const lockScreen = page.getByTestId("profits-lock-screen");
   const noPasswordSet = page.getByTestId("profits-no-password-set");
+  await expect(lockScreen.or(noPasswordSet).first()).toBeVisible({
+    timeout: 15_000,
+  });
+
   if (await noPasswordSet.isVisible().catch(() => false)) {
     throw new Error(
       "unlockProfitsPage: no profits password is set for this session — " +
@@ -688,17 +723,11 @@ export async function unlockProfitsPage(page: Page): Promise<void> {
     );
   }
 
-  const lockScreen = page.getByTestId("profits-lock-screen");
-  if (!(await lockScreen.isVisible().catch(() => false))) {
-    // Already unlocked — nothing to do.
-    return;
-  }
-
   await page
     .getByTestId("profits-password-input")
     .fill(E2E_PROFITS_PASSWORD);
   await page.getByTestId("profits-unlock-submit").click();
-  await expect(lockScreen).toHaveCount(0);
+  await expect(lockScreen).toHaveCount(0, { timeout: 15_000 });
 }
 
 // ---------------------------------------------------------------------------

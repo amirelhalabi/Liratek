@@ -104,8 +104,13 @@ export function ProfitsPasswordGate({
   }
 
   if (statusLoading) {
+    // data-testid lets e2e wait for this initial status fetch to settle
+    // before deciding whether the gate needs a password entered.
     return (
-      <div className="h-full flex items-center justify-center text-slate-400">
+      <div
+        data-testid="profits-gate-loading"
+        className="h-full flex items-center justify-center text-slate-400"
+      >
         Loading...
       </div>
     );
