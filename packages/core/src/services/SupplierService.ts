@@ -2,6 +2,7 @@ import {
   getSupplierRepository,
   getProductSupplierRepository,
   getSupplierPurchaseRepository,
+  getStockBatchRepository,
   type CreateSupplierData,
   type CreateSupplierLedgerEntryData,
   type SettleTransactionsData,
@@ -34,6 +35,18 @@ export class SupplierService {
 
   getProductSupplierBalances(): SupplierBalance[] {
     return this.repo.getProductSupplierBalances();
+  }
+
+  /**
+   * SUPPLIER_STOCK_INTAKE_PLAN.md — informational "Stock on hand" line on the
+   * Suppliers page: SUM(quantity_remaining * unit_cost_usd) per supplier,
+   * from the cost-batch ledger. Deliberately NOT part of the debt balance
+   * (getProductSupplierBalances) — that money question was already answered
+   * and settled at intake time; this is display-only current stock value.
+   * Rule 13: delegates straight to the repository, no SQL here.
+   */
+  getProductSupplierStockValue(): { supplier_id: number; stock_value_usd: number }[] {
+    return getStockBatchRepository().getStockValueBySupplier();
   }
 
   getProductItems(supplierId: number): ProductSupplierItem[] {
@@ -142,57 +155,12 @@ export class SupplierService {
     }
   }
 
-  /**
-   * CQ-10 (D4: admin-only, enforced by the caller) — standalone write-off:
-   * forgive part of what the shop owes a supplier, with NO cashflow attached.
-   * amount_usd/amount_lbp are validated PER CURRENCY against the OUTSTANDING
-   * balance (mirrors DebtService.cashOut's per-currency guard, applied to the
-   * supplier's "we owe them" balance instead of a client credit).
-   */
-  writeOffSupplierDebt(data: {
-    supplier_id: number;
-    amount_usd: number;
-    amount_lbp: number;
-    reason?: string;
-    created_by: number;
-  }): SupplierResult {
-    try {
-      if (!data.supplier_id)
-        return { success: false, error: "supplier_id is required" };
-      if ((data.amount_usd ?? 0) <= 0 && (data.amount_lbp ?? 0) <= 0)
-        return {
-          success: false,
-          error: "Write-off amount must be greater than zero",
-        };
-
-      const balance = this.repo.getSupplierBalance(data.supplier_id);
-      const owedUsd = Math.max(0, balance.balance_usd);
-      const owedLbp = Math.max(0, balance.balance_lbp);
-      if (owedUsd <= 0 && owedLbp <= 0) {
-        return {
-          success: false,
-          error: "Supplier has no outstanding balance to write off",
-        };
-      }
-      if (data.amount_usd > owedUsd + 0.05) {
-        return {
-          success: false,
-          error: `Write-off ($${data.amount_usd.toFixed(2)}) exceeds what the shop owes the supplier ($${owedUsd.toFixed(2)})`,
-        };
-      }
-      if ((data.amount_lbp ?? 0) > owedLbp + 1000) {
-        return {
-          success: false,
-          error: `Write-off (${(data.amount_lbp ?? 0).toLocaleString()} LBP) exceeds what the shop owes the supplier (${owedLbp.toLocaleString()} LBP)`,
-        };
-      }
-
-      const res = this.repo.writeOffSupplierDebt(data);
-      return { success: true, id: res.id };
-    } catch (e) {
-      return { success: false, error: toErrorString(e) };
-    }
-  }
+  // D8 (owner decision, SUPPLIER_STOCK_INTAKE_PLAN.md): writeOffSupplierDebt
+  // (standalone write-off with no cashflow attached) was REMOVED. The
+  // bundled Pay-form discount (recordSupplierCashflow's PAY-direction
+  // branch → _postSupplierDiscount) is the only supported forgive-a-payable
+  // path now. See BUILD_CONTRACT.md handoffs for every caller that still
+  // references the removed method.
 }
 
 let supplierServiceInstance: SupplierService | null = null;

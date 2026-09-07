@@ -137,6 +137,19 @@ describe("Inventory product write routes — category_id resolution", () => {
       globalThis as unknown as { __LIRATEK_TEST_DB__: unknown }
     ).__LIRATEK_TEST_DB__ = mockDatabase;
 
+    // SUPPLIER_STOCK_INTAKE_PLAN.md — ProductRepository.createProduct now
+    // wraps its whole body (INSERT/reactivate + the batch-per-intake write
+    // below) in `this.transaction(...)`, i.e. `this.db.transaction(fn)()`.
+    // The shared mock has no `.transaction` of its own (most callers never
+    // needed one) — same pattern as FinancialService.test.ts's identical
+    // stub: just run the callback synchronously, no real transaction
+    // semantics needed for a mock that records statements instead of
+    // executing real SQL.
+    (mockDatabase as unknown as { transaction: jest.Mock }).transaction =
+      jest.fn((fn: (...a: unknown[]) => unknown) => {
+        return (...args: unknown[]) => fn(...args);
+      });
+
     mockStatement.run.mockImplementation(function (
       this: StatementThis,
       ...args: unknown[]

@@ -95,6 +95,7 @@ import {
   type ProductUnitEntity,
 } from "./ProductUnitRepository.js";
 import { addMonthsIso } from "../utils/dates.js";
+import { getStockBatchRepository } from "./StockBatchRepository.js";
 
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
@@ -505,6 +506,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const productMetaByIndex: {
           name: string;
           warrantyMonths: number | null;
+          costPriceUsd: number;
         }[] = [];
         for (const item of sale.items) {
           const productRow = db
@@ -525,6 +527,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           productMetaByIndex.push({
             name,
             warrantyMonths: productRow?.warranty_months ?? null,
+            costPriceUsd: costPrice,
           });
         }
         saleProfitUsd -= sale.discount || 0;
@@ -950,6 +953,41 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 );
               }
             }
+          }
+
+          // FIFO batch consumption (Supplier Stock Intake, rule: profit
+          // never changes — this is the ONLY integration point). This must
+          // run AFTER the sale_items INSERT above because `consume()` wants
+          // this line's `sale_item_id` to attribute the consumption rows it
+          // writes (so a later refund can find and reverse exactly this
+          // line's draw-down); it must ALSO run inside this SAME db
+          // transaction as the rest of the sale so a genuine DB failure in
+          // `consume()` rolls the whole sale back rather than leaving stock
+          // decremented with no matching batch draw-down. Only for a
+          // COMPLETED sale — a draft moves no stock (guarded above) and
+          // must consume no batches either, or a later completion would
+          // double-consume. The resulting weighted unit cost OVERWRITES the
+          // product's-current-cost_price_usd value the INSERT above
+          // stamped via its subquery, replacing it with what this line
+          // actually cost based on the batches it was drawn from;
+          // uncovered units (legacy stock with no batches, or an
+          // allowOutOfStock oversell) fall back to that same
+          // current-cost_price_usd value via `fallbackUnitCostUsd`, so
+          // behaviour for a product with no batch history is unchanged.
+          if (status === "completed") {
+            const saleItemId = Number(itemResult.lastInsertRowid);
+            const { weightedUnitCostUsd } = getStockBatchRepository().consume(
+              item.product_id,
+              item.quantity,
+              {
+                saleItemId,
+                reason: "SALE",
+                fallbackUnitCostUsd: productMetaByIndex[index].costPriceUsd,
+              },
+            );
+            db.prepare(
+              `UPDATE sale_items SET cost_price_snapshot_usd = ? WHERE id = ? AND tenant_id = ?`,
+            ).run(weightedUnitCostUsd, saleItemId, tenantId);
           }
         });
 
@@ -1536,6 +1574,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       db.prepare(
         `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
       ).run(params.refundQuantity, item.product_id, tenantId);
+
+      // 9a. Give the refunded units back to the batches they were FIFO-
+      // consumed from (newest-consumption-first — see
+      // StockBatchRepository.restoreForSaleItem), so `stock_quantity` and
+      // batch cover stay in step after an item refund exactly like they do
+      // after processSale's consumption.
+      getStockBatchRepository().restoreForSaleItem(
+        params.saleItemId,
+        params.refundQuantity,
+      );
 
       // 9b. LIRA-143 phase 4 — flip up to `refundQuantity` SOLD product_units
       // linked to THIS sale_item back to IN_STOCK. No extras here: the

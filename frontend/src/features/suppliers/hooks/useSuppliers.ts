@@ -7,6 +7,11 @@ export const SUPPLIER_KEYS = {
   balances: ["supplier-balances"] as const,
   productBalances: ["supplier-product-balances"] as const,
   productItems: (id: number) => ["supplier-product-items", id] as const,
+  // SUPPLIER_STOCK_INTAKE_PLAN.md D9 — event-based inventory VALUE, not
+  // debt (see useProductStockValueQuery's own doc comment). Global, not
+  // per-supplier: getProductStockValue returns every supplier's figure in
+  // one call, same shape as productBalances above.
+  productStockValue: ["supplier-product-stock-value"] as const,
   ledger: (id: number) => ["supplier-ledger", id] as const,
   unsettled: (provider: string) => ["supplier-unsettled", provider] as const,
   allTransactions: (provider: string) =>
@@ -55,6 +60,22 @@ export function useProductItemsQuery(supplierId: number | null) {
     queryKey: SUPPLIER_KEYS.productItems(supplierId ?? 0),
     queryFn: () => api.getSupplierProductItems(supplierId!),
     enabled: !!supplierId,
+  });
+}
+
+/**
+ * SUPPLIER_STOCK_INTAKE_PLAN.md D9 — event-based product-supplier stock
+ * VALUE: SUM(quantity_remaining × unit_cost_usd) over open cost batches,
+ * per supplier. This is INVENTORY VALUE, not debt — do not feed it into
+ * any owed/balance figure. Debt is (and only is) the ledger sum
+ * (`useProductSupplierBalancesQuery` above); this is a separate,
+ * purely-informational "stock on hand" read for the Purchases tab.
+ */
+export function useProductStockValueQuery() {
+  const api = useApi();
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.productStockValue,
+    queryFn: () => api.getSupplierProductStockValue(),
   });
 }
 
@@ -270,35 +291,11 @@ export function useSupplierLedgerEntryMutation(
   });
 }
 
-/**
- * Standalone supplier write-off (CQ-10, admin-only) — the supplier forgives
- * what we owe them; pure ledger forgiveness, no cash movement.
- */
-export function useSupplierWriteOffMutation(supplierId: number | null) {
-  const api = useApi();
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: {
-      supplier_id: number;
-      amount_usd: number;
-      amount_lbp: number;
-      reason?: string;
-    }) => api.supplierWriteOff(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
-      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
-      queryClient.invalidateQueries({
-        queryKey: SUPPLIER_KEYS.productBalances,
-      });
-      if (supplierId) {
-        queryClient.invalidateQueries({
-          queryKey: SUPPLIER_KEYS.ledger(supplierId),
-        });
-      }
-    },
-  });
-}
+// NOTE: the standalone supplier write-off mutation (CQ-10) was REMOVED
+// (SUPPLIER_STOCK_INTAKE_PLAN.md owner decision D8) — `api.supplierWriteOff`
+// no longer exists on either transport. The bundled Pay-form discount
+// (`useSupplierCashflowMutation`'s `discount` field above) is the only
+// surviving forgiveness path. Do not resurrect this mutation.
 
 /**
  * D5 — batch-settle a set of pending financial_services rows with a

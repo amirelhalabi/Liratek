@@ -116,21 +116,14 @@ export const supplierPurchaseCreateSchema = z.object({
   note: z.string().optional(),
 });
 
-// CQ-10 (D4: admin-only on both transports) — standalone write-off: forgive
-// part of what the shop owes a supplier, with NO cashflow attached. Field
-// names mirror supplierCashflowSchema's snake_case convention. Per-currency
-// "does not exceed the outstanding balance" is a SERVICE-layer check
-// (SupplierService.writeOffSupplierDebt) — it needs the live balance.
-export const supplierWriteOffSchema = z
-  .object({
-    supplier_id: z.number().int().positive(),
-    amount_usd: z.number().nonnegative().default(0),
-    amount_lbp: z.number().nonnegative().default(0),
-    reason: z.string().optional(),
-  })
-  .refine((d) => d.amount_usd > 0 || d.amount_lbp > 0, {
-    message: "At least one amount (USD or LBP) must be greater than 0",
-  });
+// Owner decision D8 (SUPPLIER_STOCK_INTAKE_PLAN.md): the standalone
+// supplier write-off is REMOVED — `supplierWriteOffSchema` /
+// `SupplierWriteOffInput` used to live here. The bundled Pay-form discount
+// (`counterpartyDiscountInputSchema`, `supplierCashflowSchema.discount`)
+// stays; only the no-cashflow-attached standalone write-off is gone. See
+// this agent's handoff report for every file that still imports the
+// deleted schema/type — they are NOT edited here (out of scope for this
+// agent) and will fail to compile until updated.
 
 export type SupplierLedgerEntryInput = z.infer<
   typeof supplierLedgerEntrySchema
@@ -140,4 +133,3 @@ export type SupplierCashflowInput = z.infer<typeof supplierCashflowSchema>;
 export type SupplierPurchaseCreateInput = z.infer<
   typeof supplierPurchaseCreateSchema
 >;
-export type SupplierWriteOffInput = z.infer<typeof supplierWriteOffSchema>;

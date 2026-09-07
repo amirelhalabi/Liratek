@@ -41,3 +41,34 @@ export function useAdjustStockMutation() {
     },
   });
 }
+
+/**
+ * Supplier stock-intake (SUPPLIER_STOCK_INTAKE_PLAN.md) — used by
+ * AdjustStockModal in place of `useAdjustStockMutation` whenever the
+ * resolved change is an INCREASE, so a real delivery books a FIFO cost
+ * batch and (unless `is_old_stock`/no supplier) a supplier_ledger debit,
+ * instead of the plain stock_adjustments audit row a decrease still uses.
+ * Same invalidation shape as the adjust-stock mutation above — both mutate
+ * `products.stock_quantity` for the same product.
+ */
+export function useReceiveStockMutation() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: {
+      product_id: number;
+      quantity: number;
+      unit_cost_usd: number;
+      supplier?: string | null;
+      is_old_stock: boolean;
+      reason?: string;
+    }) => api.receiveStock(payload),
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({
+        queryKey: STOCK_ADJUSTMENT_KEYS.byProduct(variables.product_id),
+      });
+    },
+  });
+}

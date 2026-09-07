@@ -703,3 +703,16 @@ export type {
   ApplyDrawerDeltaInput,
   InsertPaymentRowInput,
 } from "./moneyPosting.js";
+
+// Stock Batch Repository (Supplier Stock Intake — FIFO cost batches)
+export {
+  StockBatchRepository,
+  getStockBatchRepository,
+  resetStockBatchRepository,
+} from "./StockBatchRepository.js";
+export type {
+  StockBatchEntity,
+  CreateStockBatchData,
+  BatchTake,
+  ConsumeResult,
+} from "./StockBatchRepository.js";

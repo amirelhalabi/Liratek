@@ -686,6 +686,10 @@ export type ApiAdapter = {
     categories: string[];
     suppliers: string[];
   }>;
+  /** The curated `product_suppliers` list — includes suppliers with no
+   *  products yet, unlike `getProductFilterOptions().suppliers`. Backs the
+   *  ProductForm supplier datalist. */
+  getProductSuppliers: () => Promise<string[]>;
   createProduct: (payload: any) => Promise<ProductWriteResult>;
   updateProduct: (id: number, payload: any) => Promise<ProductWriteResult>;
   deleteProduct: (id: number) => Promise<ProductWriteResult>;
@@ -694,6 +698,19 @@ export type ApiAdapter = {
    *  `POST /api/inventory/products/batch-delete`). */
   batchDeleteProducts: (ids: number[]) => Promise<BatchDeleteProductsResult>;
   getLowStockProducts: () => Promise<any[]>;
+  /** Supplier stock-intake: receives stock into a product, optionally
+   *  against a supplier (writes a product_stock_batches row and, unless
+   *  `is_old_stock` or there's no supplier, a supplier_ledger
+   *  'STOCK_INTAKE' row — see InventoryService.receiveStock). `userId` is
+   *  injected server-side by both transports, never sent by the client. */
+  receiveStock: (payload: {
+    product_id: number;
+    quantity: number;
+    unit_cost_usd: number;
+    supplier?: string | null;
+    is_old_stock: boolean;
+    reason?: string;
+  }) => Promise<{ success: boolean; error?: string; batch_id?: number }>;
   /** LIRA-077: set-absolute (newQuantity) or delta stock correction, always
    *  with a reason for the stock_adjustments audit trail. */
   adjustStock: (payload: {
@@ -1096,15 +1113,10 @@ export type ApiAdapter = {
      *  RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row. */
     discount?: { amount_usd: number; amount_lbp: number; reason?: string };
   }) => Promise<ApiResult & { id?: number }>;
-  /** CQ-10: standalone supplier write-off (admin-only) — the supplier
-   *  forgives what we owe them; capped server-side at the outstanding
-   *  balance per currency. */
-  supplierWriteOff: (data: {
-    supplier_id: number;
-    amount_usd: number;
-    amount_lbp: number;
-    reason?: string;
-  }) => Promise<ApiResult & { id?: number }>;
+  // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
+  // write-off is gone; recordSupplierCashflow's bundled `discount` leg above
+  // is the only surviving forgive-debt path. `debtWriteOff`/`partnerWriteOff`
+  // elsewhere in this file are separate, unrelated features — untouched.
   /** All transactions for a provider (history tab) — settled + unsettled. */
   getAllSupplierTransactions: (
     provider: string,
@@ -1114,6 +1126,11 @@ export type ApiAdapter = {
   getUnsettledSummary: () => Promise<UnsettledSummary[]>;
   /** Product-supplier aggregate balances (Inventory-linked suppliers). */
   getSupplierProductBalances: () => Promise<any[]>;
+  /** Supplier stock-intake: informational per-supplier stock value —
+   *  SUM(quantity_remaining * unit_cost_usd) across open batches. */
+  getSupplierProductStockValue: () => Promise<
+    { supplier_id: number; stock_value_usd: number }[]
+  >;
   /** Inventory items sourced from one product supplier. */
   getSupplierProductItems: (supplierId: number) => Promise<any[]>;
   /** Purchase (delivery batch) records for a product supplier. */

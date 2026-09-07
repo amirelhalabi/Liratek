@@ -45,6 +45,7 @@ import { getCarrierLineService } from "../services/CarrierLineService.js";
 import { isPendingSupplierSettlement } from "./FinancialServiceRepository.js";
 import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 import { getProductUnitRepository } from "./ProductUnitRepository.js";
+import { getStockBatchRepository } from "./StockBatchRepository.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -1432,6 +1433,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // for every other type.
       this._reverseSupplierSettlement(original, userId);
 
+      // 5e1. SUPPLIER_STOCK_INTAKE_PLAN.md, rule 20 — if this transaction IS
+      // a SUPPLIER_STOCK_INTAKE, delete the batch it created (REFUSING the
+      // whole void if any unit was already sold) and take the delivered
+      // stock back out. No-op for every other type.
+      this._reverseSupplierStockIntake(original);
+
       // 5e2. EXCHANGE_LOT_SETTLEMENT.md rule 20 — if this transaction IS an
       // EXCHANGE, restore whatever it (as a SELL) FIFO-consumed from someone
       // else's lot and void whatever lot it (as a BUY) created — the guard
@@ -1671,6 +1678,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4e. LIRA-085 — SUPPLIER_SETTLEMENT commission/ledger/fs-stamp
       // restore. See voidTransaction's identical step.
       this._reverseSupplierSettlement(original, userId);
+
+      // 4e1. SUPPLIER_STOCK_INTAKE_PLAN.md, rule 20 — SUPPLIER_STOCK_INTAKE
+      // batch delete (refuses if already sold) + stock takeback. See
+      // voidTransaction's identical step.
+      this._reverseSupplierStockIntake(original);
 
       // 4e2. EXCHANGE_LOT_SETTLEMENT.md rule 20 — EXCHANGE lot restore/void.
       // See voidTransaction's identical step.
@@ -2900,11 +2912,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   private _restoreStock(saleId: number): void {
     const tenantId = getCurrentTenantId();
     const items = this.query<{
+      id: number;
       product_id: number;
       quantity: number;
       refunded_quantity: number | null;
     }>(
-      `SELECT product_id, quantity, refunded_quantity FROM sale_items WHERE sale_id = ? AND tenant_id = ?`,
+      `SELECT id, product_id, quantity, refunded_quantity FROM sale_items WHERE sale_id = ? AND tenant_id = ?`,
       saleId,
       tenantId,
     );
@@ -2912,6 +2925,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const restoreStmt = this.db.prepare(
       `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
     );
+    const batchRepo = getStockBatchRepository();
 
     for (const item of items) {
       const remaining = Math.max(
@@ -2920,6 +2934,15 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       );
       if (remaining === 0) continue;
       restoreStmt.run(remaining, item.product_id, tenantId);
+      // Give the same "remaining" quantity back to the batches this line's
+      // sale FIFO-consumed (Supplier Stock Intake, rule 20) — this method
+      // restores `quantity - refunded_quantity`, not raw `quantity` (a
+      // part-refunded item's already-refunded units already returned to
+      // their batches via `SalesRepository.refundSaleItem`'s own
+      // `restoreForSaleItem` call; restoring them again here would
+      // double-credit those batches), so the batch-side restore must match
+      // that exact "remaining" figure, not the full original quantity.
+      batchRepo.restoreForSaleItem(item.id, remaining);
     }
   }
 
@@ -2931,6 +2954,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * never lets the operator choose a quantity, so there is no `quantity`
    * column to read here either. No-op when the service never linked a
    * product (product_id NULL — preset/free-text, or any pre-v152 row).
+   *
+   * SUPPLIER_STOCK_INTAKE_PLAN.md, rule 20 — this is ALSO the reversal owner
+   * for the batch unit `CustomServiceRepository.createService` FIFO-consumed
+   * for this service (mirrors `_restoreStock`'s identical batch-restore
+   * pairing for sales, just added later — see that build's coordinator
+   * note: the batch table is a ledger too, and a create-then-void cycle that
+   * restores `products.stock_quantity` without restoring the batch's
+   * `quantity_remaining` leaks one unit of cover forever, silently pushing a
+   * later sale onto fallback-priced, uncovered consumption with no error
+   * anywhere). Keyed by `customServiceId` (not `sale_item_id` — a custom
+   * service's consumption row has none) via
+   * `StockBatchRepository.restoreForCustomService`, which does not exist yet
+   * — see this build's handoffs.
    */
   private _restoreCustomServiceStock(customServiceId: number): void {
     const tenantId = getCurrentTenantId();
@@ -2940,6 +2976,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       tenantId,
     );
     if (!row?.product_id) return;
+
+    getStockBatchRepository().restoreForCustomService(customServiceId, 1);
 
     this.execute(
       `UPDATE products SET stock_quantity = stock_quantity + 1 WHERE id = ? AND tenant_id = ?`,
@@ -3462,6 +3500,68 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // remains: the derived audit/reporting records this settlement wrote for
     // a new-model batch.
     this._reverseCommissionAtSettlementRecords(original.source_id, tenantId);
+  }
+
+  /**
+   * SUPPLIER_STOCK_INTAKE_PLAN.md, rule 20 reversal owner for
+   * SUPPLIER_STOCK_INTAKE. The `supplier_ledger` row itself soft-voids for
+   * FREE via the generic `_markSourceRefunded('supplier_ledger',
+   * original.source_id)` step every voided/refunded transaction already
+   * runs (`source_table` is `'supplier_ledger'` for this type, same as
+   * SUPPLIER_SETTLEMENT above) — there is no drawer/payments leg to reverse
+   * either (this type funds no payments row, see the plan's cash-flow-badge
+   * note). What is bespoke here is the BATCH this intake created:
+   *
+   * `StockBatchRepository.deleteBatchForVoid` REFUSES (returns `false`) when
+   * any unit of the batch has already been consumed by a sale
+   * (`quantity_remaining < quantity`) — a batch a sale already drew its cost
+   * from cannot be silently erased without leaving that sale's
+   * `cost_price_snapshot_usd` pointing at nothing. This method must REFUSE
+   * THE WHOLE VOID/REFUND in that case (throw, not silently skip), naming
+   * how many units were already sold so the operator understands why the
+   * void is blocked — mirroring `_assertLotoTicketVoidable`/
+   * `_assertSupplierSiblingsVoidable`'s "throw before any write happens"
+   * shape used elsewhere in this file for the same reason (this repo's
+   * `voidTransaction`/`refundTransaction` wrap every step in one
+   * `this.transaction(...)`, so throwing here rolls back the reversal
+   * transaction row + `_markSourceRefunded` this same call already wrote,
+   * exactly like any other guard failure mid-sequence).
+   *
+   * On success (batch untouched or already void — no batch found is a
+   * silent no-op, e.g. a legacy/hand-crafted transaction with no linked
+   * batch row), owner decision D10: voiding a delivery takes that stock back
+   * OUT — `products.stock_quantity` is lowered by the batch's original
+   * `quantity` (not `quantity_remaining`, which for an untouched batch is
+   * the same number, but naming the field that means "what this delivery
+   * added" is the correct one to subtract).
+   */
+  private _reverseSupplierStockIntake(original: TransactionEntity): void {
+    if (
+      original.type !== "SUPPLIER_STOCK_INTAKE" ||
+      original.source_table !== "supplier_ledger" ||
+      original.source_id == null
+    ) {
+      return;
+    }
+    const tenantId = getCurrentTenantId();
+    const batchRepo = getStockBatchRepository();
+    const batch = batchRepo.findByTransactionId(original.id);
+    if (!batch) return;
+
+    const alreadySold = batch.quantity - batch.quantity_remaining;
+    const deleted = batchRepo.deleteBatchForVoid(batch.id);
+    if (!deleted) {
+      throw new BusinessRuleError(
+        `Cannot void this stock intake — ${alreadySold} unit(s) from this delivery have already been sold`,
+      );
+    }
+
+    this.execute(
+      `UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND tenant_id = ?`,
+      batch.quantity,
+      batch.product_id,
+      tenantId,
+    );
   }
 
   /**

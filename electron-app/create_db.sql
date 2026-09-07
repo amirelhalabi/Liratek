@@ -478,7 +478,9 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tenant_id INTEGER REFERENCES tenants(id),
   supplier_id INTEGER NOT NULL,
-  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT')),
+  -- 'STOCK_INTAKE' (v164): one row per supplier stock-intake event (+qty x unit cost) — see
+  -- product_stock_batches below, the FIFO cost-batch table this entry_type is booked alongside.
+  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT', 'STOCK_INTAKE')),
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
   note TEXT,
@@ -1336,6 +1338,59 @@ CREATE INDEX IF NOT EXISTS idx_drawer_balances_drawer ON drawer_balances(drawer_
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_source_ref ON supplier_ledger(source_ref_table, source_ref_id);
 
+-- Supplier Stock Intake (v164) — FIFO cost batches. A stock intake with a supplier writes ONE
+-- supplier_ledger 'STOCK_INTAKE' row and the balance becomes the ledger sum ONLY (sales/refunds/
+-- deletes/cost edits never touch it); the batch created here is the FIFO cost source a sale draws
+-- from, stamping its weighted cost onto sale_items.cost_price_snapshot_usd. books_debt=0 marks the
+-- owner's per-entry "old stock" checkbox (creates the batch, skips the ledger row) and the opening-
+-- stock backfill (is_opening=1) that migration v164 ran once over pre-existing inventory.
+CREATE TABLE IF NOT EXISTS product_stock_batches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  supplier_id INTEGER REFERENCES suppliers(id),      -- NULL = no supplier / opening stock
+  quantity INTEGER NOT NULL CHECK(quantity > 0),     -- units received
+  quantity_remaining INTEGER NOT NULL CHECK(quantity_remaining >= 0),
+  unit_cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+  books_debt INTEGER NOT NULL DEFAULT 0,             -- 1 = a supplier_ledger row was written
+  ledger_entry_id INTEGER REFERENCES supplier_ledger(id),
+  transaction_id INTEGER REFERENCES transactions(id),
+  is_opening INTEGER NOT NULL DEFAULT 0,             -- 1 = backfilled pre-existing stock (D11)
+  created_by INTEGER REFERENCES users(id),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_product_stock_batches_tenant_product_id ON product_stock_batches(tenant_id, product_id, id);
+CREATE INDEX IF NOT EXISTS idx_product_stock_batches_tenant_supplier ON product_stock_batches(tenant_id, supplier_id);
+CREATE INDEX IF NOT EXISTS idx_product_stock_batches_tenant_transaction ON product_stock_batches(tenant_id, transaction_id);
+
+-- Per-sale FIFO draw-down audit trail for product_stock_batches; a refund gives units back
+-- (NEWEST consumption first) via is_restored rather than deleting the row.
+-- sale_item_id / custom_service_id are sibling owner columns, exactly one populated per row:
+-- a custom service backed by inventory also draws down a batch, but its id cannot be stored
+-- in sale_item_id without violating that column's own FK to sale_items — and voiding the
+-- service needs a real way back to its consumption rows to restore the unit. A single
+-- polymorphic owner_id + type column was rejected in favor of one real FK per source: only a
+-- real FOREIGN KEY lets SQLite itself enforce (and ON DELETE SET NULL clean up) the link,
+-- which a type-tagged owner_id cannot.
+CREATE TABLE IF NOT EXISTS stock_batch_consumptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
+  batch_id INTEGER NOT NULL REFERENCES product_stock_batches(id),
+  sale_item_id INTEGER REFERENCES sale_items(id) ON DELETE SET NULL,
+  custom_service_id INTEGER REFERENCES custom_services(id) ON DELETE SET NULL,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  quantity INTEGER NOT NULL,
+  unit_cost_usd DECIMAL(10,2) NOT NULL,
+  reason TEXT NOT NULL DEFAULT 'SALE' CHECK(reason IN ('SALE','ADJUSTMENT','SERVICE')),
+  is_restored INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_sale_item ON stock_batch_consumptions(tenant_id, sale_item_id);
+CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_custom_service ON stock_batch_consumptions(tenant_id, custom_service_id);
+CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_batch ON stock_batch_consumptions(tenant_id, batch_id);
+
 -- Multi-tenancy indexes (high-volume tables)
 CREATE INDEX IF NOT EXISTS idx_sales_tenant_id ON sales(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_maintenance_tenant_id ON maintenance(tenant_id);
@@ -1981,4 +2036,14 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (157, 'add_product_imei_units_and_warranty'),
     (158, 'add_custom_services_partner_mode_and_fulfillment'),
     (159, 'reprice_annual_sell_days_lbp'),
-    (160, 'add_max_returned_credits_override');
+    (160, 'add_max_returned_credits_override'),
+    -- v161 is a data-only backfill (zeroes a stale commission-estimate stamp
+    -- component on already-posted financial_services rows) — a fresh DB has
+    -- no rows to backfill, same shape as v143's marker note above.
+    (161, 'zero_commission_estimate_stamp_for_at_settlement_rows'),
+    -- v162 repoints the 'omt_whish' module's route from '/services' to
+    -- '/omt-whish'; the modules seed above already inserts the post-migration
+    -- value directly, so a fresh DB needs no separate UPDATE — verified
+    -- against the 'omt_whish' row's route column.
+    (162, 'rename_omt_whish_route_to_omt_whish'),
+    (164, 'add_product_stock_batches_and_intake_ledger_type');

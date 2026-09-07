@@ -27,6 +27,13 @@ the same direct invocation anyway, per `.github/workflows/ci.yml`'s comment on t
 
 ## Assertion discipline (CLAUDE.md rule 15)
 
+- **Supplier stock intake (v164, `SUPPLIER_STOCK_INTAKE_PLAN.md`) writes rows too**: creating a
+  product with a supplier (or restocking one) now writes a `supplier_ledger` `STOCK_INTAKE` row
+  plus its own `SUPPLIER_STOCK_INTAKE` transaction, UNLESS the "old stock" checkbox is ticked.
+  Any spec that snapshots recent transactions or ledger totals around a product create/restock —
+  lira-143, lira-144, lira-web-024, and anything added later that touches the Add Product /
+  restock forms — must assert **deltas matched by identity** (same rule as below), never a raw
+  count or `getRecent(...)[0]`, since the intake row is one MORE row the action can write.
 - **Deltas, never absolutes**: snapshot the drawer/ledger/balance/profit immediately
   before the action, assert the delta after.
 - **Identity, never position**: match rows by `source_table`+`source_id`, unique client

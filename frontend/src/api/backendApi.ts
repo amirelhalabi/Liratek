@@ -323,6 +323,26 @@ export async function getProducts(
   );
 }
 
+/** The curated `product_suppliers` list (Settings-created suppliers,
+ *  including ones with no products yet) — the ProductForm supplier datalist
+ *  source. NOT the same as `getProductFilterOptions().suppliers`, which is
+ *  only names already attached to a listable product: a supplier must be
+ *  pickable before it has any products. Reads return the RAW array. */
+export async function getProductSuppliers(): Promise<string[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().inventory.getProductSuppliers();
+      return Array.isArray(res) ? res : [];
+    },
+    async () => {
+      const res = await requestJson<{ success: boolean; data?: string[] }>(
+        "/api/inventory/product-suppliers",
+      );
+      return Array.isArray(res?.data) ? res.data : [];
+    },
+  );
+}
+
 /** Distinct category / supplier values across the tenant's products — feeds
  *  the inventory filter dropdowns. Reads return the RAW object shape. */
 export async function getProductFilterOptions(): Promise<{
@@ -378,6 +398,12 @@ export async function createProduct(payload: any): Promise<ProductWriteResult> {
       min_stock_threshold:
         payload.min_stock_threshold ?? payload.min_stock_level ?? 0,
       supplier: payload.supplier ?? null,
+      // Supplier stock-intake: same field name on both transports (no
+      // translation needed) — per-entry, resets every time, only meaningful
+      // when `supplier` is set (skips the supplier_ledger STOCK_INTAKE row).
+      ...(payload.is_old_stock !== undefined
+        ? { is_old_stock: payload.is_old_stock }
+        : {}),
     };
     // Route wraps in createSuccessResponse ({success, data:{id}})
     const res = await requestJson<
@@ -1872,21 +1898,56 @@ export async function recordSupplierCashflow(data: {
   );
 }
 
-// Standalone supplier write-off (CQ-10, admin-only) — the supplier forgives
-// what we owe them. Envelope { success, id?, error? }.
-export async function supplierWriteOff(payload: {
-  supplier_id: number;
-  amount_usd: number;
-  amount_lbp: number;
+// LIRA supplier-stock-intake (D8): the standalone supplier write-off is
+// REMOVED — a supplier no longer "forgives" debt directly; the bundled
+// pay-form discount (recordSupplierCashflow's `discount` leg, CQ-10) is the
+// only surviving write-off path. Do NOT resurrect `supplierWriteOff` here —
+// `debtWriteOff` and `partnerWriteOff` above are separate, unrelated live
+// features and are untouched.
+
+// Receive stock into inventory, optionally against a supplier (supplier
+// stock-intake feature). Writes a product_stock_batches row and, unless
+// is_old_stock or there's no supplier, a supplier_ledger 'STOCK_INTAKE' row
+// (see InventoryService.receiveStock). Envelope { success, error?, batch_id? }.
+// `userId` is injected server-side by BOTH transports — never sent by the
+// client (rule 19c) — so it is deliberately absent from this payload type.
+//
+// REST route merges the URL :id into the body before validating (matches
+// the /products/:id/stock adjust-stock convention), so product_id travels
+// in the path, not the payload — the payload itself still sends the rest.
+export async function receiveStock(payload: {
+  product_id: number;
+  quantity: number;
+  unit_cost_usd: number;
+  supplier?: string | null;
+  is_old_stock: boolean;
   reason?: string;
-}) {
+}): Promise<{ success: boolean; error?: string; batch_id?: number }> {
   return ipcOrHttp(
-    async () => getElectronApi().suppliers.writeOff(payload),
+    async () => getElectronApi().inventory.receiveStock(payload),
     async () =>
-      requestJson<{ success: boolean; id?: number; error?: string }>(
-        `/api/suppliers/${payload.supplier_id}/write-off`,
+      requestJson<{ success: boolean; error?: string; batch_id?: number }>(
+        `/api/inventory/products/${payload.product_id}/receive-stock`,
         { method: "POST", body: payload },
       ),
+  );
+}
+
+// Informational per-supplier stock value (SUM(quantity_remaining * unit_cost)
+// across open batches). Raw array, matching the getSupplierProductBalances
+// convention above — READS return the raw shape, not the envelope.
+export async function getSupplierProductStockValue(): Promise<
+  { supplier_id: number; stock_value_usd: number }[]
+> {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getProductStockValue(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        stockValue?: { supplier_id: number; stock_value_usd: number }[];
+      }>(`/api/suppliers/product-stock-value`);
+      return res.stockValue ?? [];
+    },
   );
 }
 

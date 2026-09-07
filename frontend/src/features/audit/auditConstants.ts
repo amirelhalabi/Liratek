@@ -271,6 +271,9 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       // visible by default (no is_auto flag involved), same as Partner
       // Adjustment.
       { label: "Supplier Adjustment", type: "SUPPLIER_ADJUSTMENT" },
+      // SUPPLIER_STOCK_INTAKE_PLAN.md — receiving stock on credit; manual
+      // (operator-triggered from Inventory), so visible by default too.
+      { label: "Stock Received", type: "SUPPLIER_STOCK_INTAKE" },
     ],
   },
   {
@@ -377,6 +380,14 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // leg; _reverseCarrierLineMovements unwinds the credits gain). Absent
   // from core's NON_REVERSIBLE_TRANSACTION_TYPES.
   "TELECOM_CREDIT_BUYBACK",
+  // SUPPLIER_STOCK_INTAKE_PLAN.md rule 20 — voiding this transaction is the
+  // named reversal owner for the supplier_ledger STOCK_INTAKE row AND the
+  // cost batch it created (TransactionRepository soft-voids the ledger row
+  // and deletes the batch). Reversible so the owner can undo a mistaken
+  // delivery — REST/IPC `_assertReversible` still refuses it once any unit
+  // of the batch has been sold (StockBatchRepository.deleteBatchForVoid
+  // returns false, not this set's visibility gate).
+  "SUPPLIER_STOCK_INTAKE",
 ]);
 
 /** Service transactions that can (re)print a detailed receipt (RCP-3). POS

@@ -5,6 +5,7 @@ import { parseDbDate } from "@/shared/utils/parseDbDate";
 import logger from "@/utils/logger";
 import {
   useAdjustStockMutation,
+  useReceiveStockMutation,
   useStockAdjustmentsQuery,
 } from "../hooks/useStockAdjustments";
 import { useRegisterUnitsMutation } from "../hooks/useProductUnits";
@@ -27,6 +28,14 @@ export interface AdjustableProduct {
   barcode: string | null;
   stock_quantity?: number;
   tracks_imei_units?: number;
+  /** Supplier stock-intake (SUPPLIER_STOCK_INTAKE_PLAN.md) — both OPTIONAL:
+   *  the Diagnostics negative-stock read shape (`getNegativeStock()`)
+   *  carries neither. Missing `cost_price` means the unit-cost field on an
+   *  increase starts at 0 rather than failing; missing/blank `supplier`
+   *  means an increase can only ever create a batch, never book supplier
+   *  debt — same "no supplier, no debt" rule `receiveStock` itself applies. */
+  cost_price?: number;
+  supplier?: string | null;
 }
 
 interface AdjustStockModalProps {
@@ -61,12 +70,20 @@ export default function AdjustStockModal({
   const [quantity, setQuantity] = useState("");
   const [reason, setReason] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  // Supplier stock-intake (owner: "similar design" to the Add Product form,
+  // "keep the button I have, no need to change its name") — only relevant
+  // when the resolved change is an INCREASE; see `isIncrease` below.
+  // Prefilled with the product's current cost, defaulting to 0 for callers
+  // (Diagnostics) that don't carry `cost_price`.
+  const [unitCost, setUnitCost] = useState(String(product.cost_price ?? 0));
+  const [isOldStock, setIsOldStock] = useState(false);
 
   const [step, setStep] = useState<Step>("form");
   const [pendingIncrease, setPendingIncrease] = useState(0);
   const [scannedImeis, setScannedImeis] = useState<string[]>([]);
 
   const adjustStock = useAdjustStockMutation();
+  const receiveStock = useReceiveStockMutation();
   const registerUnits = useRegisterUnitsMutation(product.id);
   const {
     data: adjustments = [],
@@ -83,6 +100,13 @@ export default function AdjustStockModal({
         ? parsedQuantity
         : currentStock + parsedQuantity
       : null;
+  // The resolved delta this submission would apply — used both to gate the
+  // Unit cost/"old stock" fields below and, on submit, to route an
+  // INCREASE through `receiveStock` (real delivery: batch + supplier debit)
+  // instead of the plain `adjustStock` audit-only path a decrease still uses.
+  const resolvedIncrease =
+    previewNewQuantity !== null ? previewNewQuantity - currentStock : 0;
+  const isIncrease = resolvedIncrease > 0;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -106,14 +130,43 @@ export default function AdjustStockModal({
       return;
     }
 
+    const increase =
+      mode === "set" ? parsedQuantity - currentStock : parsedQuantity;
+
+    if (increase > 0) {
+      const parsedUnitCost = unitCost.trim() === "" ? NaN : Number(unitCost);
+      if (!Number.isFinite(parsedUnitCost) || parsedUnitCost < 0) {
+        setFormError("Enter a valid unit cost");
+        return;
+      }
+    }
+
     try {
-      const result = await adjustStock.mutateAsync({
-        id: product.id,
-        ...(mode === "set"
-          ? { newQuantity: parsedQuantity }
-          : { delta: parsedQuantity }),
-        reason: trimmedReason,
-      });
+      // Supplier stock-intake: an INCREASE is a real delivery — route it
+      // through `receiveStock` so it books a FIFO cost batch and (unless
+      // "old stock" is checked or the product has no supplier) a
+      // supplier_ledger debit. A decrease (or a "set" to an equal/lower
+      // value) is unchanged: `adjustStock`'s plain audit-only path, which
+      // never touches the supplier ledger by design.
+      let result;
+      if (increase > 0) {
+        result = await receiveStock.mutateAsync({
+          product_id: product.id,
+          quantity: increase,
+          unit_cost_usd: Number(unitCost),
+          supplier: product.supplier ?? null,
+          is_old_stock: isOldStock,
+          reason: trimmedReason,
+        });
+      } else {
+        result = await adjustStock.mutateAsync({
+          id: product.id,
+          ...(mode === "set"
+            ? { newQuantity: parsedQuantity }
+            : { delta: parsedQuantity }),
+          reason: trimmedReason,
+        });
+      }
 
       if (!result.success) {
         setFormError(result.error ?? "Failed to adjust stock");
@@ -131,8 +184,6 @@ export default function AdjustStockModal({
       // immediately. A decrease, a "set" to a lower/equal value, or a
       // flag-OFF product all fall through to `onSuccess()` exactly as
       // before this ticket.
-      const increase =
-        mode === "set" ? parsedQuantity - currentStock : parsedQuantity;
       if ((product.tracks_imei_units ?? 0) === 1 && increase > 0) {
         setPendingIncrease(increase);
         setStep("intake");
@@ -261,6 +312,56 @@ export default function AdjustStockModal({
                 )}
               </div>
 
+              {isIncrease ? (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">
+                    Unit cost ($) *
+                  </label>
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={unitCost}
+                      onChange={(e) => setUnitCost(e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                    />
+                    {/* Same checkbox as the Add Product form (owner: keep a
+                        "similar design"), shown only when the product has a
+                        supplier — with no supplier there is no debt to
+                        skip in the first place. */}
+                    {product.supplier?.trim() && (
+                      <label className="flex items-start gap-2 pt-2.5 shrink-0 max-w-[55%]">
+                        <input
+                          type="checkbox"
+                          checked={isOldStock}
+                          onChange={(e) => setIsOldStock(e.target.checked)}
+                          className="mt-0.5 accent-violet-600"
+                        />
+                        <span className="text-xs text-slate-400 leading-snug">
+                          Old stock — don't add to supplier debt
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Books a delivery: raises stock, sets this as the
+                    product's new cost, and adds{" "}
+                    {product.supplier?.trim()
+                      ? "what you owe the supplier (unless marked old stock)"
+                      : "nothing to any supplier balance (no supplier set)"}
+                    .
+                  </p>
+                </div>
+              ) : (
+                mode === "delta" &&
+                previewNewQuantity !== null && (
+                  <p className="text-xs text-slate-500">
+                    A decrease does not change what you owe the supplier.
+                  </p>
+                )
+              )}
+
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
                   Reason *
@@ -290,10 +391,12 @@ export default function AdjustStockModal({
                 </button>
                 <button
                   type="submit"
-                  disabled={adjustStock.isPending}
+                  disabled={adjustStock.isPending || receiveStock.isPending}
                   className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm disabled:opacity-50"
                 >
-                  {adjustStock.isPending ? "Saving…" : "Apply Adjustment"}
+                  {adjustStock.isPending || receiveStock.isPending
+                    ? "Saving…"
+                    : "Apply Adjustment"}
                 </button>
               </div>
             </form>

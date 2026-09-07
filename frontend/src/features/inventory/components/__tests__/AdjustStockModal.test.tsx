@@ -15,6 +15,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AdjustStockModal from "../AdjustStockModal";
 
 const mockAdjustStock = jest.fn();
+const mockReceiveStock = jest.fn();
 const mockGetStockAdjustments = jest.fn();
 const mockRegisterProductUnits = jest.fn();
 
@@ -22,6 +23,7 @@ jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
   useApi: () => ({
     adjustStock: mockAdjustStock,
+    receiveStock: mockReceiveStock,
     getStockAdjustments: mockGetStockAdjustments,
     productUnits: {
       register: mockRegisterProductUnits,
@@ -149,6 +151,7 @@ describe("AdjustStockModal — delta/set math + submission payload", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetStockAdjustments.mockResolvedValue([]);
+    mockReceiveStock.mockResolvedValue({ success: true });
   });
 
   it("previews the new stock in set mode (absolute)", () => {
@@ -169,8 +172,11 @@ describe("AdjustStockModal — delta/set math + submission payload", () => {
     expect(screen.getByText(/= 6 units/)).toBeInTheDocument();
   });
 
-  it("submits {id, newQuantity, reason} in set mode", async () => {
-    mockAdjustStock.mockResolvedValue({ success: true });
+  // Owner decision (SUPPLIER_STOCK_INTAKE_PLAN.md, D4): a set-mode INCREASE
+  // is a real delivery too — it now books through `receiveStock` (FIFO cost
+  // batch + supplier debit) instead of the plain audit-only `adjustStock`,
+  // exactly like a delta-mode increase already did before this ticket.
+  it("submits a receiveStock payload for a set-mode increase", async () => {
     const { onSuccess } = renderModal();
 
     fireEvent.change(screen.getByPlaceholderText("0"), {
@@ -185,11 +191,15 @@ describe("AdjustStockModal — delta/set math + submission payload", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
-    expect(mockAdjustStock).toHaveBeenCalledWith({
-      id: 42,
-      newQuantity: 30,
+    expect(mockReceiveStock).toHaveBeenCalledWith({
+      product_id: 42,
+      quantity: 20,
+      unit_cost_usd: 0,
+      supplier: null,
+      is_old_stock: false,
       reason: "Physical recount",
     });
+    expect(mockAdjustStock).not.toHaveBeenCalled();
   });
 
   it("submits {id, delta, reason} in delta mode", async () => {
@@ -292,6 +302,7 @@ describe("AdjustStockModal — IMEI intake step (decision #6)", () => {
     jest.clearAllMocks();
     mockGetStockAdjustments.mockResolvedValue([]);
     mockAdjustStock.mockResolvedValue({ success: true });
+    mockReceiveStock.mockResolvedValue({ success: true });
   });
 
   it("flag-OFF product: calls onSuccess immediately on an increase, no intake step", async () => {

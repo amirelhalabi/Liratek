@@ -88,6 +88,17 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("inventory:adjust-stock", payload),
     getStockAdjustments: (productId?: number) =>
       ipcRenderer.invoke("inventory:get-stock-adjustments", productId),
+    // Supplier stock intake (SUPPLIER_STOCK_INTAKE_PLAN.md) — raises stock,
+    // writes a cost batch, and books a supplier_ledger debit unless
+    // is_old_stock or no supplier.
+    receiveStock: (data: {
+      product_id: number;
+      quantity: number;
+      unit_cost_usd: number;
+      supplier?: string | null;
+      is_old_stock: boolean;
+      reason?: string;
+    }) => ipcRenderer.invoke("inventory:receive-stock", data),
     getLowStockProducts: () =>
       ipcRenderer.invoke("inventory:get-low-stock-products"),
     getNegativeStock: () => ipcRenderer.invoke("inventory:get-negative-stock"),
@@ -603,14 +614,14 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
       exchange_rate?: number;
     }) => ipcRenderer.invoke("suppliers:record-cashflow", data),
-    // CQ-10 (D4): standalone write-off — admin-only, no cashflow attached.
-    writeOff: (data: {
-      supplier_id: number;
-      amount_usd: number;
-      amount_lbp: number;
-      reason?: string;
-    }) => ipcRenderer.invoke("suppliers:write-off", data),
+    // NOTE: the standalone write-off (CQ-10) was REMOVED (owner decision D8,
+    // SUPPLIER_STOCK_INTAKE_PLAN.md) — the bundled Pay-form discount above
+    // (recordCashflow's `discount` field) is the surviving forgiveness path.
     getProductBalances: () => ipcRenderer.invoke("suppliers:product-balances"),
+    // Event-based product-supplier stock value (StockBatchRepository sum of
+    // open batches), replacing the recomputed-from-live-stock balance model.
+    getProductStockValue: () =>
+      ipcRenderer.invoke("suppliers:product-stock-value"),
     getProductItems: (supplierId: number) =>
       ipcRenderer.invoke("suppliers:product-items", supplierId),
     getPurchases: (supplierId: number) =>

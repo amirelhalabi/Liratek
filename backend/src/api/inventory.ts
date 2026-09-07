@@ -3,12 +3,14 @@ import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import {
   getInventoryService,
   getCategoryRepository,
+  getProductSupplierRepository,
   createProductSchema,
   productListQuerySchema,
   type ProductListQuery,
   type ProductListFilters,
   batchDeleteProductsSchema,
   stockAdjustSchema,
+  receiveStockSchema,
   resolveScanCodeSchema,
   createCategorySchema,
   updateCategorySchema,
@@ -97,6 +99,20 @@ router.get("/product-filter-options", (_req, res) => {
   }
 });
 
+// GET /api/inventory/product-suppliers — the curated `product_suppliers`
+// table (Settings-created suppliers, including ones with no products yet),
+// NOT the distinct-in-use names from /product-filter-options. A supplier
+// must be pickable in the ProductForm datalist before it has any products
+// (mirrors IPC `inventory:get-product-suppliers`). Same no-extra-role-gate
+// read baseline as the routes above.
+router.get("/product-suppliers", (_req, res) => {
+  try {
+    res.json(createSuccessResponse(getProductSupplierRepository().getNames()));
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
 // GET /api/inventory/resolve-scan?code=... — barcode first, then an active
 // (IN_STOCK) unit IMEI (LIRA-143 Phase 3, owner decision #2). Same no-extra-
 // role-gate read as GET /products/:id below — placed before it (static path
@@ -132,10 +148,13 @@ router.get("/products/:id", (req, res) => {
   }
 });
 
-// POST /api/inventory/products (admin)
+// POST /api/inventory/products (admin/staff — matches the IPC handler's
+// roles per rule 19b: inventoryHandlers.ts's `inventory:create-product`
+// carries `["admin", "staff"]`, not the admin-only gate this route had
+// before (owner decision D7, SUPPLIER_STOCK_INTAKE_PLAN.md)).
 router.post(
   "/products",
-  requireRole(["admin"]),
+  requireRole(["admin", "staff"]),
   validateRequest(createProductSchema),
   (req, res): void => {
     const service = getInventoryService();
@@ -143,19 +162,31 @@ router.post(
     // core CreateProductData uses the IPC names (cost_price, stock_quantity…).
     // Passing req.body through unmapped inserted NULL prices.
     const b = req.body;
-    const result = service.createProduct({
-      barcode: b.barcode ?? null,
-      name: b.name,
-      category: b.category,
-      cost_price: b.cost_price_usd,
-      retail_price: b.retail_price_usd,
-      stock_quantity: b.stock,
-      min_stock_level: b.min_stock_threshold,
-      supplier: b.supplier ?? null,
-      // warranty_months is named identically on both sides — straight
-      // through, no remap needed (LIRA-143 v157 decision #4).
-      warranty_months: b.warranty_months ?? null,
-    });
+    // userId is the authenticated actor, never a client-supplied field
+    // (rule 19c) — a create that carries a supplier + opening stock now
+    // books a SUPPLIER_STOCK_INTAKE debit
+    // (ProductRepository.createProduct -> bookIntakeAndBatch), and an
+    // unattributed money row is a real audit-trail gap. Supplier
+    // resolution/auto-registration (`ProductSupplierRepository.getOrCreate`)
+    // already happens inside that same repository call — no separate call
+    // needed here (rule 19b: one shared path for both transports).
+    const result = service.createProduct(
+      {
+        barcode: b.barcode ?? null,
+        name: b.name,
+        category: b.category,
+        cost_price: b.cost_price_usd,
+        retail_price: b.retail_price_usd,
+        stock_quantity: b.stock,
+        min_stock_level: b.min_stock_threshold,
+        supplier: b.supplier ?? null,
+        // warranty_months is named identically on both sides — straight
+        // through, no remap needed (LIRA-143 v157 decision #4).
+        warranty_months: b.warranty_months ?? null,
+        is_old_stock: b.is_old_stock,
+      },
+      req.user!.userId,
+    );
 
     if (!result.success) {
       const errorMsg = result.error || "Failed to create product";
@@ -357,6 +388,67 @@ router.post(
     }
 
     res.status(result.success ? 200 : 400).json(result);
+  },
+);
+
+// POST /api/inventory/products/:id/receive-stock (admin/staff — matches the
+// IPC channel's roles per rule 19b, same gate as its sibling `/stock` adjust
+// route above). Mirrors SUPPLIER_STOCK_INTAKE_PLAN.md's
+// `InventoryService.receiveStock`: books a supplier ledger debit + FIFO cost
+// batch for a delivery, or just a batch when `is_old_stock` is set (backfill
+// of pre-existing inventory). Validates against the SAME `receiveStockSchema`
+// the IPC channel uses (rule 14/19) by merging the URL `:id` param into the
+// body before parsing, same pattern as the `/stock` adjust route.
+// `userId` comes from the JWT (req.user), never the client body (rule 19c).
+router.post(
+  "/products/:id/receive-stock",
+  requireRole(["admin", "staff"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(200).json({ success: false, error: "Invalid id" });
+      return;
+    }
+
+    const parsed = receiveStockSchema.safeParse({
+      ...req.body,
+      product_id: id,
+    });
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      res.status(200).json({
+        success: false,
+        error: firstIssue?.message ?? "Invalid receive-stock payload",
+      });
+      return;
+    }
+
+    const service = getInventoryService();
+    const result = service.receiveStock({
+      ...parsed.data,
+      userId: req.user!.userId,
+    });
+
+    if (result.success) {
+      auditRest(req, {
+        action: "update",
+        entity_type: "product",
+        entity_id: String(id),
+        summary: `Received ${parsed.data.quantity} units for product #${id}${
+          parsed.data.supplier ? ` from "${parsed.data.supplier}"` : ""
+        }`,
+        new_values: {
+          quantity: parsed.data.quantity,
+          unit_cost_usd: parsed.data.unit_cost_usd,
+          supplier: parsed.data.supplier,
+          is_old_stock: parsed.data.is_old_stock,
+        },
+      });
+    }
+
+    // Rule 19c envelope parity: HTTP 200 even on a business-rule failure,
+    // same as this route's PUT/DELETE/stock-adjust siblings above.
+    res.status(200).json(result);
   },
 );
 

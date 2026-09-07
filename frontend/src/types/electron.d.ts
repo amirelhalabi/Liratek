@@ -587,6 +587,9 @@ export interface ElectronAPI {
       item_type?: string;
       supplier?: string | null;
       is_active?: number;
+      /** Supplier stock intake (D-plan): skips the supplier_ledger debit on
+       *  the opening batch this create writes when a supplier is set. */
+      is_old_stock?: boolean;
     }) => Promise<{
       success: boolean;
       id?: number;
@@ -641,6 +644,17 @@ export interface ElectronAPI {
         updated_at: string;
       }>
     >;
+    /** Supplier stock intake (SUPPLIER_STOCK_INTAKE_PLAN.md) — raises stock,
+     *  writes a cost batch, and books a supplier_ledger debit unless
+     *  is_old_stock or no supplier is set. */
+    receiveStock: (data: {
+      product_id: number;
+      quantity: number;
+      unit_cost_usd: number;
+      supplier?: string | null;
+      is_old_stock: boolean;
+      reason?: string;
+    }) => Promise<{ success: boolean; error?: string; batch_id?: number }>;
     getStockStats: () => Promise<{
       stock_budget_usd: number;
       stock_count: number;
@@ -1447,7 +1461,9 @@ export interface ElectronAPI {
           | "ADJUSTMENT"
           | "SETTLEMENT"
           | "SALE_COST"
-          | "CASH_PRIZE";
+          | "CASH_PRIZE"
+          | "STOCK_INTAKE"
+          | "DISCOUNT";
         amount_usd: number;
         amount_lbp: number;
         note: string | null;
@@ -1542,17 +1558,17 @@ export interface ElectronAPI {
        *  RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    /** CQ-10: standalone supplier write-off (admin-only) — the supplier
-     *  forgives what we owe them; capped server-side at the outstanding
-     *  balance per currency. */
-    writeOff: (data: {
-      supplier_id: number;
-      amount_usd: number;
-      amount_lbp: number;
-      reason?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    // NOTE: the standalone write-off (CQ-10) was REMOVED (owner decision D8,
+    // SUPPLIER_STOCK_INTAKE_PLAN.md) — the bundled Pay-form discount above
+    // (recordCashflow's `discount` field) is the surviving forgiveness path.
     getProductBalances: () => Promise<
       Array<{ supplier_id: number; total_usd: number; total_lbp: number }>
+    >;
+    /** Event-based product-supplier stock value: SUM(quantity_remaining *
+     *  unit_cost_usd) per supplier over open batches — replaces the
+     *  recomputed-from-live-stock balance model. */
+    getProductStockValue: () => Promise<
+      Array<{ supplier_id: number; stock_value_usd: number }>
     >;
     getProductItems: (supplierId: number) => Promise<
       Array<{

@@ -2,8 +2,11 @@
  * CQ-10 — Supplier ledger discounts / write-offs.
  *
  * A supplier can forgive part of what the shop owes them, bundled with a PAY
- * cashflow (SupplierRepository.recordSupplierCashflow's `discount` param) or
- * posted standalone (writeOffSupplierDebt / SupplierService.writeOffSupplierDebt).
+ * cashflow (SupplierRepository.recordSupplierCashflow's `discount` param).
+ * The standalone write-off path (writeOffSupplierDebt on both the repository
+ * and the service) was REMOVED by SUPPLIER_STOCK_INTAKE_PLAN.md's owner
+ * decision D8 — the bundled PAY-form discount below is the only surviving
+ * write-off path, which is why this file no longer imports SupplierService.
  * The discount MUST FIFO-cover supplier_purchases the same way a cash PAY
  * does — otherwise a "fully settled on paper" purchase batch stays open
  * forever in that report.
@@ -23,7 +26,6 @@
 
 import Database from "better-sqlite3";
 import { SupplierRepository } from "../SupplierRepository";
-import { SupplierService } from "../../services/SupplierService";
 import {
   TransactionRepository,
   resetTransactionRepository,
@@ -296,93 +298,12 @@ describe("CQ-10 — SupplierRepository discount/write-off", () => {
     });
   });
 
-  describe("standalone write-off (repository level)", () => {
-    it("posts a 'DISCOUNT' ledger row (negative) + COUNTERPARTY_DISCOUNT txn, and covers an outstanding purchase", () => {
-      db.prepare(
-        `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, created_by) VALUES (1, 'TOP_UP', 25, 1)`,
-      ).run();
-      const purchaseId = Number(
-        db
-          .prepare(
-            `INSERT INTO supplier_purchases (supplier_id, total_usd) VALUES (1, 25)`,
-          )
-          .run().lastInsertRowid,
-      );
-
-      const result = repo.writeOffSupplierDebt({
-        supplier_id: 1,
-        amount_usd: 25,
-        amount_lbp: 0,
-        reason: "full forgiveness",
-        created_by: 1,
-      });
-      expect(result.id).toBeGreaterThan(0);
-
-      const ledgerRow = db
-        .prepare(
-          `SELECT amount_usd FROM supplier_ledger WHERE supplier_id = 1 AND entry_type = 'DISCOUNT'`,
-        )
-        .get() as { amount_usd: number };
-      expect(ledgerRow.amount_usd).toBeCloseTo(-25, 2);
-      expect(ledgerSum(db, 1).usd).toBeCloseTo(0, 2);
-
-      const row = purchaseRow(db, purchaseId);
-      expect(row.paid_usd).toBeGreaterThanOrEqual(row.total_usd - 0.005);
-
-      // No cash moved by a pure write-off.
-      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(0, 2);
-    });
-  });
-
-  describe("SupplierService.writeOffSupplierDebt — per-currency balance guard", () => {
-    let service: SupplierService;
-
-    beforeEach(() => {
-      // SupplierService resolves its own repo via getSupplierRepository();
-      // the `.db` getter it (and `repo` above) inherit from BaseRepository
-      // is dynamic (always getDatabase()), so both instances read/write the
-      // SAME test db regardless of which object constructed them.
-      service = new SupplierService();
-    });
-
-    it("rejects a write-off that exceeds what the shop owes the supplier", () => {
-      db.prepare(
-        `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, created_by) VALUES (1, 'TOP_UP', 30, 1)`,
-      ).run();
-      const result = service.writeOffSupplierDebt({
-        supplier_id: 1,
-        amount_usd: 30.5,
-        amount_lbp: 0,
-        created_by: 1,
-      });
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/exceeds/i);
-      expect(ledgerSum(db, 1).usd).toBeCloseTo(30, 2);
-    });
-
-    it("rejects a write-off when the shop owes the supplier nothing", () => {
-      const result = service.writeOffSupplierDebt({
-        supplier_id: 1,
-        amount_usd: 10,
-        amount_lbp: 0,
-        created_by: 1,
-      });
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/no outstanding balance/i);
-    });
-
-    it("accepts a write-off within the outstanding balance", () => {
-      db.prepare(
-        `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, created_by) VALUES (1, 'TOP_UP', 30, 1)`,
-      ).run();
-      const result = service.writeOffSupplierDebt({
-        supplier_id: 1,
-        amount_usd: 30,
-        amount_lbp: 0,
-        created_by: 1,
-      });
-      expect(result.success).toBe(true);
-      expect(ledgerSum(db, 1).usd).toBeCloseTo(0, 2);
-    });
-  });
+  // NOTE (SUPPLIER_STOCK_INTAKE_PLAN.md, owner decision D8): the standalone
+  // write-off — SupplierRepository.writeOffSupplierDebt and
+  // SupplierService.writeOffSupplierDebt — was REMOVED; the bundled PAY-form
+  // discount above is the only surviving write-off path. The two describe
+  // blocks that used to cover the standalone method were deleted here (they
+  // referenced a method that no longer exists and could not compile) —
+  // see SupplierRepository.ts:2631/2658 and SupplierService.ts:158 for the
+  // removal notes.
 });

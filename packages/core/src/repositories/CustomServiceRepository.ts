@@ -20,6 +20,7 @@ import {
   type FulfillmentStatus,
 } from "../utils/insuranceFulfillment.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
@@ -209,6 +210,35 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `Not enough stock for "${p?.name ?? `product #${data.product_id}`}" (${p?.stock_quantity ?? 0} available)`,
             );
           }
+
+          // FIFO batch consumption (Supplier Stock Intake, rule 20) — keep
+          // this service's 1-unit draw-down in step with the product's
+          // batches, mirroring SalesRepository.processSale's identical
+          // call. Unlike a sale line, a custom service has no
+          // `cost_price_snapshot_usd`-equivalent column to overwrite with
+          // the weighted FIFO cost: `cost_usd` above is caller-supplied
+          // (the operator's own cost entry for this service), not derived
+          // from the product, so there is nothing here for the FIFO cost to
+          // replace. This call therefore exists ONLY to keep
+          // `product_stock_batches.quantity_remaining` synced with the
+          // stock this service just took — the resulting cost is
+          // discarded. `reason: 'SERVICE'` distinguishes these consumption
+          // rows from a sale's `'SALE'` rows for reporting.
+          // `customServiceId` lets the void/reversal path
+          // (`TransactionRepository._restoreCustomServiceStock`) find and
+          // restore exactly this consumption row later — a custom service
+          // has no `sale_item_id` to key off (that column FKs to
+          // `sale_items`, not `custom_services`), so `restoreForSaleItem`
+          // cannot find these rows without a matching reference. Requires
+          // `StockBatchRepository.consume`'s opts to accept
+          // `customServiceId` and persist it on the consumption row — see
+          // this build's handoffs; the field is written here in
+          // anticipation of that column existing.
+          getStockBatchRepository().consume(data.product_id, 1, {
+            reason: "SERVICE",
+            fallbackUnitCostUsd: 0,
+            customServiceId: serviceId,
+          });
         }
 
         // LIRA-081 (PFT-R): a "for partner" custom service takes no counter

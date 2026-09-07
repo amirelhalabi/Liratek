@@ -37,11 +37,20 @@ export class ElectronApiAdapter implements ApiAdapter {
   getProducts = (search?: string, filters?: ProductListFilters) =>
     api.getProducts(search ?? "", filters);
   getProductFilterOptions = () => api.getProductFilterOptions();
+  getProductSuppliers = () => api.getProductSuppliers();
   createProduct = (payload: any) => api.createProduct(payload);
   updateProduct = (id: number, payload: any) => api.updateProduct(id, payload);
   deleteProduct = (id: number) => api.deleteProduct(id);
   batchDeleteProducts = (ids: number[]) => api.batchDeleteProducts(ids);
   getLowStockProducts = () => api.getLowStockProducts();
+  receiveStock = (payload: {
+    product_id: number;
+    quantity: number;
+    unit_cost_usd: number;
+    supplier?: string | null;
+    is_old_stock: boolean;
+    reason?: string;
+  }) => api.receiveStock(payload);
   adjustStock = (payload: {
     id: number;
     newQuantity?: number;
@@ -283,16 +292,14 @@ export class ElectronApiAdapter implements ApiAdapter {
     exchange_rate?: number;
     discount?: { amount_usd: number; amount_lbp: number; reason?: string };
   }) => api.recordSupplierCashflow(data);
-  supplierWriteOff = (data: {
-    supplier_id: number;
-    amount_usd: number;
-    amount_lbp: number;
-    reason?: string;
-  }) => api.supplierWriteOff(data);
+  // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
+  // write-off is gone; the bundled pay-form discount in
+  // recordSupplierCashflow above is the only surviving forgive-debt path.
   getAllSupplierTransactions = (provider: string, limit?: number) =>
     api.getAllSupplierTransactions(provider, limit);
   getUnsettledSummary = () => api.getUnsettledSummary();
   getSupplierProductBalances = () => api.getSupplierProductBalances();
+  getSupplierProductStockValue = () => api.getSupplierProductStockValue();
   getSupplierProductItems = (supplierId: number) =>
     api.getSupplierProductItems(supplierId);
   getSupplierPurchases = (supplierId: number) =>
