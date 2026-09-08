@@ -693,6 +693,18 @@ export {
   getTenantRepository,
   resetTenantRepository,
 } from "./TenantRepository.js";
+
+// Subscription Repository (control plane — commercial standing, v173)
+export {
+  SubscriptionRepository,
+  getSubscriptionRepository,
+  resetSubscriptionRepository,
+} from "./SubscriptionRepository.js";
+export type {
+  SubscriptionEntity,
+  SubscriptionStatus,
+  UpdateSubscriptionData,
+} from "./SubscriptionRepository.js";
 export type {
   TenantEntity,
   TenantWithStats,

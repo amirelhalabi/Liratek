@@ -115,3 +115,7 @@ export * from "./validators/index.js";
 
 // Configuration
 export * from "./config/env.js";
+// Subscription policy constants (v173). Pure data, so it belongs in BOTH
+// entry points: the frontend hides non-entitled modules and must apply the
+// same ungateable rule the backend enforces, rather than keeping a copy.
+export * from "./constants/subscription.js";

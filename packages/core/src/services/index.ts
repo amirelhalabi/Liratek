@@ -442,3 +442,13 @@ export {
   resetTenantProvisioningService,
 } from "./TenantProvisioningService.js";
 export type { ProvisionTenantData } from "./TenantProvisioningService.js";
+
+// Subscription Service (control plane — commercial standing, v173)
+export {
+  SubscriptionService,
+  getSubscriptionService,
+  resetSubscriptionService,
+  GRACE_PERIOD_DAYS,
+  UNGATEABLE_MODULES,
+} from "./SubscriptionService.js";
+export type { SubscriptionStatusView } from "./SubscriptionService.js";

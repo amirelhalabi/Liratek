@@ -28,6 +28,10 @@ export * from "./utils/telecomCredit.js";
 // exported HERE, not only from index.ts — see the telecomCredit note above for
 // the exact failure mode this avoids.
 export * from "./utils/carrierLineValidity.js";
+// Subscription policy constants (v173). Pure data, so it belongs in BOTH
+// entry points: the frontend hides non-entitled modules and must apply the
+// same ungateable rule the backend enforces, rather than keeping a copy.
+export * from "./constants/subscription.js";
 
 // Validators — zod schemas, no Node.js deps
 export * from "./validators/index.js";
