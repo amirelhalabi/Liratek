@@ -170,7 +170,15 @@ export async function requestJson<T>(
   // Only replaces the NORMAL login token. An impersonation session lives in
   // sessionStorage and is per-tab on purpose; overwriting localStorage from an
   // impersonated request would leak that session into every other tab.
-  const renewed = res.headers.get("X-Renewed-Token");
+  //
+  // `headers?.` is not paranoia about the real fetch — it is about the many
+  // fetch DOUBLES this file runs against. A stub that returns
+  // `{ ok, text }` and nothing else is the normal way the dual-mode tests
+  // assert routing, and reading `.get` off it threw a TypeError that surfaced
+  // as five unrelated suites failing inside requestJson. Renewal itself is
+  // proven by backend/src/middleware/__tests__/tokenRenewal.test.ts against
+  // real headers; nothing here needs a header to be present.
+  const renewed = res.headers?.get("X-Renewed-Token");
   if (renewed && !getImpersonationToken()) setToken(renewed);
 
   const text = await res.text();
