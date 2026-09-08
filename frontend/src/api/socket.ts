@@ -38,6 +38,22 @@ export function connectSocket(token?: string): Socket {
   // server-side until there is something to send.
   const opts: Partial<ManagerOptions & SocketOptions> = {
     transports: ["polling", "websocket"],
+    // Do not ATTEMPT the upgrade.
+    //
+    // The engine.io handshake succeeds over polling, and the server then
+    // advertises upgrades:["websocket"], so socket.io tries to upgrade on
+    // every connection -- and Vercel refuses, logging a failed wss:// request
+    // in the console each time. The connection itself is fine: the polling
+    // transport carries on and is pinged every 25s. But a permanent console
+    // error reads exactly like a real fault, and this one has already sent us
+    // chasing it twice.
+    //
+    // websocket stays in the transports list deliberately, so it is used if
+    // it is ever the FIRST transport that works. Flip this to true the day the
+    // frontend talks to the backend directly rather than through Vercel's
+    // rewrite -- see docs/DEPLOYMENT.md section 4b. Until then the attempt can
+    // only fail.
+    upgrade: false,
   };
   if (token) opts.auth = { token };
 
