@@ -162,6 +162,17 @@ export async function requestJson<T>(
     body: options?.body !== undefined ? JSON.stringify(options.body) : null,
   });
 
+  // Sliding session: the backend re-issues a nearly-expired JWT on any
+  // authenticated request and returns it here. Swapping it in keeps an active
+  // user signed in past the token lifetime -- the DB session already slid, the
+  // JWT exp did not, so day 7 logged people out despite a healthy session.
+  //
+  // Only replaces the NORMAL login token. An impersonation session lives in
+  // sessionStorage and is per-tab on purpose; overwriting localStorage from an
+  // impersonated request would leak that session into every other tab.
+  const renewed = res.headers.get("X-Renewed-Token");
+  if (renewed && !getImpersonationToken()) setToken(renewed);
+
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
 

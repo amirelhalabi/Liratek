@@ -1,7 +1,12 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { logger } from "../server.js";
-import { getAuthService, runWithTenant, JWT_SECRET } from "@liratek/core";
+import {
+  getAuthService,
+  runWithTenant,
+  JWT_SECRET,
+  JWT_EXPIRES_IN,
+} from "@liratek/core";
 import type { SafeUser } from "@liratek/core";
 
 /**
@@ -22,6 +27,9 @@ export interface LiratekJwtPayload {
   tenantId: number | null;
   /** Present ONLY on impersonation tokens — the real super admin's user id. */
   impersonatorId?: number;
+  /** Unix seconds. Read from the verified token so the renewal check below can
+   * tell how much life is left; never trusted for anything else. */
+  exp?: number;
 }
 
 /** Shape attached to `req.user` after successful authentication. */
@@ -81,6 +89,7 @@ function parseJwtPayload(decoded: unknown): LiratekJwtPayload | null {
     sessionToken: d.sessionToken,
     tenantId,
     ...(impersonatorId !== undefined ? { impersonatorId } : {}),
+    ...(typeof d.exp === "number" ? { exp: d.exp } : {}),
   };
 }
 
@@ -103,6 +112,58 @@ function parseJwtPayload(decoded: unknown): LiratekJwtPayload | null {
  * error themselves (see `authenticateJWT`'s explicit check, which returns a
  * distinct 500 rather than folding into this function's generic `null`).
  */
+/**
+ * Response header carrying a freshly minted JWT. The client swaps its stored
+ * token for this whenever it appears.
+ */
+export const RENEWED_TOKEN_HEADER = "X-Renewed-Token";
+
+/**
+ * Re-issue the token when it is within this much of expiring.
+ *
+ * Why re-issue at all: the DB session already SLIDES — `touchActivity` pushes
+ * `expires_at` forward on every request (SessionRepository) — but the JWT's own
+ * `exp` is fixed at mint time. So an active user was logged out on day 7
+ * despite a perfectly healthy session. This closes that gap without a
+ * refresh-token subsystem: revocation is already instant because every request
+ * validates the session row, which is the thing refresh tokens usually buy.
+ */
+const RENEW_WITHIN_SECONDS = 2 * 24 * 60 * 60; // 2 days of a 7-day token
+
+/**
+ * Mint a replacement token when the current one is close to expiring, and
+ * expose it on the response. Never throws: a failed renewal must not fail the
+ * request, it just means the client keeps the token it has.
+ */
+function maybeRenewToken(res: Response, payload: LiratekJwtPayload): void {
+  try {
+    if (!JWT_SECRET || typeof payload.exp !== "number") return;
+    const secondsLeft = payload.exp - Math.floor(Date.now() / 1000);
+    if (secondsLeft > RENEW_WITHIN_SECONDS) return;
+
+    // Same claims, new lifetime. sessionToken is unchanged on purpose — the DB
+    // session is the source of truth and stays revocable by the same token.
+    const renewed = jwt.sign(
+      {
+        userId: payload.userId,
+        role: payload.role,
+        sessionToken: payload.sessionToken,
+        tenantId: payload.tenantId,
+        ...(payload.impersonatorId !== undefined
+          ? { impersonatorId: payload.impersonatorId }
+          : {}),
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"] },
+    );
+    res.setHeader(RENEWED_TOKEN_HEADER, renewed);
+    // Or a browser cannot read it cross-origin.
+    res.setHeader("Access-Control-Expose-Headers", RENEWED_TOKEN_HEADER);
+  } catch {
+    // Deliberately silent — see the doc comment.
+  }
+}
+
 export function verifyJwt(token: string): LiratekJwtPayload | null {
   if (!JWT_SECRET) return null;
   try {
@@ -179,6 +240,10 @@ export function authenticateJWT(
           res.status(401).json({ error: "Session expired" });
           return;
         }
+
+        // The session validated, so this token is genuinely still in use:
+        // slide it forward if it is nearly expired.
+        maybeRenewToken(res, payload);
 
         req.user = {
           userId: payload.userId,
