@@ -1,12 +1,15 @@
 import { io, type Socket } from "socket.io-client";
+import { getBaseUrl } from "./httpClient";
 
 let socket: Socket | null = null;
 
 function getSocketUrl(): string {
-  const fromGlobal = (globalThis as any).__LIRATEK_BACKEND_URL as
-    | string
-    | undefined;
-  return (fromGlobal || "http://localhost:3000").replace(/\/$/, "");
+  // One source of truth with the REST client: runtime global >
+  // VITE_BACKEND_URL > the page s own origin > local dev. This previously read
+  // only the global and otherwise hardcoded localhost:3000, so under
+  // `yarn dev:web` (backend on 4300) or any single-origin deployment the socket
+  // aimed somewhere the REST calls did not.
+  return getBaseUrl();
 }
 
 export function connectSocket(token?: string): Socket {

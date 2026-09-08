@@ -23,20 +23,42 @@ const IMPERSONATION_TOKEN_KEY = "liratek.impersonation";
 const IMPERSONATION_TENANT_NAME_KEY = "liratek.impersonation_tenant";
 const IMPERSONATION_USERNAME_KEY = "liratek.impersonation_username";
 
-function getBaseUrl(): string {
-  // Precedence: runtime global override (set by e2e/tests) > build-time env
-  // (VITE_BACKEND_URL, set by `yarn dev:web` so the web backend can live off
-  // the default port when something else — e.g. a Docker container — squats it)
-  // > the default.
+/**
+ * Same-origin API base, used only when the page itself was served over HTTP(S).
+ *
+ * A deployment that serves the SPA and routes /api from ONE origin (Vercel s
+ * Services preset; the nginx front door in docker-compose.yml) needs neither a
+ * build-time hostname nor a runtime global -- the API is simply here. That is
+ * what lets a single build run on any hostname: preview URLs, the production
+ * domain, and per-tenant subdomains, with nothing rebaked.
+ *
+ * Protocol-guarded deliberately. The Electron renderer loads over file://,
+ * where location.origin is the string "null"; it must keep falling through to
+ * the local backend default below.
+ */
+function sameOriginBase(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const { protocol, origin } = window.location;
+  if (protocol !== "http:" && protocol !== "https:") return undefined;
+  return origin;
+}
+
+export function getBaseUrl(): string {
+  // Precedence: runtime global override (set by the web e2e fixtures) >
+  // build-time env (VITE_BACKEND_URL, set by `yarn dev:web` so the web backend
+  // can live off the default port when something else, e.g. a Docker
+  // container, squats it) > the page s own origin > the local-dev default.
   const fromGlobal = (globalThis as any).__LIRATEK_BACKEND_URL as
     | string
     | undefined;
   // 127.0.0.1 (not localhost): browsers may resolve localhost to IPv6 ::1,
   // where another process (e.g. Docker) can be listening on the same port.
-  return (fromGlobal || viteBackendUrl || "http://127.0.0.1:3000").replace(
-    /\/$/,
-    "",
-  );
+  return (
+    fromGlobal ||
+    viteBackendUrl ||
+    sameOriginBase() ||
+    "http://127.0.0.1:3000"
+  ).replace(/\/$/, "");
 }
 
 /**
