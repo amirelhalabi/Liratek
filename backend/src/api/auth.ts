@@ -12,6 +12,10 @@ import {
   JWT_EXPIRES_IN,
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
+import {
+  resolveTenantHost,
+  isHostTenancyActive,
+} from "../middleware/tenantHost.js";
 import { authenticateJWT, type LiratekJwtPayload } from "../middleware/auth.js";
 import { logger } from "../server.js";
 import jwt from "jsonwebtoken";
@@ -58,6 +62,65 @@ router.post(
       }
 
       const user = result.user;
+
+      // ── Subdomain realm check ──────────────────────────────────────────
+      //
+      // Credentials must belong to the tenant whose host was addressed. This
+      // is a no-op until APP_BASE_DOMAIN is set (and on a host outside it),
+      // so the current vercel.app/IP deployment is unaffected.
+      //
+      // Deliberately AFTER authentication and returning the SAME generic
+      // error: rejecting earlier, or with a distinct message, would let
+      // anyone probe which subdomain a username belongs to.
+      const realm = resolveTenantHost(req);
+      if (isHostTenancyActive(realm)) {
+        let denied: string | null = null;
+        switch (realm.kind) {
+          case "unknown":
+            denied = `no tenant for slug "${realm.slug}"`;
+            break;
+          case "platform":
+            if (user.role !== "super_admin") {
+              denied = "non-super_admin on the platform realm";
+            }
+            break;
+          case "tenant":
+            if (user.tenant_id !== realm.tenant.id) {
+              denied = "credentials belong to another tenant";
+            } else if (realm.tenant.status !== "active") {
+              denied = `tenant is ${realm.tenant.status}`;
+            }
+            break;
+        }
+
+        if (denied) {
+          // login() already created a DB session; revoke it or the rejected
+          // attempt leaves a usable session row behind.
+          try {
+            await authService.logout(result.token);
+          } catch {
+            // best effort — the token is never returned to the client
+          }
+          logger.warn(
+            {
+              username,
+              realm: realm.kind,
+              slug: "slug" in realm ? realm.slug : undefined,
+              reason: denied,
+            },
+            "Login refused: wrong realm for these credentials",
+          );
+          res
+            .status(401)
+            .json(
+              createErrorResponse(
+                ErrorCodes.INVALID_CREDENTIALS,
+                "Invalid credentials",
+              ),
+            );
+          return;
+        }
+      }
 
       // Create JWT v2: session-linked AND tenant-carrying (plan §3).
       // tenantId comes from the user row (null only for super_admin).

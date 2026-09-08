@@ -50,6 +50,25 @@ const envSchema = z
     SUPER_ADMIN_USERNAME: z.string().optional(),
     SUPER_ADMIN_PASSWORD: z.string().optional(),
 
+    // Subdomain-scoped tenancy. When APP_BASE_DOMAIN is set (e.g.
+    // "liratek.app"), the tenant is resolved from the request Host:
+    // <slug>.liratek.app is that tenant's realm and the apex is the
+    // platform (super_admin) realm. Login then REFUSES credentials that do
+    // not belong to the host's tenant.
+    //
+    // Left UNSET, host-based tenancy is disabled and login behaves exactly
+    // as it always has. That default is deliberate: the app is currently
+    // served from liratek.vercel.app and a bare IP, neither of which is a
+    // tenant subdomain, so enforcing host resolution before a domain exists
+    // would lock every user out.
+    APP_BASE_DOMAIN: z.string().optional(),
+
+    // Resolve the tenant from an X-Tenant-Slug header instead of the Host.
+    // DEVELOPMENT AND TESTS ONLY: a client can send any header it likes, so
+    // with this enabled tenant scoping is advisory, not enforced. It exists
+    // to exercise the feature before DNS does. Never enable in production.
+    TENANT_HOST_HEADER_OVERRIDE: z.coerce.boolean().optional(),
+
     // Electron-specific (only needed when running electron app)
     ELECTRON_RENDERER_URL: z.string().url().optional(),
 
@@ -106,6 +125,10 @@ function parseEnv(): EnvConfig {
     JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
     SUPER_ADMIN_USERNAME: process.env.SUPER_ADMIN_USERNAME?.trim(),
     SUPER_ADMIN_PASSWORD: process.env.SUPER_ADMIN_PASSWORD,
+    APP_BASE_DOMAIN: process.env.APP_BASE_DOMAIN?.trim().toLowerCase(),
+    TENANT_HOST_HEADER_OVERRIDE:
+      process.env.TENANT_HOST_HEADER_OVERRIDE === "true" ||
+      process.env.TENANT_HOST_HEADER_OVERRIDE === "1",
     ELECTRON_RENDERER_URL: process.env.ELECTRON_RENDERER_URL,
     DASHSCOPE_API_KEY: process.env.DASHSCOPE_API_KEY,
     QWEN_ASR_MODEL: process.env.QWEN_ASR_MODEL,
@@ -153,6 +176,8 @@ export const {
   JWT_EXPIRES_IN,
   SUPER_ADMIN_USERNAME,
   SUPER_ADMIN_PASSWORD,
+  APP_BASE_DOMAIN,
+  TENANT_HOST_HEADER_OVERRIDE,
   ELECTRON_RENDERER_URL,
   DASHSCOPE_API_KEY,
   QWEN_ASR_MODEL,
