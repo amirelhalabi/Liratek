@@ -1547,6 +1547,47 @@ contextBridge.exposeInMainWorld("api", {
 
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only,
   // no drawer legs, no checkout/closing involvement)
+
+  /**
+   * Licence / subscription. Admin-only in the main process.
+   *
+   * `status` reads the LOCAL row (instant, works offline); `check` and
+   * `setKey` talk to the licence server and both fail open, so a caller
+   * never has to handle a network error to keep working.
+   */
+  license: {
+    status: () =>
+      ipcRenderer.invoke("license:status") as Promise<{
+        success: boolean;
+        data?: {
+          licenseKeyMasked: string | null;
+          hasLicenseKey: boolean;
+          serverUrl: string | null;
+          subscription: {
+            status: string;
+            plan: string;
+            canWrite: boolean;
+            currentPeriodEnd: string | null;
+            graceEndsAt: string | null;
+            entitledModules: string[] | null;
+          } | null;
+        };
+        error?: string;
+      }>,
+    setKey: (data: { licenseKey: string | null }) =>
+      ipcRenderer.invoke("license:setKey", data) as Promise<{
+        success: boolean;
+        data?: { checked: boolean; detail: string };
+        error?: string;
+      }>,
+    check: () =>
+      ipcRenderer.invoke("license:check") as Promise<{
+        success: boolean;
+        data?: { checked: boolean; detail: string };
+        error?: string;
+      }>,
+  },
+
   carrierLines: {
     getActiveByCarrier: (carrier: "alfa" | "mtc") =>
       ipcRenderer.invoke("carrier-lines:get-active-by-carrier", carrier),

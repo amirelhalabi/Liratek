@@ -3062,6 +3062,43 @@ export interface ElectronAPI {
   };
 
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only)
+  /**
+   * Licence / subscription (desktop only).
+   *
+   * `status` reads the LOCAL subscription row, so it is instant and works
+   * offline. `check` and `setKey` talk to the licence server and both fail
+   * open: a caller never has to handle a network error to keep working.
+   */
+  license: {
+    status: () => Promise<{
+      success: boolean;
+      data?: {
+        licenseKeyMasked: string | null;
+        hasLicenseKey: boolean;
+        serverUrl: string | null;
+        subscription: {
+          status: string;
+          plan: string;
+          canWrite: boolean;
+          currentPeriodEnd: string | null;
+          graceEndsAt: string | null;
+          entitledModules: string[] | null;
+        } | null;
+      };
+      error?: string;
+    }>;
+    setKey: (data: { licenseKey: string | null }) => Promise<{
+      success: boolean;
+      data?: { checked: boolean; detail: string };
+      error?: string;
+    }>;
+    check: () => Promise<{
+      success: boolean;
+      data?: { checked: boolean; detail: string };
+      error?: string;
+    }>;
+  };
+
   carrierLines: {
     getActiveByCarrier: (carrier: "alfa" | "mtc") => Promise<{
       success: boolean;

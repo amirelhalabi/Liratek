@@ -11,6 +11,8 @@ import {
   dialog,
   webContents,
 } from "electron";
+import { startLicenseSync } from "./licenseSync.js";
+import * as licenseHandlers from "./handlers/licenseHandlers.js";
 import {
   ELECTRON_RENDERER_URL,
   resolveDatabasePath,
@@ -230,6 +232,14 @@ app.whenReady().then(async () => {
 
   // Register IPC handlers
   await registerHandlers();
+
+  // Licence sync: once now, then every few hours. Fire-and-forget --
+  // it fails open on every error path, so nothing here can stop the app
+  // from starting or a shop from selling. Skipped under the e2e harness,
+  // where an outbound call would be a network dependency in a test.
+  if (process.env.NODE_ENV !== "test") {
+    startLicenseSync();
+  }
 
   // Start automatic hourly backup. Skipped under the e2e harness
   // (NODE_ENV=test): the per-run temp DB needs no backups, and the first
@@ -611,6 +621,7 @@ async function registerHandlers() {
     voucherHandlers.registerVoucherHandlers();
     holdMoneyHandlers.registerHoldMoneyHandlers();
     carrierLineHandlers.registerCarrierLineHandlers();
+    licenseHandlers.registerLicenseHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {
