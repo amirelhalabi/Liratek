@@ -403,8 +403,15 @@ function auditSnapshot(
 // GET /api/admin/subscriptions — every tenant's standing, one query
 router.get("/subscriptions", (_req, res) => {
   try {
-    const rows = runWithoutTenant(() => getSubscriptionService().listAll());
-    res.json(createSuccessResponse({ subscriptions: rows }));
+    const service = getSubscriptionService();
+    const rows = runWithoutTenant(() => service.listAll());
+    // Shipped WITH the rows rather than as a second endpoint: the plan
+    // editor cannot render a checkbox list without it, so two requests
+    // would only add a way for the page to half-load.
+    const sellableModules = runWithoutTenant(() =>
+      service.listSellableModules(),
+    );
+    res.json(createSuccessResponse({ subscriptions: rows, sellableModules }));
   } catch (error) {
     logger.error({ error }, "List subscriptions error");
     res

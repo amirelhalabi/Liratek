@@ -5419,6 +5419,100 @@ function assertWebOnly(action: string): void {
   }
 }
 
+/** One tenant's commercial standing, as the control plane reports it. */
+export interface AdminSubscription {
+  tenant_id: number;
+  tenant_name: string;
+  tenant_slug: string;
+  plan: string;
+  status: "active" | "grace" | "read_only";
+  current_period_end: string | null;
+  grace_ends_at: string | null;
+  /** Whether a desktop key is issued. The KEY itself is never listed. */
+  license_key: string | null;
+  /** RAW JSON text, or null for "every module". */
+  entitled_modules: string | null;
+  notes: string | null;
+}
+
+export interface AdminSubscriptionsPayload {
+  subscriptions: AdminSubscription[];
+  /** Module keys that can be put on a plan, from the DB, not a hand-list. */
+  sellableModules: string[];
+}
+
+/**
+ * Every tenant's standing, plus the catalogue the plan editor needs.
+ *
+ * Both in one call on purpose: a checkbox list cannot render without the
+ * catalogue, so splitting them would only add a way for the page to
+ * half-load.
+ */
+export async function adminListSubscriptions(): Promise<AdminSubscriptionsPayload> {
+  assertWebOnly("Listing subscriptions");
+  const res = await requestJson<{
+    success: boolean;
+    data?: AdminSubscriptionsPayload;
+    error?: string;
+  }>("/api/admin/subscriptions");
+  if (!res.success) {
+    throw new Error(res.error || "Failed to load subscriptions");
+  }
+  return res.data ?? { subscriptions: [], sellableModules: [] };
+}
+
+export interface AdminSubscriptionPatch {
+  /** Present => record a payment and extend to this date (null = no expiry). */
+  periodEnd?: string | null;
+  /** Present => replace the allowlist. null restores every module. */
+  entitledModules?: string[] | null;
+  /** Present => set or clear the desktop licence key. */
+  licenseKey?: string | null;
+}
+
+/**
+ * Change one tenant's plan.
+ *
+ * Only the keys PRESENT are applied, all the way down to the SQL -- so
+ * recording a payment cannot blank an allowlist, which (NULL meaning every
+ * module) would silently hand a customer the whole app. Do not fill in the
+ * other fields here to be helpful.
+ */
+export async function adminUpdateSubscription(
+  tenantId: number,
+  patch: AdminSubscriptionPatch,
+): Promise<void> {
+  assertWebOnly("Updating a subscription");
+  const res = await requestJson<{ success: boolean; error?: string }>(
+    `/api/admin/subscriptions/${tenantId}`,
+    { method: "PATCH", body: patch },
+  );
+  if (!res.success) {
+    throw new Error(res.error || "Failed to update the plan");
+  }
+}
+
+/**
+ * Issue a fresh desktop licence key, returned ONCE.
+ *
+ * Issuing REVOKES the previous key -- the column holds exactly one -- which
+ * is the intended way to cut off an install whose machine was sold.
+ */
+export async function adminIssueLicenseKey(tenantId: number): Promise<string> {
+  assertWebOnly("Issuing a licence key");
+  const res = await requestJson<{
+    success: boolean;
+    data?: { licenseKey: string };
+    error?: string;
+  }>(`/api/admin/subscriptions/${tenantId}/license-key`, {
+    method: "POST",
+  });
+  if (!res.success || !res.data?.licenseKey) {
+    throw new Error(res.error || "Failed to issue a licence key");
+  }
+  return res.data.licenseKey;
+}
+
 export async function adminListTenants(): Promise<AdminTenant[]> {
   assertWebOnly("Listing tenants");
   const res = await requestJson<{

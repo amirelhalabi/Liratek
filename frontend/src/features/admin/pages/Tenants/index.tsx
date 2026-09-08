@@ -8,7 +8,13 @@ import {
   useImpersonateTenantMutation,
 } from "../../hooks/useTenants";
 import { AddTenantModal } from "../../components/AddTenantModal";
-import type { AdminTenant, AdminCreateTenantPayload } from "@/api/backendApi";
+import { PlanModal } from "../../components/PlanModal";
+import { useSubscriptionsQuery } from "../../hooks/useSubscriptions";
+import type {
+  AdminTenant,
+  AdminCreateTenantPayload,
+  AdminSubscription,
+} from "@/api/backendApi";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 const STATUS_BADGE_CLASSES: Record<AdminTenant["status"], string> = {
@@ -23,6 +29,44 @@ function StatusBadge({ status }: { status: AdminTenant["status"] }) {
       className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE_CLASSES[status]}`}
     >
       {status}
+    </span>
+  );
+}
+
+/**
+ * A tenant's plan at a glance: standing, plus how restricted it is.
+ *
+ * "—" means no subscription row, which the whole stack reads as
+ * unrestricted. Said as a dash rather than as an alarming label, because
+ * it is the normal state for anything that predates subscriptions.
+ */
+function PlanCell({ row }: { row: AdminSubscription | undefined }) {
+  if (!row) return <span className="text-slate-500">—</span>;
+
+  const modules = row.entitled_modules;
+  let scope = "all modules";
+  if (modules) {
+    try {
+      const parsed: unknown = JSON.parse(modules);
+      if (Array.isArray(parsed)) scope = `${parsed.length} modules`;
+    } catch {
+      // Unparseable reads as unrestricted everywhere else; stay consistent
+      // rather than showing an error in a table cell.
+      scope = "all modules";
+    }
+  }
+
+  const tone =
+    row.status === "active"
+      ? "text-slate-300"
+      : row.status === "grace"
+        ? "text-amber-400"
+        : "text-red-400";
+
+  return (
+    <span className={tone}>
+      {scope}
+      {row.status !== "active" && ` · ${row.status}`}
     </span>
   );
 }
@@ -45,6 +89,18 @@ export function TenantsPage() {
   const [confirmTarget, setConfirmTarget] = useState<AdminTenant | null>(null);
   const [impersonateError, setImpersonateError] = useState<string | null>(null);
   const [impersonatingId, setImpersonatingId] = useState<number | null>(null);
+  const [planTenantId, setPlanTenantId] = useState<number | null>(null);
+
+  // A SEPARATE query from the tenants list rather than one joined payload:
+  // the plan column is additive, so if this request fails the table still
+  // renders and Connect-as-admin still works. Losing the whole tenant list
+  // because a plan lookup failed would be the worse trade.
+  const { data: subs } = useSubscriptionsQuery();
+  const subscriptions = subs?.subscriptions ?? [];
+  const sellableModules = subs?.sellableModules ?? [];
+  const planFor = (tenantId: number) =>
+    subscriptions.find((row) => row.tenant_id === tenantId);
+  const planTenant = planTenantId === null ? null : planFor(planTenantId);
 
   const handleCreate = async (payload: AdminCreateTenantPayload) => {
     setCreateError(null);
@@ -169,6 +225,9 @@ export function TenantsPage() {
                   Users
                 </th>
                 <th className="text-left text-xs text-slate-400 px-4 py-3">
+                  Plan
+                </th>
+                <th className="text-left text-xs text-slate-400 px-4 py-3">
                   Last activity
                 </th>
                 <th className="text-left text-xs text-slate-400 px-4 py-3">
@@ -194,6 +253,9 @@ export function TenantsPage() {
                   <td className="px-4 py-3 text-sm text-white">
                     {tenant.user_count.toLocaleString()}
                   </td>
+                  <td className="px-4 py-3 text-sm">
+                    <PlanCell row={planFor(tenant.id)} />
+                  </td>
                   <td className="px-4 py-3 text-sm text-slate-400">
                     {tenant.last_activity
                       ? parseDbDate(tenant.last_activity).toLocaleString()
@@ -204,6 +266,18 @@ export function TenantsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setPlanTenantId(tenant.id)}
+                        disabled={!planFor(tenant.id)}
+                        title={
+                          planFor(tenant.id)
+                            ? "Manage plan"
+                            : "No subscription record"
+                        }
+                        className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 disabled:opacity-40 transition-colors"
+                      >
+                        Plan
+                      </button>
                       {tenant.status !== "archived" && (
                         <button
                           onClick={() => setConfirmTarget(tenant)}
@@ -231,6 +305,17 @@ export function TenantsPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {planTenant && (
+        <PlanModal
+          // Remount per tenant: PlanModal initialises its fields from
+          // props and has no resync effect, on purpose (see there).
+          key={planTenant.tenant_id}
+          subscription={planTenant}
+          sellableModules={sellableModules}
+          onClose={() => setPlanTenantId(null)}
+        />
       )}
 
       <AddTenantModal

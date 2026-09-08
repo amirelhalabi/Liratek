@@ -248,6 +248,37 @@ export class SubscriptionRepository {
   }
 
   /**
+   * Every module key that can be sold, for the owner's plan editor.
+   *
+   * Derived from the `modules` rows rather than a hand-kept list in the
+   * frontend: the seed in `create_db.sql` is the real catalogue, and a
+   * second copy would silently omit whatever module was added last (rule
+   * 14). `is_system = 0` excludes the chassis, which is not for sale --
+   * the same distinction `UNGATEABLE_MODULES` encodes on the read side.
+   *
+   * DISTINCT because `modules` is per-tenant: ten tenants means ten rows
+   * per key.
+   */
+  listSellableModuleKeys(): string[] {
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT DISTINCT key
+             FROM modules
+             /* tenant-exempt: the catalogue of sellable modules is a
+                platform-wide fact, not one tenant's configuration */
+            WHERE is_system = 0
+            ORDER BY key`,
+        )
+        .all() as { key: string }[];
+      return rows.map((r) => r.key);
+    } catch (error) {
+      throw new DatabaseError("Failed to list sellable modules", {
+        cause: error,
+      });
+    }
+  }
+  /**
    * Subscriptions whose period has run out but that are still `active`, and
    * ones whose grace has run out but that are still `grace`.
    *

@@ -208,6 +208,11 @@ export class SubscriptionService {
     return this.repo.listAll();
   }
 
+  /** Module keys the owner can put on a plan. */
+  listSellableModules(): string[] {
+    return this.repo.listSellableModuleKeys();
+  }
+
   // ---------------------------------------------------------------------------
   // The lapse sweep
   // ---------------------------------------------------------------------------
