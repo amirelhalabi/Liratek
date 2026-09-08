@@ -153,3 +153,10 @@ packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDe
 # .yarn/releases, and a directory must be un-ignored before files inside it can be.
 !.yarn/releases/
 !.yarn/releases/*
+
+# This is a Yarn workspace: yarn.lock is authoritative. A root
+# package-lock.json makes package-manager detection ambiguous -- Vercel picked
+# npm from it, and npm cannot resolve the workspace:* protocol
+# (EUNSUPPORTEDPROTOCOL). The one that used to be committed here was stale by
+# twelve minor versions.
+/package-lock.json
