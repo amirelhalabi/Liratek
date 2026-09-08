@@ -26,13 +26,17 @@ tenant registry, the super-admin realm, impersonation, per-tenant usernames
 
 **Salvage list — take these off the branch by hand, not by merge:**
 
-| Keep                                                                           | Why                                                                      |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| The two-tier plan definition (Essentials / Professional) and the module matrix | Owner's product decision; nothing about multi-tenancy changes it         |
-| The grace-period policy (7 days, notify on day 1/3/6, then lock)               | Sound, and it matches the lapse concern in `WEBAPP_MULTI_TENANT_PLAN.md` |
-| Google Sheet as the surface the owner EDITS                                    | A real advantage — see § 4. Its role changes; its usefulness does not    |
-| `backend/scripts/generate-api-key.cjs`                                         | Still needed IF desktop licensing survives (D5)                          |
-| `docs/GOOGLE_SHEETS_SETUP.md`                                                  | Setup steps are transport-independent                                    |
+| Keep                                        | Why                                                                   |
+| ------------------------------------------- | --------------------------------------------------------------------- |
+| The 7-day grace period                      | Kept, but it now ends in read-only rather than a lockout — see D4     |
+| Google Sheet as the surface the owner EDITS | A real advantage — see § 5. Its role changes; its usefulness does not |
+| `backend/scripts/generate-api-key.cjs`      | **Needed** — D5 keeps desktop licensing, so keys must be generated    |
+| `docs/GOOGLE_SHEETS_SETUP.md`               | Setup steps are transport-independent                                 |
+
+**Superseded by § 3, do NOT salvage:** the two-tier Essentials/Professional
+split and its module matrix (D6 chose one tier, which deletes the entitlement
+layer outright), and "then lock" as the end of the grace period (D4 chose
+read-only, permanently).
 
 **Discard:** `validateApiKey.ts`, `SubscriptionCacheService`, `SubscriptionSyncService`,
 `SubscriptionValidator.ts` **and** its committed build output
@@ -77,153 +81,123 @@ Adding `tenants.email` belongs to this work, not to a later cleanup.
 
 ---
 
-## 3. Revised architecture — entitlements keyed on the tenant
+## 3. Decisions — SETTLED 2026-09-08 by the owner
+
+| #           | Decision                                   | Consequence                                                                                                                                                                                                                                                                           |
+| ----------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **D6**      | **One tier, one price**                    | **Deletes the entire entitlement layer.** No `requireEntitlement`, no plan→module matrix, no upgrade prompts — and the self-grant hole (a tenant's own admin toggling `modules`) stops existing rather than needing a guard. Enforcement collapses to: is this shop in good standing? |
+| **D5**      | **License desktop AND web**                | Desktop needs an identity and a status check. Not my recommendation — an exported `.db` opens in the free desktop app, so it is bypassable — but the owner's call, and the offline decision below makes it cheap.                                                                     |
+| **Offline** | **Never lock when offline**                | Desktop checks status when it can reach the server and **fails OPEN**: unreachable means keep working, indefinitely. Removes cached-expiry logic, clock-tampering concerns, and any chance of locking a paying shop out of its own till while the server is down.                     |
+| **D3**      | **Manual mark-paid now, card-ready later** | No processor, no webhooks, no PCI surface. Status changes come from a super-admin action. `SubscriptionService` owns the transitions, so a processor can later call the same methods.                                                                                                 |
+| **D2**      | **No trial**                               | Signup is invite-code gated, so every shop is vetted before it exists. A new tenant is stamped `active` with **no** period end — indefinite until the owner sets one.                                                                                                                 |
+| **D4**      | **Grace → read-only, never hard-lock**     | 7 days fully working after the period ends, then reads keep working and writes stop. A lapsed shop can always see and export its own receivables (`debt_ledger` is money owed to THEM).                                                                                               |
+| **D1**      | Price                                      | Still open, and blocks nothing — with one tier it is a number on a page, not a code path.                                                                                                                                                                                             |
+
+## 4. Revised architecture — good standing, not entitlements
 
 ```
-JWT (tenantId)  ──►  requireEntitlement("exchange")  ──►  tenant_subscriptions row
-   (web)                    middleware                      (control plane, NOT
-                                                             tenant-writable)
-API key (tenantId) ──►  same middleware  ──►  same row
-   (desktop, only if D5 keeps it)
+web:      JWT (tenantId) ─┐
+                          ├─► SubscriptionService.statusFor(tenantId) ─► tenant_subscriptions
+desktop:  license key ────┘                    │
+                                               ▼
+                              read_only?  ──►  block WRITES only
+                                               (reads always allowed)
 ```
 
-Two identity models, **one** entitlement check. The check reads control-plane
-state; the transport only decides how `tenantId` was established. This is the
-dual-transport rule (19) applied to entitlements: one core service, two ways in.
+One question, two ways of establishing who is asking. The transport decides
+identity; the answer comes from one core service (rules 13 and 19).
 
-### Schema (one migration, both `migrations/index.ts` and `create_db.sql` — rule 10)
+### Schema — one migration, both `migrations/index.ts` and `create_db.sql` (rule 10)
 
 ```sql
 CREATE TABLE tenant_subscriptions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tenant_id INTEGER NOT NULL REFERENCES tenants(id),
-  plan TEXT NOT NULL CHECK (plan IN ('trial','essentials','professional')),
-  status TEXT NOT NULL CHECK (status IN ('active','grace','read_only','suspended')),
-  billing_cycle TEXT CHECK (billing_cycle IN ('monthly','yearly','lifetime')),
-  current_period_end DATETIME,          -- null = indefinite
+  plan TEXT NOT NULL DEFAULT 'standard',   -- one tier today; the column exists
+                                           -- so adding tiers is data, not schema
+  status TEXT NOT NULL CHECK (status IN ('active','grace','read_only')),
+  current_period_end DATETIME,             -- NULL = indefinite (D2: no trial)
   grace_ends_at DATETIME,
-  notes TEXT,                            -- owner's manual ledger until billing exists
+  license_key TEXT,                        -- desktop identity (D5)
+  notes TEXT,                              -- the owner's manual payment ledger
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX idx_tenant_subscriptions_tenant ON tenant_subscriptions(tenant_id);
+CREATE UNIQUE INDEX idx_tenant_subscriptions_key
+  ON tenant_subscriptions(license_key) WHERE license_key IS NOT NULL;
 ```
 
-Deliberately a **separate table**, not columns on `tenants`:
+No `suspended` state: never hard-locking is D4, and abuse suspension already
+lives in `tenants.status`, which gates login itself. Two different questions,
+two different columns — fusing them would make every late payment a lockout.
 
-- `tenants.status` answers "may this shop log in at all" and is already load-bearing
-  in `AuthService.login`. Subscription state answers "what may it _do_". Fusing
-  them means every lapse becomes a lockout, which is exactly the churn-by-fury
-  outcome `WEBAPP_MULTI_TENANT_PLAN.md` warns about.
-- It keeps the `tenants.status` CHECK untouched. Adding `grace` to that CHECK
-  requires a **table rebuild** (SQLite cannot alter a CHECK), on a table that is
-  an FK target for `users` and ~47 others — the same 12-step rebuild v172 needed
-  for `users`, for no benefit.
+A separate table rather than columns on `tenants`, for that reason plus a
+mechanical one: adding a value to `tenants.status`'s CHECK needs the 12-step
+SQLite table rebuild, on an FK target for ~47 tables.
 
-### Enforcement — it must not be self-grantable
+**Existing tenants are grandfathered**: the migration inserts `active` with a
+NULL period end for every current tenant, so turning this on changes nothing
+for anyone already running.
 
-`requireEntitlement(moduleKey)` resolves plan → allowed modules from a **constant
-in core** (rule 14: defined once, reused by both transports and the frontend),
-and reads plan/status from `tenant_subscriptions`. The `modules` table stays
-what it is: the tenant's own on/off preference **within** what it is entitled to.
-The effective answer is the AND of the two, and the entitlement side is writable
-only by `super_admin` control-plane routes.
+### Enforcement — block writes, not features
 
-Frontend mirrors it for UX only — hide what is not entitled, show an upgrade
-prompt. Never the security boundary; that lives in the middleware.
+`read_only` rejects `POST`/`PUT`/`PATCH`/`DELETE` with a clear error. Reads are
+never blocked. The allowlist that must stay writable regardless:
 
-### Lapse behaviour — `read_only` is the point
+- `POST /api/auth/login` and `/logout` — locking someone out of _logging in_ to
+  see their own read-only data would defeat the point of D4;
+- the subscription endpoints themselves;
+- `POST /api/auth/signup` — a new tenant has no subscription row yet.
 
-| Status      | Reads | Writes | Login                                 |
-| ----------- | ----- | ------ | ------------------------------------- |
-| `active`    | ✅    | ✅     | ✅                                    |
-| `grace`     | ✅    | ✅     | ✅ + a countdown banner               |
-| `read_only` | ✅    | ❌     | ✅                                    |
-| `suspended` | ❌    | ❌     | ❌ (`tenants.status` does this today) |
+### Desktop identity — the license key goes in SETTINGS, not `.env`
 
-`read_only` exists for one reason that is specific to this product: a shop's
-`debt_ledger` is **its own receivables**. Cutting a lapsed shop off from seeing
-who owes it money is how a billing dispute becomes a lost customer and a bad
-story. Let them read, and export, forever.
+A packaged Electron app's users cannot edit a `.env`, and the March plan's
+`LIRATEK_API_KEY=` instruction quietly assumed a developer at a checkout. The
+key belongs in the existing settings table, entered once in Settings, with a
+"check now" button that reports what the server actually said.
 
----
+Fail-open is the entire enforcement model on desktop (per the offline
+decision): no key, no network, or a server error all mean **keep working**. The
+check only ever _removes_ capability when it succeeds AND says `read_only`.
 
-## 4. Google Sheets — the right role is the ADMIN SURFACE, not the database
+## 5. Google Sheets — the right role is the ADMIN SURFACE, not the database
 
-The original plan made the Sheet the source of truth and the SQLite side a 12h
-cache. Invert that. With a real registry in place, a second database that can
-disagree with the first is a defect generator, and the failure mode is bad:
-Sheets outage or a stale cache decides whether a shop can trade.
+Unchanged from the previous revision, and D3 makes it more attractive: with
+manual collection the owner is in the loop for every payment anyway, so a sheet
+they can edit from a phone is a real substitute for an admin panel. Source of
+truth stays `tenant_subscriptions`; the sheet writes INTO it through the
+super-admin routes and reads a projection back out. If Sheets is down, nothing
+about trading changes.
 
-But the Sheet's actual value was never storage — it is that **the owner can edit
-it from a phone with no admin panel**, which is worth a great deal while there
-are ten tenants and no billing integration. So keep the Sheet as an **operator
-console**: it writes INTO the control plane through the existing super-admin
-routes, and reads a projection back out for the owner to look at.
+## 6. Order of work
 
-- Source of truth: `tenant_subscriptions`.
-- Sheet → control plane: an owner-triggered "apply" (or a poll) that calls
-  `PATCH /api/admin/tenants/:id/subscription`.
-- Control plane → Sheet: a read-only mirror, for eyeballing.
-- If Sheets is down, nothing about trading changes. That is the whole gain.
-
-_(Recommendation, not verified: `docs/GOOGLE_SHEETS_SETUP.md` on the branch
-already covers OAuth setup. A service account with the sheet shared to it is
-simpler than the refresh-token dance in `scripts/get-refresh-token.js`, but I
-have not re-checked the current Google console flow.)_
-
----
-
-## 5. Order of work
-
-Nothing here should start before its dependency, and the first one is not code.
-
-0. **`APP_BASE_DOMAIN` + wildcard DNS.** Not part of this plan, but it gates it:
-   until each tenant has its own subdomain, a second shop cannot even log in
-   (`docs/DEPLOYMENT.md` § 8), so there is nobody to bill.
-1. **Schema + core service.** Migration, `SubscriptionService` (reads/writes the
-   row, resolves plan → modules from the shared constant), plan constant, and
-   `tenants.email`.
-2. **Signup stamps the initial state**, inside `provisionTenant()`'s transaction.
-   Trial length is D2.
-3. **`requireEntitlement` middleware + IPC equivalent**, applied to the module
-   routes. Failing-first proof that an Essentials tenant is refused Exchange
-   **even after its own admin enables the module** — that is the test that
-   matters, and it is the one the old design could not have passed.
-4. **Frontend**: entitlement-aware nav, upgrade prompt, grace banner,
-   `/subscription` page showing plan + what is included.
-5. **Control-plane routes + Sheet bridge** (super-admin only, audited via
-   `auditRest`).
-6. **Lapse job**: `active` → `grace` at `current_period_end`, `grace` →
-   `read_only` at `grace_ends_at`. One scheduled task, idempotent.
-
----
-
-## 6. Open decisions — the owner's, not mine
-
-| #      | Decision                                                                                                                                                                                                                                                                                | Why it blocks code                                              |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| **D1** | **Price**, per tier, per currency (USD or LBP?)                                                                                                                                                                                                                                         | Nothing else in the plan needs it, but nothing ships without it |
-| **D2** | Trial: length, or no trial at all (invite-code signup may make a trial pointless — you already vet who gets in)                                                                                                                                                                         | Step 2 stamps whatever this says                                |
-| **D3** | **Payment channel.** `WEBAPP_MULTI_TENANT_PLAN.md` § billing viability found Stripe does **not** onboard Lebanon-based merchants, and this market runs on cash/OMT/Whish. If collection is manual, the control plane needs _manual mark-paid_, not webhooks — that is a different build | Decides whether step 5 is a Stripe webhook or a button          |
-| **D4** | Grace = 7 days then `read_only`, or straight to `read_only`?                                                                                                                                                                                                                            | Step 6                                                          |
-| **D5** | **Does desktop licensing survive?** If the counter app stays (printing, offline), it needs the API-key path and the Sheet's key column. If the web app is the only paid product, delete that whole branch of the design                                                                 | Decides whether `validateApiKey` is rebuilt at all              |
-| **D6** | Are the tiers still Essentials/Professional with that exact module split? It was drawn in March, before Carrier Lines, Loto, Partners and Exchange lots existed                                                                                                                         | Step 1's constant                                               |
-
-**My recommendation on D5**, since it shapes the most code: keep desktop
-unlicensed and free, and charge for the web/multi-tenant product. It is the
-cheaper build, it needs no secret on the client, and the plan's own note already
-spots the hole in the alternative — an exported `.db` imports straight into the
-free desktop app, so desktop licensing is bypassable by design.
-
----
+1. **Migration + core.** `tenant_subscriptions`, `SubscriptionRepository`,
+   `SubscriptionService` (status, markPaid, lapse transitions, key generation).
+   Grandfather existing tenants.
+2. **Signup stamps a subscription** inside `provisionTenant()`'s transaction —
+   `active`, no period end. Two rows written by two statements outside one
+   transaction is exactly how a tenant ends up with no subscription at all.
+3. **REST**: `GET /api/subscription/status` (tenant from the JWT), super-admin
+   `PATCH /api/admin/tenants/:id/subscription` (mark paid / set period), and the
+   `requireWritableSubscription` middleware with its allowlist.
+4. **Desktop**: license-key setting, an IPC status check, the same write block,
+   failing open on every error path.
+5. **Frontend**: a grace-period banner carrying the date, a read-only notice
+   that says what still works, and the Settings license field.
+6. **Lapse job**: `active`→`grace` at `current_period_end`, `grace`→`read_only`
+   at `grace_ends_at`. Idempotent — running it twice must equal running it once.
 
 ## 7. Proof required
 
-- **The self-grant test** (§ 3, step 3) — failing-first, per rule 17.
-- Cross-tenant: tenant A's plan change must not alter tenant B's entitlements.
-- Lapse transitions are idempotent — running the job twice must not double-shift
-  a tenant from `active` to `read_only`.
-- `read_only` blocks **writes only**: a lapsed tenant must still read its
-  `debt_ledger`. Assert both halves.
-- Both transports: web e2e plus the desktop path, if D5 keeps it.
+- **The write block, both transports**: a `read_only` tenant is refused a POST
+  and still served a GET. Failing-first (rule 17).
+- **Login survives `read_only`.** The allowlist is the whole difference between
+  "read-only" and "locked out", and it is one line away from being wrong.
+- **Desktop fails OPEN**: server unreachable, no key, and a 500 each leave the
+  app fully writable. Three separate tests, because this is the decision most
+  likely to be "tidied" into a lockout by someone reading the code later.
+- **Lapse transitions are idempotent** — twice through the job equals once.
+- **Grandfathering**: existing tenants are writable immediately after the
+  migration, with no manual step.
+- **Cross-tenant**: marking tenant A paid does not touch tenant B.
