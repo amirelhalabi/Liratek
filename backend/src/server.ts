@@ -88,7 +88,15 @@ app.use("/api/", apiLimiter); // General API rate limiting
 // the backend previously had a single emit site and every other mutation was
 // invisible to connected clients.
 import { invalidateOnMutation } from "./middleware/invalidateOnMutation.js";
+import { requireWritableSubscription } from "./middleware/requireWritableSubscription.js";
 app.use(invalidateOnMutation);
+
+// Block writes for a tenant whose subscription has lapsed to read_only.
+// Reads are never blocked -- a lapsed shop must still see its own
+// receivables. Mounted app-wide rather than per-router so no future route
+// can forget it; it derives the tenant from the bearer token itself,
+// because each router runs its own authenticateJWT AFTER this point.
+app.use(requireWritableSubscription);
 
 // Import routes
 import authRoutes from "./api/auth.js";
@@ -133,6 +141,7 @@ import partnersRoutes from "./api/partners.js";
 import vouchersRoutes from "./api/vouchers.js";
 import voiceRoutes, { initVoiceWebSocketServer } from "./api/voice.js";
 import adminRoutes from "./api/admin.js";
+import subscriptionRoutes from "./api/subscription.js";
 import carrierLinesRoutes from "./api/carrierLines.js";
 import mobileServiceItemsRoutes from "./api/mobileServiceItems.js";
 
@@ -181,6 +190,7 @@ app.use("/api/partners", partnersRoutes);
 app.use("/api/vouchers", vouchersRoutes);
 app.use("/api/voice", voiceRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/carrier-lines", carrierLinesRoutes);
 app.use("/api/mobile-service-items", mobileServiceItemsRoutes);
 

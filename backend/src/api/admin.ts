@@ -21,6 +21,7 @@ import jwt from "jsonwebtoken";
 import {
   getTenantRepository,
   getTenantProvisioningService,
+  getSubscriptionService,
   getUserRepository,
   getSessionRepository,
   getAuditRepository,
@@ -43,6 +44,7 @@ import {
 import { validateRequest } from "../middleware/validation.js";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
+import { randomBytes } from "node:crypto";
 
 if (!JWT_SECRET) {
   throw new Error(
@@ -357,6 +359,192 @@ router.post("/tenants/:id/impersonate", (req, res) => {
         createErrorResponse(
           ErrorCodes.INTERNAL_ERROR,
           "Failed to start impersonation",
+        ),
+      );
+  }
+});
+
+// ===========================================================================
+/**
+ * A plain, explicitly-named snapshot of a subscription for the audit trail.
+ *
+ * Never includes license_key: an audit row is readable by the tenant’s OWN
+ * admin through the audit viewer, which would hand them the very credential
+ * the key exists to control.
+ */
+function auditSnapshot(
+  view: {
+    status: string;
+    plan: string;
+    currentPeriodEnd: string | null;
+    graceEndsAt: string | null;
+    entitledModules: string[] | null;
+  } | null,
+): Record<string, unknown> | undefined {
+  if (!view) return undefined;
+  return {
+    status: view.status,
+    plan: view.plan,
+    currentPeriodEnd: view.currentPeriodEnd,
+    graceEndsAt: view.graceEndsAt,
+    entitledModules: view.entitledModules,
+  };
+}
+
+// Subscriptions (control plane)
+// ===========================================================================
+//
+// The owner's plan-management surface. Everything here is behind the
+// router-level `authenticateJWT + requireSuperAdmin`, which is the point: a
+// tenant must never be able to widen its own entitlements. That is why the
+// module allowlist lives on the subscription and not in the `modules` table,
+// which a tenant's OWN admin can edit.
+
+// GET /api/admin/subscriptions — every tenant's standing, one query
+router.get("/subscriptions", (_req, res) => {
+  try {
+    const rows = runWithoutTenant(() => getSubscriptionService().listAll());
+    res.json(createSuccessResponse({ subscriptions: rows }));
+  } catch (error) {
+    logger.error({ error }, "List subscriptions error");
+    res
+      .status(500)
+      .json(
+        createErrorResponse(
+          ErrorCodes.INTERNAL_ERROR,
+          "Failed to list subscriptions",
+        ),
+      );
+  }
+});
+
+// PATCH /api/admin/subscriptions/:tenantId
+//
+// One route for the three things the owner does: record a payment, change
+// which modules a customer pays for, and issue or revoke a desktop licence
+// key. Each field is applied ONLY if present, so setting a period cannot
+// silently clear an allowlist -- which, NULL meaning 'every module', would
+// hand a customer the whole app by accident.
+router.patch("/subscriptions/:tenantId", (req, res) => {
+  try {
+    const tenantId = Number(req.params.tenantId);
+    if (!Number.isInteger(tenantId) || tenantId <= 0) {
+      res
+        .status(400)
+        .json(
+          createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"),
+        );
+      return;
+    }
+
+    const service = getSubscriptionService();
+    const before = runWithoutTenant(() => service.statusFor(tenantId));
+    if (!before) {
+      res
+        .status(404)
+        .json(
+          createErrorResponse(
+            ErrorCodes.NOT_FOUND,
+            "That tenant has no subscription record",
+          ),
+        );
+      return;
+    }
+
+    runWithoutTenant(() => {
+      if ("periodEnd" in req.body) {
+        // Recording a payment, which also clears any grace deadline --
+        // see SubscriptionService.markPaid for why that matters on a
+        // SECOND lapse.
+        service.markPaid(tenantId, req.body.periodEnd ?? null);
+      }
+      if ("entitledModules" in req.body) {
+        // null restores 'every module'; an array restricts. An EMPTY
+        // array is a real choice (nothing but the ungateable chassis),
+        // so it must not be coerced to null here.
+        const mods = req.body.entitledModules;
+        service.setEntitledModules(
+          tenantId,
+          Array.isArray(mods) ? mods.map(String) : null,
+        );
+      }
+      if ("licenseKey" in req.body) {
+        service.setLicenseKey(tenantId, req.body.licenseKey ?? null);
+      }
+    });
+
+    const after = runWithoutTenant(() => service.statusFor(tenantId));
+
+    auditRest(req, {
+      action: "update",
+      entity_type: "subscription",
+      entity_id: String(tenantId),
+      summary: `Updated subscription for tenant ${tenantId}`,
+      // Explicit snapshots rather than the view object: auditRest stores
+      // Record<string, unknown>, and naming the fields also keeps the audit
+      // row stable if the view type later grows something that should not be
+      // written to a trail the tenant's own admin can read.
+      old_values: auditSnapshot(before),
+      new_values: auditSnapshot(after),
+    });
+
+    res.json(createSuccessResponse({ subscription: after }));
+  } catch (error) {
+    logger.error({ error }, "Update subscription error");
+    const message = error instanceof Error ? error.message : "Failed to update";
+    res
+      .status(400)
+      .json(createErrorResponse(ErrorCodes.VALIDATION_ERROR, message));
+  }
+});
+
+// POST /api/admin/subscriptions/:tenantId/license-key
+//
+// Generates and stores a fresh key, returning it ONCE. Generated here
+// rather than typed by the owner so it is long and random by construction;
+// 32 hex characters of crypto randomness, prefixed so it is recognisable in
+// a support conversation.
+//
+// Issuing a new key REVOKES the old one, because the column holds exactly
+// one -- which is the intended way to cut off an install whose machine was
+// sold or whose key leaked.
+router.post("/subscriptions/:tenantId/license-key", (req, res) => {
+  try {
+    const tenantId = Number(req.params.tenantId);
+    if (!Number.isInteger(tenantId) || tenantId <= 0) {
+      res
+        .status(400)
+        .json(
+          createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"),
+        );
+      return;
+    }
+
+    const key = `lsk_${randomBytes(16).toString("hex")}`;
+    runWithoutTenant(() =>
+      getSubscriptionService().setLicenseKey(tenantId, key),
+    );
+
+    auditRest(req, {
+      action: "update",
+      entity_type: "subscription",
+      entity_id: String(tenantId),
+      summary: `Issued a new licence key for tenant ${tenantId}`,
+      // The KEY ITSELF is never audited -- an audit row is readable by
+      // the tenant's own admin through the audit viewer, which would hand
+      // them the credential this is meant to control.
+      new_values: { licenseKeyIssued: true },
+    });
+
+    res.json(createSuccessResponse({ licenseKey: key }));
+  } catch (error) {
+    logger.error({ error }, "Issue licence key error");
+    res
+      .status(400)
+      .json(
+        createErrorResponse(
+          ErrorCodes.VALIDATION_ERROR,
+          "Failed to issue a licence key",
         ),
       );
   }
