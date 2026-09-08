@@ -28,6 +28,7 @@
  *   cornertech.liratek.app  -> tenant  (slug "cornertech")
  *   liratek.app             -> platform (super_admin only)
  *   admin.liratek.app       -> platform (a friendlier alias for the same)
+ *   www.liratek.app         -> inert (the app's own host, not a realm)
  *   nosuchshop.liratek.app  -> unknown  (refuse everything)
  *   liratek.vercel.app      -> foreign  (not under the base domain)
  *
@@ -51,8 +52,22 @@ import {
 
 const hostLogger = createChildLogger({ module: "tenant-host" });
 
-/** Hostnames under the base domain that mean "the platform", not a tenant. */
-const PLATFORM_LABELS = new Set(["admin", "www"]);
+/** Labels under the base domain that mean "the platform", not a tenant. */
+const PLATFORM_LABELS = new Set(["admin"]);
+
+/**
+ * Labels that are neither a tenant nor the platform, and must stay INERT.
+ *
+ * `www` is the trap. It is conventionally an alias for the apex, so calling
+ * it the platform realm looks tidy — but the app is actually served at
+ * www.<domain>, and the platform realm admits only super_admins. Setting
+ * APP_BASE_DOMAIN would then have locked every ordinary user out of the
+ * hostname they use. Reading it as a tenant slug is no better: there is no
+ * tenant "www", so it would refuse everyone instead.
+ *
+ * Inert is the only safe reading: behave exactly as with no base domain.
+ */
+const INERT_LABELS = new Set(["www"]);
 
 export type TenantHostResolution =
   /** Host-based tenancy is switched off (no APP_BASE_DOMAIN). */
@@ -111,6 +126,7 @@ export function resolveTenantHost(req: Request): TenantHostResolution {
 
   const label = labelUnderBase(host, base);
   if (label === null) return { kind: "foreign", host };
+  if (INERT_LABELS.has(label)) return { kind: "foreign", host };
   if (PLATFORM_LABELS.has(label)) return { kind: "platform", host };
 
   return lookup(label);

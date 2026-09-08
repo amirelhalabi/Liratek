@@ -85,9 +85,19 @@ describe("resolveTenantHost", () => {
       expect(resolveTenantHost(req("liratek.app")).kind).toBe("platform");
     });
 
-    it("treats admin. and www. as the platform realm, not tenants", () => {
+    it("treats admin. as the platform realm, not a tenant", () => {
       expect(resolveTenantHost(req("admin.liratek.app")).kind).toBe("platform");
-      expect(resolveTenantHost(req("www.liratek.app")).kind).toBe("platform");
+      expect(getBySlug).not.toHaveBeenCalled();
+    });
+
+    it("leaves www. INERT so enabling the feature cannot lock out the app host", () => {
+      // The app is served at www.<domain>. Calling that the platform realm
+      // would admit only super_admins; calling it tenant "www" would admit
+      // nobody. Either way, setting APP_BASE_DOMAIN would lock users out of
+      // the hostname they actually use.
+      const r = resolveTenantHost(req("www.liratek.app"));
+      expect(r.kind).toBe("foreign");
+      expect(isHostTenancyActive(r)).toBe(false);
       expect(getBySlug).not.toHaveBeenCalled();
     });
 

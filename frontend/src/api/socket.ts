@@ -1,4 +1,9 @@
-import { io, type Socket } from "socket.io-client";
+import {
+  io,
+  type Socket,
+  type ManagerOptions,
+  type SocketOptions,
+} from "socket.io-client";
 import { getBaseUrl } from "./httpClient";
 
 let socket: Socket | null = null;
@@ -15,8 +20,24 @@ function getSocketUrl(): string {
 export function connectSocket(token?: string): Socket {
   if (socket) return socket;
 
-  const opts: any = {
-    transports: ["websocket"],
+  // Transport order matters, and websocket-only was a real outage:
+  //
+  // The SPA is served by Vercel, which rewrites /socket.io to the backend.
+  // Vercel proxies HTTP through a rewrite but does NOT forward the WebSocket
+  // Upgrade handshake to an external origin — it answers 400. With
+  // transports:["websocket"] the client tried only that, failed, and realtime
+  // silently never connected (visible as a wss:// console error).
+  //
+  // Long-polling DOES work through the rewrite (verified 200), so listing it
+  // first gets a working connection everywhere. socket.io then attempts an
+  // upgrade to websocket on its own and simply stays on polling when that is
+  // refused — so pointing the domain straight at the backend later gains the
+  // websocket automatically, with no code change.
+  //
+  // Long-polling is still push, not our old polling: the request is held open
+  // server-side until there is something to send.
+  const opts: Partial<ManagerOptions & SocketOptions> = {
+    transports: ["polling", "websocket"],
   };
   if (token) opts.auth = { token };
 
