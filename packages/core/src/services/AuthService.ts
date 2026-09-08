@@ -19,6 +19,7 @@ import {
 } from "../repositories/index.js";
 import type {
   SafeUser,
+  UserEntity,
   CreateUserData,
   SessionEntity,
   CreateSessionData,
@@ -53,8 +54,9 @@ export interface LoginOptions {
    * platform realm (super_admins). Supplied by the caller from the request
    * host once subdomain tenancy is enabled.
    *
-   * Omit it to search globally -- which login refuses if the username is
-   * ambiguous, because since v172 two tenants can share one.
+   * Omit it when the host says nothing about the realm; login then infers
+   * one -- see resolveWithoutRealm, because since v172 two tenants can
+   * share a username.
    */
   realm?: number | null;
   rememberMe?: boolean;
@@ -106,15 +108,11 @@ export class AuthService {
       //
       // options.realm is supplied by the caller when the request host resolves
       // to a tenant (or to the platform realm). When it is undefined,
-      // host-based tenancy is off and we fall back to the global lookup -- but
-      // refuse if the username is ambiguous, because picking one of two
-      // tenants' users would let someone reach an account that is not theirs.
+      // host-based tenancy is off and the realm has to be inferred.
       const user =
         options.realm !== undefined
           ? this.userRepo.findByUsernameInRealm(username, options.realm)
-          : this.userRepo.countByUsername(username) > 1
-            ? null
-            : this.userRepo.findByUsername(username);
+          : this.resolveWithoutRealm(username);
       if (!user) {
         return { success: false, error: "Invalid username or password" };
       }
@@ -162,6 +160,50 @@ export class AuthService {
     } catch (error) {
       return { success: false, error: "Authentication failed" };
     }
+  }
+
+  /**
+   * Resolve a login when the request tells us nothing about the realm.
+   *
+   * Host-based tenancy is off (no `APP_BASE_DOMAIN`), so every tenant shares
+   * one hostname and the username alone has to identify the account. Since
+   * v172 that can be ambiguous: two shops may both own 'admin'.
+   *
+   * Order of preference, and why:
+   *   1. Unambiguous name -> the single match. The common case, and the only
+   *      one that existed before per-tenant usernames.
+   *   2. The PLATFORM realm (`tenant_id IS NULL`) -> super admins. They
+   *      operate the deployment; locking the operator out is the worst
+   *      outcome available.
+   *   3. The deployment's FIRST tenant -> the incumbent shop, whose staff
+   *      were logging in before any other tenant existed.
+   *
+   * This deliberately REPLACED an earlier "refuse when ambiguous" rule, which
+   * looked safer and was not: with a public `/api/auth/signup`, anyone holding
+   * the invite code could register a shop whose admin is named 'admin' and
+   * thereby lock the incumbent out of their own login — an availability attack
+   * through a public endpoint. Preferring the incumbent leaks nothing, because
+   * the password check still runs against whichever row comes back: a newcomer
+   * who picks a taken username simply fails to authenticate. The cost is that
+   * such a newcomer cannot log in on the shared hostname at all, which is
+   * honest — their subdomain does not exist until `APP_BASE_DOMAIN` and
+   * wildcard DNS are configured, and once they are, `options.realm` is always
+   * supplied and none of this runs.
+   */
+  private resolveWithoutRealm(username: string): UserEntity | null {
+    if (this.userRepo.countByUsername(username) <= 1) {
+      return this.userRepo.findByUsername(username);
+    }
+
+    const platformUser = this.userRepo.findByUsernameInRealm(username, null);
+    if (platformUser) {
+      return platformUser;
+    }
+
+    const anchor = this.userRepo.getAnchorTenantId();
+    return anchor === null
+      ? null
+      : this.userRepo.findByUsernameInRealm(username, anchor);
   }
 
   /**

@@ -249,6 +249,31 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
+   * The deployment's FIRST tenant — its incumbent shop.
+   *
+   * Needed to disambiguate a login when host-based tenancy is off: the lowest
+   * tenant id is the one the deployment was seeded with, so it is the tenant
+   * whose users were working before any other tenant existed. Deliberately
+   * `MIN(id)` rather than a hardcoded 1 or the 'default' slug — neither is
+   * guaranteed by the schema, whereas "created first" is exactly the property
+   * that makes a tenant the incumbent.
+   *
+   * Returns null on an empty registry (nothing to anchor to).
+   */
+  getAnchorTenantId(): number | null {
+    try {
+      const row = this.queryOne<{ id: number | null }>(
+        `SELECT MIN(id) AS id FROM tenants WHERE status = 'active'`,
+      );
+      return row?.id ?? null;
+    } catch (error) {
+      throw new DatabaseError("Failed to resolve the anchor tenant", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
    * Is this username taken WITHIN one realm?
    *
    * Replaces the global usernameExists for creation paths: since v172 the DB

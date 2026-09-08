@@ -3,7 +3,9 @@
  *
  * Once two tenants can both have an 'admin', a bare by-username lookup is
  * ambiguous. These prove login resolves the RIGHT user for the addressed
- * realm, and refuses rather than guessing when it cannot tell.
+ * realm, and — when no realm was addressed at all — resolves to the operator
+ * or the incumbent shop rather than to whichever row the database happens to
+ * return first.
  *
  * The repository is mocked (same approach as AuthService.test.ts): what matters
  * is which lookup the service chooses and what it does with an ambiguous
@@ -15,12 +17,14 @@ import { jest } from "@jest/globals";
 const findByUsername = jest.fn();
 const findByUsernameInRealm = jest.fn();
 const countByUsername = jest.fn();
+const getAnchorTenantId = jest.fn();
 const getTenantStatus = jest.fn(() => "active");
 
 const userRepo = {
   findByUsername,
   findByUsernameInRealm,
   countByUsername,
+  getAnchorTenantId,
   getTenantStatus,
   needsPasswordMigration: () => false,
   updatePasswordHash: jest.fn(),
@@ -68,6 +72,7 @@ describe("AuthService.login — realm scoping", () => {
     findByUsername.mockReset();
     findByUsernameInRealm.mockReset();
     countByUsername.mockReset();
+    getAnchorTenantId.mockReset();
     getTenantStatus.mockReturnValue("active");
     service = new AuthService(
       userRepo as unknown as ConstructorParameters<typeof AuthService>[0],
@@ -128,17 +133,91 @@ describe("AuthService.login — realm scoping", () => {
     expect(r.user?.id).toBe(70);
   });
 
-  it("REFUSES an ambiguous username when no realm is given", async () => {
-    // Two tenants own this name and nothing says which was addressed.
-    // Guessing would let someone reach an account that is not theirs.
-    countByUsername.mockReturnValue(2);
-    findByUsername.mockReturnValue(ADMIN_OF_TENANT_7);
+  describe("ambiguous username, no realm given", () => {
+    /**
+     * This block replaced a "REFUSES an ambiguous username" test. Refusing
+     * read as the safe choice and was not: `/api/auth/signup` is public, so
+     * anyone with the invite code could register a shop whose admin is named
+     * 'admin' and lock the INCUMBENT out of their own login. The rule is now
+     * "prefer the operator, then the incumbent" — nothing leaks, because the
+     * password check still runs on whichever row is returned.
+     */
 
-    const r = await service.login("admin", PASSWORD);
+    beforeEach(() => {
+      // Two shops own the name and the request says nothing about which.
+      countByUsername.mockReturnValue(2);
+      getAnchorTenantId.mockReturnValue(7);
+    });
 
-    expect(r.success).toBe(false);
-    // Must not fall through to the global lookup and authenticate whichever
-    // row happened to come back first.
-    expect(findByUsername).not.toHaveBeenCalled();
+    it("prefers the PLATFORM realm — the operator is never locked out", async () => {
+      const superAdmin = {
+        id: 1,
+        username: "admin",
+        password_hash: HASH,
+        role: "super_admin",
+        is_active: 1,
+        tenant_id: null,
+      };
+      findByUsernameInRealm.mockImplementation(
+        (_u: string, realm: number | null) =>
+          realm === null ? superAdmin : ADMIN_OF_TENANT_7,
+      );
+
+      const r = await service.login("admin", PASSWORD);
+
+      expect(r.success).toBe(true);
+      expect(r.user?.id).toBe(1);
+      // Asked the platform realm first, and never needed the anchor.
+      expect(findByUsernameInRealm).toHaveBeenCalledWith("admin", null);
+      expect(getAnchorTenantId).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the deployment's FIRST tenant — the incumbent shop", async () => {
+      findByUsernameInRealm.mockImplementation(
+        (_u: string, realm: number | null) =>
+          realm === null ? null : realm === 7 ? ADMIN_OF_TENANT_7 : null,
+      );
+
+      const r = await service.login("admin", PASSWORD);
+
+      expect(r.success).toBe(true);
+      expect(r.user?.id).toBe(70);
+      expect(findByUsernameInRealm).toHaveBeenCalledWith("admin", 7);
+    });
+
+    it("never authenticates a NEWER tenant's user on the shared host", async () => {
+      // Tenant 9 signed up later and picked a taken username. Its own
+      // password must not get it in: the row that comes back is the
+      // incumbent's, so verifyPassword runs against the incumbent's hash.
+      findByUsernameInRealm.mockImplementation(
+        (_u: string, realm: number | null) =>
+          realm === null ? null : realm === 7 ? ADMIN_OF_TENANT_7 : null,
+      );
+
+      const r = await service.login("admin", "the-newcomers-own-password");
+
+      expect(r.success).toBe(false);
+      expect(r.user).toBeUndefined();
+    });
+
+    it("does NOT use the ordering-dependent global lookup", async () => {
+      findByUsernameInRealm.mockReturnValue(ADMIN_OF_TENANT_7);
+      findByUsername.mockReturnValue(ADMIN_OF_TENANT_9);
+
+      await service.login("admin", PASSWORD);
+
+      // With duplicates, findByUsername returns whichever row SQLite happens
+      // to hand back first — a coin flip between two shops' accounts.
+      expect(findByUsername).not.toHaveBeenCalled();
+    });
+
+    it("fails closed on an empty tenant registry", async () => {
+      findByUsernameInRealm.mockReturnValue(null);
+      getAnchorTenantId.mockReturnValue(null);
+
+      const r = await service.login("admin", PASSWORD);
+
+      expect(r.success).toBe(false);
+    });
   });
 });
