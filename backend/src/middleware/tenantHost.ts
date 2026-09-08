@@ -69,6 +69,13 @@ const PLATFORM_LABELS = new Set(["admin"]);
  */
 const INERT_LABELS = new Set(["www"]);
 
+/**
+ * A realm id no user row can carry, used to make a login on an UNKNOWN
+ * subdomain fail at the lookup rather than after verifying a password --
+ * so an unresolvable subdomain gives away nothing, not even timing.
+ */
+export const NO_SUCH_REALM = -1;
+
 export type TenantHostResolution =
   /** Host-based tenancy is switched off (no APP_BASE_DOMAIN). */
   | { kind: "disabled" }

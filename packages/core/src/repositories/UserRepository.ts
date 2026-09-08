@@ -196,6 +196,88 @@ export class UserRepository extends BaseRepository<UserEntity> {
    * tenant, and the subsequent INSERT would then fail on the (still global)
    * UNIQUE constraint instead of the clean `ConflictError` callers expect.
    */
+  /**
+   * Look a user up WITHIN one realm.
+   *
+   * Since v172 usernames are unique per tenant, not globally, so a bare
+   * by-username lookup can match more than one row. A realm is a tenant id,
+   * or null for the platform realm (super_admins, tenant_id NULL).
+   *
+   * Deliberately tenant-exempt in SQL: the realm is passed explicitly by the
+   * caller (resolved from the request host at login, before any tenant
+   * context exists), so this must not be re-filtered by ambient context.
+   */
+  findByUsernameInRealm(
+    username: string,
+    realm: number | null,
+  ): UserEntity | null {
+    try {
+      const query =
+        realm === null
+          ? `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: explicit realm (platform) supplied by caller */ WHERE username = ? AND tenant_id IS NULL AND is_active = 1`
+          : `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: explicit realm supplied by caller */ WHERE username = ? AND tenant_id = ? AND is_active = 1`;
+      const params = realm === null ? [username] : [username, realm];
+      return (
+        (this.queryOne<UserEntity>(query, ...params) as UserEntity) ?? null
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to find user by username in realm", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * How many ACTIVE users share this username across all realms.
+   *
+   * Used to detect ambiguity when no realm is known (host-based tenancy off):
+   * one match can be authenticated safely, two cannot be told apart, and
+   * guessing would let someone reach a tenant that is not theirs.
+   */
+  countByUsername(username: string): number {
+    try {
+      const row = this.queryOne<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM ${this.tableName} /* tenant-exempt: ambiguity detection is inherently cross-realm */ WHERE username = ? AND is_active = 1`,
+        username,
+      );
+      return row?.c ?? 0;
+    } catch (error) {
+      throw new DatabaseError("Failed to count users by username", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Is this username taken WITHIN one realm?
+   *
+   * Replaces the global usernameExists for creation paths: since v172 the DB
+   * enforces UNIQUE(tenant_id, username) plus a partial UNIQUE for the
+   * platform realm, so a global check would reject a name that is perfectly
+   * available in the caller's own tenant.
+   */
+  usernameExistsInRealm(
+    username: string,
+    realm: number | null,
+    excludeId?: number,
+  ): boolean {
+    try {
+      const realmClause =
+        realm === null ? `tenant_id IS NULL` : `tenant_id = ?`;
+      const excludeClause = excludeId !== undefined ? ` AND id != ?` : ``;
+      const query = `SELECT 1 FROM ${this.tableName} /* tenant-exempt: explicit realm supplied by caller */ WHERE username = ? AND ${realmClause}${excludeClause}`;
+      const params: (string | number)[] = [username];
+      if (realm !== null) params.push(realm);
+      if (excludeId !== undefined) params.push(excludeId);
+      // queryOne returns R | null (BaseRepository), never undefined -- an
+      // undefined comparison here would have been true for every username.
+      return this.queryOne(query, ...params) !== null;
+    } catch (error) {
+      throw new DatabaseError("Failed to check username in realm", {
+        cause: error,
+      });
+    }
+  }
   usernameExists(username: string, excludeId?: number): boolean {
     try {
       const query = excludeId

@@ -12,6 +12,7 @@
  */
 
 import { UserRepository, getUserRepository } from "../repositories/index.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
   SessionRepository,
   getSessionRepository,
@@ -47,6 +48,15 @@ export interface LoginResult {
 }
 
 export interface LoginOptions {
+  /**
+   * Which realm to authenticate against: a tenant id, or null for the
+   * platform realm (super_admins). Supplied by the caller from the request
+   * host once subdomain tenancy is enabled.
+   *
+   * Omit it to search globally -- which login refuses if the username is
+   * ambiguous, because since v172 two tenants can share one.
+   */
+  realm?: number | null;
   rememberMe?: boolean;
   deviceType?: "electron" | "web" | "mobile";
   deviceInfo?: string;
@@ -91,7 +101,20 @@ export class AuthService {
     options: LoginOptions = {},
   ): Promise<LoginResult> {
     try {
-      const user = this.userRepo.findByUsername(username);
+      // Realm-scoped lookup. Since v172 usernames are unique per TENANT, so
+      // a bare by-username lookup can match more than one row.
+      //
+      // options.realm is supplied by the caller when the request host resolves
+      // to a tenant (or to the platform realm). When it is undefined,
+      // host-based tenancy is off and we fall back to the global lookup -- but
+      // refuse if the username is ambiguous, because picking one of two
+      // tenants' users would let someone reach an account that is not theirs.
+      const user =
+        options.realm !== undefined
+          ? this.userRepo.findByUsernameInRealm(username, options.realm)
+          : this.userRepo.countByUsername(username) > 1
+            ? null
+            : this.userRepo.findByUsername(username);
       if (!user) {
         return { success: false, error: "Invalid username or password" };
       }
@@ -253,8 +276,31 @@ export class AuthService {
       throw new ValidationError(passwordValidation.errors.join(", "));
     }
 
-    // Check for duplicate username
-    if (this.userRepo.usernameExists(data.username.trim())) {
+    // Duplicate check scoped to the realm the user will belong to. A global
+    // check here would reject a name that is perfectly free in this tenant --
+    // exactly the bad signup experience v172 exists to fix. The DB indexes
+    // (UNIQUE(tenant_id, username) + the partial platform one) are the real
+    // guarantee; this only produces a better error than a raw constraint
+    // failure.
+    // Resolve the realm best-effort. getCurrentTenantId() is fail-closed and
+    // THROWS with no ambient context, so calling it unguarded turned every
+    // context-free createUser into an error -- a regression, since the old
+    // global check never needed context. When the realm cannot be determined
+    // the pre-check is skipped and the DB indexes do the enforcing; they are
+    // the real guarantee either way, and this check only exists to produce a
+    // clearer error than a raw constraint failure.
+    let realm: number | null | undefined = data.tenant_id;
+    if (realm === undefined) {
+      try {
+        realm = getCurrentTenantId();
+      } catch {
+        realm = undefined;
+      }
+    }
+    if (
+      realm !== undefined &&
+      this.userRepo.usernameExistsInRealm(data.username.trim(), realm)
+    ) {
       throw new ConflictError("Username already exists");
     }
 

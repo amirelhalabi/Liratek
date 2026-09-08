@@ -142,7 +142,9 @@ export function ensureSuperAdmin(): void {
       return;
     }
 
-    if (userRepo.usernameExists(username)) {
+    // Platform realm (tenant_id NULL), not global: a tenant may legitimately
+    // have a user with the same name as the super admin.
+    if (userRepo.usernameExistsInRealm(username, null)) {
       throw new Error(
         `SUPER_ADMIN_USERNAME '${username}' is already taken by a non-super-admin user — pick a different username`,
       );

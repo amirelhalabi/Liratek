@@ -87,9 +87,11 @@ export class TenantProvisioningService {
       if (this.tenantRepo.existsBySlug(slug)) {
         throw new ConflictError(`Tenant slug '${slug}' is already taken`);
       }
-      if (this.userRepo.usernameExists(adminUsername)) {
-        throw new ConflictError(`Username '${adminUsername}' already exists`);
-      }
+      // No username check here any more, deliberately. Since v172 usernames
+      // are unique per tenant, and this provisions a BRAND NEW tenant whose
+      // user set is empty -- so no collision is possible. The old global check
+      // was the actual bug: it rejected the second shop that wanted an 'admin',
+      // naming a conflict in a tenant the caller cannot see.
 
       const passwordCheck = validatePasswordComplexity(data.adminPassword);
       if (!passwordCheck.valid) {

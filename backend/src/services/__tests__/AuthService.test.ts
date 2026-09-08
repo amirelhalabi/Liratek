@@ -65,6 +65,12 @@ describe("AuthService", () => {
     // Create mock user repository
     mockRepo = {
       findByUsername: jest.fn(),
+      // v172 (per-tenant usernames): login prefers a realm-scoped lookup and
+      // uses countByUsername to detect an ambiguous name when no realm is
+      // known. Default 1 keeps the existing global-lookup expectations valid.
+      findByUsernameInRealm: jest.fn(),
+      countByUsername: jest.fn(() => 1),
+      usernameExistsInRealm: jest.fn(() => false),
       findById: jest.fn(),
       findByIdSafe: jest.fn(),
       updatePassword: jest.fn(),
@@ -230,11 +236,16 @@ describe("AuthService", () => {
         valid: true,
         errors: [],
       });
+      // v172: the duplicate check is realm-scoped, and it is SKIPPED when no
+      // realm can be resolved (no ambient tenant context here), so the realm
+      // is made explicit via tenant_id -- which is what the check now means.
       mockRepo.usernameExists.mockReturnValue(true);
+      mockRepo.usernameExistsInRealm.mockReturnValue(true);
 
       await expect(
         service.createUser(
           {
+            tenant_id: 1,
             username: "existinguser",
             password: "Password123!",
             role: "staff",

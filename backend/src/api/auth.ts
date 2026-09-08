@@ -15,6 +15,7 @@ import { validateRequest } from "../middleware/validation.js";
 import {
   resolveTenantHost,
   isHostTenancyActive,
+  NO_SUCH_REALM,
 } from "../middleware/tenantHost.js";
 import { authenticateJWT, type LiratekJwtPayload } from "../middleware/auth.js";
 import { logger } from "../server.js";
@@ -42,7 +43,21 @@ router.post(
 
       // Use AuthService with database session support
       const authService = getAuthService();
+      // Resolve the realm BEFORE authenticating so the lookup itself is
+      // scoped: with per-tenant usernames (v172), two shops can both have an
+      // 'admin' and only the host says which one is being addressed.
+      const realm = resolveTenantHost(req);
+      const realmScope: { realm?: number | null } = isHostTenancyActive(realm)
+        ? realm.kind === "tenant"
+          ? { realm: realm.tenant.id }
+          : realm.kind === "platform"
+            ? { realm: null }
+            : // unknown subdomain: no realm can match, so no lookup should succeed
+              { realm: NO_SUCH_REALM }
+        : {};
+
       const result = await authService.login(username, password, {
+        ...realmScope,
         rememberMe: rememberMe || false,
         deviceType: "web",
         deviceInfo: req.headers["user-agent"] || "Unknown",
@@ -72,7 +87,6 @@ router.post(
       // Deliberately AFTER authentication and returning the SAME generic
       // error: rejecting earlier, or with a distinct message, would let
       // anyone probe which subdomain a username belongs to.
-      const realm = resolveTenantHost(req);
       if (isHostTenancyActive(realm)) {
         let denied: string | null = null;
         switch (realm.kind) {
