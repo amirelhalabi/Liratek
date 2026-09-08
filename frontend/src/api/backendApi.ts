@@ -133,6 +133,51 @@ export async function signup(input: SignupInput) {
  *
  * Web only, same reasoning as signup() itself.
  */
+/** What both transports report about a shop's commercial standing. */
+export interface SubscriptionStatusView {
+  status: "active" | "grace" | "read_only";
+  plan: string;
+  /** false ONLY in read_only. Grace is fully functional by design. */
+  canWrite: boolean;
+  currentPeriodEnd: string | null;
+  graceEndsAt: string | null;
+  /** null means every module. */
+  entitledModules: string[] | null;
+}
+
+/**
+ * The signed-in shop's subscription standing.
+ *
+ * Dual-mode, but the two sides answer from different places and that is the
+ * design, not an inconsistency: on the web the server knows directly from the
+ * JWT, while desktop reads its LOCAL cached row (instant, works offline) that
+ * `licenseSync` refreshes in the background.
+ *
+ * Returns null rather than throwing when standing cannot be determined, so
+ * every caller's natural handling of null is the fail-open one: no banner, no
+ * restriction. A version that threw would push each caller into inventing its
+ * own fallback, and one of them would get it backwards.
+ */
+export async function getSubscriptionStatus(): Promise<SubscriptionStatusView | null> {
+  return ipcOrHttp(
+    async () => {
+      // The desktop channel is admin-only and may be absent under the web
+      // e2e shim, which installs a partial window.api.
+      if (typeof window.api?.license?.status !== "function") return null;
+      const res = await window.api.license.status();
+      const sub = res.success ? res.data?.subscription : null;
+      return sub ? (sub as SubscriptionStatusView) : null;
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: SubscriptionStatusView;
+      }>("/api/subscription/status");
+      return res.success && res.data ? res.data : null;
+    },
+  );
+}
+
 export async function signupEnabled() {
   return requestJson<{
     success: boolean;
