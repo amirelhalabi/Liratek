@@ -9,19 +9,19 @@
   "rewrites": [
     {
       "source": "/health",
-      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/health"
+      "destination": "https://influences-theft-utility-arrange.trycloudflare.com/health"
     },
     {
       "source": "/health/:path*",
-      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/health/:path*"
+      "destination": "https://influences-theft-utility-arrange.trycloudflare.com/health/:path*"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/api/:path*"
+      "destination": "https://influences-theft-utility-arrange.trycloudflare.com/api/:path*"
     },
     {
       "source": "/socket.io/:path(.*)",
-      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/socket.io/:path"
+      "destination": "https://influences-theft-utility-arrange.trycloudflare.com/socket.io/:path"
     },
     {
       "source": "/(.*)",
@@ -29,6 +29,44 @@
         "type": "service",
         "service": "frontend"
       }
+    }
+  ],
+  "headers": [
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/runtime-config.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, must-revalidate"
+        }
+      ]
     }
   ]
 }

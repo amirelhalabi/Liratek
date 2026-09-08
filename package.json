@@ -49,7 +49,7 @@
     "web:backend": "cd backend && node dist/server.js",
     "web:tunnel:install": "node scripts/install-cloudflared.mjs",
     "web:tunnel": "node scripts/web-tunnel.mjs",
-    "web:up": "concurrently -k -n backend,tunnel -c blue,magenta \"yarn web:backend\" \"wait-on tcp:127.0.0.1:3000 && yarn web:tunnel --deploy\"",
+    "web:up": "node scripts/web-up.mjs",
     "web:deploy": "vercel deploy --prod --yes",
     "web:db:refresh": "node scripts/refresh-web-db.mjs"
   },
