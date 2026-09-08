@@ -18,6 +18,7 @@ import {
   type UpdateServicePresetInput,
 } from "@liratek/core";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -78,6 +79,14 @@ router.post("/", adminGate, (req, res) => {
       return;
     }
     const result = getServicePresetService().createPreset(parsed.data);
+    if (result.success && result.preset) {
+      auditRest(req, {
+        action: "create",
+        entity_type: "service_preset",
+        entity_id: String(result.preset.id),
+        summary: `Created service preset "${parsed.data.name}"`,
+      });
+    }
     res.json(
       result.success
         ? { success: true, data: result.preset }

@@ -7,6 +7,7 @@ import {
   type VoucherFilters,
 } from "@liratek/core";
 import type { AuthRequest } from "../middleware/auth.js";
+import { auditRest } from "../middleware/audit.js";
 
 const VOUCHER_STATUSES = [
   "pending",
@@ -47,11 +48,29 @@ router.post(
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
     const result = getVoucherService().createVoucher(req.body, userId);
+
+    // Only on success: a rejected create changed nothing, and an audit row for
+    // it would misrepresent the trail.
+    if (result.success && result.voucher) {
+      auditRest(req, {
+        action: "create",
+        entity_type: "voucher",
+        entity_id: String(result.voucher.id),
+        summary: `Created voucher ${result.voucher.code}`,
+        new_values: {
+          code: result.voucher.code,
+          amount: result.voucher.amount,
+        },
+      });
+    }
+
     res.json(result);
   },
 );
 
 // POST /api/vouchers/validate  { code } — look up a voucher by code (static, before /:id)
+// Deliberately NOT audited: this is a READ that uses POST only to carry the
+// code in a body. Nothing changes, so an audit row would be noise.
 router.post("/validate", writeGate, (req, res) => {
   const code =
     typeof (req.body as { code?: unknown } | undefined)?.code === "string"
@@ -70,6 +89,20 @@ router.post("/:id/cancel", adminGate, (req, res) => {
   }
   const userId = (req as AuthRequest).user!.userId;
   const result = getVoucherService().cancelVoucher(id, userId);
+
+  // Cancelling voids stored value, so this is the voucher event most worth
+  // being able to attribute later.
+  if (result.success) {
+    auditRest(req, {
+      action: "cancel",
+      entity_type: "voucher",
+      entity_id: String(id),
+      summary: result.voucher
+        ? `Cancelled voucher ${result.voucher.code}`
+        : `Cancelled voucher #${id}`,
+    });
+  }
+
   res.json(result);
 });
 
