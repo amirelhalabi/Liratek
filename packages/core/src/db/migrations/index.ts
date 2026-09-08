@@ -62,10 +62,8 @@ export interface MigrationRecord {
 // constants) — and no OTHER migration may reuse them: a future migration
 // encoding the "same" rule must declare its own frozen copy, scoped to its
 // own version.
-const V161_COMMISSION_TERM_USD =
-  `CASE WHEN fs.currency = 'USD' THEN COALESCE(fs.commission, 0) ELSE 0 END`;
-const V161_COMMISSION_TERM_LBP =
-  `CASE WHEN fs.currency = 'LBP' THEN COALESCE(fs.commission, 0) ELSE 0 END`;
+const V161_COMMISSION_TERM_USD = `CASE WHEN fs.currency = 'USD' THEN COALESCE(fs.commission, 0) ELSE 0 END`;
+const V161_COMMISSION_TERM_LBP = `CASE WHEN fs.currency = 'LBP' THEN COALESCE(fs.commission, 0) ELSE 0 END`;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -9528,49 +9526,49 @@ export const MIGRATIONS: Migration[] = [
     name: "zero_commission_estimate_stamp_for_at_settlement_rows",
     description:
       "LIRA-158_COMMISSION_REPORTING_PLAN.md Phase 0 — insurance backfill ahead of Phase 1's " +
-        "write-path change (a LATER, separate change, not this one: FinancialServiceRepository.ts:" +
-        "1881-1884 will stop stamping the commission term for commission_model = 1 rows going " +
-        "forward). Today every financial_services row's profit stamp is `(currency === 'USD' ? " +
-        "commission : 0) + kept_change_usd` (LBP mirror) regardless of commission_model. For " +
-        "commission_model = 0 (EMBEDDED) rows fs.commission IS the settled truth, so the stamp is " +
-        "correct and permanent. For commission_model = 1 (AT_SETTLEMENT) rows fs.commission is " +
-        "only an auto-calculated ESTIMATE — the real, owner-entered figure is booked separately at " +
-        "settlement (SupplierRepository's settlement stamp, widened in Phase 1). A model-1 row's " +
-        "profit stamp is therefore stale from the moment it is written, and once Phase 1 ships it " +
-        "would double-count: the estimate already sitting in transactions.profit_usd/profit_lbp " +
-        "plus the real figure the settlement stamp adds on top. This migration zeros the " +
-        "COMMISSION TERM ONLY — never the whole stamp — on every already-posted model-1 row, so " +
-        "kept-change profit (a separate money concept guarded by lira-108-keep-change-modules." +
-        "spec.ts) survives untouched; the term is derived from fs.commission/fs.currency using the " +
-        "exact same ternary that wrote it (read a row with the formula that wrote it), not a " +
-        "broader `currency != other` shape borrowed from the reporting queries. fs.commission " +
-        "itself is deliberately LEFT ALONE (D6: no stamp-back onto financial_services; D3: this is " +
-        "a cutover, not a restatement) — the column remains the permanent audit record of what was " +
-        "originally estimated, even after its contribution to reported profit is removed. A " +
-        "REFUND row carries the NEGATED original stamp on the same source_table/source_id " +
-        "(TransactionRepository.ts's refund insert: `-original.profit_usd`/`-original.profit_lbp`), " +
-        "so its correction is the mirror image of the original row's: ADD the term back, not " +
-        "subtract it — skipping that half would break create+refund netting to zero (rule 20) for " +
-        "exactly the rows this migration exists to fix. Every EXISTS gate also requires " +
-        "`COALESCE(fs.cost, 0) = 0`: FinancialServiceRepository.ts:1448-1450's cost/price branch " +
-        "(`useCostPriceFlow`) computes fs.commission as `price - cost` — a MARGIN earned at " +
-        "transaction time, not a deferred supplier-commission estimate — and every BILL row takes " +
-        "that branch (cost = price at every submission site, per plan §1.1b), so the overlap with " +
-        "commission_model = 1 is the normal case, not an edge case; without the guard the first " +
-        "bill ever priced above cost would have its margin silently subtracted from reported " +
-        "profit. The affected population is structurally " +
-        "bounded and expected to be empty on most installs: OMT/WHISH only became " +
-        "commission_model = 1 in commit 43948a35 (2026-08-30 16:39, hours before this migration was " +
-        "written), WHISH forces its commission to 0 at creation (FinancialServiceRepository.ts:" +
-        "1325-1327) so it has no term to remove, and BILL rows never auto-calculate a commission at " +
-        "all — only an OMT SEND/RECEIVE row created in that narrow window can carry a nonzero " +
-        "model-1 estimate. Measured on the local DB: 0 matching rows. Shipped anyway because it is " +
-        "cheap insurance and no read-side test can ever distinguish, after Phase 1 ships, an old " +
-        "model-1 row that carried an estimate from a new one correctly stamped 0 by the new write " +
-        "path — once the two look identical, backfilling later is not possible even in principle. " +
-        "down() reverses this exactly (ADD the term back to FINANCIAL_SERVICE rows, SUBTRACT it " +
-        "from REFUND rows) but carries a documented, accepted limitation once Phase 1 has shipped — " +
-        "see the comment on down() itself.",
+      "write-path change (a LATER, separate change, not this one: FinancialServiceRepository.ts:" +
+      "1881-1884 will stop stamping the commission term for commission_model = 1 rows going " +
+      "forward). Today every financial_services row's profit stamp is `(currency === 'USD' ? " +
+      "commission : 0) + kept_change_usd` (LBP mirror) regardless of commission_model. For " +
+      "commission_model = 0 (EMBEDDED) rows fs.commission IS the settled truth, so the stamp is " +
+      "correct and permanent. For commission_model = 1 (AT_SETTLEMENT) rows fs.commission is " +
+      "only an auto-calculated ESTIMATE — the real, owner-entered figure is booked separately at " +
+      "settlement (SupplierRepository's settlement stamp, widened in Phase 1). A model-1 row's " +
+      "profit stamp is therefore stale from the moment it is written, and once Phase 1 ships it " +
+      "would double-count: the estimate already sitting in transactions.profit_usd/profit_lbp " +
+      "plus the real figure the settlement stamp adds on top. This migration zeros the " +
+      "COMMISSION TERM ONLY — never the whole stamp — on every already-posted model-1 row, so " +
+      "kept-change profit (a separate money concept guarded by lira-108-keep-change-modules." +
+      "spec.ts) survives untouched; the term is derived from fs.commission/fs.currency using the " +
+      "exact same ternary that wrote it (read a row with the formula that wrote it), not a " +
+      "broader `currency != other` shape borrowed from the reporting queries. fs.commission " +
+      "itself is deliberately LEFT ALONE (D6: no stamp-back onto financial_services; D3: this is " +
+      "a cutover, not a restatement) — the column remains the permanent audit record of what was " +
+      "originally estimated, even after its contribution to reported profit is removed. A " +
+      "REFUND row carries the NEGATED original stamp on the same source_table/source_id " +
+      "(TransactionRepository.ts's refund insert: `-original.profit_usd`/`-original.profit_lbp`), " +
+      "so its correction is the mirror image of the original row's: ADD the term back, not " +
+      "subtract it — skipping that half would break create+refund netting to zero (rule 20) for " +
+      "exactly the rows this migration exists to fix. Every EXISTS gate also requires " +
+      "`COALESCE(fs.cost, 0) = 0`: FinancialServiceRepository.ts:1448-1450's cost/price branch " +
+      "(`useCostPriceFlow`) computes fs.commission as `price - cost` — a MARGIN earned at " +
+      "transaction time, not a deferred supplier-commission estimate — and every BILL row takes " +
+      "that branch (cost = price at every submission site, per plan §1.1b), so the overlap with " +
+      "commission_model = 1 is the normal case, not an edge case; without the guard the first " +
+      "bill ever priced above cost would have its margin silently subtracted from reported " +
+      "profit. The affected population is structurally " +
+      "bounded and expected to be empty on most installs: OMT/WHISH only became " +
+      "commission_model = 1 in commit 43948a35 (2026-08-30 16:39, hours before this migration was " +
+      "written), WHISH forces its commission to 0 at creation (FinancialServiceRepository.ts:" +
+      "1325-1327) so it has no term to remove, and BILL rows never auto-calculate a commission at " +
+      "all — only an OMT SEND/RECEIVE row created in that narrow window can carry a nonzero " +
+      "model-1 estimate. Measured on the local DB: 0 matching rows. Shipped anyway because it is " +
+      "cheap insurance and no read-side test can ever distinguish, after Phase 1 ships, an old " +
+      "model-1 row that carried an estimate from a new one correctly stamped 0 by the new write " +
+      "path — once the two look identical, backfilling later is not possible even in principle. " +
+      "down() reverses this exactly (ADD the term back to FINANCIAL_SERVICE rows, SUBTRACT it " +
+      "from REFUND rows) but carries a documented, accepted limitation once Phase 1 has shipped — " +
+      "see the comment on down() itself.",
     type: "typescript" as const,
     up(db: Database.Database) {
       // Same defensive shape as v150/v157/v158/v160: migration-runner test
@@ -9813,14 +9811,14 @@ export const MIGRATIONS: Migration[] = [
     name: "rename_omt_whish_route_to_omt_whish",
     description:
       "The 'omt_whish' module (UI label 'OMT/Whish') was seeded with route = '/services', which " +
-        "collides with the UNRELATED 'custom_services' module — whose UI label is 'Services' but " +
-        "whose route is '/custom-services'. The identical route string on two different module " +
-        "keys has misled multiple investigations into thinking the two modules were the same " +
-        "page. This migration repoints ONLY 'omt_whish' to '/omt-whish'; 'custom_services' " +
-        "(key, label, and route) is deliberately left untouched — it was never the problem. " +
-        "'/services' survives in frontend/src/app/App.tsx as a transitional redirect to the new " +
-        "path, so existing deep links and any mid-session user on the old route still land on the " +
-        "same page.",
+      "collides with the UNRELATED 'custom_services' module — whose UI label is 'Services' but " +
+      "whose route is '/custom-services'. The identical route string on two different module " +
+      "keys has misled multiple investigations into thinking the two modules were the same " +
+      "page. This migration repoints ONLY 'omt_whish' to '/omt-whish'; 'custom_services' " +
+      "(key, label, and route) is deliberately left untouched — it was never the problem. " +
+      "'/services' survives in frontend/src/app/App.tsx as a transitional redirect to the new " +
+      "path, so existing deep links and any mid-session user on the old route still land on the " +
+      "same page.",
     type: "typescript" as const,
     up(db: Database.Database) {
       // Same defensive shape as v160/v161: migration-runner test harnesses
@@ -9887,17 +9885,17 @@ export const MIGRATIONS: Migration[] = [
     name: "profits_module_visible_to_all_roles",
     description:
       "The 'profits' module was admin_only = 1, gating the ENTIRE /profits page (route, IPC " +
-        "handlers, REST routes) behind the admin role. Per the Profits password gate feature, " +
-        "the page is now reachable by staff too — it flips admin_only to 0 so ModuleService/the " +
-        "route table stop hiding it from staff — but access is instead protected by a per-page " +
-        "password (system_settings key 'profits_password_hash', see " +
-        "packages/core/src/constants/profitsAccess.ts and ProfitsAccessService). '/profits' " +
-        "ALWAYS shows a password screen first, admin included; a correct password unlocks the " +
-        "page and the 7 profit data endpoints for 15 minutes, and navigating away locks it again " +
-        "immediately. If no password has been set yet, nobody enters (fail closed) — the lock " +
-        "screen tells the operator an admin must set one in Settings > Profits Password. The " +
-        "route/IPC (profits:* channels)/REST (profits data routes swap requireRole(['admin']) " +
-        "for requireProfitsUnlock) gates changed together with this migration.",
+      "handlers, REST routes) behind the admin role. Per the Profits password gate feature, " +
+      "the page is now reachable by staff too — it flips admin_only to 0 so ModuleService/the " +
+      "route table stop hiding it from staff — but access is instead protected by a per-page " +
+      "password (system_settings key 'profits_password_hash', see " +
+      "packages/core/src/constants/profitsAccess.ts and ProfitsAccessService). '/profits' " +
+      "ALWAYS shows a password screen first, admin included; a correct password unlocks the " +
+      "page and the 7 profit data endpoints for 15 minutes, and navigating away locks it again " +
+      "immediately. If no password has been set yet, nobody enters (fail closed) — the lock " +
+      "screen tells the operator an admin must set one in Settings > Profits Password. The " +
+      "route/IPC (profits:* channels)/REST (profits data routes swap requireRole(['admin']) " +
+      "for requireProfitsUnlock) gates changed together with this migration.",
     type: "typescript" as const,
     up(db: Database.Database) {
       // Same defensive shape as v160/v161/v162: migration-runner test
@@ -9956,28 +9954,28 @@ export const MIGRATIONS: Migration[] = [
     name: "add_product_stock_batches_and_intake_ledger_type",
     description:
       "SUPPLIER_STOCK_INTAKE_PLAN.md — product-supplier 'owed' is today RECOMPUTED as " +
-        "SUM(live stock x live cost) + SUM(supplier_ledger) in " +
-        "SupplierRepository.getProductSupplierBalances, so a POS sale silently lowers what the " +
-        "shop 'owes', a refund raises it, and a cost edit re-prices history — no intake path " +
-        "ever wrote a supplier row. This switches to event-based booking: adding stock with a " +
-        "supplier writes ONE supplier_ledger 'STOCK_INTAKE' row (+qty x unit cost) and the " +
-        "balance becomes the ledger sum ONLY; sales/refunds/deletes/cost edits never touch it " +
-        "again. Two new tables carry the other half of the design — FIFO cost batches, so a " +
-        "sale consumes the OLDEST batch first and stamps the resulting weighted cost onto " +
-        "sale_items.cost_price_snapshot_usd (every profit query already reads that column, so " +
-        "no profit code changes): product_stock_batches (one row per intake/opening-stock " +
-        "event, books_debt distinguishing a real intake from the owner's per-entry 'old stock' " +
-        "checkbox which creates a batch but skips the ledger row) and " +
-        "stock_batch_consumptions (the FIFO draw-down audit trail, reversible per sale_item via " +
-        "is_restored). supplier_ledger.entry_type gains 'STOCK_INTAKE' the same way v131 added " +
-        "'DISCOUNT' — SQLite can't ALTER a CHECK, so the table is recreated preserving all rows " +
-        "+ its index (v83/v98/v99/v127/v131's rebuild pattern), technique copied line for line. " +
-        "Owner decision D11: existing stock predates any supplier relationship worth billing " +
-        "for, so it is backfilled as ONE 'opening' batch per active, non-deleted, in-stock " +
-        "product (is_opening=1, books_debt=0, supplier_id NULL, quantity/quantity_remaining = " +
-        "the live stock_quantity, unit_cost_usd = the live cost_price_usd) — settled stock that " +
-        "books NO debt, so the switch to event-based booking does not retroactively invent a " +
-        "supplier balance nobody agreed to.",
+      "SUM(live stock x live cost) + SUM(supplier_ledger) in " +
+      "SupplierRepository.getProductSupplierBalances, so a POS sale silently lowers what the " +
+      "shop 'owes', a refund raises it, and a cost edit re-prices history — no intake path " +
+      "ever wrote a supplier row. This switches to event-based booking: adding stock with a " +
+      "supplier writes ONE supplier_ledger 'STOCK_INTAKE' row (+qty x unit cost) and the " +
+      "balance becomes the ledger sum ONLY; sales/refunds/deletes/cost edits never touch it " +
+      "again. Two new tables carry the other half of the design — FIFO cost batches, so a " +
+      "sale consumes the OLDEST batch first and stamps the resulting weighted cost onto " +
+      "sale_items.cost_price_snapshot_usd (every profit query already reads that column, so " +
+      "no profit code changes): product_stock_batches (one row per intake/opening-stock " +
+      "event, books_debt distinguishing a real intake from the owner's per-entry 'old stock' " +
+      "checkbox which creates a batch but skips the ledger row) and " +
+      "stock_batch_consumptions (the FIFO draw-down audit trail, reversible per sale_item via " +
+      "is_restored). supplier_ledger.entry_type gains 'STOCK_INTAKE' the same way v131 added " +
+      "'DISCOUNT' — SQLite can't ALTER a CHECK, so the table is recreated preserving all rows " +
+      "+ its index (v83/v98/v99/v127/v131's rebuild pattern), technique copied line for line. " +
+      "Owner decision D11: existing stock predates any supplier relationship worth billing " +
+      "for, so it is backfilled as ONE 'opening' batch per active, non-deleted, in-stock " +
+      "product (is_opening=1, books_debt=0, supplier_id NULL, quantity/quantity_remaining = " +
+      "the live stock_quantity, unit_cost_usd = the live cost_price_usd) — settled stock that " +
+      "books NO debt, so the switch to event-based booking does not retroactively invent a " +
+      "supplier balance nobody agreed to.",
     type: "typescript" as const,
     up(db: Database.Database) {
       // Always safe to create regardless of fixture-db shape (rule: FK
@@ -10207,14 +10205,14 @@ export const MIGRATIONS: Migration[] = [
     name: "add_unit_cost_to_stock_adjustments",
     description:
       "Owner report 2026-09-07: receiving 2 iPhones at $1,300 on top of 2 already held at " +
-        "$1,200 is booked correctly (two cost batches, four units), but the adjustment history " +
-        "row reads '+2 (2 -> 4)' with no mention of the $1,300 because stock_adjustments has no " +
-        "cost column. Adds unit_cost_usd, NULLABLE with NO backfill: historical adjustments " +
-        "never recorded a cost, and inventing one for them would be fabricating financial " +
-        "history. Only ProductRepository.receiveStock (a real delivery with a known unit cost) " +
-        "writes it going forward; the plain increase/decrease/correction paths " +
-        "(adjustStock/adjustStockDelta/decreaseStockForAdjustment) keep writing NULL because no " +
-        "cost applies to shrinkage or a plain count correction.",
+      "$1,200 is booked correctly (two cost batches, four units), but the adjustment history " +
+      "row reads '+2 (2 -> 4)' with no mention of the $1,300 because stock_adjustments has no " +
+      "cost column. Adds unit_cost_usd, NULLABLE with NO backfill: historical adjustments " +
+      "never recorded a cost, and inventing one for them would be fabricating financial " +
+      "history. Only ProductRepository.receiveStock (a real delivery with a known unit cost) " +
+      "writes it going forward; the plain increase/decrease/correction paths " +
+      "(adjustStock/adjustStockDelta/decreaseStockForAdjustment) keep writing NULL because no " +
+      "cost applies to shrinkage or a plain count correction.",
     type: "typescript" as const,
     up(db: Database.Database) {
       const hasTable = db
@@ -10255,9 +10253,9 @@ export const MIGRATIONS: Migration[] = [
       // tracks_imei_units / sale_items.warranty_until) — no CHECK/index
       // touches this column, so a full table rebuild (v131/v164's technique)
       // is unnecessary here; SQLite's own ALTER ... DROP COLUMN suffices.
-      const cols = db
-        .prepare("PRAGMA table_info(stock_adjustments)")
-        .all() as { name: string }[];
+      const cols = db.prepare("PRAGMA table_info(stock_adjustments)").all() as {
+        name: string;
+      }[];
       if (cols.some((c) => c.name === "unit_cost_usd")) {
         db.exec(`ALTER TABLE stock_adjustments DROP COLUMN unit_cost_usd`);
       }
@@ -10272,22 +10270,22 @@ export const MIGRATIONS: Migration[] = [
     name: "add_expenses_source_ref",
     description:
       "Owner decision 2026-09-06: the SMS transfer fee on a CREDIT_TRANSFER recharge stops " +
-        "netting against recharge profit and becomes its own expense (packages/core/src/repositories/" +
-        "RechargeRepository.ts, routed through ExpenseRepository.createExpense — same LIRA-145 " +
-        "Line_Usage precedent). That expense is a side-effect ROW tied to the recharge transaction, " +
-        "so (rule 20) it needs a reversal owner: voiding/refunding the recharge must cascade-void the " +
-        "sibling expense. expenses gains source_ref_table/source_ref_id — a generic back-link from an " +
-        "auto-generated expense row to the PARENT unified transaction's own source row " +
-        "(source_ref_table/source_ref_id mirror the parent's transactions.source_table/source_id, e.g. " +
-        "'recharges'/<recharge id>) — exact same shape as migration v136's " +
-        "supplier_ledger.source_ref_table/source_ref_id, used by TransactionRepository to find and " +
-        "cascade-void the sibling when the parent is voided/refunded. Nullable, DEFAULT NULL only — " +
-        "never CURRENT_TIMESTAMP (v104 prod-brick lesson) — and guarded by a PRAGMA table_info check " +
-        "so replaying up() on an already-migrated DB is a safe no-op. Pre-link (legacy) rows are NOT " +
-        "backfilled — no heuristic data repair, same limitation v136 documented for its own rollout. " +
-        "Cutover, not restatement: existing recharges keep the profit figure they were stamped with " +
-        "(no backfill of historical transactions.profit_usd/profit_lbp — same D3 convention used for " +
-        "the commission model, migration v161).",
+      "netting against recharge profit and becomes its own expense (packages/core/src/repositories/" +
+      "RechargeRepository.ts, routed through ExpenseRepository.createExpense — same LIRA-145 " +
+      "Line_Usage precedent). That expense is a side-effect ROW tied to the recharge transaction, " +
+      "so (rule 20) it needs a reversal owner: voiding/refunding the recharge must cascade-void the " +
+      "sibling expense. expenses gains source_ref_table/source_ref_id — a generic back-link from an " +
+      "auto-generated expense row to the PARENT unified transaction's own source row " +
+      "(source_ref_table/source_ref_id mirror the parent's transactions.source_table/source_id, e.g. " +
+      "'recharges'/<recharge id>) — exact same shape as migration v136's " +
+      "supplier_ledger.source_ref_table/source_ref_id, used by TransactionRepository to find and " +
+      "cascade-void the sibling when the parent is voided/refunded. Nullable, DEFAULT NULL only — " +
+      "never CURRENT_TIMESTAMP (v104 prod-brick lesson) — and guarded by a PRAGMA table_info check " +
+      "so replaying up() on an already-migrated DB is a safe no-op. Pre-link (legacy) rows are NOT " +
+      "backfilled — no heuristic data repair, same limitation v136 documented for its own rollout. " +
+      "Cutover, not restatement: existing recharges keep the profit figure they were stamped with " +
+      "(no backfill of historical transactions.profit_usd/profit_lbp — same D3 convention used for " +
+      "the commission model, migration v161).",
     type: "typescript" as const,
     up(db: Database.Database) {
       const hasExpenses = db
@@ -10675,7 +10673,218 @@ export const MIGRATIONS: Migration[] = [
     },
     down(db: Database.Database) {
       db.exec(`DROP TABLE IF EXISTS maintenance_status_history;`);
-      console.log("Migration v171 rolled back: maintenance_status_history dropped");
+      console.log(
+        "Migration v171 rolled back: maintenance_status_history dropped",
+      );
+    },
+  },
+  {
+    version: 172,
+    name: "per_tenant_usernames",
+    description:
+      "Usernames become unique PER TENANT instead of globally, so two shops can each have " +
+      "an 'admin'. Until now `users.username TEXT UNIQUE` made the second tenant to want a " +
+      "common username fail with 'username already exists' — for a name it cannot see is " +
+      "taken, in a tenant it does not know exists. That is the wrong first impression for a " +
+      "self-service signup, which is why this lands BEFORE the signup page. " +
+      "" +
+      "The old constraint is enforced by an implicit index (sqlite_autoindex_users_1) that " +
+      "SQLite will not let you DROP, so the table must be rebuilt. `users` is the target of " +
+      "22 foreign keys; the rebuild is safe because ids are preserved verbatim (every " +
+      "reference keeps pointing at the same row) and the runner already sets " +
+      "PRAGMA foreign_keys=OFF outside the migration transactions precisely for rebuilds. " +
+      "This migration runs foreign_key_check itself afterwards and THROWS on any violation, " +
+      "so a broken rebuild rolls back rather than being discovered later. " +
+      "" +
+      "Two indexes replace the one constraint: UNIQUE(tenant_id, username) for tenants, and " +
+      "a PARTIAL UNIQUE(username) WHERE tenant_id IS NULL for the platform realm. The second " +
+      "is not redundant — SQLite treats NULLs as distinct in a unique index, so without it " +
+      "two super_admins (tenant_id NULL) could share a username.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasUsers = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'`,
+        )
+        .get();
+      if (!hasUsers) {
+        console.log("Migration v172 skipped: 'users' table not present");
+        return;
+      }
+
+      const idsBefore = (
+        db
+          .prepare(
+            `SELECT COALESCE(GROUP_CONCAT(id), '') AS ids FROM (SELECT id FROM users ORDER BY id)`,
+          )
+          .get() as { ids: string }
+      ).ids;
+
+      // Idempotence: if the rebuild already happened, the implicit index is gone.
+      const stillGloballyUnique = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'index' AND tbl_name = 'users'
+             AND name = 'sqlite_autoindex_users_1'`,
+        )
+        .get();
+      if (!stillGloballyUnique) {
+        console.log(
+          "Migration v172: users.username already rebuilt without the global UNIQUE",
+        );
+      } else {
+        // Refuse to proceed if existing data would violate the new indexes.
+        // Impossible while the global constraint holds, but this migration is
+        // the thing that removes that guarantee — so check rather than assume.
+        const dupTenant = db
+          .prepare(
+            `SELECT COUNT(*) AS c FROM (
+               SELECT tenant_id, username FROM users
+               WHERE username IS NOT NULL AND tenant_id IS NOT NULL
+               GROUP BY tenant_id, username HAVING COUNT(*) > 1
+             )`,
+          )
+          .get() as { c: number };
+        const dupPlatform = db
+          .prepare(
+            `SELECT COUNT(*) AS c FROM (
+               SELECT username FROM users
+               WHERE username IS NOT NULL AND tenant_id IS NULL
+               GROUP BY username HAVING COUNT(*) > 1
+             )`,
+          )
+          .get() as { c: number };
+        if (dupTenant.c > 0 || dupPlatform.c > 0) {
+          throw new Error(
+            `Migration v172 aborted: ${dupTenant.c} duplicate (tenant_id, username) ` +
+              `and ${dupPlatform.c} duplicate platform username(s) already exist`,
+          );
+        }
+
+        const before = (
+          db.prepare(`SELECT COUNT(*) AS c FROM users`).get() as { c: number }
+        ).c;
+
+        // 12-step rebuild. Column list is explicit so a schema drift elsewhere
+        // surfaces as an error here rather than silently dropping a column.
+        db.exec(`
+          CREATE TABLE users_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER REFERENCES tenants(id),
+            username TEXT,
+            password_hash TEXT,
+            role TEXT DEFAULT 'staff',
+            is_active BOOLEAN DEFAULT 1
+          );
+        `);
+        db.exec(`
+          INSERT INTO users_new (id, tenant_id, username, password_hash, role, is_active)
+            SELECT id, tenant_id, username, password_hash, role, is_active FROM users;
+        `);
+        db.exec(`DROP TABLE users;`);
+        db.exec(`ALTER TABLE users_new RENAME TO users;`);
+
+        const after = (
+          db.prepare(`SELECT COUNT(*) AS c FROM users`).get() as { c: number }
+        ).c;
+        if (after !== before) {
+          throw new Error(
+            `Migration v172 aborted: user count changed ${before} -> ${after}`,
+          );
+        }
+      }
+
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username
+          ON users(tenant_id, username);
+      `);
+      // Partial index: the platform realm (tenant_id NULL) needs its own
+      // uniqueness because NULLs do not collide in the composite index above.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_platform_username
+          ON users(username) WHERE tenant_id IS NULL;
+      `);
+
+      // Prove no inbound reference could have been orphaned.
+      //
+      // Deliberately NOT `PRAGMA foreign_key_check` with no argument: that
+      // scans the WHOLE database, so any pre-existing FK inconsistency
+      // anywhere — entirely unrelated to this rebuild, and quite possible
+      // after 170+ migrations — would abort the upgrade and strand the
+      // database. Comparing the id SET before and after is both narrower and
+      // STRONGER for what this migration can actually break: all 22 inbound
+      // FKs point at users.id, so if the set of ids is unchanged, no
+      // reference can have been orphaned.
+      const idsAfter = (
+        db
+          .prepare(
+            `SELECT COALESCE(GROUP_CONCAT(id), '') AS ids FROM (SELECT id FROM users ORDER BY id)`,
+          )
+          .get() as { ids: string }
+      ).ids;
+      if (idsAfter !== idsBefore) {
+        throw new Error(
+          `Migration v172 aborted: users.id set changed during the rebuild`,
+        );
+      }
+
+      console.log(
+        "Migration v172: users.username is now unique per tenant (+ platform realm)",
+      );
+    },
+    down(db: Database.Database) {
+      // Same existence guard as up(): rollbackTo() replays every down() in
+      // range, including against partial schemas (the other via-runner
+      // migration tests build fixtures with no `users` table at all), and an
+      // unguarded rebuild throws 'no such table: users' there.
+      const hasUsers = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'`,
+        )
+        .get();
+      if (!hasUsers) {
+        console.log(
+          "Migration v172 rollback skipped: 'users' table not present",
+        );
+        return;
+      }
+
+      // Restoring the global UNIQUE only works if the data still satisfies it.
+      const dup = db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM (
+             SELECT username FROM users WHERE username IS NOT NULL
+             GROUP BY username HAVING COUNT(*) > 1
+           )`,
+        )
+        .get() as { c: number };
+      if (dup.c > 0) {
+        throw new Error(
+          `Migration v172 cannot be rolled back: ${dup.c} username(s) are duplicated ` +
+            `across tenants and would violate the restored global UNIQUE`,
+        );
+      }
+
+      db.exec(`DROP INDEX IF EXISTS idx_users_tenant_username;`);
+      db.exec(`DROP INDEX IF EXISTS idx_users_platform_username;`);
+      db.exec(`
+        CREATE TABLE users_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          username TEXT UNIQUE,
+          password_hash TEXT,
+          role TEXT DEFAULT 'staff',
+          is_active BOOLEAN DEFAULT 1
+        );
+      `);
+      db.exec(`
+        INSERT INTO users_old (id, tenant_id, username, password_hash, role, is_active)
+          SELECT id, tenant_id, username, password_hash, role, is_active FROM users;
+      `);
+      db.exec(`DROP TABLE users;`);
+      db.exec(`ALTER TABLE users_old RENAME TO users;`);
+      console.log(
+        "Migration v172 rolled back: users.username is globally unique again",
+      );
     },
   },
 ];

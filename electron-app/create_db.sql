@@ -61,7 +61,9 @@ INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value) VALUES
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER REFERENCES tenants(id),
-    username TEXT UNIQUE,
+    -- NOT globally unique: uniqueness is per tenant, enforced by the two
+    -- indexes below (see migration v172). Two shops can each have an admin.
+    username TEXT,
     password_hash TEXT,
     role TEXT DEFAULT 'staff',
     is_active BOOLEAN DEFAULT 1
@@ -69,6 +71,13 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Seed admin user if not exists
 INSERT OR IGNORE INTO users (id, tenant_id, username, password_hash, role, is_active) VALUES (1, 1, 'admin', '', 'admin', 1);
+
+-- Usernames are unique WITHIN a tenant...
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username ON users(tenant_id, username);
+-- ...and within the platform realm. This second index is not redundant:
+-- SQLite treats NULLs as distinct in a unique index, so without it two
+-- super_admins (tenant_id NULL) could share a username.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_platform_username ON users(username) WHERE tenant_id IS NULL;
 
 -- Sessions (for unified session management across Electron and Web)
 -- NOTE: token is random-unique already; tenant_id is just added (denormalized
