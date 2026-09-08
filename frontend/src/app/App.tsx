@@ -439,11 +439,21 @@ function App() {
         <ThemeProvider>
           {/* HashRouter is recommended for Electron to avoid path issues in production */}
           <ApiProvider adapter={backendApiAdapter}>
-            <ModuleProvider>
-              <FeatureFlagProvider>
-                <HashRouter>
-                  <ActiveModuleProvider>
-                    <AuthProvider>
+            <HashRouter>
+              <ActiveModuleProvider>
+                <AuthProvider>
+                  {/* ModuleProvider and FeatureFlagProvider sit BELOW
+                    AuthProvider for the same reason CurrencyProvider does
+                    (see its comment below): both fetch JWT-gated REST
+                    endpoints, so mounting them above AuthProvider meant a
+                    cold login fetched before the token existed, cached an
+                    empty result and never retried. The visible symptom was a
+                    half-empty first render — sidebar showing only Checkpoint
+                    Timeline, one drawer card of ten — that a reload fixed.
+                    They ALSO need to be here for their auth gate to work at
+                    all: useAuth() throws outside AuthProvider. */}
+                  <ModuleProvider>
+                    <FeatureFlagProvider>
                       {/* Mounted below AuthProvider so the currency load runs
                         with an authenticated session — in web mode
                         GET /api/currencies is JWT-gated, so a boot-time fetch
@@ -461,11 +471,11 @@ function App() {
                           </MobileServiceItemsProvider>
                         </SessionProvider>
                       </CurrencyProvider>
-                    </AuthProvider>
-                  </ActiveModuleProvider>
-                </HashRouter>
-              </FeatureFlagProvider>
-            </ModuleProvider>
+                    </FeatureFlagProvider>
+                  </ModuleProvider>
+                </AuthProvider>
+              </ActiveModuleProvider>
+            </HashRouter>
           </ApiProvider>
         </ThemeProvider>
       </QueryClientProvider>
