@@ -39,5 +39,20 @@ export const updateTenantSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
+/**
+ * Public self-service signup body.
+ *
+ * The same fields a super admin supplies when provisioning a tenant by hand,
+ * plus the invite code, because this endpoint is reachable without a token.
+ * Reusing createTenantSchema is deliberate: the slug charset and
+ * reserved-name rules that protect the tenant registry must be identical
+ * whether a tenant is created by staff or by a stranger.
+ */
+export const signupSchema = createTenantSchema.extend({
+  inviteCode: z.string().min(1, "An invite code is required"),
+});
+
+export type SignupInput = z.infer<typeof signupSchema>;
+
 export type CreateTenantInput = z.infer<typeof createTenantSchema>;
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;

@@ -79,6 +79,57 @@ function withDecodedTenant(
   return tenantId !== undefined ? { ...user, tenantId } : user;
 }
 
+export interface SignupInput {
+  name: string;
+  slug: string;
+  adminUsername: string;
+  adminPassword: string;
+  inviteCode: string;
+  contactName?: string;
+  contactPhone?: string;
+}
+
+/**
+ * Create a tenant via self-service signup.
+ *
+ * WEB ONLY, deliberately not routed through ipcOrHttp: the desktop app has no
+ * tenant-provisioning channel at all (it owns a single local database and is
+ * set up by its own first-run wizard), so there is no IPC branch to fall back
+ * to. Calling this from Electron is a programming error, not a transport
+ * choice.
+ *
+ * auth:false -- the whole point is that it works with no token. The server
+ * gates it on an invite code and a success-counting rate limiter.
+ */
+export async function signup(input: SignupInput) {
+  return requestJson<{
+    success: boolean;
+    error?: string | { message?: string };
+    data?: { tenant: { id: number; name: string; slug: string } };
+  }>("/api/auth/signup", {
+    method: "POST",
+    body: input,
+    auth: false,
+  });
+}
+
+/**
+ * Is self-service signup switched on for this deployment?
+ *
+ * Exists so the login page does not advertise a door that is bolted: signup is
+ * off unless the operator sets SIGNUP_INVITE_CODE, and a "Create your shop"
+ * link that always leads to a 403 reads as a broken app. Leaks nothing a
+ * single POST would not already reveal.
+ *
+ * Web only, same reasoning as signup() itself.
+ */
+export async function signupEnabled() {
+  return requestJson<{
+    success: boolean;
+    data?: { enabled: boolean };
+  }>("/api/auth/signup-status", { auth: false });
+}
+
 export async function login(
   username: string,
   password: string,
@@ -2614,10 +2665,10 @@ export async function unlockProfits(
   return ipcOrHttp(
     async () => getElectronApi().profits.unlock(password),
     async () =>
-      requestJson<{ success: boolean; error?: string }>(
-        `/api/profits/unlock`,
-        { method: "POST", body: { password } },
-      ),
+      requestJson<{ success: boolean; error?: string }>(`/api/profits/unlock`, {
+        method: "POST",
+        body: { password },
+      }),
   );
 }
 

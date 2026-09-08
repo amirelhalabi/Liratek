@@ -63,6 +63,15 @@ const envSchema = z
     // would lock every user out.
     APP_BASE_DOMAIN: z.string().optional(),
 
+    // Shared secret required by POST /api/auth/signup.
+    //
+    // UNSET DISABLES SIGNUP ENTIRELY, which is the safe default: an
+    // open tenant-creation endpoint on a POS platform invites junk tenants,
+    // and every signup permanently consumes a globally-unique slug. Opting in
+    // is setting one variable; forgetting to set one cannot accidentally
+    // expose it.
+    SIGNUP_INVITE_CODE: z.string().optional(),
+
     // Resolve the tenant from an X-Tenant-Slug header instead of the Host.
     // DEVELOPMENT AND TESTS ONLY: a client can send any header it likes, so
     // with this enabled tenant scoping is advisory, not enforced. It exists
@@ -126,6 +135,7 @@ function parseEnv(): EnvConfig {
     SUPER_ADMIN_USERNAME: process.env.SUPER_ADMIN_USERNAME?.trim(),
     SUPER_ADMIN_PASSWORD: process.env.SUPER_ADMIN_PASSWORD,
     APP_BASE_DOMAIN: process.env.APP_BASE_DOMAIN?.trim().toLowerCase(),
+    SIGNUP_INVITE_CODE: process.env.SIGNUP_INVITE_CODE,
     TENANT_HOST_HEADER_OVERRIDE:
       process.env.TENANT_HOST_HEADER_OVERRIDE === "true" ||
       process.env.TENANT_HOST_HEADER_OVERRIDE === "1",
@@ -177,6 +187,7 @@ export const {
   SUPER_ADMIN_USERNAME,
   SUPER_ADMIN_PASSWORD,
   APP_BASE_DOMAIN,
+  SIGNUP_INVITE_CODE,
   TENANT_HOST_HEADER_OVERRIDE,
   ELECTRON_RENDERER_URL,
   DASHSCOPE_API_KEY,

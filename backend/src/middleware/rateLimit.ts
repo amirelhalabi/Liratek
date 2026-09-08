@@ -51,6 +51,32 @@ export const apiLimiter = rateLimit({
  * - Prevents brute force attacks on login
  * - Only counts failed attempts (skipSuccessfulRequests: true)
  */
+/**
+ * Signup limiter.
+ *
+ * Separate from authLimiter, and the difference is the point: authLimiter sets
+ * skipSuccessfulRequests, because for LOGIN only failures are suspicious. For
+ * signup a SUCCESS is exactly what needs limiting — each one permanently
+ * consumes a globally-unique slug and creates a tenant. So this counts every
+ * request.
+ *
+ * Which is also why the cap is 5 rather than the 3 this started at: counting
+ * failures means a mistyped invite code burns a slot, and locking someone out
+ * for an hour over two typos is a worse failure than letting one IP create
+ * five shops. `SIGNUP_RATE_LIMIT_MAX` raises it (dev deployments want more).
+ */
+export const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: envLimit("SIGNUP_RATE_LIMIT_MAX", 5),
+  message: {
+    success: false,
+    error: "Too many signup attempts from this IP, please try again later.",
+    retryAfter: "1 hour",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: envLimit("AUTH_RATE_LIMIT_MAX", 5), // failed attempts per window

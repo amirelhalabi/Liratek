@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import logger from "@/utils/logger";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { AlertCircle } from "lucide-react";
 import clsx from "clsx";
@@ -8,6 +8,7 @@ import { useShopName } from "@/hooks/useShopName";
 import PasswordInput from "@/shared/components/PasswordInput";
 import { TextInput } from "@liratek/ui";
 import { useTheme } from "@/contexts/ThemeContext";
+import { isElectron, signupEnabled } from "@/api/backendApi";
 
 export default function Login() {
   const { login } = useAuth();
@@ -19,6 +20,26 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Whether to offer "Create your shop". Starts false so the link never
+  // flashes on a desktop build or on a deployment with signup switched off —
+  // showing it and then removing it is worse than showing it a moment late.
+  const [canSignUp, setCanSignUp] = useState(false);
+
+  useEffect(() => {
+    if (isElectron()) return;
+    let cancelled = false;
+    signupEnabled()
+      .then((r) => {
+        if (!cancelled) setCanSignUp(Boolean(r.success && r.data?.enabled));
+      })
+      // A backend that cannot answer is a backend that cannot sign anyone up
+      // either, so staying silent is the correct outcome, not a failure.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,6 +197,27 @@ export default function Login() {
               )}
             </button>
           </form>
+
+          {/* Web only, and only when the operator has actually enabled signup
+              (SIGNUP_INVITE_CODE). The desktop build provisions its single
+              tenant through the first-run setup wizard, so a "create a shop"
+              link there would lead to an endpoint IPC never serves. */}
+          {canSignUp && (
+            <p
+              className={clsx(
+                "mt-6 text-center text-sm",
+                theme === "dark" ? "text-slate-400" : "text-gray-600",
+              )}
+            >
+              New here?{" "}
+              <Link
+                to="/signup"
+                className="text-orange-500 hover:text-orange-400"
+              >
+                Create your shop
+              </Link>
+            </p>
+          )}
 
           <div
             className={clsx(

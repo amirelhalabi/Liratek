@@ -180,6 +180,51 @@ docker compose cp backend:/data/backup-$(date +%F).db ./
 Put that on a daily cron and copy the result off the box. Untested as written —
 run it once by hand before trusting it.
 
+## 5b. Self-service signup (`/signup`)
+
+The web app has a public sign-up page at `/#/signup` that creates a whole
+tenant — registry row, seeded config, first admin — through the SAME
+`provisionTenant()` a super admin uses. It is **off unless you turn it on**:
+
+```bash
+# In backend/.env — any non-empty string. Unset or removed = signup disabled.
+SIGNUP_INVITE_CODE=liratek-something-only-you-know
+```
+
+Unset is deliberately the safe default. An open tenant-creation endpoint on a
+POS platform collects junk tenants, and every signup permanently consumes a
+globally-unique slug, so forgetting to configure something must not be what
+exposes it. With no code set the route answers 403 for everyone; with one set,
+a caller must send it in the request body.
+
+Three other things guard it:
+
+- `signupLimiter` — 5 requests per IP per hour, and unlike the login limiter it
+  counts **successes** too, since a success is what consumes a slug. That also
+  means a mistyped invite code burns a slot, so `SIGNUP_RATE_LIMIT_MAX`
+  overrides the 5 (this dev deployment sets 30).
+- The slug charset and the reserved-name blocklist are the same ones that guard
+  staff-created tenants — `signupSchema` extends `createTenantSchema` rather
+  than restating the rules, so `admin`, `www`, `api` and friends cannot be
+  claimed.
+- **No token is issued on success.** The response carries only the new
+  `{ id, name, slug }`, and the page sends the user to `/login`. Once
+  `APP_BASE_DOMAIN` is set (§ 8), that shop's credentials work only on
+  `<slug>.<domain>`, so minting a token for a realm the browser is not on
+  would contradict the whole model.
+
+To close signups again, remove `SIGNUP_INVITE_CODE` and restart the backend.
+To rotate, change it — existing tenants are unaffected, only new signups.
+
+The login page asks `GET /api/auth/signup-status` (public, returns one boolean)
+and only shows "Create your shop" when signup is actually on, so flipping the
+variable is the whole switch — there is no second place to update, and the login
+page never advertises a door that is bolted.
+
+Desktop is untouched: Electron provisions its single tenant through the
+first-run setup wizard, and the login page hides the "Create your shop" link
+outside the browser.
+
 ## 6. At-rest data — read this before believing the docs
 
 `DATABASE_KEY` **does not encrypt anything today.** `CLAUDE.md` and older plan
@@ -228,11 +273,31 @@ assertion in the same layer, so it fails the build rather than shipping broken).
   is unaffected. `TENANT_HOST_HEADER_OVERRIDE=true` swaps Host for an
   `X-Tenant-Slug` header for local testing; never enable it in production.
   Still open: per-tenant TLS (Caddy on-demand TLS with an `ask` endpoint,
-  see § 4) and per-tenant usernames — usernames remain globally unique, so
-  two shops cannot both have an `admin`.
-- **No audit trail on the web transport.** Only the Electron IPC handlers call
-  `audit(...)`; REST action routes don't. The audit _viewer_ reads over REST, so
-  the gap is invisible in the UI (`WEB_PARITY_ROADMAP.md` § 9).
+  see § 4).
+- **Per-tenant usernames — DONE** (migration v172, 2026-09-08). Usernames used
+  to be globally unique, so only one shop on the whole platform could have an
+  `admin`. They are now unique per tenant: `users.username` lost its table-wide
+  UNIQUE and gained `idx_users_tenant_username` (tenant-scoped) plus a partial
+  `idx_users_platform_username` covering the platform realm, where super admins
+  live and global uniqueness is still correct. Login resolves the realm from the
+  Host first and looks the user up inside it. With `APP_BASE_DOMAIN` unset there
+  is no realm, so login infers one: an unambiguous username resolves directly,
+  and a name owned by two realms resolves to the platform realm (super admins)
+  and then to the deployment's FIRST tenant — the incumbent shop. Nothing leaks,
+  because the password is still checked against whichever row comes back; the
+  consequence is that a later self-signed-up tenant that picks an already-taken
+  username cannot log in on the shared hostname at all. Set `APP_BASE_DOMAIN`
+  (and wildcard DNS) before onboarding a second tenant and the question does not
+  arise. **Do not "simplify" this back to refusing an ambiguous username** — it
+  reads safer and is not: signup is public, so anyone with the invite code could
+  register a shop whose admin is named `admin` and lock the incumbent out of
+  their own login.
+- ~~**No audit trail on the web transport.**~~ **This was wrong** — corrected
+  2026-09-08. REST routes audit through `auditRest(...)`, not `audit(...)`, and
+  there are ~117 call sites; a grep for the IPC helper's name found none of them
+  and the gap was written up from that. Two route files genuinely had no audit
+  call and have since been fixed. What remains is narrow: a few
+  `servicePresets` PUT/DELETE routes (`WEB_PARITY_ROADMAP.md` § 9).
 - **Web-transport test coverage is thin.** 16 web e2e specs plus 7 of the 83
   desktop specs running over HTTP. Roadmap phases 3 and 4 remain open.
 - **Printing and offline are desktop-only** — browsers cannot print silently to

@@ -9,6 +9,7 @@ import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import { ActiveModuleProvider } from "@/contexts/ActiveModuleContext";
 import { MobileServiceItemsProvider } from "@/contexts/MobileServiceItemsContext";
 import Login from "@/features/auth/pages/Login";
+import Signup from "@/features/auth/pages/Signup";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
 
 // Lazy-loaded routes
@@ -199,6 +200,7 @@ function AppRoutes() {
           element={isSetupRequired ? <SetupWizard /> : <Navigate to="/" />}
         />
         <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
         <Route
           path="/"
           element={
