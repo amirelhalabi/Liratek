@@ -16,6 +16,8 @@ import {
   DataTable,
   PageAlerts,
 } from "@liratek/ui";
+import { subscribeToInvalidation } from "@/api/realtime";
+import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import type {
   ServiceTypeOption,
   CarrierLineEntity,
@@ -539,7 +541,11 @@ export default function Dashboard() {
     const t = setTimeout(() => {
       loadData();
     }, 0);
-    const interval = setInterval(loadData, 30000); // 30s refresh
+    // Safety net only: another client's write arrives by push (below), and a
+    // hidden tab polls not at all.
+    const interval = setInterval(() => {
+      if (isTabVisible()) loadData();
+    }, POLL_MS.dashboard);
 
     // Subscribe to refresh events
     const unsubscribe = appEvents.on("sale:completed", () => {
@@ -552,6 +558,11 @@ export default function Dashboard() {
       // The first checkpoint clears the "no starting checkpoint" banner.
       refreshStartingCheckpoint();
     });
+    // Any write by ANY client of this tenant. The dashboard aggregates sales,
+    // drawers and debts, so it cares about everything rather than one entity.
+    const offInvalidate = subscribeToInvalidation("*", () => {
+      if (isTabVisible()) loadData();
+    });
     // Refresh after a money hold is created or collected
     const offHold = appEvents.on("holdMoney:changed", () => {
       loadData();
@@ -560,6 +571,7 @@ export default function Dashboard() {
     return () => {
       clearTimeout(t);
       clearInterval(interval);
+      offInvalidate();
       unsubscribe();
       offClosing();
       offHold();

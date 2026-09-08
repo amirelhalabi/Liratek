@@ -9,46 +9,9 @@ import React, {
 import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
-import { isElectron } from "@/api/backendApi";
 import { subscribeToInvalidation } from "@/api/realtime";
+import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import type { CartItem, CartTotals } from "../types/cart";
-
-/**
- * Session polling cadence, per transport.
- *
- * These polls exist for MULTI-CLIENT sync: a session started or closed on
- * another machine has to surface here, or the floating session window stays
- * open on a session that no longer exists. That need is real on both
- * transports -- what differs by ~1000x is the COST of a tick.
- *
- * Desktop reads a local SQLite file over IPC: microseconds, no network.
- * Web is an HTTP round trip per call, and with an active session each tick
- * makes four (active list, today list, cart, transactions). At the desktop
- * cadence that is roughly two requests a SECOND, sustained, forever -- which
- * over a tunnelled connection is most of the backend s traffic for data that
- * rarely changes.
- *
- * On web these are now a SAFETY NET, not the freshness mechanism: the backend
- * pushes `data:invalidate` after every successful write (see @/api/realtime),
- * so a change made by another client lands in well under a second. The poll
- * only has to catch what push cannot guarantee -- a dropped socket, a slept
- * laptop, a missed event -- so it can be slow. It is NOT removed: push without
- * reconciliation diverges silently, and a silently stale drawer figure is one
- * someone acts on.
- */
-const SESSION_POLL_MS = isElectron() ? 3_000 : 60_000;
-const ACTIVE_SESSION_POLL_MS = isElectron() ? 7_000 : 120_000;
-
-/**
- * Never poll a backgrounded tab. A hidden browser tab polling forever is pure
- * waste, and it is the difference between a laptop left open overnight costing
- * nothing and it making ~200k requests. Always true outside a browser.
- */
-function isTabVisible(): boolean {
-  return (
-    typeof document === "undefined" || document.visibilityState !== "hidden"
-  );
-}
 
 interface CustomerSession {
   id: number;
@@ -305,7 +268,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const timer = setInterval(() => {
       if (!isTabVisible()) return;
       void refreshActiveSessions();
-    }, ACTIVE_SESSION_POLL_MS);
+    }, POLL_MS.sessionReconcile);
     return () => clearInterval(timer);
   }, [flags.customerSessions, refreshActiveSessions]);
 
@@ -599,7 +562,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           // Silently ignore polling errors
         }
       }
-    }, SESSION_POLL_MS);
+    }, POLL_MS.sessionState);
 
     return () => {
       if (pollingRef.current) {

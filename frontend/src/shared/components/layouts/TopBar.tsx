@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { appEvents, useApi, type UINotification } from "@liratek/ui";
+import { subscribeToInvalidation } from "@/api/realtime";
+import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import { LogOut, Bell, X, Home, Sun, Moon } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -219,14 +221,20 @@ export default function TopBar({
     const offDebt = appEvents.on("debt:repayment", refresh);
     const offInv = appEvents.on("inventory:updated", refresh);
     refresh();
-    // Use a fixed poll interval (async IIFE for settings is not worth the complexity)
-    const pollMs = 60_000;
-    const t = setInterval(refresh, pollMs);
+    // Safety net only: local actions arrive via appEvents above, other
+    // clients' writes via pushed invalidation below, and a hidden tab is skipped.
+    const t = setInterval(() => {
+      if (isTabVisible()) refresh();
+    }, POLL_MS.topBar);
+    const offInvalidate = subscribeToInvalidation("*", () => {
+      if (isTabVisible()) refresh();
+    });
     return () => {
       mounted = false;
       offSale();
       offDebt();
       offInv();
+      offInvalidate();
       clearInterval(t);
     };
   }, []);
