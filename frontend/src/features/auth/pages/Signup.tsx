@@ -82,9 +82,11 @@ export default function Signup() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [created, setCreated] = useState<{ name: string; slug: string } | null>(
-    null,
-  );
+  const [created, setCreated] = useState<{
+    name: string;
+    slug: string;
+    loginUrl: string | null;
+  } | null>(null);
 
   const effectiveSlug = slugTouched ? slug : slugify(shopName);
   const slugValid = SLUG_PATTERN.test(effectiveSlug);
@@ -116,6 +118,7 @@ export default function Signup() {
         setCreated({
           name: result.data.tenant.name,
           slug: result.data.tenant.slug,
+          loginUrl: result.data.loginUrl ?? null,
         });
         return;
       }
@@ -181,21 +184,45 @@ export default function Signup() {
             )}
           >
             <span className={labelClass}>Your shop address</span>
-            <p
-              className={clsx(
-                "font-mono text-sm",
-                dark ? "text-white" : "text-gray-900",
-              )}
-            >
-              {created.slug}
-            </p>
+            {/* The real URL when subdomain tenancy is configured, the bare slug
+                otherwise. Not a router <Link>: this leaves the current origin
+                for the tenant's own subdomain, which is a full page load by
+                definition — the SPA on this host cannot serve that realm. */}
+            {created.loginUrl ? (
+              <a
+                href={created.loginUrl}
+                data-testid="signup-login-url"
+                className="font-mono text-sm text-orange-500 hover:text-orange-400 break-all"
+              >
+                {created.loginUrl.replace(/^https:\/\//, "")}
+              </a>
+            ) : (
+              <p
+                data-testid="signup-login-url"
+                className={clsx(
+                  "font-mono text-sm",
+                  dark ? "text-white" : "text-gray-900",
+                )}
+              >
+                {created.slug}
+              </p>
+            )}
           </div>
-          <button
-            onClick={() => navigate("/login")}
-            className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors"
-          >
-            Go to sign in
-          </button>
+          {created.loginUrl ? (
+            <a
+              href={created.loginUrl}
+              className="block w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors text-center"
+            >
+              Go to your shop
+            </a>
+          ) : (
+            <button
+              onClick={() => navigate("/login")}
+              className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors"
+            >
+              Go to sign in
+            </button>
+          )}
         </div>
       </div>
     );

@@ -4,6 +4,7 @@ import {
   runWithoutTenant,
   signupSchema,
   SIGNUP_INVITE_CODE,
+  APP_BASE_DOMAIN,
   getAuthService,
   getAuditService,
   getUserRepository,
@@ -411,9 +412,20 @@ router.post(
       // which is the only place its credentials work once APP_BASE_DOMAIN is
       // set -- and minting a token for a realm the browser is not yet on would
       // contradict that.
+      //
+      // The URL is built HERE rather than in the page because the base domain
+      // is server config: the browser has no way to know whether host-based
+      // tenancy is on, and a page that guessed `<slug>.<current host>` would
+      // hand out a dead link on liratek.vercel.app or a bare IP. null means
+      // "not configured", and the page then shows the slug alone.
+      const loginUrl = APP_BASE_DOMAIN
+        ? `https://${tenant.slug}.${APP_BASE_DOMAIN}`
+        : null;
+
       res.status(201).json(
         createSuccessResponse({
           tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },
+          loginUrl,
         }),
       );
     } catch (error) {

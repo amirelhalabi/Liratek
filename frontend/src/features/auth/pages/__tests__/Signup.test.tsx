@@ -239,6 +239,38 @@ describe("Signup page", () => {
       expect(navigate).not.toHaveBeenCalled();
     });
 
+    it("shows the tenant's own subdomain URL when the server sends one", async () => {
+      signup.mockResolvedValue({
+        success: true,
+        data: {
+          tenant: { id: 7, name: VALID.name, slug: VALID.slug },
+          loginUrl: "https://cornertech.liratek.shop",
+        },
+      });
+
+      render(<Signup />);
+      fillValid();
+      fireEvent.click(submit());
+
+      const link = await screen.findByTestId("signup-login-url");
+      // A real anchor, not a router Link: the tenant's subdomain is a
+      // different origin, so this must be a full page load.
+      expect(link.tagName).toBe("A");
+      expect(link).toHaveAttribute("href", "https://cornertech.liratek.shop");
+    });
+
+    it("falls back to the bare slug when host tenancy is off", async () => {
+      // loginUrl null means APP_BASE_DOMAIN is unset. The page must NOT
+      // fabricate `<slug>.<current host>` — that link would be dead.
+      render(<Signup />);
+      fillValid();
+      fireEvent.click(submit());
+
+      const el = await screen.findByTestId("signup-login-url");
+      expect(el.tagName).not.toBe("A");
+      expect(el).toHaveTextContent(VALID.slug);
+    });
+
     it("never renders the password back to the page", async () => {
       const { container } = render(<Signup />);
       fillValid();

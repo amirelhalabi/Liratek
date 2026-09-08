@@ -26,6 +26,7 @@ const provisionTenant = jest.fn();
 const auditLog = jest.fn();
 
 let inviteCode: string | undefined;
+let baseDomain: string | undefined;
 
 jest.mock("@liratek/core", () => {
   const actual =
@@ -47,6 +48,9 @@ jest.mock("@liratek/core", () => {
     JWT_EXPIRES_IN: "7d",
     get SIGNUP_INVITE_CODE() {
       return inviteCode;
+    },
+    get APP_BASE_DOMAIN() {
+      return baseDomain;
     },
   };
 });
@@ -92,6 +96,7 @@ describe("POST /api/auth/signup", () => {
     auditLog.mockReset();
     provisionTenant.mockReturnValue(TENANT);
     inviteCode = "let-me-in";
+    baseDomain = undefined;
   });
 
   describe("access control", () => {
@@ -170,6 +175,19 @@ describe("POST /api/auth/signup", () => {
       expect(row.action).toBe("create");
       expect(row.entity_type).toBe("tenant");
       expect(row.entity_id).toBe(String(TENANT.id));
+    });
+
+    it("returns loginUrl null when host tenancy is off", async () => {
+      // No APP_BASE_DOMAIN: there IS no per-tenant URL, and inventing one
+      // (`<slug>.<whatever host>`) would hand the new shop a dead link.
+      const res = await post().expect(201);
+      expect(res.body.data.loginUrl).toBeNull();
+    });
+
+    it("returns the tenant's own subdomain URL once APP_BASE_DOMAIN is set", async () => {
+      baseDomain = "liratek.shop";
+      const res = await post().expect(201);
+      expect(res.body.data.loginUrl).toBe("https://cornertech.liratek.shop");
     });
 
     it("never echoes the admin password back", async () => {

@@ -105,7 +105,17 @@ export async function signup(input: SignupInput) {
   return requestJson<{
     success: boolean;
     error?: string | { message?: string };
-    data?: { tenant: { id: number; name: string; slug: string } };
+    data?: {
+      tenant: { id: number; name: string; slug: string };
+      /**
+       * Where the new shop signs in, or null when host-based tenancy is
+       * off (no APP_BASE_DOMAIN). Server-built on purpose -- the browser
+       * cannot know whether subdomain tenancy is enabled, and guessing
+       * `<slug>.<current host>` would hand out a dead link on
+       * liratek.vercel.app or a bare IP.
+       */
+      loginUrl?: string | null;
+    };
   }>("/api/auth/signup", {
     method: "POST",
     body: input,
