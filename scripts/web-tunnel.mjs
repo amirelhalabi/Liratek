@@ -60,8 +60,8 @@ function resolveCloudflared() {
 
   const exe = process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
   const candidates = [
-    join(repoRoot, ".tools", exe),            // yarn web:tunnel:install
-    join(homedir(), ".local", "bin", exe),    // manual install
+    join(repoRoot, ".tools", exe), // yarn web:tunnel:install
+    join(homedir(), ".local", "bin", exe), // manual install
   ];
   for (const c of candidates) if (existsSync(c)) return c;
 
@@ -112,7 +112,8 @@ function patchVercelJson(origin) {
   cfg.rewrites = Array.isArray(cfg.rewrites) ? cfg.rewrites : [];
 
   const stringDests = cfg.rewrites.filter(
-    (r) => typeof r.destination === "string" && QUICK_TUNNEL_RE.test(r.destination),
+    (r) =>
+      typeof r.destination === "string" && QUICK_TUNNEL_RE.test(r.destination),
   );
 
   if (stringDests.length > 0) {
@@ -143,20 +144,57 @@ function patchVercelJson(origin) {
   writeFileSync(vercelJson, JSON.stringify(cfg, null, 2) + "\n");
 }
 
+// ── named tunnel: the whole reason this file is scaffolding goes away ───────
+//
+// A NAMED tunnel keeps ONE stable hostname across restarts, so vercel.json is
+// correct permanently and there is nothing to patch and nothing to redeploy.
+// Everything below the quick-tunnel branch -- URL capture, JSON rewriting,
+// an automatic `vercel deploy` -- exists ONLY to chase a hostname that changes.
+//
+// Set TUNNEL_NAME to switch. One-time setup (see docs/DEPLOYMENT.md 4c), and
+// note the hard prerequisite: `tunnel route dns` writes a CNAME to
+// <id>.cfargotunnel.com, which resolves only for a zone CLOUDFLARE hosts. On a
+// registrar's own nameservers there is no named-tunnel option at all.
+const TUNNEL_NAME = process.env.TUNNEL_NAME;
+const named = Boolean(TUNNEL_NAME);
+
 // ── run it ──────────────────────────────────────────────────────────────────
-const args = [
-  "tunnel",
-  "--url",
-  `http://127.0.0.1:${PORT}`,
-  // Same IPv4 pin as the installer: an IPv6-first edge lookup on a host with a
-  // broken IPv6 path hangs instead of failing over.
-  "--edge-ip-version",
-  "4",
-  "--no-autoupdate",
-];
+const args = named
+  ? [
+      "tunnel",
+      // Ingress inline rather than a config.yml: one less file to keep in sync
+      // with PORT, and it is the same routing either way.
+      "--url",
+      `http://127.0.0.1:${PORT}`,
+      "--edge-ip-version",
+      "4",
+      "--no-autoupdate",
+      "run",
+      TUNNEL_NAME,
+    ]
+  : [
+      "tunnel",
+      "--url",
+      `http://127.0.0.1:${PORT}`,
+      // Same IPv4 pin as the installer: an IPv6-first edge lookup on a host with a
+      // broken IPv6 path hangs instead of failing over.
+      "--edge-ip-version",
+      "4",
+      "--no-autoupdate",
+    ];
 
 console.log(`[tunnel] ${bin} ${args.join(" ")}`);
 const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+
+if (named) {
+  console.log(
+    `[tunnel] NAMED tunnel "${TUNNEL_NAME}" — stable hostname, so vercel.json\n` +
+      `[tunnel] is left alone and nothing is redeployed. If /api breaks now it is\n` +
+      `[tunnel] the tunnel or the DNS record, never a stale rewrite.`,
+  );
+  child.stdout.on("data", (c) => process.stdout.write(c.toString()));
+  child.stderr.on("data", (c) => process.stdout.write(c.toString()));
+}
 
 let captured = null;
 
@@ -192,12 +230,16 @@ function onOutput(chunk) {
     stdio: "inherit",
     shell: process.platform === "win32",
   });
-  if (d.status === 0) console.log(`[tunnel] deployed. The site now proxies /api here.`);
-  else console.error(`[tunnel] deploy failed (exit ${d.status}). Run it by hand.`);
+  if (d.status === 0)
+    console.log(`[tunnel] deployed. The site now proxies /api here.`);
+  else
+    console.error(`[tunnel] deploy failed (exit ${d.status}). Run it by hand.`);
 }
 
-child.stdout.on("data", onOutput);
-child.stderr.on("data", onOutput); // cloudflared logs the URL on stderr
+if (!named) {
+  child.stdout.on("data", onOutput);
+  child.stderr.on("data", onOutput); // cloudflared logs the URL on stderr
+}
 
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
@@ -208,6 +250,8 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
 
 child.on("exit", (code) => {
   console.log(`[tunnel] cloudflared exited (${code}).`);
-  console.log(`[tunnel] The live site's /api is now dead until a tunnel is running again.`);
+  console.log(
+    `[tunnel] The live site's /api is now dead until a tunnel is running again.`,
+  );
   process.exit(code ?? 0);
 });

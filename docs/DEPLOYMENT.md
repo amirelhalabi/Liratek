@@ -148,6 +148,64 @@ pointed at `api.liratek.shop` **directly**, which reintroduces a second origin
 and therefore real `CORS_ORIGIN` configuration. Long-polling is still push, so
 there is no functional gap today.
 
+## 4c. Named tunnel — the runbook (code side is ready)
+
+`scripts/web-tunnel.mjs` now takes `TUNNEL_NAME`. Set it and the script runs a
+NAMED tunnel and **stops touching `vercel.json` and stops redeploying** — both
+of those exist only to chase a hostname that changes. Unset, nothing changes.
+
+```bash
+TUNNEL_NAME=liratek-web yarn web:up      # named: stable hostname, no redeploy
+yarn web:up                              # quick: today's behaviour
+```
+
+Everything below the flag is a ONE-TIME setup, and step 1 is the gate — see
+4b for why a named tunnel is impossible without it.
+
+1. **Move the zone to Cloudflare** (owner action, at Spaceship). Add
+   `liratek.shop` to a free Cloudflare account, let it import, then set the
+   Vercel records (`www` CNAME, apex A) to **DNS only / grey cloud** before
+   switching nameservers — proxying them puts Cloudflare in front of Vercel in
+   front of the tunnel, which breaks Vercel's own certificate.
+2. `cloudflared tunnel login` — browser flow, picks the zone, writes a cert to
+   `~/.cloudflared/`.
+3. `cloudflared tunnel create liratek-web` — writes a credentials JSON. **Do
+   not commit it**; it is a bearer credential for the tunnel.
+4. `cloudflared tunnel route dns liratek-web api.liratek.shop` — creates the
+   CNAME to `<tunnel-id>.cfargotunnel.com`.
+5. Point `vercel.json`'s four proxied rewrites at `https://api.liratek.shop`
+   and commit that **once**. It never changes again, which is the entire point.
+6. From then on: `TUNNEL_NAME=liratek-web yarn web:up`.
+
+_Unverified (no Cloudflare-hosted zone on this machine to test against): the
+script runs `cloudflared tunnel --url http://127.0.0.1:PORT --edge-ip-version 4
+--no-autoupdate run <name>`, i.e. inline ingress rather than a `config.yml`,
+which is the form Cloudflare's own docs use. If that flag order is rejected,
+the fallback is a `config.yml` with `url:` + `tunnel:` + `credentials-file:`
+and a bare `cloudflared tunnel run <name>`._
+
+### The same DNS move unlocks per-tenant subdomains
+
+`APP_BASE_DOMAIN` is implemented and inert (§ 8). Turning it on needs a
+wildcard `*.liratek.shop` and a certificate for it, which is the same
+nameserver move — so do them together rather than paying the migration twice:
+
+- **DNS**: a wildcard record for `*.liratek.shop`.
+- **Vercel**: add `*.liratek.shop` as a domain on the project, so
+  `<slug>.liratek.shop` serves the same SPA. Vercel issues the wildcard
+  certificate itself once it is the DNS target — which is a real reason to keep
+  Vercel in front rather than moving to the Caddy on-demand shape in § 4.
+- **Backend**: set `APP_BASE_DOMAIN=liratek.shop`. Login then resolves the
+  tenant from the Host, and an unknown subdomain is refused with the same
+  generic error as a bad password.
+- **Never** set `TENANT_HOST_HEADER_OVERRIDE` here — it lets any client claim
+  any tenant via a header.
+
+Until this lands, self-service signup is only half usable: a second shop can be
+created but shares `www.liratek.shop` with everyone, and the no-realm username
+inference (§ 8) deliberately resolves a contested username to the FIRST tenant
+— so the newcomer cannot log in at all.
+
 ## 5. Operations
 
 ```bash
