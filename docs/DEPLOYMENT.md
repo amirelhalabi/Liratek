@@ -107,6 +107,47 @@ with an `ask` endpoint that validates the requested hostname's slug against the
 certificate and no DNS-01 plugin. The `ask` endpoint is part of § Not done yet.
 Until then, list hostnames explicitly in the Caddyfile.
 
+## 4b. Decisions on record
+
+**Quick tunnel now, named tunnel later (decided 2026-09-08).**
+
+The domain `liratek.shop` exists and serves the SPA at `www.liratek.shop`
+through Vercel, but its nameservers are Spaceship's
+(`launch1/launch2.spaceship.net`), not Cloudflare's. A **named** Cloudflare
+tunnel — the thing that would give a stable `api.liratek.shop` and end the
+`vercel.json` edit-and-redeploy on every tunnel restart — requires Cloudflare
+to be the DNS authority for the zone: `cloudflared tunnel route dns` creates a
+CNAME inside a Cloudflare-hosted zone, and a tunnel's own
+`<uuid>.cfargotunnel.com` address resolves only through Cloudflare's
+resolvers, so it cannot be CNAMEd to from an external DNS provider either.
+(The partial/CNAME-only setup that avoids delegation is a Business-plan
+feature.)
+
+Moving the nameservers was deliberately **deferred**: the prize is a stable
+hostname, and a stable hostname matters most once there is a stable server
+behind it — which is the hosting question, still open. Meanwhile
+`yarn web:up` automates the whole restart-and-redeploy cycle, so the churn
+costs one command.
+
+Revisit when the backend moves off a developer PC. The steps then:
+
+1. Add `liratek.shop` to a free Cloudflare account; let it import the records.
+2. Verify the imported Vercel records (`www` CNAME, apex A) and set them to
+   **DNS only** (grey cloud) — proxying would put Cloudflare in front of
+   Vercel in front of the tunnel.
+3. Switch the nameservers at Spaceship.
+4. `cloudflared tunnel login`, create the tunnel, `tunnel route dns` it to
+   `api.liratek.shop`, and point `vercel.json`'s proxied rewrites at that
+   hostname instead of a `trycloudflare.com` one.
+
+**Note what this does NOT fix:** WebSockets. Traffic would still be
+browser → Vercel → tunnel, and Vercel does not forward the `Upgrade`
+handshake to an external origin (verified: HTTP and socket.io long-polling
+return 200, an upgrade request returns 400). Real WebSockets need the frontend
+pointed at `api.liratek.shop` **directly**, which reintroduces a second origin
+and therefore real `CORS_ORIGIN` configuration. Long-polling is still push, so
+there is no functional gap today.
+
 ## 5. Operations
 
 ```bash
