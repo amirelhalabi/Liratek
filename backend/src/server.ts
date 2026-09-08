@@ -89,6 +89,14 @@ app.use("/api/", apiLimiter); // General API rate limiting
 import { auditRequest } from "./middleware/auditRequest.js";
 app.use(auditRequest);
 
+// Push cache invalidation to a tenant s connected clients after any successful
+// write, so the UI does not have to discover changes by polling. Derived from
+// the request in ONE place, so a new route is covered the day it is added --
+// the backend previously had a single emit site and every other mutation was
+// invisible to connected clients.
+import { invalidateOnMutation } from "./middleware/invalidateOnMutation.js";
+app.use(invalidateOnMutation);
+
 // Import routes
 import authRoutes from "./api/auth.js";
 import clientsRoutes from "./api/clients.js";

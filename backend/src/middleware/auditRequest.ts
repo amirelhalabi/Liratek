@@ -35,22 +35,13 @@
 import type { Request, Response, NextFunction } from "express";
 import { getAuditService, createChildLogger } from "@liratek/core";
 import type { CreateAuditLogData } from "@liratek/core";
+import {
+  ACTION_BY_METHOD,
+  entityTypeFromPath,
+  onMutationSuccess,
+} from "./mutationOutcome.js";
 
 const auditLogger = createChildLogger({ module: "audit" });
-
-/** Only state-changing verbs produce audit rows. */
-const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-
-/**
- * Desktop's convention (electron-app/handlers/*): lowercase verbs.
- * Matching it means `action` stays queryable across both transports.
- */
-const ACTION_BY_METHOD: Record<string, string> = {
-  POST: "create",
-  PUT: "update",
-  PATCH: "update",
-  DELETE: "delete",
-};
 
 /**
  * Routes this middleware cannot meaningfully audit.
@@ -99,12 +90,6 @@ function redact(value: unknown, depth = 0): unknown {
   return out;
 }
 
-/** `/api/drawer-topup/from-drawer` -> `drawer_topup` */
-function entityTypeFromPath(path: string): string {
-  const seg = path.replace(/^\/api\//, "").split("/")[0] || "unknown";
-  return seg.replace(/-/g, "_");
-}
-
 /**
  * Write a semantic audit row from inside a REST route.
  *
@@ -145,39 +130,20 @@ export function auditRequest(
   res: Response,
   next: NextFunction,
 ): void {
-  if (!MUTATING_METHODS.has(req.method)) return next();
-  if (EXEMPT_PREFIXES.some((p) => req.path.startsWith(p))) return next();
-
-  const originalJson = res.json.bind(res);
-
-  res.json = (body: unknown): Response => {
+  onMutationSuccess(req, res, EXEMPT_PREFIXES, (body) => {
     try {
       writeRow(req, res, body);
     } catch (error) {
-      // Must never interfere with the response.
       auditLogger.error({ error }, "audit middleware failed");
     }
-    return originalJson(body);
-  };
+  });
 
   next();
 }
 
-function writeRow(req: Request, res: Response, body: unknown): void {
+function writeRow(req: Request, res: Response, _body: unknown): void {
   const user = req.user;
   if (!user) return; // unauthenticated mutations are rejected; nothing to attribute
-
-  // The REST envelope returns HTTP 200 even on failure (`{success:false}`) to
-  // match IPC, so the status code alone does not tell us whether the mutation
-  // happened. Check both.
-  if (res.statusCode >= 400) return;
-  if (
-    body !== null &&
-    typeof body === "object" &&
-    (body as { success?: unknown }).success === false
-  ) {
-    return;
-  }
 
   let serialized: unknown = undefined;
   if (req.body && typeof req.body === "object") {

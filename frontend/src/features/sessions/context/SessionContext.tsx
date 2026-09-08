@@ -10,6 +10,7 @@ import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { isElectron } from "@/api/backendApi";
+import { subscribeToInvalidation } from "@/api/realtime";
 import type { CartItem, CartTotals } from "../types/cart";
 
 /**
@@ -26,9 +27,17 @@ import type { CartItem, CartTotals } from "../types/cart";
  * cadence that is roughly two requests a SECOND, sustained, forever -- which
  * over a tunnelled connection is most of the backend s traffic for data that
  * rarely changes.
+ *
+ * On web these are now a SAFETY NET, not the freshness mechanism: the backend
+ * pushes `data:invalidate` after every successful write (see @/api/realtime),
+ * so a change made by another client lands in well under a second. The poll
+ * only has to catch what push cannot guarantee -- a dropped socket, a slept
+ * laptop, a missed event -- so it can be slow. It is NOT removed: push without
+ * reconciliation diverges silently, and a silently stale drawer figure is one
+ * someone acts on.
  */
-const SESSION_POLL_MS = isElectron() ? 3_000 : 30_000;
-const ACTIVE_SESSION_POLL_MS = isElectron() ? 7_000 : 60_000;
+const SESSION_POLL_MS = isElectron() ? 3_000 : 60_000;
+const ACTIVE_SESSION_POLL_MS = isElectron() ? 7_000 : 120_000;
 
 /**
  * Never poll a backgrounded tab. A hidden browser tab polling forever is pure
@@ -298,6 +307,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       void refreshActiveSessions();
     }, ACTIVE_SESSION_POLL_MS);
     return () => clearInterval(timer);
+  }, [flags.customerSessions, refreshActiveSessions]);
+
+  // Pushed invalidation: the backend emits after any successful write by ANY
+  // client of this tenant, which is what makes the slow poll above acceptable.
+  // No-op on desktop (no socket server) and until the user is authenticated.
+  useEffect(() => {
+    if (!flags.customerSessions) return;
+    const off = subscribeToInvalidation("sessions", () => {
+      if (isTabVisible()) void refreshActiveSessions();
+    });
+    return off;
   }, [flags.customerSessions, refreshActiveSessions]);
 
   // Returning to a backgrounded tab refreshes at once, so the longer web
