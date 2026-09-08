@@ -86,6 +86,7 @@ async function createPartProduct(
       cost_price: a.cost,
       retail_price: a.price,
       stock_quantity: a.stock,
+      barcode: "",
     });
   }, args);
   if (!result.success || result.id == null) {
