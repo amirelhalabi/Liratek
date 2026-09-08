@@ -82,13 +82,6 @@ app.use(requestLogger);
 import { apiLimiter, authLimiter } from "./middleware/rateLimit.js";
 app.use("/api/", apiLimiter); // General API rate limiting
 
-// Web-transport audit trail. Must be mounted BEFORE the routers so its
-// res.json wrapper is in place; it reads req.user at response time, once the
-// router-level authenticateJWT has populated it. Closes the gap where 146
-// audit call sites existed on the desktop IPC side and zero on REST.
-import { auditRequest } from "./middleware/auditRequest.js";
-app.use(auditRequest);
-
 // Push cache invalidation to a tenant s connected clients after any successful
 // write, so the UI does not have to discover changes by polling. Derived from
 // the request in ONE place, so a new route is covered the day it is added --
