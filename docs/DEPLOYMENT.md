@@ -193,6 +193,45 @@ assertion in the same layer, so it fails the build rather than shipping broken).
   a named thermal printer, and the web app is dead when the connection drops.
   The counter keeps Electron; the web app is the remote/owner view.
 
+## Temporary scaffolding — what to delete when the backend gets a real host
+
+Right now the Express backend runs on a developer PC and is exposed through a
+free Cloudflare quick tunnel, with Vercel serving the SPA and proxying `/api`
+to that tunnel. Some of the tooling for that is throwaway; most of today s work
+is not. Keeping the two straight matters, because the throwaway half looks
+load-bearing until you know why it exists.
+
+### Delete
+
+| Thing | Why it goes |
+| --- | --- |
+| `scripts/web-tunnel.mjs` | Its entire job is coping with a hostname that changes on every restart. A hosted backend has a fixed hostname. |
+| `scripts/install-cloudflared.mjs` | Nothing needs `cloudflared` once the backend is not behind a tunnel. |
+| `scripts/refresh-web-db.mjs` | Copies one local SQLite file to another. A real deployment has ONE server database, so there is nothing to copy. (The idea may return as a proper staging-seed tool — that would be a new script, not this one.) |
+| `yarn web:tunnel`, `web:tunnel:install`, `web:up`, `web:db:refresh` | The scripts above, plus `web:up` which only exists to start backend+tunnel+deploy together. |
+| `.tools/` and its `.gitignore` entry | Only ever held the `cloudflared` binary. |
+| The `trycloudflare.com` rewrites in `vercel.json` | Replace the four proxied rewrites destinations with the real backend origin. Keep the rewrites themselves — they are what gives the browser a single origin. |
+| `backend/.env` (local, gitignored) | A convenience for running the backend by hand. A host supplies env vars itself. |
+
+### Keep — these are host-independent and were real fixes
+
+| Thing | Why it stays |
+| --- | --- |
+| `.yarnrc.yml` `yarnPath` + `.yarn/releases/yarn-4.12.0.cjs` | Pins Yarn 4 for any host or CI without corepack. Yarn 1 cannot resolve the `workspace:*` protocol, so without this an install fetches `@liratek/core` from the registry and fails. |
+| `backend/package.json` build = `yarn workspace @liratek/core build && tsc` | `@liratek/core`s `dist/` is not committed, so building the backend alone produced a bundle importing a package that did not exist. |
+| `httpClient.ts` same-origin API base | Lets ONE frontend build work on any hostname — preview URLs, a production domain, per-tenant subdomains — with no rebaked URL. Required by any single-origin deployment, tunnel or not. |
+| `socket.ts` reusing `getBaseUrl()` | One resolver instead of a hardcoded `localhost:3000`. |
+| `app.set("trust proxy", 1)` in `server.ts` | Needed behind ANY reverse proxy, or the per-IP rate limiter collapses into one shared bucket. |
+| Root `package-lock.json` deleted + gitignored | It was stale by twelve minor versions and made package-manager detection ambiguous; Vercel picked npm from it and npm cannot resolve `workspace:*`. |
+| `.gitattributes` LF pinning | Shell scripts and Dockerfiles must not get CRLF, or they fail on Linux. |
+| `yarn web:build`, `web:backend`, `web:deploy` | Building core+backend and starting `node dist/server.js` are what ANY host does. `web:deploy` stays as long as the frontend is on Vercel. |
+| `Dockerfile`, `backend/Dockerfile`, `docker-compose.yml`, `nginx.conf`, `scripts/deploy-smoke.sh` | The self-hosted path. Still valid the day you want one box running both halves. |
+
+### The one-line summary
+
+The tunnel scripts are a workaround for *where the backend runs*. Everything
+else fixed how the app *builds and finds its API*, which every deployment needs.
+
 ## 9. Related
 
 | What                                | Where                                                       |

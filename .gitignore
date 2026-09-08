@@ -160,3 +160,6 @@ packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDe
 # (EUNSUPPORTEDPROTOCOL). The one that used to be committed here was stale by
 # twelve minor versions.
 /package-lock.json
+
+# Repo-local tool binaries (yarn web:tunnel:install downloads cloudflared here)
+.tools/

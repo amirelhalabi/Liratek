@@ -4,27 +4,24 @@
       "root": "frontend",
       "framework": "vite",
       "installCommand": "cd .. && yarn install && yarn workspace @liratek/core build"
-    },
-    "backend": {
-      "root": "backend",
-      "entrypoint": "src/server.ts",
-      "installCommand": "cd .. && yarn install && yarn workspace @liratek/core build"
     }
   },
   "rewrites": [
     {
-      "source": "/health(/.*)?",
-      "destination": {
-        "type": "service",
-        "service": "backend"
-      }
+      "source": "/health",
+      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/health"
     },
     {
-      "source": "/api(/.*)?",
-      "destination": {
-        "type": "service",
-        "service": "backend"
-      }
+      "source": "/health/:path*",
+      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/health/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/api/:path*"
+    },
+    {
+      "source": "/socket.io/:path*",
+      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/socket.io/:path*"
     },
     {
       "source": "/(.*)",
