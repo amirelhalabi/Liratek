@@ -10,6 +10,12 @@ import {
   type ModuleEntity,
 } from "../repositories/ModuleRepository.js";
 import { toErrorString } from "../utils/errors.js";
+import {
+  getSubscriptionService,
+  type SubscriptionService,
+} from "./SubscriptionService.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
+import { isUngateableModule } from "../constants/subscription.js";
 
 // =============================================================================
 // Types
@@ -26,9 +32,51 @@ export interface ModuleResult {
 
 export class ModuleService {
   private moduleRepo: ModuleRepository;
+  private subscriptions: SubscriptionService;
 
-  constructor(moduleRepo?: ModuleRepository) {
+  constructor(
+    moduleRepo?: ModuleRepository,
+    subscriptions?: SubscriptionService,
+  ) {
     this.moduleRepo = moduleRepo ?? getModuleRepository();
+    this.subscriptions = subscriptions ?? getSubscriptionService();
+  }
+
+  /**
+   * Drop modules this tenant is not entitled to.
+   *
+   * The intersection rule, in the ONE place both transports read modules
+   * from: `is_enabled` is the tenant's own choice (their admin can toggle
+   * it), `entitled_modules` is what they pay for and cannot edit. A shop
+   * gets modules that are BOTH.
+   *
+   * FAILS OPEN at every step — no tenant context, no subscription row, a
+   * NULL allowlist, or a thrown lookup all return the list untouched. Two
+   * paying desktop customers were live when this landed and neither had a
+   * licence key; anything stricter would have taken modules away from
+   * someone mid-shift.
+   */
+  private filterByEntitlement(modules: ModuleEntity[]): ModuleEntity[] {
+    let tenantId: number;
+    try {
+      // Fail-closed by design outside a context, which is why this is
+      // guarded: a read with no ambient tenant must not start throwing
+      // where it previously returned a list.
+      tenantId = getCurrentTenantId();
+    } catch {
+      return modules;
+    }
+
+    try {
+      const view = this.subscriptions.statusFor(tenantId);
+      if (!view || view.entitledModules === null) return modules;
+      const allowed = new Set(view.entitledModules);
+      return modules.filter(
+        (m) => isUngateableModule(m.key) || allowed.has(m.key),
+      );
+    } catch {
+      return modules;
+    }
   }
 
   /** Get all modules */
@@ -36,14 +84,28 @@ export class ModuleService {
     return this.moduleRepo.getAll();
   }
 
-  /** Get only enabled modules (for sidebar) */
+  /**
+   * Enabled modules for the sidebar, minus anything unentitled.
+   *
+   * Gated HERE rather than in each transport: this is the single read the
+   * nav and the dashboard are built from, so one filter covers IPC and
+   * REST both (rules 13/19). A copy in the main process or the router
+   * would be a second implementation of the same rule.
+   */
   getEnabledModules(): ModuleEntity[] {
-    return this.moduleRepo.getEnabledModules();
+    return this.filterByEntitlement(this.moduleRepo.getEnabledModules());
   }
 
-  /** Get non-system modules (for Settings > Modules tab) */
+  /**
+   * Toggleable modules for Settings, also filtered.
+   *
+   * Deliberate: showing an unentitled module as toggleable lets an admin
+   * switch it ON, see it confirmed, and then never find it in the nav —
+   * which reads as a bug rather than a plan boundary. What you can see is
+   * what you have. (An upsell list is a separate feature, not this one.)
+   */
   getToggleableModules(): ModuleEntity[] {
-    return this.moduleRepo.getToggleableModules();
+    return this.filterByEntitlement(this.moduleRepo.getToggleableModules());
   }
 
   /** Enable or disable a single module */

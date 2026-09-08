@@ -25,6 +25,63 @@ import { logger } from "../server.js";
 
 const router = express.Router();
 
+/**
+ * GET /api/subscription/by-key — the DESKTOP channel.
+ *
+ * Authenticated by the licence key itself, in a header, because a desktop
+ * install has no JWT: it never logs in to the server at all. Its users
+ * authenticate against its OWN local database, and this is the only call the
+ * desktop app makes outward.
+ *
+ * Declared BEFORE `router.use(authenticateJWT)` deliberately — that is what
+ * keeps it reachable without a token. Anything added after this line inherits
+ * JWT auth.
+ *
+ * Returns 404 for an unknown key rather than 401/403: the desktop client
+ * treats every failure identically (keep working — fail open), and a 404
+ * distinguishes "this key is not ours" from "the server is unwell" in a log
+ * without telling a probe anything it could not learn by trying.
+ */
+router.get("/by-key", (req, res): void => {
+  try {
+    const key = req.header("x-liratek-license-key")?.trim();
+    if (!key) {
+      res
+        .status(400)
+        .json(
+          createErrorResponse(
+            ErrorCodes.VALIDATION_ERROR,
+            "Missing licence key",
+          ),
+        );
+      return;
+    }
+
+    const view = getSubscriptionService().statusForLicenseKey(key);
+    if (!view) {
+      res
+        .status(404)
+        .json(createErrorResponse(ErrorCodes.NOT_FOUND, "Unknown licence key"));
+      return;
+    }
+
+    // tenantId is echoed so a support conversation can confirm WHICH shop a
+    // key belongs to. It is not a secret — the holder of the key already is
+    // that tenant.
+    res.json(createSuccessResponse(view));
+  } catch (error) {
+    logger.error({ error }, "subscription by-key failed");
+    res
+      .status(500)
+      .json(
+        createErrorResponse(
+          ErrorCodes.INTERNAL_ERROR,
+          "Failed to load subscription",
+        ),
+      );
+  }
+});
+
 router.use(authenticateJWT);
 
 // GET /api/subscription/status
