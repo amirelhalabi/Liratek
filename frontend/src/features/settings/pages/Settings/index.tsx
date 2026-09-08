@@ -4,6 +4,7 @@ import { Tag } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
 import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
+import LicensePanel from "./LicensePanel";
 import CurrencyManager from "./CurrencyManager";
 import ShopConfig from "./ShopConfig";
 import NotificationsConfig from "./NotificationsConfig";
@@ -25,7 +26,8 @@ type TabKey =
   | "integrations"
   | "mobile-services"
   | "carrier-lines"
-  | "profits";
+  | "profits"
+  | "license";
 
 /** Every valid tab key — the single source of truth for the `?tab=` deep
  *  link below, so a new tab automatically becomes a valid deep-link target
@@ -42,6 +44,7 @@ const TAB_KEYS: readonly TabKey[] = [
   "mobile-services",
   "carrier-lines",
   "profits",
+  "license",
 ];
 
 function isTabKey(value: string | null): value is TabKey {
@@ -83,6 +86,7 @@ export default function Settings() {
     { key: "mobile-services", label: "Mobile Services" },
     { key: "carrier-lines", label: "Carrier Lines" },
     { key: "diagnostics", label: "Diagnostics" },
+    { key: "license", label: "Licence" },
   ] as { key: TabKey; label: string; icon?: typeof Tag }[];
 
   return (
@@ -114,6 +118,7 @@ export default function Settings() {
           {active === "mobile-services" && <MobileServicesManager />}
           {active === "carrier-lines" && <CarrierLinesManager />}
           {active === "diagnostics" && <Diagnostics />}
+          {active === "license" && <LicensePanel />}
         </div>
       </div>
     </div>

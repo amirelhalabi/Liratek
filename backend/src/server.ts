@@ -89,6 +89,7 @@ app.use("/api/", apiLimiter); // General API rate limiting
 // invisible to connected clients.
 import { invalidateOnMutation } from "./middleware/invalidateOnMutation.js";
 import { requireWritableSubscription } from "./middleware/requireWritableSubscription.js";
+import { startLapseSweep } from "./services/lapseSweep.js";
 app.use(invalidateOnMutation);
 
 // Block writes for a tenant whose subscription has lapsed to read_only.
@@ -233,6 +234,10 @@ httpServer.listen(PORT, HOST, () => {
     `🚀 Server running on http://${HOST}:${PORT}`,
   );
   logger.info(`📡 WebSocket server ready`);
+
+  // Move lapsed subscriptions along. Idempotent and hourly, so a missed run
+  // or a double run both equal one run -- see lapseSweep.ts.
+  startLapseSweep();
 });
 
 // Graceful shutdown
