@@ -23,6 +23,40 @@ CREATE TABLE IF NOT EXISTS tenants (
 -- fresh-install path.
 INSERT OR IGNORE INTO tenants (id, name, slug, status) VALUES (1, 'Default', 'default', 'active');
 
+-- Commercial state per tenant (migration v173). ONE tier, so there is no
+-- plan/module entitlement matrix: enforcement is only whether a shop is in
+-- good standing. 'read_only' is the end of the lapse path and there is no
+-- 'suspended' here on purpose -- never hard-locking is the decision, and
+-- suspension for abuse is tenants.status, which gates login itself.
+CREATE TABLE IF NOT EXISTS tenant_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    plan TEXT NOT NULL DEFAULT 'standard',
+    status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'grace', 'read_only')),
+    current_period_end DATETIME,
+    grace_ends_at DATETIME,
+    license_key TEXT,
+    -- JSON array of module keys this tenant pays for; NULL means EVERY
+    -- module. Absence of an allowlist is permission, not denial -- an empty
+    -- array would mean nothing is allowed, so the two must not be conflated.
+    entitled_modules TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_subscriptions_tenant
+    ON tenant_subscriptions(tenant_id);
+-- PARTIAL: license_key is the desktop identity, so two shops must never
+-- share one, but most rows have none.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_subscriptions_key
+    ON tenant_subscriptions(license_key) WHERE license_key IS NOT NULL;
+
+-- Desktop's own tenant starts in good standing with no expiry, matching the
+-- v173 grandfathering. A fresh install must never boot read-only.
+INSERT OR IGNORE INTO tenant_subscriptions (tenant_id, plan, status, current_period_end)
+    VALUES (1, 'standard', 'active', NULL);
+
 -- =============================================================================
 -- 1. Core System Tables
 -- =============================================================================

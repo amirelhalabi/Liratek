@@ -10887,6 +10887,119 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 173,
+    name: "tenant_subscriptions",
+    type: "typescript",
+    description:
+      "Commercial state for a tenant, which nothing tracked before: a shop created by " +
+      "self-service signup was indistinguishable from a paying one. " +
+      "" +
+      "Entitlement is a PER-TENANT MODULE ALLOWLIST (`entitled_modules`), not a named " +
+      "tier. The owner has two live desktop customers on visibly different module sets " +
+      "and wants to manage each directly; fixed bundles would force a third tier the " +
+      "first time someone asks for 'basics plus Recharge'. Named tiers can later be " +
+      "presets that fill this column in. " +
+      "" +
+      "The allowlist MUST live here rather than in `modules`, because that table is " +
+      "writable by the TENANT'S OWN admin (backend/src/api/modules.ts requireRole admin) " +
+      "-- a shop could otherwise grant itself the upgrade by toggling a row. What a shop " +
+      "actually gets is the intersection: entitled AND enabled. " +
+      "" +
+      "Other owner decisions this encodes (SUBSCRIPTION_MANAGEMENT_PLAN.md \u00a7 3): " +
+      "NO trial, so a new tenant is active with a NULL period end; and a lapse path that " +
+      "ends in read_only and NEVER in a lockout. " +
+      "" +
+      "A separate table rather than columns on `tenants` for two reasons. First, " +
+      "`tenants.status` answers 'may this shop log in at all' and is already load-bearing " +
+      "in AuthService.login; subscription state answers 'what may it do'. Fusing them would " +
+      "make every late payment a lockout, which is the exact outcome D4 rejects. Second, " +
+      "adding a value to that CHECK would need the 12-step SQLite table rebuild on a table " +
+      "that is the FK target of 22 others (see v172) for no benefit. " +
+      "" +
+      "There is deliberately no 'suspended' status here: never hard-locking is the decision, " +
+      "and suspension for abuse already exists as tenants.status. " +
+      "" +
+      "EXISTING TENANTS ARE GRANDFATHERED: every current tenant gets an active row with a " +
+      "NULL period end, so applying this changes nothing for anyone already running. Without " +
+      "that backfill the write-block middleware would have to guess what a missing row means, " +
+      "and either guess would be wrong for somebody.",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS tenant_subscriptions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          plan TEXT NOT NULL DEFAULT 'standard',
+          status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active', 'grace', 'read_only')),
+          current_period_end DATETIME,
+          grace_ends_at DATETIME,
+          license_key TEXT,
+          -- JSON array of module keys this tenant pays for.
+          --
+          -- NULL means EVERY module, and that is the load-bearing part: it
+          -- is what lets the backfill below grandfather existing customers
+          -- without the owner having to enumerate what each of them already
+          -- uses. An empty array would mean 'nothing', so the two states
+          -- must not be conflated -- absence of an allowlist is permission,
+          -- not denial, which matches the fail-open enforcement model.
+          entitled_modules TEXT,
+          notes TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // One subscription per tenant. The UNIQUE index is what lets every
+      // read do `WHERE tenant_id = ?` without worrying about duplicates,
+      // and what makes the signup insert idempotent under retry.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_subscriptions_tenant
+          ON tenant_subscriptions(tenant_id);
+      `);
+
+      // PARTIAL unique: license_key is the desktop identity, so two shops
+      // must never share one -- but most rows have none, and NULLs are
+      // distinct in a SQLite unique index only if the index does not span
+      // them. Without the WHERE clause this would still work, but the
+      // intent (at most one row per REAL key) would be accidental.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_subscriptions_key
+          ON tenant_subscriptions(license_key) WHERE license_key IS NOT NULL;
+      `);
+
+      // Grandfather everyone who already exists: active, no expiry, and
+      // entitled_modules NULL, which means EVERY module. Two paying desktop
+      // customers are live at the time this ships and neither has a license
+      // key, so anything other than 'unrestricted' here would take modules
+      // away from someone who is paying for them.
+      //
+      // INSERT ... SELECT with a
+      // NOT EXISTS guard rather than INSERT OR IGNORE: the latter would
+      // also swallow a genuine constraint failure and report success.
+      const backfilled = db
+        .prepare(
+          `INSERT INTO tenant_subscriptions (tenant_id, plan, status, current_period_end)
+             SELECT t.id, 'standard', 'active', NULL
+               FROM tenants t
+              WHERE NOT EXISTS (
+                SELECT 1 FROM tenant_subscriptions s WHERE s.tenant_id = t.id
+              )`,
+        )
+        .run();
+
+      console.log(
+        `Migration v173: tenant_subscriptions created; ${backfilled.changes} ` +
+          `existing tenant(s) grandfathered as active with no expiry`,
+      );
+    },
+    down: (db) => {
+      db.exec(`DROP INDEX IF EXISTS idx_tenant_subscriptions_key;`);
+      db.exec(`DROP INDEX IF EXISTS idx_tenant_subscriptions_tenant;`);
+      db.exec(`DROP TABLE IF EXISTS tenant_subscriptions;`);
+      console.log("Migration v173 rolled back: tenant_subscriptions dropped");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
