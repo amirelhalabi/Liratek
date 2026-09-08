@@ -339,18 +339,55 @@ assertion in the same layer, so it fails the build rather than shipping broken).
 
 ## 8. Not done yet
 
-- **Subdomain-scoped login — BUILT, switched off until a domain exists.**
-  Set `APP_BASE_DOMAIN` (e.g. `liratek.app`) and the backend resolves the
-  tenant from the request Host: `<slug>.liratek.app` is that tenant's realm,
-  the apex (and `admin.`/`www.`) is the platform realm for super admins.
-  Login then refuses credentials belonging to another tenant, refuses
-  unknown subdomains, and refuses a suspended or archived tenant — with the
-  same generic error as a bad password, so subdomains cannot be probed.
-  Unset, it is a no-op, which is why the current `vercel.app`/IP deployment
-  is unaffected. `TENANT_HOST_HEADER_OVERRIDE=true` swaps Host for an
-  `X-Tenant-Slug` header for local testing; never enable it in production.
-  Still open: per-tenant TLS (Caddy on-demand TLS with an `ask` endpoint,
-  see § 4).
+- **Subdomain-scoped login — LIVE since 2026-09-08.** `APP_BASE_DOMAIN=liratek.shop`
+  is set, so the backend resolves the tenant from the request Host. Verified
+  against the real deployment, not just unit tests — the matrix below was run
+  both locally (varying the `Host` header against 127.0.0.1) and end to end
+  through Vercel:
+
+  | Host                       | credentials                    | result                                      |
+  | -------------------------- | ------------------------------ | ------------------------------------------- |
+  | `<slug>.liratek.shop`      | that tenant's admin            | **accepted**, token issued                  |
+  | `<slug>.liratek.shop`      | wrong password                 | refused                                     |
+  | another tenant's subdomain | tenant A's admin               | refused                                     |
+  | `nosuchshop.liratek.shop`  | anything                       | refused                                     |
+  | `www.liratek.shop`         | a non-incumbent tenant's admin | refused                                     |
+  | `liratek.shop` (apex)      | —                              | **308 → www before it reaches the backend** |
+
+  The refusals all use the same generic error as a bad password, so subdomains
+  cannot be probed.
+
+  **The non-obvious part, and the thing most likely to break this later: the
+  original Host survives Vercel's rewrite to the tunnel.** `/api/*` is
+  rewritten to `api.liratek.shop`, so a naive reading says the backend sees
+  Host `api.liratek.shop` — which resolves to label `api`, no such tenant,
+  and would refuse EVERY web login. It works because Vercel sends
+  `X-Forwarded-Host` with the original hostname and Express honours it via
+  `req.hostname` under `trust proxy` (set in `server.ts`). If `trust proxy`
+  is ever removed, or a future proxy drops that header, every tenant login
+  breaks at once with a generic "invalid username or password" — a symptom
+  that points nowhere near the cause. Proven by a real login on
+  `signup-probe.liratek.shop` returning a token through Vercel.
+
+  Onboarding a tenant is two clicks and no deploy: a `CNAME <slug>` →
+  `13746778f9200660.vercel-dns-017.com` in Cloudflare (**DNS only**, grey —
+  Vercel must terminate TLS), then add `<slug>.liratek.shop` to the Vercel
+  project. Vercel issues the certificate itself, and `vercel.json`'s rewrites
+  are project-wide, so the new subdomain proxies `/api` to the tunnel with no
+  extra config.
+
+  `www` is deliberately INERT (behaves as if no base domain), which is what
+  keeps the existing login working; see `tenantHost.ts` for why treating it as
+  either a tenant or the platform would lock users out.
+  `TENANT_HOST_HEADER_OVERRIDE=true` swaps Host for an `X-Tenant-Slug` header
+  for local testing; never enable it in production.
+
+  Still open: a WILDCARD `*.liratek.shop` so onboarding needs no clicks at all.
+  Not done because Vercel's wildcard certificates want Vercel's own
+  nameservers, which would rule out the Cloudflare named tunnel — and
+  per-tenant domains added one at a time work today. Revisit when the click
+  gets tedious.
+
 - **Per-tenant usernames — DONE** (migration v172, 2026-09-08). Usernames used
   to be globally unique, so only one shop on the whole platform could have an
   `admin`. They are now unique per tenant: `users.username` lost its table-wide
