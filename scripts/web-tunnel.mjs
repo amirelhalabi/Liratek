@@ -42,7 +42,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -151,11 +151,40 @@ function patchVercelJson(origin) {
 // Everything below the quick-tunnel branch -- URL capture, JSON rewriting,
 // an automatic `vercel deploy` -- exists ONLY to chase a hostname that changes.
 //
-// Set TUNNEL_NAME to switch. One-time setup (see docs/DEPLOYMENT.md 4c), and
-// note the hard prerequisite: `tunnel route dns` writes a CNAME to
+// This is now the DEFAULT: `liratek-web` exists (created 2026-09-08, id
+// 722b2841-15e8-410f-9031-70927d4cacdf) and api.liratek.shop is routed to it,
+// so `yarn web:up` should use it without anyone having to remember an env var.
+//
+// It is chosen only when the tunnel's credentials are actually present, because
+// `cloudflared tunnel run` on a machine that has never logged in fails with a
+// certificate error that says nothing about the cause. Absent credentials, the
+// quick tunnel still works, which keeps this script usable on a fresh clone.
+//
+// Overrides: TUNNEL_NAME=<other> picks a different tunnel, TUNNEL_NAME= (empty)
+// or TUNNEL_QUICK=1 forces the quick tunnel.
+//
+// The hard prerequisite for any of this: `tunnel route dns` writes a CNAME to
 // <id>.cfargotunnel.com, which resolves only for a zone CLOUDFLARE hosts. On a
 // registrar's own nameservers there is no named-tunnel option at all.
-const TUNNEL_NAME = process.env.TUNNEL_NAME;
+const DEFAULT_TUNNEL_NAME = "liratek-web";
+
+function haveTunnelCredentials() {
+  try {
+    // `tunnel login` writes cert.pem; `tunnel create` writes <id>.json beside
+    // it. Both are needed, and neither lives in the repo.
+    const dir = join(homedir(), ".cloudflared");
+    if (!existsSync(join(dir, "cert.pem"))) return false;
+    return readdirSync(dir).some((f) => /^[0-9a-f-]{36}\.json$/i.test(f));
+  } catch {
+    return false;
+  }
+}
+
+const TUNNEL_NAME =
+  process.env.TUNNEL_QUICK === "1"
+    ? ""
+    : (process.env.TUNNEL_NAME ??
+      (haveTunnelCredentials() ? DEFAULT_TUNNEL_NAME : ""));
 const named = Boolean(TUNNEL_NAME);
 
 // ── run it ──────────────────────────────────────────────────────────────────
