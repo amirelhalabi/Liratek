@@ -20,8 +20,8 @@
       "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/api/:path*"
     },
     {
-      "source": "/socket.io/:path*",
-      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/socket.io/:path*"
+      "source": "/socket.io/:path(.*)",
+      "destination": "https://seafood-perl-innocent-organize.trycloudflare.com/socket.io/:path"
     },
     {
       "source": "/(.*)",

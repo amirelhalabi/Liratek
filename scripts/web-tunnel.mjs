@@ -128,7 +128,12 @@ function patchVercelJson(origin) {
       { source: "/health", destination: `${origin}/health` },
       { source: "/health/:path*", destination: `${origin}/health/:path*` },
       { source: "/api/:path*", destination: `${origin}/api/:path*` },
-      { source: "/socket.io/:path*", destination: `${origin}/socket.io/:path*` },
+      // ":path*" does not match "/socket.io/" with an empty remainder, which
+      // 404s the handshake; ":path(.*)" matches empty too.
+      {
+        source: "/socket.io/:path(.*)",
+        destination: `${origin}/socket.io/:path`,
+      },
     ];
     const catchAllAt = cfg.rewrites.findIndex((r) => r.source === "/(.*)");
     if (catchAllAt === -1) cfg.rewrites.push(...proxied);
