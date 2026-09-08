@@ -9,19 +9,19 @@
   "rewrites": [
     {
       "source": "/health",
-      "destination": "https://proved-ecological-sauce-gains.trycloudflare.com/health"
+      "destination": "https://api.liratek.shop/health"
     },
     {
       "source": "/health/:path*",
-      "destination": "https://proved-ecological-sauce-gains.trycloudflare.com/health/:path*"
+      "destination": "https://api.liratek.shop/health/:path*"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://proved-ecological-sauce-gains.trycloudflare.com/api/:path*"
+      "destination": "https://api.liratek.shop/api/:path*"
     },
     {
       "source": "/socket.io/:path(.*)",
-      "destination": "https://proved-ecological-sauce-gains.trycloudflare.com/socket.io/:path"
+      "destination": "https://api.liratek.shop/socket.io/:path"
     },
     {
       "source": "/(.*)",
