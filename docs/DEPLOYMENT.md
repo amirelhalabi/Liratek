@@ -177,12 +177,31 @@ Everything below the flag is a ONE-TIME setup, and step 1 is the gate — see
    and commit that **once**. It never changes again, which is the entire point.
 6. From then on: `TUNNEL_NAME=liratek-web yarn web:up`.
 
-_Unverified (no Cloudflare-hosted zone on this machine to test against): the
-script runs `cloudflared tunnel --url http://127.0.0.1:PORT --edge-ip-version 4
---no-autoupdate run <name>`, i.e. inline ingress rather than a `config.yml`,
-which is the form Cloudflare's own docs use. If that flag order is rejected,
-the fallback is a `config.yml` with `url:` + `tunnel:` + `credentials-file:`
-and a bare `cloudflared tunnel run <name>`._
+**VERIFIED 2026-09-08.** The zone moved to Cloudflare and the whole path was
+exercised end to end: tunnel `liratek-web`
+(`722b2841-15e8-410f-9031-70927d4cacdf`), `api.liratek.shop` CNAME created by
+`tunnel route dns`, and `TUNNEL_NAME=liratek-web yarn web:tunnel` came up with
+4 registered QUIC edge connections. The inline-ingress form
+`cloudflared tunnel --url http://127.0.0.1:PORT --edge-ip-version 4
+--no-autoupdate run <name>` **is accepted** by cloudflared 2026.8.3 — no
+`config.yml` needed (it logs "Cannot determine default configuration path" and
+proceeds, which is expected, not an error).
+
+Credentials live at `~/.cloudflared/<tunnel-id>.json` plus `cert.pem`. **Neither
+belongs in git** — the JSON is a bearer credential for the tunnel; revoking it
+means deleting the tunnel.
+
+One ordering note worth keeping: `api.liratek.shop` is NXDOMAIN until the
+nameserver delegation actually propagates, so keep the OLD quick tunnel running
+and switch `vercel.json` only after `https://api.liratek.shop/health` answers.
+Switching first just takes `/api` down for the length of the TTL.
+
+Do NOT re-enable DNSSEC at the registrar during the move. Disabling zone signing
+while the registry still publishes the DS leaves every validating resolver
+(1.1.1.1, 8.8.8.8) returning SERVFAIL — the domain disappears until the registry
+drops the DS. That happened here; it cleared on its own once the `.shop`
+registry processed the removal, and the tell is
+`EDE(9): DNSKEY Missing no SEP matching the DS`.
 
 ### The same DNS move unlocks per-tenant subdomains
 

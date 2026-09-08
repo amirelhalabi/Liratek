@@ -163,3 +163,9 @@ packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDe
 
 # Repo-local tool binaries (yarn web:tunnel:install downloads cloudflared here)
 .tools/
+
+# Cloudflare tunnel credentials. They normally live in ~/.cloudflared/, but a
+# copied folder or cert must never land here: the <tunnel-id>.json is a bearer
+# credential for the tunnel and revoking it means deleting the tunnel.
+.cloudflared/
+/cert.pem
