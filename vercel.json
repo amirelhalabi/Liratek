@@ -9,19 +9,19 @@
   "rewrites": [
     {
       "source": "/health",
-      "destination": "https://influences-theft-utility-arrange.trycloudflare.com/health"
+      "destination": "https://proved-ecological-sauce-gains.trycloudflare.com/health"
     },
     {
       "source": "/health/:path*",
-      "destination": "https://influences-theft-utility-arrange.trycloudflare.com/health/:path*"
+      "destination": "https://proved-ecological-sauce-gains.trycloudflare.com/health/:path*"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://influences-theft-utility-arrange.trycloudflare.com/api/:path*"
+      "destination": "https://proved-ecological-sauce-gains.trycloudflare.com/api/:path*"
     },
     {
       "source": "/socket.io/:path(.*)",
-      "destination": "https://influences-theft-utility-arrange.trycloudflare.com/socket.io/:path"
+      "destination": "https://proved-ecological-sauce-gains.trycloudflare.com/socket.io/:path"
     },
     {
       "source": "/(.*)",
