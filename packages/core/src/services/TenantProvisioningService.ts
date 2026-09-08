@@ -19,6 +19,10 @@ import {
   getUserRepository,
   type UserRepository,
 } from "../repositories/UserRepository.js";
+import {
+  getSubscriptionRepository,
+  type SubscriptionRepository,
+} from "../repositories/SubscriptionRepository.js";
 import { hashPassword, validatePasswordComplexity } from "../utils/crypto.js";
 import { ValidationError, ConflictError } from "../utils/errors.js";
 import { assertValidTenantSlug } from "../utils/tenantSlug.js";
@@ -45,10 +49,16 @@ export interface ProvisionTenantData {
 export class TenantProvisioningService {
   private tenantRepo: TenantRepository;
   private userRepo: UserRepository;
+  private subscriptionRepo: SubscriptionRepository;
 
-  constructor(tenantRepo?: TenantRepository, userRepo?: UserRepository) {
+  constructor(
+    tenantRepo?: TenantRepository,
+    userRepo?: UserRepository,
+    subscriptionRepo?: SubscriptionRepository,
+  ) {
     this.tenantRepo = tenantRepo ?? getTenantRepository();
     this.userRepo = userRepo ?? getUserRepository();
+    this.subscriptionRepo = subscriptionRepo ?? getSubscriptionRepository();
   }
 
   /**
@@ -119,6 +129,24 @@ export class TenantProvisioningService {
           role: "admin",
           is_active: 1,
           tenant_id: created.id,
+        });
+
+        // Commercial state, in the SAME transaction as the tenant row.
+        //
+        // Not a follow-up statement in the caller: a tenant that exists
+        // with no subscription is a tenant whose standing has to be
+        // GUESSED, and the guess is load-bearing (absent means full
+        // access, so a half-provisioned shop would silently be unlimited).
+        // Rolling both back together is the only state that cannot lie.
+        //
+        // active with a NULL period end, and NULL entitled_modules for
+        // every module: no trial, and no plan restriction until the owner
+        // sets one (SUBSCRIPTION_MANAGEMENT_PLAN.md D2/D6).
+        this.subscriptionRepo.createForTenant(created.id, {
+          plan: "standard",
+          status: "active",
+          current_period_end: null,
+          entitled_modules: null,
         });
 
         return created;
