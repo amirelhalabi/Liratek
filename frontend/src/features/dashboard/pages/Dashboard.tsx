@@ -1,11 +1,5 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  lazy,
-  Suspense,
-} from "react";
+import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
+import { lazyWithReload } from "@/shared/utils/lazyWithReload";
 import { useNavigate } from "react-router-dom";
 import {
   appEvents,
@@ -51,7 +45,9 @@ import {
   carrierLineAlertText,
 } from "../utils/carrierLineAlerts";
 
-const DashboardChart = lazy(() => import("../components/DashboardChart"));
+const DashboardChart = lazyWithReload(
+  () => import("../components/DashboardChart"),
+);
 
 type ChartType = "Sales" | "Profit";
 

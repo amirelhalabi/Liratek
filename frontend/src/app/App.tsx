@@ -1,5 +1,6 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
-import { lazy, Suspense, useEffect } from "react";
+import { lazyWithReload } from "@/shared/utils/lazyWithReload";
+import { Suspense, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { SessionProvider } from "@/features/sessions/context/SessionContext";
@@ -11,41 +12,65 @@ import Login from "@/features/auth/pages/Login";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
 
 // Lazy-loaded routes
-const ProductList = lazy(
+const ProductList = lazyWithReload(
   () => import("@/features/inventory/pages/Inventory/ProductList"),
 );
-const PhoneUnits = lazy(() => import("@/features/inventory/pages/PhoneUnits"));
-const ClientList = lazy(
+const PhoneUnits = lazyWithReload(
+  () => import("@/features/inventory/pages/PhoneUnits"),
+);
+const ClientList = lazyWithReload(
   () => import("@/features/clients/pages/Clients/ClientList"),
 );
-const POS = lazy(() => import("@/features/sales/pages/POS"));
-const Debts = lazy(() => import("@/features/debts/pages/Debts"));
-const Exchange = lazy(() => import("@/features/exchange/pages/Exchange"));
-const Services = lazy(() => import("@/features/services/pages/Services"));
-const Recharge = lazy(() => import("@/features/recharge/pages/Recharge"));
-const Expenses = lazy(() => import("@/features/expenses/pages/Expenses"));
-const Loto = lazy(() => import("@/features/loto/pages/Loto"));
-const Maintenance = lazy(
+const POS = lazyWithReload(() => import("@/features/sales/pages/POS"));
+const Debts = lazyWithReload(() => import("@/features/debts/pages/Debts"));
+const Exchange = lazyWithReload(
+  () => import("@/features/exchange/pages/Exchange"),
+);
+const Services = lazyWithReload(
+  () => import("@/features/services/pages/Services"),
+);
+const Recharge = lazyWithReload(
+  () => import("@/features/recharge/pages/Recharge"),
+);
+const Expenses = lazyWithReload(
+  () => import("@/features/expenses/pages/Expenses"),
+);
+const Loto = lazyWithReload(() => import("@/features/loto/pages/Loto"));
+const Maintenance = lazyWithReload(
   () => import("@/features/maintenance/pages/Maintenance"),
 );
-const CustomServices = lazy(
+const CustomServices = lazyWithReload(
   () => import("@/features/custom-services/pages/CustomServices"),
 );
-const Settings = lazy(() => import("@/features/settings/pages/Settings"));
-const Profits = lazy(() => import("@/features/profits/pages/Profits"));
-const CheckpointTimeline = lazy(
+const Settings = lazyWithReload(
+  () => import("@/features/settings/pages/Settings"),
+);
+const Profits = lazyWithReload(
+  () => import("@/features/profits/pages/Profits"),
+);
+const CheckpointTimeline = lazyWithReload(
   () => import("@/features/closing/pages/CheckpointTimeline"),
 );
-const SetupWizard = lazy(() => import("@/features/setup/SetupWizard"));
-const AuditPage = lazy(() => import("@/features/audit/pages/AuditPage"));
-const CustomerSessions = lazy(
+const SetupWizard = lazyWithReload(
+  () => import("@/features/setup/SetupWizard"),
+);
+const AuditPage = lazyWithReload(
+  () => import("@/features/audit/pages/AuditPage"),
+);
+const CustomerSessions = lazyWithReload(
   () => import("@/features/sessions/pages/CustomerSessions"),
 );
-const Partners = lazy(() => import("@/features/partners/pages/Partners"));
-const Suppliers = lazy(() => import("@/features/suppliers/pages/Suppliers"));
-const Vouchers = lazy(() => import("@/features/vouchers/pages/Vouchers"));
+const Partners = lazyWithReload(
+  () => import("@/features/partners/pages/Partners"),
+);
+const Suppliers = lazyWithReload(
+  () => import("@/features/suppliers/pages/Suppliers"),
+);
+const Vouchers = lazyWithReload(
+  () => import("@/features/vouchers/pages/Vouchers"),
+);
 // Super-admin control plane (web-only — plan §5). No Electron equivalent.
-const Tenants = lazy(() => import("@/features/admin/pages/Tenants"));
+const Tenants = lazyWithReload(() => import("@/features/admin/pages/Tenants"));
 import { ProfitsPasswordGate } from "@/features/profits/components/ProfitsPasswordGate";
 import MainLayout from "@/shared/components/layouts/MainLayout";
 import { SuperAdminLayout } from "@/features/admin/components/SuperAdminLayout";
