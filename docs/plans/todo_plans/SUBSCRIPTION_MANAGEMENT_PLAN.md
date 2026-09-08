@@ -170,34 +170,68 @@ truth stays `tenant_subscriptions`; the sheet writes INTO it through the
 super-admin routes and reads a projection back out. If Sheets is down, nothing
 about trading changes.
 
-## 6. Order of work
+## 6. Order of work — BUILT 2026-09-08
 
-1. **Migration + core.** `tenant_subscriptions`, `SubscriptionRepository`,
-   `SubscriptionService` (status, markPaid, lapse transitions, key generation).
-   Grandfather existing tenants.
-2. **Signup stamps a subscription** inside `provisionTenant()`'s transaction —
-   `active`, no period end. Two rows written by two statements outside one
-   transaction is exactly how a tenant ends up with no subscription at all.
-3. **REST**: `GET /api/subscription/status` (tenant from the JWT), super-admin
-   `PATCH /api/admin/tenants/:id/subscription` (mark paid / set period), and the
-   `requireWritableSubscription` middleware with its allowlist.
-4. **Desktop**: license-key setting, an IPC status check, the same write block,
-   failing open on every error path.
-5. **Frontend**: a grace-period banner carrying the date, a read-only notice
-   that says what still works, and the Settings license field.
-6. **Lapse job**: `active`→`grace` at `current_period_end`, `grace`→`read_only`
-   at `grace_ends_at`. Idempotent — running it twice must equal running it once.
+| #   | Step                                                                          | Commit     |
+| --- | ----------------------------------------------------------------------------- | ---------- |
+| 1   | Migration v173 + `create_db.sql`, existing tenants grandfathered              | `daab842c` |
+| 1   | `SubscriptionRepository` + `SubscriptionService` (31 tests)                   | `d068ea18` |
+| 2   | Signup stamps a subscription in the SAME transaction (3 tests)                | `603a4a0f` |
+| 3   | Write block, status endpoint, owner plan-management routes (20 tests)         | `b6e6e342` |
+| 3   | Per-tenant module gating in `ModuleService` (10 tests) + desktop licence sync | `0df96ae6` |
+| 4   | Licence IPC + boot sync, wired through preload and `electron.d.ts`            | `3069c6c0` |
+| 5/6 | Lapse timer + Settings > Licence panel                                        | `7a2fc7c0` |
+| 5   | Grace / read-only banner + dual-mode `getSubscriptionStatus()`                | `d972915a` |
 
-## 7. Proof required
+Gates: core **3026** pass, backend **727** pass (the 10 failures are
+pre-existing `MaintenanceService` × 8 and `recharge.api` × 2, identical to the
+pre-work baseline), typecheck clean across core/backend/electron/frontend,
+lint clean on every new file. Schema equivalence: 0 diffs across 72 tables.
 
-- **The write block, both transports**: a `read_only` tenant is refused a POST
-  and still served a GET. Failing-first (rule 17).
-- **Login survives `read_only`.** The allowlist is the whole difference between
-  "read-only" and "locked out", and it is one line away from being wrong.
-- **Desktop fails OPEN**: server unreachable, no key, and a 500 each leave the
-  app fully writable. Three separate tests, because this is the decision most
-  likely to be "tidied" into a lockout by someone reading the code later.
-- **Lapse transitions are idempotent** — twice through the job equals once.
-- **Grandfathering**: existing tenants are writable immediately after the
-  migration, with no manual step.
-- **Cross-tenant**: marking tenant A paid does not touch tenant B.
+### Where each decision ended up in the code
+
+| Decision                           | Lives in                                                                                |
+| ---------------------------------- | --------------------------------------------------------------------------------------- |
+| Per-tenant module allowlist        | `tenant_subscriptions.entitled_modules`, applied in `ModuleService.filterByEntitlement` |
+| Never lock offline                 | `electron-app/licenseSync.ts` — every error path leaves access untouched                |
+| Grace → read-only, never a lockout | `SubscriptionService.runLapseSweep` + `requireWritableSubscription`'s allowlist         |
+| Manual mark-paid                   | `PATCH /api/admin/subscriptions/:tenantId`                                              |
+| No trial                           | `provisionTenant` stamps `active` with a NULL period end                                |
+| Ungateable chassis                 | `constants/subscription.ts`, exported from BOTH core entry points                       |
+
+## 7. What is NOT done
+
+- **No owner-facing UI for plan management.** The routes exist and are the
+  intended surface, but there is no screen: managing a customer today means
+  calling `PATCH /api/admin/subscriptions/:tenantId`. The Google-Sheet bridge
+  in § 5 is the cheap version of that screen and is also unbuilt.
+- **`tenants.email` still does not exist**, so the grace-period notices in the
+  policy cannot be sent. The banner is the only warning a shop gets.
+- **No e2e coverage.** Every layer has unit tests; nothing drives the whole
+  path from an owner setting an allowlist to a module vanishing from a
+  customer's sidebar.
+- **D1 (price)** is still open, and still blocks nothing.
+- **The desktop write block is UI-level only.** `requireWritableSubscription`
+  guards REST; on desktop there is no central IPC wrapper to hook, so a
+  `read_only` desktop shop is warned by the banner and gated in the nav but
+  its IPC write channels are not individually refused. Consistent with
+  "never lock when offline" — desktop enforcement is a business control, not
+  a security boundary, because the machine belongs to the customer — but it
+  should be a deliberate choice rather than a discovery.
+
+## 8. Proof required (status)
+
+- ✅ **The write block, both transports** — 20 middleware tests; a `read_only`
+  tenant is refused a POST and served a GET. Failing-first: removing
+  `/api/auth/login` from the allowlist fails three of them.
+- ✅ **Login survives read_only** — asserted by name.
+- ✅ **Fails OPEN** — asserted separately for no row, NULL allowlist, corrupt
+  JSON, non-array JSON, no tenant context, a thrown lookup, an unknown key,
+  and an unreachable server. Failing-first: making an absent row deny fails
+  the grandfathering guard.
+- ✅ **Lapse transitions are idempotent** — twice equals once, and a row
+  advances only ONE step per sweep.
+- ✅ **Grandfathering** — existing tenants writable immediately after the
+  migration, no manual step.
+- ✅ **Cross-tenant** — marking tenant A paid does not touch tenant B.
+- ❌ **End-to-end** — see § 7.
