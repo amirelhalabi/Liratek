@@ -46,7 +46,7 @@
     "omniroute:stop": "node scripts/omniroute.mjs stop",
     "omniroute:doctor": "node scripts/omniroute.mjs doctor",
     "web:build": "yarn workspace @liratek/core build && yarn workspace @liratek/backend build",
-    "web:backend": "node backend/dist/server.js",
+    "web:backend": "cd backend && node dist/server.js",
     "web:tunnel:install": "node scripts/install-cloudflared.mjs",
     "web:tunnel": "node scripts/web-tunnel.mjs",
     "web:up": "concurrently -k -n backend,tunnel -c blue,magenta \"yarn web:backend\" \"wait-on tcp:127.0.0.1:3000 && yarn web:tunnel --deploy\"",

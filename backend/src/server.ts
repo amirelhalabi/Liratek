@@ -4,9 +4,13 @@ import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
+import { fileURLToPath } from "url";
 
 // Load environment variables from root directory first
-dotenv.config({ path: new URL("../.env", import.meta.url).pathname });
+// fileURLToPath, not URL.pathname: on Windows .pathname yields "/C:/..." —
+// an invalid path that fs silently fails to open, so backend/.env was never
+// actually loaded there.
+dotenv.config({ path: fileURLToPath(new URL("../.env", import.meta.url)) });
 dotenv.config();
 
 import { getDatabase } from "./database/connection.js";
@@ -77,6 +81,13 @@ app.use(requestLogger);
 // Rate limiting
 import { apiLimiter, authLimiter } from "./middleware/rateLimit.js";
 app.use("/api/", apiLimiter); // General API rate limiting
+
+// Web-transport audit trail. Must be mounted BEFORE the routers so its
+// res.json wrapper is in place; it reads req.user at response time, once the
+// router-level authenticateJWT has populated it. Closes the gap where 146
+// audit call sites existed on the desktop IPC side and zero on REST.
+import { auditRequest } from "./middleware/auditRequest.js";
+app.use(auditRequest);
 
 // Import routes
 import authRoutes from "./api/auth.js";
