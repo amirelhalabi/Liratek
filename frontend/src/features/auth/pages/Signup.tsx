@@ -258,7 +258,7 @@ export default function Signup() {
               value={shopName}
               onChange={(e) => setShopName(e.target.value)}
               className={inputClass}
-              placeholder="Corner Tech"
+              placeholder="Your shop name"
               autoComplete="organization"
               autoFocus
             />

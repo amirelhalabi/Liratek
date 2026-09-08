@@ -115,8 +115,14 @@ export default function Login() {
           <div className="absolute inset-0 opacity-20 bg-gradient-to-b from-white to-transparent"></div>
 
           <div className="relative z-10">
+            {/* The PRODUCT name until a shop has named itself. This header is
+                what showed a stranger name on every login page: the shop name
+                came from a pre-auth settings read that fails on the web (no
+                tenant context without a JWT), and the fallback was a literal
+                customer name. Branding the product here is honest -- before
+                login there is no tenant to speak for. */}
             <h1 className="text-4xl font-bold text-white whitespace-nowrap mb-2">
-              {shopName}
+              {shopName || "LiraTek"}
             </h1>
             <p className="font-medium text-white">Management System</p>
           </div>
@@ -244,22 +250,31 @@ export default function Login() {
               >
                 •
               </span>{" "}
-              <span
-                className={
-                  theme === "dark" ? "text-slate-300" : "text-gray-700"
-                }
-              >
-                Licensed to
-              </span>{" "}
-              <span
-                className={
-                  theme === "dark"
-                    ? "text-slate-300"
-                    : "text-gray-800 font-medium"
-                }
-              >
-                {shopName}
-              </span>
+              {/* Only when the shop has actually named itself. Before login
+                  the settings read is unauthenticated and fails, so this is
+                  empty on the web -- and "Licensed to" followed by a blank, or
+                  worse a placeholder, is how a stranger's name ended up on
+                  every login page. */}
+              {shopName && (
+                <>
+                  <span
+                    className={
+                      theme === "dark" ? "text-slate-300" : "text-gray-700"
+                    }
+                  >
+                    Licensed to
+                  </span>{" "}
+                  <span
+                    className={
+                      theme === "dark"
+                        ? "text-slate-300"
+                        : "text-gray-800 font-medium"
+                    }
+                  >
+                    {shopName}
+                  </span>
+                </>
+              )}
             </p>
           </div>
         </div>

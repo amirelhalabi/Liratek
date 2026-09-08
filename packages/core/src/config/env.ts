@@ -72,6 +72,33 @@ const envSchema = z
     // expose it.
     SIGNUP_INVITE_CODE: z.string().optional(),
 
+    // ── Automatic tenant subdomains ──────────────────────────────────
+    //
+    // When a tenant is provisioned, give it <slug>.<APP_BASE_DOMAIN>
+    // without anyone touching a dashboard: a CNAME at Cloudflare plus the
+    // hostname registered on the Vercel project. BOTH are needed —
+    // Vercel routes by Host, so DNS alone yields a 404, and the Vercel
+    // domain alone never resolves.
+    //
+    // Every one is OPTIONAL and the feature is OFF unless the full set is
+    // present. Same safe default as SIGNUP_INVITE_CODE: a half-configured
+    // deployment must not half-create subdomains, and a missing token
+    // must never be able to fail a signup.
+    CLOUDFLARE_API_TOKEN: z.string().optional(),
+    CLOUDFLARE_ZONE_ID: z.string().optional(),
+    VERCEL_TOKEN: z.string().optional(),
+    VERCEL_PROJECT_ID: z.string().optional(),
+
+    // What a tenant CNAME points at. Vercel's documented generic target
+    // works for any project; the per-project alias Vercel shows in its UI
+    // (<hash>.vercel-dns-NNN.com) also works and can be set here.
+    VERCEL_DNS_TARGET: z.string().default("cname.vercel-dns.com"),
+
+    // Vercel team/scope id. Required only when the project belongs to a
+    // team rather than a personal account -- the API needs it as a query
+    // parameter and silently 404s the project without it.
+    VERCEL_TEAM_ID: z.string().optional(),
+
     // Resolve the tenant from an X-Tenant-Slug header instead of the Host.
     // DEVELOPMENT AND TESTS ONLY: a client can send any header it likes, so
     // with this enabled tenant scoping is advisory, not enforced. It exists
@@ -136,6 +163,12 @@ function parseEnv(): EnvConfig {
     SUPER_ADMIN_PASSWORD: process.env.SUPER_ADMIN_PASSWORD,
     APP_BASE_DOMAIN: process.env.APP_BASE_DOMAIN?.trim().toLowerCase(),
     SIGNUP_INVITE_CODE: process.env.SIGNUP_INVITE_CODE,
+    CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_ZONE_ID: process.env.CLOUDFLARE_ZONE_ID,
+    VERCEL_TOKEN: process.env.VERCEL_TOKEN,
+    VERCEL_PROJECT_ID: process.env.VERCEL_PROJECT_ID,
+    VERCEL_DNS_TARGET: process.env.VERCEL_DNS_TARGET,
+    VERCEL_TEAM_ID: process.env.VERCEL_TEAM_ID,
     TENANT_HOST_HEADER_OVERRIDE:
       process.env.TENANT_HOST_HEADER_OVERRIDE === "true" ||
       process.env.TENANT_HOST_HEADER_OVERRIDE === "1",
@@ -188,6 +221,12 @@ export const {
   SUPER_ADMIN_PASSWORD,
   APP_BASE_DOMAIN,
   SIGNUP_INVITE_CODE,
+  CLOUDFLARE_API_TOKEN,
+  CLOUDFLARE_ZONE_ID,
+  VERCEL_TOKEN,
+  VERCEL_PROJECT_ID,
+  VERCEL_DNS_TARGET,
+  VERCEL_TEAM_ID,
   TENANT_HOST_HEADER_OVERRIDE,
   ELECTRON_RENDERER_URL,
   DASHSCOPE_API_KEY,

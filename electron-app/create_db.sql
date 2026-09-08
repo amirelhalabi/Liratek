@@ -74,7 +74,11 @@ CREATE TABLE IF NOT EXISTS system_settings (
 
 -- Seed default settings
 INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value) VALUES
-  (1, 'shop_name', 'Corner Tech'),
+  -- Empty on purpose: the first-run setup wizard collects the shop name.
+  -- This used to seed one real customer's name into every fresh install.
+  -- NOT backfilled for existing databases -- "Corner Tech" is a genuine
+  -- tenant name here, so an UPDATE would erase real data.
+  (1, 'shop_name', ''),
   (1, 'default_debt_term_days', '30'),
   (1, 'shop_base_system', 'OMT'),
   (1, 'allow_out_of_stock_sales', '0'),

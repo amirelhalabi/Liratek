@@ -44,6 +44,7 @@ import {
 import { validateRequest } from "../middleware/validation.js";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
+import { provisionTenantDomain } from "../services/tenantDomains.js";
 import { randomBytes } from "node:crypto";
 
 if (!JWT_SECRET) {
@@ -121,6 +122,10 @@ router.post("/tenants", validateRequest(createTenantSchema), (req, res) => {
         new_values: { name: tenant.name, slug: tenant.slug },
       });
     });
+
+    // Same automatic subdomain as self-service signup -- a tenant the
+    // owner creates by hand should not need different follow-up work.
+    void provisionTenantDomain(tenant.slug);
 
     res.status(201).json(createSuccessResponse({ tenant }));
   } catch (error) {

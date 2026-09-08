@@ -1,7 +1,19 @@
 import { useEffect, useState } from "react";
 import { useApi } from "@liratek/ui";
 
-const DEFAULT_SHOP_NAME = "Corner Tech";
+/**
+ * NO default shop name, deliberately.
+ *
+ * This used to be the literal "Corner Tech" — one real customer's name,
+ * shipped to every install. On the web it showed on EVERY login page, because
+ * the pre-auth settings read fails (no tenant context without a JWT) and this
+ * was the catch() fallback. So every shop was greeted with a stranger's name.
+ *
+ * An empty string is the honest answer to "what is this shop called" when
+ * nothing has said yet. Every consumer already guards on it (TopBar renders
+ * `shopName && ...`) or should — a blank is correct, an invented name is not.
+ */
+const NO_SHOP_NAME = "";
 
 export interface ShopInfo {
   name: string;
@@ -21,7 +33,7 @@ function notify(info: ShopInfo) {
 }
 
 const defaultInfo: ShopInfo = {
-  name: DEFAULT_SHOP_NAME,
+  name: NO_SHOP_NAME,
   phone: "",
   location: "",
   logo: "",
@@ -45,7 +57,7 @@ export function useShopInfo(): ShopInfo {
             typeof map.get("shop_name") === "string" &&
             (map.get("shop_name") as string).trim()
               ? (map.get("shop_name") as string).trim()
-              : DEFAULT_SHOP_NAME;
+              : NO_SHOP_NAME;
           const phone =
             typeof map.get("shop_phone") === "string"
               ? (map.get("shop_phone") as string).trim()

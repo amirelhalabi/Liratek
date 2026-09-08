@@ -405,7 +405,9 @@ export default function CheckoutModal({
    *  multi-currency summary branch below — fmtTotal above stays the
    *  single-currency formatter for the byte-identical original case). */
   const fmtMoneyFor = (v: number, curr: string) =>
-    curr === "LBP" ? `${Math.round(v).toLocaleString()} LBP` : `$${v.toFixed(2)}`;
+    curr === "LBP"
+      ? `${Math.round(v).toLocaleString()} LBP`
+      : `$${v.toFixed(2)}`;
   const effectiveExchangeRate = parseFloat(customExchangeRate) || exchangeRate;
   // Total paid, converted into the job's currency for settlement comparison.
   const totalPaidInTotalCurrency = isLbpTotal
@@ -591,7 +593,9 @@ export default function CheckoutModal({
 
   const getReceiptData = (): ReceiptData => {
     return {
-      shop_name: shopInfo.name || "Corner Tech",
+      // No fallback name: a receipt is a document a customer keeps, and
+      // printing another shop's name on it is worse than printing none.
+      shop_name: shopInfo.name,
       shop_phone: shopInfo.phone || "",
       shop_location: shopInfo.location || "",
       receipt_number: receiptNumber || generateReceiptNumber(),

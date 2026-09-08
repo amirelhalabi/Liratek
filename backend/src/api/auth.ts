@@ -18,6 +18,7 @@ import {
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
 import { signupLimiter } from "../middleware/rateLimit.js";
+import { provisionTenantDomain } from "../services/tenantDomains.js";
 import {
   resolveTenantHost,
   isHostTenancyActive,
@@ -407,6 +408,15 @@ router.post(
         { tenantId: tenant.id, slug: tenant.slug },
         "Tenant created via self-service signup",
       );
+
+      // Give the shop its own subdomain, WITHOUT making it wait.
+      //
+      // Not awaited: two third-party API calls would add seconds to a
+      // form submission, and the response does not depend on them --
+      // the tenant is already committed and works on the shared host.
+      // provisionTenantDomain never throws, so an unhandled rejection
+      // is not possible; `void` says the omission is deliberate.
+      void provisionTenantDomain(tenant.slug);
 
       // No token is issued. The caller is sent to its own subdomain to log in,
       // which is the only place its credentials work once APP_BASE_DOMAIN is

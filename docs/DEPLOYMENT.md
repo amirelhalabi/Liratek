@@ -302,6 +302,53 @@ Desktop is untouched: Electron provisions its single tenant through the
 first-run setup wizard, and the login page hides the "Create your shop" link
 outside the browser.
 
+## 5c. Automatic tenant subdomains
+
+When a tenant is provisioned — by self-service signup or by you in the admin
+panel — it gets `<slug>.liratek.shop` with nobody touching a dashboard.
+
+```bash
+# backend/.env — the feature is OFF unless ALL of these are set
+CLOUDFLARE_API_TOKEN=...   # scoped token: Zone > DNS > Edit, on this zone only
+CLOUDFLARE_ZONE_ID=...     # Cloudflare > liratek.shop > Overview, right column
+VERCEL_TOKEN=...           # vercel.com/account/tokens
+VERCEL_PROJECT_ID=...      # Vercel > project > Settings > General
+# VERCEL_TEAM_ID=...       # ONLY if the project belongs to a team
+# VERCEL_DNS_TARGET=...    # defaults to cname.vercel-dns.com
+```
+
+**Why two calls and not one.** Vercel routes by `Host`: a DNS record without
+the hostname registered on the project is a 404, and the registration without
+DNS never resolves. Doing only one is worse than doing neither, because it
+looks configured. So provisioning creates the Cloudflare CNAME **and** adds
+the domain to the Vercel project.
+
+**The CNAME is DNS-only (grey), deliberately.** A proxied record puts
+Cloudflare in front of Vercel, which terminates TLS with its own certificate
+— the usual result is a redirect loop, and Vercel then sees Cloudflare's IPs
+instead of real visitors. `api.liratek.shop` is the one record that MUST stay
+proxied, because a tunnel hostname only resolves through the proxy.
+
+**It fails soft, always.** Unconfigured, bad token, rate limit, network down,
+garbage response — every path logs and returns, and none of them can throw
+into the caller. A subdomain is a convenience; a signup is revenue, and
+losing a registration to a DNS hiccup would be absurd. It is also not
+awaited: two third-party calls would otherwise add seconds to a form submit,
+and the tenant already works on the shared host without them.
+
+**It is idempotent.** "Record already exists" (Cloudflare 81057) and
+"domain already in use by this project" (Vercel) both count as success, so
+re-running is safe and a retry needs no extra bookkeeping.
+
+A Vercel failure deliberately LEAVES the DNS record behind: harmless on its
+own, it makes the retry a no-op, and deleting it could remove a record
+somebody created by hand.
+
+**Not done:** nothing retries automatically, and no UI reports that a
+subdomain failed — check the backend log for `tenant subdomain`. Custom
+customer-owned domains (`pos.theirshop.com`) are a separate problem; the
+productised answers are Cloudflare for SaaS or Vercel's Domains API.
+
 ## 6. At-rest data — read this before believing the docs
 
 `DATABASE_KEY` **does not encrypt anything today.** `CLAUDE.md` and older plan
