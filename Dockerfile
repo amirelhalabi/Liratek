@@ -22,6 +22,8 @@ ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 \
     LIRATEK_SKIP_NATIVE_REBUILD=1
 
 COPY package.json yarn.lock .yarnrc.yml ./
+# .yarnrc.yml pins yarnPath at this committed binary, so the install needs it.
+COPY .yarn/releases/ ./.yarn/releases/
 COPY backend/package.json       backend/package.json
 COPY frontend/package.json      frontend/package.json
 COPY electron-app/package.json  electron-app/package.json

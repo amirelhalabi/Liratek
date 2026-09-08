@@ -145,3 +145,11 @@ graphify-out/
 packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDecrement.test.ts
 .vercel
 .env*
+
+# The project-pinned Yarn binary MUST be committed: .yarnrc.yml sets yarnPath
+# to it, and Vercel s build (its own Yarn 1.22) delegates through that instead
+# of corepack -- Vercel documents an ESM breakage with yarn+corepack+type:module.
+# The bare `releases` pattern above (electron-builder output) also matches
+# .yarn/releases, and a directory must be un-ignored before files inside it can be.
+!.yarn/releases/
+!.yarn/releases/*

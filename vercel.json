@@ -2,14 +2,23 @@
   "services": {
     "frontend": {
       "root": "frontend",
-      "framework": "vite"
+      "framework": "vite",
+      "installCommand": "cd .. && yarn install && yarn workspace @liratek/core build"
     },
     "backend": {
       "root": "backend",
-      "entrypoint": "src/server.ts"
+      "entrypoint": "src/server.ts",
+      "installCommand": "cd .. && yarn install && yarn workspace @liratek/core build"
     }
   },
   "rewrites": [
+    {
+      "source": "/health(/.*)?",
+      "destination": {
+        "type": "service",
+        "service": "backend"
+      }
+    },
     {
       "source": "/api(/.*)?",
       "destination": {

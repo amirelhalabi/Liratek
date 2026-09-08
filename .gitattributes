@@ -15,3 +15,7 @@ nginx.conf      text eol=lf
 docker-compose.yml text eol=lf
 *.env           text eol=lf
 .env.*          text eol=lf
+
+# The pinned Yarn binary is an executable script consumed by Vercel s builder;
+# it must survive byte-for-byte, with no eol translation on any platform.
+.yarn/releases/** -text
