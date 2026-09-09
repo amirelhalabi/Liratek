@@ -46,10 +46,33 @@ export interface UpdateSessionData {
   expires_at?: string;
 }
 
-// Session duration constants
+const MINUTES = 60 * 1000;
+const HOURS = 60 * MINUTES;
+const DAYS = 24 * HOURS;
+
+/**
+ * How long a session survives WITHOUT activity. Both windows SLIDE: every
+ * authenticated request pushes `expires_at` forward (see `touchActivity`), so
+ * these are idle timeouts, not deadlines from login.
+ *
+ * SHORT was 30 minutes, which is wrong for a point-of-sale terminal. A quiet
+ * hour on a weekday afternoon is normal trade, not an abandoned till, and it
+ * logged the cashier out mid-shift. Eight hours covers a shift with its quiet
+ * stretches while still ending the session overnight, so an unattended
+ * terminal is not left signed in until morning.
+ *
+ * LONG was a HARD 24-hour cap that did not slide at all: a shop actively
+ * ringing up a sale was signed out at the 24-hour mark for no reason it could
+ * observe. It is now a sliding week, which is what "keep me signed in" is
+ * understood to mean, and it matches JWT_EXPIRES_IN (7d) so the token and the
+ * session it points at stop disagreeing about when the user is done.
+ *
+ * Revocation does not depend on either number: every request validates the DB
+ * session row, so logout and a suspended tenant still take effect instantly.
+ */
 export const SESSION_DURATION = {
-  SHORT: 30 * 60 * 1000, // 30 minutes in milliseconds
-  LONG: 24 * 60 * 60 * 1000, // 1 day in milliseconds
+  SHORT: 8 * HOURS,
+  LONG: 7 * DAYS,
 };
 
 // =============================================================================
@@ -78,13 +101,19 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
   }
 
   /**
+   * The idle window for a session, in ms. The ONLY place that maps
+   * remember-me to a duration — mint and every slide share it, so the two can
+   * never drift.
+   */
+  private idleWindowMs(rememberMe: boolean): number {
+    return rememberMe ? SESSION_DURATION.LONG : SESSION_DURATION.SHORT;
+  }
+
+  /**
    * Calculate expiration date based on remember_me flag
    */
   private calculateExpiresAt(rememberMe: boolean): string {
-    const duration = rememberMe
-      ? SESSION_DURATION.LONG
-      : SESSION_DURATION.SHORT;
-    const expiresAt = new Date(Date.now() + duration);
+    const expiresAt = new Date(Date.now() + this.idleWindowMs(rememberMe));
     return expiresAt.toISOString();
   }
 
@@ -214,17 +243,10 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
         return null;
       }
 
-      // For short sessions (remember_me = 0), check last activity
-      if (session.remember_me === 0) {
-        const lastActivity = new Date(session.last_activity_at);
-        const timeSinceActivity = now.getTime() - lastActivity.getTime();
-
-        if (timeSinceActivity > SESSION_DURATION.SHORT) {
-          // Session expired due to inactivity
-          this.deleteByToken(token);
-          return null;
-        }
-      }
+      // No second inactivity check here on purpose. `touchActivity` now slides
+      // `expires_at` for BOTH kinds of session, so that column already IS the
+      // idle deadline; re-deriving it from `last_activity_at` was the same rule
+      // written twice, and the two could only ever drift apart.
 
       return session;
     } catch (error) {
@@ -243,12 +265,12 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
       const now = new Date();
       const nowISO = now.toISOString();
 
-      let newExpiresAt = session.expires_at;
-      if (session.remember_me === 0) {
-        newExpiresAt = new Date(
-          now.getTime() + SESSION_DURATION.SHORT,
-        ).toISOString();
-      }
+      // Slides for BOTH kinds. Previously only the short session slid, so a
+      // remember-me session was a hard 24h cutoff that fired on an actively
+      // used till. Whoever is still working is still signed in.
+      const newExpiresAt = new Date(
+        now.getTime() + this.idleWindowMs(session.remember_me === 1),
+      ).toISOString();
 
       const query = `
         UPDATE ${this.tableName}
@@ -281,12 +303,10 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
       const now = new Date();
       const nowISO = now.toISOString();
 
-      // For short sessions, extend expires_at based on new activity
-      let newExpiresAt = session.expires_at;
-      if (session.remember_me === 0) {
-        const newExpires = new Date(now.getTime() + SESSION_DURATION.SHORT);
-        newExpiresAt = newExpires.toISOString();
-      }
+      // Same sliding rule as touchActivity — both kinds extend on activity.
+      const newExpiresAt = new Date(
+        now.getTime() + this.idleWindowMs(session.remember_me === 1),
+      ).toISOString();
 
       const query = `
         UPDATE ${this.tableName}
@@ -424,7 +444,11 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
   }
 
   /**
-   * Delete inactive short sessions (30+ min of inactivity).
+   * Delete short sessions idle past SESSION_DURATION.SHORT.
+   *
+   * The window is read from the constant rather than written here as a number:
+   * this comment used to say "30+ min", which stopped being true the moment
+   * the constant moved and would have quietly misled the next reader.
    *
    * Same rationale as `deleteExpiredSessions`: a global background sweep,
    * deliberately not tenant-scoped.

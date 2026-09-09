@@ -291,6 +291,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Auth state for consumers that merely DECORATE a screen and must not decide
+ * whether it renders at all.
+ *
+ * `useAuth` throws without a provider, which is right for anything gating
+ * access — a silent `undefined` there would fail open. It is wrong for a
+ * component that only wants to know "is anyone signed in, so should I bother
+ * fetching the shop name": there, no provider simply means nobody is signed
+ * in. Making that a thrown error let one display concern take down the whole
+ * subtree, and did: adding a `useAuth` call inside `useShopInfo` crashed every
+ * component that shows a shop name in any test that had no AuthProvider.
+ *
+ * Returns undefined outside a provider. Callers treat that as logged out.
+ */
+export function useOptionalAuth(): AuthContextType | undefined {
+  return useContext(AuthContext);
+}
+
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

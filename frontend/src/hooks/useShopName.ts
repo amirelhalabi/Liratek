@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApi } from "@liratek/ui";
-import { useAuth } from "@/features/auth/context/AuthContext";
+import { useOptionalAuth } from "@/features/auth/context/AuthContext";
 
 /**
  * NO default shop name, deliberately.
@@ -43,7 +43,10 @@ const defaultInfo: ShopInfo = {
 /** Load shop info once and share across all consumers */
 export function useShopInfo(): ShopInfo {
   const api = useApi();
-  const { isAuthenticated } = useAuth();
+  // Optional on purpose: the shop name is decoration. Outside an AuthProvider
+  // nobody is signed in, so there is nothing to fetch — that is an empty name,
+  // not a crash that takes the surrounding component with it.
+  const isAuthenticated = useOptionalAuth()?.isAuthenticated ?? false;
   const [info, setInfo] = useState<ShopInfo>(cachedInfo ?? defaultInfo);
 
   useEffect(() => {

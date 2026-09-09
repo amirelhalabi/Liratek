@@ -226,7 +226,7 @@ export default function Login() {
                 htmlFor="remember-me"
                 className="ml-3 text-sm text-slate-300 cursor-pointer select-none"
               >
-                Remember me for 1 day
+                Keep me signed in on this device
               </label>
             </div>
 

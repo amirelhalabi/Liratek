@@ -2,7 +2,11 @@ import { safeStorage, app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { logger, isProfitsUnlockLive } from "@liratek/core";
+import {
+  logger,
+  isProfitsUnlockLive,
+  SESSION_DURATION,
+} from "@liratek/core";
 
 export type UserRole = "admin" | "staff";
 
@@ -139,9 +143,16 @@ export function getEncryptedSession(): StoredSession | null {
 
     const session: StoredSession = JSON.parse(decrypted);
 
-    // Check if session is expired (1 day max)
-    const MAX_SESSION_AGE = 1 * 24 * 60 * 60 * 1000;
-    if (Date.now() - session.createdAt > MAX_SESSION_AGE) {
+    // How long a remember-me session on disk stays restorable. Tied to the
+    // same window the web uses (SESSION_DURATION.LONG) because the checkbox
+    // that creates it is the SAME control in the same shared Login page --
+    // leaving desktop on its own hardcoded day meant one checkbox quietly
+    // meaning two different things depending on which product you were in.
+    //
+    // Absolute, from createdAt, unlike the DB session which slides: this blob
+    // records no activity to slide against. That makes it the stricter of the
+    // two, which is the right way round for a credential sitting on disk.
+    if (Date.now() - session.createdAt > SESSION_DURATION.LONG) {
       logger.info("Stored session expired, clearing");
       clearEncryptedSession();
       return null;
@@ -284,10 +295,13 @@ export function requireProfitsAccess(
   return { ok: true };
 }
 
-// In-memory session idle timeout. Matches the DB-side inactive-session
-// cleanup (SessionRepository.deleteInactiveSessions) so both layers expire
-// together. Enforced by the periodic cleanup interval in main.ts.
-export const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+// In-memory session idle timeout. DERIVED from the DB-side window rather than
+// restated, so the two layers expire together by construction. They were two
+// copies of `30 * 60 * 1000` held in step by a comment, which is exactly the
+// arrangement that breaks the moment one side is retuned — as happened when
+// the DB window moved off 30 minutes. Enforced by the cleanup interval in
+// main.ts.
+export const SESSION_TIMEOUT_MS = SESSION_DURATION.SHORT;
 
 /**
  * Purge in-memory sessions idle past SESSION_TIMEOUT_MS.
