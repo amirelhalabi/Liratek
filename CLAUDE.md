@@ -15,6 +15,32 @@ LiraTek is a **desktop POS system for retail management** built as an Electron a
 
 - Always use the **Bash tool** with `cmd /c "..."` for yarn, npm, and any CLI commands — never the PowerShell tool. PowerShell output is unreliable for yarn on this Windows setup.
 
+## Deploying (read `docs/OPERATIONS.md` first — it is one screen)
+
+The web app spans five services. **`frontend/` ships itself** — Vercel builds
+from `main` on push. **`backend/` and `packages/core/` do NOT**: they run on
+Fly and deploy manually.
+
+```bash
+yarn api:deploy    # build remotely, deploy, then VERIFY it came up
+yarn api:logs      # fly deploy exiting 0 does not mean the app works
+yarn api:status
+yarn api -- <any flyctl args>
+```
+
+**Never invoke `flyctl` directly.** Its installer needs elevation to create the
+shortcut, so on Windows the binary exists at
+`%USERPROFILE%\.fly\bin\flyctl.exe` while `fly` is not on PATH — and in Git Bash
+it is not on PATH regardless. `scripts/fly.mjs` resolves it; an agent has
+already lost time concluding flyctl was missing. `fly auth login` is the one
+step that cannot be scripted: it refuses a non-interactive shell, so the owner
+runs it once.
+
+`yarn api:deploy` asserts the things prose cannot enforce — migrations applied,
+Litestream replicating, `X-Forwarded-Host` still surviving Vercel → Fly (losing
+it breaks every tenant login at once), and **exactly one machine**, because
+SQLite has a single writer and two machines on one volume is corruption.
+
 ## Running E2E tests (`node scripts/run-e2e.mjs electron`)
 
 **Required procedure — always run E2E this way:**
