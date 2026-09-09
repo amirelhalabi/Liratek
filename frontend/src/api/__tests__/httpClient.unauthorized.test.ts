@@ -16,6 +16,8 @@ import {
   requestJson,
   setToken,
   getToken,
+  setImpersonationToken,
+  getImpersonationToken,
   UNAUTHORIZED_EVENT,
   type ApiError,
 } from "../httpClient";
@@ -120,6 +122,29 @@ describe("requestJson — 401 handling", () => {
 
     expect(getToken()).toBe("fresh-token");
     expect(fired).toBe(0);
+  });
+
+  it("clears a dead IMPERSONATION token, which used to be unclearable", async () => {
+    // getToken() prefers the impersonation token in sessionStorage over the
+    // normal one in localStorage, but setToken(null) only cleared localStorage.
+    // So a dead impersonation token kept winning the lookup forever: logging in
+    // seemed to work (login sends no token) and then every authenticated call
+    // 401'd — and because sessionStorage survives a reload, a hard refresh did
+    // not clear it either. The tab had to be closed.
+    setToken("normal-token");
+    setImpersonationToken("dead-impersonation-token");
+    expect(getToken()).toBe("dead-impersonation-token");
+
+    mockFetch(401, { error: "Session expired" });
+    await expect(requestJson("/api/settings")).rejects.toMatchObject({
+      status: 401,
+    });
+
+    // The impersonation session is gone, so the NORMAL login underneath it can
+    // finally be used again instead of being permanently shadowed.
+    expect(getImpersonationToken()).toBeNull();
+    expect(getToken()).toBe("normal-token");
+    expect(fired).toBe(1);
   });
 
   it("leaves other failures alone — a 403 or 500 is not a dead session", async () => {

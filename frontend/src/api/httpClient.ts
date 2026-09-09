@@ -235,7 +235,21 @@ export async function requestJson<T>(
       sentToken &&
       getToken() === sentToken
     ) {
-      setToken(null);
+      // Clear WHICHEVER storage the rejected token came from.
+      //
+      // `getToken()` prefers the impersonation token in sessionStorage over the
+      // normal one in localStorage, but `setToken(null)` only ever touched
+      // localStorage. So a dead impersonation token could not be cleared by
+      // anything: it kept winning the lookup, every authenticated request kept
+      // failing, and — because sessionStorage survives a reload — a hard
+      // refresh did not help either. Logging in appeared to work (login itself
+      // sends no token) and then every single call 401'd, forever, until the
+      // TAB was closed.
+      if (getImpersonationToken() === sentToken) {
+        clearImpersonationSession();
+      } else {
+        setToken(null);
+      }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
       }
