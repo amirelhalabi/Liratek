@@ -1,0 +1,70 @@
+#
+# Fly.io — the LiraTek BACKEND only.
+#
+# The SPA stays on Vercel. `vercel.json` already rewrites /api, /health and
+# /socket.io to https://api.liratek.shop, so moving off the Cloudflare tunnel is
+# a DNS change on that hostname, not a code change — and it is reversible in
+# seconds by pointing the record back.
+#
+#   fly apps create liratek-api
+#   fly volumes create liratek_data --region fra --size 3
+#   fly secrets set ...            (see docs/DEPLOYMENT.md)
+#   fly deploy --remote-only       (no local Docker needed)
+#
+# ── THE CONSTRAINT THAT MUST NOT BE FORGOTTEN ────────────────────────────────
+# SQLite has exactly ONE writer per database file, and the database lives on a
+# volume attached to ONE machine. This app must therefore never run more than a
+# single machine. `fly scale count 1` — and if you ever see two, that is an
+# incident, not a capacity win. Fly's own defaults lean toward two machines for
+# availability, which is wrong here.
+#
+
+app = "liratek-api"
+primary_region = "fra"   # Frankfurt: closest Fly region to Lebanon.
+                         # Fly has no Middle East region; Mumbai is farther.
+
+[build]
+  # Built from the REPO ROOT — the image needs every workspace manifest to
+  # resolve the yarn workspace graph. See backend/Dockerfile.
+  dockerfile = "backend/Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  HOST = "0.0.0.0"
+  PORT = "3000"
+  # On the volume, so shop data survives every deploy. An image rebuild
+  # replaces the container; this path does not move.
+  DATABASE_PATH = "/data/liratek.db"
+
+# The volume. Fly volumes bind to a single machine, which happens to match the
+# single-writer constraint above rather than fighting it.
+[[mounts]]
+  source = "liratek_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+
+  # NEVER auto-stop. Fly stops idle machines by default; a shop hitting a cold
+  # start mid-sale is not an acceptable failure for a point-of-sale system.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "15s"
+    timeout = "5s"
+    # First boot on an empty volume bootstraps the schema from create_db.sql and
+    # then runs every migration (174 of them), which takes materially longer
+    # than a warm restart. Too short a grace period here reads that as a failed
+    # deploy and rolls back a perfectly good release.
+    grace_period = "90s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"   # Node + better-sqlite3 on a 1.2 MB database. Raise to
+                     # 1024mb if migrations or reports ever get OOM-killed.

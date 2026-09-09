@@ -15,7 +15,9 @@
 | **A separate control-plane database** | Yes | `tenants`, `tenant_subscriptions`, super-admin users/sessions, platform audit. |
 | **Backend leaves the owner's laptop** | Yes | Power and internet in Lebanon must not be a dependency of other people's shops. |
 | **Cloudflare Tunnel retired for production** | Yes | It exists to reach a machine that should not be the server. |
-| **Turso Cloud as the hosted database** | Owner's decision, 2026-09-09 | Account created. **Conditional on Phase 0 passing** — § 4 explains exactly what could stop it. |
+| ~~Turso Cloud as the hosted database~~ | **DROPPED after Phase 0**, 2026-09-09 | Compatible, but reads cost a network round-trip each and this data layer is deliberately chatty; embedded replicas fix reads yet keep a local file anyway, leaving managed durability as the only gain — bought with network-bound writes and an availability coupling. § 4bis has the measurements. |
+| **Local SQLite files on the host, one per tenant** | Yes | Reads *and* writes at ~0.1 ms, zero data-layer change, no third party that can stop shops selling. Durability via Litestream → R2 plus the snapshot built this session. |
+| **Fly.io for compute** (`fra`), SPA stays on Vercel | Owner's decision, 2026-09-09 | Backend off the laptop. Runbook: `docs/DEPLOYMENT.md` § 4d, config in `fly.toml`. Cutover is one DNS record on `api.liratek.shop`. |
 | **Desktop app unchanged** | Yes | Stays offline-first on a local file with `better-sqlite3`. Non-negotiable: an offline till is the product. |
 
 Explicitly **not** changing: the schema, `tenant_id` on every table (always `1` per

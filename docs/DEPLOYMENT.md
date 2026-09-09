@@ -225,6 +225,102 @@ created but shares `www.liratek.shop` with everyone, and the no-realm username
 inference (§ 8) deliberately resolves a contested username to the FIRST tenant
 — so the newcomer cannot log in at all.
 
+## 4d. Fly.io — getting the backend off the laptop (the runbook)
+
+`fly.toml` is at the repo root, backend-only. The SPA stays on Vercel.
+
+**The cutover is one DNS record.** `vercel.json` already rewrites `/api`, `/health`
+and `/socket.io` to `https://api.liratek.shop`; that hostname points at the tunnel
+today. Repointing it at Fly needs no code change, and rolling back is repointing it
+again. Keep the tunnel running until the new host is verified.
+
+### Rule zero: one change at a time
+
+Deploy **the current shared-file architecture** first. Do **not** combine this move
+with the per-tenant database split
+(`docs/plans/todo_plans/PRODUCTION_DATABASE_AND_HOSTING_PLAN.md`). Two
+simultaneous changes means a failure tells you nothing about which one broke.
+
+### Steps
+
+```bash
+# 1. flyctl (Windows PowerShell). No Docker needed — Fly builds remotely.
+pwsh -c "iwr https://fly.io/install.ps1 -useb | iex"
+fly auth login
+
+# 2. App + volume. fra = Frankfurt, the closest Fly region to Lebanon.
+fly apps create liratek-api
+fly volumes create liratek_data --region fra --size 3
+
+# 3. Secrets — never baked into the image. Values come from backend/.env.
+fly secrets set \
+  JWT_SECRET=... \
+  APP_BASE_DOMAIN=liratek.shop \
+  SIGNUP_INVITE_CODE=... \
+  CORS_ORIGIN=https://www.liratek.shop \
+  SUPER_ADMIN_USERNAME=... SUPER_ADMIN_PASSWORD=... \
+  CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ZONE_ID=... \
+  VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=...
+
+# 4. Deploy, and WATCH THE LOGS rather than trusting the exit code.
+fly deploy --remote-only
+fly logs        # expect: create_db.sql bootstrap → 174 migrations → version 174
+
+# 5. Exactly one machine. Fly's defaults lean toward two; two writers on one
+#    SQLite file is corruption, not capacity.
+fly scale count 1
+fly status
+```
+
+### Verify BEFORE touching DNS
+
+```bash
+curl https://liratek-api.fly.dev/health
+# Realm resolution reads the forwarded host, so test it explicitly:
+curl https://liratek-api.fly.dev/api/auth/signup-status \
+     -H "X-Forwarded-Host: www.liratek.shop"
+# want: {"enabled":true,"platformHost":true,"baseDomain":"liratek.shop"}
+```
+
+### Move the data
+
+Upload a **snapshot**, never the live file — a copy of a live `.db` can miss
+transactions still in the `-wal` (see § 6 and `BackupRepository`).
+
+```bash
+# On the laptop: stop the backend, then take a consistent snapshot.
+node -e "const D=require('better-sqlite3');const db=new D(process.env.SRC);db.prepare('VACUUM INTO ?').run('C:/temp/liratek-cutover.db')"
+fly ssh sftp shell -a liratek-api      # put liratek-cutover.db /data/liratek.db
+fly apps restart liratek-api
+```
+
+Order matters: upload the existing database **before** first real use, so the
+`SUPER_ADMIN_USERNAME`/`PASSWORD` bootstrap sees an existing super admin and stays a
+no-op instead of creating a second one.
+
+### Cut over, then verify again
+
+```bash
+fly certs add api.liratek.shop     # then point that record at Fly (DNS only)
+```
+
+After the DNS change there are **two** proxies in front of Express — Vercel *and*
+Fly — while `server.ts` trusts one hop. Re-run the `platformHost` check through the
+real hostname, and a real tenant login. If `X-Forwarded-Host` arrives wrong, every
+tenant login fails at once with a generic "invalid credentials" (§ 8). This is the
+single most likely thing to break in the whole move.
+
+### Then, and only then
+
+- Retire the tunnel (§ Temporary scaffolding).
+- Add Litestream → R2 for continuous backup. **`VACUUM INTO` works here because the
+  database is a local file** — it is rejected by Turso, which is one reason that
+  option was dropped (see the plan doc's Phase 0 results).
+- Consider Cloudflare proxied + wildcard `*.liratek.shop`, which retires
+  `tenantDomains.ts` per-tenant DNS entirely.
+
+---
+
 ## 5. Operations
 
 ```bash
