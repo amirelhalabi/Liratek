@@ -5,10 +5,20 @@
 // All other entity types used only by the adapter are declared here.
 // =============================================================================
 
-import type { ClientEntity, ProductListFilters } from "@liratek/core";
+import type {
+  ClientEntity,
+  ProductListFilters,
+  DatabaseResetPreview,
+  DatabaseResetResult,
+} from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
-export type { ClientEntity, ProductListFilters };
+export type {
+  ClientEntity,
+  ProductListFilters,
+  DatabaseResetPreview,
+  DatabaseResetResult,
+};
 
 export type ApiUser = {
   id: number;
@@ -1258,6 +1268,21 @@ export type ApiAdapter = {
   restoreDatabase: (path: string) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
+  // Database Reset (LIRA-165) — admin-only. `getDatabaseResetPreview` is a
+  // READ: resolves to the RAW `DatabaseResetPreview` shape, throwing on
+  // failure. `resetDatabase` is a WRITE: resolves to the envelope untouched
+  // so the caller branches on `result.success` itself (rule 19).
+  // ---------------------------------------------------------------------------
+  getDatabaseResetPreview: () => Promise<DatabaseResetPreview>;
+  resetDatabase: (input: {
+    confirmation: string;
+  }) => Promise<{
+    success: boolean;
+    data?: DatabaseResetResult;
+    error?: string;
+  }>;
+
+  // ---------------------------------------------------------------------------
   // Modules
   // ---------------------------------------------------------------------------
   getModules: () => Promise<any[]>;
@@ -1374,6 +1399,40 @@ export type ApiAdapter = {
   /** Active catalog items (public read — no role gate). */
   getActiveMobileServiceItems: () => Promise<MobileServiceItemEntity[]>;
   getAdminMobileServiceItems: () => Promise<MobileServiceItemEntity[]>;
+  /** Total catalog row count — used to decide whether to re-seed an empty
+   *  catalog (fresh install, or after a "Reset Data" wipe). Envelope-shaped
+   *  (not unwrapped): callers must branch on `.success` to tell "count is
+   *  genuinely 0" apart from "the fetch failed". */
+  countMobileServiceItems: () => Promise<{
+    success: boolean;
+    data?: number;
+    error?: string;
+  }>;
+  /** Bulk-insert the fresh-install catalog. No-ops server-side (returns
+   *  `{success:true, count:0}`) when the table is already populated. Admin
+   *  or staff only. */
+  seedMobileServiceItems: (
+    items: {
+      provider: string;
+      category: string;
+      subcategory: string;
+      label: string;
+      cost_lbp: number;
+      sell_lbp: number;
+      sort_order?: number;
+      is_active?: number;
+      validity_days?: number | null;
+      credits?: number | null;
+      days_cost_lbp?: number | null;
+      sell_days_lbp?: number | null;
+      sell_credit_lbp?: number | null;
+      max_returned_credits_usd?: number | null;
+    }[],
+  ) => Promise<{
+    success: boolean;
+    count?: number;
+    error?: string;
+  }>;
   /** LIRA-090: create a new catalog item (admin only). */
   createMobileServiceItem: (data: {
     provider: string;

@@ -2788,7 +2788,7 @@ export interface ElectronAPI {
     }>;
   };
 
-  // Database path management
+  // Database path management + reset (LIRA-165)
   database: {
     isJoinInstallation: () => Promise<{
       success: boolean;
@@ -2803,6 +2803,16 @@ export interface ElectronAPI {
     }>;
     changePath: (newPath: string) => Promise<{
       success: boolean;
+      error?: string;
+    }>;
+    resetPreview: () => Promise<{
+      success: boolean;
+      data?: DatabaseResetPreview;
+      error?: string;
+    }>;
+    reset: (data: { confirmation: string }) => Promise<{
+      success: boolean;
+      data?: DatabaseResetResult;
       error?: string;
     }>;
   };
@@ -3575,6 +3585,23 @@ export interface ElectronAPI {
     ) => Promise<{ success: boolean; error?: string }>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
   };
+}
+
+/**
+ * LIRA-165 — Database Reset (Settings > Reset Data). Mirrors `@liratek/core`'s
+ * `DatabaseResetPreview` (packages/core/src/services/DatabaseResetService.ts)
+ * verbatim (rule 14).
+ */
+export interface DatabaseResetPreview {
+  counts: Record<string, number>;
+  totalRows: number;
+}
+
+/** Mirrors `@liratek/core`'s `DatabaseResetResult` verbatim (rule 14). */
+export interface DatabaseResetResult {
+  deletedRows: Record<string, number>;
+  totalDeleted: number;
+  backupPath?: string;
 }
 
 declare global {

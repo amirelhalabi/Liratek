@@ -209,6 +209,17 @@ function webApiShimBody(): void {
             qs({ limit, ...(filters as Record<string, unknown>) }),
         )
       ).transactions,
+
+    // ── Database reset (LIRA-165) — unlike most reads in this table, both
+    //    the IPC preload binding AND the REST route already return the full
+    //    `{ success, data?, error? }` envelope verbatim (see
+    //    electron-app/preload.ts's `resetPreview`/`reset` and
+    //    backend/src/api/databaseReset.ts) — so both map straight through
+    //    with no unwrap/rewrap, unlike e.g. `debt.getDebtors` above. ──
+    "database.resetPreview": async () =>
+      rest("GET", "/api/database/reset/preview"),
+    "database.reset": async ([data]) =>
+      rest("POST", "/api/database/reset", data),
   };
 
   const RESERVED = new Set(["then", "catch", "finally"]);

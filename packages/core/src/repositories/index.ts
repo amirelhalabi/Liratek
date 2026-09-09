@@ -751,3 +751,10 @@ export {
   getBackupRepository,
   resetBackupRepository,
 } from "./BackupRepository.js";
+
+// Database Reset Repository (LIRA-165 — Settings › Reset Data)
+export {
+  DatabaseResetRepository,
+  getDatabaseResetRepository,
+  resetDatabaseResetRepository,
+} from "./DatabaseResetRepository.js";

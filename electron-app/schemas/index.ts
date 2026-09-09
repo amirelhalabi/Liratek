@@ -148,6 +148,11 @@ import {
   // RechargeSchema/SaleProcessSchema above.
   getMaintenanceStatusHistorySchema,
   type GetMaintenanceStatusHistoryInput,
+  // LIRA-165 — Database Reset. Brand new, no local duplicate; straight
+  // re-export from packages/core/src/validators/databaseReset.ts so the
+  // Electron IPC handler (databaseResetHandlers.ts) and the REST route
+  // validate against the same schema (rule 14).
+  databaseResetSchema,
 } from "@liratek/core";
 
 // =============================================================================
@@ -1219,6 +1224,20 @@ export const SetProfitsPasswordSchema =
   coreSetProfitsPasswordSchema as unknown as z.ZodSchema<SetProfitsPasswordInput>;
 export const UnlockProfitsSchema =
   coreUnlockProfitsSchema as unknown as z.ZodSchema<UnlockProfitsInput>;
+
+// =============================================================================
+// Database Reset (LIRA-165 — Settings > Reset Data)
+// =============================================================================
+
+// The contract lives in packages/core/src/validators/databaseReset.ts so the
+// Electron IPC handler (databaseResetHandlers.ts) and the REST route
+// (backend/src/api/databaseReset.ts, Phase 3) validate against ONE schema
+// (rule 14). Cast bridges the zod-major mismatch (core=zod4, this
+// workspace=zod3); runtime API used is identical. No named input type is
+// part of the frozen Phase-1 contract, so the shape is spelled out inline
+// rather than guessing a core export name.
+export const DatabaseResetSchema =
+  databaseResetSchema as unknown as z.ZodSchema<{ confirmation: string }>;
 
 // =============================================================================
 // Helpers

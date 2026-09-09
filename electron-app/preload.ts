@@ -1069,12 +1069,15 @@ contextBridge.exposeInMainWorld("api", {
     getDbPath: () => ipcRenderer.invoke("diagnostics:getDbPath"),
   },
 
-  // Database path management
+  // Database path management + reset (LIRA-165)
   database: {
     isJoinInstallation: () => ipcRenderer.invoke("database:isJoinInstallation"),
     browse: () => ipcRenderer.invoke("database:browse"),
     changePath: (newPath: string) =>
       ipcRenderer.invoke("database:changePath", newPath),
+    resetPreview: () => ipcRenderer.invoke("database:resetPreview"),
+    reset: (data: { confirmation: string }) =>
+      ipcRenderer.invoke("database:reset", data),
   },
 
   // Updater

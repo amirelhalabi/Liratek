@@ -14,6 +14,7 @@ import CategoriesManager from "./CategoriesManager";
 import MobileServicesManager from "./MobileServicesManager";
 import CarrierLinesManager from "./CarrierLinesManager";
 import ProfitsPasswordPanel from "./ProfitsPasswordPanel";
+import ResetDataPanel from "./ResetDataPanel";
 
 type TabKey =
   | "shop"
@@ -27,7 +28,8 @@ type TabKey =
   | "mobile-services"
   | "carrier-lines"
   | "profits"
-  | "license";
+  | "license"
+  | "reset";
 
 /** Every valid tab key — the single source of truth for the `?tab=` deep
  *  link below, so a new tab automatically becomes a valid deep-link target
@@ -45,6 +47,7 @@ const TAB_KEYS: readonly TabKey[] = [
   "carrier-lines",
   "profits",
   "license",
+  "reset",
 ];
 
 function isTabKey(value: string | null): value is TabKey {
@@ -87,6 +90,9 @@ export default function Settings() {
     { key: "carrier-lines", label: "Carrier Lines" },
     { key: "diagnostics", label: "Diagnostics" },
     { key: "license", label: "Licence" },
+    // Deliberately last — a destructive admin-only action, kept away from
+    // the tabs an operator reaches for day to day.
+    { key: "reset", label: "Reset Data" },
   ] as { key: TabKey; label: string; icon?: typeof Tag }[];
 
   return (
@@ -119,6 +125,7 @@ export default function Settings() {
           {active === "carrier-lines" && <CarrierLinesManager />}
           {active === "diagnostics" && <Diagnostics />}
           {active === "license" && <LicensePanel />}
+          {active === "reset" && <ResetDataPanel />}
         </div>
       </div>
     </div>

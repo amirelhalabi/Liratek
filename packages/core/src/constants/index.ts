@@ -5,3 +5,4 @@ export * from "./systemFloatDrawers.js";
 export * from "./drawerCurrencyPolicy.js";
 export * from "./exchangeLotPolicy.js";
 export * from "./profitsAccess.js";
+export * from "./resetTables.js";

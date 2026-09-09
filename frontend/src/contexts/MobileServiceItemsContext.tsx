@@ -141,19 +141,25 @@ export function MobileServiceItemsProvider({
 
   const load = useCallback(async () => {
     try {
-      const countResult = await window.api.mobileServiceItems.count();
+      // Dual-transport (rule 19a): count/seed go through useApi()'s
+      // countMobileServiceItems/seedMobileServiceItems, which route to IPC on
+      // desktop and to the mirroring REST endpoints on web (rule 19b). Raw
+      // `window.api.*` here would throw a TypeError in a real browser (no
+      // contextBridge), silently caught below, leaving the "Reset Data" wipe
+      // with no re-seed path on the web transport.
+      const countResult = await api.countMobileServiceItems();
       if (countResult.success && countResult.data === 0) {
         const seedData = parseCatalogToSeedData();
-        await window.api.mobileServiceItems.seed(seedData);
+        await api.seedMobileServiceItems(seedData);
       }
 
-      const [allResult, costs, images] = await Promise.all([
-        window.api.mobileServiceItems.getAll(),
+      const [allItems, costs, images] = await Promise.all([
+        api.getActiveMobileServiceItems(),
         api.getItemCosts(),
         api.getVoucherImages(),
       ]);
 
-      setDbItems(allResult.success ? (allResult.data ?? []) : []);
+      setDbItems(allItems ?? []);
       setItemCosts(costs ?? []);
       setVoucherImages(images ?? []);
       setLoaded(true);
@@ -270,12 +276,12 @@ export function MobileServiceItemsProvider({
 
   const refresh = useCallback(async () => {
     try {
-      const [allResult, costs, images] = await Promise.all([
-        window.api.mobileServiceItems.getAll(),
+      const [allItems, costs, images] = await Promise.all([
+        api.getActiveMobileServiceItems(),
         api.getItemCosts(),
         api.getVoucherImages(),
       ]);
-      setDbItems(allResult.success ? (allResult.data ?? []) : []);
+      setDbItems(allItems ?? []);
       setItemCosts(costs ?? []);
       setVoucherImages(images ?? []);
     } catch {

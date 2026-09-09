@@ -97,6 +97,20 @@ export * from "./utils/insuranceFulfillment.js";
 // failure mode this avoids.
 export * from "./constants/profitsAccess.js";
 
+// Database Reset (LIRA-165) — constants + types only: the confirmation
+// phrase, the six table-bucket arrays, and the DatabaseResetPreview/Result
+// shapes are pure data/types, no Node.js deps. The Settings › Reset Data
+// modal (a frontend follow-up phase) imports
+// DATABASE_RESET_CONFIRMATION_PHRASE directly to validate what the operator
+// typed BEFORE calling the IPC/REST endpoint, instead of hardcoding the
+// phrase a second time (rule 14) — that duplicate would drift the moment
+// this file's phrase changed. `DatabaseResetRepository`/`DatabaseResetService`
+// are deliberately NOT exported here: they touch the database and must stay
+// out of the Vite/browser bundle. Must be exported HERE, not only from
+// index.ts — see the telecomCredit.js note above for the exact failure mode
+// this avoids.
+export * from "./constants/resetTables.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

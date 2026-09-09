@@ -416,6 +416,13 @@ export class ElectronApiAdapter implements ApiAdapter {
   restoreDatabase = (path: string) => api.restoreDatabase(path);
 
   // ---------------------------------------------------------------------------
+  // Database Reset (LIRA-165)
+  // ---------------------------------------------------------------------------
+  getDatabaseResetPreview = () => api.getDatabaseResetPreview();
+  resetDatabase = (input: { confirmation: string }) =>
+    api.resetDatabase(input);
+
+  // ---------------------------------------------------------------------------
   // Modules
   // ---------------------------------------------------------------------------
   getModules = () => api.getModules();
@@ -505,6 +512,27 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   getActiveMobileServiceItems = () => api.getActiveMobileServiceItems();
   getAdminMobileServiceItems = () => api.getAdminMobileServiceItems();
+  /** Catalog row count — used to decide whether to re-seed an empty catalog. */
+  countMobileServiceItems = () => api.countMobileServiceItems();
+  /** Bulk-insert the fresh-install catalog (no-ops server-side if non-empty). */
+  seedMobileServiceItems = (
+    items: {
+      provider: string;
+      category: string;
+      subcategory: string;
+      label: string;
+      cost_lbp: number;
+      sell_lbp: number;
+      sort_order?: number;
+      is_active?: number;
+      validity_days?: number | null;
+      credits?: number | null;
+      days_cost_lbp?: number | null;
+      sell_days_lbp?: number | null;
+      sell_credit_lbp?: number | null;
+      max_returned_credits_usd?: number | null;
+    }[],
+  ) => api.seedMobileServiceItems(items);
   createMobileServiceItem = (data: {
     provider: string;
     category: string;

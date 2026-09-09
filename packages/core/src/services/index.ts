@@ -452,3 +452,14 @@ export {
   UNGATEABLE_MODULES,
 } from "./SubscriptionService.js";
 export type { SubscriptionStatusView } from "./SubscriptionService.js";
+
+// Database Reset Service (LIRA-165 — Settings › Reset Data)
+export {
+  DatabaseResetService,
+  getDatabaseResetService,
+  resetDatabaseResetService,
+} from "./DatabaseResetService.js";
+export type {
+  DatabaseResetRequest,
+  DatabaseResetOutcome,
+} from "./DatabaseResetService.js";

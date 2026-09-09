@@ -16,7 +16,10 @@ import {
 
 let backupService: ReturnType<typeof getBackupService> | null = null;
 
-function getDefaultBackupDir(): string {
+// Exported so other handlers (databaseResetHandlers.ts) that also need a
+// pre-write file backup reuse this exact directory-resolution logic instead
+// of copy-pasting it (CLAUDE.md rule 14).
+export function getDefaultBackupDir(): string {
   const documentsPath = app.getPath("documents");
   return path.join(documentsPath, "Liratek", "Backups");
 }
@@ -34,7 +37,7 @@ function getCustomBackupDir(): string | null {
   return null;
 }
 
-function getBackupServiceInstance(): ReturnType<typeof getBackupService> {
+export function getBackupServiceInstance(): ReturnType<typeof getBackupService> {
   if (!backupService) {
     const backupDir = getCustomBackupDir() || getDefaultBackupDir();
     backupService = getBackupService(backupDir);

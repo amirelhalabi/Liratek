@@ -7,7 +7,11 @@ import {
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 import { messageFrom } from "./apiError";
-import type { ProductListFilters } from "@liratek/core";
+import type {
+  ProductListFilters,
+  DatabaseResetPreview,
+  DatabaseResetResult,
+} from "@liratek/core";
 import type {
   UnsettledSummary,
   OMTAnalytics,
@@ -2878,6 +2882,75 @@ export async function restoreDatabase(path: string) {
           body: { path },
         },
       ),
+  );
+}
+
+// ==================== Database Reset API (LIRA-165) ====================
+
+/**
+ * The destructive-action preview: exact per-table row counts a reset would
+ * delete, shown before the confirmation modal even opens. A READ — resolves
+ * to the RAW `DatabaseResetPreview` shape on both transports (rule 19's
+ * reads-return-raw-shape convention, same as `getProductSuppliers` above),
+ * throwing on a `{success:false}` envelope so the panel's existing
+ * loading/error state machine handles it like any other failed load.
+ */
+export async function getDatabaseResetPreview(): Promise<DatabaseResetPreview> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().database.resetPreview();
+      if (!res?.success || !res.data) {
+        throw new Error(res?.error ?? "Failed to load reset preview");
+      }
+      return res.data as DatabaseResetPreview;
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: DatabaseResetPreview;
+        error?: string;
+      }>("/api/database/reset/preview");
+      if (!res.success || !res.data) {
+        throw new Error(res.error ?? "Failed to load reset preview");
+      }
+      return res.data;
+    },
+  );
+}
+
+/**
+ * The actual wipe. A WRITE — resolves to the `{ success, data?, error? }`
+ * envelope UNTOUCHED (rule 19), so `ResetDataModal` branches on
+ * `result.success` itself instead of this function throwing away a failure's
+ * `error`.
+ *
+ * The REST route answers HTTP 200 even on a rejected reset (rule 19c
+ * envelope parity), but a role/auth failure ahead of the route (403/401) or
+ * an unhandled 500 is still a non-2xx, and `requestJson` REJECTS with a
+ * plain `{status, message, details}` object on those — NOT an `Error` — so
+ * `messageFrom` (not `instanceof Error`) is what actually recovers the real
+ * reason instead of a generic "unexpected error".
+ */
+export async function resetDatabase(input: {
+  confirmation: string;
+}): Promise<{
+  success: boolean;
+  data?: DatabaseResetResult;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().database.reset(input),
+    async () => {
+      try {
+        return await requestJson<{
+          success: boolean;
+          data?: DatabaseResetResult;
+          error?: string;
+        }>("/api/database/reset", { method: "POST", body: input });
+      } catch (err) {
+        return { success: false, error: messageFrom(err, "Reset failed") };
+      }
+    },
   );
 }
 
@@ -5950,6 +6023,69 @@ export async function createMobileServiceItem(data: {
         data?: MobileServiceItemEntity;
         error?: string;
       }>(`/api/mobile-service-items`, { method: "POST", body: data }),
+  );
+}
+
+/**
+ * Total row count of the mobile service item catalog. Used by
+ * `MobileServiceItemsContext` to decide whether the catalog is empty and
+ * needs re-seeding (fresh install, or after the "Reset Data" wipe).
+ *
+ * Envelope-shaped (not unwrapped like `getActiveMobileServiceItems`) — the
+ * caller distinguishes "count is genuinely 0" from "the count fetch failed"
+ * via `.success`; collapsing a failure to a raw `0` would trigger an
+ * unwanted re-seed on a transient network/auth error instead of skipping it.
+ */
+export async function countMobileServiceItems(): Promise<{
+  success: boolean;
+  data?: number;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().mobileServiceItems.count(),
+    async () =>
+      requestJson<{ success: boolean; data?: number; error?: string }>(
+        `/api/mobile-service-items/count`,
+      ),
+  );
+}
+
+/**
+ * Bulk-insert the fresh-install catalog (only when the table is empty —
+ * enforced server-side by `seedFromCatalog`). Envelope-shaped, matching
+ * `createMobileServiceItem`/`updateMobileServiceItem` above (a write).
+ */
+export async function seedMobileServiceItems(
+  items: {
+    provider: string;
+    category: string;
+    subcategory: string;
+    label: string;
+    cost_lbp: number;
+    sell_lbp: number;
+    sort_order?: number;
+    is_active?: number;
+    validity_days?: number | null;
+    credits?: number | null;
+    /** LIRA-090 (v140) Only-Days split columns — nullable, all optional. */
+    days_cost_lbp?: number | null;
+    sell_days_lbp?: number | null;
+    sell_credit_lbp?: number | null;
+    /** v160: per-card override of the returnable credit maximum; null = computed. */
+    max_returned_credits_usd?: number | null;
+  }[],
+): Promise<{
+  success: boolean;
+  count?: number;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().mobileServiceItems.seed(items),
+    async () =>
+      requestJson<{ success: boolean; count?: number; error?: string }>(
+        `/api/mobile-service-items/seed`,
+        { method: "POST", body: items },
+      ),
   );
 }
 

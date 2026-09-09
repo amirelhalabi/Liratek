@@ -577,6 +577,9 @@ async function registerHandlers() {
     const holdMoneyHandlers = await import("./handlers/holdMoneyHandlers.js");
     const carrierLineHandlers =
       await import("./handlers/carrierLineHandlers.js");
+    const databaseResetHandlers = await import(
+      "./handlers/databaseResetHandlers.js"
+    );
 
     // Register all handlers
     authHandlers.registerAuthHandlers();
@@ -622,6 +625,7 @@ async function registerHandlers() {
     holdMoneyHandlers.registerHoldMoneyHandlers();
     carrierLineHandlers.registerCarrierLineHandlers();
     licenseHandlers.registerLicenseHandlers();
+    databaseResetHandlers.registerDatabaseResetHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {
