@@ -5,10 +5,19 @@ transports ship from the same codebase and land on the same `@liratek/core`
 services — desktop over IPC against a local/network SQLite file, web over REST
 against a server-hosted one. See `CLAUDE.md` § Dual-Transport Architecture.
 
-**Status:** the container stack below is complete but **has not yet been built or
-run** — see § Verification status. Subdomain-per-tenant login IS
-implemented but stays inert until `APP_BASE_DOMAIN` is set; see § Not done
-yet.
+**Status — LIVE ON FLY.IO since 2026-09-09.** The backend runs as the `liratek-api`
+Fly app in `fra`, one machine, SQLite on a 3 GB encrypted volume at
+`/data/liratek.db`. `api.liratek.shop` is a DNS-only CNAME to
+`qemrnoy.liratek-api.fly.dev` with a Fly-issued certificate; the SPA still
+serves from Vercel and its `/api` rewrite is unchanged. **The Cloudflare tunnel
+and the developer laptop are out of the serving path.** Runbook: § 4d.
+
+Two things had to be fixed to get the first image to build at all — the
+container stack really had never been built before, exactly as this line used to
+warn. See § 4d and commit `383939f2`.
+
+Subdomain-per-tenant login is live (`APP_BASE_DOMAIN=liratek.shop`); § 8 has the
+verified realm matrix.
 
 ---
 
@@ -225,7 +234,53 @@ created but shares `www.liratek.shop` with everyone, and the no-realm username
 inference (§ 8) deliberately resolves a contested username to the FIRST tenant
 — so the newcomer cannot log in at all.
 
-## 4d. Fly.io — getting the backend off the laptop (the runbook)
+## 4d. Fly.io — the backend's real home (DONE 2026-09-09)
+
+**Executed and verified.** What actually happened, including the parts the plan
+did not predict:
+
+| | |
+| --- | --- |
+| App / machine | `liratek-api`, one machine in `fra`, 375 MB image |
+| Volume | `liratek_data`, 3 GB, **encrypted at rest**, scheduled snapshots (5 retained) |
+| Hostname | `api.liratek.shop` → CNAME `qemrnoy.liratek-api.fly.dev`, **DNS only**, Fly cert |
+| Data | migrated as a `VACUUM INTO` snapshot: CornerTech, 3 users, 18 transactions, v174 |
+
+Verified end to end through the real chain (browser → Vercel → Fly): a tenant
+login on its own subdomain succeeds, the same credentials are refused on the
+platform host, `ADMIN` resolves case-insensitively (v174), the shop name renders
+from migrated settings, and `platformHost` is correct on both hosts.
+
+**`X-Forwarded-Host` survives two proxies.** § 8 warns that losing it breaks
+every tenant login at once, and there are now *two* hops (Vercel then Fly)
+against `trust proxy` = 1. It works — measured, not assumed.
+
+### Things that bit, recorded so they don't again
+
+- **The image had never built.** The root `postinstall` runs
+  `scripts/rebuild-native-deps.cjs`, which the image never copied →
+  `MODULE_NOT_FOUND`. `LIRATEK_SKIP_NATIVE_REBUILD=1` cannot rescue it: the
+  script must exist to run and read the flag.
+- **Yarn hides build failures.** It writes them to `/tmp/xfs-*/build.log` inside
+  a builder container that no longer exists. `YARN_ENABLE_INLINE_BUILDS=1` is
+  now set in the Dockerfile; it is what made the above visible.
+- **`fly ssh sftp put /data/…` from Git Bash** silently becomes
+  `C:/Program Files/Git/data/…`. Use PowerShell, or `MSYS_NO_PATHCONV=1`.
+- **The uploaded file lands owned by `root`**, but the app runs as `node` —
+  `chown` it or the app cannot write.
+- **Delete the bootstrap DB's `-wal`/`-shm` when swapping in a database.** A
+  stale wal beside a different `.db` is how a restore corrupts.
+- **`authLimiter` is per-IP and will lock you out while testing.** It is an
+  in-memory store, so `fly apps restart` clears it.
+- **`/health/detailed` reports `unhealthy`** on a memory check (heap 45/47 MB vs
+  a 42 MB threshold) while RSS is 100 MB of 512 MB. A false alarm — Fly's check
+  uses `/health`, which passes — but do not wire anything to `/health/detailed`
+  until that threshold is fixed.
+- **The `DATABASE_KEY` log line lies.** Production logs
+  `applied:true, supported:true` while the database is plaintext (§ 6). At-rest
+  cover comes from the encrypted Fly volume, not SQLCipher.
+
+### Original runbook (kept for reference / rebuilds)
 
 `fly.toml` is at the repo root, backend-only. The SPA stays on Vercel.
 
