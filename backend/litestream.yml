@@ -1,0 +1,39 @@
+# Litestream — continuous replication of the web backend's SQLite file to
+# object storage (Cloudflare R2).
+#
+# WHY THIS EXISTS: the Fly volume is encrypted and snapshotted daily, but a
+# daily snapshot means a shop can lose up to a day of sales. Litestream ships
+# the WAL continuously, so worst-case loss is measured in seconds. It is also
+# the only copy of shop data that lives outside Fly.
+#
+# `VACUUM INTO` snapshots (BackupService) are the desktop mechanism and remain
+# the belt to this braces — different failure modes on purpose.
+#
+# Every value is an environment variable, and the entrypoint refuses to start
+# Litestream unless all of them are set: a half-configured backup that silently
+# does nothing is worse than none, because you would believe you had one.
+# Same rule as tenantDomains.ts.
+
+dbs:
+  - path: ${DATABASE_PATH}
+
+    # `replica` (singular) is the 0.5.x form; the `replicas` array is
+    # deprecated. Most tutorials online still show the old shape.
+    replica:
+      type: s3
+      bucket: ${LITESTREAM_BUCKET}
+
+      # Prefix inside the bucket. Named for the deployment rather than the
+      # database, so the per-tenant split can add sibling prefixes without
+      # reorganising what is already there.
+      path: web/liratek
+
+      # R2's S3-compatible endpoint: https://<account-id>.r2.cloudflarestorage.com
+      endpoint: ${LITESTREAM_ENDPOINT}
+
+      # R2 has no regions, but the S3 client requires the field. "auto" is what
+      # Cloudflare documents.
+      region: auto
+
+      access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+      secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}

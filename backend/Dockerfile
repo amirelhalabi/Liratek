@@ -69,6 +69,26 @@ COPY backend/ backend/
 RUN yarn workspace @liratek/core build \
  && yarn workspace @liratek/backend build
 
+# ── Litestream ───────────────────────────────────────────────────────────────
+# Fetched in the BUILD stage so the runtime image needs no curl and gains no
+# extra layers; only the ~12 MB static binary is copied forward.
+#
+# Version is PINNED. An unpinned backup tool is one that changes underneath you,
+# and the release you validated a restore against is the only one you know
+# restores. Note the asset is named x86_64, not amd64.
+ARG LITESTREAM_VERSION=0.5.17
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && case "${TARGETARCH:-amd64}" in \
+       amd64) LS_ARCH=x86_64 ;; \
+       arm64) LS_ARCH=arm64 ;; \
+       *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+     esac \
+  && curl -fsSL "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-${LITESTREAM_VERSION}-linux-${LS_ARCH}.tar.gz" \
+     | tar -C /usr/local/bin -xz litestream \
+  && /usr/local/bin/litestream version
+
 # ───────────────────────────────────────────────────────────── runtime ───────
 FROM node:20-bookworm-slim AS runtime
 
@@ -93,6 +113,18 @@ COPY --from=build /app/backend/dist         ./backend/dist
 # Migrations then run on every start, so an existing volume upgrades in place.
 COPY electron-app/create_db.sql ./electron-app/create_db.sql
 
+# Litestream: the static binary, its config (read from /etc/litestream.yml by
+# default) and the entrypoint that restores-if-empty then replicates.
+COPY --from=build /usr/local/bin/litestream /usr/local/bin/litestream
+COPY backend/litestream.yml                 /etc/litestream.yml
+COPY backend/docker-entrypoint.sh           /usr/local/bin/docker-entrypoint.sh
+
+# chmod here rather than relying on the file's mode in git: this repo is checked
+# out on Windows, where the executable bit does not survive, so the committed
+# file arrives non-executable (docs/DEPLOYMENT.md hits the same thing with
+# deploy-smoke.sh).
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Drop root. /data is the DB volume mountpoint (DATABASE_PATH), created here so
 # the unprivileged user can write it even on a fresh named volume.
 RUN mkdir -p /data && chown -R node:node /data /app
@@ -102,4 +134,7 @@ WORKDIR /app/backend
 
 EXPOSE 3000
 
-CMD ["node", "dist/server.js"]
+# The entrypoint execs the server, so node is still PID 1's process image and
+# signal handling is unchanged. It falls through to starting the app on every
+# failure path — see the script for why nothing there may block a boot.
+CMD ["/usr/local/bin/docker-entrypoint.sh"]
