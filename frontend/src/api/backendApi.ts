@@ -195,6 +195,9 @@ export async function publicAuthInfo() {
       enabled: boolean;
       platformHost: boolean;
       baseDomain: string | null;
+      /** The tenant's name, resolved from the HOST — available before login,
+       *  unlike the tenant-scoped settings read. Null off a tenant subdomain. */
+      shopName: string | null;
     };
   }>("/api/auth/signup-status", { auth: false });
 }
@@ -247,7 +250,20 @@ export async function login(
   // The backend wraps the login payload in `data` (createSuccessResponse),
   // unlike /api/auth/me which responds flat — accept both shapes.
   const payload = res.data ?? res;
-  if (res.success && payload.token) setToken(payload.token);
+  if (res.success && payload.token) {
+    // A deliberate login SUPERSEDES any impersonation session in this tab.
+    //
+    // Without this, signing in normally in a tab that had once been used for
+    // "Connect as admin" was futile: getToken() prefers the impersonation
+    // token in sessionStorage over the login token in localStorage, so the
+    // OLD token kept winning the lookup and every authenticated request 401'd
+    // while the login itself returned 200 (login sends no token). Because
+    // sessionStorage outlives a reload, not even a hard refresh cleared it --
+    // the tab had to be closed. Observed live with an impersonation token 7.5
+    // hours older than the fresh login sitting next to it.
+    clearImpersonationSession();
+    setToken(payload.token);
+  }
   return {
     success: res.success,
     user: withDecodedTenant(payload.user, payload.token),

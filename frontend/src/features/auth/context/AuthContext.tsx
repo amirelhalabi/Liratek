@@ -6,7 +6,7 @@ import {
   getImpersonationInfo,
   type ImpersonationInfo,
 } from "@/features/admin/utils/impersonation";
-import { UNAUTHORIZED_EVENT } from "@/api/httpClient";
+import { UNAUTHORIZED_EVENT, getToken } from "@/api/httpClient";
 
 interface User {
   id: number;
@@ -101,8 +101,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               localStorage.setItem("sessionToken", result.sessionToken);
             }
           }
-        } else {
-          // Web mode: try backend session
+        } else if (getToken()) {
+          // Web mode: try backend session.
+          //
+          // Gated on actually HAVING a token. With none there is nothing to
+          // restore and the call can only answer 401 "No token provided" --
+          // which is what put a red /api/auth/me in the network tab of every
+          // logged-out visitor to the login page, looking like a fault when
+          // the app was working exactly as intended.
           try {
             const result = await api.me();
             if (result.success && result.user) {

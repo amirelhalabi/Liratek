@@ -144,6 +144,29 @@ describe("requestJson — 401 handling", () => {
     // finally be used again instead of being permanently shadowed.
     expect(getImpersonationToken()).toBeNull();
     expect(getToken()).toBe("normal-token");
+
+    // And crucially the user is NOT signed out. Only the impersonation session
+    // ended; the login underneath it is untouched and still valid, so throwing
+    // it away would log someone out of a session the server never refused.
+    // This is the half that produced "I log in, get some data, then I'm logged
+    // out": a stale impersonation token from hours earlier shadowed the fresh
+    // login, got rejected, and took the good session down with it.
+    expect(fired).toBe(0);
+  });
+
+  it("DOES end the session when a dead impersonation token is all there was", async () => {
+    // No normal login underneath (the tab was only ever an impersonation tab),
+    // so there is nothing left to fall back to and the UI must show the login
+    // screen. The previous test's silence must not become blanket silence.
+    setImpersonationToken("dead-impersonation-token");
+    mockFetch(401, { error: "Session expired" });
+
+    await expect(requestJson("/api/settings")).rejects.toMatchObject({
+      status: 401,
+    });
+
+    expect(getImpersonationToken()).toBeNull();
+    expect(getToken()).toBeNull();
     expect(fired).toBe(1);
   });
 

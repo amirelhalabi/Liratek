@@ -32,6 +32,13 @@ export default function Login() {
   // platform host, or we don't know yet", and nothing is shown.
   const [platformDomain, setPlatformDomain] = useState<string | null>(null);
 
+  // The shop's name as resolved from the SUBDOMAIN, which is knowable before
+  // anyone logs in. `useShopName()` above reads it from tenant-scoped settings
+  // and is therefore always empty here on the web -- that is why every shop's
+  // login page said "LiraTek" even though the address bar already said which
+  // shop it was.
+  const [hostShopName, setHostShopName] = useState<string | null>(null);
+
   useEffect(() => {
     if (isElectron()) return;
     let cancelled = false;
@@ -44,6 +51,7 @@ export default function Login() {
         if (r.data.platformHost && r.data.baseDomain) {
           setPlatformDomain(r.data.baseDomain);
         }
+        if (r.data.shopName) setHostShopName(r.data.shopName);
       })
       // A backend that cannot answer is a backend that cannot sign anyone up
       // either, so staying silent is the correct outcome, not a failure.
@@ -134,7 +142,7 @@ export default function Login() {
                 customer name. Branding the product here is honest -- before
                 login there is no tenant to speak for. */}
             <h1 className="text-4xl font-bold text-white whitespace-nowrap mb-2">
-              {shopName || "LiraTek"}
+              {shopName || hostShopName || "LiraTek"}
             </h1>
             <p className="font-medium text-white">Management System</p>
           </div>
@@ -294,7 +302,7 @@ export default function Login() {
                   empty on the web -- and "Licensed to" followed by a blank, or
                   worse a placeholder, is how a stranger's name ended up on
                   every login page. */}
-              {shopName && (
+              {(shopName || hostShopName) && (
                 <>
                   <span
                     className={
@@ -310,7 +318,7 @@ export default function Login() {
                         : "text-gray-800 font-medium"
                     }
                   >
-                    {shopName}
+                    {shopName || hostShopName}
                   </span>
                 </>
               )}

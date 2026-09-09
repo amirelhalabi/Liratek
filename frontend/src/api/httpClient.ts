@@ -245,12 +245,20 @@ export async function requestJson<T>(
       // refresh did not help either. Logging in appeared to work (login itself
       // sends no token) and then every single call 401'd, forever, until the
       // TAB was closed.
+      let sessionOver = true;
       if (getImpersonationToken() === sentToken) {
         clearImpersonationSession();
+        // An expired IMPERSONATION session is not necessarily the end of the
+        // user's session. If a normal login survives underneath it in
+        // localStorage, that login is still perfectly good and must be allowed
+        // to take over -- signing out here threw away a valid session because
+        // a DIFFERENT, stale one had been shadowing it. That is what made the
+        // symptom look like "I log in, get some data, then I'm logged out".
+        sessionOver = getToken() === null;
       } else {
         setToken(null);
       }
-      if (typeof window !== "undefined") {
+      if (sessionOver && typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
       }
     }

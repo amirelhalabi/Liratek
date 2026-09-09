@@ -333,6 +333,20 @@ router.get("/signup-status", (req, res): void => {
       // Only alongside platformHost, and only so the page can spell out the
       // address format ("<your-shop>.liratek.shop"). Null everywhere else.
       baseDomain: platformHost ? APP_BASE_DOMAIN : null,
+      // The shop's own name, for the login page header on its subdomain.
+      //
+      // The header used to read "LiraTek" for everyone, because the name came
+      // from a tenant-scoped settings read that cannot work before login --
+      // there is no JWT, so there is no tenant. But the HOST already names the
+      // tenant, which is the whole point of per-shop subdomains, so the answer
+      // is available here without authenticating anyone.
+      //
+      // Only for a resolved tenant: null on the platform host and on an
+      // unknown slug. That does let someone learn which subdomains exist by
+      // asking -- accepted deliberately, because a shop's name on its own
+      // login page is the thing being asked for, and the slug is already
+      // public to anyone who can resolve the DNS name.
+      shopName: realm.kind === "tenant" ? realm.tenant.name : null,
     }),
   );
 });

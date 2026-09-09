@@ -9,6 +9,7 @@ import React, {
 import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
+import { useAuth } from "@/features/auth/context/AuthContext";
 import { subscribeToInvalidation } from "@/api/realtime";
 import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import type { CartItem, CartTotals } from "../types/cart";
@@ -105,6 +106,7 @@ export function useSession() {
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const api = useApi();
   const { flags } = useFeatureFlags();
+  const { isAuthenticated } = useAuth();
   const [activeSession, setActiveSession] = useState<CustomerSession | null>(
     null,
   );
@@ -227,6 +229,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [cartItems]);
 
   const refreshActiveSessions = useCallback(async () => {
+    // Logged out there is no tenant context, so this endpoint can only answer
+    // 401 -- it was firing on the LOGIN page and showing up as a red
+    // "Unauthorized" in the network tab of a user who had done nothing wrong.
+    //
+    // Guarded here rather than at each call site on purpose: mount, the poll,
+    // the visibility handler and the socket invalidation all funnel through
+    // this one function, and a guard per caller is one someone forgets to add
+    // to the fifth caller.
+    if (!isAuthenticated) return;
+
     try {
       const data = await api.session.getActiveSessions();
 
@@ -255,7 +267,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       logger.error("Failed to load sessions:", err);
     }
-  }, [activeSession]);
+  }, [activeSession, isAuthenticated]);
 
   // Load active sessions on mount and keep them fresh with a light poll (only
   // when customer sessions feature is enabled). Sessions can be started/closed
