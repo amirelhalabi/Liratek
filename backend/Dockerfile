@@ -27,7 +27,14 @@ WORKDIR /app
 #  ELECTRON_SKIP_BINARY_DOWNLOAD — skips a ~100 MB Electron download this image
 #    has no use for.
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 \
-    LIRATEK_SKIP_NATIVE_REBUILD=1
+    LIRATEK_SKIP_NATIVE_REBUILD=1 \
+    # Stream package build output instead of writing it to a log file inside
+    # the builder. Without this, a failing postinstall reports only
+    # "couldn't be built successfully (exit code 1, logs can be found here:
+    # /tmp/xfs-…/build.log)" — a path in a container that is already gone by
+    # the time you read the error, which makes the one failure you actually
+    # need to debug the one you cannot.
+    YARN_ENABLE_INLINE_BUILDS=1
 
 # Yarn resolves the whole workspace graph declared in the root package.json, so
 # every workspace's manifest must exist — even frontend/electron-app, whose
@@ -41,6 +48,15 @@ COPY frontend/package.json      frontend/package.json
 COPY electron-app/package.json  electron-app/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/ui/package.json   packages/ui/package.json
+
+# The root `postinstall` is `node scripts/rebuild-native-deps.cjs`, so the file
+# has to be in the image BEFORE the install or yarn fails the root workspace
+# build with MODULE_NOT_FOUND. LIRATEK_SKIP_NATIVE_REBUILD above cannot rescue
+# this: the script must exist in order to run and read the flag.
+#
+# Just this one file, not the whole scripts/ directory — the rest of it changes
+# far more often and would invalidate the (slow) install layer on every edit.
+COPY scripts/rebuild-native-deps.cjs scripts/rebuild-native-deps.cjs
 
 RUN corepack enable && yarn install --immutable
 
