@@ -56,12 +56,24 @@ function createSchema(db: Database.Database): void {
     CREATE TABLE sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER REFERENCES users(id),
-      token TEXT NOT NULL
+      token TEXT NOT NULL,
+      last_activity_at TEXT
     );
+    -- The REAL audit_log column set, not a stub: v174 writes a row per rename,
+    -- and a fixture with fewer columns would pass while the production insert
+    -- silently failed.
     CREATE TABLE audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
       user_id INTEGER NOT NULL REFERENCES users(id),
-      action TEXT NOT NULL
+      username TEXT NOT NULL,
+      role TEXT NOT NULL,
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      summary TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
 
     INSERT INTO tenants (id, name, slug, status) VALUES (1, 'CornerTech', 'cornertech', 'active');
@@ -77,14 +89,16 @@ function createSchema(db: Database.Database): void {
     INSERT INTO users (id, tenant_id, username, password_hash, role, is_active)
       VALUES (3, 2, 'admin', 'hash-other', 'admin', 1);
 
-    INSERT INTO sessions (user_id, token) VALUES (1, 'tok-a');
-    INSERT INTO sessions (user_id, token) VALUES (2, 'tok-b');
-    INSERT INTO sessions (user_id, token) VALUES (2, 'tok-c');
-    INSERT INTO sessions (user_id, token) VALUES (2, 'tok-d');
+    INSERT INTO sessions (user_id, token, last_activity_at) VALUES (1, 'tok-a', '2026-01-01T00:00:00Z');
+    INSERT INTO sessions (user_id, token, last_activity_at) VALUES (2, 'tok-b', '2026-09-01T00:00:00Z');
+    INSERT INTO sessions (user_id, token, last_activity_at) VALUES (2, 'tok-c', '2026-09-02T00:00:00Z');
+    INSERT INTO sessions (user_id, token, last_activity_at) VALUES (2, 'tok-d', '2026-09-03T00:00:00Z');
 
     -- Inbound rows on the LOSER, standing in for the financial FKs.
-    INSERT INTO audit_log (user_id, action) VALUES (1, 'login');
-    INSERT INTO audit_log (user_id, action) VALUES (1, 'sale');
+    INSERT INTO audit_log (tenant_id, user_id, username, role, action, entity_type, summary)
+      VALUES (1, 1, 'admin', 'admin', 'login', 'session', 'signed in');
+    INSERT INTO audit_log (tenant_id, user_id, username, role, action, entity_type, summary)
+      VALUES (1, 1, 'admin', 'admin', 'create', 'sale', 'sold something');
   `);
 }
 
@@ -126,6 +140,14 @@ function nameOf(db: Database.Database, id: number): string | undefined {
       | { username: string }
       | undefined
   )?.username;
+}
+
+function activeOf(db: Database.Database, id: number): number | undefined {
+  return (
+    db.prepare(`SELECT is_active FROM users WHERE id = ?`).get(id) as
+      | { is_active: number }
+      | undefined
+  )?.is_active;
 }
 
 describe("v174 username_case_insensitive — via the real migration runner", () => {
@@ -170,24 +192,20 @@ describe("v174 username_case_insensitive — via the real migration runner", () 
     runMigrations(db);
     // id 2 ('Admin') has 3 sessions to id 1's 1, so it survives untouched.
     expect(nameOf(db, 2)).toBe("Admin");
-    expect(
-      (db.prepare(`SELECT is_active FROM users WHERE id = 2`).get() as {
-        is_active: number;
-      }).is_active,
-    ).toBe(1);
+    expect(activeOf(db, 2)).toBe(1);
   });
 
-  it("renames and deactivates the loser instead of deleting it", () => {
+  it("renames the loser WITHOUT disabling it, instead of deleting it", () => {
     runMigrations(db);
 
-    // Still there, same id — this is the whole point. Deleting it would have
-    // hit 22 NO ACTION foreign keys, including financial ones.
-    expect(nameOf(db, 1)).toBe("admin.retired-1");
-    expect(
-      (db.prepare(`SELECT is_active FROM users WHERE id = 1`).get() as {
-        is_active: number;
-      }).is_active,
-    ).toBe(0);
+    // Still there, same id — deleting would have hit 22 NO ACTION foreign
+    // keys, including financial ones.
+    expect(nameOf(db, 1)).toBe("admin.dup-1");
+
+    // And still ENABLED. An earlier version set is_active = 0 here; on desktop
+    // a case-duplicate is often two real PEOPLE, and disabling one stops
+    // someone working. Renaming alone already frees the folded name.
+    expect(activeOf(db, 1)).toBe(1);
 
     // Its inbound rows still resolve to a real user row.
     const orphans = db
@@ -197,6 +215,34 @@ describe("v174 username_case_insensitive — via the real migration runner", () 
       )
       .get() as { c: number };
     expect(orphans.c).toBe(0);
+  });
+
+  it("the renamed account can still be found under its NEW name", () => {
+    runMigrations(db);
+    // The practical consequence of not disabling it: the owner can still reach
+    // the account and rename it back if the migration guessed wrong.
+    const row = db
+      .prepare(
+        `SELECT id, is_active FROM users WHERE username = 'admin.dup-1' AND is_active = 1`,
+      )
+      .get() as { id: number } | undefined;
+    expect(row?.id).toBe(1);
+  });
+
+  it("records each rename in audit_log, not just the console", () => {
+    runMigrations(db);
+    const row = db
+      .prepare(
+        `SELECT username, summary FROM audit_log
+          WHERE entity_type = 'user' AND summary LIKE 'Migration v174%'`,
+      )
+      .get() as { username: string; summary: string } | undefined;
+
+    // Without this a staff member whose name changed has no way to find out
+    // why — the previous only trace was a log line nobody reads.
+    expect(row).toBeDefined();
+    expect(row!.username).toBe("admin.dup-1");
+    expect(row!.summary).toContain("same name ignoring case");
   });
 
   it("leaves a tenant with no duplicates completely untouched", () => {
@@ -214,19 +260,76 @@ describe("v174 username_case_insensitive — via the real migration runner", () 
     expect(() => insertUser(db, null, "Root")).toThrow(/UNIQUE/i);
   });
 
+  // ── the shape found on the owner's REAL desktop database ──────────────────
+  //
+  // Desktop prunes sessions at boot (deleteExpiredSessions in
+  // electron-app/main.ts), so two long-standing accounts can BOTH report zero.
+  // Ranking on session count alone is blind here and silently falls through to
+  // "lowest id", i.e. oldest — which on the web database would have retired the
+  // one account whose password the owner still had.
+  describe("no session evidence at all (the desktop case)", () => {
+    let d: Database.Database;
+
+    beforeEach(() => {
+      d = new Database(":memory:");
+      createSchema(d);
+      // Exactly what the real desktop file looks like: both active, no sessions.
+      d.exec(`DELETE FROM sessions`);
+      markAppliedExcept(d, 174);
+    });
+
+    afterEach(() => d.close());
+
+    it("still renames exactly one of them, and disables NEITHER", () => {
+      runMigrations(d);
+
+      const names = [nameOf(d, 1), nameOf(d, 2)];
+      const renamed = names.filter((n) => n && n.includes(".dup-"));
+      expect(renamed).toHaveLength(1);
+
+      // The point of the change: with no evidence to choose on, a wrong guess
+      // must stay recoverable. Both accounts remain usable.
+      expect(activeOf(d, 1)).toBe(1);
+      expect(activeOf(d, 2)).toBe(1);
+    });
+
+    it("prefers an ENABLED account over a disabled one", () => {
+      // Give the migration one piece of evidence: id 2 is already disabled, so
+      // the enabled id 1 must survive even though it is the lower id and both
+      // have no sessions.
+      d.prepare(`UPDATE users SET is_active = 0 WHERE id = 2`).run();
+      runMigrations(d);
+
+      expect(nameOf(d, 1)).toBe("admin");
+      expect(nameOf(d, 2)).toBe("Admin.dup-2");
+    });
+  });
+
   it("rolls back: names restored and case-sensitivity returns", () => {
     runMigrations(db);
-    expect(nameOf(db, 1)).toBe("admin.retired-1");
+    expect(nameOf(db, 1)).toBe("admin.dup-1");
 
     rollbackTo(db, 173);
 
     expect(nameOf(db, 1)).toBe("admin");
-    expect(
-      (db.prepare(`SELECT is_active FROM users WHERE id = 1`).get() as {
-        is_active: number;
-      }).is_active,
-    ).toBe(1);
+    expect(activeOf(db, 1)).toBe(1);
     // Case-sensitive again, so a differing casing is accepted once more.
     expect(() => insertUser(db, 1, "ADMIN")).not.toThrow();
+  });
+
+  it("rollback also undoes the EARLIER '.retired-' form, reactivating it", () => {
+    // One database in the wild applied the first version of this migration,
+    // which renamed to '.retired-<id>' AND set is_active = 0. Rollback has to
+    // handle that shape too, or a "successful" rollback silently leaves that
+    // account renamed and disabled.
+    runMigrations(db);
+    db.prepare(
+      `UPDATE users SET username = 'admin.retired-1', is_active = 0 WHERE id = 1`,
+    ).run();
+
+    rollbackTo(db, 173);
+
+    expect(nameOf(db, 1)).toBe("admin");
+    expect(activeOf(db, 1)).toBe(1);
   });
 });

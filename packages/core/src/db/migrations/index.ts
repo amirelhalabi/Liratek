@@ -31,6 +31,27 @@ function tableExists(db: Database.Database, name: string): boolean {
   );
 }
 
+/**
+ * Does that table have that column?
+ *
+ * Same reason as `tableExists`: a migration that references a column which some
+ * minimal test schema (or an older real database) lacks fails the whole batch,
+ * including migrations unrelated to it. SQLite evaluates the column reference
+ * when the statement is PREPARED, so this bites even when the query would have
+ * matched no rows.
+ */
+function columnExists(
+  db: Database.Database,
+  table: string,
+  column: string,
+): boolean {
+  if (!tableExists(db, table)) return false;
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as {
+    name: string;
+  }[];
+  return cols.some((c) => c.name === column);
+}
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -11040,17 +11061,30 @@ export const MIGRATIONS: Migration[] = [
       "no row, and be told their password is wrong. UserRepository's eight `WHERE username = ?` " +
       "sites all move to the shared USERNAME_MATCH fragment in the same change. " +
       "" +
-      "EXISTING DUPLICATES ARE RENAMED, NEVER DELETED. Those 22 FKs are mostly NO ACTION and " +
-      "include transactions.user_id, payments.created_by and daily_closings.created_by -- a " +
-      "DELETE would either fail outright or strand financial history. The loser keeps its id " +
-      "and every row pointing at it; only its name and is_active change, so the migration is " +
-      "reversible and no money record loses its author. " +
+      "EXISTING DUPLICATES ARE RENAMED, NEVER DELETED AND NEVER DISABLED. Those 22 FKs are " +
+      "mostly NO ACTION and include transactions.user_id, payments.created_by and " +
+      "daily_closings.created_by -- a DELETE would either fail outright or strand financial " +
+      "history. The loser keeps its id, its rows and its ability to log in; only its NAME " +
+      "changes, to '<name>.dup-<id>'. " +
       "" +
-      "WHICH DUPLICATE SURVIVES: the one with the most sessions, ties broken by lowest id. " +
-      "Session count is the available evidence of which account people actually use -- on the " +
-      "database that prompted this, 'Admin' had 19 sessions against 'admin''s 6, and 'Admin' " +
-      "is the one whose password the owner still had. Keeping the lowest id instead would have " +
-      "retired the working account and locked them out. " +
+      "An earlier version also set is_active = 0. That was justified by a WEB-only concern -- " +
+      "impersonation resolves 'the tenant's first ACTIVE admin', so an enabled leftover kept " +
+      "being targeted. Desktop has no impersonation, and there the cost is severe: two staff " +
+      "accounts differing only in case ('Ali' / 'ali') are two real PEOPLE, and disabling one " +
+      "stops someone working, recoverable only by editing the database. Renaming alone already " +
+      "frees the folded name, which is all the unique index needs. " +
+      "" +
+      "WHICH DUPLICATE SURVIVES: still enabled first, then most RECENTLY used " +
+      "(MAX(sessions.last_activity_at)), then most sessions, then lowest id. Recency rather " +
+      "than raw count because desktop prunes sessions at boot (deleteExpiredSessions in " +
+      "electron-app/main.ts), so counting alone is nearly blind there -- verified against a " +
+      "real desktop database whose 'admin' and 'Admin' both reported ZERO sessions, where the " +
+      "tie-break would silently have kept whichever was older. On the web database that " +
+      "prompted this, 'Admin' had 19 sessions to 'admin''s 6 and was the one whose password " +
+      "the owner still had. " +
+      "" +
+      "A rename is also written to audit_log, because a console line in a log nobody reads is " +
+      "not a way to tell a staff member why their username changed. " +
       "" +
       "CAVEAT: SQLite's NOCASE folds ASCII A-Z only. Non-ASCII usernames are still compared " +
       "case-sensitively. Acceptable here (usernames are Latin in practice) but it is a real " +
@@ -11067,13 +11101,37 @@ export const MIGRATIONS: Migration[] = [
         return;
       }
 
-      // Survivor rule prefers the account with the most sessions. Where there
-      // is no sessions table to consult, fall back to lowest id: still
-      // deterministic, and a schema without sessions has no usage evidence to
-      // weigh anyway.
-      const byUsage = tableExists(db, "sessions")
-        ? `(SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id) DESC, u.id ASC`
-        : `u.id ASC`;
+      // Survivor rule, ordered by evidence that SURVIVES SESSION PRUNING.
+      //
+      // The first version of this ranked on session COUNT alone. That is nearly
+      // blind on desktop: `deleteExpiredSessions()` runs at boot
+      // (electron-app/main.ts), so two long-standing accounts can both report
+      // 0 and the tie-break — lowest id — silently picks the OLDEST account
+      // rather than the one in use. Verified against a real desktop database:
+      // `admin` and `Admin`, both active, both 0 sessions.
+      //
+      // So: prefer an account that is still enabled, then the one used most
+      // RECENTLY (recency outlives pruning better than volume does), then
+      // volume, then lowest id as the last deterministic resort. SQLite sorts
+      // NULLs last on DESC, so an account with any recorded activity always
+      // beats one with none.
+      // Each rank is added only if the data to compute it exists — SQLite
+      // resolves column references at PREPARE time, so referencing
+      // `last_activity_at` on a schema without it fails the whole batch even
+      // when no row would have matched.
+      const ranks = ["u.is_active DESC"];
+      if (columnExists(db, "sessions", "last_activity_at")) {
+        ranks.push(
+          `(SELECT MAX(s.last_activity_at) FROM sessions s WHERE s.user_id = u.id) DESC`,
+        );
+      }
+      if (tableExists(db, "sessions")) {
+        ranks.push(
+          `(SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id) DESC`,
+        );
+      }
+      ranks.push("u.id ASC");
+      const byUsage = ranks.join(",\n           ");
 
       // Losers = every row that is not the survivor of its (realm, folded name)
       // group. COALESCE on tenant_id because NULL (the platform realm) must
@@ -11089,19 +11147,78 @@ export const MIGRATIONS: Migration[] = [
         )
         WHERE rn > 1`;
 
+      // Who is about to be renamed — captured BEFORE the update so the audit
+      // rows can record the original name.
+      const losers = tableExists(db, "audit_log")
+        ? (db
+            .prepare(
+              `SELECT id, tenant_id, username, role FROM users WHERE id IN (${LOSERS})`,
+            )
+            .all() as {
+            id: number;
+            tenant_id: number | null;
+            username: string;
+            role: string;
+          }[])
+        : [];
+
+      // RENAME ONLY — deliberately no `is_active = 0`.
+      //
+      // The first version also deactivated the loser. That was justified by a
+      // WEB-only concern: impersonation picks "the tenant's first ACTIVE admin"
+      // (UserRepository), so leaving the retired row enabled kept impersonation
+      // targeting it. Desktop has no impersonation, so there the deactivation
+      // was pure downside — and the downside is severe. Two staff accounts that
+      // differ only in case (`Ali` / `ali`) are two real people; disabling one
+      // means an employee cannot work, recoverable only by editing the database.
+      //
+      // Renaming alone already achieves what the unique index needs: the folded
+      // name is freed, and the old spelling no longer reaches this row. The
+      // account stays reachable under its new name, so a wrong guess is an
+      // inconvenience the owner can undo in the UI rather than a lockout.
       const renamed = db
         .prepare(
           `UPDATE users
-              SET username = username
-                    || (CASE WHEN is_active = 1 THEN '.retired-' ELSE '.dupe-' END)
-                    || id,
-                  is_active = 0
+              SET username = username || '.dup-' || id
             WHERE id IN (${LOSERS})`,
         )
         .run();
 
-      // Two suffixes rather than one so down() can tell which rows it must
-      // reactivate from which were already inactive before this ran.
+      // Leave a trace where a human will actually see it. Until now the only
+      // record was a console line in a log nobody reads — so a staff member
+      // whose name changed had no way to find out why.
+      // Wrapped: an audit row is worth having, but never worth failing a
+      // migration for. A database whose audit_log predates these columns would
+      // otherwise throw here and block the app from booting — trading a missing
+      // log line for an unusable till. Logged loudly rather than swallowed.
+      try {
+        if (losers.length > 0 && tableExists(db, "audit_log")) {
+          const log = db.prepare(
+            `INSERT INTO audit_log
+               (tenant_id, user_id, username, role, action, entity_type, entity_id, summary)
+             VALUES (?, ?, ?, ?, 'update', 'user', ?, ?)`,
+          );
+          for (const u of losers) {
+            log.run(
+              u.tenant_id,
+              u.id,
+              `${u.username}.dup-${u.id}`,
+              u.role,
+              String(u.id),
+              `Migration v174 renamed '${u.username}' to '${u.username}.dup-${u.id}': ` +
+                `another account in this shop had the same name ignoring case, and ` +
+                `usernames are now case-insensitive. The account still works under ` +
+                `the new name; rename it in Settings if this was the wrong one.`,
+            );
+          }
+        }
+      } catch (error) {
+        console.log(
+          `Migration v174: could not write audit rows for the renames ` +
+            `(${error instanceof Error ? error.message : String(error)}). ` +
+            `The renames themselves succeeded.`,
+        );
+      }
 
       db.exec(`
         DROP INDEX IF EXISTS idx_users_tenant_username;
@@ -11119,7 +11236,8 @@ export const MIGRATIONS: Migration[] = [
 
       console.log(
         `Migration v174: usernames are now case-insensitive; ` +
-          `${renamed.changes} duplicate account(s) renamed and deactivated`,
+          `${renamed.changes} duplicate account(s) renamed (NOT disabled — ` +
+          `they still work under the new name)`,
       );
     },
     down: (db) => {
@@ -11139,8 +11257,19 @@ export const MIGRATIONS: Migration[] = [
           ON users(username) WHERE tenant_id IS NULL;
       `);
 
-      // Strip the suffix this migration added, reactivating only the rows it
-      // actually deactivated. Order matters only in that both run.
+      // Strip the suffix this migration added.
+      //
+      // `.dup-` is what up() writes now (rename only). `.retired-` / `.dupe-`
+      // are the EARLIER form, which also set is_active = 0 — one database in
+      // the wild applied that version before the rule was hardened, so
+      // rollback has to undo it too, reactivating what it disabled. Dropping
+      // these branches would silently leave that account renamed and disabled
+      // after a "successful" rollback.
+      db.prepare(
+        `UPDATE users
+            SET username = substr(username, 1, length(username) - length('.dup-' || id))
+          WHERE username LIKE '%.dup-' || id`,
+      ).run();
       db.prepare(
         `UPDATE users
             SET username = substr(username, 1, length(username) - length('.retired-' || id)),
