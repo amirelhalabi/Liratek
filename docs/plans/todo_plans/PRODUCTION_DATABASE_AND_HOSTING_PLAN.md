@@ -167,6 +167,91 @@ plan is unchanged either way — that is deliberate: **Phases A–D are storage-
 
 ---
 
+## 4bis. Phase 0 RESULTS (measured 2026-09-09)
+
+Ran against a real Turso database, `liratek-spike-amir619h.aws-eu-west-1.turso.io`
+(AWS Ireland), with the `libsql` driver on Windows. **From the owner's laptop in
+Lebanon**, so every figure below includes a ~150–200 ms Beirut→Ireland hop and is
+**not** the production number. The *ratios* generalise; the absolutes do not.
+
+### Compatibility: PASS — and the vendor docs are wrong
+
+Every blocker in § 4.1 and § 4.2 evaporated on contact:
+
+| Concern from the plan | Measured |
+| --- | --- |
+| `db.pragma()` unsupported | **Works.** Returned `[{"foreign_keys":1}]` |
+| Foreign keys OFF by default | **Already ON**, and enforced |
+| FK enforcement per-connection / unreliable | Orphan insert rejected with `SQLITE_CONSTRAINT: FOREIGN KEY constraint failed`, and **still enforced on later statements** |
+| Transaction rollback | **Correct** — a throw mid-transaction left 0 of 1 rows; an FK violation rolled the whole transaction back |
+| `foreign_keys = OFF` rebuild bracket (v172) | **Works**, and the pragma restores to ON afterwards |
+| `defer_foreign_keys` (`deleteTenantCascade`) | Accepted |
+| `ROW_NUMBER()` (v174), partial unique index, `COLLATE NOCASE`, `table_info` | All work |
+
+So § 4.1/§ 4.2 are **withdrawn**. The `libsql` API doc marking `pragma()`
+unsupported is stale.
+
+### The one hard incompatibility: no VACUUM, no checkpoint
+
+```
+VACUUM INTO ?                  → SQL_PARSE_ERROR "SQL not allowed statement"
+VACUUM                         → Sqlite3UnsupportedStatement
+PRAGMA wal_checkpoint(TRUNCATE)→ Sqlite3UnsupportedStatement
+```
+
+**`BackupService` cannot run against a Turso database.** The consistent-snapshot
+path built this session works only on a local file. For Turso-hosted tenants,
+backups must come from Turso's own managed backup / point-in-time restore (or
+`turso db dump`), not from our code. The desktop app is unaffected — it stays on
+`better-sqlite3` with a local file.
+
+### The real problem: latency amplification
+
+| Workload | Remote only | Embedded replica |
+| --- | --- | --- |
+| 50 sequential `SELECT`s | **9 829 ms** (196.6 ms each) | **4 ms** (0.1 ms each) |
+| 1 `SELECT` returning 200 rows | 316 ms | 1 ms |
+| 10-write transaction (a checkout) | 3 554 ms | **8 019 ms** |
+| 10 individual writes | 5 288 ms | 10 590 ms |
+| initial replica sync | — | 19 977 ms |
+
+Three things to take from this:
+
+1. **Reads are the danger, not writes.** LiraTek's repositories are written for a
+   zero-latency local file and issue many small sequential statements — free with
+   `better-sqlite3`, one network round-trip each on Turso. A report doing 200 reads
+   costs 200 round-trips. This is a property of the data layer, not of Turso.
+2. **Embedded replicas fix reads completely** — 0.1 ms, i.e. as fast as today, a
+   ~2 000× improvement. That is the mitigation, and it works.
+3. **Embedded replicas make writes WORSE** (8.0 s vs 3.6 s for the same
+   transaction), because a write forwards to the primary and then syncs back. Writes
+   are network-bound in both modes and no local caching changes that.
+
+### The uncomfortable implication
+
+With embedded replicas you keep a **local database file on the server anyway** — so
+you have not escaped local state, you have added a sync dependency on top of it. At
+that point Turso's marginal value over § 8 is *managed durability and branching*,
+bought with a write path that is network-bound and an availability coupling where
+Turso being down stops every shop selling.
+
+### What is still unknown, and it decides this
+
+Everything above was measured from Lebanon. **The production question is what these
+numbers look like from a backend co-located with `eu-west-1`.** Scaling by RTT alone,
+a 10-write checkout would land somewhere in the low hundreds of milliseconds — but
+that is arithmetic, not a measurement, and writes behaved non-linearly here.
+
+**Next action: run the same two probes from a machine in the target region** (Fly
+`lhr` is nearest to AWS `eu-west-1`; Fly has no Ireland region). Cheap, and it is the
+only thing that turns this decision from an estimate into a fact.
+
+Acceptance budget to agree beforehand: a checkout must commit within **X ms** at the
+99th percentile. Without a number agreed up front, any measurement will get argued
+into acceptability.
+
+---
+
 ## 5. Hosting
 
 The compose stack already exists (`docker-compose.yml`, `backend/Dockerfile`) and is
