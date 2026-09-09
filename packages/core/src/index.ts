@@ -99,6 +99,13 @@ export {
   resetBackupService,
 } from "./services/BackupService.js";
 export type { BackupInfo, BackupResult } from "./services/BackupService.js";
+// Server/desktop only — deliberately NOT re-exported from browser.ts, which
+// must never pull in `getDatabase`.
+export {
+  BackupRepository,
+  getBackupRepository,
+  resetBackupRepository,
+} from "./repositories/BackupRepository.js";
 
 // Loto Service (explicit exports)
 export {

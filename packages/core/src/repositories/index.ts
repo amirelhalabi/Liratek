@@ -744,3 +744,10 @@ export type {
   BatchTake,
   ConsumeResult,
 } from "./StockBatchRepository.js";
+
+// Backup Repository (consistent whole-file snapshot for BackupService)
+export {
+  BackupRepository,
+  getBackupRepository,
+  resetBackupRepository,
+} from "./BackupRepository.js";

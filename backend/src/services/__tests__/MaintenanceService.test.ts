@@ -34,6 +34,15 @@ describe("MaintenanceService", () => {
       updateJob: jest.fn(),
       getJobs: jest.fn(),
       deleteJob: jest.fn(),
+      // Parts/payments collaborators saveJob and getJobs now call; defaults
+      // model a job with no parts and no prior payments, which is what
+      // these tests assume.
+      getParts: jest.fn(() => []),
+      getPartsForJobs: jest.fn(() => new Map()),
+      syncParts: jest.fn(),
+      findById: jest.fn(() => undefined),
+      hasPayments: jest.fn(() => false),
+      processPayments: jest.fn(),
     };
 
     // Make the constructor return our mock
@@ -193,7 +202,7 @@ describe("MaintenanceService", () => {
           paid_usd: 0,
           paid_lbp: 0,
           exchange_rate: 0,
-          status: "In Progress",
+          status: "Received",
           paid_by: "CASH",
           note: null,
           transaction_time: undefined,
@@ -289,7 +298,7 @@ describe("MaintenanceService", () => {
 
       const result = service.getJobs();
 
-      expect(result).toEqual(mockJobs);
+      expect(result).toEqual(mockJobs.map((j) => ({ ...j, parts: [] })));
       expect(mockRepo.getJobs).toHaveBeenCalledWith(undefined);
     });
 
@@ -318,7 +327,7 @@ describe("MaintenanceService", () => {
 
       const result = service.getJobs("In Progress");
 
-      expect(result).toEqual(mockJobs);
+      expect(result).toEqual(mockJobs.map((j) => ({ ...j, parts: [] })));
       expect(mockRepo.getJobs).toHaveBeenCalledWith("In Progress");
     });
 

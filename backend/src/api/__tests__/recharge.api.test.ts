@@ -185,6 +185,28 @@ function createTestDb(): DatabaseType.Database {
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
+    -- A CREDIT_TRANSFER recharge books its SMS transfer fee as an
+    -- SMS_Transfer_Fee expense via ExpenseRepository.createExpense;
+    -- source_ref_table/source_ref_id are the migration-v166 back-link
+    -- that lets a void cascade to the expense.
+    CREATE TABLE expenses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      description TEXT,
+      category TEXT,
+      amount_usd REAL DEFAULT 0,
+      amount_lbp REAL DEFAULT 0,
+      paid_by_method TEXT DEFAULT 'CASH',
+      status TEXT NOT NULL DEFAULT 'active',
+      expense_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_refunded INTEGER DEFAULT 0,
+      refunded_at TEXT DEFAULT NULL,
+      source_ref_table TEXT DEFAULT NULL,
+      source_ref_id INTEGER DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE exchange_rates (
       to_code     TEXT,
       sell_rate   REAL,
