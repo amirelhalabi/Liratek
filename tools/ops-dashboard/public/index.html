@@ -1,0 +1,1701 @@
+<title>LiraTek Ops Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e14'/%3E%3Ccircle cx='9' cy='17' r='3' fill='%233ecf6d'/%3E%3Cpath d='M14 21 L18 10 L22 23 L26 8' stroke='%234ea1ff' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b0e14;
+    --card-bg: #12161f;
+    --card-border: rgba(255,255,255,0.09);
+    --card-border-strong: #2a3247;
+    --text: #d8dee9;
+    --text-dim: #7c8496;
+    --text-faint: #8b93a8;
+    --accent: #4ea1ff;
+    --ok: #3ecf6d;
+    --warn: #e8b339;
+    --bad: #ef5a5a;
+    --neutral: #7c8496;
+    --mono: "Cascadia Code", "Consolas", "SFMono-Regular", Menlo, Monaco, monospace;
+    --font-ui: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+  body { padding: 16px 20px 40px; }
+
+  * { scrollbar-width: thin; scrollbar-color: var(--card-border-strong) transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--card-border-strong); border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header.top {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    margin-bottom: var(--space-4);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+  }
+  header.top h1 {
+    font-size: 16px;
+    margin: 0;
+    letter-spacing: 0.01em;
+    color: var(--text);
+    font-weight: 700;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    font-family: var(--font-ui);
+  }
+  .pill-ok { background: rgba(62,207,109,0.15); color: var(--ok); border: 1px solid rgba(62,207,109,0.35); }
+  .pill-warn { background: rgba(232,179,57,0.15); color: var(--warn); border: 1px solid rgba(232,179,57,0.35); }
+  .pill-bad { background: rgba(239,90,90,0.15); color: var(--bad); border: 1px solid rgba(239,90,90,0.35); }
+  .pill-neutral { background: rgba(124,132,150,0.15); color: var(--neutral); border: 1px solid rgba(124,132,150,0.35); }
+
+  .top-spacer { flex: 1; }
+  .top-meta { color: var(--text-dim); font-size: 12px; }
+  .top-meta strong { color: var(--text); font-family: var(--mono); }
+
+  button, .toggle {
+    font-family: var(--font-ui);
+    font-size: 12px;
+    background: #1a2030;
+    color: var(--text);
+    border: 1px solid var(--card-border-strong);
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #212942; }
+  button:disabled { opacity: 0.6; cursor: default; }
+  #refresh-btn { display: inline-flex; align-items: center; gap: 7px; }
+  label.toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+  }
+  label.toggle input { accent-color: var(--accent); }
+
+  .spinner {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 2px solid rgba(216,222,233,0.25);
+    border-top-color: var(--text);
+    animation: spin 0.7s linear infinite;
+    flex: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- status strip ---------- */
+  .status-strip {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin-bottom: var(--space-4);
+  }
+  .strip-tile {
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-top: 2px solid var(--card-border-strong);
+    border-radius: var(--radius);
+    padding: 9px 12px;
+    transition: border-color 0.15s ease;
+  }
+  .strip-tile:hover { border-color: var(--accent); }
+  .strip-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .strip-label {
+    display: flex;
+    align-items: center;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .strip-value {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    display: inline-block;
+    border-radius: 4px;
+  }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; flex: none; }
+  .dot-ok { background: var(--ok); }
+  .dot-warn { background: var(--warn); }
+  .dot-bad { background: var(--bad); }
+  .dot-neutral { background: var(--text-faint); }
+
+  @media (max-width: 1180px) { .status-strip { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 620px) { .status-strip { grid-template-columns: repeat(2, 1fr); } }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: var(--space-4);
+    align-items: start;
+  }
+  @media (min-width: 1500px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 900px) and (max-width: 1499px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 899px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-top: 2px solid var(--card-border-strong);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    min-width: 0;
+    max-height: 560px;
+    overflow-y: auto;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+  }
+  .card.full { grid-column: 1 / -1; max-height: none; overflow-y: visible; }
+  .card-accent-ok { border-top-color: var(--ok); }
+  .card-accent-warn { border-top-color: var(--warn); }
+  .card-accent-bad { border-top-color: var(--bad); }
+  .card-accent-neutral { border-top-color: var(--card-border-strong); }
+
+  .card h2 {
+    font-size: 12.5px;
+    margin: 0 0 12px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+  }
+  .card h2 .card-ms { margin-left: auto; font-size: 10.5px; color: var(--text-faint); text-transform: none; letter-spacing: 0; font-family: var(--mono); font-weight: 400; }
+
+  .skeleton {
+    height: 12px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #1a2030 25%, #232a3d 37%, #1a2030 63%);
+    background-size: 400% 100%;
+    animation: shimmer 1.4s ease infinite;
+    margin: 8px 0;
+  }
+  @keyframes shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: 0 0; }
+  }
+  .error-text {
+    color: var(--bad);
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .retry-btn {
+    margin-top: 10px;
+    font-size: 11px;
+    padding: 4px 10px;
+  }
+
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 5px 10px; font-size: 12px; margin-bottom: 12px; }
+  .kv dt { color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; font-size: 10.5px; font-weight: 600; padding-top: 2px; }
+  .kv dd { margin: 0; color: var(--text); word-break: break-word; overflow-wrap: anywhere; font-family: var(--mono); }
+
+  .figure-inline { font-size: 15px; font-weight: 700; }
+
+  .badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid transparent;
+    font-family: var(--mono);
+  }
+  .badge-ok { background: rgba(62,207,109,0.12); color: var(--ok); border-color: rgba(62,207,109,0.3); }
+  .badge-warn { background: rgba(232,179,57,0.12); color: var(--warn); border-color: rgba(232,179,57,0.3); }
+  .badge-bad { background: rgba(239,90,90,0.12); color: var(--bad); border-color: rgba(239,90,90,0.3); }
+  .badge-neutral { background: rgba(124,132,150,0.12); color: var(--neutral); border-color: rgba(124,132,150,0.3); }
+
+  .warn-box {
+    background: rgba(232,179,57,0.08);
+    border: 1px solid rgba(232,179,57,0.35);
+    color: var(--warn);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    margin: 8px 0;
+    line-height: 1.5;
+  }
+  .bad-box {
+    background: rgba(239,90,90,0.08);
+    border: 1px solid rgba(239,90,90,0.4);
+    color: var(--bad);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    margin: 8px 0;
+    line-height: 1.5;
+    font-weight: 600;
+  }
+  .info-box {
+    background: rgba(124,132,150,0.08);
+    border: 1px solid rgba(124,132,150,0.3);
+    color: var(--text-faint);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 11.5px;
+    margin: 8px 0;
+    line-height: 1.5;
+  }
+
+  details.disclosure { margin: 8px 0; }
+  details.disclosure summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-dim);
+    list-style: none;
+  }
+  details.disclosure summary::-webkit-details-marker { display: none; }
+  details.disclosure summary::before { content: "\25B8  "; color: var(--text-faint); }
+  details.disclosure[open] summary::before { content: "\25BE  "; }
+  details.disclosure .info-box { margin-top: 6px; }
+
+  .subhead {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    font-weight: 700;
+    margin: 14px 0 6px;
+  }
+  .subhead:first-child { margin-top: 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); vertical-align: top; overflow-wrap: anywhere; }
+  th { color: var(--text-faint); font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; font-family: var(--font-ui); background: var(--card-bg); white-space: nowrap; }
+  th.num, td.num { text-align: right; }
+  .badge { white-space: nowrap; }
+  .cell-primary { color: var(--text); }
+  .cell-secondary { margin-top: 2px; }
+  .domains-cell { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.035); }
+  .table-wrap { overflow-x: auto; }
+  .table-wrap thead th { position: sticky; top: 0; z-index: 1; }
+  .table-wrap.scroll {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+  }
+  .table-wrap.scroll table, .table-wrap.fixed table { table-layout: fixed; }
+  .scroll-list { max-height: 380px; overflow-y: auto; padding-right: 2px; }
+  .truncate-fill { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Applied by JS only while a scroll container actually has more content
+     below the fold (checked via scrollHeight/scrollTop) — fades the last
+     row into transparency so a boundary cut reads as "scroll for more"
+     instead of looking like a rendering bug. Removed once scrolled to the
+     bottom, or never added at all if everything already fits. */
+  .scroll-fade-bottom {
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent 100%);
+  }
+
+  .domain-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 11.5px;
+  }
+  .domain-row:last-child { border-bottom: none; }
+  .domain-row-warn { background: rgba(232,179,57,0.08); border-radius: 4px; }
+  .domain-row .truncate-fill { flex: 1 1 auto; min-width: 0; }
+  .domain-row .redirect { color: var(--text-faint); flex: none; }
+
+  .machine-block { border: 1px solid var(--card-border); border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+  .machine-block:last-child { margin-bottom: 0; }
+  .machine-block strong { font-family: var(--mono); }
+
+  .mono-small { font-size: 11px; color: var(--text-dim); font-family: var(--mono); overflow-wrap: anywhere; }
+  .truncate { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+
+  .tick { color: var(--ok); }
+  .cross { color: var(--bad); }
+
+  .logs-wrap {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+  }
+  .logs-wrap table { font-size: 11.5px; table-layout: fixed; }
+  .logs-wrap thead th { position: sticky; top: 0; background: var(--card-bg); z-index: 1; }
+  .log-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-dim { opacity: 0.55; }
+  .counts-row { display: flex; gap: 18px; margin-bottom: 10px; flex-wrap: wrap; }
+  .count-chip { font-size: 12px; color: var(--text-dim); }
+  .count-chip strong { color: var(--text); font-family: var(--mono); font-size: 14px; font-weight: 700; }
+  .count-chip.err strong { color: var(--bad); }
+  .count-chip.warnc strong { color: var(--warn); }
+
+  .empty { color: var(--text-faint); font-size: 12px; font-style: italic; }
+
+  /* ---------- motion (disabled under reduced motion) ---------- */
+  @keyframes card-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .card-body.enter { animation: card-enter 0.22s ease-out; }
+
+  @keyframes flash-highlight { 0% { background: rgba(78,161,255,0.4); } 100% { background: transparent; } }
+  .value-changed { animation: flash-highlight 1.3s ease-out; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none !important; }
+    .spinner { animation: none !important; }
+    .card-body.enter { animation: none !important; }
+    .value-changed { animation: none !important; }
+  }
+</style>
+
+<header class="top">
+  <h1>LiraTek Ops</h1>
+  <span id="verdict-pill" class="pill pill-neutral">loading</span>
+  <span class="top-spacer"></span>
+  <span class="top-meta" id="generated-meta">never refreshed</span>
+  <span class="top-meta" id="logs-timing"></span>
+  <label class="toggle">
+    <input type="checkbox" id="auto-refresh-toggle" />
+    auto-refresh 30s
+  </label>
+  <button id="refresh-btn" type="button">
+    <span class="spinner" id="refresh-spinner" hidden aria-hidden="true"></span>
+    <span>Refresh</span>
+  </button>
+</header>
+
+<div class="status-strip" id="status-strip">
+  <button class="strip-tile" id="strip-tile-fly" type="button">
+    <span class="strip-label"><span class="dot dot-neutral" id="strip-dot-fly"></span>Fly</span>
+    <span class="strip-value" id="strip-value-fly">&hellip;</span>
+  </button>
+  <button class="strip-tile" id="strip-tile-vercel" type="button">
+    <span class="strip-label"><span class="dot dot-neutral" id="strip-dot-vercel"></span>Vercel</span>
+    <span class="strip-value" id="strip-value-vercel">&hellip;</span>
+  </button>
+  <button class="strip-tile" id="strip-tile-cloudflare" type="button">
+    <span class="strip-label"><span class="dot dot-neutral" id="strip-dot-cloudflare"></span>Cloudflare</span>
+    <span class="strip-value" id="strip-value-cloudflare">&hellip;</span>
+  </button>
+  <button class="strip-tile" id="strip-tile-backend" type="button">
+    <span class="strip-label"><span class="dot dot-neutral" id="strip-dot-backend"></span>Backend</span>
+    <span class="strip-value" id="strip-value-backend">&hellip;</span>
+  </button>
+  <button class="strip-tile" id="strip-tile-backups" type="button">
+    <span class="strip-label"><span class="dot dot-neutral" id="strip-dot-backups"></span>Backups</span>
+    <span class="strip-value" id="strip-value-backups">&hellip;</span>
+  </button>
+  <button class="strip-tile" id="strip-tile-logs" type="button">
+    <span class="strip-label"><span class="dot dot-neutral" id="strip-dot-logs"></span>Logs</span>
+    <span class="strip-value" id="strip-value-logs">&hellip;</span>
+  </button>
+</div>
+
+<div class="grid" id="grid">
+  <section class="card" id="card-fly"><h2>Fly / Machine</h2><div class="skeleton" style="width:80%"></div><div class="skeleton" style="width:60%"></div><div class="skeleton" style="width:70%"></div></section>
+  <section class="card" id="card-tenants"><h2>Tenants</h2><div class="skeleton" style="width:80%"></div><div class="skeleton" style="width:60%"></div></section>
+  <section class="card" id="card-vercel"><h2>Vercel Deployments</h2><div class="skeleton" style="width:80%"></div><div class="skeleton" style="width:60%"></div></section>
+  <section class="card" id="card-cloudflare"><h2>Cloudflare DNS</h2><div class="skeleton" style="width:80%"></div><div class="skeleton" style="width:60%"></div></section>
+  <section class="card" id="card-backups"><h2>Backups &amp; Litestream</h2><div class="skeleton" style="width:80%"></div><div class="skeleton" style="width:60%"></div></section>
+  <section class="card" id="card-backend"><h2>Backend Health</h2><div class="skeleton" style="width:80%"></div><div class="skeleton" style="width:60%"></div></section>
+  <section class="card full" id="card-logs"><h2>Recent Logs</h2><div class="skeleton" style="width:40%"></div></section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- tiny DOM helpers (no innerHTML with interpolated data, ever) ----------
+
+  function el(tag, opts, children) {
+    var node = document.createElement(tag);
+    opts = opts || {};
+    if (opts.className) node.className = opts.className;
+    if (opts.text !== undefined && opts.text !== null) node.textContent = String(opts.text);
+    if (opts.title !== undefined && opts.title !== null) node.title = String(opts.title);
+    if (opts.href !== undefined) { node.href = opts.href; }
+    if (opts.target) node.target = opts.target;
+    if (opts.rel) node.rel = opts.rel;
+    if (opts.attrs) {
+      for (var k in opts.attrs) {
+        if (Object.prototype.hasOwnProperty.call(opts.attrs, k)) {
+          node.setAttribute(k, opts.attrs[k]);
+        }
+      }
+    }
+    (children || []).forEach(function (c) {
+      if (c === null || c === undefined) return;
+      node.appendChild(c);
+    });
+    return node;
+  }
+
+  function text(str) {
+    return document.createTextNode(str === null || str === undefined ? "" : String(str));
+  }
+
+  function clear(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  // Defensive scalar formatter. Anything that arrives as an object (e.g. Fly's
+  // `Organization: {Name, Slug, ...}` before the server-side fix, or any future
+  // API shape drift) must never render as "[object Object]" — fall back to a
+  // sensible name field, then to a JSON dump so at least the data is visible.
+  function safeStr(v, fallback) {
+    if (v === null || v === undefined || v === "") return fallback !== undefined ? fallback : "—";
+    if (typeof v === "object") {
+      if (v.Name) return String(v.Name);
+      if (v.name) return String(v.name);
+      if (v.Slug) return String(v.Slug);
+      try { return JSON.stringify(v); } catch (e) { return String(v); }
+    }
+    return String(v);
+  }
+
+  function badge(labelText, kind) {
+    return el("span", { className: "badge badge-" + kind, text: labelText });
+  }
+
+  function pill(labelText, kind) {
+    return el("span", { className: "pill pill-" + kind, text: labelText });
+  }
+
+  function tickCross(bool) {
+    if (bool) return el("span", { className: "tick", text: "✓" });
+    return el("span", { className: "cross", text: "✗" });
+  }
+
+  function prefersReducedMotion() {
+    try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; }
+  }
+
+  // Toggles a bottom fade mask on a scroll container ONLY while there is
+  // more content below the current scroll position — so a capped list
+  // (Vercel deployments, Cloudflare records, the log table) never shows a
+  // hard, mid-row cut at its boundary. Fully removed once scrolled to the
+  // end, or never added if everything already fits without scrolling.
+  function setupScrollFade(container) {
+    function update() {
+      var hasOverflow = container.scrollHeight > container.clientHeight + 1;
+      var atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 1;
+      container.classList.toggle("scroll-fade-bottom", hasOverflow && !atBottom);
+    }
+    // Cards persist across polls (only their .card-body content is replaced),
+    // so bind the scroll listener at most once per element or every 30s
+    // refresh would stack another one.
+    if (!container.dataset.scrollFadeBound) {
+      container.dataset.scrollFadeBound = "1";
+      container.addEventListener("scroll", update);
+    }
+    window.requestAnimationFrame(update);
+    setTimeout(update, 50);
+  }
+
+  // ---------- time formatting ----------
+
+  function toDate(v) {
+    if (v === null || v === undefined) return null;
+    var d;
+    if (typeof v === "number") d = new Date(v);
+    else d = new Date(v);
+    if (isNaN(d.getTime())) return null;
+    return d;
+  }
+
+  function relTime(v) {
+    var d = toDate(v);
+    if (!d) return "—";
+    var diffMs = Date.now() - d.getTime();
+    var future = diffMs < 0;
+    var abs = Math.abs(diffMs);
+    var s = Math.floor(abs / 1000);
+    var out;
+    if (s < 5) out = "just now";
+    else if (s < 60) out = s + "s";
+    else if (s < 3600) out = Math.floor(s / 60) + "m";
+    else if (s < 86400) out = Math.floor(s / 3600) + "h";
+    else out = Math.floor(s / 86400) + "d";
+    if (out !== "just now") out += future ? " from now" : " ago";
+    return out;
+  }
+
+  function timeNode(v) {
+    var d = toDate(v);
+    if (!d) return el("span", { text: "—" });
+    return el("span", { text: relTime(v), title: d.toISOString() });
+  }
+
+  // ---------- generic section helpers ----------
+
+  function cardBody(cardId) {
+    var card = document.getElementById(cardId);
+    var body = card.querySelector(".card-body");
+    if (!body) {
+      // The initial HTML ships static skeleton bars as loose siblings of <h2>
+      // (so something is visible before JS runs at all). They never lived
+      // inside a wrapper the renderer could clear, so they used to stay on
+      // screen forever, floating above the real content. Purge them once,
+      // the first time this card gets a body wrapper.
+      Array.prototype.slice.call(card.children).forEach(function (child) {
+        if (child.tagName !== "H2") card.removeChild(child);
+      });
+      body = el("div", { className: "card-body" });
+      card.appendChild(body);
+    }
+    return body;
+  }
+
+  function setCardHeader(cardId, title, ms) {
+    var card = document.getElementById(cardId);
+    var h2 = card.querySelector("h2");
+    if (!h2) {
+      h2 = el("h2");
+      card.insertBefore(h2, card.firstChild);
+    }
+    clear(h2);
+    h2.appendChild(text(title));
+    if (ms !== undefined && ms !== null) {
+      h2.appendChild(el("span", { className: "card-ms", text: ms + "ms" }));
+    }
+  }
+
+  function setCardAccent(cardId, kind) {
+    var card = document.getElementById(cardId);
+    if (!card) return;
+    ["ok", "warn", "bad", "neutral"].forEach(function (k) {
+      card.classList.remove("card-accent-" + k);
+    });
+    card.classList.add("card-accent-" + (kind || "neutral"));
+  }
+
+  // Re-triggers the card's fade/slide-in animation for freshly-arrived content,
+  // and (regardless of motion preference — this is a static affordance, not an
+  // animation) re-checks whether the CARD's own outer scroll boundary (the
+  // 560px cap on non-full cards) is itself now clipping a row, e.g. once a
+  // card grows enough content (Vercel's deployments + domains together) to
+  // exceed it even though each inner list fits its own cap individually.
+  function revealBody(cardId) {
+    setupScrollFade(document.getElementById(cardId));
+    if (prefersReducedMotion()) return;
+    var body = cardBody(cardId);
+    body.classList.remove("enter");
+    void body.offsetWidth; // restart the CSS animation
+    body.classList.add("enter");
+  }
+
+  function renderSkeleton(cardId) {
+    var body = cardBody(cardId);
+    clear(body);
+    body.appendChild(el("div", { className: "skeleton", attrs: { style: "width:80%" } }));
+    body.appendChild(el("div", { className: "skeleton", attrs: { style: "width:60%" } }));
+    body.appendChild(el("div", { className: "skeleton", attrs: { style: "width:70%" } }));
+  }
+
+  function renderSectionError(cardId, title, message) {
+    setCardHeader(cardId, title);
+    setCardAccent(cardId, "bad");
+    var body = cardBody(cardId);
+    clear(body);
+    body.appendChild(el("div", { className: "error-text", text: safeStr(title) + " failed to load: " + safeStr(message, "unknown error") }));
+    var retryBtn = el("button", { className: "retry-btn", text: "Retry" });
+    retryBtn.addEventListener("click", function () { loadAll(); });
+    body.appendChild(retryBtn);
+  }
+
+  // ---------- state ----------
+
+  var state = {
+    summary: null,
+    logs: null,
+    summaryGeneratedAt: null,
+    logsGeneratedAt: null,
+    logsMs: null
+  };
+
+  var CARD_TITLES = {
+    fly: "Fly / Machine",
+    tenants: "Tenants",
+    vercel: "Vercel Deployments",
+    cloudflare: "Cloudflare DNS",
+    backups: "Backups & Litestream",
+    backend: "Backend Health",
+    logs: "Recent Logs"
+  };
+
+  // ---------- per-card renderers ----------
+
+  function renderFly(section) {
+    var cardId = "card-fly";
+    if (!section || section.ok === false) {
+      renderSectionError(cardId, CARD_TITLES.fly, section && section.error);
+      return;
+    }
+    setCardHeader(cardId, CARD_TITLES.fly, section.ms);
+    var body = cardBody(cardId);
+    clear(body);
+    var data = section.data || {};
+    setCardAccent(cardId, data.machineCountOk === false ? "bad" : "ok");
+
+    if (data.machineCountOk === false) {
+      body.appendChild(el("div", { className: "bad-box" }, [
+        text("machineCount = " + safeStr(data.machineCount, "?") + " (expected exactly 1). SQLite has ONE writer — two machines on one volume is corruption, not extra capacity.")
+      ]));
+    }
+
+    var kv = el("dl", { className: "kv" }, [
+      el("dt", { text: "app" }), el("dd", { text: safeStr(data.app) }),
+      el("dt", { text: "status" }), el("dd", { text: safeStr(data.status) }),
+      el("dt", { text: "hostname" }), el("dd", { text: safeStr(data.hostname) }),
+      el("dt", { text: "deployed" }), el("dd", { text: data.deployed ? "yes" : "no" }),
+      el("dt", { text: "platform" }), el("dd", { text: safeStr(data.platformVersion) }),
+      el("dt", { text: "org" }), el("dd", { text: safeStr(data.organization) }),
+      el("dt", { text: "machines" }), el("dd", {})
+    ]);
+    var mcDd = kv.querySelectorAll("dd")[kv.querySelectorAll("dd").length - 1];
+    mcDd.appendChild(el("span", { className: "figure-inline", text: safeStr(data.machineCount, "0") + " " }));
+    mcDd.appendChild(data.machineCountOk ? badge("OK", "ok") : badge("INCIDENT", "bad"));
+    body.appendChild(kv);
+
+    body.appendChild(el("div", { className: "subhead", text: "Machines" }));
+    var machines = data.machines || [];
+    if (machines.length === 0) {
+      body.appendChild(el("div", { className: "empty", text: "no machines reported" }));
+    }
+    machines.forEach(function (m) {
+      var block = el("div", { className: "machine-block" });
+      var head = el("div", {}, [
+        el("strong", { text: safeStr(m.name) }),
+        text(" ("),
+        el("span", { className: "mono-small", text: safeStr(m.id) }),
+        text(") — "),
+        badge(safeStr(m.state), m.state === "started" ? "ok" : "neutral"),
+        text(" " + safeStr(m.region) + " / "),
+        el("span", { className: "mono-small truncate", title: safeStr(m.imageTag), text: safeStr(m.imageTag) })
+      ]);
+      block.appendChild(head);
+
+      var specLine = el("div", { className: "mono-small" }, [
+        text("cpu: " + safeStr(m.cpuKind) + " x" + safeStr(m.cpus) + ", mem: " + safeStr(m.memoryMb) + "MB, host_status: " + safeStr(m.hostStatus) + (m.cordoned ? " (CORDONED)" : ""))
+      ]);
+      block.appendChild(specLine);
+
+      var checks = m.checks || [];
+      checks.forEach(function (c) {
+        var checkLine = el("div", { className: "mono-small" });
+        checkLine.appendChild(text(safeStr(c.name) + ": "));
+        checkLine.appendChild(badge(safeStr(c.status), c.status === "passing" ? "ok" : "bad"));
+        var out = c.output;
+        if (out && typeof out === "object") {
+          var bits = [];
+          if (out.uptime !== undefined) bits.push("uptime=" + out.uptime);
+          if (out.version !== undefined) bits.push("version=" + out.version);
+          if (bits.length) checkLine.appendChild(text(" " + bits.join(" ")));
+        } else if (typeof out === "string" && out.length) {
+          checkLine.appendChild(text(" " + out.slice(0, 120)));
+        }
+        block.appendChild(checkLine);
+      });
+
+      var events = m.recentEvents || [];
+      if (events.length) {
+        var evWrap = el("div", { className: "mono-small" }, [text("events: ")]);
+        events.forEach(function (ev, i) {
+          if (i > 0) evWrap.appendChild(text(", "));
+          var evSpan = el("span", { title: ev.at ? new Date(ev.at).toISOString() : "" });
+          evSpan.appendChild(text(safeStr(ev.type) + "/" + safeStr(ev.status) + " " + relTime(ev.at)));
+          evWrap.appendChild(evSpan);
+        });
+        block.appendChild(evWrap);
+      }
+
+      body.appendChild(block);
+    });
+
+    var releases = data.releases || [];
+    if (releases.length) {
+      body.appendChild(el("div", { className: "subhead", text: "Latest release" }));
+      var r = releases[0];
+      var relLine = el("div", { className: "mono-small" }, [
+        text("v" + safeStr(r.version) + " "),
+        badge(safeStr(r.status), r.status === "ERROR" ? "bad" : (r.status === "succeeded" || r.status === "complete" ? "ok" : "neutral")),
+        text(" " + safeStr(r.description) + " — " + safeStr(r.user) + " "),
+        timeNode(r.createdAt)
+      ]);
+      body.appendChild(relLine);
+    }
+
+    var volumes = data.volumes || [];
+    if (volumes.length) {
+      body.appendChild(el("div", { className: "subhead", text: "Volume" }));
+      volumes.forEach(function (v) {
+        var vBlock = el("div", { className: "mono-small" });
+        vBlock.appendChild(text(safeStr(v.name) + " (" + safeStr(v.id) + ") " + safeStr(v.sizeGb) + "GB " + safeStr(v.region) + " "));
+        vBlock.appendChild(badge(v.encrypted ? "encrypted" : "not encrypted", v.encrypted ? "ok" : "warn"));
+        vBlock.appendChild(text(" retention=" + safeStr(v.snapshotRetention)));
+        body.appendChild(vBlock);
+
+        var snaps = v.snapshots || [];
+        if (snaps.length === 0) {
+          body.appendChild(el("div", { className: "info-box", text: "no snapshots listed — normal on a young volume, not a red flag." }));
+        } else {
+          var snapLine = el("div", { className: "mono-small" }, [text(snaps.length + " snapshot(s), latest ")]);
+          snapLine.appendChild(timeNode(snaps[0] && snaps[0].createdAt));
+          body.appendChild(snapLine);
+        }
+      });
+    }
+
+    revealBody(cardId);
+  }
+
+  function renderTenants(section) {
+    var cardId = "card-tenants";
+    if (!section || section.ok === false) {
+      renderSectionError(cardId, CARD_TITLES.tenants, section && section.error);
+      return;
+    }
+    setCardHeader(cardId, CARD_TITLES.tenants, section.ms);
+    var body = cardBody(cardId);
+    clear(body);
+    var data = section.data || {};
+    var tenants = data.tenants || [];
+
+    var drift = data.drift;
+    var hasDrift = !!(drift && ((drift.orphanDns && drift.orphanDns.length) || (drift.missingDns && drift.missingDns.length) || (drift.orphanVercel && drift.orphanVercel.length)));
+    setCardAccent(cardId, hasDrift ? "warn" : "neutral");
+
+    var wrap = el("div", { className: "table-wrap fixed" });
+    var table = el("table");
+    // Column budget matters here: the fixed columns below total ~370px,
+    // leaving the rest of the card's ~470-480px interior for the flexible
+    // Tenant column. A first pass over-allocated the fixed columns (~460px)
+    // and left the merged name+slug cell only ~15px wide — with
+    // table-layout:fixed + overflow-wrap:anywhere that wraps a SINGLE
+    // CHARACTER per line, which is worse than the original mid-word defect.
+    table.appendChild(el("colgroup", {}, [
+      el("col"),
+      el("col", { attrs: { style: "width:76px" } }),
+      el("col", { attrs: { style: "width:40px" } }),
+      el("col", { attrs: { style: "width:64px" } }),
+      el("col", { attrs: { style: "width:110px" } }),
+      el("col", { attrs: { style: "width:76px" } })
+    ]));
+    // NAME+SLUG and DNS+VERCEL are merged into single cells below — eight
+    // narrow columns were forcing every header and badge to wrap mid-word
+    // ("USE/RS", "acti/ve") at normal card widths. Headers are also
+    // shortened (full meaning kept in title=) so a nowrap single-word
+    // header never needs more room than its column can spare.
+    var thead = el("thead", {}, [el("tr", {}, [
+      el("th", { text: "Tenant" }),
+      el("th", { text: "Status" }),
+      el("th", { className: "num", text: "Usr", title: "Users" }),
+      el("th", { text: "Seen", title: "Last activity" }),
+      el("th", { text: "Plan", title: "Plan / subscription status" }),
+      el("th", { text: "Domains", title: "DNS check, then Vercel domain check" })
+    ])]);
+    table.appendChild(thead);
+    var tbody = el("tbody");
+    if (tenants.length === 0) {
+      tbody.appendChild(el("tr", {}, [el("td", { className: "empty", text: "no tenants", attrs: { colspan: "6" } })]));
+    }
+    tenants.forEach(function (t) {
+      var sub = t.subscription;
+      var subText = sub ? (safeStr(sub.plan) + " / " + safeStr(sub.status)) : "no subscription";
+      var url = t.url || ("https://" + safeStr(t.slug, "") + ".liratek.shop");
+
+      var tenantTd = el("td", {}, [
+        el("div", { className: "cell-primary truncate-fill", title: safeStr(t.name), text: safeStr(t.name) }),
+        el("div", { className: "mono-small cell-secondary truncate-fill" }, [
+          el("a", { href: url, target: "_blank", rel: "noreferrer", text: safeStr(t.slug) })
+        ])
+      ]);
+
+      var domainsTd = el("td", { className: "domains-cell" }, [
+        el("span", { title: "DNS: Cloudflare CNAME " + (t.dns ? "present" : "MISSING") }, [tickCross(!!t.dns)]),
+        el("span", { title: "Vercel: domain " + (t.vercelDomain ? "attached" : "NOT attached") }, [tickCross(!!t.vercelDomain)])
+      ]);
+
+      var tr = el("tr", {}, [
+        tenantTd,
+        el("td", {}, [badge(safeStr(t.status), t.status === "active" ? "ok" : "neutral")]),
+        el("td", { className: "num", text: safeStr(t.userCount, "0") }),
+        el("td", {}, [timeNode(t.lastActivity)]),
+        el("td", { text: subText }),
+        domainsTd
+      ]);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    body.appendChild(wrap);
+
+    body.appendChild(el("div", { className: "subhead", text: "Drift" }));
+    if (drift === null || drift === undefined) {
+      body.appendChild(el("div", { className: "info-box", text: "cannot reconcile — Cloudflare/Vercel unavailable" }));
+    } else {
+      var driftDefs = [
+        { key: "orphanDns", label: "Orphan DNS", explain: "a Cloudflare CNAME exists with no matching tenant row — usually a leftover from a deleted tenant." },
+        { key: "missingDns", label: "Missing DNS", explain: "a tenant row exists with no Cloudflare CNAME — the tenant subdomain will not resolve." },
+        { key: "orphanVercel", label: "Orphan Vercel domain", explain: "a Vercel domain exists with no matching tenant row — usually a leftover from a deleted tenant." }
+      ];
+      var any = false;
+      driftDefs.forEach(function (d) {
+        var list = drift[d.key];
+        if (list && list.length) {
+          any = true;
+          var box = el("div", { className: "warn-box" });
+          box.appendChild(el("strong", { text: d.label + ": " }));
+          box.appendChild(text(list.join(", ")));
+          box.appendChild(el("div", { className: "mono-small", text: d.explain }));
+          body.appendChild(box);
+        }
+      });
+      if (!any) {
+        body.appendChild(el("div", { className: "info-box", text: "no drift detected" }));
+      }
+    }
+
+    revealBody(cardId);
+  }
+
+  function renderVercel(section, tenantsSection) {
+    var cardId = "card-vercel";
+    if (!section || section.ok === false) {
+      renderSectionError(cardId, CARD_TITLES.vercel, section && section.error);
+      return;
+    }
+    setCardHeader(cardId, CARD_TITLES.vercel, section.ms);
+    var body = cardBody(cardId);
+    clear(body);
+    var data = section.data || {};
+    var deployments = (data.deployments || []).slice().sort(function (a, b) {
+      var at = toDate(a.createdAt); var bt = toDate(b.createdAt);
+      var av = at ? at.getTime() : 0; var bv = bt ? bt.getTime() : 0;
+      return bv - av;
+    });
+
+    var hasError = deployments.some(function (d) { return d.state === "ERROR"; });
+    setCardAccent(cardId, hasError ? "bad" : "ok");
+
+    if (deployments.length === 0) {
+      body.appendChild(el("div", { className: "empty", text: "no deployments" }));
+    } else {
+      var listWrap = el("div", { className: "scroll-list" });
+      deployments.forEach(function (d) {
+        var kind = d.state === "ERROR" ? "bad" : (d.state === "READY" ? "ok" : "neutral");
+        var row = el("div", { className: "machine-block" });
+        var line1 = el("div", {}, [
+          badge(safeStr(d.state), kind),
+          text(" " + safeStr(d.target) + " / " + safeStr(d.branch) + " — "),
+          timeNode(d.createdAt)
+        ]);
+        row.appendChild(line1);
+
+        var msg = safeStr(d.commitMessage, "");
+        var truncated = msg.length > 80 ? msg.slice(0, 80) + "…" : msg;
+        var msgLine = el("div", { className: "mono-small", title: msg }, [text(truncated || "(no commit message)")]);
+        row.appendChild(msgLine);
+
+        var authorLine = el("div", { className: "mono-small" }, [
+          text("by " + safeStr(d.author) + " — ")
+        ]);
+        if (d.url) {
+          authorLine.appendChild(el("a", { className: "truncate", attrs: { style: "max-width:100%" }, href: d.url.indexOf("http") === 0 ? d.url : "https://" + d.url, target: "_blank", rel: "noreferrer", text: safeStr(d.url), title: safeStr(d.url) }));
+        } else {
+          authorLine.appendChild(text("no url"));
+        }
+        row.appendChild(authorLine);
+
+        listWrap.appendChild(row);
+      });
+      body.appendChild(listWrap);
+      setupScrollFade(listWrap);
+    }
+
+    // Domains attached to the Vercel project — the only place to see what's
+    // actually live there, which is how orphans (a domain nobody's tenant
+    // row claims any more) get spotted. Cross-referenced against the same
+    // tenants.drift.orphanVercel list the Tenants card already colours
+    // amber; if tenants failed to load, domains still render, just with no
+    // amber (there's nothing reliable to cross-reference against).
+    var domains = data.domains || [];
+    body.appendChild(el("div", { className: "subhead", text: "Domains" }));
+    if (domains.length === 0) {
+      body.appendChild(el("div", { className: "empty", text: "no domains" }));
+    } else {
+      var orphanSlugs = null;
+      if (tenantsSection && tenantsSection.ok !== false && tenantsSection.data && tenantsSection.data.drift && tenantsSection.data.drift.orphanVercel) {
+        orphanSlugs = {};
+        tenantsSection.data.drift.orphanVercel.forEach(function (slug) { orphanSlugs[slug] = true; });
+      }
+      var domainsWrap = el("div", { className: "scroll-list" });
+      domains.forEach(function (d) {
+        var name = safeStr(d.name);
+        // Tenant CNAMEs/Vercel domains are named "<slug>.liratek.shop" — the
+        // same convention the server itself uses to derive tenantHosts /
+        // drift slugs from a DNS record name, so the leading label is the
+        // slug to cross-reference against orphanVercel.
+        var label = name.split(".")[0];
+        var isOrphan = !!(orphanSlugs && Object.prototype.hasOwnProperty.call(orphanSlugs, label));
+        var row = el("div", { className: "domain-row" + (isOrphan ? " domain-row-warn" : "") });
+        row.appendChild(el("span", { title: d.verified ? "verified" : "NOT verified" }, [tickCross(!!d.verified)]));
+        row.appendChild(el("span", { className: "truncate-fill mono-small", title: name, text: name }));
+        if (d.redirect) {
+          row.appendChild(el("span", { className: "mono-small redirect", text: "→ " + safeStr(d.redirect) }));
+        }
+        if (isOrphan) row.appendChild(badge("ORPHAN", "warn"));
+        domainsWrap.appendChild(row);
+      });
+      body.appendChild(domainsWrap);
+      setupScrollFade(domainsWrap);
+    }
+
+    revealBody(cardId);
+  }
+
+  function renderCloudflare(section) {
+    var cardId = "card-cloudflare";
+    if (!section || section.ok === false) {
+      renderSectionError(cardId, CARD_TITLES.cloudflare, section && section.error);
+      return;
+    }
+    setCardHeader(cardId, CARD_TITLES.cloudflare, section.ms);
+    var body = cardBody(cardId);
+    clear(body);
+    var data = section.data || {};
+    var zone = data.zone || {};
+    var records = data.records || [];
+    var anyFlagged = records.some(function (r) { return r.proxied && /vercel-dns|fly\.dev/i.test(safeStr(r.content)); });
+    setCardAccent(cardId, anyFlagged ? "warn" : (zone.status === "active" ? "ok" : "neutral"));
+
+    var kv = el("dl", { className: "kv" }, [
+      el("dt", { text: "zone" }), el("dd", { text: safeStr(zone.name) }),
+      el("dt", { text: "status" }), el("dd", {}, [badge(safeStr(zone.status), zone.status === "active" ? "ok" : "neutral")]),
+      el("dt", { text: "plan" }), el("dd", { text: safeStr(zone.plan) }),
+      el("dt", { text: "nameservers" }), el("dd", { text: (zone.nameServers || []).join(", ") || "—" })
+    ]);
+    body.appendChild(kv);
+
+    body.appendChild(el("div", { className: "subhead", text: "DNS records" }));
+    var wrap = el("div", { className: "table-wrap scroll" });
+    var table = el("table");
+    table.appendChild(el("colgroup", {}, [
+      el("col", { attrs: { style: "width:64px" } }),
+      el("col"),
+      el("col"),
+      el("col", { attrs: { style: "width:110px" } })
+    ]));
+    table.appendChild(el("thead", {}, [el("tr", {}, [
+      el("th", { text: "Type" }), el("th", { text: "Name" }), el("th", { text: "Content" }), el("th", { text: "Proxied" })
+    ])]));
+    var tbody = el("tbody");
+    if (records.length === 0) {
+      tbody.appendChild(el("tr", {}, [el("td", { className: "empty", text: "no records", attrs: { colspan: "4" } })]));
+    }
+    records.forEach(function (r) {
+      var content = safeStr(r.content);
+      var isVercelOrFly = /vercel-dns|fly\.dev/i.test(content);
+      var flagged = r.proxied && isVercelOrFly;
+      var tr = el("tr");
+      if (flagged) tr.title = "orange-cloud in front of Vercel/Fly causes a redirect loop";
+      tr.appendChild(el("td", { text: safeStr(r.type) }));
+      var nameTd = el("td");
+      nameTd.appendChild(el("span", { className: "truncate-fill", title: safeStr(r.name), text: safeStr(r.name) }));
+      tr.appendChild(nameTd);
+      var contentTd = el("td");
+      contentTd.appendChild(el("span", { className: "truncate-fill", title: content, text: content }));
+      tr.appendChild(contentTd);
+      var proxiedTd = el("td");
+      if (flagged) {
+        proxiedTd.appendChild(badge("PROXIED (BUG)", "warn"));
+      } else {
+        proxiedTd.appendChild(text(r.proxied ? "yes" : "no"));
+      }
+      tr.appendChild(proxiedTd);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    body.appendChild(wrap);
+    setupScrollFade(wrap);
+
+    if (anyFlagged) {
+      body.appendChild(el("div", { className: "warn-box", text: "One or more proxied records point at Vercel/Fly. An orange-cloud record in front of Vercel causes a redirect loop." }));
+    }
+
+    revealBody(cardId);
+  }
+
+  function renderBackups(summarySection, logsSection) {
+    var cardId = "card-backups";
+    if (!summarySection || summarySection.ok === false) {
+      renderSectionError(cardId, CARD_TITLES.backups, summarySection && summarySection.error);
+      return;
+    }
+    setCardHeader(cardId, CARD_TITLES.backups, summarySection.ms);
+    var body = cardBody(cardId);
+    clear(body);
+    var data = summarySection.data || {};
+
+    var litestream = logsSection && logsSection.ok !== false && logsSection.data ? logsSection.data.litestream : null;
+    var verdict = litestream ? litestream.verdict : (logsSection === undefined ? undefined : "unknown");
+
+    if (verdict === "exited" || verdict === "not-configured") setCardAccent(cardId, "bad");
+    else if (verdict === "replicating") setCardAccent(cardId, "ok");
+    else setCardAccent(cardId, "neutral");
+
+    if (verdict === undefined) {
+      body.appendChild(el("div", { className: "skeleton", attrs: { style: "width:50%" } }));
+    } else if (verdict === "exited") {
+      body.appendChild(el("div", { className: "bad-box", text: "litestream exited — replication is OFF." }));
+    } else if (verdict === "not-configured") {
+      body.appendChild(el("div", { className: "bad-box", text: "Litestream NOT configured — backups are off." }));
+    } else if (verdict === "replicating") {
+      body.appendChild(el("div", {}, [badge("replicating", "ok")]));
+    } else {
+      body.appendChild(el("div", {}, [badge("unknown", "neutral")]));
+      body.appendChild(el("div", { className: "info-box", text: "no boot marker in the current log window (normal — markers scroll away; yarn api:verify checks it at deploy time)" }));
+    }
+    if (litestream && litestream.evidence) {
+      body.appendChild(el("div", { className: "mono-small", text: "evidence: " + litestream.evidence }));
+    }
+
+    var kv = el("dl", { className: "kv" }, [
+      el("dt", { text: "bucket" }), el("dd", { text: safeStr(data.bucket) }),
+      el("dt", { text: "prefix" }), el("dd", { text: safeStr(data.prefix) }),
+      el("dt", { text: "sync interval" }), el("dd", { text: safeStr(data.syncInterval) }),
+      el("dt", { text: "endpoint (local)" }), el("dd", { text: data.endpointConfigured ? "yes" : "no (Fly-only env, expected)" })
+    ]);
+    body.appendChild(kv);
+
+    var r2 = data.r2 || {};
+    if (r2.available) {
+      body.appendChild(el("div", { className: "subhead", text: "R2 buckets" }));
+      (r2.buckets || []).forEach(function (b) {
+        body.appendChild(el("div", { className: "mono-small", text: safeStr(b.name) + " — created " + safeStr(b.creation_date) }));
+      });
+    } else {
+      var r2Details = el("details", { className: "disclosure" });
+      r2Details.appendChild(el("summary", { text: "R2 not available — why" }));
+      r2Details.appendChild(el("div", { className: "info-box", text: safeStr(r2.reason, "R2 unavailable") }));
+      body.appendChild(r2Details);
+    }
+
+    if (data.note) {
+      var noteDetails = el("details", { className: "disclosure" });
+      noteDetails.appendChild(el("summary", { text: "What's actually in the bucket" }));
+      noteDetails.appendChild(el("div", { className: "info-box", text: data.note }));
+      body.appendChild(noteDetails);
+    }
+
+    var snaps = data.volumeSnapshots || [];
+    body.appendChild(el("div", { className: "subhead", text: "Volume snapshots" }));
+    if (snaps.length === 0) {
+      body.appendChild(el("div", { className: "info-box", text: "no snapshots listed — normal on a young volume." }));
+    } else {
+      body.appendChild(el("div", { className: "mono-small", text: snaps.length + " snapshot(s)" }));
+    }
+
+    revealBody(cardId);
+  }
+
+  function renderBackend(section) {
+    var cardId = "card-backend";
+    if (!section || section.ok === false) {
+      renderSectionError(cardId, CARD_TITLES.backend, section && section.error);
+      return;
+    }
+    setCardHeader(cardId, CARD_TITLES.backend, section.ms);
+    var body = cardBody(cardId);
+    clear(body);
+    var data = section.data || {};
+    var detailed = data.detailed || {};
+    var db = detailed.database || {};
+    var mem = detailed.memory || {};
+    var sys = detailed.system || {};
+
+    var reachKind = data.reachable ? "ok" : "bad";
+    var dbKind = db.healthy === false ? "bad" : (db.healthy === true ? "ok" : "neutral");
+    setCardAccent(cardId, data.reachable === false || db.healthy === false ? "bad" : "ok");
+
+    var line1 = el("div", { className: "kv" }, [
+      el("dt", { text: "reachable" }), el("dd", {}, [badge(data.reachable ? "yes" : "no", reachKind), text(" " + safeStr(data.basicMs, "?") + "ms")]),
+      el("dt", { text: "database" }), el("dd", {}, [badge(db.healthy === undefined ? "unknown" : (db.healthy ? "healthy" : "unhealthy"), dbKind), text(" latency=" + safeStr(db.latency))]),
+      el("dt", { text: "uptime" }), el("dd", { text: safeStr(detailed.uptimeSeconds !== undefined ? Math.round(detailed.uptimeSeconds) + "s" : undefined) }),
+      el("dt", { text: "version" }), el("dd", { text: safeStr(detailed.version) }),
+      el("dt", { text: "node" }), el("dd", { text: safeStr(sys.nodeVersion) })
+    ]);
+    body.appendChild(line1);
+
+    var memNote = "memory check uses a ~52MB heap threshold and trips routinely — not an outage signal; database + reachability are the real lights";
+    var memBox = el("div", { className: "info-box" });
+    memBox.appendChild(el("strong", { text: "memory (informational): " }));
+    memBox.appendChild(text(safeStr(mem.heapUsedMB) + "MB / " + safeStr(mem.heapTotalMB) + "MB heap, " + safeStr(mem.percentUsed) + "% of threshold " + safeStr(mem.threshold) + "MB"));
+    memBox.appendChild(el("div", { text: memNote }));
+    body.appendChild(memBox);
+
+    // The server's own `notes` array currently repeats the same memory-check
+    // explanation already shown inline above (verified live: both strings are
+    // identical). Skip exact duplicates so the card doesn't say the same
+    // sentence twice; any genuinely new note still renders.
+    (data.notes || []).forEach(function (n) {
+      if (n === memNote) return;
+      body.appendChild(el("div", { className: "info-box", text: n }));
+    });
+
+    revealBody(cardId);
+  }
+
+  // Fastify logs each request twice: "Request started" carries the FULL
+  // path (e.g. /api/admin/subscriptions), "Request completed" carries the
+  // router-relative path (e.g. /subscriptions) plus statusCode + duration —
+  // same request, two different `url` values, so a plain equality match can
+  // never pair them. The frozen /api/logs contract also doesn't expose a
+  // correlationId to the browser. So: walk chronologically, and for each
+  // "Request completed" line find the MOST RECENT preceding, not-yet-used
+  // "Request started" line with the same method whose url the completed
+  // line's url is a suffix of (this also covers the trivial exact-equality
+  // case). If no such line exists anywhere further back, fall back to the
+  // nearest preceding unused "started" with the same method regardless of
+  // url (plain adjacency). A completed line that still finds nothing is
+  // rendered on its own. Any line that is neither "started" nor "completed"
+  // (a parse-fallback `text` line, or an app log like "User logged in...")
+  // never participates in pairing at all.
+  function pairLogLines(rawLines) {
+    var n = rawLines.length;
+    var used = new Array(n).fill(false);
+    var pairedStartedIdx = new Array(n).fill(-1); // indexed by the COMPLETED line's index
+
+    for (var i = 0; i < n; i++) {
+      var c = rawLines[i];
+      if (c.msg !== "Request completed") continue;
+      var suffixMatch = -1;
+      var adjacentMatch = -1;
+      for (var j = i - 1; j >= 0; j--) {
+        if (used[j]) continue;
+        var s = rawLines[j];
+        if (s.msg !== "Request started" || s.method !== c.method) continue;
+        if (adjacentMatch === -1) adjacentMatch = j;
+        if (typeof s.url === "string" && typeof c.url === "string" && c.url.length > 0 && s.url.length >= c.url.length && s.url.slice(s.url.length - c.url.length) === c.url) {
+          suffixMatch = j;
+          break; // nearest (walking backward) qualifying match wins
+        }
+      }
+      var chosen = suffixMatch !== -1 ? suffixMatch : adjacentMatch;
+      if (chosen !== -1) {
+        used[chosen] = true;
+        pairedStartedIdx[i] = chosen;
+      }
+    }
+
+    var rows = [];
+    for (var k = 0; k < n; k++) {
+      var line = rawLines[k];
+      if (line.msg === "Request started") {
+        if (used[k]) continue; // rendered as part of its merged row instead
+        rows.push({ kind: "request", dim: true, at: line.at, method: line.method, url: line.url, statusCode: null, durationMs: null, msg: line.msg, level: line.level });
+      } else if (line.msg === "Request completed") {
+        var startedIdx = pairedStartedIdx[k];
+        if (startedIdx !== -1) {
+          var started = rawLines[startedIdx];
+          rows.push({
+            kind: "request",
+            dim: false,
+            at: started.at,
+            completedAt: line.at,
+            method: line.method,
+            url: started.url,
+            statusCode: line.statusCode,
+            durationMs: line.durationMs,
+            msg: line.msg,
+            level: line.level
+          });
+        } else {
+          rows.push({ kind: "request", dim: false, at: line.at, method: line.method, url: line.url, statusCode: line.statusCode, durationMs: line.durationMs, msg: line.msg, level: line.level });
+        }
+      } else {
+        // Not a request-lifecycle line at all (heartbeat/text fallback, or an
+        // app-level log line like a login event) — has no method/url to show.
+        var msgText = line.msg !== undefined && line.msg !== null && line.msg !== "" ? line.msg : safeStr(line.text, "");
+        rows.push({ kind: "other", at: line.at, level: line.level, text: msgText });
+      }
+    }
+    return rows;
+  }
+
+  function renderLogs(section) {
+    var cardId = "card-logs";
+    if (!section || section.ok === false) {
+      renderSectionError(cardId, CARD_TITLES.logs, section && section.error);
+      return;
+    }
+    setCardHeader(cardId, CARD_TITLES.logs, section.ms);
+    var body = cardBody(cardId);
+    clear(body);
+    var data = section.data || {};
+    var counts = data.counts || {};
+    setCardAccent(cardId, (counts.error > 0 || counts.http5xx > 0) ? "bad" : "ok");
+
+    var countsRow = el("div", { className: "counts-row" }, [
+      el("span", { className: "count-chip" }, [text("total "), el("strong", { text: safeStr(counts.total, "0") })]),
+      el("span", { className: "count-chip err" }, [text("error "), el("strong", { text: safeStr(counts.error, "0") })]),
+      el("span", { className: "count-chip warnc" }, [text("warn "), el("strong", { text: safeStr(counts.warn, "0") })]),
+      el("span", { className: "count-chip" }, [text("4xx "), el("strong", { text: safeStr(counts.http4xx, "0") })]),
+      el("span", { className: "count-chip err" }, [text("5xx "), el("strong", { text: safeStr(counts.http5xx, "0") })])
+    ]);
+    body.appendChild(countsRow);
+
+    var rawLines = data.lines || [];
+    var rows = pairLogLines(rawLines).reverse();
+
+    var wrap = el("div", { className: "logs-wrap" });
+    var table = el("table");
+    // URL is a path, not prose — cap it. MSG carries real sentences (app
+    // logs, completed-request messages) so it gets the slack instead.
+    table.appendChild(el("colgroup", {}, [
+      el("col", { attrs: { style: "width:72px" } }),
+      el("col", { attrs: { style: "width:58px" } }),
+      el("col", { attrs: { style: "width:230px" } }),
+      el("col", { attrs: { style: "width:56px" } }),
+      el("col", { attrs: { style: "width:58px" } }),
+      el("col")
+    ]));
+    table.appendChild(el("thead", {}, [el("tr", {}, [
+      el("th", { text: "Time" }), el("th", { text: "Method" }), el("th", { text: "URL" }),
+      el("th", { className: "num", text: "Status" }), el("th", { className: "num", text: "Dur" }), el("th", { text: "Msg" })
+    ])]));
+    var tbody = el("tbody");
+
+    if (rows.length === 0) {
+      tbody.appendChild(el("tr", {}, [el("td", { className: "empty", text: "no log lines", attrs: { colspan: "6" } })]));
+    }
+
+    var levelClass = { error: "bad", fatal: "bad", warn: "warn", info: "neutral", debug: "neutral", trace: "neutral" };
+
+    rows.forEach(function (row) {
+      var lvlKind = levelClass[row.level] || "neutral";
+
+      if (row.kind === "other") {
+        // No method/url to show at all — give the message the whole row
+        // instead of squeezing it into the narrow MSG column.
+        var otherTr = el("tr");
+        var otherTimeTd = el("td");
+        otherTimeTd.appendChild(timeNode(row.at));
+        otherTr.appendChild(otherTimeTd);
+        var otherMsgTd = el("td", { className: "log-msg", title: row.text, attrs: { colspan: "5" } });
+        otherMsgTd.appendChild(text(row.text));
+        otherTr.appendChild(otherMsgTd);
+        if (lvlKind === "bad") otherTr.style.color = "var(--bad)";
+        else if (lvlKind === "warn") otherTr.style.color = "var(--warn)";
+        tbody.appendChild(otherTr);
+        return;
+      }
+
+      var tr = el("tr", { className: row.dim ? "log-dim" : "" });
+      var timeTd = el("td");
+      var timeSpan = timeNode(row.at);
+      if (row.completedAt) {
+        timeSpan.title = "started " + row.at + " / completed " + row.completedAt;
+      }
+      timeTd.appendChild(timeSpan);
+      tr.appendChild(timeTd);
+      tr.appendChild(el("td", { text: safeStr(row.method, "") }));
+      var urlTd = el("td", { className: "log-msg", title: safeStr(row.url, "") });
+      urlTd.appendChild(text(safeStr(row.url, "")));
+      tr.appendChild(urlTd);
+
+      var statusTd = el("td", { className: "num" });
+      if (row.statusCode !== undefined && row.statusCode !== null) {
+        var sc = Number(row.statusCode);
+        var scKind = "neutral";
+        if (sc >= 500) scKind = "bad";
+        else if (sc >= 400) scKind = "warn";
+        statusTd.appendChild(badge(String(sc), scKind));
+      }
+      tr.appendChild(statusTd);
+
+      tr.appendChild(el("td", { className: "num", text: row.durationMs !== undefined && row.durationMs !== null ? row.durationMs + "ms" : "" }));
+
+      var msgTd = el("td", { className: "log-msg" });
+      var msgText = row.msg !== undefined && row.msg !== null && row.msg !== "" ? row.msg : "";
+      msgTd.title = msgText;
+      msgTd.appendChild(text(msgText));
+      tr.appendChild(msgTd);
+
+      if (lvlKind === "bad") tr.style.color = "var(--bad)";
+      else if (lvlKind === "warn") tr.style.color = "var(--warn)";
+
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    body.appendChild(wrap);
+    setupScrollFade(wrap);
+
+    revealBody(cardId);
+  }
+
+  // ---------- status strip ----------
+
+  var STRIP_DEFS = [
+    { key: "fly", cardId: "card-fly" },
+    { key: "vercel", cardId: "card-vercel" },
+    { key: "cloudflare", cardId: "card-cloudflare" },
+    { key: "backend", cardId: "card-backend" },
+    { key: "backups", cardId: "card-backups" },
+    { key: "logs", cardId: "card-logs" }
+  ];
+
+  var prevStripValues = {};
+
+  function computeStripValue(key, sSections, lSections) {
+    if (key === "fly") {
+      var fly = sSections.fly;
+      if (!fly || fly.ok === false) return { valueText: "error", dot: "bad" };
+      var fd = fly.data || {};
+      var mc = fd.machineCount;
+      return { valueText: safeStr(mc, "0") + " machine" + (mc === 1 ? "" : "s"), dot: fd.machineCountOk === false ? "bad" : "ok" };
+    }
+    if (key === "vercel") {
+      var vercel = sSections.vercel;
+      if (!vercel || vercel.ok === false) return { valueText: "error", dot: "bad" };
+      var deployments = (vercel.data && vercel.data.deployments) || [];
+      if (!deployments.length) return { valueText: "no deploys", dot: "neutral" };
+      var sorted = deployments.slice().sort(function (a, b) {
+        var at = toDate(a.createdAt); var bt = toDate(b.createdAt);
+        return (bt ? bt.getTime() : 0) - (at ? at.getTime() : 0);
+      });
+      var latest = sorted[0];
+      var hasError = deployments.some(function (dd) { return dd.state === "ERROR"; });
+      return { valueText: safeStr(latest.state) + " " + relTime(latest.createdAt), dot: hasError ? "bad" : (latest.state === "READY" ? "ok" : "neutral") };
+    }
+    if (key === "cloudflare") {
+      var cf = sSections.cloudflare;
+      if (!cf || cf.ok === false) return { valueText: "error", dot: "bad" };
+      var records = (cf.data && cf.data.records) || [];
+      var flagged = records.some(function (r) { return r.proxied && /vercel-dns|fly\.dev/i.test(safeStr(r.content)); });
+      return { valueText: records.length + " records", dot: flagged ? "warn" : "ok" };
+    }
+    if (key === "backend") {
+      var be = sSections.backend;
+      if (!be || be.ok === false) return { valueText: "unreachable", dot: "bad" };
+      var bd = be.data || {};
+      var bdb = (bd.detailed && bd.detailed.database) || {};
+      var dot = bd.reachable === false || bdb.healthy === false ? "bad" : "ok";
+      return { valueText: "db " + safeStr(bdb.latency, "?") + "ms", dot: dot };
+    }
+    if (key === "backups") {
+      var logsSec1 = lSections.logs;
+      if (!logsSec1 || logsSec1.ok === false || !logsSec1.data) return { valueText: "litestream —", dot: "neutral" };
+      var verdict = (logsSec1.data.litestream && logsSec1.data.litestream.verdict) || "unknown";
+      var vdot = verdict === "exited" || verdict === "not-configured" ? "bad" : (verdict === "replicating" ? "ok" : "neutral");
+      return { valueText: "litestream " + verdict, dot: vdot };
+    }
+    if (key === "logs") {
+      var logsSec2 = lSections.logs;
+      if (!logsSec2 || logsSec2.ok === false || !logsSec2.data) return { valueText: "—", dot: "neutral" };
+      var counts = logsSec2.data.counts || {};
+      var ldot = (counts.error > 0 || counts.http5xx > 0) ? "bad" : "ok";
+      return { valueText: safeStr(counts.error, "0") + " err / " + safeStr(counts.http5xx, "0") + " 5xx", dot: ldot };
+    }
+    return { valueText: "—", dot: "neutral" };
+  }
+
+  function renderStrip() {
+    var sSections = (state.summary && state.summary.sections) || {};
+    var lSections = (state.logs && state.logs.sections) || {};
+    var reduced = prefersReducedMotion();
+    STRIP_DEFS.forEach(function (def) {
+      var v = computeStripValue(def.key, sSections, lSections);
+      var valueEl = document.getElementById("strip-value-" + def.key);
+      var dotEl = document.getElementById("strip-dot-" + def.key);
+      if (!valueEl || !dotEl) return;
+      var prev = prevStripValues[def.key];
+      valueEl.textContent = v.valueText;
+      dotEl.className = "dot dot-" + v.dot;
+      if (prev !== undefined && prev !== v.valueText && !reduced) {
+        valueEl.classList.remove("value-changed");
+        void valueEl.offsetWidth;
+        valueEl.classList.add("value-changed");
+      }
+      prevStripValues[def.key] = v.valueText;
+    });
+  }
+
+  STRIP_DEFS.forEach(function (def) {
+    var tile = document.getElementById("strip-tile-" + def.key);
+    if (!tile) return;
+    tile.addEventListener("click", function () {
+      var target = document.getElementById(def.cardId);
+      if (target) target.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+    });
+  });
+
+  // ---------- overall verdict ----------
+
+  function computeVerdict(summary, logs) {
+    var sections = (summary && summary.sections) || {};
+    var logSections = (logs && logs.sections) || {};
+
+    var fly = sections.fly;
+    if (fly && fly.ok !== false && fly.data && fly.data.machineCountOk === false) {
+      return { kind: "bad", labelText: "machine count incident" };
+    }
+
+    var logsSec = logSections.logs;
+    if (logsSec && logsSec.ok !== false && logsSec.data && logsSec.data.litestream) {
+      var v = logsSec.data.litestream.verdict;
+      if (v === "exited" || v === "not-configured") {
+        return { kind: "bad", labelText: "litestream " + v };
+      }
+    }
+
+    var backend = sections.backend;
+    if (backend && backend.ok !== false && backend.data) {
+      if (backend.data.reachable === false) {
+        return { kind: "bad", labelText: "backend unreachable" };
+      }
+      var db = backend.data.detailed && backend.data.detailed.database;
+      if (db && db.healthy === false) {
+        return { kind: "bad", labelText: "database unhealthy" };
+      }
+    } else if (backend && backend.ok === false) {
+      return { kind: "bad", labelText: "backend unreachable" };
+    }
+
+    var vercel = sections.vercel;
+    if (vercel && vercel.ok !== false && vercel.data) {
+      var hasError = (vercel.data.deployments || []).some(function (d) { return d.state === "ERROR"; });
+      if (hasError) return { kind: "bad", labelText: "vercel deploy error" };
+    }
+
+    var anyFailed = false;
+    [sections.fly, sections.vercel, sections.cloudflare, sections.backend, sections.tenants, sections.backups, logSections.logs].forEach(function (s) {
+      if (s && s.ok === false) anyFailed = true;
+    });
+    if (anyFailed) return { kind: "warn", labelText: "degraded" };
+
+    var tenants = sections.tenants;
+    if (tenants && tenants.ok !== false && tenants.data) {
+      var drift = tenants.data.drift;
+      if (drift) {
+        var hasDrift = (drift.orphanDns && drift.orphanDns.length) ||
+          (drift.missingDns && drift.missingDns.length) ||
+          (drift.orphanVercel && drift.orphanVercel.length);
+        if (hasDrift) return { kind: "warn", labelText: "drift detected" };
+      }
+    }
+
+    return { kind: "ok", labelText: "all clear" };
+  }
+
+  function updateHeader() {
+    var pillEl = document.getElementById("verdict-pill");
+    var v = computeVerdict(state.summary, state.logs);
+    pillEl.className = "pill pill-" + v.kind;
+    pillEl.textContent = v.labelText;
+
+    var metaEl = document.getElementById("generated-meta");
+    clear(metaEl);
+    if (state.summaryGeneratedAt) {
+      var d = toDate(state.summaryGeneratedAt);
+      metaEl.appendChild(text("updated "));
+      var span = el("strong", { text: relTime(state.summaryGeneratedAt), title: d ? d.toISOString() : "" });
+      metaEl.appendChild(span);
+    } else {
+      metaEl.appendChild(text("never refreshed"));
+    }
+
+    var logsTimingEl = document.getElementById("logs-timing");
+    clear(logsTimingEl);
+    if (state.logsMs !== null && state.logsMs !== undefined) {
+      logsTimingEl.appendChild(text("logs took " + (state.logsMs / 1000).toFixed(1) + "s"));
+    }
+
+    renderStrip();
+  }
+
+  // periodically refresh just the relative-time labels without refetching
+  setInterval(updateHeader, 5000);
+
+  // ---------- fetch orchestration ----------
+
+  function fetchJson(url) {
+    return fetch(url, { cache: "no-store" }).then(function (res) {
+      return res.json().then(function (body) {
+        return body;
+      });
+    });
+  }
+
+  function renderAll() {
+    var summary = state.summary;
+    var logs = state.logs;
+    var sSections = (summary && summary.sections) || {};
+    var lSections = (logs && logs.sections) || {};
+
+    if (summary) {
+      renderFly(sSections.fly);
+      renderTenants(sSections.tenants);
+      renderVercel(sSections.vercel, sSections.tenants);
+      renderCloudflare(sSections.cloudflare);
+      renderBackend(sSections.backend);
+    }
+    // backups needs both summary (bucket info) and logs (litestream verdict)
+    if (summary) {
+      renderBackups(sSections.backups, logs ? lSections.logs : undefined);
+    }
+    if (logs) {
+      renderLogs(lSections.logs);
+    }
+    updateHeader();
+  }
+
+  var loadToken = 0;
+
+  function setRefreshBusy(busy) {
+    var spinnerEl = document.getElementById("refresh-spinner");
+    var btnEl = document.getElementById("refresh-btn");
+    if (spinnerEl) spinnerEl.hidden = !busy;
+    if (btnEl) btnEl.disabled = busy;
+  }
+
+  function loadAll() {
+    var myToken = ++loadToken;
+    setRefreshBusy(true);
+    // reset to skeletons for a manual/auto refresh
+    ["card-fly", "card-tenants", "card-vercel", "card-cloudflare", "card-backups", "card-backend"].forEach(function (id) {
+      setCardHeader(id, CARD_TITLES[id.replace("card-", "")]);
+      renderSkeleton(id);
+    });
+    setCardHeader("card-logs", CARD_TITLES.logs);
+    renderSkeleton("card-logs");
+
+    var summaryPromise = fetchJson("/api/summary").then(function (body) {
+      if (myToken !== loadToken) return;
+      state.summary = body;
+      state.summaryGeneratedAt = body && body.generatedAt;
+      renderAll();
+    }).catch(function (err) {
+      if (myToken !== loadToken) return;
+      var msg = err && err.message ? err.message : String(err);
+      state.summary = { sections: {} };
+      ["fly", "tenants", "vercel", "cloudflare", "backups", "backend"].forEach(function (name) {
+        renderSectionError("card-" + name, CARD_TITLES[name], "could not reach /api/summary: " + msg);
+      });
+      updateHeader();
+    });
+
+    var logsStart = Date.now();
+    var logsPromise = fetchJson("/api/logs?limit=100").then(function (body) {
+      if (myToken !== loadToken) return;
+      state.logs = body;
+      state.logsMs = Date.now() - logsStart;
+      state.logsGeneratedAt = body && body.generatedAt;
+      renderAll();
+    }).catch(function (err) {
+      if (myToken !== loadToken) return;
+      var msg = err && err.message ? err.message : String(err);
+      state.logs = { sections: {} };
+      state.logsMs = Date.now() - logsStart;
+      renderSectionError("card-logs", CARD_TITLES.logs, "could not reach /api/logs: " + msg);
+      updateHeader();
+    });
+
+    return Promise.allSettled([summaryPromise, logsPromise]).then(function (result) {
+      if (myToken === loadToken) setRefreshBusy(false);
+      return result;
+    });
+  }
+
+  // ---------- auto-refresh + persistence ----------
+
+  var AUTO_REFRESH_KEY = "ops-dashboard-auto-refresh";
+  var autoTimer = null;
+
+  function readAutoRefreshPref() {
+    try {
+      var v = window.localStorage.getItem(AUTO_REFRESH_KEY);
+      if (v === null) return true; // on by default
+      return v === "1";
+    } catch (e) {
+      return true;
+    }
+  }
+
+  function writeAutoRefreshPref(on) {
+    try {
+      window.localStorage.setItem(AUTO_REFRESH_KEY, on ? "1" : "0");
+    } catch (e) {
+      // ignore — localStorage may be unavailable
+    }
+  }
+
+  function setAutoRefresh(on) {
+    if (autoTimer) {
+      clearInterval(autoTimer);
+      autoTimer = null;
+    }
+    if (on) {
+      autoTimer = setInterval(loadAll, 30000);
+    }
+    writeAutoRefreshPref(on);
+  }
+
+  var toggleEl = document.getElementById("auto-refresh-toggle");
+  toggleEl.checked = readAutoRefreshPref();
+  setAutoRefresh(toggleEl.checked);
+  toggleEl.addEventListener("change", function () {
+    setAutoRefresh(toggleEl.checked);
+  });
+
+  document.getElementById("refresh-btn").addEventListener("click", function () {
+    loadAll();
+  });
+
+  loadAll();
+})();
+</script>

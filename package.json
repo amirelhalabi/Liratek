@@ -46,6 +46,7 @@
     "api:status": "node scripts/fly.mjs status",
     "api:ssh": "node scripts/fly.mjs ssh console",
     "api:secrets": "node scripts/fly.mjs secrets list",
+    "ops": "node tools/ops-dashboard/server.mjs",
     "check:tenant-scoping": "node scripts/check-tenant-scoping.mjs",
     "check:bind-arity": "node scripts/check-bind-arity.mjs",
     "omniroute": "node scripts/omniroute.mjs",
