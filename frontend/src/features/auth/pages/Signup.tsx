@@ -18,6 +18,7 @@ import { useNavigate, Link } from "react-router-dom";
 import clsx from "clsx";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { signup } from "@/api/backendApi";
+import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import logger from "@/utils/logger";
 
@@ -35,31 +36,6 @@ function slugify(name: string): string {
     .replace(/-{2,}/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
-}
-
-/**
- * Turn anything the transport can hand back into one line for the user.
- *
- * Three shapes actually reach here and only the first is obvious:
- *   - the 200-with-`success:false` envelope, whose `error` is a bare string
- *     (Zod rejections) or a `{ code, message }` object (createErrorResponse);
- *   - the `ApiError` OBJECT that `requestJson` THROWS on any non-2xx — a plain
- *     `{ status, message, details }`, NOT an `Error`, so an `instanceof Error`
- *     check misses it and the invite-code 403 would read as "could not reach
- *     the server". Its own `message` can itself be the nested object, because
- *     it is lifted straight off `data.error`;
- *   - a real `Error` from fetch when the backend is genuinely unreachable.
- */
-function messageFrom(value: unknown, fallback: string): string {
-  if (typeof value === "string" && value.trim()) return value;
-  if (value && typeof value === "object") {
-    const nested = (value as { message?: unknown }).message;
-    if (typeof nested === "string" && nested.trim()) return nested;
-    if (nested && typeof nested === "object") {
-      return messageFrom(nested, fallback);
-    }
-  }
-  return fallback;
 }
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;

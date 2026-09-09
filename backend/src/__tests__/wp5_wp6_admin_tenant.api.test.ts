@@ -174,6 +174,14 @@ beforeAll(async () => {
   // Must be set BEFORE the first @liratek/core import — core's env.ts parses
   // process.env at module load, and api/auth.ts / api/admin.ts throw without one.
   process.env.JWT_SECRET = JWT_TEST_SECRET;
+  // Pinned for the same reason, and to make this suite ENV-INDEPENDENT.
+  // core's env.ts does `dotenv.config({ path: cwd + "/.env" })` and backend
+  // jest runs with cwd = backend/, so a developer with a real backend/.env
+  // would get their live APP_BASE_DOMAIN here while CI (backend/.env is
+  // gitignored) gets undefined — the same assertion passing in one place and
+  // failing in the other. dotenv does not override an already-set variable,
+  // so setting it here wins in both. Not a real domain, on purpose.
+  process.env.APP_BASE_DOMAIN = "liratek.test";
 
   db = new RealDatabase(":memory:");
   // Production (backend/src/database/connection.ts) always turns this on —
@@ -662,6 +670,28 @@ describe("POST /api/admin/tenants/:id/impersonate", () => {
     expect(auditRow).toBeDefined();
     expect(auditRow!.user_id).toBe(betaAdminRow.id);
     expect(auditRow!.impersonator_id).toBe(superAdminId);
+  });
+
+  it("returns the TENANT'S OWN origin to open the session on", async () => {
+    // "Connect as admin" used to open a relative URL, so the impersonated
+    // session landed on the control plane's host — the platform host, which
+    // no tenant user ever signs in on. The response now names the origin.
+    //
+    // APP_BASE_DOMAIN is pinned to "liratek.test" in beforeAll, so this is a
+    // literal rather than a re-derivation of the same expression under test.
+    //
+    // "betaco" is tenant 2's slug in this fixture. That it is the TENANT'S
+    // slug is the whole assertion — the bug was an origin belonging to the
+    // platform rather than to the shop being impersonated.
+    const superToken = await loginToken("root");
+    const res = await request(app)
+      .post("/api/admin/tenants/2/impersonate")
+      .set("Authorization", `Bearer ${superToken}`);
+
+    expect(res.status).toBe(200);
+    expect((res.body as ApiBody).data!.targetOrigin).toBe(
+      "https://betaco.liratek.test",
+    );
   });
 
   it("409s on a suspended tenant", async () => {

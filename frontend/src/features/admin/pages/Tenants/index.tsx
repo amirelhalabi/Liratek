@@ -136,9 +136,8 @@ export function TenantsPage() {
     setImpersonateError(null);
     setImpersonatingId(tenant.id);
     try {
-      const { tenantName, token, username } = await impersonate.mutateAsync(
-        tenant.id,
-      );
+      const { tenantName, token, username, targetOrigin } =
+        await impersonate.mutateAsync(tenant.id);
       // tenantName (and username, if the backend provides it) travel via the
       // URL because the new tab only has access to what's in the URL —
       // bootstrapImpersonationSession() stashes both into sessionStorage on
@@ -146,7 +145,26 @@ export function TenantsPage() {
       const params = new URLSearchParams({ impersonation_token: token });
       if (tenantName) params.set("tenant_name", tenantName);
       if (username) params.set("username", username);
-      window.open(`/?${params.toString()}`, "_blank", "noopener,noreferrer");
+
+      // Open the session on the TENANT'S OWN origin when there is one.
+      //
+      // This was a relative `/?…`, which opens on the current origin — the
+      // control plane's, i.e. the platform host. Since `www` became platform-
+      // only, no tenant user ever signs in there, so impersonating on it means
+      // testing the app on the one host the customer never sees.
+      //
+      // The token already crosses origins safely: sessionStorage is per-origin
+      // exactly like localStorage, which is why impersonation has always
+      // passed its token through the URL. Changing the base is all this needs
+      // — the handoff itself is unchanged.
+      //
+      // Falls back to relative when targetOrigin is null (no APP_BASE_DOMAIN,
+      // e.g. local dev), preserving the old behaviour rather than opening a
+      // hostname that does not resolve.
+      const href = targetOrigin
+        ? `${targetOrigin}/?${params.toString()}`
+        : `/?${params.toString()}`;
+      window.open(href, "_blank", "noopener,noreferrer");
     } catch (err) {
       setImpersonateError(
         err instanceof Error ? err.message : "Failed to start impersonation",

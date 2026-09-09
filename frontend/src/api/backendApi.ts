@@ -6,6 +6,7 @@ import {
   clearImpersonationSession,
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
+import { messageFrom } from "./apiError";
 import type { ProductListFilters } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -203,18 +204,41 @@ export async function login(
     return (window as any).api.auth.login(username, password, rememberMe);
   }
 
-  const res = await requestJson<{
+  // A refused login is HTTP 401, and requestJson throws on any non-2xx — so
+  // without this catch the adapter never returns an envelope at all, and the
+  // caller's generic "unexpected error" replaces the real reason. Every failed
+  // web login read "An unexpected error occurred", wrong password included.
+  //
+  // Caught HERE rather than in AuthContext because this is the transport
+  // boundary: the IPC branch above returns `{ success: false, error }` for a
+  // bad password, so the REST branch must too (rule 19c, envelope parity).
+  // AuthContext's own catch then means what it says — something genuinely
+  // unexpected, like the network being down.
+  let res: {
     success: boolean;
     user?: ApiUser;
     token?: string;
     sessionToken?: string;
     error?: string;
     data?: { user?: ApiUser; token?: string; sessionToken?: string };
-  }>("/api/auth/login", {
-    method: "POST",
-    body: { username, password, rememberMe },
-    auth: false,
-  });
+  };
+  try {
+    res = await requestJson<typeof res>("/api/auth/login", {
+      method: "POST",
+      body: { username, password, rememberMe },
+      auth: false,
+    });
+  } catch (err) {
+    return {
+      success: false as const,
+      user: undefined,
+      token: undefined,
+      sessionToken: undefined,
+      // messageFrom unwraps the nested `{ code, message }` the backend sends;
+      // reading `.message` directly yields an object here.
+      error: messageFrom(err, "Login failed"),
+    };
+  }
 
   // The backend wraps the login payload in `data` (createSuccessResponse),
   // unlike /api/auth/me which responds flat — accept both shapes.
@@ -5418,6 +5442,13 @@ export type AdminImpersonateResult = {
    * flagging this loudly because it's a contract gap, not an oversight.
    */
   username?: string;
+  /**
+   * Absolute origin the impersonated session belongs on —
+   * `https://<slug>.<APP_BASE_DOMAIN>`. null when host tenancy is not
+   * configured, in which case the caller opens a relative URL and the
+   * session stays on the current origin (the pre-2026-09-09 behaviour).
+   */
+  targetOrigin?: string | null;
 };
 
 function assertWebOnly(action: string): void {

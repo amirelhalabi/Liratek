@@ -32,6 +32,7 @@ import {
   ErrorCodes,
   AppError,
   JWT_SECRET,
+  APP_BASE_DOMAIN,
   tenantLogger,
   createTenantSchema,
   updateTenantSchema,
@@ -352,11 +353,29 @@ router.post("/tenants/:id/impersonate", (req, res) => {
       "Impersonation session started",
     );
 
+    // Which ORIGIN this session should be opened on.
+    //
+    // "Connect as admin" used to open a relative URL, so the impersonated
+    // session landed on whatever host the control plane was being served
+    // from -- `www`, i.e. the platform host. That is now the one host no
+    // tenant user ever signs in on, so a super admin would be exercising the
+    // app somewhere real users never are, and could not catch anything
+    // specific to a tenant's own subdomain.
+    //
+    // Same shape as the signup response's `loginUrl`, and null for the same
+    // reason: with no APP_BASE_DOMAIN there is no per-tenant origin, and
+    // inventing one would open a dead tab. The caller falls back to a
+    // relative URL, which is the old behaviour.
+    const targetOrigin = APP_BASE_DOMAIN
+      ? `https://${tenant.slug}.${APP_BASE_DOMAIN}`
+      : null;
+
     res.json(
       createSuccessResponse({
         tenantName: tenant.name,
         username: tenantAdmin.username,
         token,
+        targetOrigin,
       }),
     );
   } catch (error) {
