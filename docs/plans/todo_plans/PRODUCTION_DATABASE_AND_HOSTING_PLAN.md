@@ -341,9 +341,12 @@ Local SQLite files on the VPS volume, one per tenant, under `/data/tenants/<id>.
 - Durability becomes ours: **Litestream** (Linux-supported; continuous replication,
   worst-case loss in seconds) plus the scheduled `VACUUM INTO` snapshot already built
   and tested this session, encrypted, to Cloudflare R2.
-- *Assumption (unverified): Litestream's config is a static list of databases, so
-  dynamically created tenant files need config regeneration on provisioning. The
-  snapshot path has no such constraint.*
+- ~~Assumption: Litestream's config is a static list of databases, so dynamically
+  created tenant files need config regeneration on provisioning.~~ **WRONG —
+  checked 2026-09-09.** Litestream 0.5 replicates a DIRECTORY: `dir` + `pattern`
+  + `watch: true` discovers a newly created database within seconds without a
+  restart, and namespaces the replica by the file's relative path. So the
+  per-tenant case needs no machinery at all — see § 10.
 
 Phases A–D are identical in this branch. Only the connection string and Phase F
 change — which is why the spike is cheap to lose.
@@ -360,3 +363,57 @@ change — which is why the spike is cheap to lose.
    — `supported: false` in the current build). Deferred: swapping the driver under
    paying desktop customers is its own risk, and not required by anything here.
 4. Backup encryption keys: where they live and who can restore.
+
+---
+
+## 10. Backups — current state and the per-tenant shape
+
+**LIVE since 2026-09-09.** Litestream 0.5.17 replicates `/data/liratek.db` to
+Cloudflare R2 (`liratek-backups`, prefix `web/liratek`) with a 1 s sync interval,
+alongside Fly's encrypted volume and its daily snapshots.
+
+**A restore has actually been performed**, which is the only thing that makes a
+backup real: pulled from R2 into a scratch file on the running machine —
+`integrity_check ok`, schema v174, CornerTech present, 3 users, 18 transactions,
+`shop_name` intact, live database untouched. Scripts kept in the session
+scratchpad; the procedure is two commands (`litestream restore -o <tmp> <db>`
+then open the copy read-only).
+
+### One gotcha that cost real time
+
+The bucket was created with **EU jurisdiction**, so it is reachable ONLY at
+`https://<account>.eu.r2.cloudflarestorage.com`. The default endpoint returns
+`403 AccessDenied` for the same bucket and the same credentials — which is
+indistinguishable from a bad key. If replication ever fails with AccessDenied,
+check the endpoint before the token.
+
+### Per-tenant layout, once Phases A–D land
+
+Keyed by tenant **id**, never by name or slug: a shop renaming itself (as
+`default` → `cornertech` did) must not orphan its backup history.
+
+```
+liratek-backups/
+  platform/          the control-plane database
+  tenants/1.db/      one prefix per tenant database
+  tenants/2.db/
+```
+
+Litestream produces that for free — it replicates a directory and namespaces
+each replica by the file's relative path:
+
+```yaml
+dbs:
+  - path: ${PLATFORM_DATABASE_PATH}
+    replica: { type: s3, bucket: ${LITESTREAM_BUCKET}, path: platform, ... }
+
+  - dir: /data/tenants
+    pattern: "*.db"
+    watch: true      # a new shop's database is replicated within seconds,
+                     # with no config regeneration and no restart
+    replica: { type: s3, bucket: ${LITESTREAM_BUCKET}, path: tenants, ... }
+```
+
+So provisioning stays a pure `getDatabase()` concern — nothing in the backup
+layer has to be told a tenant was created. That is the main reason the earlier
+worry about regenerating Litestream config is retired.
