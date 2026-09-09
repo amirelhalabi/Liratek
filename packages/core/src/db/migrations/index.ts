@@ -14,6 +14,23 @@ import {
   TELECOM_DAYS_SELL_PRICE_LBP,
 } from "../../utils/telecomCredit.js";
 
+/**
+ * Does this database have that table?
+ *
+ * Needed because migrations do NOT only run against real databases: several
+ * tests build a minimal schema holding just the tables their own migration
+ * touches and then drive the real runner, so a later migration that assumes a
+ * table exists fails migrations unrelated to it. The pattern is inlined in a
+ * handful of older migrations; new ones should use this.
+ */
+function tableExists(db: Database.Database, name: string): boolean {
+  return (
+    db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?`)
+      .get(name) !== undefined
+  );
+}
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -10998,6 +11015,148 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`DROP INDEX IF EXISTS idx_tenant_subscriptions_tenant;`);
       db.exec(`DROP TABLE IF EXISTS tenant_subscriptions;`);
       console.log("Migration v173 rolled back: tenant_subscriptions dropped");
+    },
+  },
+  {
+    version: 174,
+    name: "username_case_insensitive",
+    type: "typescript",
+    description:
+      "Usernames were unique CASE-SENSITIVELY, so 'admin' and 'Admin' were two different " +
+      "accounts with two different passwords. Found live: tenant 1 had both, and the owner " +
+      "had been signing in as one while impersonation resolved to the other. To a human " +
+      "reading a user list or an audit trail they are the same name, which is exactly the " +
+      "kind of ambiguity an audit log must not have. " +
+      "" +
+      "Fixed at the INDEX, not the column. `username TEXT COLLATE NOCASE` would be the " +
+      "tidier declaration -- one collation covering every comparison -- but SQLite cannot " +
+      "alter a column's collation, so it needs the 12-step table rebuild, and `users` is " +
+      "the FK target of 22 other tables (same reason v173 avoided a rebuild). Trading a " +
+      "rebuild of the table every financial row points at for a cosmetic gain is not worth " +
+      "it; the indexes below plus USERNAME_MATCH in UserRepository give identical behaviour. " +
+      "" +
+      "BOTH HALVES ARE REQUIRED. A case-insensitive unique index with case-SENSITIVE lookups " +
+      "would be worse than the bug: someone registered as 'Admin' would type 'admin', match " +
+      "no row, and be told their password is wrong. UserRepository's eight `WHERE username = ?` " +
+      "sites all move to the shared USERNAME_MATCH fragment in the same change. " +
+      "" +
+      "EXISTING DUPLICATES ARE RENAMED, NEVER DELETED. Those 22 FKs are mostly NO ACTION and " +
+      "include transactions.user_id, payments.created_by and daily_closings.created_by -- a " +
+      "DELETE would either fail outright or strand financial history. The loser keeps its id " +
+      "and every row pointing at it; only its name and is_active change, so the migration is " +
+      "reversible and no money record loses its author. " +
+      "" +
+      "WHICH DUPLICATE SURVIVES: the one with the most sessions, ties broken by lowest id. " +
+      "Session count is the available evidence of which account people actually use -- on the " +
+      "database that prompted this, 'Admin' had 19 sessions against 'admin''s 6, and 'Admin' " +
+      "is the one whose password the owner still had. Keeping the lowest id instead would have " +
+      "retired the working account and locked them out. " +
+      "" +
+      "CAVEAT: SQLite's NOCASE folds ASCII A-Z only. Non-ASCII usernames are still compared " +
+      "case-sensitively. Acceptable here (usernames are Latin in practice) but it is a real " +
+      "limit, not a rounding error.",
+    up: (db) => {
+      // Not every database this runs against HAS a users table. Several
+      // migration tests build a minimal schema containing only the tables
+      // their own migration touches, then drive the real runner — so v174
+      // would throw "no such table: main.users" and fail migrations that have
+      // nothing to do with users. Caught exactly that way. A real database
+      // always has it (create_db.sql), so skipping is only ever a test path.
+      if (!tableExists(db, "users")) {
+        console.log("Migration v174: no users table here — nothing to do");
+        return;
+      }
+
+      // Survivor rule prefers the account with the most sessions. Where there
+      // is no sessions table to consult, fall back to lowest id: still
+      // deterministic, and a schema without sessions has no usage evidence to
+      // weigh anyway.
+      const byUsage = tableExists(db, "sessions")
+        ? `(SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id) DESC, u.id ASC`
+        : `u.id ASC`;
+
+      // Losers = every row that is not the survivor of its (realm, folded name)
+      // group. COALESCE on tenant_id because NULL (the platform realm) must
+      // partition as a value, not as "distinct from everything".
+      const LOSERS = `
+        SELECT id FROM (
+          SELECT u.id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY COALESCE(u.tenant_id, -1), lower(u.username)
+                   ORDER BY ${byUsage}
+                 ) AS rn
+          FROM users u
+        )
+        WHERE rn > 1`;
+
+      const renamed = db
+        .prepare(
+          `UPDATE users
+              SET username = username
+                    || (CASE WHEN is_active = 1 THEN '.retired-' ELSE '.dupe-' END)
+                    || id,
+                  is_active = 0
+            WHERE id IN (${LOSERS})`,
+        )
+        .run();
+
+      // Two suffixes rather than one so down() can tell which rows it must
+      // reactivate from which were already inactive before this ran.
+
+      db.exec(`
+        DROP INDEX IF EXISTS idx_users_tenant_username;
+        DROP INDEX IF EXISTS idx_users_platform_username;
+
+        CREATE UNIQUE INDEX idx_users_tenant_username
+          ON users(tenant_id, username COLLATE NOCASE);
+
+        -- Still not redundant with the one above: SQLite treats NULLs as
+        -- distinct in a unique index, so without this two platform users
+        -- (tenant_id NULL) could share a name.
+        CREATE UNIQUE INDEX idx_users_platform_username
+          ON users(username COLLATE NOCASE) WHERE tenant_id IS NULL;
+      `);
+
+      console.log(
+        `Migration v174: usernames are now case-insensitive; ` +
+          `${renamed.changes} duplicate account(s) renamed and deactivated`,
+      );
+    },
+    down: (db) => {
+      // Same reason as up(): a minimal test schema may have no users table.
+      if (!tableExists(db, "users")) {
+        console.log("Migration v174 rollback: no users table here — nothing to do");
+        return;
+      }
+
+      db.exec(`
+        DROP INDEX IF EXISTS idx_users_tenant_username;
+        DROP INDEX IF EXISTS idx_users_platform_username;
+
+        CREATE UNIQUE INDEX idx_users_tenant_username
+          ON users(tenant_id, username);
+        CREATE UNIQUE INDEX idx_users_platform_username
+          ON users(username) WHERE tenant_id IS NULL;
+      `);
+
+      // Strip the suffix this migration added, reactivating only the rows it
+      // actually deactivated. Order matters only in that both run.
+      db.prepare(
+        `UPDATE users
+            SET username = substr(username, 1, length(username) - length('.retired-' || id)),
+                is_active = 1
+          WHERE username LIKE '%.retired-' || id`,
+      ).run();
+      db.prepare(
+        `UPDATE users
+            SET username = substr(username, 1, length(username) - length('.dupe-' || id))
+          WHERE username LIKE '%.dupe-' || id`,
+      ).run();
+
+      console.log(
+        "Migration v174 rolled back: usernames are case-sensitive again, " +
+          "renamed duplicates restored",
+      );
     },
   },
 ];

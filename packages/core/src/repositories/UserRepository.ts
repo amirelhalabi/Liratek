@@ -9,6 +9,24 @@ import { BaseRepository, type FindOptions } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
 
+/**
+ * How a username is matched, everywhere. Defined once (rule 14) because the
+ * one thing that must never drift is this predicate against the collation of
+ * `idx_users_tenant_username` / `idx_users_platform_username`.
+ *
+ * Migration v174 made those indexes `COLLATE NOCASE`, so 'admin' and 'Admin'
+ * are one name. If a lookup here stayed case-SENSITIVE the pair would
+ * disagree, and the failure is nasty: a user registered as 'Admin' types
+ * 'admin', matches no row, and is told their password is wrong. Uniqueness
+ * and lookup are two halves of one decision.
+ *
+ * COLLATE sits on the LEFT operand so it matches the indexed expression
+ * exactly and the planner uses the index rather than scanning.
+ *
+ * Folds ASCII A-Z only — SQLite's NOCASE does not case-fold non-ASCII.
+ */
+const USERNAME_MATCH = "username COLLATE NOCASE = ?";
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -79,7 +97,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   findByUsername(username: string): UserEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: global username lookup — login happens before tenant context exists */ WHERE username = ? AND is_active = 1`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: global username lookup — login happens before tenant context exists */ WHERE ${USERNAME_MATCH} AND is_active = 1`;
       return this.queryOne<UserEntity>(query, username);
     } catch (error) {
       throw new DatabaseError("Failed to find user by username", {
@@ -177,7 +195,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   findByUsernameIncludingInactive(username: string): UserEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: username stays globally unique (plan §1) — a by-username lookup is inherently cross-tenant */ WHERE username = ?`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: username stays globally unique (plan §1) — a by-username lookup is inherently cross-tenant */ WHERE ${USERNAME_MATCH}`;
       return this.queryOne<UserEntity>(query, username);
     } catch (error) {
       throw new DatabaseError("Failed to find user by username", {
@@ -214,8 +232,8 @@ export class UserRepository extends BaseRepository<UserEntity> {
     try {
       const query =
         realm === null
-          ? `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: explicit realm (platform) supplied by caller */ WHERE username = ? AND tenant_id IS NULL AND is_active = 1`
-          : `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: explicit realm supplied by caller */ WHERE username = ? AND tenant_id = ? AND is_active = 1`;
+          ? `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: explicit realm (platform) supplied by caller */ WHERE ${USERNAME_MATCH} AND tenant_id IS NULL AND is_active = 1`
+          : `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: explicit realm supplied by caller */ WHERE ${USERNAME_MATCH} AND tenant_id = ? AND is_active = 1`;
       const params = realm === null ? [username] : [username, realm];
       return (
         (this.queryOne<UserEntity>(query, ...params) as UserEntity) ?? null
@@ -237,7 +255,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
   countByUsername(username: string): number {
     try {
       const row = this.queryOne<{ c: number }>(
-        `SELECT COUNT(*) AS c FROM ${this.tableName} /* tenant-exempt: ambiguity detection is inherently cross-realm */ WHERE username = ? AND is_active = 1`,
+        `SELECT COUNT(*) AS c FROM ${this.tableName} /* tenant-exempt: ambiguity detection is inherently cross-realm */ WHERE ${USERNAME_MATCH} AND is_active = 1`,
         username,
       );
       return row?.c ?? 0;
@@ -290,7 +308,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
       const realmClause =
         realm === null ? `tenant_id IS NULL` : `tenant_id = ?`;
       const excludeClause = excludeId !== undefined ? ` AND id != ?` : ``;
-      const query = `SELECT 1 FROM ${this.tableName} /* tenant-exempt: explicit realm supplied by caller */ WHERE username = ? AND ${realmClause}${excludeClause}`;
+      const query = `SELECT 1 FROM ${this.tableName} /* tenant-exempt: explicit realm supplied by caller */ WHERE ${USERNAME_MATCH} AND ${realmClause}${excludeClause}`;
       const params: (string | number)[] = [username];
       if (realm !== null) params.push(realm);
       if (excludeId !== undefined) params.push(excludeId);
@@ -306,8 +324,8 @@ export class UserRepository extends BaseRepository<UserEntity> {
   usernameExists(username: string, excludeId?: number): boolean {
     try {
       const query = excludeId
-        ? `SELECT 1 FROM ${this.tableName} /* tenant-exempt: username stays globally unique (plan §1) — this check must search every tenant or a same-username collision across tenants would pass here and only fail later at the DB's global UNIQUE constraint */ WHERE username = ? AND id != ?`
-        : `SELECT 1 FROM ${this.tableName} /* tenant-exempt: username stays globally unique (plan §1) — this check must search every tenant or a same-username collision across tenants would pass here and only fail later at the DB's global UNIQUE constraint */ WHERE username = ?`;
+        ? `SELECT 1 FROM ${this.tableName} /* tenant-exempt: username stays globally unique (plan §1) — this check must search every tenant or a same-username collision across tenants would pass here and only fail later at the DB's global UNIQUE constraint */ WHERE ${USERNAME_MATCH} AND id != ?`
+        : `SELECT 1 FROM ${this.tableName} /* tenant-exempt: username stays globally unique (plan §1) — this check must search every tenant or a same-username collision across tenants would pass here and only fail later at the DB's global UNIQUE constraint */ WHERE ${USERNAME_MATCH}`;
 
       const params = excludeId ? [username, excludeId] : [username];
       return this.queryOne<{ 1: number }>(query, ...params) !== null;

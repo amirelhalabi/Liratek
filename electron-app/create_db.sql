@@ -111,11 +111,17 @@ CREATE TABLE IF NOT EXISTS users (
 INSERT OR IGNORE INTO users (id, tenant_id, username, password_hash, role, is_active) VALUES (1, 1, 'admin', '', 'admin', 1);
 
 -- Usernames are unique WITHIN a tenant...
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username ON users(tenant_id, username);
+-- COLLATE NOCASE (migration v174): 'admin' and 'Admin' must be the SAME name.
+-- Without it they were two accounts with two passwords, indistinguishable to
+-- anyone reading a user list or an audit trail. UserRepository's USERNAME_MATCH
+-- applies the same collation to every lookup — a case-insensitive index with
+-- case-sensitive lookups would lock out anyone who typed their own name in the
+-- wrong case.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username ON users(tenant_id, username COLLATE NOCASE);
 -- ...and within the platform realm. This second index is not redundant:
 -- SQLite treats NULLs as distinct in a unique index, so without it two
 -- super_admins (tenant_id NULL) could share a username.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_platform_username ON users(username) WHERE tenant_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_platform_username ON users(username COLLATE NOCASE) WHERE tenant_id IS NULL;
 
 -- Sessions (for unified session management across Electron and Web)
 -- NOTE: token is random-unique already; tenant_id is just added (denormalized
