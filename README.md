@@ -2,12 +2,22 @@
 
 A comprehensive, enterprise-grade Point of Sale (POS) and inventory management system designed specifically for mobile phone and electronics retail shops.
 
+LiraTek ships as **two products from one codebase**:
+
+- an **offline-first Electron desktop app** for a single shop, unlocked by a **license key**;
+- a **multi-tenant web app** where each shop gets its own subdomain and a **subscription** managed from a super-admin control plane.
+
+Both run the same business logic — the only difference is the transport (IPC vs REST) and where entitlement comes from. See [Two Products, One Codebase](#-two-products-one-codebase).
+
 ---
 
 ## 📑 Table of Contents
 
 - [Core Features](#-core-features)
 - [Tech Stack](#️-tech-stack)
+- [Two Products, One Codebase](#-two-products-one-codebase)
+- [Multi-Tenancy & Subdomains](#-multi-tenancy--subdomains)
+- [Licensing & Subscriptions](#-licensing--subscriptions)
 - [Getting Started](#-getting-started)
 - [Environment Variables](#-environment-variables)
 - [Architecture](#️-architecture)
@@ -40,15 +50,95 @@ A comprehensive, enterprise-grade Point of Sale (POS) and inventory management s
 - **Daily Auditing**: 3-step opening and closing workflow with variance detection and PDF audit trails.
 - **Security First**: Role-based access control, scrypt password hashing, and session encryption.
 
+### Platform Features (web deployment)
+
+- **Multi-Tenancy**: Every table carries a `tenant_id`, scoped through `AsyncLocalStorage` and enforced by a fail-closed context plus a CI linter (`yarn check:tenant-scoping`).
+- **Per-Tenant Subdomains**: Each shop signs in at `<slug>.<domain>`; the tenant is resolved from the request `Host`.
+- **Self-Service Sign-Up**: A public one-screen flow creates the tenant, seeds its full configuration and its first admin in a single transaction — disabled unless an invite code is configured.
+- **Automatic Subdomain DNS**: Provisioning a tenant creates its DNS record and registers the hostname with the CDN, so onboarding needs no manual DNS work.
+- **Subscriptions & Entitlements**: Per-tenant module allowlists with an `active → grace → read_only` lifecycle that never locks a shop out of its own history.
+- **Super-Admin Control Plane**: Tenant registry, plan management, license-key issuing, and "Connect as admin" impersonation with a full audit trail.
+
 ---
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React 19 + TypeScript + Tailwind CSS
-- **Backend**: Electron 31 + Node.js (migrating to standalone Express server)
-- **Database**: Better SQLite3 (Local, Encrypted Session storage)
+- **Frontend**: React 19 + TypeScript + Tailwind CSS + Vite 7
+- **Desktop**: Electron 31 (main process hosts the business logic; renderer talks over IPC)
+- **Web backend**: Express 4 + Node.js, serving REST over the *same* shared core
+- **Shared core**: `@liratek/core` — every repository and service, used by both transports
+- **Database**: Better SQLite3 (WAL mode; one file, `tenant_id`-scoped rows)
 - **Testing**: Jest + Playwright
-- **CI/CD**: GitHub Actions (Automated multi-platform releases)
+- **CI/CD**: GitHub Actions (automated multi-platform releases)
+
+---
+
+## 🧩 Two Products, One Codebase
+
+|                    | Desktop (Electron)                      | Web (multi-tenant)                          |
+| ------------------ | --------------------------------------- | ------------------------------------------- |
+| **Who it's for**   | One shop, on its own machine            | Many shops on one deployment                |
+| **Transport**      | IPC (`window.api.*`)                    | REST (`/api/*`)                             |
+| **Database**       | Local SQLite file, offline-first        | One SQLite file, rows scoped by `tenant_id` |
+| **Tenant**         | Fixed at boot (`initFixedTenantContext`) | Resolved from the request `Host`            |
+| **Entitlement**    | **License key**                         | **Subscription row**                        |
+| **Works offline?** | Yes — this is the point                 | No                                          |
+
+The rule that keeps them honest: **both transports call the same `@liratek/core` service, which calls the same repository.** No business logic lives in an IPC handler or a REST route. A feature is not finished until it works in both — see rule 19 in `CLAUDE.md`.
+
+Why the desktop app stays on local SQLite: shops in Lebanon lose power and internet routinely. A till that stops working when the connection does is not a till. That constraint is also why the shared core is synchronous, and why a hosted Postgres was rejected — see `docs/DEPLOYMENT.md`.
+
+---
+
+## 🌐 Multi-Tenancy & Subdomains
+
+Every tenant-owned table carries a `tenant_id`. Scoping is applied automatically through `AsyncLocalStorage` (`runWithTenant` / `runWithoutTenant`), `getCurrentTenantId()` is **fail-closed** — a query with no tenant context throws rather than returning everyone's rows — and `yarn check:tenant-scoping` fails CI on an unscoped query.
+
+### Host → realm
+
+Set `APP_BASE_DOMAIN` to switch this on. Left unset, the app behaves exactly as a single-tenant deployment.
+
+| Host                     | Realm       | Who may sign in                |
+| ------------------------ | ----------- | ------------------------------ |
+| `<slug>.<domain>`        | that tenant | that tenant's users only       |
+| `<domain>`, `www.`, `admin.` | platform | **super admins only**          |
+| an unrecognised subdomain | none       | nobody                         |
+| any host off the base domain | disabled | behaves as single-tenant       |
+
+A shop's credentials work **only** on that shop's own hostname, and the platform host signs in staff. Every refusal returns the same generic error, so subdomains cannot be probed — which is why the platform login page carries a notice telling shop staff where they should be instead.
+
+### Sign-up
+
+`POST /api/auth/signup` is public but **disabled unless `SIGNUP_INVITE_CODE` is set** — forgetting to configure something must not be what exposes tenant creation. It feeds the same `TenantProvisioningService.provisionTenant()` a super admin uses, so a self-served shop is indistinguishable from a hand-made one: registry row, full per-tenant config seed, and first admin user, in one transaction. It issues **no token** — the new shop signs in on its own subdomain.
+
+### Automatic subdomain DNS
+
+Provisioning a tenant creates its DNS record and registers the hostname with the CDN, so onboarding needs no manual DNS step. It is **off unless every credential is configured**, idempotent (an existing record is success), and it never throws — a DNS hiccup must not fail a sign-up that already committed.
+
+---
+
+## 🔑 Licensing & Subscriptions
+
+One table, `tenant_subscriptions` (migration v173), backs both products.
+
+### Lifecycle
+
+`active` → `grace` (7 days) → `read_only`
+
+**A lapsed shop is never locked out.** It keeps full read access to its own history and reporting; only writes are refused (HTTP 402 / `SUBSCRIPTION_READ_ONLY`). Losing access to your own sales records because an invoice is late is not an acceptable failure mode, so it is not one the system can produce.
+
+### Entitlement is an allowlist, not a tier
+
+Each tenant carries `entitled_modules` — an explicit list of module keys (`NULL` means everything). There are no fixed bundles, because real shops run visibly different module sets and fixed tiers force a new tier the first time someone asks for "the basics plus Recharge". Named plans can later be presets that fill this column in.
+
+Two details that matter:
+
+- It lives in `tenant_subscriptions`, **not** in the `modules` table — that table is writable by the tenant's *own* admin, who could otherwise grant themselves the upgrade. What a shop actually gets is the intersection: **entitled AND enabled**.
+- `dashboard`, `settings`, `audit` and `closing` are never gated. A shop must always be able to see its own state and close its day.
+
+### Desktop licensing
+
+The desktop app holds a **license key** and is the one place it calls out: `GET /api/subscription/by-key` returns that key's current subscription state, which is cached in the local database and refreshed periodically. Every failure path fails **open** — no network, a bad response, a corrupt cache: the till keeps working. A licensing server outage must never stop a shop from taking money.
 
 ---
 
@@ -234,7 +324,44 @@ JWT_EXPIRES_IN=7d                        # Token expiration (7d, 24h, etc.)
 # Logging
 LOG_LEVEL=info                # trace | debug | info | warn | error | fatal
 LOG_DIR=/var/log/liratek      # Optional: Log file directory (production)
+
+# ── Multi-tenancy (web deployment only) ──────────────────────────────────────
+# Leave EVERYTHING below unset for a single-tenant/desktop-style deployment.
+# Each block is off until it is fully configured — a half-configured feature
+# stays off rather than half-working.
+
+APP_BASE_DOMAIN=liratek.shop  # Turns on host-based tenancy: <slug>.<domain>
+                              # is a tenant, the apex/www/admin is the platform
+                              # realm (super admins only). Unset = single-tenant.
+
+SIGNUP_INVITE_CODE=           # Public self-service sign-up is DISABLED unless
+                              # this is set. Anyone with the code can create a
+                              # tenant, so treat it as a secret.
+
+SUPER_ADMIN_USERNAME=         # Bootstraps the platform account on first boot,
+SUPER_ADMIN_PASSWORD=         # and ONLY if no active super admin exists yet.
+                              # It never updates an existing one's password.
+
+TENANT_HOST_HEADER_OVERRIDE=  # Dev/test only: lets an X-Tenant-Slug header
+                              # stand in for the Host. NEVER enable in prod —
+                              # it is client-controlled.
+
+# Automatic subdomain DNS on tenant provisioning. Off unless all of these are
+# set; safe to leave blank, in which case add each tenant's hostname manually.
+CLOUDFLARE_API_TOKEN=         # Needs DNS:Edit on the zone
+CLOUDFLARE_ZONE_ID=
+VERCEL_TOKEN=
+VERCEL_PROJECT_ID=
+VERCEL_DNS_TARGET=            # Defaults to cname.vercel-dns.com; override only
+                              # if your project was given a different target
+VERCEL_TEAM_ID=               # Optional: only for team-scoped projects
 ```
+
+> **Behind a proxy?** The backend trusts one hop of `X-Forwarded-*` so that
+> `req.hostname` reflects the *original* Host. Tenant resolution depends on it:
+> if `trust proxy` is removed or a proxy stops sending `X-Forwarded-Host`,
+> every tenant login fails at once with a generic "invalid credentials" — a
+> symptom that points nowhere near the cause. See `docs/DEPLOYMENT.md`.
 
 ### Electron App Environment Variables
 
