@@ -6,6 +6,7 @@ import {
   getImpersonationInfo,
   type ImpersonationInfo,
 } from "@/features/admin/utils/impersonation";
+import { UNAUTHORIZED_EVENT } from "@/api/httpClient";
 
 interface User {
   id: number;
@@ -128,6 +129,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // WEB counterpart to the desktop "session:expired" handler below: the server
+  // rejected a credential we actually sent, so this session is over.
+  //
+  // Without it the app kept `user` set after the token stopped being accepted,
+  // so it rendered a full dashboard while every request 401'd and the login
+  // screen never appeared. httpClient has already discarded the token by the
+  // time this fires; all that is left is to make the UI agree.
+  //
+  // No server call: the server is precisely what just refused us, and asking it
+  // to log us out would 401 again.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      logger.warn("Session rejected by the server — signing out locally");
+      setUser(null);
+      setSessionToken(null);
+      setNeedsOpening(false);
+      localStorage.removeItem("sessionToken");
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
+
   // The main process purges idle in-memory IPC sessions (30 min) and emits
   // "session:expired". Try a silent restore from the stored token — valid
   // rememberMe sessions recover invisibly; otherwise fall back to login.
@@ -206,7 +229,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // active in THIS tab); this condition just makes sure we don't skip
       // that call for an impersonation session with no `sessionToken` state.
       if (sessionToken || isImpersonating) {
-        await api.logout();
+        // A FAILED server logout must never block the local one.
+        //
+        // `backendApi.logout()` clears the stored token in a `finally`, but the
+        // rejection still propagates — and without this catch it skipped every
+        // line below, leaving `user` set while the token was already gone. The
+        // app then believed it was signed in and kept firing requests with no
+        // credentials, so every endpoint answered 401 and the login screen was
+        // never shown. Clicking "log out" appeared to do nothing.
+        //
+        // Seen for real after the Reset Data feature wiped `sessions`: the
+        // token's session row no longer existed, so /api/auth/logout answered
+        // 401 — the exact case where logging out locally matters MOST.
+        try {
+          await api.logout();
+        } catch (error) {
+          logger.warn("Server logout failed; clearing the session locally", {
+            error,
+          });
+        }
       }
     }
     setUser(null);

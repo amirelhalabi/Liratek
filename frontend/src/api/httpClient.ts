@@ -8,6 +8,17 @@ export type ApiError = {
   details?: unknown;
 };
 
+/**
+ * Fired on `window` when the server rejects a credential we actually sent —
+ * i.e. the session is over, not merely one request failing.
+ *
+ * A plain DOM event rather than a direct call so this module stays free of
+ * React and the router: AuthContext subscribes and decides what "logged out"
+ * means (clear state, show the login screen). Anything else that cares can
+ * subscribe too.
+ */
+export const UNAUTHORIZED_EVENT = "liratek:unauthorized";
+
 // ── Storage keys ────────────────────────────────────────────────────────────
 // liratek.jwt          — localStorage, the normal (non-impersonation) login
 //                         session. Shared across every tab of this origin.
@@ -151,9 +162,15 @@ export async function requestJson<T>(
     "Content-Type": "application/json",
   };
 
+  // Tracked so a 401 can tell "the server rejected OUR credential" apart from
+  // "we never sent one" — see the !res.ok branch below.
+  let sentToken = false;
   if (options?.auth !== false) {
     const token = getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+      sentToken = true;
+    }
   }
 
   const res = await fetch(url, {
@@ -185,6 +202,29 @@ export async function requestJson<T>(
   const data = text ? JSON.parse(text) : null;
 
   if (!res.ok) {
+    // A rejected session must END the session, not just fail one request.
+    //
+    // Without this the app kept its `user` state after the server stopped
+    // accepting the token, so every subsequent call 401'd against a fully
+    // rendered dashboard and the login screen was never shown. Seen for real
+    // when the Reset Data feature wiped `sessions`: the token's row was gone,
+    // and the UI carried on as though signed in.
+    //
+    // Guards, each load-bearing:
+    //   `auth !== false`  — the LOGIN request is unauthenticated; a 401 there
+    //                       means a wrong password and must surface as such.
+    //   `sentToken`       — if no credential was sent, this 401 says nothing
+    //                       about our session, and firing here on every
+    //                       anonymous call would loop.
+    // Notifying rather than redirecting keeps this file free of React and the
+    // router; AuthContext owns what "logged out" means.
+    if (res.status === 401 && options?.auth !== false && sentToken) {
+      setToken(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+      }
+    }
+
     const err: ApiError = {
       status: res.status,
       message: data?.error || data?.message || `Request failed (${res.status})`,
