@@ -53,8 +53,8 @@ for the web database and has never been exercised on a desktop file.
 | **"Last activity" is mislabelled** | `TenantRepository.listAll()` | It is `MAX(transactions.created_at)`, so a shop that logged in but sold nothing shows NULL and reads as "never seen". Relabel to "Last sale", or widen to also consider `sessions.last_activity_at` |
 | **`/health/detailed` always reports `unhealthy`** | backend health route | Memory check compares heap 45/47 MB against a 42 MB threshold while RSS is 100 MB of 512 MB. Fly uses `/health` so nothing is broken — but do not wire monitoring to `/health/detailed` until fixed |
 | **The `DATABASE_KEY` log line lies** | `connection.ts` + `sqlcipher.ts` | Logs `applied:true, supported:true` on a plaintext database, because stock `better-sqlite3` silently ignores `PRAGMA key` (proved by canary). Make `applySqlCipherKey` detect that the key had no effect and report `applied:false` — a security log that asserts the opposite of reality is worse than no log |
-| **`deleteTenant` does not deprovision DNS** | `TenantProvisioningService` / `tenantDomains.ts` | Deleting a tenant leaves its CNAME and its Vercel domain behind. Three such orphans exist now: `acme-shop`, `echo-co`, `foxtrot-co`. They consume Vercel per-project domain slots |
-| Delete the three orphan subdomains | Cloudflare + Vercel | One-off cleanup |
+| ~~`deleteTenant` does not deprovision DNS~~ **FIXED** | `TenantProvisioningService` / `tenantDomains.ts` | Both the delete path and the slug-rename path in `backend/src/api/admin.ts` now call `deprovisionTenantDomain` (commit `b82aa523`). Three pre-fix orphans remain: `acme-shop`, `echo-co`, `foxtrot-co` — see the next row |
+| Delete the three orphan subdomains | Cloudflare + Vercel | One-off cleanup — run `yarn ops:prune` (dry run by default, `--yes` to actually delete) |
 | Retire the `test` tenant (id 5) when finished testing | super-admin UI | Keep it until item 3 is done — it is the only second tenant, and the split needs one |
 
 ---

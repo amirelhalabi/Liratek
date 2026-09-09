@@ -19,6 +19,11 @@ and non-GET is rejected with 405).
 Everything is fetched in parallel and each card fails independently — one
 broken source never blanks the page.
 
+The Tenants panel's DNS/Vercel drift block is read-only, by design (rule 8) —
+to actually remove an orphaned subdomain it finds, run
+`yarn ops:prune` (`scripts/prune-orphan-domains.mjs`), which computes the same
+drift and dry-runs by default.
+
 ## Running it
 
 ```bash

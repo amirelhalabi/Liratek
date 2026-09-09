@@ -291,8 +291,11 @@ against `trust proxy` = 1. It works — measured, not assumed.
 - **Orphaned tenant subdomains in the Cloudflare zone**: `acme-shop`,
   `echo-co`, `foxtrot-co` — all CNAME → `cname.vercel-dns.com`, left by earlier
   signup probes whose tenants were deleted. Harmless (login on an unknown slug
-  is refused) but they consume Vercel project domain slots. Delete when
-  convenient, and note `deleteTenant` does not currently deprovision DNS.
+  is refused) but they consume Vercel project domain slots. These three are
+  pre-fix residue: both the delete path and the slug-rename path in
+  `backend/src/api/admin.ts` now call `deprovisionTenantDomain` (commit
+  `b82aa523`), so no new orphans accumulate. Clean up these three with
+  `yarn ops:prune`.
 - **Verified live with two tenants (2026-09-09).** Tenants 1 and 5 both have an
   admin named `Admin` **with the same password**, and the host still resolves
   correctly: `cornertech` → userId 2/tenant 1, `test` → userId 7/tenant 5, `www`
