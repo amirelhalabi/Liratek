@@ -2,13 +2,13 @@ import React, { useState, useEffect } from "react";
 import logger from "@/utils/logger";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Info } from "lucide-react";
 import clsx from "clsx";
 import { useShopName } from "@/hooks/useShopName";
 import PasswordInput from "@/shared/components/PasswordInput";
 import { TextInput } from "@liratek/ui";
 import { useTheme } from "@/contexts/ThemeContext";
-import { isElectron, signupEnabled } from "@/api/backendApi";
+import { isElectron, publicAuthInfo } from "@/api/backendApi";
 
 export default function Login() {
   const { login } = useAuth();
@@ -26,12 +26,24 @@ export default function Login() {
   // showing it and then removing it is worse than showing it a moment late.
   const [canSignUp, setCanSignUp] = useState(false);
 
+  // The shared platform host (www./apex) signs in super admins only — a shop's
+  // staff belong on their own subdomain. Held as the domain rather than a
+  // boolean so the notice can spell the address out; null means "not the
+  // platform host, or we don't know yet", and nothing is shown.
+  const [platformDomain, setPlatformDomain] = useState<string | null>(null);
+
   useEffect(() => {
     if (isElectron()) return;
     let cancelled = false;
-    signupEnabled()
+    publicAuthInfo()
       .then((r) => {
-        if (!cancelled) setCanSignUp(Boolean(r.success && r.data?.enabled));
+        if (cancelled || !r.success || !r.data) return;
+        setCanSignUp(Boolean(r.data.enabled));
+        // Both conditions matter: platformHost says the login WILL be refused
+        // for a tenant, baseDomain is what makes the notice actionable.
+        if (r.data.platformHost && r.data.baseDomain) {
+          setPlatformDomain(r.data.baseDomain);
+        }
       })
       // A backend that cannot answer is a backend that cannot sign anyone up
       // either, so staying silent is the correct outcome, not a failure.
@@ -130,6 +142,33 @@ export default function Login() {
 
         {/* Form */}
         <div className="p-8 relative z-10">
+          {/* Shown ONLY on the platform host, where a tenant's credentials are
+              refused by design. Without it the refusal arrives as the generic
+              "invalid username or password" — deliberately generic, so that
+              subdomains cannot be probed — which reads as a broken app rather
+              than as "you are at the wrong address". This is the only place
+              that difference can be explained, because it is the only one that
+              knows before an attempt is made. */}
+          {platformDomain && (
+            <div
+              className={clsx(
+                "mb-5 p-4 rounded-lg flex items-start gap-3 text-sm border",
+                theme === "dark"
+                  ? "bg-violet-500/10 border-violet-500/30 text-violet-200"
+                  : "bg-violet-500/5 border-violet-500/25 text-violet-800",
+              )}
+            >
+              <Info size={18} className="mt-0.5 flex-shrink-0" />
+              <span>
+                Signing in for a shop? Use your shop&apos;s own address —{" "}
+                <span className="font-semibold whitespace-nowrap">
+                  your-shop.{platformDomain}
+                </span>
+                . This page is for LiraTek platform staff.
+              </span>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
               <div

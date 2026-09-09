@@ -43,15 +43,19 @@ export class SettingsService {
   /**
    * Get all settings
    */
+  /**
+   * Every setting for the current tenant.
+   *
+   * THROWS rather than returning an empty array on failure, deliberately.
+   * Swallowing the error is what made a real bug invisible: called with no
+   * tenant context this logged and returned [], the route answered 200,
+   * and the UI rendered blank fields that looked like unsaved data. An
+   * empty list is a valid ANSWER; it must not double as an error signal.
+   */
   getAllSettings(): SettingEntity[] {
-    try {
-      return this.repo
-        .getAllSettings()
-        .filter((setting) => !SENSITIVE_SETTING_KEYS.has(setting.key_name));
-    } catch (error) {
-      settingsLogger.error({ error }, "SettingsService.getAllSettings error");
-      return [];
-    }
+    return this.repo
+      .getAllSettings()
+      .filter((setting) => !SENSITIVE_SETTING_KEYS.has(setting.key_name));
   }
 
   /**

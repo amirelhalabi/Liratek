@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApi } from "@liratek/ui";
+import { useAuth } from "@/features/auth/context/AuthContext";
 
 /**
  * NO default shop name, deliberately.
@@ -42,13 +43,20 @@ const defaultInfo: ShopInfo = {
 /** Load shop info once and share across all consumers */
 export function useShopInfo(): ShopInfo {
   const api = useApi();
+  const { isAuthenticated } = useAuth();
   const [info, setInfo] = useState<ShopInfo>(cachedInfo ?? defaultInfo);
 
   useEffect(() => {
     listeners.add(setInfo);
 
-    // Only fetch if not yet cached
-    if (cachedInfo === null) {
+    // Gated on auth, and the fetch is only CACHED when it succeeds.
+    //
+    // Both halves matter. The settings read is tenant-scoped, so before
+    // login there is no tenant and nothing to ask for; and the old code
+    // cached whatever the first attempt produced -- which, because that
+    // attempt happened on the LOGIN page, meant a failure was cached
+    // permanently and never retried once the user signed in.
+    if (isAuthenticated && cachedInfo === null) {
       api
         .getAllSettings()
         .then((settings: any[]) => {
@@ -73,14 +81,17 @@ export function useShopInfo(): ShopInfo {
           notify({ name, phone, location, logo });
         })
         .catch(() => {
-          notify(defaultInfo);
+          // Deliberately NOT notify(): that writes to cachedInfo and would
+          // make one failed request permanent. Leaving it null means the
+          // next consumer to mount tries again.
+          setInfo(defaultInfo);
         });
     }
 
     return () => {
       listeners.delete(setInfo);
     };
-  }, []);
+  }, [isAuthenticated]);
 
   return info;
 }

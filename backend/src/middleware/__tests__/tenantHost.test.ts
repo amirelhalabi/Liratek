@@ -90,14 +90,22 @@ describe("resolveTenantHost", () => {
       expect(getBySlug).not.toHaveBeenCalled();
     });
 
-    it("leaves www. INERT so enabling the feature cannot lock out the app host", () => {
-      // The app is served at www.<domain>. Calling that the platform realm
-      // would admit only super_admins; calling it tenant "www" would admit
-      // nobody. Either way, setting APP_BASE_DOMAIN would lock users out of
-      // the hostname they actually use.
+    it("treats www. as the platform realm, so tenants cannot sign in there", () => {
+      // This asserts the OPPOSITE of what it used to: www was inert, back when
+      // tenants had no subdomain of their own and inert was the only reading
+      // that did not lock them out. They are provisioned a subdomain now, so
+      // inert is no longer a kindness — it is the realmless login path, where
+      // a duplicate username silently resolves to the FIRST tenant and every
+      // later shop's admin can never sign in at all.
+      //
+      // Platform is enforced (not ignored), which is the whole point: the
+      // login route admits only super_admins on this realm.
       const r = resolveTenantHost(req("www.liratek.app"));
-      expect(r.kind).toBe("foreign");
-      expect(isHostTenancyActive(r)).toBe(false);
+      expect(r.kind).toBe("platform");
+      expect(isHostTenancyActive(r)).toBe(true);
+      // Never looked up as a tenant slug — there is no shop called "www"
+      // (tenantSlug.ts reserves the name), and a lookup would be a wasted
+      // query on every request to the app's main hostname.
       expect(getBySlug).not.toHaveBeenCalled();
     });
 

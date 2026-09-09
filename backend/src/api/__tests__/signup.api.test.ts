@@ -42,6 +42,13 @@ jest.mock("@liratek/core", () => {
       // tenant's realm.
       findByUsernameInRealm: () => ({ id: 99, username: "amir" }),
     }),
+    // Host resolution consults the tenant registry for a subdomain label.
+    // Stubbed so a tenant host resolves to `tenant` for real, rather than
+    // failing the lookup and landing on `unknown` — which would make the
+    // platformHost assertions pass for the wrong reason.
+    getTenantRepository: () => ({
+      getBySlug: (slug: string) => (slug === TENANT.slug ? TENANT : null),
+    }),
     runWithoutTenant: (fn: () => unknown) => fn(),
     runWithTenant: (_id: number, fn: () => unknown) => fn(),
     JWT_SECRET: "test-secret-at-least-32-characters-long!",
@@ -215,6 +222,46 @@ describe("POST /api/auth/signup", () => {
       // A boolean is the whole contract; leaking the code would hand out the
       // one thing that gates tenant creation.
       expect(JSON.stringify(res.body)).not.toContain("let-me-in");
+    });
+
+    // ── platformHost ────────────────────────────────────────────────────
+    //
+    // The login page cannot learn this from a failed attempt: every realm
+    // refusal returns the same generic error on purpose, so that subdomains
+    // cannot be probed. It has to be told up front, or a shop's staff see
+    // "invalid username or password" on a host where their password was
+    // never going to work and read it as a broken app.
+    describe("platformHost", () => {
+      it("is true on www., where only super admins may sign in", async () => {
+        baseDomain = "liratek.shop";
+        const res = await status().set("Host", "www.liratek.shop").expect(200);
+        expect(res.body.data.platformHost).toBe(true);
+        // Carried so the notice can spell out the address format.
+        expect(res.body.data.baseDomain).toBe("liratek.shop");
+      });
+
+      it("is true on the apex", async () => {
+        baseDomain = "liratek.shop";
+        const res = await status().set("Host", "liratek.shop").expect(200);
+        expect(res.body.data.platformHost).toBe(true);
+      });
+
+      it("is false on a tenant subdomain, and withholds the base domain", async () => {
+        baseDomain = "liratek.shop";
+        const res = await status()
+          .set("Host", "cornertech.liratek.shop")
+          .expect(200);
+        expect(res.body.data.platformHost).toBe(false);
+        expect(res.body.data.baseDomain).toBeNull();
+      });
+
+      it("is false when host tenancy is switched off entirely", async () => {
+        // No APP_BASE_DOMAIN: there is no platform realm, so no host can be
+        // it — the notice must not appear on a preview or a bare IP.
+        baseDomain = undefined;
+        const res = await status().set("Host", "www.liratek.shop").expect(200);
+        expect(res.body.data.platformHost).toBe(false);
+      });
     });
   });
 

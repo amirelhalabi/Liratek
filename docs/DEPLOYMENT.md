@@ -398,11 +398,18 @@ assertion in the same layer, so it fails the build rather than shipping broken).
   | `<slug>.liratek.shop`      | wrong password                 | refused                                     |
   | another tenant's subdomain | tenant A's admin               | refused                                     |
   | `nosuchshop.liratek.shop`  | anything                       | refused                                     |
-  | `www.liratek.shop`         | a non-incumbent tenant's admin | refused                                     |
+  | `www.liratek.shop`         | any tenant's admin             | refused — platform realm, super admins only |
+  | `www.liratek.shop`         | a super admin                  | **accepted**                                |
   | `liratek.shop` (apex)      | —                              | **308 → www before it reaches the backend** |
 
   The refusals all use the same generic error as a bad password, so subdomains
   cannot be probed.
+
+  The two `www` rows changed on 2026-09-09 (www became the platform realm) and
+  are proven by unit tests, NOT yet re-run against the deployment. Everything
+  else in the matrix was verified end to end. Note the change gates **login
+  only** — realm resolution is not consulted by `authenticateJWT`, so existing
+  sessions and super-admin impersonation on `www` are unaffected.
 
   **The non-obvious part, and the thing most likely to break this later: the
   original Host survives Vercel's rewrite to the tunnel.** `/api/*` is
@@ -423,9 +430,18 @@ assertion in the same layer, so it fails the build rather than shipping broken).
   are project-wide, so the new subdomain proxies `/api` to the tunnel with no
   extra config.
 
-  `www` is deliberately INERT (behaves as if no base domain), which is what
-  keeps the existing login working; see `tenantHost.ts` for why treating it as
-  either a tenant or the platform would lock users out.
+  **`www` is the PLATFORM realm — super admins only — since 2026-09-09.** It
+  used to be inert (behave as if no base domain), which was correct while
+  tenants had no subdomain of their own. Automatic subdomain provisioning
+  ended that, and inert then became an active bug: inert means "no realm", and
+  a realmless login has to guess which shop an `admin` belongs to. It guesses
+  the platform, then the FIRST tenant — which is exactly the row in the matrix
+  above marked "a non-incumbent tenant's admin → refused". Tenant #2 onward
+  could not sign in on `www` at all, and no redirect could have fixed that,
+  because there was no session to redirect. Shops sign in at their own
+  address; `www` signs in platform staff. `GET /api/auth/signup-status`
+  reports `platformHost` so the login page can say so, since login itself
+  answers every refusal with the same generic error by design.
   `TENANT_HOST_HEADER_OVERRIDE=true` swaps Host for an `X-Tenant-Slug` header
   for local testing; never enable it in production.
 

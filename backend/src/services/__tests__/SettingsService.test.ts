@@ -69,14 +69,23 @@ describe("SettingsService", () => {
       expect(result).toEqual([]);
     });
 
-    it("should return empty array on error", () => {
+    it("PROPAGATES a repository error instead of swallowing it", () => {
+      // This asserted `toEqual([])` until 2026-09-09, and that swallow was
+      // the bug behind "the shop name won't save".
+      //
+      // An empty array is a LEGITIMATE answer — a tenant with no settings
+      // yet — so returning it on failure makes a broken read indistinguishable
+      // from an empty one. The route answered 200 with `settings: []`, Shop
+      // Config rendered blank fields, and the write that had just succeeded
+      // looked like it had not persisted. Nothing anywhere logged a cause.
+      //
+      // Throwing is what lets the caller tell "nothing here" from "the read
+      // did not happen".
       mockRepo.getAllSettings.mockImplementation(() => {
         throw new Error("Database error");
       });
 
-      const result = service.getAllSettings();
-
-      expect(result).toEqual([]);
+      expect(() => service.getAllSettings()).toThrow("Database error");
     });
   });
 

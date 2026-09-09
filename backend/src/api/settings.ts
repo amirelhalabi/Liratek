@@ -1,19 +1,33 @@
 import express from "express";
 import { getSettingsService } from "@liratek/core";
-import { authenticateJWT, requireRole, type AuthRequest } from "../middleware/auth.js";
+import {
+  authenticateJWT,
+  requireRole,
+  type AuthRequest,
+} from "../middleware/auth.js";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
 // GET /api/settings - Get all settings
+// Everything in this router requires auth, INCLUDING the list below.
 //
-// DELIBERATELY UNAUTHENTICATED (the only open settings endpoint): the web
-// frontend reads it BEFORE login — Login.tsx renders the shop name via
-// useShopName() → useShopInfo() → api.getAllSettings(), and
-// FeatureFlagProvider (mounted above AuthProvider in App.tsx) fires the same
-// call at boot. Securing it would blank the login-screen shop name and pin
-// feature flags to their defaults. Everything below this route requires auth.
+// GET / used to sit ABOVE this line, described as deliberately open so the
+// login page could render a shop name. That was broken in a way nobody
+// noticed: with no `authenticateJWT`, no tenant context is ever
+// established -- so the read failed even for a signed-in user, the service
+// swallowed the TenantContextError into an empty array, and the route
+// answered 200 with `settings: []`. Shop Config showed blank fields and
+// saving appeared not to persist, because the WRITE worked and the READ
+// always came back empty.
+//
+// The login page no longer needs it: the header shows the product name
+// until a shop is known, and FeatureFlagContext gates its own fetch on
+// authentication.
+router.use(authenticateJWT);
+
+// GET /api/settings — every setting for the signed-in tenant
 router.get("/", async (_req, res): Promise<void> => {
   try {
     const settingsService = getSettingsService();
@@ -24,10 +38,6 @@ router.get("/", async (_req, res): Promise<void> => {
     res.status(500).json({ success: false, error: "Failed to fetch settings" });
   }
 });
-
-// All remaining settings routes require auth (WP2 — this router previously
-// mounted with NO auth at all).
-router.use(authenticateJWT);
 
 // GET /api/settings/:key - Get a specific setting
 //

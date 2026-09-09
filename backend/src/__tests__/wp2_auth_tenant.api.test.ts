@@ -651,11 +651,43 @@ describe("sessions/settings route lockdown", () => {
     expect(row.value).toBe("Alpha Shop"); // write didn't land
   });
 
-  it("GET /api/settings (list) stays open — pre-login shop name + feature flags", async () => {
+  it("GET /api/settings (list) unauthenticated → 401", async () => {
+    // Reversed on 2026-09-09. This route was deliberately left open so the
+    // login page could render a shop name and FeatureFlagProvider could read
+    // flags at boot.
+    //
+    // Open could never have worked on the web: without authenticateJWT no
+    // tenant context is established, so the tenant-scoped read threw, the
+    // service swallowed it into [], and the route returned 200 with an empty
+    // list to EVERY caller including signed-in ones. The "open" contract this
+    // test was guarding only ever delivered emptiness.
+    //
+    // Both callers were already auth-gated by the time it was closed: the
+    // login header shows the product name until a shop is known, and
+    // FeatureFlagContext gates its fetch on isAuthenticated.
     const res = await request(app).get("/api/settings");
+    expect(res.status).toBe(401);
+  });
+
+  it("authenticated GET /api/settings (list) returns the tenant's settings", async () => {
+    // The other half of the reversal: closing the route has to leave the real
+    // read working, or Shop Config is blank for a different reason than
+    // before.
+    const token = await loginToken("alpha_admin");
+    const res = await request(app)
+      .get("/api/settings")
+      .set("Authorization", `Bearer ${token}`);
+
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.settings)).toBe(true);
+    // Tenant-scoped: alpha's own row, proving context was established rather
+    // than the read failing quietly into an empty array again.
+    expect(
+      (res.body.settings as { key_name: string; value: string }[]).find(
+        (s) => s.key_name === "shop_name",
+      )?.value,
+    ).toBe("Alpha Shop");
   });
 
   it("authenticated GET /api/settings/:key works", async () => {

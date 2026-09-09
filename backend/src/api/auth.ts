@@ -298,14 +298,38 @@ router.post("/logout", async (req, res): Promise<void> => {
   }
 });
 
-// GET /api/auth/signup-status — is self-service signup switched on? (PUBLIC)
+// GET /api/auth/signup-status — what a logged-OUT visitor needs to render the
+// login page for this host. (PUBLIC)
 //
-// Exists so the login page does not advertise a door that is bolted. Returns a
-// single boolean and never the code itself; it reveals nothing that one POST
-// to /signup would not already reveal, and a caller who guesses "enabled" is
-// no closer to guessing the invite code.
-router.get("/signup-status", (_req, res): void => {
-  res.json(createSuccessResponse({ enabled: Boolean(SIGNUP_INVITE_CODE) }));
+// Two questions, one request, because the login page asks both on mount:
+//
+//   enabled       is self-service signup switched on? Exists so the page does
+//                 not advertise a door that is bolted. Never the code itself;
+//                 it reveals nothing a single POST to /signup would not, and
+//                 guessing "enabled" gets nobody closer to the invite code.
+//
+//   platformHost  is this the shared platform hostname, where only super
+//                 admins may sign in? The page needs it to tell a shop's staff
+//                 where they SHOULD be signing in. Login itself deliberately
+//                 answers every refusal with the same generic error so that
+//                 subdomains cannot be probed, which means the hint cannot
+//                 come from a failed attempt — it has to be known up front.
+//
+// Answering only "is this the platform host" (rather than the full realm)
+// leaks nothing: which hostname is the platform is public by construction.
+router.get("/signup-status", (req, res): void => {
+  const realm = resolveTenantHost(req);
+  const platformHost = realm.kind === "platform";
+
+  res.json(
+    createSuccessResponse({
+      enabled: Boolean(SIGNUP_INVITE_CODE),
+      platformHost,
+      // Only alongside platformHost, and only so the page can spell out the
+      // address format ("<your-shop>.liratek.shop"). Null everywhere else.
+      baseDomain: platformHost ? APP_BASE_DOMAIN : null,
+    }),
+  );
 });
 
 // POST /api/auth/signup — self-service tenant creation (PUBLIC, no token)

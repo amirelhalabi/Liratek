@@ -1,6 +1,12 @@
 # Current Sprint — March 2026
 
-> **Last Updated**: 2026-07-19 (validation sweep — see
+> **Last Updated**: 2026-09-07 (supplier stock intake — see the top section).
+> This file is an append-only historical log, NOT a live task board: entries
+> below are dated and were accurate when written, so verify against `git log`
+> before trusting any status. The previous marker read 2026-07-19 while the file
+> already carried later entries, which is how it misleads.
+>
+> **Earlier marker** — 2026-07-19 (validation sweep — see
 > `docs/plans/todo_plans/PARTIAL_TASKS_COMPLETION_PLAN.md`. Corrections:
 > "Whish App SEND/RECEIVE" shipped long ago via `OmtWhishAppTransferForm`
 > (Send/Receive tabs); T-61 Loto shipped (v1.29 era, lira-091 guarded);
@@ -9,6 +15,55 @@
 > (Windows timing) still untouched — top open item.)  
 > **Sprint Start**: 2026-03-01  
 > **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update, Sales Reporting, Recharge Page Overhaul, IPEC/KATCH/OMT App Implementation, Exchange Rate System
+
+---
+
+## ✅ Done This Sprint (September 7, 2026 — Supplier Stock Intake: Booked Debt + FIFO Cost Batches)
+
+Commits `289d9348` (feature, v164) and `b013c476` (profit-stamp fix + core sync, v165).
+Full decision record: `docs/plans/todo_plans/SUPPLIER_STOCK_INTAKE_PLAN.md`.
+
+| Change                            | Details                                                                                                                                                                                                                                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Debt booked at intake**         | Product-supplier "owed" was recomputed on every read as `Σ(live stock × live cost) + Σ ledger`, so a POS sale silently lowered the debt and a refund raised it. Now event-based: receiving stock writes one `supplier_ledger` `STOCK_INTAKE` row; balance is the ledger sum only (owner D1) |
+| **FIFO cost batches**             | Each delivery is a batch with its own unit cost; a sale consumes the oldest first and stamps that cost on the sale line. Invisible at POS — the owner rejected picking a cost at sale time (D5)                                                                                             |
+| **"Old stock" checkbox**          | Per-entry, resets every time, beside the Supplier field. Creates the batch but books no debt — the owner's original request (D6). Two heavier designs were rejected before landing on a bare checkbox                                                                                        |
+| **Standalone write-off REMOVED**  | It could never succeed for a product supplier (modal read the stock-derived figure, guard read ledger-only) and books +profit, wrong for old stock. Bundled Pay-form discount stays (D8)                                                                                                    |
+| **SALE profit stamp fixed**       | Owner-reported: sold at $1,300 off a $1,200 batch, Profits page showed −$130. The stamp used the product's LIVE cost (`1300 − 1450`) while the sale line correctly used the FIFO cost. Stamp now corrected from the real batch cost before the transaction is written                        |
+| **Core sync (root cause, ~3h)**   | `node_modules/@liratek/core` had flipped from symlink to a real copy frozen at 02:34, so the app ran old code all day: migration skipped, new method "not a function", new column never written. `scripts/sync-core.cjs` + `build:core` now sync; `yarn dev` previously compiled no core     |
+| **Visibility**                    | Adjust Stock lists remaining cost batches (2+ tiers); history rows read `+2 @ $1300.00`; inventory list marks mixed-cost products via a subquery in the existing list query (no per-row fetch)                                                                                              |
+| **Migrations**                    | v164 `product_stock_batches` + `stock_batch_consumptions` + `STOCK_INTAKE` entry type + settled opening batches (existing stock books no debt, D11); v165 `stock_adjustments.unit_cost_usd`, nullable, no backfill                                                                          |
+| **Fixed along the way**           | Ledger sum was multiplied per `product_suppliers` link; REST product create never linked a typed supplier (web-only); product create was admin-only on web vs admin+staff on desktop; supplier picker was empty in the browser; v164 rollback assumed `supplier_ledger` exists              |
+| **Gates**                         | core 2924 / backend 636 / frontend 1374 green, typecheck clean ×5, lint 0 errors, desktop e2e 290/293 (3 pre-existing profits failures), new `lira-165` Playwright spec green. **The profit-stamp fix itself is UNRUN** — the app held the native driver                                     |
+
+### ⚠️ Still open from this work
+
+| #   | Item                          | Detail                                                                                                                                                                            |
+| --- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Retail-price guard**        | Receiving stock never checks the selling price. Owner's iPhone now costs $1,450 against a $1,300 retail and saved without complaint, while create/edit both refuse retail ≤ cost |
+| 2   | **One historical row**        | That sale's stamp is still −150 and should be +100 (page −130 → +120). Code fixes do not rewrite history                                                                          |
+| 3   | **"Return to supplier"**      | Deferred by the owner. A stock decrease is shrinkage and never reduces supplier debt; needs a typed option, not the free-text reason                                              |
+
+---
+
+## ✅ Done This Sprint (September 7, 2026 — POS Warranty Badge on Cart & Checkout Items)
+
+### Warranty Info on Cart/Checkout Item Cards
+
+| Change                        | Details                                                                                                                                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Warranty badge added**       | Each item card in the active POS cart and in the checkout modal's item list now shows a small `🛡 N month(s)` badge inline next to the item name, sourced from the existing `CartItem.warranty_months` field — no new data plumbing, no date math (just the stored term length) |
+| **Omit when none**             | Badge is omitted entirely when `warranty_months` is null/0 (no "No warranty" clutter)                                                                                                                 |
+| **Styling**                    | `text-xs font-semibold text-red-400` on a `bg-red-950/60` pill with a `border-red-500/60` border — reuses the app's existing red/danger token (already used in `CashFlowBadge.tsx`), iterated for visibility per owner feedback (too small/thin at first) |
+| **Cart row cleanup**           | Removed the redundant `"$X / unit"` line from the cart item card (price already shown elsewhere in the row)                                                                                           |
+| **IMEI selector height/align** | Fixed the IMEI/serial `<select>` to exactly match the qty stepper's height (`h-[30px]`) and bottom-align both controls in the row (`items-end`) — a knock-on layout fix while adding the badge          |
+
+### Files Modified
+
+| File                                                                                        | Change                                                                          |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `frontend/src/features/sales/pages/POS/components/CartLineRow.tsx`                          | Added `WarrantyBadge`, removed `$/unit` line, fixed IMEI select height + row alignment |
+| `frontend/src/features/sales/pages/POS/components/CheckoutModal/CartItemsList.tsx`          | Added matching `WarrantyBadge` next to item name                                |
 
 ---
 

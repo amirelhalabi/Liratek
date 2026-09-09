@@ -28,7 +28,8 @@
  *   cornertech.liratek.app  -> tenant  (slug "cornertech")
  *   liratek.app             -> platform (super_admin only)
  *   admin.liratek.app       -> platform (a friendlier alias for the same)
- *   www.liratek.app         -> inert (the app's own host, not a realm)
+ *   www.liratek.app         -> platform (in practice THE platform host: the
+ *                             apex 308-redirects to www before Express sees it)
  *   nosuchshop.liratek.app  -> unknown  (refuse everything)
  *   liratek.vercel.app      -> foreign  (not under the base domain)
  *
@@ -52,22 +53,31 @@ import {
 
 const hostLogger = createChildLogger({ module: "tenant-host" });
 
-/** Labels under the base domain that mean "the platform", not a tenant. */
-const PLATFORM_LABELS = new Set(["admin"]);
-
 /**
- * Labels that are neither a tenant nor the platform, and must stay INERT.
+ * Labels under the base domain that mean "the platform", not a tenant.
  *
- * `www` is the trap. It is conventionally an alias for the apex, so calling
- * it the platform realm looks tidy — but the app is actually served at
- * www.<domain>, and the platform realm admits only super_admins. Setting
- * APP_BASE_DOMAIN would then have locked every ordinary user out of the
- * hostname they use. Reading it as a tenant slug is no better: there is no
- * tenant "www", so it would refuse everyone instead.
+ * `www` is here, and it was NOT always. It used to be INERT (behave as if no
+ * base domain), on the reasoning that the app is actually served at
+ * www.<domain> while the platform realm admits only super_admins — so calling
+ * it the platform realm would lock every ordinary user out of the hostname
+ * they use.
  *
- * Inert is the only safe reading: behave exactly as with no base domain.
+ * That reasoning expired when tenants started getting their own subdomain
+ * automatically (`backend/src/services/tenantDomains.ts`). Ordinary users are
+ * no longer locked out of anything: they have an address of their own to use.
+ *
+ * Keeping it inert became the ACTIVE bug. Inert means "no realm", and with
+ * per-tenant usernames (v172) a realmless login has to guess which shop an
+ * `admin` belongs to — `resolveWithoutRealm` prefers the platform, then the
+ * FIRST tenant. So on www the incumbent shop wins the name and every later
+ * tenant that picked the same username simply cannot sign in, anywhere on the
+ * shared host. Not ambiguous: broken, silently, for tenant #2 onward.
+ *
+ * Platform is therefore the correct reading, and the same one Slack, Zendesk
+ * and Freshdesk settle on: the shared host signs in staff, the workspace host
+ * signs in the workspace. The host IS the disambiguator.
  */
-const INERT_LABELS = new Set(["www"]);
+const PLATFORM_LABELS = new Set(["admin", "www"]);
 
 /**
  * A realm id no user row can carry, used to make a login on an UNKNOWN
@@ -133,7 +143,6 @@ export function resolveTenantHost(req: Request): TenantHostResolution {
 
   const label = labelUnderBase(host, base);
   if (label === null) return { kind: "foreign", host };
-  if (INERT_LABELS.has(label)) return { kind: "foreign", host };
   if (PLATFORM_LABELS.has(label)) return { kind: "platform", host };
 
   return lookup(label);

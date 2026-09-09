@@ -178,10 +178,19 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatusView | 
   );
 }
 
-export async function signupEnabled() {
+/**
+ * Public, logged-out facts about the host the login page is being served from:
+ * whether signup is open, and whether this is the shared platform hostname
+ * (where only super admins may sign in).
+ */
+export async function publicAuthInfo() {
   return requestJson<{
     success: boolean;
-    data?: { enabled: boolean };
+    data?: {
+      enabled: boolean;
+      platformHost: boolean;
+      baseDomain: string | null;
+    };
   }>("/api/auth/signup-status", { auth: false });
 }
 

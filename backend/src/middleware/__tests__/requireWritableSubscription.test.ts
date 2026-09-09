@@ -95,8 +95,11 @@ describe("writes are blocked when read_only", () => {
   it.each(["post", "put", "patch", "delete"] as const)(
     "%s is refused with 402 and the IPC envelope",
     async (method) => {
-      const res = await request(buildApp())
-        [method]("/api/anything")
+      // The agent is held in a local rather than chained: `request(app)`
+      // followed by a bracket access on the next line parses as an index into
+      // the call's result, which lints as an unexpected multiline.
+      const agent = request(buildApp());
+      const res = await agent[method]("/api/anything")
         .set("Authorization", TOKEN)
         .expect(402);
 
