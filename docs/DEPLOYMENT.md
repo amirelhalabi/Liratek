@@ -280,6 +280,25 @@ against `trust proxy` = 1. It works — measured, not assumed.
   `applied:true, supported:true` while the database is plaintext (§ 6). At-rest
   cover comes from the encrypted Fly volume, not SQLCipher.
 
+### Small findings still open (2026-09-09)
+
+- **"Last activity" in the super-admin Tenants table is mislabelled, not
+  broken.** `TenantRepository.listAll()` computes it as
+  `MAX(transactions.created_at)` per tenant, so a shop whose staff have logged
+  in but sold nothing shows NULL — which reads as "never seen". Either relabel
+  the column "Last sale", or widen the query to consider
+  `sessions.last_activity_at` too. Reported by the owner against tenant 5.
+- **Orphaned tenant subdomains in the Cloudflare zone**: `acme-shop`,
+  `echo-co`, `foxtrot-co` — all CNAME → `cname.vercel-dns.com`, left by earlier
+  signup probes whose tenants were deleted. Harmless (login on an unknown slug
+  is refused) but they consume Vercel project domain slots. Delete when
+  convenient, and note `deleteTenant` does not currently deprovision DNS.
+- **Verified live with two tenants (2026-09-09).** Tenants 1 and 5 both have an
+  admin named `Admin` **with the same password**, and the host still resolves
+  correctly: `cornertech` → userId 2/tenant 1, `test` → userId 7/tenant 5, `www`
+  → 401. Before the `www`-as-platform-realm change, tenant 5's admin could not
+  have logged in anywhere.
+
 ### Original runbook (kept for reference / rebuilds)
 
 `fly.toml` is at the repo root, backend-only. The SPA stays on Vercel.
