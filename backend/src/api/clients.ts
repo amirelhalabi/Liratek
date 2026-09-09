@@ -5,6 +5,7 @@ import {
   createClientSchema,
   updateClientSchema,
   searchClientsSchema,
+  importClientDebtsSchema,
   createErrorResponse,
   createSuccessResponse,
   ErrorCodes,
@@ -86,6 +87,55 @@ router.post(
     });
 
     res.status(201).json(createSuccessResponse({ id: result.id }));
+  },
+);
+
+// POST /api/clients/import-debts (admin) — bulk Excel import
+//
+// The web half of a feature that only ever existed on desktop. The Debts page
+// called `window.api.clients.importDebts()` directly, so in a browser it threw
+// "Cannot read properties of undefined (reading 'clients')" — it had never
+// worked there. Mirrors electron-app/handlers/clientHandlers.ts
+// `clients:import-debts`: same admin gate, same core service, same envelope.
+//
+// No logic lives here (rule 13). `importClientsWithDebts` already owns the
+// decisions — which clients to create, which to discard for a missing phone,
+// which entries are duplicate re-imports — and both transports get them
+// identically because they call the same method.
+router.post(
+  "/import-debts",
+  requireRole(["admin"]),
+  validateRequest(importClientDebtsSchema),
+  (req, res): void => {
+    const service = getClientService();
+
+    try {
+      // userId comes from the JWT, never the body (rule 19c): this stamps the
+      // author of every imported debt_ledger row.
+      const result = service.importClientsWithDebts(
+        req.body.clients,
+        req.user!.userId,
+      );
+
+      // Mirrors the desktop handler's create/client_import audit row.
+      auditRest(req, {
+        action: "create",
+        entity_type: "client_import",
+        summary: `Imported ${result.clientsCreated} clients, ${result.entriesImported} debt entries`,
+      });
+
+      // `result` (not `data`) to match the IPC shape the page already reads.
+      res.json(createSuccessResponse({ result }));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Import failed";
+      // HTTP 200 with success:false would match IPC exactly, but every other
+      // failure in this router answers 4xx/5xx and the adapter branches on
+      // `success` either way.
+      res
+        .status(500)
+        .json(createErrorResponse(ErrorCodes.INTERNAL_ERROR, message));
+    }
   },
 );
 

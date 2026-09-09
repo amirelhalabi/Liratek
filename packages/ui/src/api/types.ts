@@ -739,6 +739,35 @@ export type ApiAdapter = {
     [key: string]: unknown;
   }) => Promise<{ success: boolean; id?: number; error?: string }>;
   deleteClient: (id: number) => Promise<ApiResult>;
+  /**
+   * Bulk import of clients and their debt history from a parsed Excel sheet.
+   * Admin only, on both transports. Returns the per-category counts the import
+   * summary dialog reads.
+   */
+  importClientDebts: (
+    clients: {
+      name: string;
+      phone: string;
+      entries: {
+        date: string | null;
+        amount_usd: number;
+        amount_lbp: number;
+        description: string;
+        type: "debt" | "payment";
+      }[];
+    }[],
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    result?: {
+      clientsCreated: number;
+      clientsSkipped: number;
+      clientsDiscarded: number;
+      entriesImported: number;
+      duplicatesSkipped: number;
+      errors: string[];
+    };
+  }>;
 
   // ---------------------------------------------------------------------------
   // Inventory / Products

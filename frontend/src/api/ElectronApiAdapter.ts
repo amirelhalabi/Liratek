@@ -30,6 +30,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     [key: string]: unknown;
   }) => api.createClient(payload);
   deleteClient = (id: number) => api.deleteClient(id);
+  importClientDebts = (clients: api.ImportedClientPayload[]) =>
+    api.importClientDebts(clients);
 
   // ---------------------------------------------------------------------------
   // Inventory / Products

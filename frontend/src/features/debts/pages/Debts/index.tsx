@@ -869,7 +869,12 @@ export default function Debts() {
         return;
       }
 
-      const result = await window.api.clients.importDebts(clients_);
+      // Through the adapter, not `window.api` — this was the last raw IPC call
+      // on the import path, and it is why importing in a browser died with
+      // "Cannot read properties of undefined (reading 'clients')": `window.api`
+      // does not exist there. The adapter picks IPC on desktop and the REST
+      // route on web (rule 19a).
+      const result = await api.importClientDebts(clients_);
 
       if (result.success && result.result) {
         const r = result.result;

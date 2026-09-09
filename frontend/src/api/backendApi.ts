@@ -341,6 +341,69 @@ export async function createClient(payload: any): Promise<ClientWriteResult> {
   }
 }
 
+/** One client and their debt history, as parsed from the Excel sheet. */
+export type ImportedClientPayload = {
+  name: string;
+  phone: string;
+  entries: {
+    date: string | null;
+    amount_usd: number;
+    amount_lbp: number;
+    description: string;
+    type: "debt" | "payment";
+  }[];
+};
+
+export type ImportDebtsResult = {
+  success: boolean;
+  error?: string;
+  result?: {
+    clientsCreated: number;
+    clientsSkipped: number;
+    clientsDiscarded: number;
+    entriesImported: number;
+    duplicatesSkipped: number;
+    errors: string[];
+  };
+};
+
+/**
+ * Bulk-import clients and debt history.
+ *
+ * The Debts page used to call `window.api.clients.importDebts()` directly,
+ * which threw "Cannot read properties of undefined (reading 'clients')" in any
+ * browser — the feature had a desktop half and nothing else.
+ *
+ * Both branches return the SAME `{ success, result }` shape, because the page
+ * reads `result.result.clientsCreated` and friends straight out of it.
+ */
+export async function importClientDebts(
+  clients: ImportedClientPayload[],
+): Promise<ImportDebtsResult> {
+  if (isElectron()) {
+    return (window as any).api.clients.importDebts(clients);
+  }
+  try {
+    // REST takes `{ clients }`; IPC takes the bare array. The wrapper exists so
+    // the payload can grow options later without breaking the schema.
+    const res = await requestJson<
+      ImportDebtsResult & { data?: { result?: ImportDebtsResult["result"] } }
+    >(`/api/clients/import-debts`, {
+      method: "POST",
+      body: { clients },
+    });
+    // Built conditionally rather than assigning `result: undefined`:
+    // `exactOptionalPropertyTypes` distinguishes "absent" from "present and
+    // undefined", and the IPC branch omits the key entirely on failure.
+    const imported = res.data?.result ?? res.result;
+    return imported ? { success: res.success, result: imported } : { success: res.success };
+  } catch (err) {
+    // requestJson THROWS on non-2xx and its `message` may itself be an object,
+    // so unwrap it rather than surfacing "[object Object]" to the user.
+    return { success: false, error: messageFrom(err, "Import failed") };
+  }
+}
+
 export async function updateClient(payload: {
   id: number;
   [key: string]: unknown;
