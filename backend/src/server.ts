@@ -79,7 +79,7 @@ import { requestLogger } from "./middleware/requestLogger.js";
 app.use(requestLogger);
 
 // Rate limiting
-import { apiLimiter, authLimiter } from "./middleware/rateLimit.js";
+import { apiLimiter } from "./middleware/rateLimit.js";
 app.use("/api/", apiLimiter); // General API rate limiting
 
 // Push cache invalidation to a tenant s connected clients after any successful
@@ -151,7 +151,17 @@ import databaseResetRoutes from "./api/databaseReset.js";
 app.use("/health", healthRoutes);
 
 // API Routes
-app.use("/api/auth", authLimiter, authRoutes); // Strict rate limiting for auth
+// NOTE: authLimiter is applied INSIDE authRoutes, on the credential-checking
+// routes only (`/login`), not here on the whole router.
+//
+// Mounting it here throttled `/me`, `/logout` and `/signup-status` as well.
+// With `skipSuccessfulRequests: true` only failures count — and `/api/auth/me`
+// answers 401 on every page load while logged OUT. So roughly five visits to
+// the login page, with no login ever attempted, exhausted the quota and locked
+// the visitor out for 15 minutes with "Too many login attempts from this IP".
+// It also broke bootstrap outright, because `signup-status` (which the login
+// page needs to render) was throttled by the same counter.
+app.use("/api/auth", authRoutes);
 app.use("/api/clients", clientsRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/inventory", inventoryRoutes);

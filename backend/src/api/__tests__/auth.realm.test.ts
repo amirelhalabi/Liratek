@@ -18,6 +18,17 @@ import { jest } from "@jest/globals";
 // The real server.ts uses import.meta.url (ESM) which ts-jest cannot compile
 // under CommonJS, and auth.ts imports its logger from there. Same stand-in the
 // other api tests use.
+// authLimiter now lives ON the /login route (it used to be mounted on the whole
+// /api/auth router, where logged-out /me 401s burned the quota — see
+// __tests__/authLimiterScope.api.test.ts). This suite drives many deliberate
+// login failures, so the real limiter would throttle it; its own behaviour is
+// covered by rateLimit.test.ts and the scope suite.
+jest.mock("../../middleware/rateLimit.js", () => ({
+  authLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  signupLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  apiLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 jest.mock("../../server.js", () => ({
   logger: {
     info: jest.fn(),

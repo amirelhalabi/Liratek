@@ -17,7 +17,7 @@ import {
   JWT_EXPIRES_IN,
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
-import { signupLimiter } from "../middleware/rateLimit.js";
+import { signupLimiter, authLimiter } from "../middleware/rateLimit.js";
 import { provisionTenantDomain } from "../services/tenantDomains.js";
 import {
   resolveTenantHost,
@@ -43,6 +43,11 @@ const jwtExpiresIn: string = JWT_EXPIRES_IN;
 // POST /api/auth/login
 router.post(
   "/login",
+  // Throttled HERE rather than on the whole /api/auth mount. The limiter counts
+  // failed requests, and `/me` answers 401 on every logged-out page load — so
+  // router-level mounting let ordinary visits to the login page exhaust the
+  // quota and lock the visitor out of logging in at all.
+  authLimiter,
   validateRequest(loginSchema),
   async (req, res): Promise<void> => {
     try {
