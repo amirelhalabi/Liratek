@@ -162,14 +162,15 @@ export async function requestJson<T>(
     "Content-Type": "application/json",
   };
 
-  // Tracked so a 401 can tell "the server rejected OUR credential" apart from
-  // "we never sent one" — see the !res.ok branch below.
-  let sentToken = false;
+  // Remembered so a 401 can tell "the server rejected OUR credential" from
+  // "we never sent one", AND so a late 401 belonging to an OLD session cannot
+  // discard a newer one — see the !res.ok branch below.
+  let sentToken: string | null = null;
   if (options?.auth !== false) {
     const token = getToken();
     if (token) {
       headers.Authorization = `Bearer ${token}`;
-      sentToken = true;
+      sentToken = token;
     }
   }
 
@@ -211,14 +212,29 @@ export async function requestJson<T>(
     // and the UI carried on as though signed in.
     //
     // Guards, each load-bearing:
-    //   `auth !== false`  — the LOGIN request is unauthenticated; a 401 there
-    //                       means a wrong password and must surface as such.
-    //   `sentToken`       — if no credential was sent, this 401 says nothing
-    //                       about our session, and firing here on every
-    //                       anonymous call would loop.
+    //   `auth !== false`      — the LOGIN request is unauthenticated; a 401
+    //                           there means a wrong password and must surface
+    //                           as such.
+    //   `sentToken`           — if no credential was sent, this 401 says
+    //                           nothing about our session, and firing on every
+    //                           anonymous call would loop.
+    //   still the same token  — THE STALE-401 RACE. A page holding a dead
+    //                           token fires a dozen dashboard requests; the
+    //                           user signs in while they are in flight; then
+    //                           those 401s land and, without this check, wipe
+    //                           the brand-new token and sign the user straight
+    //                           back out. Observed exactly that way: log in,
+    //                           reach the dashboard, immediately bounced with
+    //                           "Session expired". A 401 only condemns the
+    //                           session it was sent with.
     // Notifying rather than redirecting keeps this file free of React and the
     // router; AuthContext owns what "logged out" means.
-    if (res.status === 401 && options?.auth !== false && sentToken) {
+    if (
+      res.status === 401 &&
+      options?.auth !== false &&
+      sentToken &&
+      getToken() === sentToken
+    ) {
       setToken(null);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));

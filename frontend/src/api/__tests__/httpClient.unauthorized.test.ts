@@ -88,6 +88,40 @@ describe("requestJson — 401 handling", () => {
     expect(fired).toBe(0);
   });
 
+  it("a LATE 401 from an old session must not kill a newer login", async () => {
+    // The regression this guards, seen live: a page holding a dead token fires
+    // a dozen dashboard requests, the user signs in while they are in flight,
+    // and then those 401s land. Without the identity check they wiped the
+    // brand-new token — log in, reach the dashboard, bounced straight back out
+    // with "Session expired".
+    setToken("stale-token");
+
+    let resolveFetch: (v: unknown) => void = () => {};
+    (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const inFlight = requestJson("/api/settings").catch(() => "rejected");
+
+    // The user logs in again while that request is still open.
+    setToken("fresh-token");
+
+    // Only now does the old request come back 401.
+    resolveFetch({
+      ok: false,
+      status: 401,
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ error: "Session expired" }),
+    });
+    await inFlight;
+
+    expect(getToken()).toBe("fresh-token");
+    expect(fired).toBe(0);
+  });
+
   it("leaves other failures alone — a 403 or 500 is not a dead session", async () => {
     setToken("good-token");
     mockFetch(403, { error: "Forbidden" });
