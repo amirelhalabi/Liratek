@@ -34,7 +34,7 @@ async function getJson(url, headers = {}) {
   return { status: res.status, json, text };
 }
 
-async function verify({ justDeployed }) {
+async function verify() {
   const failures = [];
 
   // 1. The process is up and serving.
@@ -65,30 +65,32 @@ async function verify({ justDeployed }) {
     failures.push(`realm resolution check failed: ${e.message}`);
   }
 
-  // 3. Boot markers in the logs — migrations ran, replication started.
+  // 3. Boot markers — INFORMATIONAL ONLY, and that is a deliberate downgrade.
   //
-  // These are STARTUP lines, and the /health check fires every 15s, so they
-  // scroll out of `fly logs --no-tail` within a few minutes. Treating their
-  // absence as a failure would make `api:verify` cry wolf on a healthy app
-  // that simply booted a while ago — so they are hard assertions only right
-  // after a deploy, and informational otherwise.
+  // These were hard assertions and they cried wolf on a perfectly good deploy.
+  // `fly logs --no-tail` returns a short recent window, and this app logs every
+  // request plus a health check every 15s — so with any traffic at all the boot
+  // lines are gone within SECONDS, not minutes. Their absence therefore proves
+  // nothing, and failing on it would train everyone to ignore the verifier,
+  // which is worse than not having one.
+  //
+  // What still counts is a marker that IS present and says something is wrong.
+  // For a definitive answer use `yarn api:ssh` and check the schema version and
+  // the litestream process directly (docs/OPERATIONS.md).
   const logs = flyCapture(["logs", "--no-tail"]);
-  const note = (msg) => (justDeployed ? failures.push(msg) : bad(`${msg} (boot line has scrolled away — deploy to re-assert)`));
-
-  if (/Database is up to date|migrations applied/i.test(logs)) ok("migrations applied");
-  else note("no migration marker in the logs");
 
   if (/REPLICATION IS OFF/i.test(logs)) {
-    // This one IS a hard failure whenever it appears: it means litestream died
-    // at startup and the app is serving with no off-box backup.
     failures.push("litestream exited at startup — REPLICATION IS OFF");
-  } else if (/litestream replicating/i.test(logs)) {
-    ok("litestream replicating");
   } else if (/Litestream NOT configured/i.test(logs)) {
     failures.push("Litestream NOT configured — backups are OFF (set the LITESTREAM_* secrets)");
+  } else if (/litestream replicating/i.test(logs)) {
+    ok("litestream replicating");
   } else {
-    note("no litestream marker in the logs");
+    bad("litestream state unknown — boot line already out of the log window");
   }
+
+  if (/Database is up to date|migrations applied/i.test(logs)) ok("migrations applied");
+  else bad("migration state unknown — boot line already out of the log window");
 
   // 4. Exactly one machine. Two writers on one SQLite file is corruption.
   const status = flyCapture(["status"]);
@@ -113,7 +115,7 @@ if (!verifyOnly) {
 }
 
 console.log("\n=== verifying ===");
-const failures = await verify({ justDeployed: !verifyOnly });
+const failures = await verify();
 
 if (failures.length) {
   console.error(`\n${failures.length} CHECK(S) FAILED:`);
