@@ -9,6 +9,7 @@ import {
 } from "../../hooks/useTenants";
 import { AddTenantModal } from "../../components/AddTenantModal";
 import { PlanModal } from "../../components/PlanModal";
+import { DeleteTenantModal } from "../../components/DeleteTenantModal";
 import { useSubscriptionsQuery } from "../../hooks/useSubscriptions";
 import type {
   AdminTenant,
@@ -90,6 +91,7 @@ export function TenantsPage() {
   const [impersonateError, setImpersonateError] = useState<string | null>(null);
   const [impersonatingId, setImpersonatingId] = useState<number | null>(null);
   const [planTenantId, setPlanTenantId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminTenant | null>(null);
 
   // A SEPARATE query from the tenants list rather than one joined payload:
   // the plan column is additive, so if this request fails the table still
@@ -266,6 +268,21 @@ export function TenantsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
+                      {/* Tenant 1 is undeletable server-side; disabling it
+                          here explains why instead of letting the click
+                          come back as an error. */}
+                      <button
+                        onClick={() => setDeleteTarget(tenant)}
+                        disabled={tenant.id === 1}
+                        title={
+                          tenant.id === 1
+                            ? "The default tenant cannot be deleted"
+                            : "Delete this tenant permanently"
+                        }
+                        className="text-xs px-3 py-1.5 rounded-lg border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                      >
+                        Delete
+                      </button>
                       <button
                         onClick={() => setPlanTenantId(tenant.id)}
                         disabled={!planFor(tenant.id)}
@@ -305,6 +322,14 @@ export function TenantsPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {deleteTarget && (
+        <DeleteTenantModal
+          tenant={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => setDeleteTarget(null)}
+        />
       )}
 
       {planTenant && (

@@ -264,3 +264,87 @@ export async function provisionTenantDomain(
     };
   }
 }
+
+/**
+ * Remove `<slug>.<APP_BASE_DOMAIN>` again.
+ *
+ * Called when a tenant is deleted or renamed. Leaving the records behind
+ * would be worse than untidy: a dangling CNAME plus a registered Vercel
+ * domain means the NEXT tenant to take that slug inherits a hostname it did
+ * not create -- along with whatever bookmarks and password-manager entries
+ * point at it.
+ *
+ * Fail-soft and idempotent, exactly like provisioning: a record that is
+ * already gone is success, and nothing here can throw into a delete that has
+ * already committed.
+ */
+export async function deprovisionTenantDomain(
+  slug: string,
+): Promise<DomainProvisionResult> {
+  const cfg = config();
+  if (!cfg) {
+    return { ok: false, detail: "Automatic subdomains are off" };
+  }
+
+  const host = `${slug}.${cfg.baseDomain}`;
+  const notes: string[] = [];
+
+  try {
+    // Cloudflare: find the record by name, then delete it by id.
+    const listed = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${cfg.zoneId}/dns_records?name=${encodeURIComponent(host)}`,
+      {
+        headers: { Authorization: `Bearer ${cfg.cfToken}` },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      },
+    );
+    const listJson = (await listed.json()) as { result?: { id: string }[] };
+    const recordId = listJson.result?.[0]?.id;
+
+    if (recordId) {
+      const del = await fetch(
+        `https://api.cloudflare.com/client/v4/zones/${cfg.zoneId}/dns_records/${recordId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${cfg.cfToken}` },
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        },
+      );
+      notes.push(del.ok ? "DNS record deleted" : `DNS delete ${del.status}`);
+    } else {
+      notes.push("no DNS record to delete");
+    }
+
+    // Vercel: a 404 means it was never registered, which is the desired end
+    // state either way.
+    const query = cfg.teamId ? `?teamId=${encodeURIComponent(cfg.teamId)}` : "";
+    const removed = await fetch(
+      `https://api.vercel.com/v9/projects/${encodeURIComponent(cfg.projectId)}/domains/${encodeURIComponent(host)}${query}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${cfg.vercelToken}` },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      },
+    );
+    notes.push(
+      removed.ok || removed.status === 404
+        ? "Vercel domain removed"
+        : `Vercel delete ${removed.status}`,
+    );
+
+    logger.info({ host, notes }, "tenant subdomain deprovisioned");
+    return { ok: true, host, detail: notes.join("; ") };
+  } catch (error) {
+    // A tenant that is already deleted cannot be un-deleted because its DNS
+    // record survived, so this never escalates.
+    logger.error({ error, host }, "tenant subdomain: deprovision failed");
+    return {
+      ok: false,
+      host,
+      detail:
+        error instanceof Error
+          ? `Could not reach the DNS/hosting API: ${error.message}`
+          : "Could not reach the DNS/hosting API",
+    };
+  }
+}

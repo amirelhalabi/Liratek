@@ -5448,6 +5448,43 @@ export interface AdminSubscriptionsPayload {
  * catalogue, so splitting them would only add a way for the page to
  * half-load.
  */
+/**
+ * Permanently delete a tenant and everything it owns.
+ *
+ * `confirmSlug` is checked SERVER-side, so the dialog that collects it is
+ * a courtesy rather than the protection. Tenant 1 is refused outright.
+ */
+export async function adminDeleteTenant(
+  id: number,
+  confirmSlug: string,
+): Promise<void> {
+  assertWebOnly("Deleting a tenant");
+  const res = await requestJson<{ success: boolean; error?: string }>(
+    `/api/admin/tenants/${id}`,
+    { method: "DELETE", body: { confirmSlug } },
+  );
+  if (!res.success) throw new Error(res.error || "Failed to delete tenant");
+}
+
+/**
+ * Change a tenant's public slug, moving its subdomain with it.
+ *
+ * Separate from adminUpdateTenant on purpose: a slug is where the
+ * tenant's staff log in, not an attribute, so it should never ride along
+ * with an edit to a contact name.
+ */
+export async function adminChangeTenantSlug(
+  id: number,
+  slug: string,
+): Promise<void> {
+  assertWebOnly("Renaming a tenant");
+  const res = await requestJson<{ success: boolean; error?: string }>(
+    `/api/admin/tenants/${id}/slug`,
+    { method: "PATCH", body: { slug } },
+  );
+  if (!res.success) throw new Error(res.error || "Failed to change slug");
+}
+
 export async function adminListSubscriptions(): Promise<AdminSubscriptionsPayload> {
   assertWebOnly("Listing subscriptions");
   const res = await requestJson<{

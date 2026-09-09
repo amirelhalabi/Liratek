@@ -242,6 +242,121 @@ export class TenantRepository {
    * names) with `tenant_id` explicit in the column list, per
    * scripts/check-tenant-scoping.mjs's static-analysis requirements.
    */
+  /**
+   * Change a tenant's slug.
+   *
+   * Separate from `update()` on purpose. The slug is a tenant's PUBLIC
+   * address, not an attribute: changing it moves where its staff log in
+   * and orphans any link anyone saved. Folding it into the general
+   * update would let a rename ride along with an innocuous edit.
+   *
+   * The UNIQUE index is the real guard against collisions; this returns
+   * the updated row so the caller can confirm what landed.
+   */
+  updateSlug(tenantId: number, slug: string): TenantEntity | null {
+    try {
+      this.db
+        .prepare(
+          `UPDATE tenants SET slug = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?`,
+        )
+        .run(slug, tenantId);
+      return this.getById(tenantId);
+    } catch (error) {
+      throw new DatabaseError("Failed to change the tenant slug", {
+        cause: error,
+        entityId: tenantId,
+      });
+    }
+  }
+
+  /**
+   * Every table that carries a `tenant_id`, discovered from the schema.
+   *
+   * Deliberately NOT a hand-written list. There are 68 such tables today and
+   * the count only grows; a literal list would silently stop deleting from
+   * whichever table was added last, leaving orphaned rows that the next
+   * tenant to reuse that id would inherit. Asking the schema cannot go
+   * stale.
+   */
+  private tenantScopedTables(): string[] {
+    const tables = this.db
+      .prepare(
+        `SELECT name FROM sqlite_master
+          WHERE type = 'table'
+            AND name NOT LIKE 'sqlite_%'
+            AND name != 'tenants'`,
+      )
+      .all() as { name: string }[];
+
+    return tables
+      .filter((t) => {
+        const cols = this.db
+          .prepare(`PRAGMA table_info("${t.name}")`)
+          .all() as { name: string }[];
+        return cols.some((c) => c.name === "tenant_id");
+      })
+      .map((t) => t.name);
+  }
+
+  /**
+   * Delete a tenant and everything belonging to it, in ONE transaction.
+   *
+   * `defer_foreign_keys` is what makes this tractable. Foreign keys are ON at
+   * runtime (backend/src/database/connection.ts), and these 68 tables
+   * reference each other in ways no single delete order satisfies. Deferring
+   * postpones every check to COMMIT: the deletes run in any order, and the
+   * transaction still refuses to commit if it would leave a dangling
+   * reference. The pragma is scoped to this transaction and resets itself,
+   * so it cannot leak into other work the way `foreign_keys = OFF` would.
+   *
+   * All-or-nothing: a tenant half-deleted is worse than one not deleted,
+   * because the leftovers are invisible in the UI and inherited by whoever
+   * gets that id next.
+   *
+   * The CALLER is responsible for deciding whether deletion is allowed --
+   * this method asks no questions (rule 13: policy is the service's job).
+   */
+  deleteTenantCascade(tenantId: number): {
+    tablesCleared: number;
+    rowsDeleted: number;
+  } {
+    try {
+      const tables = this.tenantScopedTables();
+
+      return this.db.transaction(() => {
+        this.db.pragma("defer_foreign_keys = ON");
+
+        let rowsDeleted = 0;
+        for (const table of tables) {
+          // Table names come from sqlite_master, never from a caller, so the
+          // interpolation cannot carry user input. The VALUE stays bound.
+          const result = this.db
+            .prepare(`DELETE FROM "${table}" WHERE tenant_id = ?`)
+            .run(tenantId);
+          rowsDeleted += result.changes;
+        }
+
+        const gone = this.db
+          .prepare(`DELETE FROM tenants WHERE id = ?`)
+          .run(tenantId);
+        if (gone.changes === 0) {
+          // Nothing matched: roll back rather than report a success that
+          // deleted a tenant's data but left the tenant itself.
+          throw new DatabaseError("Tenant not found", { entityId: tenantId });
+        }
+
+        return { tablesCleared: tables.length, rowsDeleted };
+      })();
+    } catch (error) {
+      if (error instanceof DatabaseError) throw error;
+      throw new DatabaseError("Failed to delete tenant", {
+        cause: error,
+        entityId: tenantId,
+      });
+    }
+  }
+
   seedConfig(tenantId: number, shopName: string): void {
     try {
       this.seedCurrencies(tenantId);

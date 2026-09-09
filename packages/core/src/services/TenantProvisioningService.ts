@@ -24,9 +24,20 @@ import {
   type SubscriptionRepository,
 } from "../repositories/SubscriptionRepository.js";
 import { hashPassword, validatePasswordComplexity } from "../utils/crypto.js";
-import { ValidationError, ConflictError } from "../utils/errors.js";
+import {
+  ValidationError,
+  ConflictError,
+  BusinessRuleError,
+} from "../utils/errors.js";
+
 import { assertValidTenantSlug } from "../utils/tenantSlug.js";
 import { tenantLogger } from "../utils/logger.js";
+
+/**
+ * Tenant 1 is the seeded tenant: every desktop install runs as it, and on
+ * a web deployment it is the original shop. Nothing may delete it.
+ */
+const PROTECTED_TENANT_ID = 1;
 
 // =============================================================================
 // Types
@@ -162,8 +173,87 @@ export class TenantProvisioningService {
       throw error;
     }
   }
-}
 
+  /**
+   * Permanently delete a tenant and everything it owns.
+   *
+   * Three guards, each for a failure that actually happens:
+   *
+   *   1. `confirmSlug` must match. The id in a URL is easy to get wrong
+   *      by one; a slug typed by a human is not. Enforced SERVER-side, so
+   *      a confirmation dialog is a courtesy rather than the protection.
+   *   2. Tenant 1 can never be deleted. It is the seeded tenant every
+   *      desktop install runs as, and on a web deployment it is the
+   *      original shop -- the one whose loss would be unrecoverable.
+   *   3. The tenant must exist, checked before anything is removed.
+   *
+   * There is no soft delete and no undo. `suspended` already exists for
+   * 'stop them logging in but keep the data'; this is for the other case,
+   * and pretending otherwise would just leave data nobody can see.
+   */
+  deleteTenant(
+    tenantId: number,
+    confirmSlug: string,
+  ): { tablesCleared: number; rowsDeleted: number } {
+    if (tenantId === PROTECTED_TENANT_ID) {
+      throw new BusinessRuleError("The default tenant cannot be deleted");
+    }
+
+    const tenant = this.tenantRepo.getById(tenantId);
+    if (!tenant) {
+      throw new ValidationError(`No tenant with id ${tenantId}`);
+    }
+
+    if (confirmSlug !== tenant.slug) {
+      throw new ValidationError(
+        `Confirmation does not match: expected the slug "${tenant.slug}"`,
+      );
+    }
+
+    const result = this.tenantRepo.deleteTenantCascade(tenantId);
+    tenantLogger.warn(
+      { tenantId, slug: tenant.slug, ...result },
+      "Tenant permanently deleted",
+    );
+    return result;
+  }
+
+  /**
+   * Change a tenant's public slug.
+   *
+   * Same charset and reserved-name rules as creation -- a rename must not
+   * be able to claim `admin` or `www` when a signup cannot.
+   *
+   * The caller is responsible for the CONSEQUENCES: the old subdomain
+   * stops matching and a new one has to be provisioned. This method only
+   * moves the registry entry, because the DNS side is deployment
+   * infrastructure and core knows nothing about it.
+   */
+  changeTenantSlug(tenantId: number, nextSlug: string): TenantEntity {
+    const slug = nextSlug.trim().toLowerCase();
+    assertValidTenantSlug(slug);
+
+    const tenant = this.tenantRepo.getById(tenantId);
+    if (!tenant) {
+      throw new ValidationError(`No tenant with id ${tenantId}`);
+    }
+    if (tenant.slug === slug) return tenant;
+
+    if (this.tenantRepo.existsBySlug(slug)) {
+      throw new ConflictError(`Tenant slug '${slug}' is already taken`);
+    }
+
+    const updated = this.tenantRepo.updateSlug(tenantId, slug);
+    if (!updated) {
+      throw new ValidationError("Slug change did not apply");
+    }
+    tenantLogger.info(
+      { tenantId, from: tenant.slug, to: slug },
+      "Tenant slug changed",
+    );
+    return updated;
+  }
+}
 // =============================================================================
 // Singleton
 // =============================================================================

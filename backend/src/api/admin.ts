@@ -44,7 +44,10 @@ import {
 import { validateRequest } from "../middleware/validation.js";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
-import { provisionTenantDomain } from "../services/tenantDomains.js";
+import {
+  provisionTenantDomain,
+  deprovisionTenantDomain,
+} from "../services/tenantDomains.js";
 import { randomBytes } from "node:crypto";
 
 if (!JWT_SECRET) {
@@ -557,6 +560,158 @@ router.post("/subscriptions/:tenantId/license-key", (req, res) => {
         createErrorResponse(
           ErrorCodes.VALIDATION_ERROR,
           "Failed to issue a licence key",
+        ),
+      );
+  }
+});
+
+// ===========================================================================
+// Tenant lifecycle: rename and delete
+// ===========================================================================
+
+// PATCH /api/admin/tenants/:id/slug — change a tenant's public address
+//
+// Separate from PATCH /tenants/:id because a slug is not an attribute: it is
+// where the tenant's staff log in. Folding it into the general update would
+// let a rename ride along with an innocuous edit to a contact name.
+//
+// The new subdomain is provisioned and the OLD one removed, both fail-soft:
+// the registry change is what matters, and DNS that lags behind is fixable
+// while a half-applied rename is not.
+router.patch("/tenants/:id/slug", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res
+        .status(400)
+        .json(
+          createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"),
+        );
+      return;
+    }
+
+    const nextSlug = String(req.body?.slug ?? "").trim();
+    const before = runWithoutTenant(() => getTenantRepository().getById(id));
+    if (!before) {
+      res
+        .status(404)
+        .json(
+          createErrorResponse(ErrorCodes.TENANT_NOT_FOUND, "Tenant not found"),
+        );
+      return;
+    }
+
+    const tenant = runWithoutTenant(() =>
+      getTenantProvisioningService().changeTenantSlug(id, nextSlug),
+    );
+
+    // Old host first: if the same record were re-created below under a new
+    // name, deleting afterwards could remove the one just made.
+    if (before.slug !== tenant.slug) {
+      await deprovisionTenantDomain(before.slug);
+    }
+    const domain = await provisionTenantDomain(tenant.slug);
+
+    runWithTenant(id, () => {
+      auditRest(req, {
+        action: "update",
+        entity_type: "tenant",
+        entity_id: String(id),
+        summary: `Renamed tenant slug "${before.slug}" to "${tenant.slug}"`,
+        old_values: { slug: before.slug },
+        new_values: { slug: tenant.slug },
+      });
+    });
+
+    res.json(createSuccessResponse({ tenant, domain }));
+  } catch (error) {
+    if (error instanceof AppError) {
+      res
+        .status(error.statusCode)
+        .json(createErrorResponse(error.code, error.message, error.details));
+      return;
+    }
+    logger.error({ error }, "PATCH /api/admin/tenants/:id/slug failed");
+    res
+      .status(500)
+      .json(
+        createErrorResponse(
+          ErrorCodes.INTERNAL_ERROR,
+          "Failed to change the tenant slug",
+        ),
+      );
+  }
+});
+
+// DELETE /api/admin/tenants/:id — permanent, with everything it owns
+//
+// Requires `confirmSlug` in the body to match the tenant's slug. Enforced
+// HERE and not only in a dialog: an id off by one is an easy mistake to make
+// against an API, and this is the one operation with no undo.
+//
+// The audit row is written BEFORE the delete. Afterwards there is no tenant
+// to write it under -- runWithTenant would target rows that no longer exist,
+// and the record of the deletion is the one thing that must survive it.
+router.delete("/tenants/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res
+        .status(400)
+        .json(
+          createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"),
+        );
+      return;
+    }
+
+    const tenant = runWithoutTenant(() => getTenantRepository().getById(id));
+    if (!tenant) {
+      res
+        .status(404)
+        .json(
+          createErrorResponse(ErrorCodes.TENANT_NOT_FOUND, "Tenant not found"),
+        );
+      return;
+    }
+
+    runWithTenant(id, () => {
+      auditRest(req, {
+        action: "delete",
+        entity_type: "tenant",
+        entity_id: String(id),
+        summary: `Permanently deleted tenant "${tenant.name}" (${tenant.slug})`,
+        old_values: { name: tenant.name, slug: tenant.slug },
+      });
+    });
+
+    const result = runWithoutTenant(() =>
+      getTenantProvisioningService().deleteTenant(
+        id,
+        String(req.body?.confirmSlug ?? ""),
+      ),
+    );
+
+    // Fail-soft: the tenant is gone either way, and a leftover DNS record is
+    // a tidy-up, not a failure to report as one.
+    const domain = await deprovisionTenantDomain(tenant.slug);
+
+    res.json(
+      createSuccessResponse({ deleted: tenant.slug, ...result, domain }),
+    );
+  } catch (error) {
+    if (error instanceof AppError) {
+      res
+        .status(error.statusCode)
+        .json(createErrorResponse(error.code, error.message, error.details));
+      return;
+    }
+    logger.error({ error }, "DELETE /api/admin/tenants/:id failed");
+    res
+      .status(500)
+      .json(
+        createErrorResponse(
+          ErrorCodes.INTERNAL_ERROR,
+          "Failed to delete tenant",
         ),
       );
   }
