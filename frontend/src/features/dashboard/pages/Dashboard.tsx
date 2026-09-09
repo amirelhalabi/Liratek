@@ -1276,7 +1276,7 @@ export default function Dashboard() {
             />
 
             <div
-              className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${TAB_ACCENT[activeTab].borderL} shadow-lg transition-all duration-200 flex flex-col lg:h-[520px] min-h-0 overflow-hidden`}
+              className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${TAB_ACCENT[activeTab].borderL} shadow-lg transition-all duration-200 flex flex-col h-[420px] lg:h-[520px] min-h-0 overflow-hidden`}
             >
               <div
                 className={`absolute -top-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-10 pointer-events-none ${TAB_ACCENT[activeTab].glow}`}

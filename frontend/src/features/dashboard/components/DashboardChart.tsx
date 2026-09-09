@@ -36,7 +36,11 @@ export default function DashboardChart({
   formatAmount,
 }: DashboardChartProps) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      initialDimension={{ width: 500, height: 300 }}
+    >
       <LineChart
         data={chartData}
         margin={{ top: 5, right: 16, left: 8, bottom: 5 }}

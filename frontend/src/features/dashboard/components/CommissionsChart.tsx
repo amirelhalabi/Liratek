@@ -48,7 +48,11 @@ export default function CommissionsChart({
   }
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      initialDimension={{ width: 500, height: 300 }}
+    >
       <PieChart>
         {/* Inner ring: realized */}
         {hasRealized && (
