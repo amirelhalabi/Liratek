@@ -1,5 +1,21 @@
 # Session resilience, and seeing your signed-in devices
 
+> **Status: BOTH PARTS SHIPPED 2026-09-10** (`c7adaf52`) — 23 files, 53 tests.
+> Part 1: `validateSession` no longer reports a database error as an expired
+> session; infrastructure errors propagate to 503, genuine invalidity stays
+> 401, and a test pins the null-still-means-401 half so the fix cannot
+> overcorrect into failing open. Removing that swallow exposed that
+> `auth:restore-session` had DEPENDED on it — a blip at desktop boot was
+> skipping the encrypted-file fallback — so each call now separates "threw"
+> from "invalid".
+> Part 2: the Signed-in Devices panel, own-sessions-only, with the token
+> never leaving the server (explicit field list, `is_current` computed
+> server-side, revoke scoped to tenant AND user). `getUserSessions`, which
+> returned raw bearer tokens and had no callers, was removed rather than left
+> beside a near-identically-named safe method.
+> The three scope questions in §2 were decided as recommended: own sessions
+> only, its own Settings tab, and the current row offering plain Sign out.
+
 > **Written**: 2026-09-10, out of a session spent chasing "I keep getting
 > logged out" on `test.liratek.shop`.
 > Companions: `NEXT_STEPS_AFTER_FLY_MIGRATION.md` (deployment state),
