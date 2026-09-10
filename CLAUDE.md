@@ -17,9 +17,11 @@ LiraTek is a **desktop POS system for retail management** built as an Electron a
 
 ## Deploying (read `docs/OPERATIONS.md` first — it is one screen)
 
-The web app spans five services. **`frontend/` ships itself** — Vercel builds
-from `main` on push. **`backend/` and `packages/core/` do NOT**: they run on
-Fly and deploy manually.
+The web app spans five services, and **pushing to `main` ships all of them**.
+Vercel builds `frontend/` from `main`; `.github/workflows/deploy-api.yml`
+deploys `backend/` (which bundles `packages/core/`) to Fly and then runs the
+verifier below. The manual commands remain the right tool for deploying an
+UNCOMMITTED working tree, or re-rolling the machine without a code change.
 
 ```bash
 yarn api:deploy    # build remotely, deploy, then VERIFY it came up

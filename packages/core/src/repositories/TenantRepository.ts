@@ -10,8 +10,9 @@
  *
  * `scripts/check-tenant-scoping.mjs` never flags statements against `tenants`
  * itself (it's in the checker's `NON_TENANT_TABLES` exempt set). The
- * `listAll()` stats subqueries below DO touch `users`/`transactions` — both
- * tenant-scoped tables in the checker's list — but each subquery is
+ * `listAll()` stats subqueries below DO touch
+ * `users`/`transactions`/`sessions`/`audit_log` — all tenant-scoped tables in
+ * the checker's list — but each subquery is
  * correlated to the tenant row being aggregated (`t.id`), not the caller's
  * ambient tenant context, so the literal `tenant_id` predicate is present in
  * every row's SQL text and the checker resolves them as `ok`.
@@ -141,10 +142,48 @@ export class TenantRepository {
   }
 
   /**
-   * List every tenant with per-tenant stats: active user count and last
-   * transaction activity. Both subqueries are correlated to `t.id` — this
+   * List every tenant with per-tenant stats: active user count and when the
+   * tenant was last USED. Every subquery is correlated to `t.id` — this
    * repository never resolves "the current tenant"; it enumerates ALL of
    * them, one row of stats per tenant, by construction.
+   *
+   * `last_activity` was the newest `transactions.created_at` alone, which
+   * answered "when did this shop last SELL something". That is not the
+   * question a super admin is asking of a control-plane list: a shop whose
+   * staff sign in every day but have not rung up a sale yet showed a bare
+   * dash, indistinguishable from one nobody has ever opened. It now takes the
+   * latest of three signals:
+   *
+   *   transactions  real trade.
+   *   sessions      someone is signed in and browsing; `last_activity_at`
+   *                 slides on every authenticated request. Rows are deleted on
+   *                 logout/expiry, so this covers "right now", not history.
+   *   audit_log     durable. Records logins (action 'login') among much else,
+   *                 and outlives the session that produced it, so a tenant
+   *                 that signed in last week still reports it.
+   *
+   * Together they degrade sensibly: sessions give live presence, audit gives
+   * history, transactions give trade.
+   *
+   * WHY EVERY VALUE GOES THROUGH `datetime()`. These columns do not share a
+   * format — `transactions.created_at` and `audit_log.created_at` are SQLite's
+   * "YYYY-MM-DD HH:MM:SS", while `sessions.last_activity_at` is a JS ISO string
+   * ("...THH:MM:SS.sssZ"). `MAX()` over raw text compares them as STRINGS, and
+   * 'T' (0x54) sorts above ' ' (0x20), so the session value would win every
+   * same-day comparison no matter which moment was actually later:
+   *
+   *   MAX('2026-09-10T00:45:43.133Z', '2026-09-10 23:00:00') = the 00:45 one.
+   *
+   * `datetime()` parses both shapes and emits one canonical UTC form — which is
+   * also exactly what the frontend's `parseDbDate` expects. It yields NULL for
+   * anything unparseable, so a malformed row is ignored rather than poisoning
+   * the maximum.
+   *
+   * COALESCE-to-'' then NULLIF back: scalar `MAX()` returns NULL if ANY
+   * argument is NULL, so a tenant with no transactions would otherwise report
+   * no activity at all despite being actively used. '' sorts below every real
+   * timestamp, and NULLIF restores a true NULL for a tenant with nothing
+   * anywhere — which the UI renders as a dash.
    */
   listAll(): TenantWithStats[] {
     try {
@@ -154,7 +193,14 @@ export class TenantRepository {
           SELECT
             t.*,
             (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND u.is_active = 1) AS user_count,
-            (SELECT MAX(tr.created_at) FROM transactions tr WHERE tr.tenant_id = t.id) AS last_activity
+            NULLIF(
+              MAX(
+                COALESCE((SELECT MAX(datetime(tr.created_at))      FROM transactions tr WHERE tr.tenant_id = t.id), ''),
+                COALESCE((SELECT MAX(datetime(s.last_activity_at)) FROM sessions s      WHERE s.tenant_id  = t.id), ''),
+                COALESCE((SELECT MAX(datetime(a.created_at))       FROM audit_log a     WHERE a.tenant_id  = t.id), '')
+              ),
+              ''
+            ) AS last_activity
           FROM tenants t
           ORDER BY t.id ASC
           `,

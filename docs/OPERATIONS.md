@@ -26,15 +26,38 @@ architecture, `docs/plans/todo_plans/PRODUCTION_DATABASE_AND_HOSTING_PLAN.md`.
         └─────────────────────────────────────────────────────────────┘
 
         GITHUB  amirelhalabi/Liratek — PUBLIC. Vercel auto-deploys the SPA
-                from main. Fly does NOT: the backend deploys manually.
+                from main; the Deploy API workflow auto-deploys the backend.
 ```
+
+**Pushing to `main` ships everything.** Vercel builds the SPA;
+`.github/workflows/deploy-api.yml` builds and deploys the backend to Fly and
+then runs the same verifier `yarn api:deploy` runs. The manual command still
+works and is still the right tool for deploying uncommitted work or re-rolling
+the machine — it is no longer something you must remember.
 
 | I changed… | To ship it |
 | --- | --- |
-| `frontend/` | `git push` — Vercel builds from `main` automatically |
-| `backend/` or `packages/core/` | **`yarn api:deploy`** — nothing automatic |
-| both | push first, then `yarn api:deploy` |
-| a migration | it applies on the next backend boot, i.e. on deploy |
+| `frontend/` | `git push` — Vercel builds from `main` |
+| `backend/` or `packages/core/` | `git push` — the Deploy API workflow runs |
+| both | `git push` — both pipelines run independently |
+| a migration | it applies on the next backend boot, i.e. on that deploy |
+| something uncommitted | `yarn api:deploy` — deploys your working tree |
+
+The workflow only fires for paths that end up in the image (`backend/**`,
+`packages/core/**`, `fly.toml`, `package.json`, `yarn.lock`), so a docs or
+frontend commit does not roll the machine. It is serialised by a
+`concurrency: deploy-api` group with `cancel-in-progress: false`: one machine
+holding a single-writer SQLite file must never have two deploys racing for its
+lease, and cancelling a deploy midway is worse than queueing behind it.
+
+It needs a repository secret **`FLY_API_TOKEN`**, created once with:
+
+```bash
+fly tokens create deploy -a liratek-api
+```
+
+then added under *Settings → Secrets and variables → Actions*. Without it the
+workflow stops on its first step and says so.
 
 ---
 

@@ -1,0 +1,86 @@
+name: Deploy API
+
+# Push to main -> deploy the backend to Fly.
+#
+# The SPA already ships itself: Vercel builds from main on push. This closes
+# the other half, which until now was a manual `yarn api:deploy` that had to be
+# remembered — and twice was not, leaving a fix committed, pushed, and not
+# actually running.
+on:
+  push:
+    branches: [main]
+    # Only when something that ends up IN the image changes. The backend bundles
+    # @liratek/core, so core counts; the frontend does not (Vercel owns it), and
+    # neither do docs or the Electron app. Without this filter every README typo
+    # would roll the production machine for nothing.
+    paths:
+      - "backend/**"
+      - "packages/core/**"
+      - "fly.toml"
+      - "package.json"
+      - "yarn.lock"
+      - ".github/workflows/deploy-api.yml"
+  # Deploying without a code change is a normal thing to want: re-run after
+  # setting a secret, or roll the machine after a Fly platform issue.
+  workflow_dispatch:
+
+# NEVER two deploys at once. `fly deploy` takes a lease on the machine, so a
+# second one racing the first either fails on the lease or rolls a half-updated
+# machine — and this app runs exactly ONE machine holding a single-writer SQLite
+# file on a volume. cancel-in-progress is deliberately FALSE: cancelling a
+# deploy midway can leave the lease held and the machine in an indeterminate
+# state. Queue instead, and let the newer commit deploy after.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, deploy and verify
+    runs-on: ubuntu-latest
+    # A deploy can create/destroy infrastructure and costs money; it must not be
+    # possible for a fork PR to trigger one.
+    if: github.repository == 'amirelhalabi/Liratek'
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # Fail with a sentence a human can act on, rather than flyctl's
+      # "could not find app" ten lines later.
+      - name: Check the deploy token is present
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            echo "::error::FLY_API_TOKEN is not set. Create one with 'fly tokens create deploy -a liratek-api' and add it under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      # --remote-only: build on Fly's builder, so no Docker layer cache is
+      # needed on the runner and the build matches what `yarn api:deploy` does
+      # locally.
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --app liratek-api
+
+      # `fly deploy` exiting 0 does NOT mean the app works — it means the
+      # machine started. This is the same verifier `yarn api:deploy` runs, and
+      # it is the point of the whole job: it asserts migrations applied,
+      # Litestream is replicating, X-Forwarded-Host still survives Vercel -> Fly
+      # (losing it breaks every tenant login at once), and that exactly ONE
+      # machine is running, because two on one volume is SQLite corruption.
+      - name: Verify the deploy actually came up
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: node scripts/deploy-api.mjs --verify-only
+
+      # Only on failure, and only the tail: enough to diagnose from the run page
+      # without going to Fly, without dumping a wall of logs on every success.
+      - name: Show recent logs on failure
+        if: failure()
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl logs --app liratek-api --no-tail | tail -100
