@@ -29,6 +29,14 @@ export * from "./utils/sqlLike.js";
 
 // Repositories
 export * from "./repositories/index.js";
+// SafeSession (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2) — imported
+// directly from the concrete file rather than through the repositories
+// barrel above, which does not (yet) re-export it. Frontend-facing type: it
+// crosses IPC/REST as the "signed-in devices" list shape, so it must also be
+// exported from browser.ts (Vite resolves @liratek/core there, not here —
+// see the telecomCredit.js note in browser.ts for the exact failure mode a
+// missing export there causes).
+export type { SafeSession } from "./repositories/SessionRepository.js";
 
 // Type aliases for backwards compatibility
 export type {

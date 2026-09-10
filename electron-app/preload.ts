@@ -25,6 +25,15 @@ contextBridge.exposeInMainWorld("api", {
     },
     getCurrentUser: (userId: number) =>
       ipcRenderer.invoke("auth:get-current-user", userId),
+    // Signed-in devices (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2).
+    // No token/userId args — the main process derives both from the
+    // DESKTOP session guard (requireRole), never from what the renderer
+    // sends, so these three always act on the CALLER's own sessions.
+    listSessions: () => ipcRenderer.invoke("auth:list-sessions"),
+    revokeSession: (id: number) =>
+      ipcRenderer.invoke("auth:revoke-session", id),
+    revokeOtherSessions: () =>
+      ipcRenderer.invoke("auth:revoke-other-sessions"),
     getNonAdminUsers: () => ipcRenderer.invoke("users:get-non-admins"),
     setUserActive: (id: number, is_active: number) =>
       ipcRenderer.invoke("users:set-active", { id, is_active }),

@@ -223,6 +223,53 @@ describe("requestJson — 401 handling", () => {
     expect(fired).toBe(0);
   });
 
+  it("a 503 (could not check the session) leaves the session alone", async () => {
+    // Session-resilience plan Part 1: the backend now tells "session is
+    // genuinely invalid" (401) apart from "couldn't check — e.g. the DB
+    // threw" (503). The `!res.ok` branch above only acts when
+    // `res.status === 401`, so a 503 already falls through to a plain
+    // rejection today — but nothing pins that on purpose, and a future edit
+    // to the 401 condition could quietly start logging people out on a
+    // database blip. This test is that pin: token kept, no logout event,
+    // the caller still sees the failure.
+    setToken("good-token");
+    mockFetch(503, { error: "Could not verify session" });
+
+    let captured: ApiError | undefined;
+    try {
+      await requestJson("/api/settings");
+    } catch (e) {
+      captured = e as ApiError;
+    }
+
+    expect(captured?.status).toBe(503);
+    expect(captured?.message).toBe("Could not verify session");
+    expect(getToken()).toBe("good-token");
+    expect(fired).toBe(0);
+  });
+
+  it("a 500 behaves the same way — the 401-only guard is not narrowly special-cased to 503", async () => {
+    // Same assertions as the 503 test above, on a different non-401 status.
+    // If the fix ever became `if (res.status === 401 || res.status === 503)`
+    // instead of leaving every non-401 alone, this is the one that would
+    // still pass while quietly narrowing the guard — so it has to be checked
+    // on its own, not inferred from the 503 case.
+    setToken("good-token");
+    mockFetch(500, { error: "Internal server error" });
+
+    let captured: ApiError | undefined;
+    try {
+      await requestJson("/api/settings");
+    } catch (e) {
+      captured = e as ApiError;
+    }
+
+    expect(captured?.status).toBe(500);
+    expect(captured?.message).toBe("Internal server error");
+    expect(getToken()).toBe("good-token");
+    expect(fired).toBe(0);
+  });
+
   it("still surfaces the server's reason to the caller", async () => {
     setToken("dead-token");
     mockFetch(401, { error: "Invalid or expired session" });

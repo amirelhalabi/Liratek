@@ -21,9 +21,13 @@ import type {
   SafeUser,
   UserEntity,
   CreateUserData,
-  SessionEntity,
   CreateSessionData,
 } from "../repositories/index.js";
+// Imported directly from the concrete file, not the barrel: SafeSession is
+// new (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2) and repositories/index.js
+// is outside this change's file ownership. Type-only, so it costs nothing at
+// runtime either way.
+import type { SafeSession } from "../repositories/SessionRepository.js";
 import {
   validatePasswordComplexity,
   hashPassword,
@@ -215,34 +219,50 @@ export class AuthService {
    * lookup here is deliberately global: session by token, activity refresh on
    * the already-validated row, user by id. Suspended-tenant sessions are
    * rejected inside sessionRepo.validateSession (tenant-status join).
+   *
+   * DELIBERATELY NO try/catch here (SESSION_RESILIENCE_AND_DEVICES_PLAN.md
+   * Part 1). `null` means exactly one thing to every caller: THIS SESSION IS
+   * INVALID, and `authenticateJWT` turns that into a 401 that signs the user
+   * out. Every genuinely-invalid case below already returns `null` as a
+   * VALUE (no session row, expired, suspended tenant — all inside
+   * sessionRepo.validateSession; deactivated/deleted user, below) — none of
+   * them need a catch. A THROWN error (SQLITE_BUSY, disk I/O, any
+   * DatabaseError from the repository calls below) is a different fact — "I
+   * could not check" — and must propagate so the HTTP layer can answer 503
+   * (retry, keep the session) instead of lying "your session expired" to
+   * whoever is mid-sale on a transient blip. Swallowing it back into `null`
+   * here would silently reintroduce that bug.
+   *
+   * Do NOT reintroduce a blanket catch that returns null on any throw — that
+   * reads as "fail open" from the caller's perspective in the sense that it
+   * hides a real infrastructure failure behind the SAME signal as a genuine
+   * expiry, which is the whole defect this fixes. It is not a security hole
+   * either way (both outcomes deny the request), but it destroys the
+   * distinction the 401/503 split exists to preserve.
    */
   async validateSession(token: string): Promise<SafeUser | null> {
-    try {
-      const session = this.sessionRepo.validateSession(token);
+    const session = this.sessionRepo.validateSession(token);
 
-      if (!session) {
-        return null;
-      }
-
-      // Update activity timestamp (on the validated row — no tenant-scoped
-      // re-fetch)
-      this.sessionRepo.touchActivity(session);
-
-      // Get user (global: super admins have tenant_id NULL and would be
-      // invisible to the tenant-scoped findById)
-      const user = this.userRepo.findByIdGlobal(session.user_id);
-
-      if (!user || user.is_active !== 1) {
-        // User no longer exists or is inactive
-        this.sessionRepo.deleteByToken(token);
-        return null;
-      }
-
-      const { password_hash, ...safeUser } = user;
-      return safeUser as SafeUser;
-    } catch (error) {
+    if (!session) {
       return null;
     }
+
+    // Update activity timestamp (on the validated row — no tenant-scoped
+    // re-fetch)
+    this.sessionRepo.touchActivity(session);
+
+    // Get user (global: super admins have tenant_id NULL and would be
+    // invisible to the tenant-scoped findById)
+    const user = this.userRepo.findByIdGlobal(session.user_id);
+
+    if (!user || user.is_active !== 1) {
+      // User no longer exists or is inactive
+      this.sessionRepo.deleteByToken(token);
+      return null;
+    }
+
+    const { password_hash, ...safeUser } = user;
+    return safeUser as SafeUser;
   }
 
   /**
@@ -267,15 +287,70 @@ export class AuthService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Signed-in devices (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2)
+  //
+  // Own-sessions-only for v1 (scope decision in the plan): every method here
+  // takes the CALLER's own `userId`, resolved server-side from the caller's
+  // validated session/JWT — never accept a `userId` argument sourced from
+  // request input for these three.
+  //
+  // No try/catch: these read/write real device state, so a repository throw
+  // (SQLITE_BUSY, disk I/O) must reach the caller as a failure, not silently
+  // report "0 sessions" / "revoked" when nothing happened — the same
+  // reasoning that removed the swallow from validateSession above.
+  // ---------------------------------------------------------------------------
+
   /**
-   * Get all active sessions for a user
+   * List the caller's own active sessions in the client-safe shape (no
+   * `token`, ever — see `SessionRepository.toSafeSession`). `currentToken`
+   * is the token behind the request making this call, so `is_current` can be
+   * computed server-side; the client has no token for any session but its
+   * own and so could never compute it itself.
    */
-  async getUserSessions(userId: number): Promise<SessionEntity[]> {
-    try {
-      return this.sessionRepo.findActiveByUserId(userId);
-    } catch (error) {
-      return [];
+  async listUserSessions(
+    userId: number,
+    currentToken: string,
+  ): Promise<SafeSession[]> {
+    return this.sessionRepo
+      .findActiveByUserId(userId)
+      .map((session) => this.sessionRepo.toSafeSession(session, currentToken));
+  }
+
+  /**
+   * Revoke one of the caller's own sessions by id ("Revoke" on a device
+   * row). Delegates the id+user_id+tenant_id scoping entirely to
+   * `SessionRepository.deleteByIdForUser` — an id belonging to another user
+   * or another tenant simply does not match the WHERE clause and this
+   * returns `false`, the same outcome as an id that never existed.
+   */
+  async revokeUserSession(id: number, userId: number): Promise<boolean> {
+    return this.sessionRepo.deleteByIdForUser(id, userId);
+  }
+
+  /**
+   * "Sign out everywhere else": revoke every one of the caller's active
+   * sessions EXCEPT the one making this call. Built from `findActiveByUserId`
+   * + per-row `deleteByIdForUser` rather than a bulk "delete all, re-create
+   * mine" — the caller's own row is never touched, so its `expires_at`/
+   * `last_activity_at` survive untouched and the caller is never at risk of
+   * revoking itself through a race with its own logout.
+   */
+  async revokeOtherSessions(
+    userId: number,
+    currentToken: string,
+  ): Promise<number> {
+    const sessions = this.sessionRepo.findActiveByUserId(userId);
+    let revoked = 0;
+    for (const session of sessions) {
+      if (session.token === currentToken) {
+        continue; // never revoke the session making this call
+      }
+      if (this.sessionRepo.deleteByIdForUser(session.id, userId)) {
+        revoked++;
+      }
     }
+    return revoked;
   }
 
   // ---------------------------------------------------------------------------

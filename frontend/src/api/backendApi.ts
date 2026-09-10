@@ -11,6 +11,7 @@ import type {
   ProductListFilters,
   DatabaseResetPreview,
   DatabaseResetResult,
+  SafeSession,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -322,6 +323,109 @@ export async function me() {
         if (user) return { ...res, user };
       }
       return res;
+    },
+  );
+}
+
+/**
+ * "Signed-in devices" (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2 step 4)
+ * — the caller's own active sessions, `is_current` flagged SERVER-SIDE
+ * (compared against the caller's own token; the client never holds the
+ * material to compute this itself — see `SafeSession`'s doc comment).
+ * `token` never appears in this shape on either transport.
+ *
+ * Named `listUserSessions` (matching `AuthService.listUserSessions`
+ * end-to-end), NOT `listSessions` — that name is already taken below by the
+ * unrelated Customer Sessions (POS basket) list
+ * (`listSessions(limit?, offset?)`); reusing it would be a duplicate
+ * declaration, not a namespace clash a caller could resolve.
+ *
+ * Read: returns the RAW `SafeSession[]` array on both transports, throwing
+ * on failure — same shape as `getDatabaseResetPreview` above.
+ */
+export async function listUserSessions(): Promise<SafeSession[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().auth.listSessions();
+      if (!res?.success || !res.data) {
+        throw new Error(res?.error ?? "Failed to load sessions");
+      }
+      return res.data as SafeSession[];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: SafeSession[];
+        error?: string;
+      }>("/api/auth/sessions");
+      if (!res.success || !res.data) {
+        throw new Error(res.error ?? "Failed to load sessions");
+      }
+      return res.data;
+    },
+  );
+}
+
+/**
+ * Revoke one of the caller's own sessions, by `id` — never by token, since
+ * the client has no token to send for a session that isn't its own. Refused
+ * for an id belonging to another user or another tenant
+ * (`SessionRepository.deleteByIdForUser`, scoped by id + user_id + tenant_id).
+ *
+ * Write: returns the `{ success, error? }` envelope untouched (rule 19). The
+ * REST route answers HTTP 200 even on a refused revoke, but a role/auth
+ * failure ahead of it (401/403) or an unhandled 500 is still a non-2xx, and
+ * `requestJson` REJECTS with a plain `{status, message, details}` object on
+ * those — NOT an `Error` — so the try/catch here (mirroring `resetDatabase`
+ * below) turns that throw back into the envelope instead of letting it
+ * escape to the UI as an unhandled rejection. `messageFrom` (not
+ * `instanceof Error`) is what actually recovers the real reason.
+ */
+export async function revokeSession(
+  id: number,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().auth.revokeSession(id),
+    async () => {
+      try {
+        return await requestJson<{ success: boolean; error?: string }>(
+          `/api/auth/sessions/${id}`,
+          { method: "DELETE" },
+        );
+      } catch (err) {
+        return { success: false, error: messageFrom(err, "Revoke failed") };
+      }
+    },
+  );
+}
+
+/**
+ * "Sign out everywhere else" — revokes every OTHER active session for the
+ * caller, leaving the current one (and therefore the caller's own login)
+ * intact.
+ *
+ * Write: returns the `{ success, data?: { revoked }, error? }` envelope
+ * untouched (rule 19). Same throw-to-envelope guard as `revokeSession`
+ * above — see its comment for why the try/catch and `messageFrom` are both
+ * load-bearing here.
+ */
+export async function revokeOtherSessions(): Promise<{
+  success: boolean;
+  data?: { revoked: number };
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().auth.revokeOtherSessions(),
+    async () => {
+      try {
+        return await requestJson<{
+          success: boolean;
+          data?: { revoked: number };
+          error?: string;
+        }>("/api/auth/sessions/revoke-others", { method: "POST" });
+      } catch (err) {
+        return { success: false, error: messageFrom(err, "Revoke failed") };
+      }
     },
   );
 }

@@ -469,6 +469,25 @@ export interface LedgerFilters {
 
 export interface PartnerWithBalance extends Partner, PartnerBalance {}
 
+/**
+ * "Signed-in devices" row (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2).
+ * Mirrors `@liratek/core`'s `SafeSession` verbatim (rule 14) —
+ * `packages/core/src/repositories/SessionRepository.ts`. This file has no
+ * imports (every type here is a leaf mirror), so it is redeclared rather
+ * than imported; keep it byte-for-byte in sync with the core shape,
+ * including the doc comment's point: NEVER add `token` here. That is the
+ * bearer credential this shape exists specifically to keep off the wire.
+ */
+export interface SafeSession {
+  id: number;
+  device_type: string;
+  device_info: string | null;
+  ip_address: string | null;
+  created_at: string;
+  last_activity_at: string;
+  is_current: boolean;
+}
+
 export interface ElectronAPI {
   // Auth & Users
   auth: {
@@ -493,6 +512,22 @@ export interface ElectronAPI {
     getCurrentUser: (
       userId: number,
     ) => Promise<{ id: number; username: string; role: string } | null>;
+    // Signed-in devices (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2) —
+    // no id/token params: the main process derives both from the DESKTOP
+    // session guard, so these always act on the CALLER's own sessions.
+    listSessions: () => Promise<{
+      success: boolean;
+      data?: SafeSession[];
+      error?: string;
+    }>;
+    revokeSession: (
+      id: number,
+    ) => Promise<{ success: boolean; data?: boolean; error?: string }>;
+    revokeOtherSessions: () => Promise<{
+      success: boolean;
+      data?: { revoked: number };
+      error?: string;
+    }>;
     getNonAdminUsers: () => Promise<
       Array<{ id: number; username: string; role: string; is_active: number }>
     >;

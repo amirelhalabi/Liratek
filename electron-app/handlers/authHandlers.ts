@@ -225,7 +225,38 @@ export function registerAuthHandlers(): void {
             "🔍 [SESSION-RESTORE] Validating provided session token from localStorage",
           );
 
-          const user = await authService.validateSession(sessionToken);
+          // authService.validateSession() is DELIBERATELY throw-first now
+          // (AuthService.ts, SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 1):
+          // a THROWN error means "couldn't check" (e.g. transient
+          // SQLITE_BUSY), distinct from a `null` return ("genuinely
+          // invalid/expired") — that split is what lets REST's
+          // authenticateJWT answer 503 vs 401 instead of lying "your
+          // session expired" on a DB blip. This restore flow has no such
+          // distinction to make here: it has more fallbacks below
+          // (encrypted file, then legacy migration), all under one outer
+          // try/catch, so a throw from just THIS call must not abort the
+          // whole restore before those fallbacks get a turn — which is
+          // exactly what happened before this fix (flagged as a regression
+          // by two reviewers and by the agent that wrote Part 1). Give this
+          // call its own try/catch and treat a throw the same as `null`
+          // ("this token did not work for this attempt"), the way the old
+          // blanket swallow used to, before Part 1 removed it from the
+          // service layer.
+          let user: Awaited<ReturnType<typeof authService.validateSession>> =
+            null;
+          let localStorageValidationThrew = false;
+          try {
+            user = await authService.validateSession(sessionToken);
+          } catch (e) {
+            localStorageValidationThrew = true;
+            authLogger.warn(
+              {
+                tokenPrefix: sessionToken.substring(0, 10),
+                error: e instanceof Error ? e.message : String(e),
+              },
+              "⚠️ [SESSION-RESTORE] localStorage token validation threw — treating as invalid for this attempt, falling back",
+            );
+          }
 
           if (user) {
             // Restore in-memory session for backwards compatibility
@@ -248,7 +279,7 @@ export function registerAuthHandlers(): void {
               },
               sessionToken,
             };
-          } else {
+          } else if (!localStorageValidationThrew) {
             authLogger.warn(
               { tokenPrefix: sessionToken.substring(0, 10) },
               "❌ [SESSION-RESTORE] localStorage token validation failed (expired or invalid)",
@@ -272,7 +303,31 @@ export function registerAuthHandlers(): void {
             "🔍 [SESSION-RESTORE] Found token in encrypted file, validating against database",
           );
 
-          const user = await authService.validateSession(stored.token);
+          // Same reasoning as the localStorage check above — give this
+          // second call its own try/catch too, for consistency, so a throw
+          // here can't abort the restore before the legacy-migration check
+          // further down gets a turn either. One difference from the
+          // localStorage case: on a THROW we deliberately do NOT
+          // clearEncryptedSession() below, unlike the genuine-`null`
+          // branch. A throw only means "couldn't check right now" — the
+          // token has not been proven invalid — so deleting the file here
+          // would destroy a possibly-good session on a transient blip, the
+          // very failure mode Part 1 was written to stop propagating.
+          let user: Awaited<ReturnType<typeof authService.validateSession>> =
+            null;
+          let encryptedFileValidationThrew = false;
+          try {
+            user = await authService.validateSession(stored.token);
+          } catch (e) {
+            encryptedFileValidationThrew = true;
+            authLogger.warn(
+              {
+                tokenPrefix: stored.token.substring(0, 10),
+                error: e instanceof Error ? e.message : String(e),
+              },
+              "⚠️ [SESSION-RESTORE] Encrypted file token validation threw — leaving the file in place (not proven invalid), falling back",
+            );
+          }
 
           if (user) {
             // Restore in-memory session for backwards compatibility
@@ -295,7 +350,7 @@ export function registerAuthHandlers(): void {
               },
               sessionToken: stored.token,
             };
-          } else {
+          } else if (!encryptedFileValidationThrew) {
             authLogger.warn(
               { tokenPrefix: stored.token.substring(0, 10) },
               "❌ [SESSION-RESTORE] Encrypted file token validation failed (expired or invalid)",
@@ -403,6 +458,141 @@ export function registerAuthHandlers(): void {
         "Get current user error",
       );
       return null;
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // List Signed-in Devices Handler (SESSION_RESILIENCE_AND_DEVICES_PLAN.md
+  // Part 2 — desktop IPC parity, rule 19)
+  //
+  // Own-sessions-only: `userId` comes from the DESKTOP session guard
+  // (requireRole → the in-memory map keyed by webContents.id), never from a
+  // renderer argument, so a caller cannot list another user's devices by
+  // passing a different id. Same shape as the REST contract.
+  // ---------------------------------------------------------------------------
+  ipcMain.handle("auth:list-sessions", async (event) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    // Best-effort only — see getCurrentSessionToken()'s doc comment for why
+    // this can legitimately come back null on desktop. Falling back to ""
+    // just means no row gets flagged "this device" rather than guessing.
+    const currentToken = getCurrentSessionToken(auth.userId) ?? "";
+
+    try {
+      const sessions = await authService.listUserSessions(
+        auth.userId,
+        currentToken,
+      );
+      return { success: true, data: sessions };
+    } catch (error) {
+      authLogger.error(
+        { error: error instanceof Error ? error.message : String(error), userId: auth.userId },
+        "List sessions error",
+      );
+      return {
+        success: false,
+        error: isAppError(error) ? error.message : "Failed to list sessions",
+      };
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Revoke One Signed-in Device Handler
+  // ---------------------------------------------------------------------------
+  ipcMain.handle("auth:revoke-session", async (event, id: number) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) {
+      return { success: false, error: "Invalid session id" };
+    }
+
+    try {
+      // Ownership (and tenant) scoping happens entirely inside
+      // SessionRepository.deleteByIdForUser — an id for another user's
+      // session simply doesn't match the WHERE clause and this resolves to
+      // `false`, same as an id that never existed. Report that as a
+      // FAILURE, not `success:true` with a falsy payload — the REST mirror
+      // (backend/src/api/auth.ts DELETE /api/auth/sessions/:id) already
+      // answers `{success:false,error:"Session not found"}` on the same
+      // condition, and rule 19 (dual transport) requires both transports to
+      // put a given condition on the same side of `success`. Returning
+      // success:true here regardless of `revoked` made the desktop UI show
+      // "Session ended" for a revoke that revoked nothing.
+      const revoked = await authService.revokeUserSession(id, auth.userId);
+      if (!revoked) {
+        return { success: false, error: "Session not found" };
+      }
+      audit(event.sender.id, {
+        action: "delete",
+        entity_type: "session",
+        entity_id: String(id),
+        summary: "Revoked a signed-in device",
+      });
+      return { success: true, data: true };
+    } catch (error) {
+      authLogger.error(
+        {
+          error: error instanceof Error ? error.message : String(error),
+          userId: auth.userId,
+          id,
+        },
+        "Revoke session error",
+      );
+      return {
+        success: false,
+        error: isAppError(error) ? error.message : "Failed to revoke session",
+      };
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Revoke Other Sessions Handler ("Sign out everywhere else")
+  // ---------------------------------------------------------------------------
+  ipcMain.handle("auth:revoke-other-sessions", async (event) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    // Unlike list-sessions, an unresolved token here is NOT safe to paper
+    // over with "": AuthService.revokeOtherSessions() skips exactly the row
+    // whose token equals what it's given, so a missing token would revoke
+    // every session including the one making this call. Refuse instead of
+    // guessing — see getCurrentSessionToken()'s doc comment.
+    const currentToken = getCurrentSessionToken(auth.userId);
+    if (!currentToken) {
+      authLogger.warn(
+        { userId: auth.userId },
+        "auth:revoke-other-sessions — could not resolve the caller's own session token; refusing rather than risk revoking it too",
+      );
+      return {
+        success: false,
+        error: "Could not determine current session",
+      };
+    }
+
+    try {
+      const revoked = await authService.revokeOtherSessions(
+        auth.userId,
+        currentToken,
+      );
+      audit(event.sender.id, {
+        action: "delete",
+        entity_type: "session",
+        summary: `Revoked ${revoked} other signed-in device(s)`,
+      });
+      return { success: true, data: { revoked } };
+    } catch (error) {
+      authLogger.error(
+        { error: error instanceof Error ? error.message : String(error), userId: auth.userId },
+        "Revoke other sessions error",
+      );
+      return {
+        success: false,
+        error: isAppError(error)
+          ? error.message
+          : "Failed to revoke other sessions",
+      };
     }
   });
 
@@ -632,6 +822,42 @@ function getSessionInfo(
 ): { userId: number; role: string } | null {
   try {
     return getSession(senderId) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the CALLER's own session token for the "signed-in devices" panel
+ * (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2), without accepting one
+ * from the renderer.
+ *
+ * This is the awkward part flagged in the plan: desktop's in-memory
+ * `SessionData` (session.ts, keyed by webContents.id) never stores the
+ * session token itself — only userId/role/lastActivity. The only place the
+ * token lives on this side is the encrypted-on-disk file written at login
+ * (`storeSessionTokenToFile` / `getEncryptedSession`), which is deliberately
+ * a SINGLE slot: the app has exactly one BrowserWindow (main.ts), so one
+ * token file is the whole desktop session model — there is no per-window
+ * token map to add one to without inventing new state this ticket doesn't
+ * ask for.
+ *
+ * So: read that one slot, and only trust it when its `userId` matches the
+ * CALLER we already authenticated via requireRole(). That guards the one
+ * failure mode this file's single-slot model can produce — a stale/legacy
+ * token file left over from a previous user on a shared machine — by simply
+ * refusing to hand back a token that isn't provably the caller's own,
+ * rather than trusting the file blindly. Returns null when there is no
+ * confidently-matching token; callers decide how much that matters for what
+ * they're doing (see the two different fallbacks at the call sites above).
+ */
+function getCurrentSessionToken(userId: number): string | null {
+  try {
+    const stored = getEncryptedSession();
+    if (stored && stored.userId === userId && stored.token) {
+      return stored.token;
+    }
+    return null;
   } catch {
     return null;
   }

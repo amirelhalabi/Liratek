@@ -10,6 +10,7 @@ import type {
   ProductListFilters,
   DatabaseResetPreview,
   DatabaseResetResult,
+  SafeSession,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -18,6 +19,7 @@ export type {
   ProductListFilters,
   DatabaseResetPreview,
   DatabaseResetResult,
+  SafeSession,
 };
 
 export type ApiUser = {
@@ -727,6 +729,37 @@ export type ApiAdapter = {
   ) => Promise<ApiMeResult & { sessionToken?: string }>;
   logout: () => Promise<void>;
   me: () => Promise<ApiMeResult>;
+  /**
+   * "Signed-in devices" (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2 step
+   * 4) — the caller's OWN active sessions, `is_current` flagged
+   * server-side. `SafeSession` never carries the bearer token (see its own
+   * doc comment) — leaking it would hand any XSS a ready-made session to
+   * replay.
+   *
+   * Named `listUserSessions` (matching `AuthService.listUserSessions`), NOT
+   * `listSessions` — that name is already taken by the unrelated Customer
+   * Sessions (POS basket) list further down this interface
+   * (`listSessions: (limit?, offset?) => Promise<any>`); reusing it would be
+   * a duplicate property, not a namespace clash a caller could resolve.
+   */
+  listUserSessions: () => Promise<SafeSession[]>;
+  /**
+   * Revoke one of the caller's own sessions by `id` — never by token,
+   * since the client has no token to send for a session that isn't its
+   * own current one. Refused server-side for an id belonging to another
+   * user or another tenant.
+   */
+  revokeSession: (id: number) => Promise<{ success: boolean; error?: string }>;
+  /**
+   * "Sign out everywhere else" — revokes every OTHER active session for
+   * the caller, leaving the current one (and the caller's own login)
+   * intact.
+   */
+  revokeOtherSessions: () => Promise<{
+    success: boolean;
+    data?: { revoked: number };
+    error?: string;
+  }>;
 
   // ---------------------------------------------------------------------------
   // Clients

@@ -18,6 +18,14 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.login(username, password, rememberMe);
   logout = () => api.logout();
   me = () => api.me();
+  /** "Signed-in devices" (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2 step
+   *  4) — the caller's own active sessions, never the bearer token. Named
+   *  `listUserSessions` (matching `AuthService.listUserSessions`), NOT
+   *  `listSessions` — that name is already taken below by the unrelated
+   *  Customer Sessions (POS basket) list. */
+  listUserSessions = () => api.listUserSessions();
+  revokeSession = (id: number) => api.revokeSession(id);
+  revokeOtherSessions = () => api.revokeOtherSessions();
 
   // ---------------------------------------------------------------------------
   // Clients

@@ -46,6 +46,25 @@ export interface UpdateSessionData {
   expires_at?: string;
 }
 
+/**
+ * The shape a session is allowed to leave the server in — the "signed-in
+ * devices" panel (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2) sends this,
+ * never a `SessionEntity`. Deliberately does NOT include `token`: that is the
+ * bearer credential, and a device list that leaked it would hand any XSS a
+ * ready-made set of sessions to replay — see `toSafeSession()` below.
+ */
+export interface SafeSession {
+  id: number;
+  device_type: string;
+  device_info: string | null;
+  ip_address: string | null;
+  created_at: string;
+  last_activity_at: string;
+  /** Computed server-side against the CALLER's own token (see toSafeSession) —
+   * the client is never given the material to compute this itself. */
+  is_current: boolean;
+}
+
 const MINUTES = 60 * 1000;
 const HOURS = 60 * MINUTES;
 const DAYS = 24 * HOURS;
@@ -388,6 +407,52 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
         cause: error,
       });
     }
+  }
+
+  /**
+   * Delete ONE session by id, on behalf of a specific user.
+   *
+   * Scoped by id AND user_id AND tenant_id (all three, in one WHERE) — this
+   * is what lets the "signed-in devices" panel revoke a session by its
+   * numeric id without a revoke-by-id turning into "delete any row I can
+   * guess the id of". `user_id` stops one user revoking another's session;
+   * `tenant_id` stops it crossing tenants. Callers must pass the acting
+   * user's OWN id, never a value taken from the request body.
+   */
+  deleteByIdForUser(id: number, userId: number): boolean {
+    try {
+      const query = `DELETE FROM ${this.tableName} WHERE id = ? AND user_id = ? AND tenant_id = ?`;
+      const result = this.execute(query, id, userId, getCurrentTenantId());
+      return result.changes > 0;
+    } catch (error) {
+      throw new DatabaseError("Failed to delete session by id for user", {
+        cause: error,
+        entityId: id,
+      });
+    }
+  }
+
+  /**
+   * Strip a session down to the shape that is safe to send to a client.
+   *
+   * Lists every field explicitly rather than spreading `session` — a spread
+   * would silently re-admit `token` (the bearer credential) the instant a
+   * new field is added to `SessionEntity`, which is exactly the leak this
+   * type exists to prevent. `is_current` is computed here, server-side,
+   * against the CALLER's own token (from their validated session / JWT) —
+   * never against anything the client supplies, since the client has no
+   * token to compare with for a session that isn't its own.
+   */
+  toSafeSession(session: SessionEntity, currentToken: string): SafeSession {
+    return {
+      id: session.id,
+      device_type: session.device_type,
+      device_info: session.device_info,
+      ip_address: session.ip_address,
+      created_at: session.created_at,
+      last_activity_at: session.last_activity_at,
+      is_current: session.token === currentToken,
+    };
   }
 
   /**

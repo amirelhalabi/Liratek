@@ -121,3 +121,14 @@ export * from "./constants/resetTables.js";
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";
 export type { SaleRequest } from "./repositories/SalesRepository.js";
+
+// "Signed-in devices" panel shape (SESSION_RESILIENCE_AND_DEVICES_PLAN.md
+// Part 2) — the frontend Settings page types its device list against this.
+// Type-only, so importing it from SessionRepository.js (which itself uses
+// Node's `crypto` and is NOT otherwise browser-safe) has zero runtime impact:
+// `export type` is erased at compile time, no import of the module lands in
+// the bundle. Must be exported HERE too, not only from index.ts — Vite
+// resolves @liratek/core to THIS file, so a renderer import of SafeSession
+// missing here fails at load (same failure mode as the telecomCredit.js note
+// above).
+export type { SafeSession } from "./repositories/SessionRepository.js";

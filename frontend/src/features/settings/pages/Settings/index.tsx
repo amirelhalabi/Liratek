@@ -15,6 +15,7 @@ import MobileServicesManager from "./MobileServicesManager";
 import CarrierLinesManager from "./CarrierLinesManager";
 import ProfitsPasswordPanel from "./ProfitsPasswordPanel";
 import ResetDataPanel from "./ResetDataPanel";
+import SignedInDevices from "./SignedInDevices";
 
 type TabKey =
   | "shop"
@@ -23,6 +24,7 @@ type TabKey =
   | "modules"
   | "currencies"
   | "users"
+  | "devices"
   | "diagnostics"
   | "integrations"
   | "mobile-services"
@@ -41,6 +43,7 @@ const TAB_KEYS: readonly TabKey[] = [
   "modules",
   "currencies",
   "users",
+  "devices",
   "diagnostics",
   "integrations",
   "mobile-services",
@@ -84,6 +87,7 @@ export default function Settings() {
     { key: "modules", label: "Modules & Drawers" },
     { key: "currencies", label: "Currencies & Rates" },
     { key: "users", label: "Users" },
+    { key: "devices", label: "Signed-in Devices" },
     { key: "profits", label: "Profits Password" },
     { key: "integrations", label: "Integrations" },
     { key: "mobile-services", label: "Mobile Services" },
@@ -119,6 +123,7 @@ export default function Settings() {
           {active === "modules" && <ModulesManager />}
           {active === "currencies" && <CurrencyManager />}
           {active === "users" && <UsersManager />}
+          {active === "devices" && <SignedInDevices />}
           {active === "profits" && <ProfitsPasswordPanel />}
           {active === "integrations" && <IntegrationsConfig />}
           {active === "mobile-services" && <MobileServicesManager />}

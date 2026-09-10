@@ -285,8 +285,23 @@ export function authenticateJWT(
         runWithTenant(tenantId, () => next());
       })
       .catch((error: unknown) => {
-        logger.error({ error }, "Session validation error");
-        res.status(401).json({ error: "Session validation failed" });
+        // A THROWN error means validateSession could not answer the question
+        // at all (SQLITE_BUSY from touchActivity's write, which runs on every
+        // authenticated request; a disk/I-O fault; any DatabaseError out of
+        // the repository chain) — it is not a verdict that the session is
+        // invalid. That is a different fact than the `!user` branch above,
+        // and it must produce a different status code: a 401 tells the
+        // client "this session is over," and requestJson acts on that by
+        // clearing the stored token and signing the user out. Answering 401
+        // here would sign out whoever is mid-sale because of a transient
+        // infra blip, with no way for them to tell it apart from a real
+        // expiry. 503 is the honest code — "I could not check, try again" —
+        // and requestJson only ends a session on 401, so a 503 fails this one
+        // request and leaves the token and session intact for the retry.
+        // Logged at error (not warn, like the 401 branch above) because this
+        // is a server fault to investigate, not routine session-expiry noise.
+        logger.error({ error }, "Session validation threw — could not verify session");
+        res.status(503).json({ error: "Could not validate session, please retry" });
       });
   } catch (error) {
     logger.error({ error }, "JWT verification failed");

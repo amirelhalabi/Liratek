@@ -18,6 +18,7 @@ import {
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
 import { signupLimiter, authLimiter } from "../middleware/rateLimit.js";
+import { auditRest } from "../middleware/audit.js";
 import { provisionTenantDomain } from "../services/tenantDomains.js";
 import {
   resolveTenantHost,
@@ -302,6 +303,209 @@ router.post("/logout", async (req, res): Promise<void> => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// ── Signed-in devices (SESSION_RESILIENCE_AND_DEVICES_PLAN.md Part 2) ──────
+//
+// Own-sessions-only for v1 (scope decision in the plan). Every route below:
+//   - sits behind authenticateJWT, and reads userId/the comparison token
+//     EXCLUSIVELY from req.user (set by authenticateJWT from the verified
+//     JWT/session) — never from req.body or req.params. A client has no
+//     legitimate way to name whose sessions it is listing or revoking; the
+//     only "whose" is always the caller making the request.
+//   - returns SafeSession, which NEVER carries `token` (see
+//     SessionRepository.toSafeSession) — leaking the bearer credential
+//     itself would be strictly worse than the visibility problem this
+//     solves.
+//   - audits via auditRest (req.user-sourced actor), mirroring /logout's
+//     session-ending audit shape (action + entity_type: "session"). Unlike
+//     /logout, these routes already sit behind authenticateJWT with a real
+//     req.user, so there's no need for /logout's manual JWT-decode dance.
+
+// GET /api/auth/sessions — the caller's OWN active sessions ("signed-in
+// devices" list). `is_current` is computed server-side (AuthService ->
+// SessionRepository.toSafeSession) by comparing against req.user.sessionToken
+// — the client has no token for any session but the one it's calling with,
+// so it could never compute this itself.
+router.get("/sessions", authenticateJWT, async (req, res): Promise<void> => {
+  if (!req.user) {
+    // authenticateJWT always sets req.user before calling next()
+    res
+      .status(401)
+      .json(createErrorResponse(ErrorCodes.UNAUTHORIZED, "Not authenticated"));
+    return;
+  }
+
+  try {
+    const authService = getAuthService();
+    const sessions = await authService.listUserSessions(
+      req.user.userId,
+      req.user.sessionToken,
+    );
+    res.json(createSuccessResponse(sessions));
+  } catch (error) {
+    logger.error(
+      { error, userId: req.user.userId },
+      "Failed to list sessions",
+    );
+    res
+      .status(500)
+      .json(
+        createErrorResponse(
+          ErrorCodes.INTERNAL_ERROR,
+          "Failed to list sessions",
+        ),
+      );
+  }
+});
+
+// POST /api/auth/sessions/revoke-others — "sign out everywhere else".
+//
+// A STATIC path, registered BEFORE the /:id route below (existing
+// convention — see clients.ts's /import-debts ahead of its /:id): Express
+// matches routes in registration order within the same HTTP method, and a
+// literal "revoke-others" segment must never risk being read as an :id.
+// (Here it's additionally a different HTTP method (POST vs DELETE) than the
+// :id route, so there's no real collision either way — the ordering is kept
+// anyway to match the codebase's stated convention.)
+//
+// AuthService.revokeOtherSessions is built to skip the row whose token
+// matches the caller's own (matched by TOKEN, not id) — this route never
+// tells it which session to spare, so the caller cannot lock itself out by
+// clicking this button.
+router.post(
+  "/sessions/revoke-others",
+  authenticateJWT,
+  async (req, res): Promise<void> => {
+    if (!req.user) {
+      res
+        .status(401)
+        .json(
+          createErrorResponse(ErrorCodes.UNAUTHORIZED, "Not authenticated"),
+        );
+      return;
+    }
+
+    try {
+      const authService = getAuthService();
+      const revoked = await authService.revokeOtherSessions(
+        req.user.userId,
+        req.user.sessionToken,
+      );
+
+      auditRest(req, {
+        action: "revoke_other_sessions",
+        entity_type: "session",
+        summary: `Signed out of ${revoked} other session${revoked === 1 ? "" : "s"}`,
+      });
+
+      res.json(createSuccessResponse({ revoked }));
+    } catch (error) {
+      logger.error(
+        { error, userId: req.user.userId },
+        "Failed to revoke other sessions",
+      );
+      res
+        .status(500)
+        .json(
+          createErrorResponse(
+            ErrorCodes.INTERNAL_ERROR,
+            "Failed to revoke other sessions",
+          ),
+        );
+    }
+  },
+);
+
+// DELETE /api/auth/sessions/:id — revoke ONE of the caller's own sessions
+// ("Revoke" on a single device row).
+//
+// Revocation is by id, never by token: the client has no token to send for
+// any session but its own. AuthService.revokeUserSession delegates the
+// ownership check entirely to SessionRepository.deleteByIdForUser, which
+// scopes the DELETE by id AND user_id AND tenant_id in one WHERE clause — an
+// id belonging to another user or another tenant simply doesn't match and
+// comes back `false`, the SAME outcome as an id that never existed. That is
+// deliberate: the response must never let a caller distinguish "not yours"
+// from "doesn't exist".
+//
+// No special-casing of the caller's own CURRENT session here — the plan
+// (Part 2, "scope decisions") leaves "what happens if you revoke yourself"
+// to the UI layer to decide and surface, not this route.
+router.delete(
+  "/sessions/:id",
+  authenticateJWT,
+  async (req, res): Promise<void> => {
+    if (!req.user) {
+      res
+        .status(401)
+        .json(
+          createErrorResponse(ErrorCodes.UNAUTHORIZED, "Not authenticated"),
+        );
+      return;
+    }
+
+    // Positive integer only, and strictly so: match the canonical digit
+    // string BEFORE parsing rather than trusting `Number()` + `isInteger()`
+    // on the raw param — `Number()` happily accepts "1e3" (exponential
+    // notation) and "  5" (leading whitespace) as valid integers, neither of
+    // which is a positive-integer id a URL segment should ever legitimately
+    // contain. Also rejects "0", negatives, fractions, and non-numeric input.
+    const idParam = req.params.id;
+    if (!/^[1-9]\d*$/.test(idParam)) {
+      // Handled failure, not a framework/thrown error — envelope parity
+      // (CLAUDE.md, rule 19c) says REST answers HTTP 200 with
+      // {success:false,error} so the adapter's write functions can branch on
+      // result.success the same way the IPC side does. A non-2xx here makes
+      // requestJson reject before the caller ever sees an envelope at all.
+      res.json(
+        createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid session ID"),
+      );
+      return;
+    }
+    const id = Number(idParam);
+
+    try {
+      const authService = getAuthService();
+      const revoked = await authService.revokeUserSession(
+        id,
+        req.user.userId,
+      );
+
+      if (!revoked) {
+        // Same envelope-parity reasoning as the id check above: "not found /
+        // not yours" is a handled outcome this route already deliberately
+        // makes indistinguishable (see the comment on this route above), not
+        // a thrown error — so it gets 200 + {success:false}, not 404.
+        res.json(
+          createErrorResponse(ErrorCodes.NOT_FOUND, "Session not found"),
+        );
+        return;
+      }
+
+      auditRest(req, {
+        action: "revoke_session",
+        entity_type: "session",
+        entity_id: String(id),
+        summary: `Revoked session ${id}`,
+      });
+
+      res.json(createSuccessResponse(undefined));
+    } catch (error) {
+      logger.error(
+        { error, userId: req.user.userId, sessionId: id },
+        "Failed to revoke session",
+      );
+      res
+        .status(500)
+        .json(
+          createErrorResponse(
+            ErrorCodes.INTERNAL_ERROR,
+            "Failed to revoke session",
+          ),
+        );
+    }
+  },
+);
 
 // GET /api/auth/signup-status — what a logged-OUT visitor needs to render the
 // login page for this host. (PUBLIC)
