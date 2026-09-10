@@ -6,7 +6,11 @@ import {
   getImpersonationInfo,
   type ImpersonationInfo,
 } from "@/features/admin/utils/impersonation";
-import { UNAUTHORIZED_EVENT, getToken } from "@/api/httpClient";
+import {
+  UNAUTHORIZED_EVENT,
+  SESSION_CHANGED_EVENT,
+  getToken,
+} from "@/api/httpClient";
 
 interface User {
   id: number;
@@ -156,6 +160,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
+
+  // The credential changed under a still-valid login: httpClient cleared a
+  // dead impersonation token and the ordinary login beneath it took over. Not
+  // a logout — requests are already succeeding again — but the identity this
+  // context reports may be a different user now (the impersonated admin vs.
+  // whoever actually signed in on this device), and the impersonation banner
+  // reads sessionStorage, which just emptied. Re-read /me so state agrees
+  // with the token actually in use.
+  useEffect(() => {
+    const onSessionChanged = async () => {
+      try {
+        const result = await api.me();
+        setUser(result.success && result.user ? result.user : null);
+      } catch {
+        setUser(null);
+      }
+    };
+    window.addEventListener(SESSION_CHANGED_EVENT, onSessionChanged);
+    return () =>
+      window.removeEventListener(SESSION_CHANGED_EVENT, onSessionChanged);
+  }, [api]);
 
   // The main process purges idle in-memory IPC sessions (30 min) and emits
   // "session:expired". Try a silent restore from the stored token — valid

@@ -143,7 +143,14 @@ describe("sliding JWT re-issue", () => {
     expect(res.headers[RENEWED_TOKEN_HEADER.toLowerCase()]).toBeUndefined();
   });
 
-  it("carries the impersonator claim through a renewal", async () => {
+  it("does NOT re-issue an impersonation token — they are short-lived by design", async () => {
+    // Minted with the 2h impersonation TTL, so it is always inside the 2-day
+    // renewal window: without an explicit exclusion it was re-signed on every
+    // single request with the ordinary 7-day lifetime. The previous version of
+    // this test asserted that the impersonator claim SURVIVED renewal — true
+    // as far as it went, but the right answer is that there is no renewal to
+    // survive. A token that must die within hours cannot also be one that
+    // slides for a week.
     const token = jwt.sign(
       {
         userId: USER.id,
@@ -153,7 +160,7 @@ describe("sliding JWT re-issue", () => {
         impersonatorId: 1,
       },
       SECRET,
-      { expiresIn: DAY },
+      { expiresIn: "2h" },
     );
 
     const res = await request(buildApp())
@@ -161,11 +168,6 @@ describe("sliding JWT re-issue", () => {
       .set("Authorization", `Bearer ${token}`)
       .expect(200);
 
-    const decoded = jwt.verify(
-      res.headers[RENEWED_TOKEN_HEADER.toLowerCase()],
-      SECRET,
-    ) as Record<string, unknown>;
-    // Dropping it would silently promote an impersonated session to a real one.
-    expect(decoded.impersonatorId).toBe(1);
+    expect(res.headers[RENEWED_TOKEN_HEADER.toLowerCase()]).toBeUndefined();
   });
 });

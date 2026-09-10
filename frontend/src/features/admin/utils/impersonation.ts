@@ -12,6 +12,41 @@ const TOKEN_PARAM = "impersonation_token";
 const TENANT_NAME_PARAM = "tenant_name";
 const USERNAME_PARAM = "username";
 
+/**
+ * How old a handoff token may be and still be honoured.
+ *
+ * The handoff is consumed within SECONDS of minting: the super admin's tab
+ * calls /impersonate and immediately window.open()s the URL. So a token that
+ * arrives here minutes or hours after its `iat` did not come from that click —
+ * it came from browser history, an autocompleted address bar, a restored tab
+ * or a bookmark. `replaceState` scrubs the token from the tab's own history,
+ * but the ORIGINAL navigation was already recorded in the browser's global
+ * history the instant the tab opened, and nothing client-side can remove it.
+ *
+ * Replaying it planted a long-dead token into sessionStorage, where it took
+ * precedence over a perfectly good login and 401'd every request. This is the
+ * fix at the source: a stale handoff is stripped from the URL as before, but
+ * not honoured.
+ *
+ * Fifteen minutes is generous on purpose — it is there to absorb clock skew
+ * between the server that stamped `iat` and this machine, not to define a
+ * session lifetime. The real lifetime is the server's.
+ */
+export const HANDOFF_MAX_AGE_MS = 15 * 60 * 1000;
+
+/**
+ * True when `token` was minted recently enough to be the live handoff rather
+ * than a replay. A token without a readable `iat` is refused too: every
+ * server-minted JWT carries one, so its absence means this is not one of ours
+ * — and it could not have authenticated anyway.
+ */
+export function isFreshHandoff(token: string, now: number = Date.now()): boolean {
+  const claims = decodeJwtPayload(token);
+  const iat = claims?.iat;
+  if (typeof iat !== "number") return false;
+  return now - iat * 1000 <= HANDOFF_MAX_AGE_MS;
+}
+
 export interface ImpersonationHandoff {
   token: string | null;
   tenantName: string | null;
@@ -57,11 +92,16 @@ export function bootstrapImpersonationSession(win: Window = window): boolean {
     parseImpersonationHandoff(win.location.href);
   if (!token) return false;
 
+  // Scrub the URL whether or not the token is honoured. A stale token must
+  // leave the address bar just as a live one does — leaving it there is how it
+  // gets replayed again.
+  win.history.replaceState({}, "", strippedUrl);
+
+  if (!isFreshHandoff(token)) return false;
+
   setImpersonationToken(token);
   if (tenantName) setImpersonationTenantName(tenantName);
   if (username) setImpersonationUsername(username);
-
-  win.history.replaceState({}, "", strippedUrl);
   return true;
 }
 

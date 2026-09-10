@@ -19,36 +19,61 @@ import {
   setImpersonationToken,
   getImpersonationToken,
   UNAUTHORIZED_EVENT,
+  SESSION_CHANGED_EVENT,
   type ApiError,
 } from "../httpClient";
 
-function mockFetch(status: number, body: unknown = {}) {
-  const fn = jest.fn(async () => ({
-    ok: status >= 200 && status < 300,
-    status,
-    headers: { get: () => null },
-    text: async () => JSON.stringify(body),
-  }));
+type Reply = { status: number; body?: unknown };
+
+/**
+ * Answer one response per call, in order (the last one repeats). Also records
+ * the Authorization header of every call, so a test can prove WHICH token a
+ * request — or its retry — actually went out with.
+ */
+function mockFetchSequence(...replies: Reply[]) {
+  const sent: Array<string | null> = [];
+  const fn = jest.fn(async (_url: string, init?: { headers?: Record<string, string> }) => {
+    sent.push(init?.headers?.Authorization ?? null);
+    const r = replies[Math.min(sent.length - 1, replies.length - 1)];
+    return {
+      ok: r.status >= 200 && r.status < 300,
+      status: r.status,
+      headers: { get: () => null },
+      text: async () => JSON.stringify(r.body ?? {}),
+    };
+  });
   (globalThis as unknown as { fetch: unknown }).fetch = fn;
-  return fn;
+  return { fn, sent };
+}
+
+function mockFetch(status: number, body: unknown = {}) {
+  return mockFetchSequence({ status, body }).fn;
 }
 
 describe("requestJson — 401 handling", () => {
   let fired: number;
+  let changed: number;
   let onUnauthorized: () => void;
+  let onChanged: () => void;
 
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
     fired = 0;
+    changed = 0;
     onUnauthorized = () => {
       fired += 1;
     };
+    onChanged = () => {
+      changed += 1;
+    };
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    window.addEventListener(SESSION_CHANGED_EVENT, onChanged);
   });
 
   afterEach(() => {
     window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    window.removeEventListener(SESSION_CHANGED_EVENT, onChanged);
   });
 
   it("discards the token and announces the end of the session", async () => {
@@ -124,49 +149,64 @@ describe("requestJson — 401 handling", () => {
     expect(fired).toBe(0);
   });
 
-  it("clears a dead IMPERSONATION token, which used to be unclearable", async () => {
-    // getToken() prefers the impersonation token in sessionStorage over the
-    // normal one in localStorage, but setToken(null) only cleared localStorage.
-    // So a dead impersonation token kept winning the lookup forever: logging in
-    // seemed to work (login sends no token) and then every authenticated call
-    // 401'd — and because sessionStorage survives a reload, a hard refresh did
-    // not clear it either. The tab had to be closed.
-    setToken("normal-token");
-    setImpersonationToken("dead-impersonation-token");
-    expect(getToken()).toBe("dead-impersonation-token");
+  it("a dead IMPERSONATION token falls through to the login beneath it — silently", async () => {
+    // The owner's exact report: a "Connect as admin" URL replayed out of
+    // browser history planted a long-dead impersonation token. getToken()
+    // prefers it, so every request went out with the dead credential, 401'd,
+    // and the user was thrown to the login screen — while holding a login the
+    // server would have accepted the whole time.
+    //
+    // Now: clear the dead layer, retry THIS request with the real login, and
+    // tell AuthContext the identity may have changed. No logout, no bounce.
+    setToken("real-login");
+    setImpersonationToken("dead-impersonation");
+    expect(getToken()).toBe("dead-impersonation");
 
-    mockFetch(401, { error: "Session expired" });
-    await expect(requestJson("/api/settings")).rejects.toMatchObject({
-      status: 401,
-    });
+    const { sent } = mockFetchSequence(
+      { status: 401, body: { error: "Invalid token" } },
+      { status: 200, body: { ok: true } },
+    );
 
-    // The impersonation session is gone, so the NORMAL login underneath it can
-    // finally be used again instead of being permanently shadowed.
+    await expect(requestJson("/api/settings")).resolves.toEqual({ ok: true });
+
+    // Exactly two attempts: the dead one, then the real one.
+    expect(sent).toEqual(["Bearer dead-impersonation", "Bearer real-login"]);
     expect(getImpersonationToken()).toBeNull();
-    expect(getToken()).toBe("normal-token");
-
-    // And crucially the user is NOT signed out. Only the impersonation session
-    // ended; the login underneath it is untouched and still valid, so throwing
-    // it away would log someone out of a session the server never refused.
-    // This is the half that produced "I log in, get some data, then I'm logged
-    // out": a stale impersonation token from hours earlier shadowed the fresh
-    // login, got rejected, and took the good session down with it.
+    expect(getToken()).toBe("real-login");
+    // The session did NOT end — that would have bounced the user for nothing.
     expect(fired).toBe(0);
+    // But whoever we are now may differ from whoever we were impersonating.
+    expect(changed).toBe(1);
   });
 
-  it("DOES end the session when a dead impersonation token is all there was", async () => {
-    // No normal login underneath (the tab was only ever an impersonation tab),
-    // so there is nothing left to fall back to and the UI must show the login
-    // screen. The previous test's silence must not become blanket silence.
-    setImpersonationToken("dead-impersonation-token");
-    mockFetch(401, { error: "Session expired" });
+  it("a dead IMPERSONATION token with NO login beneath it ends the session", async () => {
+    // The super admin's own tab never signed in on this origin: sessionStorage
+    // is all there was. Nothing to fall back to, so this IS a logout.
+    setImpersonationToken("dead-impersonation");
 
-    await expect(requestJson("/api/settings")).rejects.toMatchObject({
-      status: 401,
-    });
+    const { sent } = mockFetchSequence({ status: 401, body: { error: "Session expired" } });
 
+    await expect(requestJson("/api/settings")).rejects.toMatchObject({ status: 401 });
+
+    expect(sent).toEqual(["Bearer dead-impersonation"]); // no retry with nothing
+    expect(getImpersonationToken()).toBeNull();
+    expect(fired).toBe(1);
+    expect(changed).toBe(0);
+  });
+
+  it("retries at most ONCE — a login that is also dead is not retried forever", async () => {
+    setToken("also-dead-login");
+    setImpersonationToken("dead-impersonation");
+
+    const { sent } = mockFetchSequence({ status: 401, body: { error: "Session expired" } });
+
+    await expect(requestJson("/api/settings")).rejects.toMatchObject({ status: 401 });
+
+    // Dead impersonation -> retry with login -> login dead too -> stop.
+    expect(sent).toEqual(["Bearer dead-impersonation", "Bearer also-dead-login"]);
     expect(getImpersonationToken()).toBeNull();
     expect(getToken()).toBeNull();
+    expect(changed).toBe(1);
     expect(fired).toBe(1);
   });
 

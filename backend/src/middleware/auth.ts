@@ -138,6 +138,16 @@ const RENEW_WITHIN_SECONDS = 2 * 24 * 60 * 60; // 2 days of a 7-day token
 function maybeRenewToken(res: Response, payload: LiratekJwtPayload): void {
   try {
     if (!JWT_SECRET || typeof payload.exp !== "number") return;
+
+    // Impersonation tokens are NEVER renewed. They are minted short-lived and
+    // no-refresh on purpose (IMPERSONATION_TOKEN_TTL, plan §5 risk #6): a
+    // super admin's "connect as" session is meant to die on its own within
+    // hours. This check was missing, and because a 2-hour token is always
+    // inside the 2-day renewal window, EVERY impersonated request re-signed it
+    // with the ordinary 7-day lifetime — a 7-day impersonation token, which the
+    // owner then found sitting in a browser and shadowing a real login. A
+    // token that must expire quickly cannot also be one that slides.
+    if (payload.impersonatorId !== undefined) return;
     const secondsLeft = payload.exp - Math.floor(Date.now() / 1000);
     if (secondsLeft > RENEW_WITHIN_SECONDS) return;
 

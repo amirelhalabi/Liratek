@@ -19,6 +19,14 @@ export type ApiError = {
  */
 export const UNAUTHORIZED_EVENT = "liratek:unauthorized";
 
+/**
+ * Fired on `window` when the credential in use changed UNDER a still-valid
+ * login — specifically, when a dead impersonation token was cleared and the
+ * ordinary login beneath it took over. The session is not over; the identity
+ * it speaks for may have. AuthContext re-reads /me on it.
+ */
+export const SESSION_CHANGED_EVENT = "liratek:session-changed";
+
 // ── Storage keys ────────────────────────────────────────────────────────────
 // liratek.jwt          — localStorage, the normal (non-impersonation) login
 //                         session. Shared across every tab of this origin.
@@ -158,118 +166,136 @@ export async function requestJson<T>(
   const url = `${getBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
   const method = options?.method ?? "GET";
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  // One retry, in exactly one situation: a dead IMPERSONATION token was just
+  // cleared and a real login sits beneath it. See the 401 branch.
+  let retriedAfterImpersonationEnded = false;
 
-  // Remembered so a 401 can tell "the server rejected OUR credential" from
-  // "we never sent one", AND so a late 401 belonging to an OLD session cannot
-  // discard a newer one — see the !res.ok branch below.
-  let sentToken: string | null = null;
-  if (options?.auth !== false) {
-    const token = getToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-      sentToken = token;
+  for (;;) {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    // Remembered so a 401 can tell "the server rejected OUR credential" from
+    // "we never sent one", AND so a late 401 belonging to an OLD session cannot
+    // discard a newer one — see the !res.ok branch below.
+    let sentToken: string | null = null;
+    if (options?.auth !== false) {
+      const token = getToken();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+        sentToken = token;
+      }
     }
-  }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: options?.body !== undefined ? JSON.stringify(options.body) : null,
-  });
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: options?.body !== undefined ? JSON.stringify(options.body) : null,
+    });
 
-  // Sliding session: the backend re-issues a nearly-expired JWT on any
-  // authenticated request and returns it here. Swapping it in keeps an active
-  // user signed in past the token lifetime -- the DB session already slid, the
-  // JWT exp did not, so day 7 logged people out despite a healthy session.
-  //
-  // Only replaces the NORMAL login token. An impersonation session lives in
-  // sessionStorage and is per-tab on purpose; overwriting localStorage from an
-  // impersonated request would leak that session into every other tab.
-  //
-  // `headers?.` is not paranoia about the real fetch — it is about the many
-  // fetch DOUBLES this file runs against. A stub that returns
-  // `{ ok, text }` and nothing else is the normal way the dual-mode tests
-  // assert routing, and reading `.get` off it threw a TypeError that surfaced
-  // as five unrelated suites failing inside requestJson. Renewal itself is
-  // proven by backend/src/middleware/__tests__/tokenRenewal.test.ts against
-  // real headers; nothing here needs a header to be present.
-  const renewed = res.headers?.get("X-Renewed-Token");
-  if (renewed && !getImpersonationToken()) setToken(renewed);
-
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-
-  if (!res.ok) {
-    // A rejected session must END the session, not just fail one request.
+    // Sliding session: the backend re-issues a nearly-expired JWT on any
+    // authenticated request and returns it here. Swapping it in keeps an active
+    // user signed in past the token lifetime -- the DB session already slid, the
+    // JWT exp did not, so day 7 logged people out despite a healthy session.
     //
-    // Without this the app kept its `user` state after the server stopped
-    // accepting the token, so every subsequent call 401'd against a fully
-    // rendered dashboard and the login screen was never shown. Seen for real
-    // when the Reset Data feature wiped `sessions`: the token's row was gone,
-    // and the UI carried on as though signed in.
+    // Only replaces the NORMAL login token, and only while that slot still
+    // holds the token we sent. Impersonation tokens are never renewed by the
+    // server (short-lived by design), so a renewal can only ever belong to the
+    // login in localStorage; the identity check is the same stale-response
+    // guard as the 401 branch — a renewal for a session that has since been
+    // replaced must not overwrite its successor.
     //
-    // Guards, each load-bearing:
-    //   `auth !== false`      — the LOGIN request is unauthenticated; a 401
-    //                           there means a wrong password and must surface
-    //                           as such.
-    //   `sentToken`           — if no credential was sent, this 401 says
-    //                           nothing about our session, and firing on every
-    //                           anonymous call would loop.
-    //   still the same token  — THE STALE-401 RACE. A page holding a dead
-    //                           token fires a dozen dashboard requests; the
-    //                           user signs in while they are in flight; then
-    //                           those 401s land and, without this check, wipe
-    //                           the brand-new token and sign the user straight
-    //                           back out. Observed exactly that way: log in,
-    //                           reach the dashboard, immediately bounced with
-    //                           "Session expired". A 401 only condemns the
-    //                           session it was sent with.
-    // Notifying rather than redirecting keeps this file free of React and the
-    // router; AuthContext owns what "logged out" means.
+    // `headers?.` is not paranoia about the real fetch — it is about the many
+    // fetch DOUBLES this file runs against. A stub that returns
+    // `{ ok, text }` and nothing else is the normal way the dual-mode tests
+    // assert routing, and reading `.get` off it threw a TypeError that surfaced
+    // as five unrelated suites failing inside requestJson. Renewal itself is
+    // proven by backend/src/middleware/__tests__/tokenRenewal.test.ts against
+    // real headers; nothing here needs a header to be present.
+    const renewed = res.headers?.get("X-Renewed-Token");
     if (
-      res.status === 401 &&
-      options?.auth !== false &&
+      renewed &&
       sentToken &&
+      !getImpersonationToken() &&
       getToken() === sentToken
     ) {
-      // Clear WHICHEVER storage the rejected token came from.
-      //
-      // `getToken()` prefers the impersonation token in sessionStorage over the
-      // normal one in localStorage, but `setToken(null)` only ever touched
-      // localStorage. So a dead impersonation token could not be cleared by
-      // anything: it kept winning the lookup, every authenticated request kept
-      // failing, and — because sessionStorage survives a reload — a hard
-      // refresh did not help either. Logging in appeared to work (login itself
-      // sends no token) and then every single call 401'd, forever, until the
-      // TAB was closed.
-      let sessionOver = true;
-      if (getImpersonationToken() === sentToken) {
-        clearImpersonationSession();
-        // An expired IMPERSONATION session is not necessarily the end of the
-        // user's session. If a normal login survives underneath it in
-        // localStorage, that login is still perfectly good and must be allowed
-        // to take over -- signing out here threw away a valid session because
-        // a DIFFERENT, stale one had been shadowing it. That is what made the
-        // symptom look like "I log in, get some data, then I'm logged out".
-        sessionOver = getToken() === null;
-      } else {
-        setToken(null);
-      }
-      if (sessionOver && typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
-      }
+      setToken(renewed);
     }
 
-    const err: ApiError = {
-      status: res.status,
-      message: data?.error || data?.message || `Request failed (${res.status})`,
-      details: data,
-    };
-    throw err;
-  }
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
 
-  return data as T;
+    if (!res.ok) {
+      // A rejected session must END the session, not just fail one request.
+      //
+      // Without this the app kept its `user` state after the server stopped
+      // accepting the token, so every subsequent call 401'd against a fully
+      // rendered dashboard and the login screen was never shown. Seen for real
+      // when the Reset Data feature wiped `sessions`: the token's row was gone,
+      // and the UI carried on as though signed in.
+      //
+      // Guards, each load-bearing:
+      //   `auth !== false`      — the LOGIN request is unauthenticated; a 401
+      //                           there means a wrong password and must surface
+      //                           as such.
+      //   `sentToken`           — if no credential was sent, this 401 says
+      //                           nothing about our session, and firing on every
+      //                           anonymous call would loop.
+      //   still the same token  — THE STALE-401 RACE. A page holding a dead
+      //                           token fires a dozen dashboard requests; the
+      //                           user signs in while they are in flight; then
+      //                           those 401s land and, without this check, wipe
+      //                           the brand-new token and sign the user straight
+      //                           back out. Observed exactly that way: log in,
+      //                           reach the dashboard, immediately bounced with
+      //                           "Session expired". A 401 only condemns the
+      //                           session it was sent with.
+      // Notifying rather than redirecting keeps this file free of React and the
+      // router; AuthContext owns what "logged out" means.
+      if (
+        res.status === 401 &&
+        options?.auth !== false &&
+        sentToken &&
+        getToken() === sentToken
+      ) {
+        if (getImpersonationToken() === sentToken) {
+          // The IMPERSONATION layer died — not necessarily the login under it.
+          //
+          // `getToken()` prefers the impersonation token in sessionStorage over
+          // the login in localStorage, so a dead one shadowed a perfectly valid
+          // login: every request went out with the dead credential, 401'd, and
+          // the user was thrown to the login screen — while holding a token the
+          // server would have accepted. Seen live, repeatedly, from a stale
+          // handoff replayed out of browser history.
+          //
+          // So: clear the dead layer, and if a login remains, retry THIS request
+          // with it once, silently. Safe to retry because the server rejected
+          // the request at authentication — nothing ran, so nothing can double.
+          // Only when no login remains is the session actually over.
+          clearImpersonationSession();
+          if (getToken() && !retriedAfterImpersonationEnded) {
+            retriedAfterImpersonationEnded = true;
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent(SESSION_CHANGED_EVENT));
+            }
+            continue;
+          }
+        } else {
+          setToken(null);
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+        }
+      }
+
+      const err: ApiError = {
+        status: res.status,
+        message: data?.error || data?.message || `Request failed (${res.status})`,
+        details: data,
+      };
+      throw err;
+    }
+
+    return data as T;
+  }
 }
