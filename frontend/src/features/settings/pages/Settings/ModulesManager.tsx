@@ -11,6 +11,11 @@ import { appEvents, useApi, DecimalInput } from "@liratek/ui";
 import PaymentMethodsManager from "./PaymentMethodsManager";
 import ServiceProvidersManager from "./ServiceProvidersManager";
 import { ExportBar } from "@liratek/ui";
+import {
+  RECHARGE_MODULE_KEYS,
+  moduleOwningDrawer,
+  drawersOwnedByModule,
+} from "@liratek/core";
 
 interface ModuleRow {
   key: string;
@@ -24,23 +29,28 @@ interface ModuleRow {
   enabledCurrencies?: string[];
 }
 
-/** Each recharge provider with its drawer name and parent module */
-const RECHARGE_PROVIDERS = [
-  { key: "MTC", label: "MTC", drawer: "MTC", module: "recharge" },
-  { key: "Alfa", label: "Alfa", drawer: "Alfa", module: "recharge" },
-  { key: "iPick", label: "iPick", drawer: "iPick", module: "ipec_katch" },
-  { key: "Katsh", label: "Katsh", drawer: "Katsh", module: "ipec_katch" },
-  {
-    key: "WHISH_APP",
-    label: "Whish App",
-    drawer: "Whish_App",
-    module: "ipec_katch",
-  },
-  { key: "OMT_APP", label: "OMT App", drawer: "OMT_App", module: "ipec_katch" },
-  { key: "BINANCE", label: "Binance", drawer: "Binance", module: "binance" },
-] as const;
-
-const RECHARGE_MODULE_KEYS = ["recharge", "ipec_katch", "binance"];
+/**
+ * Provider wallets with their drawer name and owning module.
+ *
+ * `module` is no longer written here — it is read from DRAWER_MODULE_OWNER,
+ * the one table that says which module owns which drawer. This list used to
+ * declare its own, and said Whish App and OMT App belonged to `ipec_katch`,
+ * so the Settings table told the operator that the iPick/Katsh module owned
+ * the OMT and Whish drawers. It doesn't; `omt_whish` does.
+ *
+ * OMT_System/Whish_System are absent on purpose and always were: they are
+ * physical counter cash, not provider wallets — which is exactly why gating
+ * them on a provider module elsewhere was wrong.
+ */
+const PROVIDER_DRAWERS = [
+  { key: "MTC", label: "MTC", drawer: "MTC" },
+  { key: "Alfa", label: "Alfa", drawer: "Alfa" },
+  { key: "iPick", label: "iPick", drawer: "iPick" },
+  { key: "Katsh", label: "Katsh", drawer: "Katsh" },
+  { key: "WHISH_APP", label: "Whish App", drawer: "Whish_App" },
+  { key: "OMT_APP", label: "OMT App", drawer: "OMT_App" },
+  { key: "BINANCE", label: "Binance", drawer: "Binance" },
+].map((p) => ({ ...p, module: moduleOwningDrawer(p.drawer) ?? "" }));
 
 interface ProviderCurrencyRow {
   key: string;
@@ -92,7 +102,7 @@ export default function ModulesManager() {
 
       // For recharge providers, fetch currencies per drawer
       const provRows = await Promise.all(
-        RECHARGE_PROVIDERS.map(async (p) => ({
+        PROVIDER_DRAWERS.map(async (p) => ({
           key: p.key,
           label: p.label,
           drawer: p.drawer,
@@ -188,7 +198,7 @@ export default function ModulesManager() {
 
   // ── Render helpers ──
 
-  const rechargeModuleKeys = RECHARGE_MODULE_KEYS;
+  const rechargeModuleKeys = RECHARGE_MODULE_KEYS as readonly string[];
 
   // Find the position of the first recharge module to use as the "Mobile Recharge" group position
   const firstRechargeIdx = modules.findIndex((m) =>
@@ -359,7 +369,17 @@ export default function ModulesManager() {
             ⠿
           </span>
         </td>
-        <td className="py-2 px-3 text-white font-medium">{m.label}</td>
+        <td className="py-2 px-3 text-white font-medium">
+          {m.label}
+          {/* Now that a drawer's owner is read from one table, a module can
+              state which drawers it owns instead of the operator inferring it
+              from a group it was never really part of. */}
+          {drawersOwnedByModule(m.key).length > 0 && (
+            <span className="block text-xs font-normal text-slate-500">
+              Drawers: {drawersOwnedByModule(m.key).join(", ")}
+            </span>
+          )}
+        </td>
         <td className="py-2 px-3 text-slate-400 font-mono text-xs">
           {m.route || "—"}
         </td>
@@ -545,7 +565,7 @@ export default function ModulesManager() {
                   </tr>,
                   // Sub-rows for each recharge module (always visible, not draggable)
                   ...rechargeModules.map((m) => {
-                    const providers = RECHARGE_PROVIDERS.filter(
+                    const providers = PROVIDER_DRAWERS.filter(
                       (p) => p.module === m.key,
                     );
                     const prov = providerCurrencies.filter(

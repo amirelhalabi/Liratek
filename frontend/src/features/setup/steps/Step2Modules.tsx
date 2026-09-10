@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSetup } from "../context/SetupContext";
 import { useApi } from "@liratek/ui";
 import { Lock } from "lucide-react";
+import { isRechargeModuleKey } from "@liratek/core";
 
 interface ModuleRow {
   key: string;
@@ -17,7 +18,7 @@ interface PaymentMethodRow {
 
 const MANDATORY_MODULES = new Set(["pos", "inventory"]);
 const MANDATORY_PMS = new Set(["CASH"]);
-const RECHARGE_MODULE_KEYS = new Set(["recharge", "ipec_katch", "binance"]);
+
 
 function Toggle({
   checked,
@@ -136,7 +137,7 @@ export default function Step2Modules() {
         <h3 className="text-sm font-semibold text-slate-300 mb-3">Modules</h3>
         {/* Non-recharge modules */}
         {modules
-          .filter((m) => !RECHARGE_MODULE_KEYS.has(m.key))
+          .filter((m) => !isRechargeModuleKey(m.key))
           .map((m) => {
             const mandatory = MANDATORY_MODULES.has(m.key);
             const enabled =
@@ -167,7 +168,7 @@ export default function Step2Modules() {
             Recharge Providers
           </p>
           {modules
-            .filter((m) => RECHARGE_MODULE_KEYS.has(m.key))
+            .filter((m) => isRechargeModuleKey(m.key))
             .map((m) => {
               const enabled = payload.enabled_modules.includes(m.key);
               return (

@@ -4,6 +4,7 @@ import { DecimalInput, useApi } from "@liratek/ui";
 import { useSetup } from "../context/SetupContext";
 import { DRAWER_ORDER, DRAWER_CONFIGS } from "../../closing/config/drawers";
 import type { DrawerType } from "../../closing/types";
+import { isDrawerVisible } from "@liratek/core";
 
 // Carrier-line UI slots (LIRA carrier-lines-validity Phase 2, §0.1/§0.5). One
 // slot per carrier — no per-carrier module exists, both map to `recharge`
@@ -35,19 +36,6 @@ interface CurrencyOption {
   name: string;
   is_active: number;
 }
-
-// Module required to show each drawer
-const DRAWER_MODULE_REQUIREMENT: Record<string, string> = {
-  OMT_System: "ipec_katch",
-  OMT_App: "ipec_katch",
-  Whish_App: "ipec_katch",
-  Whish_System: "ipec_katch",
-  Binance: "binance",
-  MTC: "recharge",
-  Alfa: "recharge",
-  iPick: "ipec_katch",
-  Katsh: "ipec_katch",
-};
 
 const DRAWER_ACCENT: Record<string, string> = {
   General: "blue",
@@ -93,10 +81,14 @@ export default function StepDrawerAmounts() {
 
   const enabledModules = payload.enabled_modules;
 
-  const visibleDrawers = DRAWER_ORDER.filter((name) => {
-    const required = DRAWER_MODULE_REQUIREMENT[name];
-    return !required || enabledModules.includes(required);
-  });
+  // Shared with the dashboard and the in-app opening-balance modal. The local
+  // copy this replaces gated OMT_System/Whish_System on `ipec_katch`, so a
+  // shop with iPick/Katsh off was never asked to count the banknotes in its
+  // money-transfer drawer -- no opening balance, no starting checkpoint, and
+  // nothing for closing to reconcile against.
+  const visibleDrawers = DRAWER_ORDER.filter((name) =>
+    isDrawerVisible(name, (key) => enabledModules.includes(key)),
+  );
 
   useEffect(() => {
     api

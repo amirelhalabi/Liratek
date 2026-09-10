@@ -126,3 +126,5 @@ export * from "./config/env.js";
 // entry points: the frontend hides non-entitled modules and must apply the
 // same ungateable rule the backend enforces, rather than keeping a copy.
 export * from "./constants/subscription.js";
+
+export * from "./constants/drawerModules.js";

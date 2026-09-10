@@ -30,6 +30,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { useSidebarFavorites } from "@/shared/hooks/useSidebarFavorites";
+import { isRechargeModuleKey } from "@liratek/core";
 
 const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -201,7 +202,7 @@ function routeToKey(route: string): string {
   return route.replace(/^\//, "").replace(/-/g, "_") || "dashboard";
 }
 
-const CONSOLIDATED_KEYS = new Set(["recharge", "ipec_katch", "binance"]);
+
 
 /** Map column count to Tailwind grid class */
 const colsClass: Record<number, string> = {
@@ -254,7 +255,7 @@ export default function HomeGrid() {
       // Skip dashboard (already added)
       if (m.key === "dashboard") continue;
 
-      if (CONSOLIDATED_KEYS.has(m.key)) {
+      if (isRechargeModuleKey(m.key)) {
         if (!consolidatedInserted) {
           consolidatedInserted = true;
           items.push({

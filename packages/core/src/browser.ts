@@ -51,6 +51,12 @@ export * from "./utils/phoneNumber.js";
 // systemFloatDrawers.ts's own doc comment calls it the single definition).
 export * from "./constants/systemFloatDrawers.js";
 
+// Which module owns which drawer, and which drawers no module may hide
+// (rule 14: this was four divergent copies, two of them gating whether
+// physical till cash got counted). Pure data + predicates, no Node deps, and
+// the frontend is the main consumer -- so it belongs in BOTH entry points.
+export * from "./constants/drawerModules.js";
+
 // Drawer currency policy (UNRESTRICTED_DRAWERS / isUnrestrictedDrawer) — pure
 // `as const` tuple + one pure predicate, no Node.js deps. Settings →
 // CurrencyManager imports `isUnrestrictedDrawer` to omit the General drawer

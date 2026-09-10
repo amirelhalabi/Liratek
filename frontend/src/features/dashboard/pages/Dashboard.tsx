@@ -44,6 +44,7 @@ import {
   computeCarrierLineAlerts,
   carrierLineAlertText,
 } from "../utils/carrierLineAlerts";
+import { isDrawerVisible } from "@liratek/core";
 
 const DashboardChart = lazyWithReload(
   () => import("../components/DashboardChart"),
@@ -609,20 +610,6 @@ export default function Dashboard() {
       : []),
   ];
 
-  // Map drawer names to required module keys so we can hide drawers
-  // for disabled payment methods / modules
-  const drawerModuleMap: Record<string, () => boolean> = {
-    OMT_App: () => isModuleEnabled("ipec_katch"),
-    OMT_System: () => isModuleEnabled("ipec_katch"),
-    Whish_App: () => isModuleEnabled("ipec_katch"),
-    Whish_System: () => isModuleEnabled("ipec_katch"),
-    Binance: () => isModuleEnabled("binance"),
-    MTC: () => isModuleEnabled("recharge"),
-    Alfa: () => isModuleEnabled("recharge"),
-    iPick: () => isModuleEnabled("ipec_katch"),
-    Katsh: () => isModuleEnabled("ipec_katch"),
-  };
-
   const DRAWER_COLORS: Record<
     string,
     {
@@ -771,12 +758,14 @@ export default function Dashboard() {
     hoverShadow: "hover:shadow-slate-500/20 hover:border-slate-500/50",
   };
 
-  // Drawer Balances (Row 2) — dynamic from drawer_balances table
-  // Filter out drawers whose associated module/PM is disabled
-  const drawerEntries = Object.entries(drawerBalances).filter(([name]) => {
-    const check = drawerModuleMap[name];
-    return !check || check(); // show if no restriction, or if module is enabled
-  });
+  // Drawer Balances (Row 2) — dynamic from drawer_balances table.
+  // Hide drawers whose owning module is off; never hide till cash. The local
+  // map this replaces claimed OMT/Whish belonged to `ipec_katch`, so those
+  // four cards vanished for every tenant with iPick/Katsh disabled even
+  // though the OMT/Whish module itself was enabled.
+  const drawerEntries = Object.entries(drawerBalances).filter(([name]) =>
+    isDrawerVisible(name, isModuleEnabled),
+  );
   const drawerCards = drawerEntries.map(([name, currencies]) => {
     // Show all currencies with a non-zero balance, or all if all are zero
     const nonZero = Object.fromEntries(

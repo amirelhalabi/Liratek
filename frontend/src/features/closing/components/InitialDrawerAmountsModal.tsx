@@ -6,19 +6,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { DRAWER_ORDER, DRAWER_CONFIGS } from "../config/drawers";
-
-// Module required to show each drawer (mirrors Dashboard drawerModuleMap)
-const DRAWER_MODULE_REQUIREMENT: Record<string, string> = {
-  OMT_System: "ipec_katch",
-  OMT_App: "ipec_katch",
-  Whish_App: "ipec_katch",
-  Whish_System: "ipec_katch",
-  Binance: "binance",
-  MTC: "recharge",
-  Alfa: "recharge",
-  iPick: "ipec_katch",
-  Katsh: "ipec_katch",
-};
+import { isDrawerVisible } from "@liratek/core";
 
 // Tailwind accent colors for each drawer
 const DRAWER_ACCENT: Record<string, string> = {
@@ -68,11 +56,12 @@ export function InitialDrawerAmountsModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Which drawers to show, filtered by enabled modules
-  const visibleDrawers = DRAWER_ORDER.filter((name) => {
-    const required = DRAWER_MODULE_REQUIREMENT[name];
-    return !required || isModuleEnabled(required);
-  });
+  // Which drawers to offer for counting. The comment on the local copy this
+  // replaces said it "mirrors Dashboard drawerModuleMap" -- it did, including
+  // the bug, which is why the mapping now lives in ONE place.
+  const visibleDrawers = DRAWER_ORDER.filter((name) =>
+    isDrawerVisible(name, isModuleEnabled),
+  );
 
   // Load the countable currencies per drawer (base allowlist ∪ any currency
   // holding a non-zero balance there — GENERAL_DRAWER_UNRESTRICTED.md D2/D5)
