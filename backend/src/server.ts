@@ -71,8 +71,25 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body size limit. Express's default is 100 kB, which is far too small for
+// this app and silently broke two real features on the web build:
+//
+//   - the Excel debt import (POST /api/clients/import-debts) posts the parsed
+//     rows as JSON; a routine shop's client list came to 583 kB and was
+//     rejected before the route ever ran;
+//   - the receipt logo is stored as a base64 data URL in a setting, so any
+//     photo-sized image blows the same limit on save.
+//
+// Desktop never hit either, because IPC has no such limit — which is exactly
+// how it stayed unnoticed until the web build.
+//
+// 10 MB is chosen to clear both with room to spare while still being a real
+// ceiling. This parser runs BEFORE authentication (it is app-level), so the
+// limit is also what bounds an unauthenticated POST; apiLimiter caps the rate
+// on top of that.
+const BODY_SIZE_LIMIT = "10mb";
+app.use(express.json({ limit: BODY_SIZE_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: BODY_SIZE_LIMIT }));
 
 // Request logging with correlation IDs
 import { requestLogger } from "./middleware/requestLogger.js";
@@ -226,13 +243,35 @@ io.on("connection", (socket) => {
 });
 
 // Error handling
+//
+// Honours the status an error already carries instead of flattening
+// everything to 500. body-parser and friends throw errors with a `status` and
+// `expose: true`, meaning "this is the caller's fault and the message is safe
+// to show them" — a 413 from an oversized upload is the caller's problem, not
+// a server fault, and reporting it as "Internal server error" sent the owner
+// looking for a backend bug that did not exist. The real answer was that the
+// file was bigger than the body limit, which the client can act on.
+//
+// Anything WITHOUT an exposed 4xx status is still a genuine server fault: it
+// keeps the generic 500 and the message stays hidden, because an unexpected
+// stack can carry table names, paths and query fragments.
 app.use(
   (
-    err: Error,
+    err: Error & { status?: number; statusCode?: number; expose?: boolean },
     _req: express.Request,
     res: express.Response,
     _next: express.NextFunction,
   ) => {
+    const status = err.status ?? err.statusCode;
+    const isClientFault =
+      typeof status === "number" && status >= 400 && status < 500;
+
+    if (isClientFault && err.expose) {
+      logger.warn({ err, status }, "Request rejected");
+      res.status(status).json({ error: err.message });
+      return;
+    }
+
     logger.error({ err }, "Unhandled error");
     res.status(500).json({ error: "Internal server error" });
   },
