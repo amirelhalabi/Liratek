@@ -56,11 +56,27 @@ const mockUpdateMobileServiceItem = jest.fn();
 const mockCreateMobileServiceItem = jest.fn();
 const mockGetAdminMobileServiceItems = jest.fn();
 const mockGetAllSettings = jest.fn();
+// The window.api.* migration (see MobileServicesManager.tsx's load()
+// comment) moved count/seed onto this adapter too — load() calls
+// countMobileServiceItems() BEFORE getAdminMobileServiceItems(), so a mock
+// missing it throws inside load()'s try/catch and every fixture below (all
+// three items) would silently never reach the screen. Non-zero `data` keeps
+// the auto-seed-when-empty branch from firing, which would call
+// seedMobileServiceItems with parseCatalogToSeedData() output and replace
+// these three hand-built fixtures with the real catalog.
+const mockCountMobileServiceItems = jest.fn();
+const mockSeedMobileServiceItems = jest.fn();
+const mockDeleteMobileServiceItem = jest.fn();
+const mockToggleActiveMobileServiceItem = jest.fn();
 const mockApi = {
   getAdminMobileServiceItems: mockGetAdminMobileServiceItems,
   updateMobileServiceItem: mockUpdateMobileServiceItem,
   createMobileServiceItem: mockCreateMobileServiceItem,
   getAllSettings: mockGetAllSettings,
+  countMobileServiceItems: mockCountMobileServiceItems,
+  seedMobileServiceItems: mockSeedMobileServiceItems,
+  deleteMobileServiceItem: mockDeleteMobileServiceItem,
+  toggleActiveMobileServiceItem: mockToggleActiveMobileServiceItem,
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -164,6 +180,17 @@ describe("MobileServicesManager — Ticket B guard", () => {
       data: ITEM_SPLIT_WITH_PRICE,
     });
     mockGetAllSettings.mockReset().mockResolvedValue([]);
+    // Non-zero so load() skips the seed branch and keeps the 3 fixtures above.
+    mockCountMobileServiceItems
+      .mockReset()
+      .mockResolvedValue({ success: true, data: 3 });
+    mockSeedMobileServiceItems.mockReset().mockResolvedValue({ success: true });
+    mockDeleteMobileServiceItem
+      .mockReset()
+      .mockResolvedValue({ success: true });
+    mockToggleActiveMobileServiceItem
+      .mockReset()
+      .mockResolvedValue({ success: true });
     setupWindowApi();
   });
 

@@ -13,12 +13,15 @@ const router = express.Router();
 
 // Mobile Service Items (dynamic catalog). LIRA W6.b scoped this route to
 // ONLY the ops the Settings manager's editable validity-days/credits fields
-// exercise: admin listing + update. create/delete/toggle/public-list remain
-// desktop-IPC-only (pre-existing gap predating this ticket — see the W6
-// report) — retrofitting the full CRUD surface to REST is a separate, larger
-// effort. count/seed WERE added here (below) because the "Reset Data"
-// feature wipes this table and relies on a re-seed on next load — a gap that
-// on the web transport had NO recovery path at all (rule 19b).
+// exercise: admin listing + update; count/seed were added next (the "Reset
+// Data" feature wipes this table and relies on a re-seed on next load — a
+// gap the web transport had NO recovery path for at all, rule 19b), then
+// create. delete + toggle-active are the last two ops — the Settings
+// catalog manager (`MobileServicesManager.tsx`) called
+// `window.api.mobileServiceItems.delete/toggleActive` directly, which is
+// `undefined` in a browser and made the WHOLE panel report "Failed to load"
+// (the `count()` call above it threw first, during `load()`). Every op the
+// manager needs is now mirrored here — no gap left in this feature.
 router.use(authenticateJWT);
 
 // GET /api/mobile-service-items — all active items (public catalog read).
@@ -73,7 +76,13 @@ router.post("/", requireRole(["admin"]), (req, res): void => {
         summary: `Created mobile service item: ${parsed.data.label} (${parsed.data.provider})`,
       });
     }
-    res.status(result.success ? 201 : 400).json(result);
+    // Rule 19c envelope parity: a business-rule failure from the service
+    // (e.g. duplicate label) is a HANDLED failure, not a malformed request —
+    // it must stay HTTP 2xx so requestJson() resolves to {success:false}
+    // instead of throwing (same fix as this file's toggle-active/delete
+    // routes below). 201 is kept on success only because it's still a 2xx
+    // `res.ok` status that requestJson() never distinguishes from 200.
+    res.status(result.success ? 201 : 200).json(result);
   } catch (error) {
     logger.error({ error }, "Create mobile service item error");
     res.status(500).json({ success: false, error: "Failed to create item" });
@@ -182,10 +191,102 @@ router.put("/:id", requireRole(["admin"]), (req, res): void => {
         summary: `Updated mobile service item #${id}`,
       });
     }
-    res.status(result.success ? 200 : 400).json(result);
+    // Rule 19c envelope parity: a business-rule failure from the service
+    // (e.g. "Item not found") is a HANDLED failure — HTTP 200 always, so
+    // requestJson() resolves to {success:false} instead of throwing.
+    res.status(200).json(result);
   } catch (error) {
     logger.error({ error }, "Update mobile service item error");
     res.status(500).json({ success: false, error: "Failed to update" });
+  }
+});
+
+// PUT /api/mobile-service-items/:id/toggle-active (admin) — flips is_active.
+// Mirrors the IPC `mobile-service-items:toggle-active` handler: same role,
+// same service call, no request body (nothing to validate). Static-ish path
+// (`/:id/toggle-active`, two segments) never collides with `/:id` (one
+// segment) or `/:id`'s PUT above regardless of declaration order, but it's
+// placed right after PUT /:id for readability.
+router.put(
+  "/:id/toggle-active",
+  requireRole(["admin"]),
+  (req, res): void => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ success: false, error: "Invalid id" });
+      return;
+    }
+    try {
+      const service = getMobileServiceItemService();
+      const result = service.toggleActive(id);
+      if (result.success) {
+        // Mirrors mobileServiceItemHandlers.ts's
+        // mobile-service-items:toggle-active audit (toggle/mobile_service_item)
+        // action/entity, but NOT its unconditional call site: the IPC handler
+        // calls `audit(...)` even when `result.success` is false, logging a
+        // "Toggled #N" row for a toggle that never happened. `auditRest`'s own
+        // contract (audit.ts) is explicit that callers gate on
+        // `result.success` first — a failed toggle is not an action taken, so
+        // it is not worth an audit row. This is a deliberate REST/IPC
+        // divergence (the IPC side's unconditional audit is the one out of
+        // step with the documented contract), not an oversight.
+        auditRest(req, {
+          action: "toggle",
+          entity_type: "mobile_service_item",
+          entity_id: String(id),
+          summary: `Toggled mobile service item #${id}`,
+        });
+      }
+      // Rule 19c envelope parity: a business-rule failure from the service
+      // (e.g. "Item not found") is a HANDLED failure — HTTP 200 always, so
+      // requestJson() resolves to {success:false} instead of throwing an
+      // ApiError the adapter's caller never expects.
+      res.status(200).json(result);
+    } catch (error) {
+      logger.error({ error }, "Toggle mobile service item error");
+      res.status(500).json({ success: false, error: "Failed to toggle item" });
+    }
+  },
+);
+
+// DELETE /api/mobile-service-items/:id (admin) — hard delete. Mirrors the
+// IPC `mobile-service-items:delete` handler: same role, same service call.
+router.delete("/:id", requireRole(["admin"]), (req, res): void => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ success: false, error: "Invalid id" });
+    return;
+  }
+  try {
+    const service = getMobileServiceItemService();
+    const result = service.deleteItem(id);
+    if (result.success) {
+      // Mirrors mobileServiceItemHandlers.ts's mobile-service-items:delete
+      // audit (delete/mobile_service_item) action/entity, but NOT its
+      // unconditional call site: the IPC handler calls `audit(...)` even
+      // when `result.success` is false, logging a "Deleted #N" row for an
+      // item that was never deleted. `auditRest`'s own contract (audit.ts)
+      // is explicit that callers gate on `result.success` first — a failed
+      // delete is not an action taken, so it is not worth an audit row (and
+      // would actively mislead anyone reading the audit log later). This is
+      // a deliberate REST/IPC divergence (the IPC side's unconditional audit
+      // is the one out of step with the documented contract), not an
+      // oversight.
+      auditRest(req, {
+        action: "delete",
+        entity_type: "mobile_service_item",
+        entity_id: String(id),
+        summary: `Deleted mobile service item #${id}`,
+      });
+    }
+    // Rule 19c envelope parity: a business-rule failure from the service
+    // (e.g. "Item not found") is a HANDLED failure — HTTP 200 always, so
+    // requestJson() resolves to {success:false} instead of throwing an
+    // ApiError the adapter's caller never expects.
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error({ error }, "Delete mobile service item error");
+    res.status(500).json({ success: false, error: "Failed to delete item" });
   }
 });
 

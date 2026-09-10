@@ -1539,6 +1539,17 @@ export type ApiAdapter = {
     data?: MobileServiceItemEntity;
     error?: string;
   }>;
+  /** Flip a catalog item's `is_active` flag (admin only). */
+  toggleActiveMobileServiceItem: (id: number) => Promise<{
+    success: boolean;
+    data?: MobileServiceItemEntity;
+    error?: string;
+  }>;
+  /** Hard-delete a catalog item (admin only). */
+  deleteMobileServiceItem: (id: number) => Promise<{
+    success: boolean;
+    error?: string;
+  }>;
   /** LIRA-090 §5.2: charge a telecom catalog item to the shop's own carrier
    *  line. No customer is debited; debits the iPick/Katsh LBP drawer.
    *  Admin or staff only. */

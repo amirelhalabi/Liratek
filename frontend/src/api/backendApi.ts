@@ -6305,6 +6305,44 @@ export async function updateMobileServiceItem(
   );
 }
 
+/**
+ * Flip a catalog item's `is_active` flag. Mirrors the IPC
+ * `mobile-service-items:toggle-active` handler (admin only).
+ */
+export async function toggleActiveMobileServiceItem(id: number): Promise<{
+  success: boolean;
+  data?: MobileServiceItemEntity;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().mobileServiceItems.toggleActive(id),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: MobileServiceItemEntity;
+        error?: string;
+      }>(`/api/mobile-service-items/${id}/toggle-active`, { method: "PUT" }),
+  );
+}
+
+/**
+ * Hard-delete a catalog item. Mirrors the IPC `mobile-service-items:delete`
+ * handler (admin only).
+ */
+export async function deleteMobileServiceItem(id: number): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().mobileServiceItems.delete(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/mobile-service-items/${id}`,
+        { method: "DELETE" },
+      ),
+  );
+}
+
 /** LIRA-090: get the current primary line for a carrier.
  *  Returns success:false (not an error) when no primary is configured.
  *  Read-only, no role gate. */

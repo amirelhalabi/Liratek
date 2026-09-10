@@ -12,12 +12,30 @@ import type { MobileServiceItem } from "@/types/electron";
 
 const mockGetAdminMobileServiceItems = jest.fn();
 const mockUpdateMobileServiceItem = jest.fn();
+// load() (see MobileServicesManager.tsx) calls countMobileServiceItems()
+// BEFORE getAdminMobileServiceItems() and swallows any thrown error into
+// "Failed to load" — a mockApi missing it throws synchronously (undefined is
+// not a function) and the list never renders. Non-zero `data` also keeps the
+// auto-seed-when-empty branch from firing and replacing ITEM below with the
+// real seeded catalog via seedMobileServiceItems.
+const mockCountMobileServiceItems = jest.fn();
+const mockSeedMobileServiceItems = jest.fn();
+const mockGetAllSettings = jest.fn();
+const mockCreateMobileServiceItem = jest.fn();
+const mockDeleteMobileServiceItem = jest.fn();
+const mockToggleActiveMobileServiceItem = jest.fn();
 // A STABLE object reference — MobileServicesManager's load() is a
 // useCallback depending on [api]; a factory returning a fresh object
 // literal per useApi() call would re-trigger the load effect every render.
 const mockApi = {
   getAdminMobileServiceItems: mockGetAdminMobileServiceItems,
   updateMobileServiceItem: mockUpdateMobileServiceItem,
+  countMobileServiceItems: mockCountMobileServiceItems,
+  seedMobileServiceItems: mockSeedMobileServiceItems,
+  getAllSettings: mockGetAllSettings,
+  createMobileServiceItem: mockCreateMobileServiceItem,
+  deleteMobileServiceItem: mockDeleteMobileServiceItem,
+  toggleActiveMobileServiceItem: mockToggleActiveMobileServiceItem,
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -61,6 +79,21 @@ describe("MobileServicesManager — validity/credits (LIRA W6.b)", () => {
       success: true,
       data: { ...ITEM, validity_days: 15 },
     });
+    // Non-zero so load() skips the seed branch and keeps the 1-item fixture.
+    mockCountMobileServiceItems
+      .mockReset()
+      .mockResolvedValue({ success: true, data: 1 });
+    mockSeedMobileServiceItems.mockReset().mockResolvedValue({ success: true });
+    mockGetAllSettings.mockReset().mockResolvedValue([]);
+    mockCreateMobileServiceItem
+      .mockReset()
+      .mockResolvedValue({ success: true, data: ITEM });
+    mockDeleteMobileServiceItem
+      .mockReset()
+      .mockResolvedValue({ success: true });
+    mockToggleActiveMobileServiceItem
+      .mockReset()
+      .mockResolvedValue({ success: true });
 
     (window as any).api = {
       mobileServiceItems: {

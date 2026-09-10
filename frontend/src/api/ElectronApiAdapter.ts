@@ -577,6 +577,9 @@ export class ElectronApiAdapter implements ApiAdapter {
       max_returned_credits_usd?: number | null;
     },
   ) => api.updateMobileServiceItem(id, data);
+  toggleActiveMobileServiceItem = (id: number) =>
+    api.toggleActiveMobileServiceItem(id);
+  deleteMobileServiceItem = (id: number) => api.deleteMobileServiceItem(id);
 
   // ---------------------------------------------------------------------------
   // Currency–Module & Currency–Drawer mapping

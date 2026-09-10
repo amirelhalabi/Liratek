@@ -39,10 +39,26 @@ jest.mock("@liratek/core", () => jest.requireActual("@liratek/core"));
 const mockUpdateMobileServiceItem = jest.fn();
 const mockCreateMobileServiceItem = jest.fn();
 const mockGetAdminMobileServiceItems = jest.fn();
+// load() (see MobileServicesManager.tsx) calls countMobileServiceItems()
+// BEFORE getAdminMobileServiceItems() and swallows any thrown error into
+// "Failed to load" — a mockApi missing it throws synchronously (undefined is
+// not a function) and neither fixture below would ever reach the screen.
+// Non-zero `data` also keeps the auto-seed-when-empty branch from firing and
+// replacing these two hand-built fixtures with the real seeded catalog.
+const mockCountMobileServiceItems = jest.fn();
+const mockSeedMobileServiceItems = jest.fn();
+const mockGetAllSettings = jest.fn();
+const mockDeleteMobileServiceItem = jest.fn();
+const mockToggleActiveMobileServiceItem = jest.fn();
 const mockApi = {
   getAdminMobileServiceItems: mockGetAdminMobileServiceItems,
   updateMobileServiceItem: mockUpdateMobileServiceItem,
   createMobileServiceItem: mockCreateMobileServiceItem,
+  countMobileServiceItems: mockCountMobileServiceItems,
+  seedMobileServiceItems: mockSeedMobileServiceItems,
+  getAllSettings: mockGetAllSettings,
+  deleteMobileServiceItem: mockDeleteMobileServiceItem,
+  toggleActiveMobileServiceItem: mockToggleActiveMobileServiceItem,
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -116,6 +132,18 @@ describe("MobileServicesManager — LIRA-090 split editor", () => {
       success: true,
       data: ITEM_WITH_SPLIT,
     });
+    // Non-zero so load() skips the seed branch and keeps the 2 fixtures above.
+    mockCountMobileServiceItems
+      .mockReset()
+      .mockResolvedValue({ success: true, data: 2 });
+    mockSeedMobileServiceItems.mockReset().mockResolvedValue({ success: true });
+    mockGetAllSettings.mockReset().mockResolvedValue([]);
+    mockDeleteMobileServiceItem
+      .mockReset()
+      .mockResolvedValue({ success: true });
+    mockToggleActiveMobileServiceItem
+      .mockReset()
+      .mockResolvedValue({ success: true });
     setupWindowApi();
   });
 

@@ -207,17 +207,28 @@ export default function MobileServicesManager() {
   } | null>(null);
 
   // ── Load ────────────────────────────────────────────────────────────
-  // Seeding + the admin list read: seeding stays IPC-only (window.api) — a
-  // pre-existing gap in this feature's dual-transport coverage, not
-  // introduced here (see the W6 report). The list + update paths below ARE
-  // dual-transport (LIRA W6.b) since this ticket touches them directly.
+  // Fully dual-transport (rule 19): every call below goes through the
+  // adapter (ipcOrHttp), never raw window.api. This used to call
+  // window.api.mobileServiceItems.count()/.seed() directly, which is
+  // `undefined` in a browser — the count() call threw synchronously on
+  // every web load, so the panel never even reached getAdminMobileServiceItems()
+  // and reported "Failed to load mobile service items" unconditionally.
+  //
+  // Auto-seed-when-empty is intentionally kept on BOTH transports: the core
+  // service already scopes seedMobileServiceItems by tenant (BaseRepository
+  // + getCurrentTenantId), the REST route is admin/staff-gated, and
+  // `seedFromCatalog` no-ops server-side when the table is non-empty — so a
+  // web tenant whose catalog was never seeded (fresh signup, or after a
+  // "Reset Data" wipe) gets the same one-time bootstrap desktop always had,
+  // instead of landing on a permanently-empty catalog with no recovery path
+  // other than adding every item by hand.
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const countRes = await window.api.mobileServiceItems.count();
+      const countRes = await api.countMobileServiceItems();
       if (countRes.success && countRes.data === 0) {
         const seedData = parseCatalogToSeedData();
-        await window.api.mobileServiceItems.seed(seedData);
+        await api.seedMobileServiceItems(seedData);
       }
       const data = await api.getAdminMobileServiceItems();
       setItems(data as unknown as MobileServiceItem[]);
@@ -403,7 +414,7 @@ export default function MobileServicesManager() {
   const handleDelete = async (item: MobileServiceItem) => {
     if (!confirm(`Delete "${item.label}" from ${item.subcategory}?`)) return;
     try {
-      const res = await window.api.mobileServiceItems.delete(item.id);
+      const res = await api.deleteMobileServiceItem(item.id);
       if (!res.success) setError(res.error ?? "Failed to delete");
       else await load();
     } catch {
@@ -413,7 +424,7 @@ export default function MobileServicesManager() {
 
   const handleToggleActive = async (item: MobileServiceItem) => {
     try {
-      await window.api.mobileServiceItems.toggleActive(item.id);
+      await api.toggleActiveMobileServiceItem(item.id);
       await load();
     } catch {
       // silent
@@ -439,7 +450,7 @@ export default function MobileServicesManager() {
       return;
     let failed = 0;
     for (const it of subItems) {
-      const res = await window.api.mobileServiceItems.delete(it.id);
+      const res = await api.deleteMobileServiceItem(it.id);
       if (!res.success) failed++;
     }
     if (failed > 0) setError(`${failed} items failed to delete`);
@@ -458,7 +469,7 @@ export default function MobileServicesManager() {
       return;
     let failed = 0;
     for (const it of catItems) {
-      const res = await window.api.mobileServiceItems.delete(it.id);
+      const res = await api.deleteMobileServiceItem(it.id);
       if (!res.success) failed++;
     }
     if (failed > 0) setError(`${failed} items failed to delete`);
