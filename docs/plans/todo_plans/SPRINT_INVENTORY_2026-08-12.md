@@ -61,7 +61,7 @@ open for free). That is the mechanical reason a raw grep produces a number like 
 row-appearances across superseded sprint boards and a non-status table, instead of deduplicating by
 ticket ID and checking the ticket's own (and, as shown below, sometimes-wrong) status field.
 
-**A second, nastier collision exists _outside_ this file**: `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md`
+**A second, nastier collision exists _outside_ this file**: `docs/plans/ongoing_plans/WEB_PARITY_ROADMAP.md`
 uses its own, unrelated `lira-NNN-spec-name` numbering for e2e **spec files**, assigned
 chronologically as specs were written (starting mid-2026-07). Several of those numbers collide
 with _later_ `current_sprint.md` ticket IDs for completely different features:

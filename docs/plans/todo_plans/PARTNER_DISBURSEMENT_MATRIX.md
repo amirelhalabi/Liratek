@@ -237,7 +237,7 @@ exactly one `"THROUGH"` literal in the whole frontend:
 Grepping `system_association` across `packages/core/src` (money code) returns only test files,
 `PartnerRepository`'s own CRUD, and validator/type declarations — never a repository's
 `createTransaction`/`createSale`/`processRecharge` money-dispatch logic. This exact conclusion was
-already reached independently by a prior investigation: `docs/plans/todo_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md:219-260`
+already reached independently by a prior investigation: `docs/plans/ongoing_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md:219-260`
 (§5b), which found the same thing by a 3-agent survey and corrected an earlier, wrong belief that
 `system_association` _was_ read by money code.
 
@@ -364,7 +364,7 @@ on a system (WHISH) she has no real relationship with, which is precisely what t
 not happen. This same conclusion — that generalizing `system_association` beyond OMT/WHISH is
 "primarily a provider-taxonomy change, not a `system_association` change" — was already reached by an
 earlier investigation and is recorded at
-`docs/plans/todo_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md:219-290` (§5b), which also names the
+`docs/plans/ongoing_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md:219-290` (§5b), which also names the
 concrete blocker: `financial_services.provider` is a closed 9-value `CHECK` constraint
 (`electron-app/create_db.sql:618`, mirrored by a closed Zod enum in `validators/financial.ts:15-25`)
 with no slot for a "SYRIA"-style system, while `partners.system_association` is unconstrained free

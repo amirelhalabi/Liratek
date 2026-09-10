@@ -235,7 +235,7 @@ field for the commission amount? And in the payment, if the payment was already 
 see the amount increase? Or should we have a separate row for the commission payment with a
 direction (in/out)? I think we already have this bidirectional payment implemented."_
 → Reuse the existing bidirectional payment-leg machinery
-(`docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md`, `partitionLegs` in
+(`docs/plans/done_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md`, `partitionLegs` in
 `packages/core/src/utils/payments.ts`, `direction: "OUT"`) rather than inventing a clamp/branch:
 one settle screen, a commission field, and the settlement's net expressed as legs whose direction
 flips naturally when the provider owes the shop. **Rule 16 applies** — flow-specific branches

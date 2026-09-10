@@ -409,7 +409,7 @@ different surface; the Dashboard itself has no such coloring today.
 
 #### LIRA-090: Supplier — record debt first, attach inventory products later ⚠️ SUPERSEDED 2026-09-06
 
-**SUPERSEDED by `docs/plans/todo_plans/SUPPLIER_STOCK_INTAKE_PLAN.md`** (event-based supplier
+**SUPERSEDED by `docs/plans/done_plans/SUPPLIER_STOCK_INTAKE_PLAN.md`** (event-based supplier
 stock intake, migration v164, shipped 2026-09-07). The owner's underlying need — a supplier debt
 that tracks specific inventory items instead of a lump sum — was met by booking one
 `supplier_ledger` `STOCK_INTAKE` row per delivery (`SupplierRepository.recordStockIntake`), linked

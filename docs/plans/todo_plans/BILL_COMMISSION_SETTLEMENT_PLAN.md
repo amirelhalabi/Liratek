@@ -4,7 +4,7 @@
 doc: (1) the owner's report, (2) exactly why the modal behaves that way today (`file:line`), (3) a
 proposed design with the owner decisions it needs. **No production code, no migration.**
 
-Extends `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` (the "Phase 1 — bills slice", shipped
+Extends `docs/plans/ongoing_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` (the "Phase 1 — bills slice", shipped
 `1d498ff`) — read that first; this doc does not repeat its background, only the parts relevant to the
 bug.
 

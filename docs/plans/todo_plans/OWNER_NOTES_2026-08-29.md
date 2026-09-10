@@ -108,7 +108,7 @@ c        →  settled separately, as its own obligation
 
 ### 1.3 This is already a written plan — Phase 2 of LIRA-095
 
-`docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md`, decision **D1**:
+`docs/plans/ongoing_plans/COMMISSION_AT_SETTLEMENT_PLAN.md`, decision **D1**:
 
 > _"Payable goes **GROSS**: SEND `+(x+f)`, RECEIVE `−(x−f)`; JS + SQL twin change in lockstep."_
 
