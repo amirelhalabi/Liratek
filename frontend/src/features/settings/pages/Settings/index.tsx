@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Tag } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
+import { isElectron } from "@/api/backendApi";
 import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
 import LicensePanel from "./LicensePanel";
@@ -57,6 +58,24 @@ function isTabKey(value: string | null): value is TabKey {
   return value != null && (TAB_KEYS as readonly string[]).includes(value);
 }
 
+/** Tabs whose entire content needs a capability the web build does not have.
+ *  Filtered out of both the tab bar AND the `?tab=` deep link below, so a
+ *  web visitor gets "this tab doesn't exist" (falls back to Shop Config)
+ *  instead of a panel that throws on `window.api` being undefined:
+ *    - "diagnostics" — local backup files, the on-disk SQLite path, and the
+ *      embedded electron-updater panel; see Diagnostics.tsx's header for the
+ *      section-by-section reasoning (it is not ALL desktop-only by nature —
+ *      some of it is just not wired to the web adapter yet).
+ *    - "license" — desktop licence-key entry; on the web a tenant's plan is
+ *      carried in the JWT, not typed in. See LicensePanel.tsx's header.
+ *  Do not "fix" either by adding a REST route for a file picker or an
+ *  updater check — read the linked headers first. */
+const DESKTOP_ONLY_TABS: readonly TabKey[] = ["diagnostics", "license"];
+
+function isTabAvailable(key: TabKey): boolean {
+  return isElectron() || !DESKTOP_ONLY_TABS.includes(key);
+}
+
 /**
  * Deep-link mechanism (carrier-lines-validity plan Phase 4): any caller can
  * navigate here with `?tab=<key>` (e.g. `navigate("/settings?tab=carrier-lines")`
@@ -77,10 +96,10 @@ export default function Settings() {
   const [searchParams] = useSearchParams();
   const [active, setActive] = useState<TabKey>(() => {
     const tab = searchParams.get("tab");
-    return isTabKey(tab) ? tab : "shop";
+    return isTabKey(tab) && isTabAvailable(tab) ? tab : "shop";
   });
 
-  const tabs = [
+  const allTabs = [
     { key: "shop", label: "Shop Config" },
     { key: "categories", label: "Categories & Suppliers", icon: Tag },
     { key: "notifications", label: "Notifications" },
@@ -98,6 +117,10 @@ export default function Settings() {
     // the tabs an operator reaches for day to day.
     { key: "reset", label: "Reset Data" },
   ] as { key: TabKey; label: string; icon?: typeof Tag }[];
+
+  // Desktop-only tabs (see DESKTOP_ONLY_TABS above) are absent here rather
+  // than present-and-broken on the web build.
+  const tabs = allTabs.filter((t) => isTabAvailable(t.key));
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
@@ -128,8 +151,16 @@ export default function Settings() {
           {active === "integrations" && <IntegrationsConfig />}
           {active === "mobile-services" && <MobileServicesManager />}
           {active === "carrier-lines" && <CarrierLinesManager />}
-          {active === "diagnostics" && <Diagnostics />}
-          {active === "license" && <LicensePanel />}
+          {/* isTabAvailable(...) here too, not just in the tab bar/deep-link
+              seed above: belt-and-suspenders so neither of these ever
+              mounts on the web build even if `active` were ever set some
+              other way in the future. */}
+          {active === "diagnostics" && isTabAvailable("diagnostics") && (
+            <Diagnostics />
+          )}
+          {active === "license" && isTabAvailable("license") && (
+            <LicensePanel />
+          )}
           {active === "reset" && <ResetDataPanel />}
         </div>
       </div>

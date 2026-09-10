@@ -1,10 +1,19 @@
 /**
  * Licence panel — where a shop enters the key its supplier issued.
  *
- * DESKTOP ONLY, and gated on `isElectron()` rather than hidden by the tab
- * list, so it explains itself if someone reaches it in a browser. On the web
- * a tenant's plan is managed entirely by the platform owner and there is no
- * key to type: identity arrives in the JWT.
+ * DESKTOP ONLY. Primary defense: the "license" tab is filtered out of the
+ * Settings tab list entirely on the web build (`DESKTOP_ONLY_TABS` in
+ * `Settings/index.tsx`), and its `?tab=license` deep link falls back to Shop
+ * Config — a web visitor never reaches this component. `hasLicenseChannel()`
+ * below is a second line of defense in case that ever changes: instead of
+ * throwing on `window.api.license.*`, it renders a one-line explanation.
+ * (That fallback line used to be this tab's ENTIRE content on the web —
+ * shipping a tab whose only content was "no licence key to enter here" was
+ * reported as a bug, worse than no tab at all, which is why the tab-list
+ * filter is now the actual fix and this stays a fallback, not the mechanism.)
+ *
+ * On the web a tenant's plan is managed entirely by the platform owner and
+ * there is no key to type: identity arrives in the JWT.
  *
  * The panel's real job is diagnosis. Enforcement fails open by design, so
  * "nothing is restricted" is indistinguishable from "the licence check is

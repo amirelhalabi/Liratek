@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { appEvents } from "@liratek/ui";
+import { isElectron } from "@/api/backendApi";
 import {
   Download,
   RefreshCw,
@@ -37,6 +38,22 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Updates — a thin UI over `window.api.updater.*`, the electron-updater
+ * bridge exposed by `preload.ts`. DESKTOP ONLY: there is no web equivalent
+ * and there should never be one — the web app auto-deploys on every push to
+ * `main` (Vercel builds `frontend/`, Fly redeploys `backend/`; see
+ * CLAUDE.md "Deploying"), so "check for updates" / "download" / "install"
+ * have no meaning in a browser tab.
+ *
+ * This is only ever embedded inside Diagnostics.tsx, whose own tab is
+ * already filtered out of the web build (`DESKTOP_ONLY_TABS` in
+ * `Settings/index.tsx`). The `isElectron()` guards here — on every effect,
+ * every handler, and the render below — are belt-and-suspenders: this is
+ * the component the original bug report named ("Cannot read properties of
+ * undefined (reading 'updater')"), so it self-guards rather than trusting
+ * its parent to always gate it correctly.
+ */
 export default function UpdatesPanel() {
   const [status, setStatus] = useState<{
     packaged: boolean;
@@ -52,6 +69,7 @@ export default function UpdatesPanel() {
   const currentVersion = status?.version ?? null;
 
   const check = useCallback(async () => {
+    if (!isElectron()) return;
     setUpdateState("checking");
     setDevRelease(null);
     setAvailableVersion(null);
@@ -128,6 +146,7 @@ export default function UpdatesPanel() {
   }, [currentVersion]);
 
   const download = useCallback(async () => {
+    if (!isElectron()) return;
     // Immediately show downloading state — progress events may be sparse
     setUpdateState("downloading");
     setDownloadPercent(0);
@@ -163,6 +182,7 @@ export default function UpdatesPanel() {
   }, [updateState]);
 
   const install = useCallback(async () => {
+    if (!isElectron()) return;
     try {
       window.api.updater.quitAndInstall();
     } catch (_e) {
@@ -176,6 +196,7 @@ export default function UpdatesPanel() {
 
   // Load status on mount
   useEffect(() => {
+    if (!isElectron()) return;
     (async () => {
       try {
         const res = await window.api.updater.getStatus();
@@ -192,6 +213,7 @@ export default function UpdatesPanel() {
 
   // Listen for push events from main process (auto-check on launch)
   useEffect(() => {
+    if (!isElectron()) return;
     const cleanups: (() => void)[] = [];
 
     if (window.api.updater.onUpdateAvailable) {
@@ -232,6 +254,12 @@ export default function UpdatesPanel() {
       cleanups.forEach((fn) => fn());
     };
   }, [status?.version]);
+
+  // Render nothing rather than a panel whose every action throws — see the
+  // header comment. All hooks above are called unconditionally on every
+  // render (rules-of-hooks); only the render output and the async work
+  // inside each hook are gated.
+  if (!isElectron()) return null;
 
   const isPackaged = status && status.packaged;
   const loading = updateState === "checking" || updateState === "downloading";

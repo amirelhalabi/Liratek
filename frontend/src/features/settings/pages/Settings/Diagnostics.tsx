@@ -2,11 +2,52 @@ import { useEffect, useState } from "react";
 import { FolderOpen, Pencil, PackagePlus } from "lucide-react";
 import UpdatesPanel from "./UpdatesPanel";
 import { appEvents, useApi, Select, ConfirmModal } from "@liratek/ui";
+import { isElectron } from "@/api/backendApi";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import AdjustStockModal, {
   type AdjustableProduct,
 } from "@/features/inventory/components/AdjustStockModal";
 
+/**
+ * Diagnostics — desktop maintenance tools: DB integrity checks, local file
+ * backups, the on-disk SQLite path, and (embedded below) the
+ * electron-updater panel.
+ *
+ * Hidden from the web build entirely — see `DESKTOP_ONLY_TABS` in
+ * `Settings/index.tsx`, which is the primary defense — rather than rendered
+ * with pieces missing, because most sections here read through a RAW
+ * `window.api.*` call, not `useApi()` / the dual-mode adapter (rule 19).
+ * (The one exception: `saveBackupConfig` below calls the dual-mode
+ * `api.updateSetting(...)` from `useApi()` for the auto-backup
+ * interval/keep-count/verify toggles — that slice would work fine over REST
+ * on its own. It's the other sections below that have no web equivalent:
+ *
+ *   - Local Backups / Database path — `window.api.report.*`,
+ *     `window.api.database.*`. On the web the database lives on Fly with
+ *     Litestream replicating it; there is no local file to back up, browse
+ *     to, or restore. This has NO web meaning at all — do not add a REST
+ *     route for "pick a backup directory" or "change the database path".
+ *   - Updates (`<UpdatesPanel />`) — `window.api.updater.*`
+ *     (electron-updater). The web app auto-deploys on push to `main` (see
+ *     CLAUDE.md "Deploying") — there is nothing to check or install.
+ *     UpdatesPanel self-guards on `isElectron()`; see its own header.
+ *   - Foreign Key Check / Negative Stock / Sync Errors — these DO read real
+ *     tenant data and could in principle work on the web too, but as
+ *     written they call `window.api.diagnostics.*` /
+ *     `window.api.inventory.getNegativeStock()` directly, and neither
+ *     `backendApi.ts` nor `ElectronApiAdapter.ts` currently expose an
+ *     HTTP-backed equivalent. Wiring that (REST route + adapter method +
+ *     shared Zod schema, rule 19) is real, separate work — not something to
+ *     bolt on here. Until it exists, these three sections are desktop-only
+ *     by omission, not by nature, which is exactly why the whole tab is
+ *     dropped rather than shown half-empty.)
+ *
+ * The mount effect below is still guarded with `isElectron()` (belt and
+ * suspenders): if this component is ever reached by a path that bypasses
+ * the tab filter, it will not throw "Cannot read properties of undefined
+ * (reading 'diagnostics')" on mount — it will just render with nothing
+ * loaded.
+ */
 export default function Diagnostics() {
   const api = useApi();
   const [errors, setErrors] = useState<
@@ -331,6 +372,8 @@ export default function Diagnostics() {
   };
 
   useEffect(() => {
+    // See the file header — every branch below is a raw window.api.* call.
+    if (!isElectron()) return;
     load();
     loadBackups();
     // Load database path
@@ -474,7 +517,8 @@ export default function Diagnostics() {
         )}
       </div>
 
-      {/* Updates */}
+      {/* Updates — desktop-only, self-guards on isElectron() (see its
+          header comment); renders nothing on the web build. */}
       <UpdatesPanel />
 
       {/* Backups */}
