@@ -5,6 +5,7 @@
 > **Last Restructured:** 2026-08-12 (see "How to keep this file honest" below)
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW` | `PARTIAL`
 
+> **⬆ HIGHEST PRIORITY (2026-09-11):** OMT open-credit account epic, LIRA-187 → LIRA-191 — plan in `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md`, board entry at the bottom of this file.
 ---
 
 ## How to keep this file honest
@@ -50,80 +51,7 @@ of context around the current sprint. It does **not** hold multi-month history �
 
 ---
 
-## LIRA-113: Should a DAYS sale consume the shop line's validity? (reverses D12) — DONE
-
-| Field                | Value                                                                                                                                                                                                                                             |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Epic**             | Recharge / Carrier Lines                                                                                                                                                                                                                          |
-| **Type**             | Product decision                                                                                                                                                                                                                                  |
-| **Priority**         | Medium                                                                                                                                                                                                                                            |
-| **Status**           | **DONE** `eb820c7` (corrected 2026-08-12 — this detail block read TODO everywhere in the file; owner confirmed 2026-08-08 D12 is reversed, shipped 2026-08-11 decrementing the SELECTED carrier line, guarded by 3 new rule-20 VOID/REFUND tests) |
-| **Affected Modules** | Recharge > Telecom, Carrier Lines                                                                                                                                                                                                                 |
-| **Assigned To**      | —                                                                                                                                                                                                                                                 |
-| **Source Plan**      | Owner report 2026-08-08 vs `done_plans/CARRIER_LINES_VALIDITY_PLAN.md` D12                                                                                                                                                                        |
-
-### Summary
-
-Owner (2026-08-08): _"Validity is not decreasing when we charge days from a shop line, only credits
-are… if we are charging 10 days to the customer, our shop line validity should decrease by the
-amount of days charged."_
-
-**Confirmed: validity is never decremented, in any flow** (`applyMovement` has exactly 4 production
-call sites; none decrement a shop line for a customer sale). **But that is the shipped, ratified
-design, not a gap** — `CARRIER_LINES_VALIDITY_PLAN.md` **D12** (owner interview **2026-08-06**, two
-days earlier): _"A DAYS sale costs credits only — `(days / 10) × $0.30`; the shop's expiry never
-moves"_, recorded from the owner's own words: _"We charge the customer by sending SMS. Each SMS adds
-10 days to the client's phone number. We lose $0.30 per each ten days sent."_ It is documented in
-`telecomStockLeg`'s doc comment and guarded by a passing test
-(`RechargeRepository.daysStockCost.test.ts`).
-
-**So this is a reversal of a two-day-old decision, not a regression.** Do not implement without
-explicit confirmation that D12/D9 are superseded.
-
-### Owner decision 2026-08-08 — D12 REVERSED, build it
-
-> _"shop expiry moves. but be aware we can have multiple lines for each carrier in shop, so make
-> sure to decrease the validity from the selected line."_
-
-- **Shop expiry DOES move.** `CARRIER_LINES_VALIDITY_PLAN.md` D12/D9 are superseded — update that
-  doc and `telecomStockLeg`'s doc comment, which currently assert the opposite, or the codebase
-  will read as self-contradicting.
-- The $0.30/10-days drawer cost **stays** (owner didn't retract it) — validity decrements are
-  **in addition to** it. The existing `RechargeRepository.daysStockCost.test.ts` keeps guarding the
-  cost half; only its "validity never moves" comment/assertion needs revising.
-- ⚠ **DECREMENT THE SELECTED LINE, NOT THE PRIMARY.** A shop can hold **multiple lines per
-  carrier**. The diagnosis's proposed `getPrimary(carrier)` is therefore **WRONG** and must not be
-  used. Trace which line the DAYS sale is actually sold from (the Telecom form's line selector →
-  the IPC payload → `processRecharge`) and decrement **that** `carrier_lines` row. If the payload
-  does not currently carry a line id, adding it is part of this ticket.
-
-### Remaining questions (answer during build, don't block on them)
-
-- [ ] Ratio: assume 10 customer days = 10 shop days unless the code says otherwise.
-- [ ] Line runs out mid-sale: block, allow negative, or clamp? Pick the behavior that matches how
-      credits already behave on the same line and state it in the PR.
-
-### Technical traps (from the diagnosis)
-
-- `CarrierLineRepository.computeAppliedState` rebases day-deltas to `max(today, current_expiry)` —
-  right for **adding**, wrong for **subtracting** on an already-expired line (a naive decrement
-  lands _before_ today). Needs a subtract-safe path, not the reused rebase.
-- Reversal is free: `_reverseCarrierLineMovements` already reverses any movement tied to a voided
-  transaction generically — just pass `transactionId` to `applyMovement`.
-- Repro test ready (currently failing by design, untracked so main stays green):
-  `packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDecrement.test.ts`
-  — **note it asserts against the primary line; retarget it to the selected line.**
-
-### Technical note for whoever builds it
-
-`CarrierLineRepository.computeAppliedState` rebases day-deltas to `max(today, current_expiry)` —
-correct for **adding** days, wrong for **subtracting** on an already-expired line (a naive
-decrement lands _before_ today). Needs a subtract-safe path, not a reused rebase.
-Reversal is free: `_reverseCarrierLineMovements` already reverses any movement tied to a voided
-transaction generically.
-
-Repro test written (currently failing by design):
-`packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDecrement.test.ts`
+[LIRA-113 - docs/plans/done_plans/CARRIER_LINES_VALIDITY_PLAN.md - done]
 
 ---
 
@@ -822,73 +750,7 @@ nothing else in the whitelist is affected.
 
 ---
 
-## LIRA-137: Katsh bill settlement — commission frozen at $0, wrong direction (DONE)
-
-| Field                | Value                                                                             |
-| -------------------- | --------------------------------------------------------------------------------- |
-| **Epic**             | Suppliers / Commission-at-settlement                                              |
-| **Type**             | Bug (money-correctness + UX)                                                      |
-| **Priority**         | **High**                                                                          |
-| **Status**           | **DONE** — see `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4 for the full design record |
-| **Affected Modules** | Suppliers (Katsh), Settle modal, `SupplierRepository`                             |
-| **Assigned To**      | —                                                                                 |
-| **Depends On**       | LIRA-112, LIRA-119 (partial fix, superseded here)                                 |
-| **Source Plan**      | `docs/plans/todo_plans/BILL_COMMISSION_SETTLEMENT_PLAN.md`                        |
-
-### Owner report (2026-08-11, verbatim)
-
-Settling 2 Katsh bills at RATE 20,000 LBP / COUNT 5: "the Net Payment to Katsh is not changing in
-the modal... still at zero... so I cannot do any payments," plus the correction: "When katsh owes
-us 100,000lbp they pay it to us via topup to our katsh account... The commission should be a
-separate payment regardless of if katsh owes us or we owe them... It is profit, entirely."
-
-### Root cause
-
-`settleNetPayUsd/Lbp = max(0, grossOwed − enteredCommission)` and a bill's `grossOwed` is
-STRUCTURALLY 0 (its principal already left via the provider-drawer cost leg at creation, never the
-ledger) — so the clamp floored every entered commission to 0, unconditionally, for every bills-only
-batch. The commission then posted as a cashless `SUPPLIER_PAYS_US` ledger credit — invisible in the
-modal and modeling the wrong real-world fact (a debt write-down against unrelated credit, not the
-separate top-up the owner described).
-
-### Fix
-
-- **Posting**: bills-only batches book the commission as a REAL drawer top-up into the Katsh/iPick
-  provider drawer (`_bookBillsCommissionDrawerTopUp`), profit-stamped, no supplier debt booked (kept
-  structurally apart from `topUpFromSupplier`'s debt-booking half). Every other batch shape is
-  byte-for-byte unchanged.
-- **UI**: "Total owed"/"Net payment to" dropped for this shape, replaced by "{supplier} owes you:
-  `<commission>`"; no tender form renders (nothing to pay); Confirm is enabled with no legs.
-- **Hazard**: `settleTransactions` now rejects a payload with legs but nothing owed (the mirror of
-  the pre-existing "owed but no legs" guard); the frontend removes the possibility structurally.
-- **Reversal**: free via the generic `_reversePayments`/profit-status-flip paths (rule 20) — no
-  bespoke reversal code.
-
-Full design record, the double-count judgement, and the deferred-generalisation note:
-`docs/plans/todo_plans/BILL_COMMISSION_SETTLEMENT_PLAN.md` §4.
-
-### Verification
-
-- `packages/core` jest: 190/190 suites, 1961/1961 tests (net +4 vs. the pre-task baseline of 1957).
-- `backend` jest: 42/42 suites, 582/582 tests (unaffected — no backend/IPC/schema changes were
-  needed; the fix lives entirely in the shared `@liratek/core` service/repository layer, so desktop
-  IPC and web REST both pick it up automatically).
-- `frontend` jest: 134/134 suites, 921 passed + 1 skipped / 922 (one pre-existing component test,
-  `Suppliers.settleNetPayCurrency.test.tsx`, updated to match the new UI and proved failing against
-  the pre-fix page; a new `cashFlow.ts` `SUPPLIER_SETTLEMENT` describe block added).
-- Rule 17 (failing-first): every new/changed assertion was run against the pre-fix code and observed
-  failing for the stated reason, then re-run green after restoring the fix — at both the repository
-  level (`SupplierRepository.commissionAtSettlement.test.ts`,
-  `FinancialServiceRepository.billsSettlement.test.ts`) and the component level
-  (`Suppliers.settleNetPayCurrency.test.tsx`).
-- **Desktop e2e is UNEXECUTED.** `lira-137-katsh-bill-settlement-modal-characterization.spec.ts`
-  (the diagnosis-only predecessor) was replaced by
-  `lira-137-katsh-bill-settlement-commission-topup.spec.ts` — a real guard, typechecked clean against
-  `tsconfig.playwright.json`, but desktop e2e cannot run from an agent shell (`yarn test:e2e` and
-  `node scripts/run-e2e.mjs` both exit 0 having run nothing) — the owner/orchestrator must run it
-  after a fresh `yarn dev` cycle.
-
----
+[LIRA-137 - docs/plans/todo_plans/BILL_COMMISSION_SETTLEMENT_PLAN.md - done]
 
 ---
 
@@ -4130,3 +3992,31 @@ unauthenticated, and the `settings:get-all` / `db:get-setting` IPC channels have
 code before the guard is added. Follow the harness in
 `backend/src/api/__tests__/profitsGate.api.test.ts`, which already forges per-role requests against
 a real router.
+
+---
+
+## EPIC LIRA-187 → LIRA-191: OMT open-credit account — iPick + OMT App roll up under the OMT supplier — TODO — **HIGHEST PRIORITY**
+
+| Field        | Value                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| **Epic**     | Suppliers / OMT                                                                                         |
+| **Type**     | Money model change (rules 16, 17, 18, 20)                                                               |
+| **Priority** | **HIGHEST** (owner, 2026-09-11)                                                                          |
+| **Status**   | **TODO** — planned 2026-09-10, all owner decisions answered, nothing built                              |
+| **Plan**     | `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` — decisions D1–D9, code facts, full ticket bodies |
+
+OMT is ONE open-credit account: the counter (OMT SEND/RECEIVE), the OMT App wallet, and iPick credit
+all draw on it and are settled with one payment from the OMT Cash Drawer. Loading the wallet or iPick
+moves no cash — the drawer goes up, the debt goes up. Design: read-time grouping via a nullable
+`suppliers.account_supplier_id`; ledger rows never move.
+
+| Ticket   | Title                                                                            | Priority     | Depends on |
+| -------- | -------------------------------------------------------------------------------- | ------------ | ---------- |
+| LIRA-187 | `suppliers.account_supplier_id` — the account link (schema only)                 | Medium       | —          |
+| LIRA-188 | OMT account rollup on the Suppliers page — balance, ledger, unsettled, sub-rows  | High         | 187        |
+| LIRA-189 | Account settlement — one payment, allocated per child, PCD legs, reversible      | High (money) | 187, 188   |
+| LIRA-190 | OMT App wallet loads on OMT credit by default                                    | High (money) | 187        |
+| LIRA-191 | Grouping configurable in Service Providers settings; Whish-base shops (deferred) | Low          | 187–190    |
+
+Build order: 187 + 188 → 190 → 189 → 191. Known gap until 190 ships: every OMT App wallet load
+today drains the OMT Cash Drawer (see plan §7).
