@@ -88,7 +88,19 @@ router.post(
   validateRequest(addRepaymentSchema),
   (req, res) => {
     const service = getDebtService();
-    const result = service.addRepayment(req.body);
+    // Actor from the JWT, never the body (rule 19c). `addRepaymentSchema`
+    // accepts an optional `userId`, and this route used to pass req.body
+    // straight through — so a crafted request could stamp any user id it
+    // liked onto a money record. Not privilege escalation, but the audit
+    // trail and "who took this payment" both read that field, so a forged
+    // actor is exactly the thing they exist to prevent.
+    //
+    // The IPC twin has always done this (`debtHandlers.ts` overrides with
+    // `auth.userId`), and every sibling route in this file does too —
+    // cash-out, account-entry, credit, use-credit and write-off all spread
+    // `{ ...req.body, userId }`. This one was simply missed.
+    const userId = (req as AuthRequest).user!.userId;
+    const result = service.addRepayment({ ...req.body, userId });
     if (result.success) {
       // Mirrors debtHandlers.ts's debt:add-repayment audit.
       auditRest(req, {
