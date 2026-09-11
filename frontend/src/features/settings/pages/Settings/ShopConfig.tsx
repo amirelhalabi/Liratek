@@ -13,6 +13,7 @@ import {
 import clsx from "clsx";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { invalidateShopInfo } from "@/hooks/useShopName";
+import { saveAndApplyUiScale } from "@/shared/utils/uiScale";
 
 const UI_SCALE_OPTIONS = [
   { value: 0.75, label: "75%" },
@@ -94,11 +95,10 @@ export default function ShopConfig() {
 
   const handleUiScaleChange = (scale: number) => {
     setUiScale(scale);
-    localStorage.setItem("ui_scale", String(scale));
-    // Apply zoom via Electron webFrame
-    if (window.api?.display?.setZoomFactor) {
-      window.api.display.setZoomFactor(scale);
-    }
+    // Persist AND apply together. This used to write localStorage itself and
+    // then apply only through Electron's webFrame, so on the web the control
+    // saved a value and changed nothing — it looked like it worked.
+    saveAndApplyUiScale(scale);
   };
 
   const load = async () => {

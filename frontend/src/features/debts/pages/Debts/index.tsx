@@ -740,39 +740,33 @@ export default function Debts() {
         keptUsd > 0 || keptLbp > 0
           ? { keptChangeUSD: keptUsd, keptChangeLBP: keptLbp }
           : {};
-      const result = window.api
-        ? await window.api.debt.addRepayment({
-            clientId: selectedClient.id,
-            amountUSD: reduceUsd,
-            amountLBP: reduceLbp,
-            payments: paymentLegs,
-            note: repayNote,
-            ...(repayModalRate != null
-              ? { tender_exchange_rate: repayModalRate }
-              : {}),
-            ...keptFields,
-            ...discountFields,
-            ...(repayTransactionTime
-              ? { transaction_time: repayTransactionTime }
-              : {}),
-            ...(user?.id != null ? { userId: user.id } : {}),
-          })
-        : await api.addRepayment({
-            client_id: selectedClient.id,
-            amount_usd: reduceUsd,
-            amount_lbp: reduceLbp,
-            payments: paymentLegs,
-            note: repayNote,
-            ...(repayModalRate != null
-              ? { tender_exchange_rate: repayModalRate }
-              : {}),
-            ...keptFields,
-            ...discountFields,
-            ...(repayTransactionTime
-              ? { transaction_time: repayTransactionTime }
-              : {}),
-            ...(user?.id != null ? { user_id: user.id } : {}),
-          });
+      // ONE payload for both transports. This was a `window.api ? … : …` gate
+      // whose two branches had drifted into different field names — the IPC
+      // side sent clientId/amountUSD/amountLBP/userId, the REST side sent
+      // client_id/amount_usd/amount_lbp/user_id. `addRepaymentSchema` is
+      // shared by both routes and speaks camelCase, so on the web `clientId`
+      // arrived undefined and Zod refused the whole repayment with
+      // "Invalid input: expected number, received undefined" — a modal the
+      // operator had already filled in, rejected for a reason naming no
+      // field. (amountUSD/amountLBP default to 0 in the schema, so clientId
+      // is the one that surfaced.) The adapter already picks the transport;
+      // the component must not choose the shape (rule 19).
+      const result = await api.addRepayment({
+        clientId: selectedClient.id,
+        amountUSD: reduceUsd,
+        amountLBP: reduceLbp,
+        payments: paymentLegs,
+        note: repayNote,
+        ...(repayModalRate != null
+          ? { tender_exchange_rate: repayModalRate }
+          : {}),
+        ...keptFields,
+        ...discountFields,
+        ...(repayTransactionTime
+          ? { transaction_time: repayTransactionTime }
+          : {}),
+        ...(user?.id != null ? { userId: user.id } : {}),
+      });
 
       if (result.success) {
         appEvents.emit(

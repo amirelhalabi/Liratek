@@ -81,6 +81,7 @@ import { ApiProvider } from "@liratek/ui";
 import { backendApiAdapter } from "@/api/adapter";
 import { FeatureFlagProvider } from "@/contexts/FeatureFlagContext";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
+import { applyUiScale, readSavedUiScale } from "@/shared/utils/uiScale";
 import { useVoiceBotSettings } from "@/hooks/useVoiceBotSettings";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -414,15 +415,12 @@ function AppRoutes() {
 function App() {
   const { isLoaded } = useVoiceBotSettings();
 
-  // Apply saved UI scale on startup
+  // Apply saved UI scale on startup. Goes through applyUiScale so the web
+  // build gets CSS zoom instead of silently skipping — this used to be gated
+  // on `window.api?.display?.setZoomFactor`, which is undefined in a browser.
   useEffect(() => {
-    const saved = localStorage.getItem("ui_scale");
-    if (saved && window.api?.display?.setZoomFactor) {
-      const factor = parseFloat(saved);
-      if (factor > 0 && isFinite(factor)) {
-        window.api.display.setZoomFactor(factor);
-      }
-    }
+    const saved = readSavedUiScale();
+    if (saved !== null) applyUiScale(saved);
   }, []);
 
   // Don't render until settings are loaded
