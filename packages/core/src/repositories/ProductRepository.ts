@@ -787,9 +787,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         if (code === "SQLITE_CONSTRAINT_UNIQUE" && data.barcode) {
           // Check if the collision is with a soft-deleted product — reactivate it
           // Check both is_active=0 OR is_deleted=1
-          const deleted = this.queryOne<
-            Pick<ProductEntity, "id" | "supplier">
-          >(
+          const deleted = this.queryOne<Pick<ProductEntity, "id" | "supplier">>(
             `SELECT id, supplier FROM ${this.tableName} WHERE barcode = ? AND (is_active = 0 OR is_deleted = 1) AND tenant_id = ?`,
             data.barcode,
             tenantId,
@@ -923,6 +921,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       category_id?: number | null;
       min_stock_level?: number;
       supplier?: string | null;
+      unit?: string | null;
     },
   ): number {
     if (ids.length === 0) return 0;
@@ -946,6 +945,10 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     if (data.supplier !== undefined) {
       setClauses.push("supplier = ?");
       params.push(data.supplier);
+    }
+    if (data.unit !== undefined) {
+      setClauses.push("unit = ?");
+      params.push(data.unit);
     }
 
     if (setClauses.length === 0) return 0;

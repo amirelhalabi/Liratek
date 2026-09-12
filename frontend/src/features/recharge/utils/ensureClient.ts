@@ -1,4 +1,5 @@
 import type { PaymentLine } from "@liratek/ui";
+import { createClient } from "@/api/backendApi";
 
 interface EnsureClientArgs {
   /** Existing client ID if one was picked from search; null otherwise. */
@@ -45,7 +46,11 @@ export async function ensureRechargeClient({
   }
 
   try {
-    const result = await window.api.clients.create({
+    // Migrated off raw window.api (rule 19) onto the dual-transport
+    // createClient adapter fn — this util runs on the path of every recharge
+    // sale that names a new client, so it must work on both transports too
+    // (rule 11 client propagation).
+    const result = await createClient({
       full_name: trimmedName,
       phone_number: trimmedPhone,
       whatsapp_opt_in: 0,

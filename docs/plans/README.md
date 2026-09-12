@@ -39,14 +39,23 @@ carries a note about exactly that, added after two sections marked
 the bottom: a closure record, a "what is NOT done" section, or a summary
 line naming the items left.
 
-Two traps worth naming, both hit during the 2026-09-10 sweep:
+Three traps worth naming:
 
 - A header saying **IMPLEMENTED** or **SHIPPED** may still have a phase
-  outstanding. `EXCHANGE_LOT_SETTLEMENT` says "IMPLEMENTED" and, in the same
-  sentence, "e2e guard still pending (Phase 8)".
+  outstanding — read the phase list, not the adjective.
 - A plan may list items that read as open but are explicitly **another
   document's scope**. `BIDIRECTIONAL_PAYMENT_LEGS_PLAN` has three, all
   labelled as deliberate non-goals, and it is genuinely complete.
+- **A header can also understate.** This is the trap that actually bit, and
+  the rule above is what missed it: "read the status line" is not enough in
+  either direction. `EXCHANGE_LOT_SETTLEMENT` said "e2e guard still pending
+  (Phase 8)" — so the 2026-09-10 sweep filed it under `ongoing_plans/` and
+  quoted it here as the worked example of an over-optimistic header. Phase 8
+  had in fact shipped 18 days earlier (`lira-142-exchange-lot-settlement.spec.ts`,
+  `70afaa9b`, 2026-08-23). `DATABASE_RESET_PLAN` said "in progress" with all
+  five phases live in `b73f6205`. Both were archived 2026-09-12 after checking
+  the named artefacts. **Grep for the file a phase claims to be missing before
+  believing it is missing** — one `ls` would have settled either case.
 
 A `//TODO` in the body is not automatically a remainder either — several mark
 features the owner deferred on purpose, which belong to a future plan rather

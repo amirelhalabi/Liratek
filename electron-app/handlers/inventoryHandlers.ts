@@ -168,25 +168,28 @@ export function registerInventoryHandlers(): void {
       supplierRepo.getOrCreate(validatedProduct.supplier);
     }
 
-    const result = service.createProduct({
-      barcode: validatedProduct.barcode || null,
-      name: validatedProduct.name,
-      category: validatedProduct.category,
-      cost_price: validatedProduct.cost_price,
-      retail_price: validatedProduct.retail_price,
-      ...(validatedProduct.stock_quantity != null
-        ? { stock_quantity: validatedProduct.stock_quantity }
-        : {}),
-      ...(validatedProduct.min_stock_level != null
-        ? { min_stock_level: validatedProduct.min_stock_level }
-        : {}),
-      ...(validatedProduct.image_url != null
-        ? { image_url: validatedProduct.image_url }
-        : {}),
-      supplier: validatedProduct.supplier ?? null,
-      warranty_months: validatedProduct.warranty_months ?? null,
-      is_old_stock: validatedProduct.is_old_stock ?? false,
-    }, userId);
+    const result = service.createProduct(
+      {
+        barcode: validatedProduct.barcode || null,
+        name: validatedProduct.name,
+        category: validatedProduct.category,
+        cost_price: validatedProduct.cost_price,
+        retail_price: validatedProduct.retail_price,
+        ...(validatedProduct.stock_quantity != null
+          ? { stock_quantity: validatedProduct.stock_quantity }
+          : {}),
+        ...(validatedProduct.min_stock_level != null
+          ? { min_stock_level: validatedProduct.min_stock_level }
+          : {}),
+        ...(validatedProduct.image_url != null
+          ? { image_url: validatedProduct.image_url }
+          : {}),
+        supplier: validatedProduct.supplier ?? null,
+        warranty_months: validatedProduct.warranty_months ?? null,
+        is_old_stock: validatedProduct.is_old_stock ?? false,
+      },
+      userId,
+    );
     audit(e.sender.id, {
       action: "create",
       entity_type: "product",
@@ -260,18 +263,29 @@ export function registerInventoryHandlers(): void {
     return result;
   });
 
-  // Soft delete product
+  // Batch-update shared fields (category / min-stock-threshold / supplier /
+  // unit) across many products in one call — the Inventory grid's
+  // multi-select edit. Was missing the `["admin", "staff"]` gate every
+  // sibling write channel in this file carries
+  // (create/update/delete/batch-delete/receive-stock) — closed here to match.
   ipcMain.handle(
     "inventory:batch-update",
     async (
-      _event,
+      e,
       payload: {
         ids: number[];
         category?: string;
         min_stock_level?: number;
         supplier?: string | null;
+        unit?: string | null;
       },
     ) => {
+      // Auth check
+      try {
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+      } catch {}
+
       // Validation
       const v = validatePayload(BatchUpdateSchema, payload);
       if (!v.ok) return { success: false, error: v.error };
@@ -281,8 +295,9 @@ export function registerInventoryHandlers(): void {
         category: validatedPayload.category,
         min_stock_level: validatedPayload.min_stock_level,
         supplier: validatedPayload.supplier,
+        unit: validatedPayload.unit,
       });
-      audit(_event.sender.id, {
+      audit(e.sender.id, {
         action: "update",
         entity_type: "product",
         summary: `Batch updated ${validatedPayload.ids.length} products`,
@@ -420,7 +435,8 @@ export function registerInventoryHandlers(): void {
       inventoryLogger.error({ error }, "inventory:receive-stock failed");
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to receive stock",
+        error:
+          error instanceof Error ? error.message : "Failed to receive stock",
       };
     }
   });
@@ -501,11 +517,23 @@ export function registerInventoryHandlers(): void {
   const catRepo = getCategoryRepository();
   const supplierRepo = getProductSupplierRepository();
 
+  // Reads deliberately ungated (matches inventory:get-products and its
+  // siblings) — these feed the ProductForm's category/supplier
+  // datalists and filter dropdowns for every role.
   ipcMain.handle("inventory:get-categories", () => catRepo.getNames());
-  ipcMain.handle("inventory:create-category", (_e, name: string) => {
+  ipcMain.handle("inventory:create-category", (e, name: string) => {
+    // Auth check — closes the gap noted in LIRA-143 ("ungated category
+    // routes"): this write channel carried no requireRole at all, unlike
+    // every other write in this file (create/update/delete-product,
+    // batch-update, batch-delete, receive-stock).
+    try {
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
     try {
       const result = catRepo.create(name);
-      audit(_e.sender.id, {
+      audit(e.sender.id, {
         action: "create",
         entity_type: "category",
         entity_id: String(result.id),
@@ -518,7 +546,13 @@ export function registerInventoryHandlers(): void {
   });
   ipcMain.handle(
     "inventory:update-category",
-    (_e, id: number, data: unknown) => {
+    (e, id: number, data: unknown) => {
+      // Auth check
+      try {
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+      } catch {}
+
       try {
         const v = validatePayload(UpdateCategorySchema, data);
         if (!v.ok) return { success: false, error: v.error };
@@ -526,7 +560,7 @@ export function registerInventoryHandlers(): void {
           name: v.data.name,
           tracksImeiUnits: v.data.tracks_imei_units,
         });
-        audit(_e.sender.id, {
+        audit(e.sender.id, {
           action: "update",
           entity_type: "category",
           entity_id: String(id),
@@ -542,10 +576,16 @@ export function registerInventoryHandlers(): void {
       }
     },
   );
-  ipcMain.handle("inventory:delete-category", (_e, id: number) => {
+  ipcMain.handle("inventory:delete-category", (e, id: number) => {
+    // Auth check
+    try {
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
     try {
       const deleted = catRepo.delete(id);
-      audit(_e.sender.id, {
+      audit(e.sender.id, {
         action: "delete",
         entity_type: "category",
         entity_id: String(id),
@@ -562,16 +602,24 @@ export function registerInventoryHandlers(): void {
   // Product Supplier Management
   // ---------------------------------------------------------------------------
 
+  // Reads deliberately ungated — same rationale as get-categories above.
   ipcMain.handle("inventory:get-product-suppliers", () =>
     supplierRepo.getNames(),
   );
   ipcMain.handle("inventory:get-product-suppliers-full", () =>
     supplierRepo.getAllWithProductCount(),
   );
-  ipcMain.handle("inventory:create-product-supplier", (_e, name: string) => {
+  ipcMain.handle("inventory:create-product-supplier", (e, name: string) => {
+    // Auth check — closes the gap noted in LIRA-143; see
+    // inventory:create-category above for the same note.
+    try {
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
     try {
       const result = supplierRepo.create(name);
-      audit(_e.sender.id, {
+      audit(e.sender.id, {
         action: "create",
         entity_type: "product_supplier",
         entity_id: String(result.id),
@@ -584,10 +632,16 @@ export function registerInventoryHandlers(): void {
   });
   ipcMain.handle(
     "inventory:update-product-supplier",
-    (_e, id: number, name: string) => {
+    (e, id: number, name: string) => {
+      // Auth check
+      try {
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+      } catch {}
+
       try {
         const updated = supplierRepo.update(id, name);
-        audit(_e.sender.id, {
+        audit(e.sender.id, {
           action: "update",
           entity_type: "product_supplier",
           entity_id: String(id),
@@ -599,10 +653,16 @@ export function registerInventoryHandlers(): void {
       }
     },
   );
-  ipcMain.handle("inventory:delete-product-supplier", (_e, id: number) => {
+  ipcMain.handle("inventory:delete-product-supplier", (e, id: number) => {
+    // Auth check
+    try {
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
     try {
       const deleted = supplierRepo.delete(id);
-      audit(_e.sender.id, {
+      audit(e.sender.id, {
         action: "delete",
         entity_type: "product_supplier",
         entity_id: String(id),

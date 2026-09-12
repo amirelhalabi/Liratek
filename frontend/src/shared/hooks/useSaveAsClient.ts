@@ -9,6 +9,10 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
+// Dual-mode (IPC on desktop, REST in the browser) — this is a plain hook,
+// not a component, so it goes straight to backendApi rather than useApi()
+// (rule 19; matches ClientAutocompleteInput.tsx's neighbouring usage).
+import { getClients, createClient } from "@/api/backendApi";
 
 interface SaveAsClientResult {
   clientId: number | null;
@@ -38,7 +42,7 @@ export function useSaveAsClient(name: string, phone: string) {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
       try {
-        const results = await window.api.clients.getAll(trimmedName);
+        const results = await getClients(trimmedName);
         const exists = results.some(
           (c) => c.full_name?.toLowerCase() === trimmedName.toLowerCase(),
         );
@@ -68,7 +72,7 @@ export function useSaveAsClient(name: string, phone: string) {
 
     try {
       // Double-check: don't create duplicates
-      const results = await window.api.clients.getAll(name.trim());
+      const results = await getClients(name.trim());
       const existing = results.find(
         (c) => c.full_name?.toLowerCase() === name.trim().toLowerCase(),
       );
@@ -78,11 +82,11 @@ export function useSaveAsClient(name: string, phone: string) {
       }
 
       // Create new client
-      const result = await window.api.clients.create({
+      const result = await createClient({
         full_name: name.trim(),
         phone_number: phone.trim() || "",
         whatsapp_opt_in: 1,
-      } as Parameters<typeof window.api.clients.create>[0]);
+      });
 
       if (result.success && result.id) {
         return { clientId: result.id };

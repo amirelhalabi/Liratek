@@ -3,6 +3,7 @@ import { AlertTriangle, X } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import { DATABASE_RESET_CONFIRMATION_PHRASE } from "@liratek/core";
 import { isElectron } from "@/api/backendApi";
+import { reloadApp } from "@/shared/utils/reloadApp";
 
 export interface ResetDataModalProps {
   /** The preview's total row count — repeated here so the confirmation
@@ -60,7 +61,7 @@ export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
         // catalog, the dashboard) was seeded before the wipe and stays stale
         // otherwise — a full reload is the only way every context re-reads
         // the emptied (and re-seeded-where-applicable) database.
-        window.setTimeout(() => window.location.reload(), 1500);
+        window.setTimeout(() => reloadApp(), 1500);
       } else {
         setError(result.error ?? "Reset failed");
         setStatus("idle");
@@ -109,8 +110,8 @@ export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
                     <strong className="text-white">
                       {totalRows.toLocaleString()}
                     </strong>{" "}
-                    rows of operational data. This cannot be undone. (A
-                    backup is taken first on desktop.)
+                    rows of operational data. This cannot be undone. (A backup
+                    is taken first on desktop.)
                   </p>
                   <p className="text-slate-400 text-sm leading-relaxed mt-2">
                     Type{" "}

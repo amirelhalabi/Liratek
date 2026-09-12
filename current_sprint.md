@@ -6,6 +6,7 @@
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW` | `PARTIAL`
 
 > **⬆ HIGHEST PRIORITY (2026-09-11):** OMT open-credit account epic, LIRA-187 → LIRA-191 — plan in `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md`, board entry at the bottom of this file.
+
 ---
 
 ## How to keep this file honest
@@ -1068,7 +1069,7 @@ For-Partner payment section on the OMT/Whish Services page.
 for Services SEND (it would discard a real drawer choice). Approved instead: SEND keeps the picker,
 relabelled **"Paid from"** and filtered to `drawerAffectingMethods`, with a notice stating both
 sides; RECEIVE hides it behind a notice. Full rationale in
-`docs/plans/todo_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md` §4's decision block.
+`docs/plans/done_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md` §4's decision block.
 
 **✅ Implemented 2026-08-22 (same day as the decision above):** `fd5444cc` ("For-Partner payment
 section stops offering what the backend rejects") shipped the SEND/RECEIVE gating decided just
@@ -3964,14 +3965,14 @@ user — `staff` included — can write **any** row in `system_settings` over RE
 **Verified against source, not inferred:** the IPC twins are gated and the REST route is not,
 which is also a rule-19c role-parity break, not only a hole:
 
-| Surface                        | Guard                                             |
-| ------------------------------ | ------------------------------------------------- |
-| IPC `db:update-setting`        | `requireRole(e.sender.id, ["admin"])`             |
-| IPC `settings:update`          | `requireRole(e.sender.id, ["admin"])`             |
-| REST `PUT /api/settings/:key`  | `authenticateJWT` only — **no `requireRole`**     |
+| Surface                       | Guard                                         |
+| ----------------------------- | --------------------------------------------- |
+| IPC `db:update-setting`       | `requireRole(e.sender.id, ["admin"])`         |
+| IPC `settings:update`         | `requireRole(e.sender.id, ["admin"])`         |
+| REST `PUT /api/settings/:key` | `authenticateJWT` only — **no `requireRole`** |
 
 **Why it is not already exploitable for the profits password.** LIRA-177 needed to store a secret
-in `system_settings`, so `SettingsService.updateSetting` now *rejects* writes to
+in `system_settings`, so `SettingsService.updateSetting` now _rejects_ writes to
 `SENSITIVE_SETTING_KEYS` outright — that write guard exists precisely because this route could not
 be trusted. That closes the one key that matters most and closes nothing else: `shop_base_system`,
 `setup_complete`, every feature flag, and the shop identity remain writable by any staff account
@@ -3997,12 +3998,12 @@ a real router.
 
 ## EPIC LIRA-187 → LIRA-191: OMT open-credit account — iPick + OMT App roll up under the OMT supplier — TODO — **HIGHEST PRIORITY**
 
-| Field        | Value                                                                                                   |
-| ------------ | ------------------------------------------------------------------------------------------------------- |
-| **Epic**     | Suppliers / OMT                                                                                         |
-| **Type**     | Money model change (rules 16, 17, 18, 20)                                                               |
-| **Priority** | **HIGHEST** (owner, 2026-09-11)                                                                          |
-| **Status**   | **TODO** — planned 2026-09-10, all owner decisions answered, nothing built                              |
+| Field        | Value                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| **Epic**     | Suppliers / OMT                                                                                           |
+| **Type**     | Money model change (rules 16, 17, 18, 20)                                                                 |
+| **Priority** | **HIGHEST** (owner, 2026-09-11)                                                                           |
+| **Status**   | **TODO** — planned 2026-09-10, all owner decisions answered, nothing built                                |
 | **Plan**     | `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` — decisions D1–D9, code facts, full ticket bodies |
 
 OMT is ONE open-credit account: the counter (OMT SEND/RECEIVE), the OMT App wallet, and iPick credit

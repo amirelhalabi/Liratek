@@ -144,3 +144,38 @@ export const updateCustomServiceFulfillmentSchema = z.object({
 export type UpdateCustomServiceFulfillmentInput = z.infer<
   typeof updateCustomServiceFulfillmentSchema
 >;
+
+/**
+ * Edit non-financial metadata on a `custom_services` row — mirrors the
+ * `custom-services:update-metadata` IPC handler's own inline shape
+ * (electron-app/handlers/customServiceHandlers.ts), which validates nothing
+ * beyond `requireRole`. Shared by the REST route (rule 14).
+ *
+ * TRANSPORT_PARITY_AUDIT_PLAN.md §6.4 follow-up 3: `category` was missing
+ * here even though `preload.ts`'s `customServices.updateMetadata` binding
+ * types it, `CustomServiceService.updateCustomServiceMetadata` accepts it,
+ * and `CustomServiceRepository.updateMetadata` already writes it to the
+ * `category` column — the IPC handler and the REST route simply never
+ * forwarded it from the request body to the service call. Added here so
+ * validating against this schema doesn't newly strip a field the rest of
+ * the stack already supports; the handler/route forwarding was the actual
+ * bug, fixed alongside this schema change (rule 12 in reverse — the preload
+ * type was right, the schema and the forwarding code were behind it).
+ *
+ * `note` raised from 500 to 1000 to match `createCustomServiceSchema.note`
+ * (this file, above) — the create-time cap is 1000 and the create form's own
+ * `maxLength` is 1000 (CustomServices/index.tsx), so a 500 cap here would
+ * reject editing the note on a service created with 501-1000 characters.
+ */
+export const customServiceUpdateMetadataSchema = z.object({
+  id: z.number().int().positive(),
+  description: z.string().max(500).optional(),
+  client_name: z.string().max(255).optional(),
+  phone_number: z.string().max(50).optional(),
+  note: z.string().max(1000).optional(),
+  category: z.string().max(100).optional(),
+});
+
+export type CustomServiceUpdateMetadataInput = z.infer<
+  typeof customServiceUpdateMetadataSchema
+>;

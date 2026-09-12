@@ -461,3 +461,33 @@ export const selfChargeTelecomItemSchema = z.object({
 export type SelfChargeTelecomItemInput = z.infer<
   typeof selfChargeTelecomItemSchema
 >;
+
+/**
+ * Edit non-financial metadata on a `financial_services` row — mirrors the
+ * `financial:update-metadata` IPC handler's own inline shape
+ * (electron-app/handlers/omtHandlers.ts), which validates nothing beyond
+ * `requireRole`. Shared by the REST route (rule 14).
+ *
+ * TRANSPORT_PARITY_AUDIT_PLAN.md §6.4 follow-up 3: the three phone fields
+ * were originally capped at 30 — narrower than every sibling phone field in
+ * this codebase (`customService.ts`'s `phone_number`, `recharge.ts`'s
+ * `phone_number`, both `max(50)`) with no DB column length (`phone_number`/
+ * `sender_phone`/`receiver_phone` are all bare SQLite TEXT) or UI `maxLength`
+ * backing the narrower number. Raised to 50 to match the rest of the
+ * codebase rather than leave this one channel likelier to reject a
+ * legitimately-formatted phone number (country code, spaces, extension).
+ */
+export const financialUpdateMetadataSchema = z.object({
+  id: z.number().int().positive(),
+  client_name: z.string().max(255).optional(),
+  phone_number: z.string().max(50).optional(),
+  sender_name: z.string().max(255).optional(),
+  sender_phone: z.string().max(50).optional(),
+  receiver_name: z.string().max(255).optional(),
+  receiver_phone: z.string().max(50).optional(),
+  note: z.string().max(500).optional(),
+});
+
+export type FinancialUpdateMetadataInput = z.infer<
+  typeof financialUpdateMetadataSchema
+>;

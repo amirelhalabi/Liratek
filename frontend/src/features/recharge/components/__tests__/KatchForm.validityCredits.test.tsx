@@ -36,6 +36,12 @@ jest.mock("@liratek/ui", () => ({
     // these fixtures carry a computed days price, so the pricing panel stays
     // hidden and the legacy formula governs (FALLBACK behaviour under test).
     getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
+    // loadPrimaryLines (self-charge, D5) fires unconditionally on mount —
+    // unmocked, it logs "api.getPrimaryCarrierLine is not a function" noise
+    // even though the (caught) error doesn't fail these tests.
+    getPrimaryCarrierLine: jest
+      .fn()
+      .mockResolvedValue({ success: true, data: null }),
   }),
 }));
 

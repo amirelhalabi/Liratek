@@ -22,6 +22,7 @@ import type {
 import {
   CustomServiceCreateSchema,
   CustomServiceUpdateFulfillmentSchema,
+  CustomServiceUpdateMetadataSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -107,10 +108,14 @@ export function registerCustomServiceHandlers(): void {
         client_name?: string;
         phone_number?: string;
         note?: string;
+        category?: string;
       },
     ) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(CustomServiceUpdateMetadataSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
 
       let editedBy = `user-${auth.userId}`;
       try {
@@ -121,13 +126,19 @@ export function registerCustomServiceHandlers(): void {
         // fallback to user-{id}
       }
 
+      // TRANSPORT_PARITY_AUDIT_PLAN.md §6.4 follow-up 3: `category` used to
+      // be dropped HERE — preload typed it, CustomServiceService and
+      // CustomServiceRepository both already accept/persist it, but this
+      // handler never forwarded it to the service. Now forwarded like every
+      // other field.
       const result = service.updateCustomServiceMetadata(
-        data.id,
+        v.data.id,
         {
-          description: data.description,
-          client_name: data.client_name,
-          phone_number: data.phone_number,
-          note: data.note,
+          description: v.data.description,
+          client_name: v.data.client_name,
+          phone_number: v.data.phone_number,
+          note: v.data.note,
+          category: v.data.category,
         },
         editedBy,
       );

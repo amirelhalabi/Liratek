@@ -9,6 +9,7 @@ import {
   type ProductListQuery,
   type ProductListFilters,
   batchDeleteProductsSchema,
+  batchUpdateProductsSchema,
   stockAdjustSchema,
   receiveStockSchema,
   resolveScanCodeSchema,
@@ -108,6 +109,130 @@ router.get("/product-filter-options", (_req, res) => {
 router.get("/product-suppliers", (_req, res) => {
   try {
     res.json(createSuccessResponse(getProductSupplierRepository().getNames()));
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Product Supplier Management (Settings manager) — mirrors the
+// `inventory:get-product-suppliers-full` / `inventory:create-product-supplier`
+// / `inventory:update-product-supplier` / `inventory:delete-product-supplier`
+// IPC channels (electron-app/handlers/inventoryHandlers.ts). The three WRITE
+// channels now carry `requireRole(["admin", "staff"])` (closed together with
+// the IPC side — TRANSPORT_PARITY_AUDIT_PLAN.md's "ungated category/supplier
+// routes" item, rule 19c): these were reachable by ANY authenticated user,
+// any role, on both transports. The READ routes below stay on the
+// router-level `authenticateJWT` baseline only — deliberately ungated, same
+// as the IPC reads, since they feed the ProductForm's supplier datalist for
+// every role.
+// ---------------------------------------------------------------------------
+
+// GET /api/inventory/product-suppliers-full — id/name/sort_order/is_active/
+// product_count rows, distinct from the plain-names /product-suppliers read
+// above. Static path, placed before this router has any parameterized
+// `/product-suppliers/:id` sibling.
+router.get("/product-suppliers-full", (_req, res) => {
+  try {
+    const data = getProductSupplierRepository().getAllWithProductCount();
+    res.json({ success: true, data });
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
+router.post(
+  "/product-suppliers",
+  requireRole(["admin", "staff"]),
+  (req, res) => {
+    const name = req.body?.name;
+    if (typeof name !== "string" || name.trim().length === 0) {
+      res.json({ success: false, error: "name is required" });
+      return;
+    }
+    try {
+      const result = getProductSupplierRepository().create(name);
+      auditRest(req, {
+        action: "create",
+        entity_type: "product_supplier",
+        entity_id: String(result.id),
+        summary: `Created product supplier "${name}"`,
+      });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
+
+router.put(
+  "/product-suppliers/:id",
+  requireRole(["admin", "staff"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    const name = req.body?.name;
+    if (!Number.isFinite(id)) {
+      res.json({ success: false, error: "Invalid id" });
+      return;
+    }
+    if (typeof name !== "string" || name.trim().length === 0) {
+      res.json({ success: false, error: "name is required" });
+      return;
+    }
+    try {
+      const updated = getProductSupplierRepository().update(id, name);
+      auditRest(req, {
+        action: "update",
+        entity_type: "product_supplier",
+        entity_id: String(id),
+        summary: `Updated product supplier #${id} to "${name}"`,
+      });
+      res.json({ success: true, updated });
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
+
+router.delete(
+  "/product-suppliers/:id",
+  requireRole(["admin", "staff"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.json({ success: false, error: "Invalid id" });
+      return;
+    }
+    try {
+      const deleted = getProductSupplierRepository().delete(id);
+      auditRest(req, {
+        action: "delete",
+        entity_type: "product_supplier",
+        entity_id: String(id),
+        summary: `Deleted product supplier #${id}`,
+      });
+      res.json({ success: true, deleted });
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
+
+// GET /api/inventory/product-by-barcode?barcode=... — mirrors IPC
+// `inventory:get-product-by-barcode` (electron-app/handlers/inventoryHandlers.ts),
+// which carries no requireRole beyond an authenticated app session — same
+// no-extra-role-gate read baseline as the routes above. Used by the
+// ProductForm barcode generator to check a candidate barcode is unused
+// before offering it.
+router.get("/product-by-barcode", (req, res) => {
+  const barcode = req.query.barcode;
+  if (typeof barcode !== "string" || barcode.length === 0) {
+    res.json({ success: false, error: "barcode query parameter required" });
+    return;
+  }
+  try {
+    const product = getInventoryService().getProductByBarcode(barcode);
+    res.json({ success: true, product });
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -259,8 +384,50 @@ router.post(
   },
 );
 
-// PUT /api/inventory/products/:id (admin)
-router.put("/products/:id", requireRole(["admin"]), (req, res) => {
+// POST /api/inventory/products/batch-update — the Inventory grid's
+// multi-select edit (category / min-stock-threshold / supplier / unit, one
+// call for many products). Mirrors the `inventory:batch-update` IPC handler
+// (electron-app/handlers/inventoryHandlers.ts), which carries the same
+// `["admin", "staff"]` gate as its create/update/delete/batch-delete
+// siblings — that channel was missing the gate (a rule 19b/security gap on
+// BOTH transports, TRANSPORT_PARITY_AUDIT_PLAN.md §6.4) and this route
+// faithfully mirrored the gap; both are fixed together here. Static path,
+// declared here BEFORE every parameterized `/products/:id` route below
+// (this file's own convention — see the batch-delete route above).
+router.post(
+  "/products/batch-update",
+  requireRole(["admin", "staff"]),
+  validateRequest(batchUpdateProductsSchema),
+  (req, res) => {
+    const service = getInventoryService();
+    const result = service.batchUpdateProducts(req.body.ids, {
+      category: req.body.category,
+      min_stock_level: req.body.min_stock_level,
+      supplier: req.body.supplier,
+      unit: req.body.unit,
+    });
+    if (result.success) {
+      // Mirrors inventoryHandlers.ts's inventory:batch-update audit.
+      auditRest(req, {
+        action: "update",
+        entity_type: "product",
+        summary: `Batch updated ${req.body.ids.length} products`,
+        metadata: { ids: req.body.ids },
+      });
+    }
+    // Rule 19c envelope parity: HTTP 200 even on a business-rule failure,
+    // same as this route's batch-delete/PUT/DELETE siblings.
+    res.status(200).json(result);
+  },
+);
+
+// PUT /api/inventory/products/:id (admin/staff — matches the IPC handler's
+// roles per rule 19b: inventoryHandlers.ts's `inventory:update-product`
+// carries `["admin", "staff"]`; this route was left admin-only with no
+// documented reason, the same rule 19c gap the DELETE sibling below was
+// fixed for — aligned here so a staff user gets the same answer on desktop
+// and in the browser).
+router.put("/products/:id", requireRole(["admin", "staff"]), (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
     res.status(400).json({ success: false, error: "Invalid id" });
@@ -496,10 +663,14 @@ router.get("/stock-adjustments", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Category Management (LIRA-143 Phase 5 — Settings manager). Roles mirror
-// the IPC category handlers in inventoryHandlers.ts, which carry NO
-// requireRole gate of their own beyond an authenticated app session — same
-// baseline here (router-level authenticateJWT only, no extra role gate).
+// Category Management (LIRA-143 Phase 5 — Settings manager). The three
+// WRITE routes below now carry `requireRole(["admin", "staff"])`, mirroring
+// the IPC category handlers in inventoryHandlers.ts (closed together — this
+// was the LIRA-143 "ungated category routes" item: any authenticated user of
+// any role could create/rename/delete a category on both transports). The
+// READ routes (below and above) stay on the router-level `authenticateJWT`
+// baseline only — deliberately ungated, matching the IPC reads, since they
+// feed the ProductForm's category datalist for every role.
 // ---------------------------------------------------------------------------
 
 // GET /api/inventory/categories-full — static path, placed before the
@@ -513,9 +684,25 @@ router.get("/categories-full", (_req, res) => {
   }
 });
 
+// GET /api/inventory/categories — plain category NAMES (distinct from
+// /categories-full's id/sort_order/tracks_imei_units rows above). Mirrors
+// IPC `inventory:get-categories` (electron-app/handlers/inventoryHandlers.ts:
+// `() => catRepo.getNames()`), which carries no requireRole beyond an
+// authenticated app session — same baseline here. Used by ProductForm's
+// category datalist, with a client-side fallback list if this ever fails.
+router.get("/categories", (_req, res) => {
+  try {
+    const data = getCategoryRepository().getNames();
+    res.json({ success: true, data });
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
 // POST /api/inventory/categories
 router.post(
   "/categories",
+  requireRole(["admin", "staff"]),
   validateRequest(createCategorySchema),
   (req, res) => {
     try {
@@ -536,6 +723,7 @@ router.post(
 // PUT /api/inventory/categories/:id — name and/or tracks_imei_units flag
 router.put(
   "/categories/:id",
+  requireRole(["admin", "staff"]),
   validateRequest(updateCategorySchema),
   (req, res) => {
     const id = Number(req.params.id);
@@ -566,24 +754,28 @@ router.put(
 );
 
 // DELETE /api/inventory/categories/:id
-router.delete("/categories/:id", (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) {
-    res.json({ success: false, error: "Invalid id" });
-    return;
-  }
-  try {
-    const deleted = getCategoryRepository().delete(id);
-    auditRest(req, {
-      action: "delete",
-      entity_type: "category",
-      entity_id: String(id),
-      summary: `Deleted category #${id}`,
-    });
-    res.json({ success: true, deleted });
-  } catch (err) {
-    res.json({ success: false, error: errMessage(err) });
-  }
-});
+router.delete(
+  "/categories/:id",
+  requireRole(["admin", "staff"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.json({ success: false, error: "Invalid id" });
+      return;
+    }
+    try {
+      const deleted = getCategoryRepository().delete(id);
+      auditRest(req, {
+        action: "delete",
+        entity_type: "category",
+        entity_id: String(id),
+        summary: `Deleted category #${id}`,
+      });
+      res.json({ success: true, deleted });
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
 
 export default router;

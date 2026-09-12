@@ -1,6 +1,6 @@
 /**
  * CustomServiceRepository — owner-facing CHARACTERIZATION MATRIX
- * (docs/plans/todo_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md)
+ * (docs/plans/done_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md)
  *
  * Owner ask, verbatim: "we should run a test in each scenario. each scenario
  * should include monitoring all drawers before and after the submission of

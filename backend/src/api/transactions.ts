@@ -76,6 +76,32 @@ router.get(
   },
 );
 
+// GET /api/transactions/cash-flow-by-date?from=...&to=... — D1: currency
+// in/out by business date (Cash Report on /audit). Mirrors IPC
+// `transactions:cash-flow-by-date`, which carries no requireRole beyond an
+// authenticated app session — same baseline here (requireAuth only). Static
+// path, placed before `/:id` below (same convention as `/by-source` above)
+// so it can never be swallowed by that single-segment route regardless of
+// declaration order.
+router.get("/cash-flow-by-date", requireAuth, async (req, res) => {
+  try {
+    const { from, to } = req.query as { from?: string; to?: string };
+    if (!from || !to) {
+      res.status(400).json({
+        success: false,
+        error: "from and to query parameters required",
+      });
+      return;
+    }
+    const txnService = getTransactionService();
+    const cashFlow = txnService.getCashFlowByDate(from, to);
+    res.json({ success: true, cashFlow });
+  } catch (error) {
+    logger.error({ error }, "Get cash flow by date error");
+    res.status(500).json({ success: false, error: "Failed to get cash flow" });
+  }
+});
+
 // GET /api/transactions/:id
 router.get("/:id", requireAuth, async (req, res) => {
   try {

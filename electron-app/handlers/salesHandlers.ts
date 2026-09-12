@@ -15,7 +15,11 @@ import {
 import type { SaleRequest } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-import { SaleProcessSchema, validatePayload } from "../schemas/index.js";
+import {
+  SaleProcessSchema,
+  SaleUpdateMetadataSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerSalesHandlers(): void {
   const salesService = getSalesService();
@@ -212,6 +216,9 @@ export function registerSalesHandlers(): void {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      const v = validatePayload(SaleUpdateMetadataSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       let editedBy = `user-${auth.userId}`;
       try {
         const userRepo = getUserRepository();
@@ -222,14 +229,14 @@ export function registerSalesHandlers(): void {
       }
 
       const result = salesService.updateSaleMetadata(
-        data.id,
+        v.data.id,
         {
-          ...(data.note !== undefined ? { note: data.note } : {}),
-          ...(data.client_name !== undefined
-            ? { client_name: data.client_name }
+          ...(v.data.note !== undefined ? { note: v.data.note } : {}),
+          ...(v.data.client_name !== undefined
+            ? { client_name: v.data.client_name }
             : {}),
-          ...(data.client_phone !== undefined
-            ? { client_phone: data.client_phone }
+          ...(v.data.client_phone !== undefined
+            ? { client_phone: v.data.client_phone }
             : {}),
         },
         editedBy,

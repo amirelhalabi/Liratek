@@ -71,8 +71,9 @@ export function PresetManagerModal({
   const [saving, setSaving] = useState(false);
 
   const loadPresets = useCallback(async () => {
-    // Service presets are IPC-only (no REST route yet) — skip in web mode
-    if (!window.api?.servicePresets) return;
+    // Dual-mode: api.servicePresets goes through IPC on desktop and the
+    // `/api/service-presets` REST route on web (rule 19) — no transport gate
+    // needed here anymore.
     try {
       setLoading(true);
       const result = await api.servicePresets.list({

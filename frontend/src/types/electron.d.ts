@@ -632,11 +632,18 @@ export interface ElectronAPI {
       code?: "DUPLICATE_BARCODE";
       suggested_barcode?: string;
     }>;
+    /** Rule 12: must track `batchUpdateProductsSchema`
+     *  (packages/core/src/validators/product.ts) — the single schema both
+     *  transports validate against (rule 14). The field is `supplier`
+     *  (string name), not `supplier_id`; `InventoryService.batchUpdateProducts`,
+     *  `ProductRepository.batchUpdateProducts`, `backendApi.ts`'s
+     *  `BatchUpdateProductsPayload`, and `ApiAdapter.batchUpdateProducts`
+     *  (packages/ui/src/api/types.ts) all agree on `supplier`. */
     batchUpdate: (payload: {
       ids: number[];
       category?: string;
       min_stock_level?: number;
-      supplier_id?: number | null;
+      supplier?: string | null;
       unit?: string | null;
     }) => Promise<{ success: boolean; updated: number; error?: string }>;
     updateProduct: (
@@ -1070,9 +1077,12 @@ export interface ElectronAPI {
       netProfitLBP: number;
     }>;
     getDrawerNames: () => Promise<string[]>;
+    // NOTE: field name must match what "financial:update-metadata" (omtHandlers.ts)
+    // actually reads (client_name) — a prior mismatch (customer_name) type-checked
+    // fine but silently dropped every client-name edit at runtime (rule 12).
     updateMetadata: (data: {
       id: number;
-      customer_name?: string;
+      client_name?: string;
       phone_number?: string;
       sender_name?: string;
       sender_phone?: string;

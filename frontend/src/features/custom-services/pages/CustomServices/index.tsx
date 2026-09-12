@@ -201,8 +201,9 @@ export default function CustomServices() {
   const [presets, setPresets] = useState<ServicePreset[]>([]);
 
   const loadPresets = useCallback(async () => {
-    // Service presets are IPC-only (no REST route yet) — skip in web mode
-    if (!window.api?.servicePresets) return;
+    // Dual-mode: api.servicePresets goes through IPC on desktop and the
+    // `/api/service-presets` REST route on web (rule 19) — no transport gate
+    // needed here anymore.
     try {
       const result = await api.servicePresets.list();
       if (result.success && result.data) {
@@ -781,8 +782,7 @@ export default function CustomServices() {
                         data-testid="custom-service-item-search"
                         placeholder="Search by name/barcode, or type your service description..."
                         onSearch={async (query) => {
-                          const results =
-                            await window.api.inventory.getProducts(query);
+                          const results = await api.getProducts(query);
                           return results.slice(0, 8).map((p: any) => ({
                             id: p.id as number,
                             name: p.name as string,

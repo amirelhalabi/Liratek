@@ -7,7 +7,7 @@
  * there is no path by which caller input can select which table gets a raw
  * `DELETE FROM <name>` (see the inline assertion below each loop).
  *
- * See `docs/plans/todo_plans/DATABASE_RESET_PLAN.md` for the full
+ * See `docs/plans/done_plans/DATABASE_RESET_PLAN.md` for the full
  * classification rationale.
  */
 

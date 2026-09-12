@@ -1,6 +1,17 @@
 # Exchange Lot Settlement — realized cost-basis profit for exotic currencies
 
-**Status: IMPLEMENTED 2026-08-23 (commits 5ee10ce9..62a15b1b + review-fix commit(s) after) — desktop/web e2e guard still pending (Phase 8).**
+**Status: ✅ COMPLETE 2026-08-23** (commits 5ee10ce9..62a15b1b + review-fix commits after).
+Phase 8 — the desktop/web e2e guard — landed the same day and is NOT outstanding:
+`frontend/tests/e2e-electron/lira-142-exchange-lot-settlement.spec.ts` (`70afaa9b`) and
+`frontend/tests/e2e-web/lira-web-022-exchange-submit-parity.spec.ts` (`88e10ee0`).
+
+> ⚠ This header read "e2e guard still pending (Phase 8)" until 2026-09-12. It was wrong for
+> 20 days, and the 2026-09-10 three-way plan sweep believed it — filing this plan under
+> `ongoing_plans/` and citing it in `docs/plans/README.md` as the worked example of a header
+> that overstates completion. It was in fact a header that _understated_ it. Both specs predate
+> that sweep by 18 days. The lesson the README already teaches, demonstrated on itself: verify
+> the named artefact exists before trusting any status line, including a pessimistic one.
+
 Owner answered a 17-question interview 2026-08-22 (decision record below). Shipped in phases:
 v156 schema → ExchangeLotRepository engine → money-path wiring + rule-20 reversal owners →
 dual-transport lot API (preview/positions/breakdown/adjust) → history lot summaries →

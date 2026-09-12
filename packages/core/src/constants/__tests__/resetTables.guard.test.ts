@@ -80,7 +80,8 @@ function extractTableNames(): string[] {
     })
     .join("\n");
 
-  const re = /CREATE TABLE(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?=[(\n])/g;
+  const re =
+    /CREATE TABLE(?: IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?=[(\n])/g;
   const found = new Set<string>();
   let match: RegExpExecArray | null;
   while ((match = re.exec(withoutComments)) !== null) {
@@ -138,7 +139,7 @@ describe("resetTables classification guard (rule 14)", () => {
           `EXCLUDED / ZERO / RESEED / PARTIAL / WIPE) — leaving a ledger ` +
           `table out of the wipe set produces data that LOOKS corrupt after ` +
           `a reset (e.g. a supplier owing money with no transactions ` +
-          `behind it). See docs/plans/todo_plans/DATABASE_RESET_PLAN.md.`,
+          `behind it). See docs/plans/done_plans/DATABASE_RESET_PLAN.md.`,
       );
     }
     expect(multiplyClassified).toEqual([]);

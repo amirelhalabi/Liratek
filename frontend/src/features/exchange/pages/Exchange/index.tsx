@@ -1575,8 +1575,16 @@ export default function Exchange() {
                 />
               </div>
 
-              {/* Client Name — hidden in for-partner mode (no walk-in customer) */}
-              {forPartner ? (
+              {/* Client Name — kept in BOTH modes per the owner's 2026-09-12
+              decision (FOR_PARTNER_AND_COST_UNIFICATION_PLAN §4's last
+              checkbox): the walk-in customer's identity is still captured on
+              a For-Partner exchange (who physically received the currency),
+              even though the partner owes the money. `clientName` was
+              already submitted ungated below (~:952) in both modes — this
+              only makes the UI honest about what was always being recorded,
+              it does not change what gets stored. The notice explains no
+              payment is collected; the field records who received it. */}
+              {forPartner && (
                 <ForPartnerNotice
                   testId="exchange-partner-no-payment-notice"
                   className="text-sm text-violet-200 bg-violet-500/10 border border-violet-500/30 rounded-xl px-4 py-4"
@@ -1588,20 +1596,19 @@ export default function Exchange() {
                   goes on the selected partner&apos;s account, settled later on
                   the Partners page.
                 </ForPartnerNotice>
-              ) : (
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                    Client Name (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
-                    placeholder="Walk-in Client"
-                  />
-                </div>
               )}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                  Client Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
+                  placeholder="Walk-in Client"
+                />
+              </div>
 
               <TransactionTimeOverride
                 value={transactionTime}

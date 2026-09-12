@@ -11,9 +11,11 @@ import {
   LotoCashPrizeSchema,
   LotoFeeSchema,
   LotoCheckpointCreateSchema,
+  LotoCheckpointUpdateSchema,
   LotoCheckpointSettleSchema,
   LotoCheckpointsSettleBatchSchema,
   LotoTicketUpdateSchema,
+  LotoUpdateMetadataSchema,
   PositiveIdSchema,
   validatePayload,
 } from "../schemas/index.js";
@@ -423,8 +425,11 @@ export function registerLotoHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
+      const v = validatePayload(LotoCheckpointUpdateSchema, data);
+      if (!v.ok) throw new Error(v.error);
+
       const service = getLotoServiceInstance();
-      const checkpoint = service.updateCheckpoint(id, data);
+      const checkpoint = service.updateCheckpoint(id, v.data);
       audit(e.sender.id, {
         action: "update",
         entity_type: "loto_checkpoint",
@@ -856,6 +861,9 @@ export function registerLotoHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      const v = validatePayload(LotoUpdateMetadataSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       let editedBy = `user-${auth.userId}`;
       try {
         const userRepo = getUserRepository();
@@ -867,8 +875,8 @@ export function registerLotoHandlers(): void {
 
       const service = getLotoServiceInstance();
       const result = service.updateLotoMetadata(
-        data.id,
-        { note: data.note },
+        v.data.id,
+        { note: v.data.note },
         editedBy,
       );
 

@@ -403,9 +403,15 @@ export default function Services() {
   async function saveEditTx(id: number) {
     setEditSaving(true);
     try {
-      const result = await window.api.financial.updateMetadata({
+      // Migrated off raw window.api (rule 19) onto the shared
+      // updateFinancialMetadata adapter fn, which also has a REST twin.
+      // NOTE: the field is `client_name` (matching the adapter contract and
+      // the underlying service), not `customer_name` — the old raw call
+      // sent `customer_name`, a key the IPC handler never reads, so this
+      // edit's name field was a silent no-op.
+      const result = await api.updateFinancialMetadata({
         id,
-        ...(editForm.client_name && { customer_name: editForm.client_name }),
+        ...(editForm.client_name && { client_name: editForm.client_name }),
         ...(editForm.phone_number && { phone_number: editForm.phone_number }),
         ...(editForm.note && { note: editForm.note }),
       });

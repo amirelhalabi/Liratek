@@ -58,6 +58,10 @@ interface FinancialFormProps {
   getCategoriesForProvider: (provider: ProviderKey) => string[];
   getServiceItems: (provider: ProviderKey, category: string) => ServiceItem[];
   methods: { code: string; label: string }[];
+  /** Drawer-affecting subset of `methods` (`affects_drawer === 1`) — used
+   *  ONLY for the For-Partner "Paid from" picker below (FinancialForm.tsx
+   *  ~:868). See FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §4 defect #5. */
+  drawerAffectingMethods: { code: string; label: string }[];
   clientName: string;
   setClientName: (val: string) => void;
   loadFinancialData: () => void;
@@ -79,6 +83,7 @@ export function FinancialForm({
   getCategoriesForProvider,
   getServiceItems,
   methods,
+  drawerAffectingMethods,
   clientName,
   setClientName,
   loadFinancialData,
@@ -865,7 +870,13 @@ export function FinancialForm({
                 <Select
                   value={partnerPaidFromMethod}
                   onChange={setPartnerPaidFromMethod}
-                  options={methods.map((m) => ({
+                  // Drawer-affecting methods ONLY (not the unfiltered
+                  // `methods`) — FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §4
+                  // defect #5. The chosen value becomes an OUT payment leg
+                  // below (handleForPartnerSubmit), and the backend's
+                  // assertNoCustomerAccountLeg hard-rejects a CUSTOMER_ACCOUNT
+                  // OUT leg, so offering it here always failed the submit.
+                  options={drawerAffectingMethods.map((m) => ({
                     value: m.code,
                     label: m.label,
                   }))}
@@ -1261,10 +1272,16 @@ export function FinancialForm({
           sourceTable="financial_services"
           transactionType="FINANCIAL_SERVICE"
           onUpdateMetadata={async (id, data) => {
-            const result = await window.api.financial.updateMetadata({
+            // Migrated off raw window.api (rule 19) onto the shared
+            // updateFinancialMetadata adapter fn, which also has a REST
+            // twin. NOTE: the field is `client_name` (matching the adapter
+            // contract and the underlying service), not `customer_name` —
+            // the old raw call sent `customer_name`, a key the IPC handler
+            // never reads, so this edit's name field was a silent no-op.
+            const result = await api.updateFinancialMetadata({
               id,
               ...(data.client_name !== undefined && {
-                customer_name: data.client_name,
+                client_name: data.client_name,
               }),
               ...(data.phone_number !== undefined && {
                 phone_number: data.phone_number,

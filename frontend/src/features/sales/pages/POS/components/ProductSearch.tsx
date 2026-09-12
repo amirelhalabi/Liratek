@@ -81,7 +81,7 @@ function ProductSearch({
     if (editingNoteId === null) return;
     setEditNoteSaving(true);
     try {
-      const result = await window.api.sales.updateMetadata({
+      const result = await api.updateSaleMetadata({
         id: editingNoteId,
         ...(editNoteValue !== undefined && { note: editNoteValue }),
       });
@@ -167,29 +167,37 @@ function ProductSearch({
   useEffect(() => {
     const loadSales = async () => {
       try {
-        const data = await window.api?.sales?.getTodaysSales(selectedDate);
+        // The adapter's RecentSale type is Dashboard's narrower shape;
+        // the actual IPC/REST payload carries the fuller TodaySale fields
+        // this component reads (final_amount_usd, item_count, note, ...).
+        const data = (await api.getTodaysSales(
+          selectedDate,
+        )) as unknown as TodaySale[];
         setTodaysSales(Array.isArray(data) ? data : []);
       } catch {
         setTodaysSales([]);
       }
     };
     loadSales();
-  }, [refreshSalesKey, selectedDate]);
+  }, [refreshSalesKey, selectedDate, api]);
 
   // Listen for sale:completed events to refresh sales (only if looking at today)
   useEffect(() => {
     const handler = () => {
       if (isToday) {
-        (window.api?.sales?.getTodaysSales as any)?.(selectedDate)
-          .then((data: TodaySale[]) => {
-            setTodaysSales(Array.isArray(data) ? data : []);
+        api
+          .getTodaysSales(selectedDate)
+          .then((data) => {
+            setTodaysSales(
+              Array.isArray(data) ? (data as unknown as TodaySale[]) : [],
+            );
           })
           .catch(() => {});
       }
     };
     const unsub = appEvents.on("sale:completed", handler);
     return unsub;
-  }, [isToday, selectedDate]);
+  }, [isToday, selectedDate, api]);
 
   // Clear search bar when checkout modal closes (cancel, draft, or complete)
   useEffect(() => {

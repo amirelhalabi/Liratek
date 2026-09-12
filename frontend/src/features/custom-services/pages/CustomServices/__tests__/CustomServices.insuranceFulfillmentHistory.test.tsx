@@ -67,6 +67,13 @@ jest.mock("@liratek/ui", () => {
       getCustomServicesSummary: mockGetCustomServicesSummary,
       // The fulfilment endpoint HistoryModal's advance button calls.
       advanceCustomServiceFulfillment: mockAdvanceCustomServiceFulfillment,
+      // loadPresets() (CustomServices/index.tsx) fires unconditionally on
+      // mount — unmocked, it logs "Cannot read properties of undefined
+      // (reading 'list')" noise even though the (caught) error doesn't fail
+      // these tests.
+      servicePresets: {
+        list: jest.fn().mockResolvedValue({ success: true, data: [] }),
+      },
     }),
     // Real DataTable — HistoryModal's renderRow must actually execute.
     DataTable: actual.DataTable,

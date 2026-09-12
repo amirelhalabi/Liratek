@@ -12,12 +12,13 @@
  * snapshot (`EXCHANGE_RATE` = `buyRate`).
  *
  * This proves `handleProcessRepayment` (Debts/index.tsx) forwards
- * `repayModalRate` into the outgoing payload on ALL THREE submit paths:
- *   1. `api.addRepayment` — the dual-mode/REST-shaped branch (window.api absent)
- *   2. `window.api.debt.addRepayment` — the IPC-shaped branch (window.api present)
- *   3. `api.cashOut` — the credit cash-out branch
+ * `repayModalRate` into the outgoing payload on BOTH submit paths, which
+ * both always go through the dual-mode adapter (rule 19 — no
+ * `window.api ? … : …` transport gate lives in the component):
+ *   1. `api.addRepayment` — repayment
+ *   2. `api.cashOut` — credit cash-out
  *
- * Confirmed failing-first (rule 17): temporarily reverting the 3
+ * Confirmed failing-first (rule 17): temporarily reverting the
  * `tender_exchange_rate` payload edits in Debts/index.tsx (while leaving the
  * type-only plumbing in preload.ts/electron.d.ts/packages/ui/types.ts alone)
  * makes every `tender_exchange_rate` assertion below fail — the field comes
@@ -26,6 +27,20 @@
  * `useSellRate` mock's `buyRate` (89000, `EXCHANGE_RATE`'s fallback), so a
  * "fix" that stamped the live snapshot instead of the operator's edited rate
  * would also be caught.
+ *
+ * CORRECTED 2026-09-12: this file used to assert a THIRD path —
+ * `window.api.debt.addRepayment` called directly whenever `window.api` was
+ * present — and asserted the outgoing payload in snake_case
+ * (`client_id`/`amount_usd`). Both were wrong. `addRepaymentSchema`
+ * (packages/core/src/validators/debt.ts) has always spoken camelCase
+ * (`clientId`/`amountUSD`/`amountLBP`); the snake_case assertion encoded the
+ * very "Invalid input: expected number, received undefined" bug that the
+ * component's payload unification fixed (see the comment above the
+ * `api.addRepayment(...)` call in Debts/index.tsx). And the direct-
+ * `window.api` branch doesn't exist in the component at all — there is
+ * exactly one call site per action (`api.addRepayment` / `api.cashOut`),
+ * and the dual-mode adapter, not the component, decides IPC vs REST. See
+ * each test below for what changed and why.
  */
 
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
@@ -240,7 +255,18 @@ describe("Debts page — tender_exchange_rate propagation (owner decision 2026-0
     delete (window as any).api;
   });
 
-  it("stamps the operator's rate on the REST-shaped api.addRepayment payload (window.api absent)", async () => {
+  // BEFORE: asserted `payload.client_id` / `payload.amount_usd` (snake_case).
+  // That encoded the original Settle Debt defect, not correct behaviour —
+  // `addRepaymentSchema` has always spoken camelCase. The Debts page used to
+  // pick its payload shape per transport, so the REST branch sent
+  // `client_id`/`amount_usd`, which the camelCase schema read as
+  // `clientId: undefined` and rejected with "Invalid input: expected
+  // number, received undefined" — a modal the operator had already filled
+  // in, rejected for a reason naming no field.
+  // AFTER: asserts `payload.clientId` / `payload.amountUSD`, the shape the
+  // component actually sends and the schema actually accepts. Do not
+  // "restore" the snake_case form — it is the bug, not a valid alternative.
+  it("stamps the operator's rate on the api.addRepayment payload (window.api absent)", async () => {
     mockGetClientBalance.mockResolvedValue({
       success: true,
       data: { balance_usd: 10, balance_lbp: 0 },
@@ -257,32 +283,40 @@ describe("Debts page — tender_exchange_rate propagation (owner decision 2026-0
     await waitFor(() => expect(mockAddRepayment).toHaveBeenCalled());
     const payload = mockAddRepayment.mock.calls[0][0];
     expect(payload.tender_exchange_rate).toBe(93000);
-    expect(payload.client_id).toBe(1);
-    expect(payload.amount_usd).toBe(10);
+    expect(payload.clientId).toBe(1);
+    expect(payload.amountUSD).toBe(10);
   });
 
-  it("stamps the operator's rate on the IPC-shaped window.api.debt.addRepayment payload", async () => {
+  // BEFORE: this test set `window.api.debt.addRepayment` and asserted the
+  // component called it DIRECTLY whenever `window.api` was present — i.e.
+  // that Debts/index.tsx still branched `window.api ? IPC : REST`, the
+  // pattern rule 19(a) forbids. That branch was deliberately removed: the
+  // component always calls `api.addRepayment(...)` through the dual-mode
+  // adapter now (see the comment above that call in Debts/index.tsx), and
+  // `ipcOrHttp` inside the adapter is the only place that picks IPC vs
+  // REST. The old test's premise was dead code, so `mockWindowAddRepayment`
+  // was never called and the test timed out.
+  // AFTER: proves the thing the old test was actually reaching for — the
+  // rate is stamped whichever transport is in play, guaranteed here by
+  // there being exactly one call site — AND keeps a genuine rule-19
+  // regression guard: even with `window.api` defined (simulating the
+  // desktop environment), the component must still go through
+  // `api.addRepayment` and must NEVER call `window.api.debt.addRepayment`
+  // directly.
+  it("stamps the operator's rate on api.addRepayment even when window.api is present, and never calls window.api.debt.addRepayment directly", async () => {
     const mockWindowAddRepayment = jest
       .fn()
       .mockResolvedValue({ success: true, id: 1 });
     (window as any).api = {
       debt: {
-        getDebtors: jest.fn().mockResolvedValue([DEBTOR]),
-        getClientHistory: jest.fn().mockResolvedValue([]),
         addRepayment: mockWindowAddRepayment,
-        getClientBalance: jest.fn().mockResolvedValue({
-          success: true,
-          data: { balance_usd: 0, balance_lbp: 0 },
-        }),
       },
     };
-    // loadLedgerBalance always goes through the dual-mode `api` adapter
-    // (never the raw window.api), regardless of the IPC/REST branch under
-    // test here — see Debts/index.tsx's loadLedgerBalance.
     mockGetClientBalance.mockResolvedValue({
       success: true,
       data: { balance_usd: 10, balance_lbp: 0 },
     });
+    mockAddRepayment.mockResolvedValue({ success: true, id: 1 });
 
     render(<Debts />);
 
@@ -291,11 +325,12 @@ describe("Debts page — tender_exchange_rate propagation (owner decision 2026-0
     fireEvent.click(screen.getByText("Set Lines"));
     fireEvent.click(screen.getByText("Confirm Payment"));
 
-    await waitFor(() => expect(mockWindowAddRepayment).toHaveBeenCalled());
-    const payload = mockWindowAddRepayment.mock.calls[0][0];
+    await waitFor(() => expect(mockAddRepayment).toHaveBeenCalled());
+    const payload = mockAddRepayment.mock.calls[0][0];
     expect(payload.tender_exchange_rate).toBe(93000);
     expect(payload.clientId).toBe(1);
     expect(payload.amountUSD).toBe(10);
+    expect(mockWindowAddRepayment).not.toHaveBeenCalled();
   });
 
   it("stamps the operator's rate on the api.cashOut payload", async () => {

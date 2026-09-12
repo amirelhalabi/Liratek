@@ -9,7 +9,7 @@ import {
   Printer,
   Pencil,
 } from "lucide-react";
-import { appEvents, EXCHANGE_RATE } from "@liratek/ui";
+import { appEvents, EXCHANGE_RATE, useApi } from "@liratek/ui";
 import logger from "@/utils/logger";
 import {
   formatReceipt58mm,
@@ -68,6 +68,7 @@ export default function SaleDetailModal({
   onRefunded,
 }: SaleDetailModalProps) {
   useModalFocusFix(true);
+  const api = useApi();
   const shopInfo = useShopInfo();
   const [sale, setSale] = useState<SaleDetail | null>(null);
   const [items, setItems] = useState<SaleItem[]>([]);
@@ -88,8 +89,8 @@ export default function SaleDetailModal({
     setLoading(true);
     try {
       const [saleData, itemsData] = await Promise.all([
-        window.api.sales.get(saleId),
-        window.api.sales.getItems(saleId),
+        api.getSale(saleId),
+        api.getSaleItems(saleId),
       ]);
       setSale(saleData);
       setItems(itemsData ?? []);
@@ -116,7 +117,7 @@ export default function SaleDetailModal({
     if (!sale) return;
     setSavingCustomer(true);
     try {
-      const result = await window.api.sales.updateMetadata({
+      const result = await api.updateSaleMetadata({
         id: sale.id,
         client_name: editName.trim(),
         client_phone: editPhone.trim(),
@@ -144,7 +145,7 @@ export default function SaleDetailModal({
     if (!sale) return;
     setRefunding(true);
     try {
-      const result = await window.api.sales.refund(saleId);
+      const result = await api.refundSale(saleId);
       if (result.success) {
         appEvents.emit(
           "notification:show",
@@ -154,8 +155,10 @@ export default function SaleDetailModal({
         appEvents.emit("sale:completed", { refunded: true, saleId });
         onRefunded?.();
         onClose();
-        // Windows focus fix
-        (window as any).api?.display?.fixFocus?.();
+        // Windows focus fix — Electron-only workaround for a focus bug after
+        // a modal closes; a no-op in the browser (window.api is undefined
+        // there), so no REST/web equivalent exists or is needed.
+        window.api?.display?.fixFocus?.();
       } else {
         appEvents.emit(
           "notification:show",
@@ -180,11 +183,7 @@ export default function SaleDetailModal({
 
     setRefunding(true);
     try {
-      const result = await window.api.sales.refundItem(
-        saleId,
-        item.id,
-        quantity,
-      );
+      const result = await api.refundSaleItem(saleId, item.id, quantity);
 
       if (result.success) {
         appEvents.emit(
@@ -195,7 +194,7 @@ export default function SaleDetailModal({
         appEvents.emit("sale:completed", { refunded: true, saleId });
         onRefunded?.();
         // Reload items to show updated refunded_quantity
-        const itemsData = await window.api.sales.getItems(saleId);
+        const itemsData = await api.getSaleItems(saleId);
         setItems(itemsData ?? []);
       } else {
         appEvents.emit(
@@ -252,7 +251,7 @@ export default function SaleDetailModal({
 
     let targetPrinter = "";
     try {
-      const settings = await window.api?.settings?.getAll?.();
+      const settings = await api.getAllSettings();
       if (settings) {
         const printerSetting = settings.find(
           (s: any) => s.key_name === "receipt_printer",

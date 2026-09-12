@@ -163,6 +163,7 @@ import subscriptionRoutes from "./api/subscription.js";
 import carrierLinesRoutes from "./api/carrierLines.js";
 import mobileServiceItemsRoutes from "./api/mobileServiceItems.js";
 import databaseResetRoutes from "./api/databaseReset.js";
+import whatsappRoutes from "./api/whatsapp.js";
 
 // Health checks (no /api prefix for easier monitoring)
 app.use("/health", healthRoutes);
@@ -225,6 +226,10 @@ app.use("/api/mobile-service-items", mobileServiceItemsRoutes);
 // Final URLs: GET /api/database/reset/preview, POST /api/database/reset
 // (LIRA-165 — routes live in databaseReset.ts, paths are relative there).
 app.use("/api/database", databaseResetRoutes);
+// The REST half of ClientForm's dual-mode `api.sendWhatsAppMessage` /
+// Settings > Integrations' `api.sendWhatsAppTestMessage` (backendApi.ts) —
+// previously missing entirely, so sending WhatsApp in the browser 404'd.
+app.use("/api/whatsapp", whatsappRoutes);
 
 // Initialize WebSocket server for voice transcription
 initVoiceWebSocketServer(httpServer);

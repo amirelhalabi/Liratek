@@ -50,7 +50,7 @@ export default function MobileRecharge() {
   const { formatAmount } = useCurrencyContext();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const { methods } = usePaymentMethods();
+  const { methods, drawerAffectingMethods } = usePaymentMethods();
   const {
     activeSession,
     linkTransaction,
@@ -1580,6 +1580,7 @@ export default function MobileRecharge() {
                   getCategoriesForProvider={getCategoriesForProvider}
                   getServiceItems={getServiceItems}
                   methods={methods}
+                  drawerAffectingMethods={drawerAffectingMethods}
                   clientName={clientName}
                   setClientName={setClientName}
                   loadFinancialData={loadFinancialData}
@@ -1640,6 +1641,7 @@ export default function MobileRecharge() {
               getCategoriesForProvider={getCategoriesForProvider}
               getServiceItems={getServiceItems}
               methods={methods}
+              drawerAffectingMethods={drawerAffectingMethods}
               clientName={clientName}
               setClientName={setClientName}
               loadFinancialData={loadFinancialData}

@@ -5,6 +5,7 @@ import {
   getExpenseService,
   createExpenseSchema,
   deleteExpenseSchema,
+  expenseUpdateMetadataSchema,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
 
@@ -63,6 +64,53 @@ router.delete(
       });
     }
     res.status(result.success ? 200 : 400).json(result);
+  },
+);
+
+// POST /api/expenses/update-metadata (admin + staff — matches
+// dbHandlers.ts's "expenses:update-metadata" IPC gate). `editedBy` comes
+// from the JWT's username claim, never the client body. Static path,
+// registered before this router would ever need a parameterized sibling
+// (rule 19 convention — see inventory.ts's/loto.ts's ordering comments).
+router.post(
+  "/update-metadata",
+  requireRole(["admin", "staff"]),
+  validateRequest(expenseUpdateMetadataSchema),
+  (req, res) => {
+    const editedBy = req.user!.username;
+    const service = getExpenseService();
+    const result = service.updateExpenseMetadata(
+      req.body.id,
+      {
+        description: req.body.description,
+        category: req.body.category,
+        note: req.body.note,
+      },
+      editedBy,
+    );
+
+    if (
+      result.success &&
+      result.oldValues &&
+      Object.keys(result.oldValues).length > 0
+    ) {
+      // Mirrors dbHandlers.ts's expenses:update-metadata audit
+      // (edit_metadata/expense).
+      auditRest(req, {
+        action: "edit_metadata",
+        entity_type: "expense",
+        entity_id: String(req.body.id),
+        summary: `Edited expense #${req.body.id} metadata`,
+        old_values: result.oldValues,
+        new_values: req.body,
+      });
+    }
+
+    res.json(
+      result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error },
+    );
   },
 );
 

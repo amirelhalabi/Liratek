@@ -72,6 +72,13 @@ jest.mock("@liratek/ui", () => {
       // hook's real fetch/state-management code runs.
       getCustomServices: mockGetCustomServices,
       getCustomServicesSummary: mockGetCustomServicesSummary,
+      // loadPresets() (CustomServices/index.tsx) fires unconditionally on
+      // mount — unmocked, it logs "Cannot read properties of undefined
+      // (reading 'list')" noise even though the (caught) error doesn't fail
+      // these tests.
+      servicePresets: {
+        list: jest.fn().mockResolvedValue({ success: true, data: [] }),
+      },
     }),
     // Real DataTable — HistoryModal's renderRow must actually execute for
     // this test to mean anything (a fake that skips renderRow, like the

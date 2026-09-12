@@ -49,6 +49,13 @@ jest.mock("@liratek/ui", () => ({
     // PartnerSelector (rendered by ForPartnerToggle once checked) fetches
     // the partner list on mount.
     partners: { getAll: mockPartnersGetAll },
+    // loadPresets() (CustomServices/index.tsx) fires unconditionally on
+    // mount — unmocked, it logs "Cannot read properties of undefined
+    // (reading 'list')" noise even though the (caught) error doesn't fail
+    // these tests.
+    servicePresets: {
+      list: jest.fn().mockResolvedValue({ success: true, data: [] }),
+    },
   }),
   DecimalInput: ({
     id,

@@ -17,7 +17,11 @@ import {
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-import { AddExpenseSchema, validatePayload } from "../schemas/index.js";
+import {
+  AddExpenseSchema,
+  ExpenseUpdateMetadataSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerDatabaseHandlers(): void {
   const settingsService = getSettingsService();
@@ -157,6 +161,9 @@ export function registerDatabaseHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      const v = validatePayload(ExpenseUpdateMetadataSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       let editedBy = `user-${auth.userId}`;
       try {
         const userRepo = getUserRepository();
@@ -167,11 +174,11 @@ export function registerDatabaseHandlers(): void {
       }
 
       const result = expenseService.updateExpenseMetadata(
-        data.id,
+        v.data.id,
         {
-          description: data.description,
-          category: data.category,
-          note: data.note,
+          description: v.data.description,
+          category: v.data.category,
+          note: v.data.note,
         },
         editedBy,
       );

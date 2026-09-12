@@ -174,6 +174,7 @@ function renderForm() {
         { code: "CASH", label: "Cash" },
         { code: "CUSTOMER_ACCOUNT", label: "Customer Account (Debt)" },
       ]}
+      drawerAffectingMethods={[{ code: "CASH", label: "Cash" }]}
       clientName="amir halabi"
       setClientName={jest.fn()}
       loadFinancialData={jest.fn()}

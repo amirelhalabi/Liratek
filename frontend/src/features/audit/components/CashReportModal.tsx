@@ -3,6 +3,7 @@ import { X, Banknote } from "lucide-react";
 import { DataTable } from "@liratek/ui";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { localDay, localMonth } from "@/shared/utils/localDay";
+import { getCashFlowByDate } from "@/api/backendApi";
 
 /**
  * D1 — Cash Report: customer cash in/out per business date, split by currency.
@@ -72,7 +73,7 @@ export default function CashReportModal({ onClose }: { onClose: () => void }) {
     if (!from || !to) return;
     setLoading(true);
     try {
-      const data = await window.api.transactions.getCashFlowByDate(from, to);
+      const data = await getCashFlowByDate(from, to);
       setRows(pivotByDate(data || []));
     } finally {
       setLoading(false);

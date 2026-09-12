@@ -2,8 +2,33 @@
 
 **Status:** **§2 SHIPPED** (`d1a0ad2` + `69c29e8`) · **§3 slice 1 + §5 SHIPPED** (`cc45227`) ·
 **§3 slice 2 SHIPPED** · **§5b COMPLETE** (`bec11b18`, see §5b).
-**Remaining: §4 (UI gating) — nothing else.** **No owner decisions outstanding** — every question in
-this plan has been answered; see §2's answer list, §4's decision block, §5b, and §6.
+**§3 COMPLETE** (all five items — verified against source 2026-09-12; the last one, the per-module Zod
+cross-field rules, was finished that day) · **§4 COMPLETE 2026-09-12** · **§5b COMPLETE** (`bec11b18`).
+
+# ✅ THIS PLAN IS COMPLETE — nothing is outstanding. Zero unchecked items remain.
+
+Closed out 2026-09-12. Three things landed that day, each guarded failing-first (rule 17):
+
+1. **§3 item 4** — `lotoSellSchema` and `saleProcessSchema` had NO cross-field partner/payment
+   refine (`loto.ts` had zero `.refine()` calls at all) while the other three modules did. Added,
+   scoped to CUSTOMER_ACCOUNT only so the edge never rejects what the core accepts.
+2. **§4 defect #5** — `FinancialForm.tsx`'s For-Partner "Paid from" picker was built from the
+   unfiltered method list, offering CUSTOMER_ACCOUNT, which the backend always rejects.
+3. **§4's last checkbox** — the owner answered the client-identity question (KEEP IT, EVERYWHERE),
+   and `Exchange/index.tsx` — the one surface of ten that hid the field while still submitting it —
+   was corrected.
+
+> ⚠ **Two header corrections were needed to get here, and both are the same lesson.** This header
+> previously said "§3 slice 2 SHIPPED … Remaining: §4 (UI gating) — nothing else" and "**no owner
+> decisions outstanding**". Both were wrong: §3's Work list still had **five unchecked boxes** (four
+> genuinely done but never ticked, one — the Zod rules — genuinely unfinished), and §4's fourth
+> checkbox had always been a question, not a task. A reader who trusted the header would have
+> shipped neither. Trust the checkbox lists and the source, never the status line — and when you
+> finish an item, tick its box in the same change.
+
+**Scope note:** §5b's "What this implies (to be designed — not yet decided)" block is **not** an
+outstanding item of this plan. It is explicitly deferred to its own ticket by that section's own
+sequencing note ("larger than both … do not fold it into the §3 work in flight").
 
 > ⚠ **This header previously listed §3 slice 2 and §5b as remaining. Both were already done** —
 > corrected 2026-08-22 after re-verifying against source, not against the header (the repo-wide
@@ -163,18 +188,72 @@ trail records a payment method that never executed.**
 
 ### Work
 
-- [ ] Extend the shared guard so it inspects legacy single-method fields too, not just legs
+> ✅ **§3 IS COMPLETE (all five items) — verified against source 2026-09-12.** The boxes below sat
+> unchecked long after the work shipped, which is why the header could say "§3 SHIPPED" while the
+> list said otherwise. Each is now marked with the evidence that closed it.
+
+- [x] Extend the shared guard so it inspects legacy single-method fields too, not just legs
       (rule 14 — one definition; do **not** add a fifth per-module variant).
-- [ ] Add the missing `assertNoCustomerAccountLeg` call to Custom Services (it has **no**
+      **DONE.** `assertNoCounterPayment(hasCounterPayment, legacyPaidBy, context)`
+      (`moneyPosting.ts:605`) takes `legacyPaidBy` as an **explicit required** parameter, so
+      TypeScript forces every call site to make the legacy field a deliberate decision rather than
+      omitting it by accident. All five callers pass it: `CustomServiceRepository.ts:384`,
+      `FinancialServiceRepository.ts:2406`, `LotoTicketRepository.ts:358`,
+      `RechargeRepository.ts:839`, `SalesRepository.ts:1075`.
+- [x] Add the missing `assertNoCustomerAccountLeg` call to Custom Services (it has **no**
       CUSTOMER_ACCOUNT-vs-FOR check of any kind — the exact hole the owner fell through).
-- [ ] Stop storing a dead `paid_by` on FOR rows: either reject it (preferred, matches Loto) or
+      **CLOSED — but deliberately NOT by calling that function.** Custom Services now has _two_
+      CUSTOMER_ACCOUNT-vs-FOR checks: `assertNoCounterPayment` gives `"CUSTOMER_ACCOUNT"` its own
+      distinctly-worded rejection (`moneyPosting.ts:610-614`), and `createCustomServiceSchema`
+      refines it at the edge (`validators/customService.ts:99`). `assertNoCustomerAccountLeg` is
+      the _narrower_ guard, needed only where a FOR branch legitimately emits OUT payout legs
+      (Sales, Financial Services); Custom Services rejects **every** leg under FOR, so the broader
+      guard already subsumes it. Adding the call would be dead code — see the division of labour
+      documented at `moneyPosting.ts:552-563`.
+- [x] Stop storing a dead `paid_by` on FOR rows: either reject it (preferred, matches Loto) or
       null it before it reaches the row and `metadata_json`.
-- [ ] Zod cross-field rules per module. Today only `financial.ts:325-342` (feePayments vs partnerId)
+      **DONE — the preferred option.** Any non-`"CASH"` legacy value throws before a row is
+      written. Nulling was considered and explicitly rejected: it would let the submission succeed
+      with a quieter loss of information (the operator's selection silently vanishing), whereas
+      rejecting surfaces the stale value immediately. Rationale recorded at
+      `moneyPosting.ts:594-604`.
+- [x] Zod cross-field rules per module. Today only `financial.ts:325-342` (feePayments vs partnerId)
       exists; no schema anywhere gates a payment-method field against partner mode.
-- [ ] Fix `assertPartnerIdRequired` bypass: FinancialService computes
+      **DONE 2026-09-12 — this was the genuinely unfinished item.** Three modules already had it
+      (`customService.ts:99` `paid_by`; `financial.ts:274` `paidByMethod` + `:293` `cashoutMethod`;
+      `recharge.ts:116` `paid_by_method`). **Loto and Sales had none** — `loto.ts` contained zero
+      `.refine()` calls at all. Added:
+  - `lotoSellSchema` — two refines: legacy `payment_method` (`path: ["payment_method"]`) and a
+    CUSTOMER_ACCOUNT leg in `payments[]` (`path: ["payments"]`), mirroring
+    `LotoTicketRepository`'s `hasLegacyCustomerAccount` and `hasCounterPaymentLeg` branches.
+  - `saleProcessSchema` — one refine on a CUSTOMER_ACCOUNT leg (`path: ["payments"]`), mirroring
+    `SalesRepository.ts:1044`'s `assertNoCustomerAccountLeg`. Sales has no legacy method field.
+  - **Scoped to CUSTOMER_ACCOUNT only, on purpose.** The repositories' broader "no counter payment
+    at all" rule is applied _conditionally_ (`SalesRepository.ts:1037` — only when
+    `status === "completed" && !deferPayment`), so an unconditional edge rule would reject payloads
+    the core accepts, e.g. drafts. CUSTOMER_ACCOUNT + FOR is contradictory in every status, which
+    is what makes it the safe thing to gate — and it matches what the other three modules gate.
+  - OUT legs are excluded (change/return is not a counter payment). Guarded failing-first (rule 17)
+    by `validators/__tests__/lotoSellPartnerMode.schema.test.ts` and
+    `saleProcessPartnerMode.schema.test.ts`, including a no-`partnerMode` case proving the rule is
+    conditional and an OUT-leg case proving the exclusion works.
+  - Safe despite `.refine()` turning `ZodObject` into `ZodEffects`: no caller uses
+    `.extend()`/`.omit()`/`.merge()`/`.partial()`/`.shape` on either schema, and `createRechargeSchema`
+    — already a refined schema — goes through the identical
+    `as unknown as z.ZodSchema<T>` bridge cast (`electron-app/schemas/index.ts:425`) today.
+- [x] Fix `assertPartnerIdRequired` bypass: FinancialService computes
       `isForPartner = !!(partnerId && mode==='FOR')`, so a bare `mode:'FOR'` with no partnerId
       **silently falls through to the walk-in path** instead of throwing
       (`moneyPosting.ts:521-526` documents this un-fixed asymmetry).
+      **DONE.** FinancialServiceRepository now calls `assertPartnerIdRequired` directly
+      (`:1247`), gated on `data.partnerMode === "FOR"` alone rather than on its own `isForPartner`
+      local — so a bare `partnerMode: "FOR"` with no `partnerId` throws before any row is written
+      instead of falling through to the walk-in dispatch. Its own `isForPartner` definition was
+      left alone deliberately (changing it would ripple through every `skipGeneralDrawer`/
+      `skipSystemDrawer`/PFT-3b branch). All six repositories now call it:
+      `CustomServiceRepository.ts:371`, `ExchangeRepository.ts:239`,
+      `FinancialServiceRepository.ts:1247`, `LotoTicketRepository.ts:330`,
+      `RechargeRepository.ts:814`, `SalesRepository.ts:1076`. Rationale at `moneyPosting.ts:514-531`.
 
 ---
 
@@ -227,14 +306,63 @@ write**. So the symptom was a failed submit for a choice the UI offered — neve
 
 ### Work
 
-- [ ] Migrate Services/OMT-Whish onto the shared `ForPartnerToggle`/`ForPartnerNotice`.
-- [ ] One rule everywhere **except Services SEND (see the decision block above)**: **For Partner ON ⇒ payment-method UI hidden, and no payment-method value
+- [x] Migrate Services/OMT-Whish onto the shared `ForPartnerToggle`/`ForPartnerNotice`.
+      **DONE** in `fd5444cc` — `Services/index.tsx:39` imports `ForPartnerNotice`, uses it at
+      `:2174` (SEND) and `:2346` (RECEIVE), feeds the picker `drawerAffectingMethods` (`:2301`)
+      and relabels it "Paid from" (`:2308`). Guarded by
+      `frontend/tests/e2e-electron/lira-services-for-partner-ui.spec.ts`, which drives the real
+      form rather than a hand-built IPC payload.
+- [x] One rule everywhere **except Services SEND (see the decision block above)**: **For Partner ON ⇒ payment-method UI hidden, and no payment-method value
       sent.** (Hidden-and-omitted is the cleanest existing pattern — CheckoutModal, Loto, Exchange,
       CryptoForm already do it.)
-- [ ] Keep the checkbox label **"For Partner"** — owner explicitly confirmed 2026-08-09.
-- [ ] Decide whether a client/customer identity should still be captured on a For-Partner sale —
-      currently inconsistent (Custom Services, Loto and Services keep it; CheckoutModal, Telecom,
-      Exchange replace it entirely).
+      **DONE 2026-09-12.** Two surfaces were still outstanding after `fd5444cc`; both are now
+      resolved, one by code and one by measurement:
+  - **Defect #5 — FIXED.** `FinancialForm.tsx:~870` fed its For-Partner "Paid from" picker the
+    unfiltered `methods` while its sibling `OmtWhishAppTransferForm.tsx:849` used
+    `drawerAffectingMethods`. The value becomes an **OUT leg** (`FinancialForm.tsx:652`) on a
+    `partnerMode: "FOR"` submit, so `partitionLegs` routes it to `returnLegs` where
+    `assertNoCustomerAccountLeg` (`FinancialServiceRepository.ts:~2116`) hard-rejects the whole
+    transaction — the UI was offering an option the backend always refused. Same class as the
+    Services bug, same guard, reachable whenever `hasTransferUnit` is true. Fixed by threading
+    `drawerAffectingMethods` from the existing `usePaymentMethods()` call at
+    `Recharge/index.tsx:53` down as a prop (no second hook subscription, one source for the
+    `affects_drawer === 1` predicate — rule 14). Guarded failing-first (rule 17) by
+    `__tests__/FinancialForm.forPartnerPaidFrom.test.tsx`; on the pre-fix code it reported
+    `Received array: ["CASH", "CUSTOMER_ACCOUNT"]`.
+  - **Defect #4 — NO CODE CHANGE, deliberately.** `CustomServices/index.tsx:382` still forwards
+    `paid_by: primaryMethod`, which under FOR mode is always the literal `"CASH"` (the toggle
+    clears `paymentLines` at `:1083`). Omitting the key is **byte-identical**: `paid_by` is
+    `z.string().min(1).default("CASH")` in `createCustomServiceSchema`
+    (`packages/core/src/validators/customService.ts:16`), so Zod substitutes the same `"CASH"`
+    either way. `assertNoCounterPayment` (`moneyPosting.ts:616`) explicitly tolerates `"CASH"`.
+    The original complaint — "silently discarding the operator's prior choice" — is already
+    handled upstream by the toggle clearing the lines. Changing this would be motion, not a fix.
+- [x] Keep the checkbox label **"For Partner"** — owner explicitly confirmed 2026-08-09.
+      No work required; verified still current.
+- [x] Decide whether a client/customer identity should still be captured on a For-Partner sale.
+      **ANSWERED by the owner 2026-09-12: KEEP IT, EVERYWHERE** — chosen as the lowest-risk option,
+      preserving the record of who physically received the goods (warranty, receipts, history)
+      while the partner still owes the money. The owner was offered, and declined, a variant that
+      relabels the field (e.g. "Received by") — so the existing label text stays as-is.
+  - ⚠ **The premise in the original checkbox was wrong.** It claimed "CheckoutModal, Telecom,
+    Exchange replace it entirely". A sweep of all ten `ForPartnerToggle`/`ForPartnerNotice`
+    surfaces found that description was about the **payment** section, not the client field, and
+    that in the **data** `client_id`/`clientName` was already propagating on For-Partner
+    transactions everywhere (POS `CheckoutModal.tsx:479` and Loto both ungated). Nine of ten
+    surfaces already satisfied the decision with no change: `CheckoutModal` (customer input
+    ~:739-756), `Loto/index.tsx:548`, `CustomServices/index.tsx:1008`, `KatchForm.tsx:2385`,
+    `Services/index.tsx` (sender/receiver names) and the rest gate only their payment sections.
+  - **`Exchange/index.tsx` was the sole exception, and it was the bad case**: `~:1578` replaced the
+    Client Name input with the partner notice, while `~:952` kept submitting `clientName` ungated —
+    so a name typed before ticking the toggle was **still recorded, but invisible on screen**.
+    Fixed 2026-09-12: the notice became conditional and the input unconditional (notice above,
+    field below), label/placeholder/styling/state wiring and the
+    `exchange-partner-no-payment-notice` testId all unchanged. **No payload change** — this only
+    made the UI honest about what was always being stored. Guarded failing-first (rule 17) by
+    `Exchange/__tests__/Exchange.forPartnerClientName.test.tsx`, which asserts the field is present
+    and editable with For Partner ON _and_ with it OFF, so it pins the field as unconditional
+    rather than merely flipped; on the pre-fix code the ON case failed at
+    `getByPlaceholderText("Walk-in Client")`.
 
 ---
 

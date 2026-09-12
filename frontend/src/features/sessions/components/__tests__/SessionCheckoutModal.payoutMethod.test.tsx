@@ -80,6 +80,10 @@ jest.mock("@liratek/ui", () => ({
   useApi: () => ({
     session: { checkout: mockCheckout },
     getAllSettings: jest.fn().mockResolvedValue([]),
+    // The sessionClientId-lookup effect (SessionCheckoutModal.tsx:276-277)
+    // fires whenever a session has a phone number and calls this — rule 19
+    // migrated it off raw `window.api.clients.getAll` onto `useApi()`.
+    getClients: jest.fn().mockResolvedValue([]),
   }),
   // Stub — exposes a button that fires the real onChange prop so tests can
   // simulate "the operator picked CUSTOMER_ACCOUNT for the charge" without
@@ -279,11 +283,9 @@ describe("SessionCheckoutModal — payout method select (BIDIRECTIONAL_PAYMENT_L
         },
       ];
       // A client is in session (name+phone) — the sessionClientId lookup
-      // effect fires and needs a window.api stub, unlike the no-client suite
-      // above where customer_phone is undefined and the effect short-circuits.
-      (globalThis as unknown as { window: { api: unknown } }).window.api = {
-        clients: { getAll: jest.fn().mockResolvedValue([]) },
-      };
+      // effect fires and needs the useApi().getClients stub above, unlike
+      // the no-client suite where customer_phone is undefined and the
+      // effect short-circuits.
     });
 
     it("defaults the payout select to CUSTOMER_ACCOUNT once the charge is paid by account, and offers Customer Account as an option", async () => {

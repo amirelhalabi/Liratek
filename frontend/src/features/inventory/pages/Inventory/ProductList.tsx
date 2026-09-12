@@ -338,7 +338,17 @@ export default function ProductList() {
     if (selectedIds.size === 0) return;
     setBatchSaving(true);
     try {
-      const payload: Record<string, unknown> = { ids: [...selectedIds] };
+      // Rule 19: was `window.api ? … : …` with an `(window.api as any)` IPC
+      // branch — nothing type-checked it, and the web branch silently
+      // optional-chained to a no-op. `api.batchUpdateProducts` now routes
+      // IPC/REST for both transports. `unit` (`products.unit`) is now wired
+      // end-to-end the same as `supplier`/`category` — the shared payload
+      // type accepts it and both `InventoryService.batchUpdateProducts` and
+      // `ProductRepository.batchUpdateProducts` read it (see
+      // `batchUpdateProductsSchema` in packages/core/src/validators/product.ts).
+      const payload: Parameters<typeof api.batchUpdateProducts>[0] = {
+        ids: [...selectedIds],
+      };
       if (batchFields.category !== undefined && batchFields.category !== "")
         payload.category = batchFields.category;
       if (
@@ -351,9 +361,7 @@ export default function ProductList() {
       if (batchFields.unit !== undefined && batchFields.unit !== "")
         payload.unit = batchFields.unit;
 
-      const result = window.api
-        ? await (window.api as any).inventory.batchUpdate(payload)
-        : await (api as any).batchUpdateProducts?.(payload);
+      const result = await api.batchUpdateProducts(payload);
 
       if (result?.success) {
         setShowBatchModal(false);
@@ -366,7 +374,9 @@ export default function ProductList() {
           "Batch update successful",
           "success",
         );
-        // Windows focus fix
+        // Desktop-only: Windows focus-fix workaround (electron-app main
+        // process). No web equivalent exists — optional chaining makes this
+        // a safe no-op in the browser.
         window.api?.display?.fixFocus();
       } else {
         appEvents.emit(
@@ -598,7 +608,9 @@ export default function ProductList() {
       loadProducts(); // Refresh list
       loadFilterOptions();
       closeDeleteConfirms();
-      // Windows focus fix
+      // Desktop-only: Windows focus-fix workaround (electron-app main
+      // process). No web equivalent exists — optional chaining makes this
+      // a safe no-op in the browser.
       window.api?.display?.fixFocus();
     } catch (error) {
       appEvents.emit("notification:show", "Failed to delete product", "error");
@@ -634,7 +646,9 @@ export default function ProductList() {
         "success",
       );
       closeDeleteConfirms();
-      // Windows focus fix
+      // Desktop-only: Windows focus-fix workaround (electron-app main
+      // process). No web equivalent exists — optional chaining makes this
+      // a safe no-op in the browser.
       window.api?.display?.fixFocus();
     } catch (error) {
       appEvents.emit("notification:show", "Failed to delete products", "error");
@@ -658,14 +672,18 @@ export default function ProductList() {
         : "Product created successfully",
       "success",
     );
-    // Windows focus fix
+    // Desktop-only: Windows focus-fix workaround (electron-app main
+    // process). No web equivalent exists — optional chaining makes this
+    // a safe no-op in the browser.
     window.api?.display?.fixFocus();
   };
 
   const handleClose = () => {
     setIsFormOpen(false);
     setEditingProduct(null);
-    // Windows focus fix
+    // Desktop-only: Windows focus-fix workaround (electron-app main
+    // process). No web equivalent exists — optional chaining makes this
+    // a safe no-op in the browser.
     window.api?.display?.fixFocus();
   };
 
@@ -817,7 +835,9 @@ export default function ProductList() {
 
       loadProducts();
       loadFilterOptions();
-      // Windows focus fix
+      // Desktop-only: Windows focus-fix workaround (electron-app main
+      // process). No web equivalent exists — optional chaining makes this
+      // a safe no-op in the browser.
       window.api?.display?.fixFocus();
     } catch (err) {
       logger.error("Import failed", { error: err });
@@ -1373,7 +1393,9 @@ export default function ProductList() {
           onSuccess={() => {
             setAdjustingProduct(null);
             loadProducts();
-            // Windows focus fix
+            // Desktop-only: Windows focus-fix workaround (electron-app main
+            // process). No web equivalent exists — optional chaining makes
+            // this a safe no-op in the browser.
             window.api?.display?.fixFocus();
           }}
         />

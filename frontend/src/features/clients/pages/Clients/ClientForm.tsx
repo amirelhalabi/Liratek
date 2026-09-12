@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import logger from "@/utils/logger";
 import { X, Save, MessageCircle, Send } from "lucide-react";
-import type { Client } from "@liratek/ui";
+import { useApi, type Client } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { createClient, updateClient } from "@/api/backendApi";
 
@@ -17,6 +17,7 @@ export default function ClientForm({
   client,
 }: ClientFormProps) {
   useModalFocusFix(true);
+  const api = useApi();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -103,12 +104,11 @@ export default function ClientForm({
 
     setIsSending(true);
     try {
-      if (!window.api?.whatsapp) {
-        setError("WhatsApp is not available in the web version yet");
-        return;
-      }
+      // WhatsAppService (packages/core) is a plain Meta Cloud API HTTPS call —
+      // nothing Electron/OS-specific — so this is dual-mode via the adapter,
+      // not a desktop-only capability (rule 19).
       const message = `Hello ${formData.full_name}! This is a test message from LiraTek.`;
-      const result = await window.api.whatsapp.sendMessage(
+      const result = await api.sendWhatsAppMessage(
         formData.phone_number,
         message,
       );

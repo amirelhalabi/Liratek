@@ -11,6 +11,7 @@ import type {
   DatabaseResetPreview,
   DatabaseResetResult,
   SafeSession,
+  AddRepaymentInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -20,6 +21,7 @@ export type {
   DatabaseResetPreview,
   DatabaseResetResult,
   SafeSession,
+  AddRepaymentInput,
 };
 
 export type ApiUser = {
@@ -680,6 +682,12 @@ export type LotoApi = {
     id: number,
     data: any,
   ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
+  /** Edits a loto TICKET's note (loto_tickets) — NOT a checkpoint's;
+   *  see lotoUpdateMetadata in backendApi.ts. No UI caller currently. */
+  updateMetadata: (data: {
+    id: number;
+    note?: string;
+  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   report: (
     from: string,
     to: string,
@@ -821,6 +829,28 @@ export type ApiAdapter = {
    *  products yet, unlike `getProductFilterOptions().suppliers`. Backs the
    *  ProductForm supplier datalist. */
   getProductSuppliers: () => Promise<string[]>;
+  /** LIRA-143 Phase 5 — Settings manager: id/name/sort_order/is_active/
+   *  product_count rows, distinct from the plain-names `getProductSuppliers`
+   *  above. */
+  getProductSuppliersFull: () => Promise<
+    Array<{
+      id: number;
+      name: string;
+      sort_order: number;
+      is_active: number;
+      product_count: number;
+    }>
+  >;
+  createProductSupplier: (
+    name: string,
+  ) => Promise<{ success: boolean; id?: number; error?: string }>;
+  updateProductSupplier: (
+    id: number,
+    name: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  deleteProductSupplier: (
+    id: number,
+  ) => Promise<{ success: boolean; error?: string }>;
   createProduct: (payload: any) => Promise<ProductWriteResult>;
   updateProduct: (id: number, payload: any) => Promise<ProductWriteResult>;
   deleteProduct: (id: number) => Promise<ProductWriteResult>;
@@ -828,7 +858,25 @@ export type ApiAdapter = {
    *  delete (IPC `inventory:batch-delete` / REST
    *  `POST /api/inventory/products/batch-delete`). */
   batchDeleteProducts: (ids: number[]) => Promise<BatchDeleteProductsResult>;
+  /** Inventory grid's multi-select edit (category / min-stock-threshold /
+   *  supplier / unit for many products in one call). `unit`
+   *  (`products.unit`, a nullable TEXT column) is wired end-to-end on both
+   *  transports, the same as `supplier` — see `batchUpdateProductsSchema`
+   *  (packages/core/src/validators/product.ts). */
+  batchUpdateProducts: (payload: {
+    ids: number[];
+    category?: string;
+    min_stock_level?: number;
+    supplier?: string | null;
+    unit?: string | null;
+  }) => Promise<{ success: boolean; updated: number; error?: string }>;
   getLowStockProducts: () => Promise<any[]>;
+  /** Look up a product by its exact barcode (null when no match) — the
+   *  ProductForm barcode generator's uniqueness check. */
+  getProductByBarcode: (barcode: string) => Promise<any | null>;
+  /** Plain category NAMES, distinct from `getCategoriesFull` below (which
+   *  carries id/sort_order/tracks_imei_units). */
+  getCategories: () => Promise<string[]>;
   /** Supplier stock-intake: receives stock into a product, optionally
    *  against a supplier (writes a product_stock_batches row and, unless
    *  `is_old_stock` or there's no supplier, a supplier_ledger
@@ -896,6 +944,23 @@ export type ApiAdapter = {
   processSale: (payload: any) => Promise<ProcessSaleResult>;
   getSale: (saleId: number) => Promise<any>;
   getSaleItems: (saleId: number) => Promise<any[]>;
+  /** Refund a WHOLE sale (admin only). */
+  refundSale: (
+    saleId: number,
+  ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
+  /** Refund a specific line item off a sale, by quantity (admin only). */
+  refundSaleItem: (
+    saleId: number,
+    saleItemId: number,
+    refundQuantity: number,
+  ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
+  /** Edit non-financial metadata (walk-in name/phone, note) on a sale row. */
+  updateSaleMetadata: (data: {
+    id: number;
+    note?: string;
+    client_name?: string;
+    client_phone?: string;
+  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Debts
@@ -903,26 +968,19 @@ export type ApiAdapter = {
   getDebtors: () => Promise<DebtorSummary[]>;
   getClientDebtHistory: (clientId: number) => Promise<DebtLedgerEntity[]>;
   getClientDebtTotal: (clientId: number) => Promise<number>;
-  addRepayment: (payload: {
-    client_id: number;
-    amount_usd: number;
-    amount_lbp: number;
-    paid_amount_usd?: number;
-    paid_amount_lbp?: number;
-    drawer_name?: string;
-    paidByMethod?: string;
-    note?: string;
-    user_id?: number;
-    payments?: Array<{ method: string; currencyCode: string; amount: number }>;
-    transaction_time?: string;
-    /** Owner decision (2026-08-08) — the USD/LBP rate the operator actually
-     *  tendered at, stamped onto the transaction (packages/core/src/validators/debt.ts
-     *  addRepaymentSchema's `tender_exchange_rate`). */
-    tender_exchange_rate?: number;
-    /** CQ-10: bundled discount — forgives part of the debt alongside the
-     *  cash payment. Posts a signed-profit 'Debt Discount' ledger row. */
-    discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-  }) => Promise<ApiResult>;
+  /**
+   * Payload type is DERIVED from `addRepaymentSchema`
+   * (packages/core/src/validators/debt.ts), not hand-copied (rule 14): this
+   * signature used to spell every field in snake_case
+   * (`client_id`/`amount_usd`/…), which the schema has never accepted — it is
+   * camelCase (`clientId`/`amountUSD`/…) and shares that shape across IPC and
+   * REST. The Debts page was long ago fixed to send the correct camelCase
+   * payload, which meant the hand-written type here silently rejected valid
+   * calling code (rule 19 — one payload, both transports). Deriving the type
+   * makes that class of drift impossible: if the schema changes, this type
+   * changes with it.
+   */
+  addRepayment: (payload: AddRepaymentInput) => Promise<ApiResult>;
   /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
    *  cash movement. Capped server-side at the client's outstanding balance
    *  per currency. */
@@ -998,6 +1056,14 @@ export type ApiAdapter = {
   getTodayExpenses: () => Promise<any[]>;
   addExpense: (payload: any) => Promise<ApiResult & { id?: number }>;
   deleteExpense: (id: number) => Promise<ApiResult>;
+  /** Edit non-financial metadata (description/category/note) on an expense
+   *  row (the History modal's inline edit). */
+  updateExpenseMetadata: (data: {
+    id: number;
+    description?: string;
+    category?: string;
+    note?: string;
+  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Dashboard
@@ -1087,6 +1153,24 @@ export type ApiAdapter = {
   addOMTTransaction: (
     payload: any,
   ) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;
+  /** A single financial_services record by id — the Debts page's
+   *  service-backed debt-detail "eye" button. Raw read (null when missing). */
+  getFinancialServiceById: (id: number) => Promise<any | null>;
+  /** All payment rows for a unified transaction — the same debt-detail
+   *  "eye" button drills into this alongside `getFinancialServiceById`. */
+  getPaymentsByTransaction: (transactionId: number) => Promise<any[]>;
+  /** Edit non-financial metadata on a financial_services row (OMT/Whish/
+   *  iPick/Katsh/Binance history modals' inline edit — one shared channel). */
+  updateFinancialMetadata: (data: {
+    id: number;
+    client_name?: string;
+    phone_number?: string;
+    sender_name?: string;
+    sender_phone?: string;
+    receiver_name?: string;
+    receiver_phone?: string;
+    note?: string;
+  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   /** Generic, reversible cash transfer between any two of the shop's own
    *  drawers (Primary Cash Drawer plan §8.6) — General <-> the primary cash
    *  drawer (OMT_System/Whish_System) is the pair the UI exposes. Replaces
@@ -1336,9 +1420,7 @@ export type ApiAdapter = {
   // so the caller branches on `result.success` itself (rule 19).
   // ---------------------------------------------------------------------------
   getDatabaseResetPreview: () => Promise<DatabaseResetPreview>;
-  resetDatabase: (input: {
-    confirmation: string;
-  }) => Promise<{
+  resetDatabase: (input: { confirmation: string }) => Promise<{
     success: boolean;
     data?: DatabaseResetResult;
     error?: string;
@@ -2083,6 +2165,15 @@ export type ApiAdapter = {
     id: number;
     fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
   }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  /** Edit non-financial metadata (description/client name/phone/note) on a
+   *  custom_services row (the History modal's inline edit). */
+  updateCustomServiceMetadata: (data: {
+    id: number;
+    description?: string;
+    client_name?: string;
+    phone_number?: string;
+    note?: string;
+  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Unified Transactions
@@ -2092,6 +2183,18 @@ export type ApiAdapter = {
     filters?: Record<string, unknown>,
   ) => Promise<any[]>;
   getTransactionById: (id: number) => Promise<any>;
+  /** D1 — currency in/out by business date (the Audit page's Cash Report). */
+  getCashFlowByDate: (
+    from: string,
+    to: string,
+  ) => Promise<
+    Array<{
+      date: string;
+      currency_code: string;
+      total_in: number;
+      total_out: number;
+    }>
+  >;
   /** LIRA-069 W1.c/d: resolve the unified transaction for a module row. */
   getTransactionBySource: (
     sourceTable: string,

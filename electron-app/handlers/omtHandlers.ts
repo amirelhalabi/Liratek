@@ -21,6 +21,7 @@ import { audit } from "./auditHelper.js";
 import {
   FinancialServiceSchema,
   SelfChargeTelecomItemSchema,
+  FinancialUpdateMetadataSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -111,6 +112,9 @@ export function registerOMTHandlers(): void {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      const v = validatePayload(FinancialUpdateMetadataSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       let editedBy = `user-${auth.userId}`;
       try {
         const userRepo = getUserRepository();
@@ -121,15 +125,15 @@ export function registerOMTHandlers(): void {
       }
 
       const result = financialService.updateFinancialServiceMetadata(
-        data.id,
+        v.data.id,
         {
-          client_name: data.client_name,
-          phone_number: data.phone_number,
-          sender_name: data.sender_name,
-          sender_phone: data.sender_phone,
-          receiver_name: data.receiver_name,
-          receiver_phone: data.receiver_phone,
-          note: data.note,
+          client_name: v.data.client_name,
+          phone_number: v.data.phone_number,
+          sender_name: v.data.sender_name,
+          sender_phone: v.data.sender_phone,
+          receiver_name: v.data.receiver_name,
+          receiver_phone: v.data.receiver_phone,
+          note: v.data.note,
         },
         editedBy,
       );

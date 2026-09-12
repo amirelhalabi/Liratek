@@ -215,9 +215,11 @@ export default function Debts() {
 
   const loadDebtors = useCallback(async () => {
     try {
-      const data = window.api
-        ? await window.api.debt.getDebtors()
-        : await api.getDebtors();
+      // `api.getDebtors()` already branches IPC vs REST internally via
+      // `ipcOrHttp` (rule 19) — both branches agreed today, but a raw
+      // `window.api` gate here is exactly how the repayment gate below
+      // drifted into different field names on each branch.
+      const data = await api.getDebtors();
       setDebtors(data);
     } catch (error) {
       logger.error("Failed to load debtors:", error);
@@ -249,9 +251,10 @@ export default function Debts() {
 
   const loadHistory = async (clientId: number) => {
     try {
-      const data = window.api
-        ? await window.api.debt.getClientHistory(clientId)
-        : await api.getClientDebtHistory(clientId);
+      // `api.getClientDebtHistory` is the dual-mode adapter (rule 19) — see
+      // the loadDebtors comment above for why the two branches must not be
+      // written out separately even when they agree today.
+      const data = await api.getClientDebtHistory(clientId);
 
       // Fetch item names for each debt entry with a transaction_id
       const enrichedData = await Promise.all(
@@ -533,19 +536,23 @@ export default function Debts() {
     debtAmountLbp: number,
   ) => {
     try {
-      if (!window.api) return;
+      // Was gated `if (!window.api) return;` — clicking a service-backed
+      // debt row silently did NOTHING in the browser (no error, no
+      // fallback). `getTransactionById`/`getFinancialServiceById`/
+      // `getPaymentsByTransaction` are all dual-mode adapter fns (rule 19);
+      // no isElectron() gate needed.
       // 1. Get the unified transaction to find source_id
-      const txn = await window.api.transactions.getById(transactionId);
+      const txn = await api.getTransactionById(transactionId);
       if (!txn || txn.source_table !== "financial_services") return;
 
       // 2. Load the financial service record
-      const fs = (await window.api.omt.getById(
+      const fs = (await api.getFinancialServiceById(
         txn.source_id as number,
       )) as FinancialServiceData | null;
       if (!fs) return;
 
       // 3. Load all payment rows for this transaction
-      const payments = (await window.api.omt.getPaymentsByTransaction(
+      const payments = (await api.getPaymentsByTransaction(
         transactionId,
       )) as PaymentRowData[];
 
@@ -799,16 +806,16 @@ export default function Debts() {
         // remaining debt was masked by the other currency's credit — and any
         // client left holding a credit — then auto-select jumped to a
         // different client right after the operator acted on this one.
+        // `api.getClientBalance` is the dual-mode adapter (rule 19) — both
+        // branches here agreed today (raw balance check vs the converted
+        // debt-total fallback), which is exactly the shape that drifted for
+        // the repayment payload itself (see addRepayment's comment above).
         let stillOpen = true;
-        if (window.api) {
-          const balRes = await window.api.debt.getClientBalance(
-            selectedClient.id,
-          );
-          if (balRes.success && balRes.data) {
-            stillOpen =
-              Math.abs(balRes.data.balance_usd) > 0.01 ||
-              Math.abs(balRes.data.balance_lbp) > 0.5;
-          }
+        const balRes = await api.getClientBalance(selectedClient.id);
+        if (balRes.success && balRes.data) {
+          stillOpen =
+            Math.abs(balRes.data.balance_usd) > 0.01 ||
+            Math.abs(balRes.data.balance_lbp) > 0.5;
         } else {
           stillOpen = (await api.getClientDebtTotal(selectedClient.id)) > 0.01;
         }

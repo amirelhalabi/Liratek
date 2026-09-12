@@ -379,6 +379,7 @@ export class InventoryService {
       category?: string;
       min_stock_level?: number;
       supplier?: string | null;
+      unit?: string | null;
     },
   ): { success: boolean; updated: number; error?: string } {
     if (!ids || ids.length === 0) {
@@ -387,7 +388,8 @@ export class InventoryService {
     const hasField =
       data.category !== undefined ||
       data.min_stock_level !== undefined ||
-      data.supplier !== undefined;
+      data.supplier !== undefined ||
+      data.unit !== undefined;
     if (!hasField) {
       return { success: false, updated: 0, error: "No fields to update" };
     }

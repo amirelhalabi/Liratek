@@ -271,8 +271,10 @@ export function SessionCheckoutModal({
       return;
     }
     let cancelled = false;
-    window.api.clients
-      .getAll(sessionPhone)
+    // Dual-mode (IPC on desktop, REST in the browser) — matches the rest of
+    // this component's `api` usage (rule 19).
+    api
+      .getClients(sessionPhone)
       .then((clients) => {
         if (cancelled) return;
         const match = clients.find(

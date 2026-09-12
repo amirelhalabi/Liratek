@@ -5,6 +5,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
+import { updateExpenseMetadata } from "@/api/backendApi";
 
 interface Expense {
   id?: number;
@@ -63,7 +64,7 @@ export function HistoryModal({
     if (editingId === null) return;
     setEditSaving(true);
     try {
-      const result = await window.api.expenses.updateMetadata({
+      const result = await updateExpenseMetadata({
         id: editingId,
         ...(editForm.description !== undefined && {
           description: editForm.description,

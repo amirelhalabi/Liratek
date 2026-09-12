@@ -5,6 +5,7 @@ import {
   getCustomServiceService,
   createCustomServiceSchema,
   updateCustomServiceFulfillmentSchema,
+  customServiceUpdateMetadataSchema,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
@@ -86,6 +87,67 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to update fulfilment status" });
+    }
+  },
+);
+
+// POST /api/custom-services/update-metadata - Edit non-financial metadata
+// Matches customServiceHandlers.ts's "custom-services:update-metadata" IPC
+// gate (admin + staff). `editedBy` comes from the JWT's username claim,
+// never the client body. Static path, registered before /:id (same
+// convention as /fulfillment above).
+router.post(
+  "/update-metadata",
+  requireRole(["admin", "staff"]),
+  validateRequest(customServiceUpdateMetadataSchema),
+  (req, res): void => {
+    try {
+      const editedBy = req.user!.username;
+      const service = getCustomServiceService();
+      // TRANSPORT_PARITY_AUDIT_PLAN.md §6.4 follow-up 3: `category` used to
+      // be dropped HERE too — the IPC handler forwards it (see
+      // customServiceHandlers.ts's custom-services:update-metadata), the
+      // schema now accepts it, but this route still hand-picked only the
+      // other four fields. Now forwarded like every other field.
+      const result = service.updateCustomServiceMetadata(
+        req.body.id,
+        {
+          description: req.body.description,
+          client_name: req.body.client_name,
+          phone_number: req.body.phone_number,
+          note: req.body.note,
+          category: req.body.category,
+        },
+        editedBy,
+      );
+
+      if (
+        result.success &&
+        result.oldValues &&
+        Object.keys(result.oldValues).length > 0
+      ) {
+        // Mirrors customServiceHandlers.ts's custom-services:update-metadata
+        // audit (edit_metadata/custom_service).
+        auditRest(req, {
+          action: "edit_metadata",
+          entity_type: "custom_service",
+          entity_id: String(req.body.id),
+          summary: `Edited custom service #${req.body.id} metadata`,
+          old_values: result.oldValues,
+          new_values: req.body,
+        });
+      }
+
+      res.json(
+        result.success
+          ? { success: true, data: result.entity }
+          : { success: false, error: result.error },
+      );
+    } catch (error) {
+      logger.error({ error }, "Update custom service metadata error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to update metadata" });
     }
   },
 );

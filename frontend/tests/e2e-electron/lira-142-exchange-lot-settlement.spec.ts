@@ -1,6 +1,6 @@
 /**
  * E2E: Exchange Lot Settlement — real-cost-basis FIFO profit for exotic
- * currencies (docs/plans/todo_plans/EXCHANGE_LOT_SETTLEMENT.md).
+ * currencies (docs/plans/done_plans/EXCHANGE_LOT_SETTLEMENT.md).
  *
  * Drives the REAL Exchange page UI end-to-end (layer-seam discipline — the
  * frontend computes/previews before it sends, so hand-built IPC payloads

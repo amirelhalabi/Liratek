@@ -10,12 +10,25 @@
  * the reload branch — `window.location.reload()` isn't implemented in
  * jsdom, and the guard itself (never running a real reset) is what the plan
  * asks e2e to prove too (DATABASE_RESET_PLAN.md Phase 5).
+ *
+ * The reload itself is asserted through the `reloadApp` module mock below,
+ * not by stubbing `window.location`: modern jsdom defines `window.location`
+ * as non-configurable, so `Object.defineProperty(window, "location", ...)`
+ * throws `Cannot redefine property: location` before any assertion runs.
+ * Keep this indirection — don't "simplify" it back to stubbing
+ * `window.location` directly, it will break again the same way.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import ResetDataModal from "../ResetDataModal";
 import { DATABASE_RESET_CONFIRMATION_PHRASE } from "@liratek/core";
+import { reloadApp } from "@/shared/utils/reloadApp";
 
+jest.mock("@/shared/utils/reloadApp", () => ({
+  reloadApp: jest.fn(),
+}));
+
+const mockReloadApp = reloadApp as jest.Mock;
 const mockResetDatabase = jest.fn();
 // A STABLE object reference — see CarrierLinesManager.test.tsx's own note:
 // a fresh object literal per useApi() call would re-trigger any effect that
@@ -36,6 +49,7 @@ function openModal(totalRows = 1234) {
 describe("ResetDataModal", () => {
   beforeEach(() => {
     mockResetDatabase.mockReset();
+    mockReloadApp.mockClear();
   });
 
   it("keeps the confirm button disabled until the exact phrase is typed", () => {
@@ -85,9 +99,7 @@ describe("ResetDataModal", () => {
     });
     fireEvent.click(screen.getByTestId("reset-data-confirm-btn"));
 
-    await waitFor(() =>
-      expect(mockResetDatabase).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(mockResetDatabase).toHaveBeenCalledTimes(1));
     expect(mockResetDatabase).toHaveBeenCalledWith({
       confirmation: DATABASE_RESET_CONFIRMATION_PHRASE,
     });
@@ -98,37 +110,20 @@ describe("ResetDataModal", () => {
       success: false,
       error: "Backup failed, reset aborted",
     });
-    const reloadSpy = jest.fn();
-    const originalLocation = window.location;
-    // jsdom's window.location.reload throws "Not implemented" — replace it
-    // so a bug that DID reload would fail loudly instead of crashing jsdom.
-    Object.defineProperty(window, "location", {
-      configurable: true,
-      value: { ...originalLocation, reload: reloadSpy },
+
+    openModal();
+    fireEvent.change(screen.getByTestId("reset-data-phrase-input"), {
+      target: { value: DATABASE_RESET_CONFIRMATION_PHRASE },
     });
+    fireEvent.click(screen.getByTestId("reset-data-confirm-btn"));
 
-    try {
-      openModal();
-      fireEvent.change(screen.getByTestId("reset-data-phrase-input"), {
-        target: { value: DATABASE_RESET_CONFIRMATION_PHRASE },
-      });
-      fireEvent.click(screen.getByTestId("reset-data-confirm-btn"));
-
-      expect(
-        await screen.findByText("Backup failed, reset aborted"),
-      ).toBeInTheDocument();
-      expect(reloadSpy).not.toHaveBeenCalled();
-      // The modal stays open on the confirmation screen, not the "success"
-      // one — the phrase input (hidden once status becomes "success") is
-      // still present.
-      expect(
-        screen.getByTestId("reset-data-phrase-input"),
-      ).toBeInTheDocument();
-    } finally {
-      Object.defineProperty(window, "location", {
-        configurable: true,
-        value: originalLocation,
-      });
-    }
+    expect(
+      await screen.findByText("Backup failed, reset aborted"),
+    ).toBeInTheDocument();
+    expect(mockReloadApp).not.toHaveBeenCalled();
+    // The modal stays open on the confirmation screen, not the "success"
+    // one — the phrase input (hidden once status becomes "success") is
+    // still present.
+    expect(screen.getByTestId("reset-data-phrase-input")).toBeInTheDocument();
   });
 });

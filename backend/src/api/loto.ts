@@ -10,7 +10,14 @@
  *   `unssettled` misspellings — the adapter is the deployed contract.
  * - Validation uses the SAME core schemas the IPC handlers use
  *   (packages/core/src/validators/loto.ts, CLAUDE.md rule 14).
- * - All endpoints are admin-only, matching the IPC handlers' requireRole.
+ * - Every route below the router-level `requireRole(["admin"])` gate is
+ *   admin-only, matching its IPC handler's requireRole — EXCEPT
+ *   `POST /update-metadata`, which is registered ABOVE that gate (right
+ *   after `authenticateJWT`) with its own `requireRole(["admin", "staff"])`,
+ *   because its IPC twin (`loto:update-metadata` in lotoHandlers.ts) allows
+ *   staff to edit a ticket's note too (CLAUDE.md rule 19c: REST roles must
+ *   match the IPC twin's, and desktop is the reference — REST widens to
+ *   match it, not the other way around).
  *
  * Money invariants (drawers, legs, supplier ledger sign, profit stamping) are
  * enforced inside the shared core LotoService/repositories — both transports
@@ -27,20 +34,75 @@ import {
   lotoTicketUpdateSchema,
   lotoFeeSchema,
   lotoCheckpointCreateSchema,
+  lotoCheckpointUpdateSchema,
   lotoCheckpointSettleSchema,
   lotoCheckpointsSettleBatchSchema,
+  lotoUpdateMetadataSchema,
   type LotoSellInput,
   type LotoCashPrizeInput,
   type LotoTicketUpdateInput,
   type LotoFeeInput,
   type LotoCheckpointCreateInput,
+  type LotoCheckpointUpdateInput,
   type LotoCheckpointSettleInput,
   type LotoCheckpointsSettleBatchInput,
+  type LotoUpdateMetadataInput,
 } from "@liratek/core";
 
 const router = express.Router();
 
 router.use(authenticateJWT);
+
+// POST /api/loto/update-metadata — edit a loto ticket's note. Mirrors
+// lotoHandlers.ts's "loto:update-metadata" IPC handler, which gates on
+// `requireRole(["admin", "staff"])`. Registered HERE, between
+// `authenticateJWT` and the router-level `requireRole(["admin"])` below, so
+// it escapes that blanket admin-only gate — a route added after that gate
+// would be admin-only regardless of its own `requireRole` (CLAUDE.md rule
+// 19c: REST roles must match the IPC twin's; desktop's roles are the
+// reference here, so REST widens rather than narrowing the IPC handler).
+// Static path, and defined before `router.use(requireRole(["admin"]))`
+// registers ANY other route, so it cannot shadow or be shadowed by
+// `/:id`, `/checkpoints/*`, etc. registered further down.
+router.post("/update-metadata", requireRole(["admin", "staff"]), (req, res) => {
+  try {
+    const v = parse(updateMetadataSchema, req.body);
+    if (!v.ok) {
+      res.json({ success: false, error: v.error });
+      return;
+    }
+    const editedBy = req.user!.username;
+    const result = getLotoService().updateLotoMetadata(
+      v.data.id,
+      { note: v.data.note },
+      editedBy,
+    );
+    if (
+      result.success &&
+      result.oldValues &&
+      Object.keys(result.oldValues).length > 0
+    ) {
+      // Mirrors lotoHandlers.ts's loto:update-metadata audit
+      // (edit_metadata/loto_ticket).
+      auditRest(req, {
+        action: "edit_metadata",
+        entity_type: "loto_ticket",
+        entity_id: String(v.data.id),
+        summary: `Edited loto ticket #${v.data.id} metadata`,
+        old_values: result.oldValues,
+        new_values: v.data,
+      });
+    }
+    res.json(
+      result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error },
+    );
+  } catch (error) {
+    fail(res, error, "Failed to update metadata");
+  }
+});
+
 router.use(requireRole(["admin"]));
 
 // ---------------------------------------------------------------------------
@@ -81,10 +143,18 @@ const ticketUpdateSchema =
 const feeSchema = lotoFeeSchema as unknown as SafeParseable<LotoFeeInput>;
 const checkpointCreateSchema =
   lotoCheckpointCreateSchema as unknown as SafeParseable<LotoCheckpointCreateInput>;
+// Closes the one checkpoint write path with no schema before this ticket —
+// see lotoCheckpointUpdateSchema's doc comment
+// (packages/core/src/validators/loto.ts) for the strip-trap this guards
+// against (every field in LotoCheckpointUpdate must stay covered here).
+const checkpointUpdateSchema =
+  lotoCheckpointUpdateSchema as unknown as SafeParseable<LotoCheckpointUpdateInput>;
 const checkpointSettleSchema =
   lotoCheckpointSettleSchema as unknown as SafeParseable<LotoCheckpointSettleInput>;
 const checkpointsSettleBatchSchema =
   lotoCheckpointsSettleBatchSchema as unknown as SafeParseable<LotoCheckpointsSettleBatchInput>;
+const updateMetadataSchema =
+  lotoUpdateMetadataSchema as unknown as SafeParseable<LotoUpdateMetadataInput>;
 
 function fail(res: express.Response, error: unknown, fallback: string): void {
   lotoLogger.error({ error }, `loto REST: ${fallback}`);
@@ -556,7 +626,12 @@ router.put("/checkpoints/:id", (req, res) => {
       res.json({ success: false, error: "Invalid id" });
       return;
     }
-    const checkpoint = getLotoService().updateCheckpoint(id, req.body);
+    const v = parse(checkpointUpdateSchema, req.body);
+    if (!v.ok) {
+      res.json({ success: false, error: v.error });
+      return;
+    }
+    const checkpoint = getLotoService().updateCheckpoint(id, v.data);
     // Mirrors lotoHandlers.ts's loto:checkpoint:update audit.
     auditRest(req, {
       action: "update",
@@ -611,6 +686,12 @@ router.get("/checkpoints/:id", (req, res) => {
     fail(res, error, "Failed to get checkpoint");
   }
 });
+
+// POST /api/loto/update-metadata moved ABOVE the router-level
+// `requireRole(["admin"])` gate (right after `router.use(authenticateJWT)`,
+// near the top of this file) so it can carry its own
+// `requireRole(["admin", "staff"])` matching its IPC twin. See the
+// file-header comment and that route's own comment for why.
 
 // ---------------------------------------------------------------------------
 // Ticket by id / list (catch-alls — keep LAST)

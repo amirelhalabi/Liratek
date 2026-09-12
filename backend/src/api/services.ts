@@ -3,9 +3,12 @@ import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import {
   getFinancialService,
+  getFinancialServiceRepository,
+  getTransactionRepository,
   createFinancialServiceSchema,
   getFinancialServicesSchema,
   selfChargeTelecomItemSchema,
+  financialUpdateMetadataSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
 import type { AuthRequest } from "../middleware/auth.js";
@@ -198,5 +201,100 @@ router.post(
     }
   },
 );
+
+// GET /api/services/transactions/:transactionId/payments — all payment rows
+// for a unified transaction (the debt-detail "eye" button drills into a
+// service-backed debt row). Mirrors IPC `omt:get-payments-by-transaction`
+// (electron-app/handlers/omtHandlers.ts), which carries no requireRole
+// beyond an authenticated app session — same baseline here (router-level
+// authenticateJWT only). Static "transactions" prefix, so this can never be
+// swallowed by the single-segment `/:id` route below regardless of
+// declaration order (different path-segment count).
+router.get("/transactions/:transactionId/payments", (req, res): void => {
+  const transactionId = Number(req.params.transactionId);
+  if (!Number.isFinite(transactionId)) {
+    res.json({ success: false, error: "Invalid transaction id" });
+    return;
+  }
+  try {
+    const payments =
+      getTransactionRepository().getPaymentsByTransactionId(transactionId);
+    res.json({ success: true, payments });
+  } catch (error) {
+    logger.error({ error }, "Get payments by transaction error");
+    res.json({ success: false, error: "Failed to fetch payments" });
+  }
+});
+
+// POST /api/services/update-metadata (admin + staff — matches
+// omtHandlers.ts's "financial:update-metadata" IPC gate). `editedBy` comes
+// from the JWT's username claim, never the client body.
+router.post(
+  "/update-metadata",
+  requireRole(["admin", "staff"]),
+  validateRequest(financialUpdateMetadataSchema),
+  (req, res): void => {
+    const editedBy = (req as AuthRequest).user!.username;
+    const financialService = getFinancialService();
+    const result = financialService.updateFinancialServiceMetadata(
+      req.body.id,
+      {
+        client_name: req.body.client_name,
+        phone_number: req.body.phone_number,
+        sender_name: req.body.sender_name,
+        sender_phone: req.body.sender_phone,
+        receiver_name: req.body.receiver_name,
+        receiver_phone: req.body.receiver_phone,
+        note: req.body.note,
+      },
+      editedBy,
+    );
+
+    if (
+      result.success &&
+      result.oldValues &&
+      Object.keys(result.oldValues).length > 0
+    ) {
+      // Mirrors omtHandlers.ts's financial:update-metadata audit
+      // (edit_metadata/financial_service).
+      auditRest(req, {
+        action: "edit_metadata",
+        entity_type: "financial_service",
+        entity_id: String(req.body.id),
+        summary: `Edited financial service #${req.body.id} metadata`,
+        old_values: result.oldValues,
+        new_values: req.body,
+      });
+    }
+
+    res.json(
+      result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error },
+    );
+  },
+);
+
+// GET /api/services/:id — a single financial_services record by id (the
+// debt-detail "eye" button). Mirrors IPC `omt:get-by-id`
+// (electron-app/handlers/omtHandlers.ts), which carries no requireRole
+// beyond an authenticated app session — same baseline here. Declared LAST
+// among this router's GETs so its single-segment `:id` pattern can never
+// swallow a static sibling route above it (rule 19 convention, matching
+// inventory.ts/loto.ts's ordering comments).
+router.get("/:id", (req, res): void => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.json({ success: false, error: "Invalid id" });
+    return;
+  }
+  try {
+    const record = getFinancialServiceRepository().findById(id);
+    res.json({ success: true, record });
+  } catch (error) {
+    logger.error({ error }, "Get financial service by id error");
+    res.json({ success: false, error: "Failed to fetch record" });
+  }
+});
 
 export default router;

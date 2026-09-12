@@ -81,9 +81,27 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
     if (editingId === null) return;
     setEditSaving(true);
     try {
-      const result = await window.api.loto.updateMetadata({
-        id: editingId,
-        ...(editNoteValue !== undefined && { note: editNoteValue }),
+      // MUST target the checkpoint channel, not `api.loto.updateMetadata`
+      // (IPC `loto:update-metadata` / REST `/api/loto/update-metadata`).
+      // `editingId` is a `loto_checkpoints` row id, but that channel resolves
+      // ids against `loto_tickets` (`LotoService.updateLotoMetadata` calls
+      // `ticketRepo.getTicketById(id)`). Both tables are
+      // `INTEGER PRIMARY KEY AUTOINCREMENT` starting at 1, so ids collide
+      // routinely — the old code silently wrote this note onto an unrelated
+      // loto TICKET whenever a ticket happened to share the checkpoint's id,
+      // or returned "Loto ticket not found" otherwise; either way the
+      // checkpoint's own note never saved. `loto_checkpoints` has its own
+      // `note` column, persisted via `LotoCheckpointRepository.updateCheckpoint`
+      // — reach it through `api.loto.checkpoint.update`, the same
+      // checkpoint-scoped namespace `loadCheckpoints` already uses above.
+      // Note: `loto:checkpoint:update` is admin-only (`loto:update-metadata`
+      // was admin+staff), so this fix narrows who can edit a checkpoint note.
+      // That's intended — the staff path never actually worked (it either
+      // failed or corrupted a ticket), so no working capability is lost, and
+      // checkpoint fields like `total_sales`/`is_settled`/`settlement_id` are
+      // correctly admin-gated on this channel. Do not widen it to staff.
+      const result = await api.loto.checkpoint.update(editingId, {
+        note: editNoteValue,
       });
       if (result.success) {
         setEditingId(null);

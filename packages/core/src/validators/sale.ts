@@ -37,52 +37,75 @@ export const salePaymentLegSchema = z.object({
  * split payment legs, change legs, client propagation, exchange rate.
  * This is the contract `SalesService.processSale` is written against.
  */
-export const saleProcessSchema = z.object({
-  client_id: z.number().int().nullable(),
-  client_name: z.string().optional(),
-  client_phone: z.string().optional(),
-  items: z
-    .array(
-      z.object({
-        product_id: z.number().int().positive(),
-        quantity: z.number().positive(),
-        price: z.number().nonnegative(),
-        imei: z.string().optional(),
-        // LIRA-143 phase 4: the specific IN_STOCK product_units row being
-        // sold on this line (checkout scanned/picked an IMEI). Optional —
-        // a product with no registered units still sells exactly as today;
-        // the repository's strictness check (SalesRepository.processSale)
-        // is what actually requires this when the product HAS registered
-        // stock, not this schema.
-        product_unit_id: z.number().int().positive().optional(),
-      }),
-    )
-    .min(1, "Sale must have at least one item"),
-  total_amount: z.number().nonnegative(),
-  discount: z.number().nonnegative(),
-  final_amount: z.number().nonnegative(),
-  payment_usd: z.number().nonnegative(),
-  payment_lbp: z.number().nonnegative(),
-  payments: z.array(salePaymentLegSchema).optional(),
-  change_given_usd: z.number().optional(),
-  change_given_lbp: z.number().optional(),
-  // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md): per-currency amounts
-  // the shop KEEPS instead of returning as change. No OUT legs accompany
-  // them; the repository adds them to the sale transaction's profit stamp.
-  // Explicit amounts (not a flag) so what the operator saw is what books.
-  kept_change_usd: z.number().nonnegative().optional(),
-  kept_change_lbp: z.number().nonnegative().optional(),
-  exchange_rate: z.number().positive(),
-  drawer_name: z.string().optional(),
-  id: z.number().int().positive().optional(),
-  status: z.enum(["completed", "draft", "cancelled"]).optional(),
-  note: z.string().optional(),
-  // PFT-2 (Partner FOR-Transactions): the unpaid remainder routes to
-  // partner_ledger instead of the client's debt_ledger when set. Only "FOR"
-  // is valid for POS.
-  partnerId: z.number().int().positive().optional(),
-  partnerMode: z.enum(["FOR"]).optional(),
-});
+export const saleProcessSchema = z
+  .object({
+    client_id: z.number().int().nullable(),
+    client_name: z.string().optional(),
+    client_phone: z.string().optional(),
+    items: z
+      .array(
+        z.object({
+          product_id: z.number().int().positive(),
+          quantity: z.number().positive(),
+          price: z.number().nonnegative(),
+          imei: z.string().optional(),
+          // LIRA-143 phase 4: the specific IN_STOCK product_units row being
+          // sold on this line (checkout scanned/picked an IMEI). Optional —
+          // a product with no registered units still sells exactly as today;
+          // the repository's strictness check (SalesRepository.processSale)
+          // is what actually requires this when the product HAS registered
+          // stock, not this schema.
+          product_unit_id: z.number().int().positive().optional(),
+        }),
+      )
+      .min(1, "Sale must have at least one item"),
+    total_amount: z.number().nonnegative(),
+    discount: z.number().nonnegative(),
+    final_amount: z.number().nonnegative(),
+    payment_usd: z.number().nonnegative(),
+    payment_lbp: z.number().nonnegative(),
+    payments: z.array(salePaymentLegSchema).optional(),
+    change_given_usd: z.number().optional(),
+    change_given_lbp: z.number().optional(),
+    // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md): per-currency amounts
+    // the shop KEEPS instead of returning as change. No OUT legs accompany
+    // them; the repository adds them to the sale transaction's profit stamp.
+    // Explicit amounts (not a flag) so what the operator saw is what books.
+    kept_change_usd: z.number().nonnegative().optional(),
+    kept_change_lbp: z.number().nonnegative().optional(),
+    exchange_rate: z.number().positive(),
+    drawer_name: z.string().optional(),
+    id: z.number().int().positive().optional(),
+    status: z.enum(["completed", "draft", "cancelled"]).optional(),
+    note: z.string().optional(),
+    // PFT-2 (Partner FOR-Transactions): the unpaid remainder routes to
+    // partner_ledger instead of the client's debt_ledger when set. Only "FOR"
+    // is valid for POS.
+    partnerId: z.number().int().positive().optional(),
+    partnerMode: z.enum(["FOR"]).optional(),
+  })
+  .refine(
+    (data) =>
+      data.partnerMode !== "FOR" ||
+      !(data.payments ?? []).some(
+        (p) => p.direction !== "OUT" && p.method === "CUSTOMER_ACCOUNT",
+      ),
+    {
+      // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3: mirrors
+      // validators/customService.ts's identical refine. Under partnerMode
+      // "FOR" there is no customer owing — the PARTNER owes — so a
+      // CUSTOMER_ACCOUNT payment leg is never valid here (an OUT leg is
+      // change/return, not a counter payment, so it's excluded). Mirrors
+      // the repository-layer rejection in `SalesRepository.processSale`'s
+      // `assertNoCustomerAccountLeg` call; this is the edge (Zod) half of
+      // rule 19 — reject before the write, not just inside it. Sales has no
+      // separate legacy payment-method field (unlike Loto/Financial
+      // Services/Recharge), so this is the only refine this schema needs.
+      message:
+        "payments cannot include a Customer Account leg on a for-partner sale — there is no customer owing, the partner owes",
+      path: ["payments"],
+    },
+  );
 
 export type SaleProcessInput = z.infer<typeof saleProcessSchema>;
 
@@ -110,6 +133,22 @@ export const createSaleSchema = z.object({
 export const getSaleSchema = z.object({
   id: z.number().int().positive(),
 });
+
+/**
+ * Edit non-financial metadata (walk-in name/phone, note) on a `sales` row.
+ * Mirrors the `sales:update-metadata` IPC handler's own inline shape
+ * (electron-app/handlers/salesHandlers.ts) — that handler validates nothing
+ * beyond `requireRole`, so this schema is the first real validation the field
+ * set gets; shared by the REST route (rule 14).
+ */
+export const saleUpdateMetadataSchema = z.object({
+  id: z.number().int().positive(),
+  note: z.string().max(500).optional(),
+  client_name: z.string().max(255).optional(),
+  client_phone: z.string().max(50).optional(),
+});
+
+export type SaleUpdateMetadataInput = z.infer<typeof saleUpdateMetadataSchema>;
 
 export const searchSalesSchema = z.object({
   startDate: z.string().datetime().optional(),

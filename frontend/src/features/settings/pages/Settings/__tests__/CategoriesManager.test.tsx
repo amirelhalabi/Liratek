@@ -2,10 +2,11 @@
 /**
  * LIRA-143 Phase 6b — CategoriesManager migrated its category CRUD off raw
  * `window.api.inventory.*` calls onto `useApi()` (rule 19a), and gained the
- * "Tracks IMEI units" toggle (decision #9). The supplier section still uses
- * `window.api` directly (no `useApi()` equivalent exists for it) — left
- * untouched here, and simply renders empty since `window.api` is undefined
- * in this jsdom environment (optional-chained, so no crash).
+ * "Tracks IMEI units" toggle (decision #9). The product-supplier section was
+ * later migrated the same way (rule 19a) — it now calls
+ * `api.getProductSuppliersFull` / `createProductSupplier` /
+ * `updateProductSupplier` / `deleteProductSupplier`, so this file's mock must
+ * cover both sections.
  */
 import {
   render,
@@ -20,6 +21,10 @@ const mockGetCategoriesFull = jest.fn();
 const mockCreateCategory = jest.fn();
 const mockUpdateCategory = jest.fn();
 const mockDeleteCategory = jest.fn();
+const mockGetProductSuppliersFull = jest.fn();
+const mockCreateProductSupplier = jest.fn();
+const mockUpdateProductSupplier = jest.fn();
+const mockDeleteProductSupplier = jest.fn();
 // Stable reference — CategoriesManager's category load effect closes over
 // `api` per render; a fresh object per useApi() call is harmless here (the
 // load effect has an empty dep array) but kept stable anyway for parity
@@ -29,6 +34,10 @@ const mockApi = {
   createCategory: mockCreateCategory,
   updateCategory: mockUpdateCategory,
   deleteCategory: mockDeleteCategory,
+  getProductSuppliersFull: mockGetProductSuppliersFull,
+  createProductSupplier: mockCreateProductSupplier,
+  updateProductSupplier: mockUpdateProductSupplier,
+  deleteProductSupplier: mockDeleteProductSupplier,
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -59,6 +68,12 @@ describe("CategoriesManager — category CRUD via useApi()", () => {
     mockCreateCategory.mockReset().mockResolvedValue({ success: true, id: 3 });
     mockUpdateCategory.mockReset().mockResolvedValue({ success: true });
     mockDeleteCategory.mockReset().mockResolvedValue({ success: true });
+    mockGetProductSuppliersFull.mockReset().mockResolvedValue([]);
+    mockCreateProductSupplier
+      .mockReset()
+      .mockResolvedValue({ success: true, id: 1 });
+    mockUpdateProductSupplier.mockReset().mockResolvedValue({ success: true });
+    mockDeleteProductSupplier.mockReset().mockResolvedValue({ success: true });
   });
 
   it("loads categories via api.getCategoriesFull() (not window.api)", async () => {
@@ -121,6 +136,7 @@ describe("CategoriesManager — Tracks IMEI units toggle (decision #9)", () => {
       .mockReset()
       .mockResolvedValue([TRACKING_CATEGORY, NON_TRACKING_CATEGORY]);
     mockUpdateCategory.mockReset().mockResolvedValue({ success: true });
+    mockGetProductSuppliersFull.mockReset().mockResolvedValue([]);
   });
 
   it("renders the toggle ON for a tracking category and OFF for a non-tracking one", async () => {

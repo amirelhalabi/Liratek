@@ -24,7 +24,7 @@
  * isolation, reseed, supplier partial-wipe, balance zeroing) is covered by
  * core jest against a disposable temp DB — see `packages/core/src/
  * repositories/__tests__/DatabaseResetRepository.test.ts` and the plan doc's
- * Phase 1 test list (`docs/plans/todo_plans/DATABASE_RESET_PLAN.md`). This
+ * Phase 1 test list (`docs/plans/done_plans/DATABASE_RESET_PLAN.md`). This
  * file only proves the GUARD: the UI won't let you type it wrong, the
  * server won't accept a wrong phrase, and a non-admin can't reach it at
  * all — none of which require ever actually wiping anything.

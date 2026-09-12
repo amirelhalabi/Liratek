@@ -48,11 +48,29 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getProducts(search ?? "", filters);
   getProductFilterOptions = () => api.getProductFilterOptions();
   getProductSuppliers = () => api.getProductSuppliers();
+  /** LIRA-143 Phase 5 — Settings manager: id/name/sort_order/is_active/
+   *  product_count rows, distinct from the plain-names `getProductSuppliers`
+   *  above. */
+  getProductSuppliersFull = () => api.getProductSuppliersFull();
+  createProductSupplier = (name: string) => api.createProductSupplier(name);
+  updateProductSupplier = (id: number, name: string) =>
+    api.updateProductSupplier(id, name);
+  deleteProductSupplier = (id: number) => api.deleteProductSupplier(id);
   createProduct = (payload: any) => api.createProduct(payload);
   updateProduct = (id: number, payload: any) => api.updateProduct(id, payload);
   deleteProduct = (id: number) => api.deleteProduct(id);
   batchDeleteProducts = (ids: number[]) => api.batchDeleteProducts(ids);
+  /** Inventory grid's multi-select edit (category / min-stock-threshold /
+   *  supplier for many products in one call). */
+  batchUpdateProducts = (payload: api.BatchUpdateProductsPayload) =>
+    api.batchUpdateProducts(payload);
   getLowStockProducts = () => api.getLowStockProducts();
+  /** Look up a product by its exact barcode (null when no match) — the
+   *  ProductForm barcode generator's uniqueness check. */
+  getProductByBarcode = (barcode: string) => api.getProductByBarcode(barcode);
+  /** Plain category NAMES, distinct from `getCategoriesFull` below (which
+   *  carries id/sort_order/tracks_imei_units). */
+  getCategories = () => api.getCategories();
   receiveStock = (payload: {
     product_id: number;
     quantity: number;
@@ -94,6 +112,21 @@ export class ElectronApiAdapter implements ApiAdapter {
   processSale = (payload: any) => api.processSale(payload);
   getSale = (saleId: number) => api.getSale(saleId);
   getSaleItems = (saleId: number) => api.getSaleItems(saleId);
+  /** Refund a WHOLE sale (admin only). */
+  refundSale = (saleId: number) => api.refundSale(saleId);
+  /** Refund a specific line item off a sale, by quantity (admin only). */
+  refundSaleItem = (
+    saleId: number,
+    saleItemId: number,
+    refundQuantity: number,
+  ) => api.refundSaleItem(saleId, saleItemId, refundQuantity);
+  /** Edit non-financial metadata (walk-in name/phone, note) on a sale row. */
+  updateSaleMetadata = (data: {
+    id: number;
+    note?: string;
+    client_name?: string;
+    client_phone?: string;
+  }) => api.updateSaleMetadata(data);
 
   // ---------------------------------------------------------------------------
   // Debts
@@ -142,6 +175,14 @@ export class ElectronApiAdapter implements ApiAdapter {
   getTodayExpenses = () => api.getTodayExpenses();
   addExpense = (payload: any) => api.addExpense(payload);
   deleteExpense = (id: number) => api.deleteExpense(id);
+  /** Edit non-financial metadata (description/category/note) on an expense
+   *  row (the History modal's inline edit). */
+  updateExpenseMetadata = (data: {
+    id: number;
+    description?: string;
+    category?: string;
+    note?: string;
+  }) => api.updateExpenseMetadata(data);
 
   // ---------------------------------------------------------------------------
   // Dashboard
@@ -149,7 +190,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   getDashboardStats = () => api.getDashboardStats();
   getProfitSalesChart = (type: "Sales" | "Profit") =>
     api.getProfitSalesChart(type);
-  getTodaysSales = () => api.getTodaysSales();
+  getTodaysSales = (date?: string) => api.getTodaysSales(date);
   getDrawerBalances = () => api.getDrawerBalances();
   getDebtSummary = () => api.getDebtSummary();
   getInventoryStockStats = () => api.getInventoryStockStats();
@@ -208,6 +249,25 @@ export class ElectronApiAdapter implements ApiAdapter {
   getOMTHistory = (provider?: string) => api.getOMTHistory(provider);
   getOMTAnalytics = (providers?: string[]) => api.getOMTAnalytics(providers);
   addOMTTransaction = (payload: any) => api.addOMTTransaction(payload);
+  /** A single financial_services record by id — the Debts page's
+   *  service-backed debt-detail "eye" button. */
+  getFinancialServiceById = (id: number) => api.getFinancialServiceById(id);
+  /** All payment rows for a unified transaction — the same debt-detail
+   *  "eye" button drills into this alongside `getFinancialServiceById`. */
+  getPaymentsByTransaction = (transactionId: number) =>
+    api.getPaymentsByTransaction(transactionId);
+  /** Edit non-financial metadata on a financial_services row (OMT/Whish/
+   *  iPick/Katsh/Binance history modals' inline edit — one shared channel). */
+  updateFinancialMetadata = (data: {
+    id: number;
+    client_name?: string;
+    phone_number?: string;
+    sender_name?: string;
+    sender_phone?: string;
+    receiver_name?: string;
+    receiver_phone?: string;
+    note?: string;
+  }) => api.updateFinancialMetadata(data);
   /** LIRA-090 §5.2: charge a telecom catalog item to the shop's own carrier line.
    *  Admin or staff only. */
   selfChargeTelecomItem = (data: {
@@ -364,6 +424,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     filters?: api.TransactionFiltersParam,
   ) => api.getRecentTransactions(limit, filters);
   getTransactionById = (id: number) => api.getTransactionById(id);
+  /** D1 — currency in/out by business date (the Audit page's Cash Report). */
+  getCashFlowByDate = (from: string, to: string) =>
+    api.getCashFlowByDate(from, to);
   getTransactionBySource = (sourceTable: string, sourceId: number) =>
     api.getTransactionBySource(sourceTable, sourceId);
   getClientTransactions = (clientId: number, limit?: number) =>
@@ -429,8 +492,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Database Reset (LIRA-165)
   // ---------------------------------------------------------------------------
   getDatabaseResetPreview = () => api.getDatabaseResetPreview();
-  resetDatabase = (input: { confirmation: string }) =>
-    api.resetDatabase(input);
+  resetDatabase = (input: { confirmation: string }) => api.resetDatabase(input);
 
   // ---------------------------------------------------------------------------
   // Modules
@@ -982,6 +1044,15 @@ export class ElectronApiAdapter implements ApiAdapter {
     id: number;
     fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
   }) => api.advanceCustomServiceFulfillment(data);
+  /** Edit non-financial metadata (description/client name/phone/note) on a
+   *  custom_services row (the History modal's inline edit). */
+  updateCustomServiceMetadata = (data: {
+    id: number;
+    description?: string;
+    client_name?: string;
+    phone_number?: string;
+    note?: string;
+  }) => api.updateCustomServiceMetadata(data);
 
   // ---------------------------------------------------------------------------
   // Loto
@@ -993,6 +1064,10 @@ export class ElectronApiAdapter implements ApiAdapter {
       api.lotoGetByDateRange(from, to),
     getUncheckpointed: () => api.lotoGetUncheckpointed(),
     update: (id: number, data: any) => api.lotoUpdate(id, data),
+    /** Edits a loto TICKET's note (loto_tickets) — NOT a checkpoint's;
+     *  see lotoUpdateMetadata in backendApi.ts. No UI caller currently. */
+    updateMetadata: (data: { id: number; note?: string }) =>
+      api.lotoUpdateMetadata(data),
     report: (from: string, to: string) => api.lotoReport(from, to),
     settlement: (from: string, to: string) => api.lotoSettlement(from, to),
     checkpoint: {

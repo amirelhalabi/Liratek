@@ -1,7 +1,18 @@
 # Database Reset (Settings › Reset Data) — Implementation Plan
 
-**Status:** in progress (2026-09-09)
-**Ticket:** LIRA-165 (Reset Database from Settings)
+**Status:** ✅ COMPLETE — shipped 2026-09-09 in `b73f6205`
+("feat(settings): admin-only Reset Data — wipe operations, keep setup config").
+All five phases below are live; verified file-by-file against source 2026-09-12.
+
+| Phase      | Landed as                                                                                                                                                                                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 core     | `constants/resetTables.ts`, `repositories/DatabaseResetRepository.ts`, `services/DatabaseResetService.ts`, `validators/databaseReset.ts` + `resetTables.guard`/`DatabaseResetRepository`/`DatabaseResetService` tests; exported from BOTH entry points via the `constants/`+`validators/` barrels |
+| 2 electron | `handlers/databaseResetHandlers.ts`, registered `main.ts:628`, preload `:1090-1092`, schema re-export `schemas/index.ts:159`                                                                                                                                                                      |
+| 3 backend  | `backend/src/api/databaseReset.ts`, mounted `server.ts:228`                                                                                                                                                                                                                                       |
+| 4 frontend | `ResetDataPanel.tsx` + `ResetDataModal.tsx`, `backendApi.ts:3378/3411`, `ElectronApiAdapter.ts:492`, `ApiAdapter` `packages/ui/src/api/types.ts:1423`                                                                                                                                             |
+| 5 e2e      | `lira-165-database-reset-guard.spec.ts` (desktop) + `lira-web-031-database-reset-guard.spec.ts` (web) — guard-only, per the Phase 5 note below                                                                                                                                                    |
+
+**Ticket:** LIRA-165 (Reset Database from Settings). ⚠ The number is reused: `current_sprint.md:2781` files an unrelated LIRA-165 (`transaction_time` validated differently on IPC vs REST), and `lira-165-stock-intake-cost-visibility.spec.ts` is a third. Match on the title, not the number.
 
 ## Goal
 
@@ -12,19 +23,19 @@ restarts from a clean slate without re-running the wizard.
 
 Owner decisions (2026-09-09, answered in-session):
 
-| Wizard page                    | Keep? |
-| ------------------------------ | ----- |
-| 1 Account (admin user, shop)   | KEEP  |
-| 2 Base System (OMT/Whish)      | KEEP  |
-| 3 Modules + payment methods    | KEEP  |
-| 4 Currencies                   | KEEP  |
-| 5 Users (extra staff)          | KEEP  |
-| 6 Drawers (opening amounts)    | WIPE  |
-| 7 Done extras (WhatsApp, lines)| WIPE  |
-| Catalogs (products, recharge…) | WIPE  |
-| Contacts (clients/suppliers/partners) | WIPE |
-| Settings-page config           | KEEP  |
-| Drawer balances                | Zero + re-prompt on next login |
+| Wizard page                           | Keep?                          |
+| ------------------------------------- | ------------------------------ |
+| 1 Account (admin user, shop)          | KEEP                           |
+| 2 Base System (OMT/Whish)             | KEEP                           |
+| 3 Modules + payment methods           | KEEP                           |
+| 4 Currencies                          | KEEP                           |
+| 5 Users (extra staff)                 | KEEP                           |
+| 6 Drawers (opening amounts)           | WIPE                           |
+| 7 Done extras (WhatsApp, lines)       | WIPE                           |
+| Catalogs (products, recharge…)        | WIPE                           |
+| Contacts (clients/suppliers/partners) | WIPE                           |
+| Settings-page config                  | KEEP                           |
+| Drawer balances                       | Zero + re-prompt on next login |
 
 ### Deviations from the literal answers (deliberate, with reasons)
 

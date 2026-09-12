@@ -88,7 +88,12 @@ export default function CategoriesManager() {
   const loadSuppliers = async () => {
     setSuppLoading(true);
     try {
-      const data = await window.api?.inventory.getProductSuppliersFull();
+      // Rule 19: was a raw, optional-chained
+      // `window.api?.inventory.getProductSuppliersFull()` — silently
+      // resolved to `undefined` in a real browser, so this tab looked empty
+      // on the web. `api.getProductSuppliersFull` routes IPC/REST for both
+      // transports.
+      const data = await api.getProductSuppliersFull();
       setSuppliers(data ?? []);
       setSuppSelectedIds(new Set());
     } finally {
@@ -170,9 +175,11 @@ export default function CategoriesManager() {
   const handleAddSupplier = async () => {
     if (!newSuppName.trim()) return;
     setSuppError("");
-    const res = await window.api?.inventory.createProductSupplier(
-      newSuppName.trim(),
-    );
+    // Rule 19: was a raw, optional-chained
+    // `window.api?.inventory.createProductSupplier(...)` — silently
+    // no-op'd on the web (product-supplier CRUD never reached the server).
+    // `api.createProductSupplier` routes IPC/REST for both transports.
+    const res = await api.createProductSupplier(newSuppName.trim());
     if (res?.success) {
       setNewSuppName("");
       loadSuppliers();
@@ -182,10 +189,11 @@ export default function CategoriesManager() {
   const handleUpdateSupplier = async (id: number) => {
     if (!suppEditingName.trim()) return;
     setSuppError("");
-    const res = await window.api?.inventory.updateProductSupplier(
-      id,
-      suppEditingName.trim(),
-    );
+    // Rule 19: was a raw, optional-chained
+    // `window.api?.inventory.updateProductSupplier(...)` — silently no-op'd
+    // on the web. `api.updateProductSupplier` routes IPC/REST for both
+    // transports.
+    const res = await api.updateProductSupplier(id, suppEditingName.trim());
     if (res?.success) {
       setSuppEditingId(null);
       loadSuppliers();
@@ -199,7 +207,11 @@ export default function CategoriesManager() {
       )
     )
       return;
-    const res = await window.api?.inventory.deleteProductSupplier(id);
+    // Rule 19: was a raw, optional-chained
+    // `window.api?.inventory.deleteProductSupplier(...)` — silently no-op'd
+    // on the web. `api.deleteProductSupplier` routes IPC/REST for both
+    // transports.
+    const res = await api.deleteProductSupplier(id);
     if (res?.success) loadSuppliers();
     else setSuppError(res?.error ?? "Failed to delete");
   };
@@ -214,8 +226,14 @@ export default function CategoriesManager() {
       return;
     setSuppError("");
     let failed = 0;
+    // Rule 19: was a raw, optional-chained
+    // `window.api?.inventory.deleteProductSupplier(...)` — on the web
+    // `window.api` is undefined, so `res` resolved to `undefined` every
+    // iteration and `failed++` fired for every supplier without ever
+    // reaching the server. `api.deleteProductSupplier` routes IPC/REST for
+    // both transports.
     for (const id of suppSelectedIds) {
-      const res = await window.api?.inventory.deleteProductSupplier(id);
+      const res = await api.deleteProductSupplier(id);
       if (!res?.success) failed++;
     }
     if (failed > 0)

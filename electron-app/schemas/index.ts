@@ -13,6 +13,7 @@ import {
   lotoTicketUpdateSchema,
   lotoFeeSchema,
   lotoCheckpointCreateSchema,
+  lotoCheckpointUpdateSchema,
   lotoCheckpointSettleSchema,
   lotoCheckpointsSettleBatchSchema,
   sessionCheckoutSchema,
@@ -35,6 +36,8 @@ import {
   productListFiltersSchema,
   batchDeleteProductIdsSchema,
   type BatchDeleteProductIds,
+  batchUpdateProductsSchema,
+  type BatchUpdateProductsInput,
   voidCheckoutGroupSchema,
   refundLegsSchema,
   carrierLineCreateSchema,
@@ -92,6 +95,7 @@ import {
   type LotoTicketUpdateInput,
   type LotoFeeInput,
   type LotoCheckpointCreateInput,
+  type LotoCheckpointUpdateInput,
   type LotoCheckpointSettleInput,
   type LotoCheckpointsSettleBatchInput,
   type SessionCheckoutInput,
@@ -153,6 +157,21 @@ import {
   // Electron IPC handler (databaseResetHandlers.ts) and the REST route
   // validate against the same schema (rule 14).
   databaseResetSchema,
+  // TRANSPORT_PARITY_AUDIT_PLAN.md §6.4 follow-up 3 — five "...:update-metadata"
+  // IPC handlers (sales/expenses/financial/custom-services/loto) validated
+  // nothing beyond requireRole while their REST twins already validated
+  // against these core schemas, so REST was silently stricter than desktop.
+  // Straight re-exports, no local duplicate (rule 14).
+  saleUpdateMetadataSchema,
+  type SaleUpdateMetadataInput,
+  expenseUpdateMetadataSchema,
+  type ExpenseUpdateMetadataInput,
+  financialUpdateMetadataSchema,
+  type FinancialUpdateMetadataInput,
+  customServiceUpdateMetadataSchema,
+  type CustomServiceUpdateMetadataInput,
+  lotoUpdateMetadataSchema,
+  type LotoUpdateMetadataInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -233,12 +252,16 @@ export const ProductInputSchema = ProductBaseShape.extend({
   path: ["retail_price"],
 });
 
-export const BatchUpdateSchema = z.object({
-  ids: z.array(z.number().int().positive()).min(1),
-  category: z.string().optional(),
-  min_stock_level: z.number().int().nonnegative().optional(),
-  supplier: z.string().optional().nullable(),
-});
+// The batch-update contract lives in packages/core/src/validators/product.ts
+// so the IPC handler and the REST route
+// (`POST /api/inventory/products/batch-update`) validate against ONE schema
+// (CLAUDE.md rule 14) — this used to be a hand-maintained local duplicate
+// (the core schema's own doc comment named that as the debt); the two now
+// share one definition, including the `unit` field. Cast bridges the zod
+// major mismatch (core types against zod 4, this workspace types against
+// zod 3); the runtime API used is identical.
+export const BatchUpdateSchema =
+  batchUpdateProductsSchema as unknown as z.ZodSchema<BatchUpdateProductsInput>;
 
 // LIRA-149: `inventory:batch-delete` had NO Zod validation before this ticket
 // — `ids` was trusted raw from the renderer, unlike its sibling
@@ -744,6 +767,11 @@ export const LotoFeeSchema =
   lotoFeeSchema as unknown as z.ZodSchema<LotoFeeInput>;
 export const LotoCheckpointCreateSchema =
   lotoCheckpointCreateSchema as unknown as z.ZodSchema<LotoCheckpointCreateInput>;
+// Closes the one checkpoint write path with no schema before this ticket —
+// see lotoCheckpointUpdateSchema's doc comment (packages/core/src/validators/
+// loto.ts) for the strip-trap this guards against.
+export const LotoCheckpointUpdateSchema =
+  lotoCheckpointUpdateSchema as unknown as z.ZodSchema<LotoCheckpointUpdateInput>;
 export const LotoCheckpointSettleSchema =
   lotoCheckpointSettleSchema as unknown as z.ZodSchema<LotoCheckpointSettleInput>;
 export const LotoCheckpointsSettleBatchSchema =
@@ -1261,3 +1289,35 @@ export function validatePayload<T>(
   }
   return { ok: true, data: result.data };
 }
+
+// =============================================================================
+// "Edit metadata" channels (TRANSPORT_PARITY_AUDIT_PLAN.md §6.4 follow-up 3)
+// =============================================================================
+
+// Five IPC handlers — sales:update-metadata, expenses:update-metadata,
+// financial:update-metadata, custom-services:update-metadata,
+// loto:update-metadata — validated nothing beyond `requireRole`, while the
+// REST routes added in the same sweep already validate against these core
+// schemas (packages/core/src/validators/{sale,expense,financial,
+// customService,loto}.ts). That made REST silently STRICTER than desktop —
+// e.g. a 600-character note saved on desktop and was refused on web. Lifting
+// the IPC handlers onto the SAME schemas closes that gap (rule 14/19b). Casts
+// bridge the zod-major mismatch (core built against zod 4, this workspace
+// against zod 3); the runtime API used is identical.
+export const SaleUpdateMetadataSchema =
+  saleUpdateMetadataSchema as unknown as z.ZodSchema<SaleUpdateMetadataInput>;
+export const ExpenseUpdateMetadataSchema =
+  expenseUpdateMetadataSchema as unknown as z.ZodSchema<ExpenseUpdateMetadataInput>;
+export const FinancialUpdateMetadataSchema =
+  financialUpdateMetadataSchema as unknown as z.ZodSchema<FinancialUpdateMetadataInput>;
+// TRANSPORT_PARITY_AUDIT_PLAN.md §6.4 follow-up 3 worked example: this core
+// schema now carries `category` (packages/core/src/validators/
+// customService.ts) — it was missing even though preload.ts's
+// `customServices.updateMetadata` binding types it and
+// `CustomServiceService.updateCustomServiceMetadata` /
+// `CustomServiceRepository.updateMetadata` already read/persist it. The IPC
+// handler below is fixed to forward it alongside adopting this schema.
+export const CustomServiceUpdateMetadataSchema =
+  customServiceUpdateMetadataSchema as unknown as z.ZodSchema<CustomServiceUpdateMetadataInput>;
+export const LotoUpdateMetadataSchema =
+  lotoUpdateMetadataSchema as unknown as z.ZodSchema<LotoUpdateMetadataInput>;

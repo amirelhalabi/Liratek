@@ -6,7 +6,7 @@
  * configuration captured by the setup wizard (accounts, base system, modules,
  * currencies, users, settings), so the shop restarts from a clean slate
  * without re-running the wizard. See
- * docs/plans/todo_plans/DATABASE_RESET_PLAN.md for the full table
+ * docs/plans/done_plans/DATABASE_RESET_PLAN.md for the full table
  * classification and the reasoning behind every keep/wipe/zero decision.
  *
  * Safety net: a file backup is taken immediately before the wipe, and the

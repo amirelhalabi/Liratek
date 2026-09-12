@@ -179,8 +179,9 @@ export function CustomerSessionButton({
         return;
       }
 
-      // Create client directly via API
-      const result = await window.api.clients.create({
+      // Create client directly via API — dual-mode (IPC on desktop, REST in
+      // the browser) so this works from a web session too (rule 19).
+      const result = await api.createClient({
         full_name: session.customer_name || "Unknown",
         phone_number: session.customer_phone,
         notes: `Added from customer session`,

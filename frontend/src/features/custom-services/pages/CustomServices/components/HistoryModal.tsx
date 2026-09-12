@@ -23,7 +23,11 @@ import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useShopInfo } from "@/hooks/useShopName";
-import { getTransactionBySource, refundTransaction } from "@/api/backendApi";
+import {
+  getTransactionBySource,
+  refundTransaction,
+  updateCustomServiceMetadata,
+} from "@/api/backendApi";
 import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
 import { isReceiptableTransaction } from "@/features/audit/receiptGating";
 import logger from "@/utils/logger";
@@ -239,7 +243,7 @@ export function HistoryModal({
     if (editingId === null) return;
     setEditSaving(true);
     try {
-      const result = await window.api.customServices.updateMetadata({
+      const result = await updateCustomServiceMetadata({
         id: editingId,
         ...(editForm.description !== undefined && {
           description: editForm.description,

@@ -131,7 +131,12 @@ export default function ProductForm({
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        const data = (await window.api?.inventory?.getCategories?.()) || [];
+        // Rule 19: was a raw, optional-chained `window.api?.inventory?
+        // .getCategories?.()` — silently resolved to `undefined` in a real
+        // browser (caught below and papered over by the fallback list), so
+        // the web form never actually saw real categories. `api.getCategories`
+        // routes IPC/REST for both transports.
+        const data = (await api.getCategories()) || [];
         const fallback = [
           "Accessories",
           "Phones",
@@ -221,8 +226,13 @@ export default function ProductForm({
 
         // Check if barcode already exists
         try {
-          const existing =
-            await window.api?.inventory?.getProductByBarcode?.(barcode);
+          // Rule 19: was a raw, optional-chained
+          // `window.api?.inventory?.getProductByBarcode?.()` — silently
+          // resolved to `undefined` on the web, which this same catch/`if
+          // (!existing)` already treats as "assume unique", so the
+          // uniqueness check never actually ran in the browser.
+          // `api.getProductByBarcode` routes IPC/REST for both transports.
+          const existing = await api.getProductByBarcode(barcode);
           if (!existing) {
             setFormData((prev) => ({ ...prev, barcode }));
             return;
@@ -335,6 +345,11 @@ ${labels}
       logger.warn("Failed to get printer setting", { error: e });
     }
 
+    // Desktop-only: OS-level silent printing via the Electron main process
+    // (no browser API can print to a named printer without a dialog). The
+    // `else` branch below is the deliberate, already-existing web
+    // equivalent — a `window.print()` popup — so this is a genuine
+    // two-path feature, not a broken transport gate.
     if (targetPrinter && window.api?.print?.silentPrint) {
       logger.info(
         `Sending barcode to silent printer: ${targetPrinter} (${copies} copies)`,
@@ -387,7 +402,9 @@ ${labels}
         printWindow.focus();
         printWindow.print();
         printWindow.close();
-        // Windows focus fix
+        // Desktop-only: Windows focus-fix workaround (electron-app main
+        // process). No web equivalent exists — optional chaining makes this
+        // a safe no-op in the browser.
         setTimeout(() => {
           window.api?.display?.fixFocus?.();
         }, 100);
@@ -749,8 +766,7 @@ ${labels}
                 />
                 {product && (
                   <p className="text-xs text-slate-500 mt-1">
-                    Use "Adjust Stock" from the product list to change
-                    quantity.
+                    Use "Adjust Stock" from the product list to change quantity.
                   </p>
                 )}
               </div>

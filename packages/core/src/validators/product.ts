@@ -84,7 +84,33 @@ export const batchDeleteProductsSchema = z.object({
 });
 
 export type BatchDeleteProductIds = z.infer<typeof batchDeleteProductIdsSchema>;
-export type BatchDeleteProductsInput = z.infer<typeof batchDeleteProductsSchema>;
+export type BatchDeleteProductsInput = z.infer<
+  typeof batchDeleteProductsSchema
+>;
+
+/**
+ * Batch-update a set of products' category/min-stock-threshold/supplier/unit
+ * in one call (Inventory grid's multi-select edit). This is now the single
+ * shared definition: `electron-app/schemas/index.ts`'s `BatchUpdateSchema`
+ * re-exports this schema directly (rule 14) rather than hand-maintaining a
+ * parallel copy, so the IPC handler (`inventory:batch-update`) and the REST
+ * route (`POST /api/inventory/products/batch-update`) validate against ONE
+ * rule. `unit` (`products.unit`, a nullable TEXT column) is wired end-to-end
+ * on both transports — `ProductRepository.batchUpdateProducts` and
+ * `InventoryService.batchUpdateProducts` both accept it, mirroring how
+ * `supplier` is handled.
+ */
+export const batchUpdateProductsSchema = z.object({
+  ids: batchDeleteProductIdsSchema,
+  category: z.string().max(100).optional(),
+  min_stock_level: z.number().int().nonnegative().optional(),
+  supplier: z.string().max(200).optional().nullable(),
+  unit: z.string().max(50).optional().nullable(),
+});
+
+export type BatchUpdateProductsInput = z.infer<
+  typeof batchUpdateProductsSchema
+>;
 
 // =============================================================================
 // Inventory product-list filters (backend SQL filtering)

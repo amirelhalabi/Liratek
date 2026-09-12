@@ -12,6 +12,7 @@ import type {
   DatabaseResetPreview,
   DatabaseResetResult,
   SafeSession,
+  Client,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -516,7 +517,9 @@ export async function importClientDebts(
     // `exactOptionalPropertyTypes` distinguishes "absent" from "present and
     // undefined", and the IPC branch omits the key entirely on failure.
     const imported = res.data?.result ?? res.result;
-    return imported ? { success: res.success, result: imported } : { success: res.success };
+    return imported
+      ? { success: res.success, result: imported }
+      : { success: res.success };
   } catch (err) {
     // requestJson THROWS on non-2xx and its `message` may itself be an object,
     // so unwrap it rather than surfacing "[object Object]" to the user.
@@ -549,7 +552,7 @@ export async function updateClient(payload: {
   }
 }
 
-export async function getClients(search: string) {
+export async function getClients(search: string): Promise<Client[]> {
   return ipcOrHttp(
     async () => getElectronApi().clients.getAll(search),
     async () => {
@@ -558,8 +561,8 @@ export async function getClients(search: string) {
       // Route wraps in createSuccessResponse ({success, data:{clients}})
       const res = await requestJson<{
         success: boolean;
-        clients?: any[];
-        data?: { clients?: any[] };
+        clients?: Client[];
+        data?: { clients?: Client[] };
       }>(`/api/clients?${qs.toString()}`);
       return (res.data ?? res).clients ?? [];
     },
@@ -670,6 +673,81 @@ export async function getProductSuppliers(): Promise<string[]> {
   );
 }
 
+/** LIRA-143 Phase 5 — Settings manager: id/name/sort_order/is_active/
+ *  product_count rows, distinct from the plain-names `getProductSuppliers`
+ *  above. Was a raw, unguarded `window.api?.inventory.getProductSuppliersFull()`
+ *  call with no REST twin (rule 19a) — the CategoriesManager's supplier tab
+ *  silently failed in a real browser. Read: returns the RAW array. */
+export async function getProductSuppliersFull(): Promise<
+  Array<{
+    id: number;
+    name: string;
+    sort_order: number;
+    is_active: number;
+    product_count: number;
+  }>
+> {
+  return ipcOrHttp(
+    async () => {
+      const data = await getElectronApi().inventory.getProductSuppliersFull();
+      return data ?? [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: Array<{
+          id: number;
+          name: string;
+          sort_order: number;
+          is_active: number;
+          product_count: number;
+        }>;
+      }>("/api/inventory/product-suppliers-full");
+      return res.data ?? [];
+    },
+  );
+}
+
+export async function createProductSupplier(
+  name: string,
+): Promise<{ success: boolean; id?: number; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.createProductSupplier(name),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        "/api/inventory/product-suppliers",
+        { method: "POST", body: { name } },
+      ),
+  );
+}
+
+export async function updateProductSupplier(
+  id: number,
+  name: string,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.updateProductSupplier(id, name),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/inventory/product-suppliers/${id}`,
+        { method: "PUT", body: { name } },
+      ),
+  );
+}
+
+export async function deleteProductSupplier(
+  id: number,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.deleteProductSupplier(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/inventory/product-suppliers/${id}`,
+        { method: "DELETE" },
+      ),
+  );
+}
+
 /** Distinct category / supplier values across the tenant's products — feeds
  *  the inventory filter dropdowns. Reads return the RAW object shape. */
 export async function getProductFilterOptions(): Promise<{
@@ -707,6 +785,28 @@ export type ProductWriteResult = {
   code?: string;
   suggested_barcode?: string;
 };
+
+/** Look up a product by its exact barcode (null when no match) — the
+ *  ProductForm barcode generator uses this to confirm a candidate barcode is
+ *  unused before offering it. Was a raw, optional-chained
+ *  `window.api?.inventory?.getProductByBarcode?.()` call with no REST twin
+ *  (rule 19a) — silently resolved to `undefined` in a real browser, which
+ *  the caller's own catch already treats as "assume unique", so this was a
+ *  silent no-op rather than a crash, but it meant the uniqueness check never
+ *  actually ran on web. */
+export async function getProductByBarcode(
+  barcode: string,
+): Promise<import("@liratek/core").Product | null> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.getProductByBarcode(barcode),
+    async () => {
+      const res = await requestJson<{ success: boolean; product?: any }>(
+        `/api/inventory/product-by-barcode?barcode=${encodeURIComponent(barcode)}`,
+      );
+      return res.product ?? null;
+    },
+  );
+}
 
 export async function createProduct(payload: any): Promise<ProductWriteResult> {
   if (isElectron()) {
@@ -791,6 +891,34 @@ export async function batchDeleteProducts(
       requestJson<BatchDeleteProductsResult>(
         `/api/inventory/products/batch-delete`,
         { method: "POST", body: { ids } },
+      ),
+  );
+}
+
+/**
+ * Inventory grid's multi-select edit — category / min-stock-threshold /
+ * supplier / unit for many products in one call. `unit` (`products.unit`, a
+ * nullable TEXT column) is wired end-to-end on both transports, the same as
+ * `supplier` — see `batchUpdateProductsSchema` in
+ * packages/core/src/validators/product.ts.
+ */
+export type BatchUpdateProductsPayload = {
+  ids: number[];
+  category?: string;
+  min_stock_level?: number;
+  supplier?: string | null;
+  unit?: string | null;
+};
+
+export async function batchUpdateProducts(
+  payload: BatchUpdateProductsPayload,
+): Promise<{ success: boolean; updated: number; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.batchUpdate(payload),
+    async () =>
+      requestJson<{ success: boolean; updated: number; error?: string }>(
+        `/api/inventory/products/batch-update`,
+        { method: "POST", body: payload },
       ),
   );
 }
@@ -991,6 +1119,60 @@ export async function getSaleItems(saleId: number) {
     `/api/sales/${saleId}/items`,
   );
   return res.items;
+}
+
+/** Refund a WHOLE sale (admin only). Was a raw, unguarded
+ *  `window.api.sales.refund()` call with no REST twin (rule 19a) — the
+ *  SaleDetailModal's refund button silently failed in a real browser. */
+export async function refundSale(
+  saleId: number,
+): Promise<{ success: boolean; refundId?: number; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().sales.refund(saleId),
+    async () =>
+      requestJson<{ success: boolean; refundId?: number; error?: string }>(
+        `/api/sales/${saleId}/refund`,
+        { method: "POST" },
+      ),
+  );
+}
+
+/** Refund a specific line item off a sale, by quantity (admin only). Was a
+ *  raw, unguarded `window.api.sales.refundItem()` call with no REST twin
+ *  (rule 19a). */
+export async function refundSaleItem(
+  saleId: number,
+  saleItemId: number,
+  refundQuantity: number,
+): Promise<{ success: boolean; refundId?: number; error?: string }> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().sales.refundItem(saleId, saleItemId, refundQuantity),
+    async () =>
+      requestJson<{ success: boolean; refundId?: number; error?: string }>(
+        `/api/sales/${saleId}/refund-item`,
+        { method: "POST", body: { saleItemId, refundQuantity } },
+      ),
+  );
+}
+
+/** Edit non-financial metadata (walk-in name/phone, note) on a sale row (the
+ *  SaleDetailModal's inline customer-rename edit). Was a raw, unguarded
+ *  `window.api.sales.updateMetadata()` call with no REST twin (rule 19a). */
+export async function updateSaleMetadata(data: {
+  id: number;
+  note?: string;
+  client_name?: string;
+  client_phone?: string;
+}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().sales.updateMetadata(data),
+    async () =>
+      requestJson<{ success: boolean; data?: unknown; error?: string }>(
+        `/api/sales/update-metadata`,
+        { method: "POST", body: data },
+      ),
+  );
 }
 
 // Debts
@@ -1470,6 +1652,29 @@ export async function deleteExpense(id: number) {
   );
 }
 
+// Edit non-financial metadata (description/category/note) on an expense row
+// (the History modal's inline edit). Was a raw, unguarded
+// `window.api.expenses.updateMetadata()` call with no REST twin (rule 19a) —
+// editing a history row's metadata silently failed in a real browser.
+export async function updateExpenseMetadata(data: {
+  id: number;
+  description?: string;
+  category?: string;
+  note?: string;
+}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().expenses.updateMetadata(data),
+    async () =>
+      requestJson<{ success: boolean; data?: unknown; error?: string }>(
+        `/api/expenses/update-metadata`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
 // Dashboard
 export async function getDashboardStats() {
   return ipcOrHttp(
@@ -1859,6 +2064,66 @@ export async function addOMTTransaction(payload: any) {
     method: "POST",
     body: payload,
   });
+}
+
+/** A single financial_services record by id — the Debts page's
+ *  service-backed debt-detail "eye" button. Was a raw, unguarded
+ *  `window.api.omt.getById()` call with no REST twin (rule 19a) — clicking
+ *  a service-backed debt row silently did nothing in a real browser. Read:
+ *  returns the RAW record (or null), matching the IPC channel's shape. */
+export async function getFinancialServiceById(id: number): Promise<any> {
+  return ipcOrHttp(
+    async () => getElectronApi().omt.getById(id),
+    async () => {
+      const res = await requestJson<{ success: boolean; record?: any }>(
+        `/api/services/${id}`,
+      );
+      return res.record ?? null;
+    },
+  );
+}
+
+/** All payment rows for a unified transaction — the same debt-detail "eye"
+ *  button drills into this alongside `getFinancialServiceById`. Was a raw,
+ *  unguarded `window.api.omt.getPaymentsByTransaction()` call with no REST
+ *  twin (rule 19a). Read: returns the RAW array. */
+export async function getPaymentsByTransaction(
+  transactionId: number,
+): Promise<any[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().omt.getPaymentsByTransaction(transactionId),
+    async () => {
+      const res = await requestJson<{ success: boolean; payments?: any[] }>(
+        `/api/services/transactions/${transactionId}/payments`,
+      );
+      return res.payments ?? [];
+    },
+  );
+}
+
+/** Edit non-financial metadata on a financial_services row (OMT/Whish/
+ *  iPick/Katsh/Binance history modals' inline edit — CryptoForm, KatchForm,
+ *  FinancialForm, OmtWhishAppTransferForm, Services/index all share this one
+ *  channel). Was a raw, unguarded `window.api.financial.updateMetadata()`
+ *  call with no REST twin (rule 19a). */
+export async function updateFinancialMetadata(data: {
+  id: number;
+  client_name?: string;
+  phone_number?: string;
+  sender_name?: string;
+  sender_phone?: string;
+  receiver_name?: string;
+  receiver_phone?: string;
+  note?: string;
+}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().financial.updateMetadata(data),
+    async () =>
+      requestJson<{ success: boolean; data?: unknown; error?: string }>(
+        `/api/services/update-metadata`,
+        { method: "POST", body: data },
+      ),
+  );
 }
 
 // Maintenance
@@ -2635,6 +2900,37 @@ export async function getTransactionById(id: number) {
   return res.transaction || null;
 }
 
+/** D1 — currency in/out by business date (the Audit page's Cash Report
+ *  modal). Was a raw, unguarded `window.api.transactions.getCashFlowByDate()`
+ *  call with no REST twin (rule 19a). Read: returns the RAW array. */
+export async function getCashFlowByDate(
+  from: string,
+  to: string,
+): Promise<
+  Array<{
+    date: string;
+    currency_code: string;
+    total_in: number;
+    total_out: number;
+  }>
+> {
+  return ipcOrHttp(
+    async () => getElectronApi().transactions.getCashFlowByDate(from, to),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        cashFlow?: Array<{
+          date: string;
+          currency_code: string;
+          total_in: number;
+          total_out: number;
+        }>;
+      }>(`/api/transactions/cash-flow-by-date?from=${from}&to=${to}`);
+      return res.cashFlow ?? [];
+    },
+  );
+}
+
 /**
  * Resolve the unified transaction for a module row (LIRA-069 W1.c/d) — the
  * History-modal Print button and the auto-print-on-success hook only know
@@ -3114,9 +3410,7 @@ export async function getDatabaseResetPreview(): Promise<DatabaseResetPreview> {
  * `messageFrom` (not `instanceof Error`) is what actually recovers the real
  * reason instead of a generic "unexpected error".
  */
-export async function resetDatabase(input: {
-  confirmation: string;
-}): Promise<{
+export async function resetDatabase(input: { confirmation: string }): Promise<{
   success: boolean;
   data?: DatabaseResetResult;
   error?: string;
@@ -4786,6 +5080,27 @@ export async function getCategoriesFull(): Promise<CategoryDto[]> {
   );
 }
 
+/** Plain category NAMES — distinct from `getCategoriesFull` above (which
+ *  carries id/sort_order/tracks_imei_units). Was a raw, optional-chained
+ *  `window.api?.inventory?.getCategories?.()` call with no REST twin (rule
+ *  19a) — the ProductForm silently fell back to its hardcoded default list
+ *  in a real browser instead of the tenant's real categories. Read: returns
+ *  the RAW array. */
+export async function getCategories(): Promise<string[]> {
+  return ipcOrHttp(
+    async () => {
+      const data = await getElectronApi().inventory.getCategories();
+      return Array.isArray(data) ? data : [];
+    },
+    async () => {
+      const res = await requestJson<{ success: boolean; data?: string[] }>(
+        "/api/inventory/categories",
+      );
+      return Array.isArray(res?.data) ? res.data : [];
+    },
+  );
+}
+
 export async function createCategory(
   name: string,
 ): Promise<{ success: boolean; id?: number; error?: string }> {
@@ -5068,6 +5383,31 @@ export async function advanceCustomServiceFulfillment(data: {
   );
 }
 
+// Edit non-financial metadata (description/client name/phone/note) on a
+// custom_services row (the History modal's inline edit). Was a raw,
+// unguarded `window.api.customServices.updateMetadata()` call with no REST
+// twin (rule 19a) — editing a history row's metadata silently failed in a
+// real browser.
+export async function updateCustomServiceMetadata(data: {
+  id: number;
+  description?: string;
+  client_name?: string;
+  phone_number?: string;
+  note?: string;
+}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.updateMetadata(data),
+    async () =>
+      requestJson<{ success: boolean; data?: unknown; error?: string }>(
+        `/api/custom-services/update-metadata`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
 // ==================== Loto API ====================
 
 export async function lotoSell(data: {
@@ -5148,6 +5488,35 @@ export async function lotoUpdate(
         `/api/loto/${id}`,
         {
           method: "PUT",
+          body: data,
+        },
+      ),
+  );
+}
+
+// Edit a loto TICKET's note — resolves `id` against `loto_tickets`.
+// NOT the Checkpoint History modal's inline edit: a checkpoint's note goes
+// through `api.loto.checkpoint.update` (IPC `loto:checkpoint:update` / REST
+// `PUT /api/loto/checkpoints/:id`) instead, because checkpoint ids come from
+// `loto_checkpoints` and the two tables' autoincrement ids can collide.
+// CheckpointHistory.tsx used to call this function by mistake, which
+// silently rewrote an unrelated ticket's note on an id collision — it has
+// since been fixed to call the checkpoint endpoint (see its handleSaveEdit).
+// As of writing, this function has no UI caller.
+// Was a raw, unguarded `window.api.loto.updateMetadata()` call with no REST
+// twin (rule 19a) — editing a history row's note silently failed in a real
+// browser.
+export async function lotoUpdateMetadata(data: {
+  id: number;
+  note?: string;
+}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.updateMetadata(data),
+    async () =>
+      requestJson<{ success: boolean; data?: unknown; error?: string }>(
+        `/api/loto/update-metadata`,
+        {
+          method: "POST",
           body: data,
         },
       ),

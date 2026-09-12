@@ -32,8 +32,7 @@ contextBridge.exposeInMainWorld("api", {
     listSessions: () => ipcRenderer.invoke("auth:list-sessions"),
     revokeSession: (id: number) =>
       ipcRenderer.invoke("auth:revoke-session", id),
-    revokeOtherSessions: () =>
-      ipcRenderer.invoke("auth:revoke-other-sessions"),
+    revokeOtherSessions: () => ipcRenderer.invoke("auth:revoke-other-sessions"),
     getNonAdminUsers: () => ipcRenderer.invoke("users:get-non-admins"),
     setUserActive: (id: number, is_active: number) =>
       ipcRenderer.invoke("users:set-active", { id, is_active }),
@@ -304,9 +303,12 @@ contextBridge.exposeInMainWorld("api", {
     getMonthlyPL: (month: string) =>
       ipcRenderer.invoke("financial:get-monthly-pl", month),
     getDrawerNames: () => ipcRenderer.invoke("financial:get-drawer-names"),
+    // NOTE: field name must match what "financial:update-metadata" (omtHandlers.ts)
+    // actually reads (client_name) — a prior mismatch (customer_name) type-checked
+    // fine but silently dropped every client-name edit at runtime (rule 12).
     updateMetadata: (data: {
       id: number;
-      customer_name?: string;
+      client_name?: string;
       phone_number?: string;
       sender_name?: string;
       sender_phone?: string;

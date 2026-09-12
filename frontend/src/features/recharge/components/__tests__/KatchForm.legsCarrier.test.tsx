@@ -50,6 +50,12 @@ jest.mock("@liratek/ui", () => ({
     // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — none of
     // these fixtures carry a computed days price.
     getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
+    // loadPrimaryLines (self-charge, D5) fires unconditionally on mount —
+    // unmocked, it logs "api.getPrimaryCarrierLine is not a function" noise
+    // even though the (caught) error doesn't fail these tests.
+    getPrimaryCarrierLine: jest
+      .fn()
+      .mockResolvedValue({ success: true, data: null }),
   }),
 }));
 
