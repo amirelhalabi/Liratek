@@ -722,7 +722,6 @@ export {
   LEG_RECONCILIATION_EPSILON_USD,
   applyDrawerDelta,
   insertPaymentRow,
-  formatMoneyAmount,
 } from "./moneyPosting.js";
 export type {
   ReconciliationLeg,

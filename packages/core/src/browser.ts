@@ -11,6 +11,15 @@
 // Currency converter — pure functions, zero Node.js dependencies
 export * from "./utils/currencyConverter.js";
 
+// Shared money-string formatter (rule 14 — one formatter, not five) — pure
+// string formatting, zero imports. Moved out of moneyPosting.ts (which
+// transitively reaches the database via utils/payments.js ->
+// PaymentMethodRepository.js -> db/connection.js) so it can be exported
+// here without pulling better-sqlite3 into the renderer bundle. Must be
+// exported HERE, not only from index.ts — see the telecomCredit.js note
+// below for the exact failure mode this avoids.
+export * from "./utils/formatMoney.js";
+
 // Telecom Only-Days credit model (LIRA-090) — pure integer math, no Node.js deps.
 // The frontend (KatchForm, MobileServicesManager) imports maxReturnableCredits,
 // isTelecomSplitComplete, deriveItemEconomics, deliveredCostLbp from here. index.ts

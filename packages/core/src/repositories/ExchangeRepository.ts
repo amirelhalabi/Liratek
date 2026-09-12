@@ -15,8 +15,8 @@ import {
   assertPartnerIdRequired,
   reconcileLegs,
   expectedTotalIn,
-  formatMoneyAmount,
 } from "./moneyPosting.js";
+import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import {
   partitionLegs,

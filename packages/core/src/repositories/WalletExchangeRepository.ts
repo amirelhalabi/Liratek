@@ -2,11 +2,8 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
-import {
-  applyDrawerDelta,
-  insertPaymentRow,
-  formatMoneyAmount,
-} from "./moneyPosting.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import { formatMoneyAmount } from "../utils/formatMoney.js";
 
 export type WalletDrawerName = "OMT_App" | "Whish_App";
 export type WalletCurrency = "USD" | "LBP";

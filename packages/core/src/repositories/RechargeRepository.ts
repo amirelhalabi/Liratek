@@ -28,8 +28,8 @@ import {
   postPayoutLegs,
   usdEquivalent,
   resolveStampedExchangeRate,
-  formatMoneyAmount,
 } from "./moneyPosting.js";
+import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {

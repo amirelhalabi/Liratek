@@ -56,8 +56,8 @@ import {
   assertNoCustomerAccountLeg,
   postPayoutLegs,
   resolveStampedExchangeRate,
-  formatMoneyAmount,
 } from "./moneyPosting.js";
+import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";

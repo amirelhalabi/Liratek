@@ -1,5 +1,5 @@
 /**
- * Pure unit test for `formatMoneyAmount` (moneyPosting.ts) — the shared
+ * Pure unit test for `formatMoneyAmount` (utils/formatMoney.ts) — the shared
  * money-string formatter introduced to fix the raw-unformatted-number bug in
  * RechargeRepository's top-up summary/note strings (rule 14: one formatter,
  * not five). Deliberately has ZERO better-sqlite3 dependency (no `new
@@ -15,9 +15,15 @@
  * `formatAmount`: `$${usd.toLocaleString()}` / `${lbp.toLocaleString()} LBP`)
  * so a row's stored summary text and its badge never disagree on the same
  * number.
+ *
+ * Moved here from repositories/__tests__/formatMoneyAmount.test.ts when the
+ * function itself moved out of moneyPosting.ts into this zero-import leaf
+ * module (so it is reachable from browser.ts, the Vite/frontend entry point,
+ * without pulling better-sqlite3 into the renderer bundle) — see
+ * utils/formatMoney.ts's own header comment for the full reasoning.
  */
 
-import { formatMoneyAmount } from "../moneyPosting";
+import { formatMoneyAmount } from "../formatMoney";
 
 describe("formatMoneyAmount", () => {
   it("formats LBP with thousands separators and an LBP suffix, no decimals", () => {
