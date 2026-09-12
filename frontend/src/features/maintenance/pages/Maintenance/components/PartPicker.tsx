@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Search, Plus, Minus, Trash2 } from "lucide-react";
 import { DecimalInput, useApi } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
@@ -68,10 +68,26 @@ export default function PartPicker({
   const [results, setResults] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Read `api` through a ref instead of putting it in the effect's deps —
+  // see CLAUDE.md rule 25 and `FeatureFlagContext.tsx` (the canonical
+  // pattern). `useApi()` is only stable in production because `ApiProvider`
+  // happens to hand out a module-level singleton; that isn't guaranteed, and
+  // `PartPicker.test.tsx` deliberately mocks it as a fresh object literal per
+  // render (on purpose — see that file). With `api` in the deps, that churn
+  // re-fired this effect every render, and `setResults([])` on the empty-
+  // search path allocated a NEW array each time, so React's `Object.is`
+  // bail-out never fired: a synchronous infinite render loop. It doesn't
+  // look like what it is — jest reports "Jest worker ran out of memory",
+  // not a timeout, because a sync loop never yields back to the event loop.
+  const apiRef = useRef(api);
+  apiRef.current = api;
+
   useEffect(() => {
     const term = search.trim();
     if (!term) {
-      setResults([]);
+      // Defence in depth: keep the same array reference when already empty
+      // so React can bail out even if something else re-triggers this path.
+      setResults((prev) => (prev.length === 0 ? prev : []));
       setLoading(false);
       return;
     }
@@ -80,7 +96,7 @@ export default function PartPicker({
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const data = await api.getProducts(
+          const data = await apiRef.current.getProducts(
             term,
             searchAllCategories ? undefined : { categories: [PARTS_CATEGORY] },
           );
@@ -96,7 +112,7 @@ export default function PartPicker({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [search, searchAllCategories, api]);
+  }, [search, searchAllCategories]);
 
   const addPart = (product: Product) => {
     onChange([

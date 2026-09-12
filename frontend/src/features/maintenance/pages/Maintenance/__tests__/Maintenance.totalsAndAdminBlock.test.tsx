@@ -12,7 +12,13 @@
  * an admin session, never for staff — it would otherwise leak the shop's
  * cost/margin to a non-admin operator.
  */
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+  within,
+} from "@testing-library/react";
 import Maintenance from "../index";
 
 const mockGetMaintenanceJobs = jest.fn();
@@ -90,12 +96,20 @@ describe("Maintenance — totals block", () => {
     fireEvent.click(screen.getByText("USD Totals Job").closest("button")!);
 
     expect(await screen.findByText("Labour")).toBeInTheDocument();
-    expect(screen.getByText("Parts")).toBeInTheDocument();
+    // "Parts" also labels PartPicker's category-toggle row — scope to the
+    // totals block (data-testid="maintenance-totals-block" in index.tsx) so
+    // this can only match the totals row's own "Parts" label.
+    const totalsBlock = screen.getByTestId("maintenance-totals-block");
+    expect(within(totalsBlock).getByText("Parts")).toBeInTheDocument();
     expect(screen.getByText("Total")).toBeInTheDocument();
     // Labour = $100.00, Parts = $40.00, Total = $140.00 (merged, single $).
-    expect(screen.getByText("$100.00")).toBeInTheDocument();
-    expect(screen.getByText("$40.00")).toBeInTheDocument();
-    expect(screen.getByText("$140.00")).toBeInTheDocument();
+    // "$140.00" also collides with the job-list row's own grand-total badge
+    // (index.tsx ~line 868, `grandTotalLabel`) once the job's edit panel is
+    // open alongside the list, so scope every figure to the totals block —
+    // consistent with the "Parts" anchor above.
+    expect(within(totalsBlock).getByText("$100.00")).toBeInTheDocument();
+    expect(within(totalsBlock).getByText("$40.00")).toBeInTheDocument();
+    expect(within(totalsBlock).getByText("$140.00")).toBeInTheDocument();
     // "Due" is the LBP-with-parts label only — must not appear for a USD job.
     expect(screen.queryByText("Due")).not.toBeInTheDocument();
   });
@@ -125,7 +139,11 @@ describe("Maintenance — totals block", () => {
     fireEvent.click(screen.getByText("LBP Totals Job").closest("button")!);
 
     expect(await screen.findByText("Labour")).toBeInTheDocument();
-    expect(screen.getByText("Parts")).toBeInTheDocument();
+    // "Parts" also labels PartPicker's category-toggle row — scope to the
+    // totals block (data-testid="maintenance-totals-block" in index.tsx) so
+    // this can only match the totals row's own "Parts" label.
+    const totalsBlock = screen.getByTestId("maintenance-totals-block");
+    expect(within(totalsBlock).getByText("Parts")).toBeInTheDocument();
     // Labour figure in LBP, parts figure in USD — never merged into one
     // number, never converted at any rate.
     expect(screen.getByText("500,000 LBP")).toBeInTheDocument();
@@ -133,14 +151,12 @@ describe("Maintenance — totals block", () => {
     // The combined row is labelled "Due" (not "Total") and reads
     // "<LBP> + $<USD>" — proving the two currencies are concatenated, not
     // converted into one.
-    const dueRow = screen.getByText("Due").closest("div");
+    const dueRow = within(totalsBlock).getByText("Due").closest("div");
     expect(dueRow?.textContent).toContain("500,000 LBP");
     expect(dueRow?.textContent).toContain("$40.00");
     expect(dueRow?.textContent).toContain("+");
 
     // No exchange rate anywhere in the totals block's rendered text.
-    const totalsBlock = screen.getByText("Labour").closest("div")!
-      .parentElement as HTMLElement;
     expect(totalsBlock.textContent).not.toMatch(/rate/i);
   });
 });

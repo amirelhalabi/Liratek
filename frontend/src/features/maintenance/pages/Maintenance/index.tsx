@@ -1044,7 +1044,10 @@ export default function Maintenance() {
                   the page already computes; parts is the live sum of the
                   parts draft above. Never merges the two into one currency
                   when the job is LBP-priced (parts stay USD). */}
-              <div className="bg-slate-900/60 border border-slate-700/40 rounded-lg p-3 space-y-1 text-sm">
+              <div
+                data-testid="maintenance-totals-block"
+                className="bg-slate-900/60 border border-slate-700/40 rounded-lg p-3 space-y-1 text-sm"
+              >
                 <div className="flex justify-between text-slate-400">
                   <span>Labour</span>
                   <span className="font-mono text-white">
