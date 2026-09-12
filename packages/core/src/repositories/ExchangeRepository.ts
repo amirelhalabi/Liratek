@@ -356,9 +356,37 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       }
 
       // Compute amount_usd and amount_lbp for the unified transactions ledger.
-      // amount_usd: represents USD flow (negative = outflow, positive = inflow)
-      // amount_lbp: represents LBP flow
-      // For non-USD/non-LBP currencies (e.g. EUR), we only track the USD leg value.
+      //
+      // *** amount_usd changes MEANING between the two branch groups below —
+      // this is the fact that let the two cross-currency branches drift out
+      // of sync (owner-reported 2026-09-12: a 100 EUR -> 10,146,000 LBP
+      // exchange rendered "$-4 + -10,146,000 LBP", reading as "lost $4 AND
+      // lost 10.1M LBP" when the shop actually paid out 10.1M LBP and EARNED
+      // $4). State it once, plainly, so it can't happen again: ***
+      //
+      //  - USD branches (fromCurrency/toCurrency === BASE_CURRENCY): amount_usd
+      //    is a REAL USD cash flow. Its sign IS the direction — positive
+      //    inflow, negative outflow — exactly like every other money
+      //    repository's amount_usd.
+      //  - Cross-currency branches (both legs non-USD, one of them LBP):
+      //    there is no real USD leg at all — the actual cash flow is
+      //    amount_lbp (signed) plus, for an exotic third currency, the
+      //    exotic leg tracked only in exchange_transactions/exchange_lots.
+      //    amount_usd here is instead leg1ProfitUsd: the informational
+      //    leg-1 spread profit, in USD, for the audit row. A PROFIT figure
+      //    is never direction-signed by cash flow — it is simply positive
+      //    (a gain) or negative (a loss) — so both cross-currency branches
+      //    must write `leg1ProfitUsd` UNMODIFIED, regardless of which side
+      //    (from/to) the LBP leg is on. That is the invariant this comment
+      //    exists to protect; see the "unified row amount_usd —
+      //    cross-currency branches stay sign-symmetric" describe block in
+      //    ExchangeRepository.lotSettlement.test.ts for the guard.
+      //
+      // Real profit RECOGNITION is unaffected either way: it lives in
+      // exchange_transactions.leg1_profit_usd/leg2_profit_usd and the unified
+      // row's own profit_usd, both stamped above — ProfitRepository reads
+      // those directly and never touches amount_usd. This field is display/
+      // sort-order only.
       let amount_usd = 0;
       let amount_lbp = 0;
 
@@ -372,28 +400,32 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // LBP → X (cross-currency): customer gives LBP, shop receives LBP (inflow)
         amount_lbp = data.amountIn;
         // Deliberately the CLIENT's original leg1ProfitUsd, not the
-        // lot-adjusted value: this field is an informational cash-flow
-        // proxy on the unified row, not the profit-recognition surface
-        // (ProfitRepository's EXCHANGE_LEG_PROFIT reads
-        // exchange_transactions.leg1_profit_usd/leg2_profit_usd directly,
-        // which DID just get the lot-adjusted stamp above). fromCurrency is
-        // LBP here, which is never lot-tracked, so leg1ProfitUsd was never
-        // touched by `_applyExchangeLotEffects` regardless — this branch
-        // stays byte-identical to pre-Phase-3 behavior by construction.
-        amount_usd = data.leg1ProfitUsd; // net profit in USD (informational)
+        // lot-adjusted value: this field is an informational PROFIT proxy on
+        // the unified row (see the module-level note above), not the
+        // profit-recognition surface (ProfitRepository's EXCHANGE_LEG_PROFIT
+        // reads exchange_transactions.leg1_profit_usd/leg2_profit_usd
+        // directly, which DID just get the lot-adjusted stamp above).
+        // fromCurrency is LBP here, which is never lot-tracked, so
+        // leg1ProfitUsd was never touched by `_applyExchangeLotEffects`
+        // regardless — this branch stays byte-identical to pre-Phase-3
+        // behavior by construction.
+        amount_usd = data.leg1ProfitUsd; // leg-1 spread profit (informational, NOT a cash flow — not sign-flipped)
       } else if (data.toCurrency === "LBP") {
         // X → LBP (cross-currency): customer receives LBP, shop gives LBP (outflow)
         amount_lbp = -data.amountOut;
-        // Same "informational, not profit-recognition" note as the LBP→X
-        // branch above — EXCEPT here fromCurrency (X) MAY be exotic, in
-        // which case `_applyExchangeLotEffects` already replaced the REAL
+        // Same "informational PROFIT, not profit-recognition, not a cash
+        // flow" note as the LBP→X branch above — symmetric with it on
+        // purpose (this was the branch that used to negate the profit,
+        // which is the bug this comment guards against regressing).
+        // fromCurrency (X) MAY be exotic here, in which case
+        // `_applyExchangeLotEffects` already replaced the REAL
         // leg1_profit_usd with 0 (Q8) on the exchange_transactions row
         // itself. This proxy intentionally still reads the client's
         // original (pre-lot) leg1ProfitUsd — out of EXCHANGE_LOT_SETTLEMENT
         // .md's scope, which only names exchange_transactions.profit_usd,
         // the unified row's profit_usd, and metadata_json as needing the
         // adjusted values.
-        amount_usd = -(data.leg1ProfitUsd ?? 0); // informational
+        amount_usd = data.leg1ProfitUsd ?? 0; // leg-1 spread profit (informational, NOT a cash flow — not sign-flipped)
       }
       // EUR → USD or USD → EUR already handled by the USD cases above.
       // EUR → LBP or LBP → EUR handled by LBP cases above.
@@ -521,7 +553,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           ),
           // Band anchor only — the stamped `rate` is the from→to exchange
           // rate (possibly EUR-per-USD etc.), NOT a USD↔LBP rate, so the
-          // server sell rate anchors the ±10% tender-rate sanity band here.
+          // server sell rate anchors the ±15% tender-rate sanity band here.
           exchangeRate: getUsdLbpSellRate(this.db),
           tenderExchangeRate: data.tender_exchange_rate,
           context: "Exchange payout",

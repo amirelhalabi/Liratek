@@ -134,7 +134,7 @@ export interface CreateRepaymentData {
    * cash-out modals). Owner decision (2026-08-08, repro: buy 89,000 vs. sell
    * 90,000): used to stamp `transactions.exchange_rate` via
    * `resolveStampedExchangeRate` (moneyPosting.ts) — preferred when within
-   * `TENDER_RATE_BAND_PCT` (±10%) of the server sell rate
+   * `TENDER_RATE_BAND_PCT` (±15%) of the server sell rate
    * (`getUsdLbpSellRate`), else falls back to the server rate SILENTLY
    * (never throws — this repository has no `reconcileLegs` hard-reject for
    * repayments/cash-outs to weaken). Omitted → unchanged legacy behavior,

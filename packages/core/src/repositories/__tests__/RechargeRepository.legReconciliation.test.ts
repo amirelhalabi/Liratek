@@ -366,7 +366,7 @@ describe("RechargeRepository — S2 leg reconciliation wiring", () => {
       expect(counts(db)).toEqual(before);
     });
 
-    it("REJECTS a tender_exchange_rate outside the ±10% band with a distinct error", () => {
+    it("REJECTS a tender_exchange_rate outside the ±15% band with a distinct error", () => {
       const before = counts(db);
       const result = repo.processRecharge({
         provider: "MTC",

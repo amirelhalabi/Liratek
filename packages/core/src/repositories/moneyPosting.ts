@@ -131,19 +131,44 @@ export interface ReconcileLegsInput {
 export const LEG_RECONCILIATION_EPSILON_USD = 0.05;
 
 /**
- * ±10% sanity band for `tenderExchangeRate` against the server rate
- * (Payment-Legs Integrity plan, false-reject fix 2026-07-2x): a real
- * USD/LBP buy/sell spread runs ~1-2%, and an operator's manual edit of the
- * payment sheet's rate field is a small nudge around that (the owner's
- * repro: buy 89,000 vs. sell 90,000 — ~1.1%). A tender rate more than 10%
- * off the server's current rate is not a legitimate spread or edit — it's
- * either a bug (wrong units, a stale cached rate) or an attempt to launder
- * a real leg discrepancy as "just a rate difference". Outside the band,
- * reconciliation throws a distinct, clearly-labeled error instead of
- * silently accepting the value or silently falling back to the server
- * rate (either of which would hide the underlying problem).
+ * ±15% sanity band for `tenderExchangeRate` against the server rate.
+ *
+ * Widened from ±10% (2026-09-12, live report from cornertech.liratek.shop):
+ * a WHISH_APP RECEIVE cashout was refused with server rate 90,000 vs.
+ * tendered 100,000 — an 11.1% gap that the old ±10% band rejected outright.
+ * Lebanese USD/LBP practice is part of why a gap that size shows up at all:
+ * shops routinely work the counter at a round, easy-to-count number like
+ * 100,000 while the tenant's configured rate lags behind it, rather than the
+ * ~1-2% buy/sell spread the original band was sized for. ±15% clears that
+ * 11.1% gap with headroom (and also clears 11.7%, the gap against
+ * `FALLBACK_USD_LBP_RATE` = 89,500 in `utils/exchangeRate.ts`).
+ *
+ * The band still exists for the same reason it always did: it is not a
+ * rubber stamp. A tender rate outside ±15% of the server rate is not a
+ * legitimate spread or a round-number counter edit — it's either a bug
+ * (wrong units, e.g. 90,000 vs. 9,000 is 90% off), a stale cached rate, or
+ * an attempt to launder a real leg discrepancy as "just a rate difference".
+ * Outside the band, reconciliation throws a distinct, clearly-labeled error
+ * instead of silently accepting the value or silently falling back to the
+ * server rate (either of which would hide the underlying problem).
+ *
+ * KNOWN OPEN ISSUE (not fixed by this widening, and not fixed here by
+ * owner's choice): the "server rate" this band compares against comes from
+ * `getUsdLbpSellRate()` (`utils/exchangeRate.ts`), which runs
+ * `SELECT sell_rate, market_rate FROM exchange_rates WHERE to_code = ?
+ * LIMIT 1` with NO `tenant_id` filter, even though `exchange_rates` is
+ * tenant-scoped (`tenant_id` column, `UNIQUE (tenant_id, to_code)`). Every
+ * other reader of that table scopes correctly (`RateRepository.ts:50/75/113`,
+ * `DebtRepository.ts:180`). On the multi-tenant web server this can return
+ * an arbitrary tenant's rate — invisible on desktop, which has one tenant
+ * and one row. It feeds 7 money-path call sites: DebtRepository (x2),
+ * ExchangeRepository, FinancialServiceRepository (x2), RechargeRepository
+ * (x2). If that is the real cause behind a given tenant's band rejection,
+ * widening this band only stops the error message — the shop still BOOKS
+ * money (profit stamps, conversions, drawer postings) at another tenant's
+ * rate.
  */
-export const TENDER_RATE_BAND_PCT = 0.1;
+export const TENDER_RATE_BAND_PCT = 0.15;
 
 /**
  * Resolves which rate `reconcileLegs` actually converts cross-currency legs
@@ -179,7 +204,7 @@ function resolveReconciliationRate(
  * reflect what the operator actually tendered, when that's a plausible
  * edit — repro: buy 89,000 vs. sell 90,000). Reuses the SAME
  * `TENDER_RATE_BAND_PCT` band as `resolveReconciliationRate` (one threshold,
- * not two) but never throws: an absent or implausible (>10% off) tender rate
+ * not two) but never throws: an absent or implausible (>15% off) tender rate
  * falls back to the server rate SILENTLY, because this function only decides
  * what gets written to a display/audit column, not whether the flow's money
  * math is valid. `reconcileLegs`/`postPayoutLegs` (unchanged) remain the ONLY

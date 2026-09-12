@@ -51,7 +51,7 @@ export const addRepaymentSchema = z
     // the USD→LBP rate MultiPaymentInput actually converted the operator's
     // tender at, so `transactions.exchange_rate` reflects what was really
     // tendered instead of always falling back to a live market-rate snapshot.
-    // See `resolveStampedExchangeRate` (moneyPosting.ts) for the ±10% band /
+    // See `resolveStampedExchangeRate` (moneyPosting.ts) for the ±15% band /
     // fallback rule — never throws, this is a stamp-only field.
     tender_exchange_rate: z.number().positive().optional(),
     transaction_time: transactionTimeSchema,

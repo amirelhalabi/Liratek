@@ -8,7 +8,7 @@
  * anchor AND the stamp, and `data.tender_exchange_rate` was never consulted
  * for the stamp at all. Owner decision: the STAMP should reflect what was
  * actually tendered, when that's a plausible edit (within
- * `TENDER_RATE_BAND_PCT`, ±10%, of the server rate) — but the reconciliation
+ * `TENDER_RATE_BAND_PCT`, ±15%, of the server rate) — but the reconciliation
  * safety net (which still anchors at the server rate and still hard-rejects
  * an implausible tender rate) must not be touched or weakened. See
  * FinancialServiceRepository.legReconciliation.test.ts for the
@@ -312,7 +312,7 @@ describe("FinancialServiceRepository — transactions.exchange_rate stamps the t
     // hard-reject, which legitimately still throws on a genuinely
     // out-of-band tender rate whenever reconciliation actually runs (see
     // FinancialServiceRepository.legReconciliation.test.ts's "REJECTS a
-    // tender_exchange_rate outside the ±10% band" cases — untouched).
+    // tender_exchange_rate outside the ±15% band" cases — untouched).
     expect(() =>
       repo.createTransaction({
         provider: "OMT",

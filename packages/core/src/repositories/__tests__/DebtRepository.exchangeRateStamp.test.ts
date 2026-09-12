@@ -11,7 +11,7 @@
  *
  * `resolveStampedExchangeRate` (moneyPosting.ts) is a non-throwing helper:
  * it prefers `tender_exchange_rate` when within `TENDER_RATE_BAND_PCT`
- * (±10%) of the server sell rate, else falls back to the server rate
+ * (±15%) of the server sell rate, else falls back to the server rate
  * silently — DebtRepository has NO `reconcileLegs` hard-reject anywhere
  * (confirmed: no leg-total-vs-expected check exists for repayments/cash-outs
  * today), so an out-of-band tender here can only ever affect the STAMP, never

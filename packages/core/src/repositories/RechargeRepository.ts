@@ -137,7 +137,7 @@ export interface RechargeData {
    * used, so a legitimate buy/sell-spread checkout with change doesn't
    * false-reject (the owner's MTC CREDIT_TRANSFER repro: 720,000 LBP price,
    * $10 IN, 170,000 LBP OUT, till rate 89,000 vs. stamped sell rate 90,000).
-   * `reconcileLegs` bands this against the stamped rate (±10%) and throws a
+   * `reconcileLegs` bands this against the stamped rate (±15%) and throws a
    * distinct error if it's implausibly far off. Omitted → current behavior,
    * reconciles at the stamped sell rate alone.
    *

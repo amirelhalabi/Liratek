@@ -437,7 +437,7 @@ export interface CreateFinancialServiceData {
    * Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): ALSO used
    * to stamp `transactions.exchange_rate` — via `resolveStampedExchangeRate`
    * (moneyPosting.ts), a non-throwing sibling of the reconciliation
-   * band-check that falls back to the server rate silently outside the ±10%
+   * band-check that falls back to the server rate silently outside the ±15%
    * band or when absent. This does NOT change what `reconcileLegs`/
    * `postPayoutLegs` reconcile against — they keep anchoring at the server
    * rate (`exchangeRate`), unchanged.
@@ -1140,7 +1140,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // `exchangeRate`, alongside `data.tender_exchange_rate` (as
       // `tenderExchangeRate`) — the gate itself (moneyPosting.ts's
       // reconcileLegs/resolveReconciliationRate) decides which one to
-      // reconcile at, banding the tender rate against this one (±10%) so an
+      // reconcile at, banding the tender rate against this one (±15%) so an
       // implausible tender value can't launder a real leg discrepancy as
       // "just a rate difference". This anchor is UNCHANGED by the owner's
       // 2026-08-08 stamping decision below — only the value written to

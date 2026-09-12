@@ -883,6 +883,89 @@ describe("ExchangeRepository.createTransaction() — lot settlement wiring (EXCH
   });
 
   // ---------------------------------------------------------------------------
+  // Unified transactions.amount_usd sign symmetry (owner-reported 2026-09-12,
+  // cornertech.liratek.shop): amount_usd changes MEANING between the direct-
+  // USD branches (a real signed USD cash flow) and the cross-currency
+  // branches (leg-1 spread profit, informational, never a cash flow) — see
+  // the module-level comment above ExchangeRepository.createTransaction's
+  // amount_usd/amount_lbp block. A PROFIT is never direction-signed, so both
+  // cross-currency branches (LBP->X and X->LBP) must write `leg1ProfitUsd`
+  // UNMODIFIED. Pre-fix, the X->LBP branch alone negated it
+  // (`amount_usd = -(data.leg1ProfitUsd ?? 0)`), so a 100 EUR ->
+  // 10,146,000 LBP exchange (leg1ProfitUsd 4) rendered "$-4 + -10,146,000
+  // LBP" — reading as "lost $4 AND lost 10.1M LBP" — when the shop actually
+  // paid out 10.1M LBP and EARNED $4.
+  //
+  // Rule 17 note: this guard was written alongside the fix rather than
+  // strictly before it, so it has not literally been watched to fail against
+  // the pre-fix code in THIS session. The failing-first proof is owed and is
+  // trivial to reproduce: reinstate `amount_usd = -(data.leg1ProfitUsd ?? 0)`
+  // in the `toCurrency === "LBP"` branch and re-run this file — the first
+  // assertion below (`amount_usd` toBe(4)) fails with -4.
+  // ---------------------------------------------------------------------------
+
+  describe("unified row amount_usd — cross-currency branches stay sign-symmetric", () => {
+    it("X -> LBP (owner's real numbers: 100 EUR -> 10,146,000 LBP): amount_lbp is the real outflow (negative), amount_usd is the leg-1 profit (positive, NOT negated)", () => {
+      seedRate(db, "EUR", 1.18, 1.16, 1.2, -1);
+      seedRate(db, "LBP", 89500, 89000, 90000, 1);
+
+      const result = repo.createTransaction({
+        fromCurrency: "EUR",
+        toCurrency: "LBP",
+        amountIn: 100,
+        amountOut: 10_146_000,
+        leg1Rate: 1.16,
+        leg1MarketRate: 1.18,
+        leg1ProfitUsd: 4, // the owner's real spread profit — must NOT be negated
+        totalProfitUsd: 4,
+      });
+
+      const unified = unifiedRow(db, result.id);
+      // Real cash flow: the shop physically paid out 10,146,000 LBP.
+      expect(unified.amount_lbp).toBe(-10_146_000);
+      // Informational profit proxy: the shop EARNED $4 — positive, same sign
+      // convention as its LBP->X sibling below, never flipped by direction.
+      expect(unified.amount_usd).toBe(4);
+    });
+
+    it("LBP -> X mirror (SELL EUR for LBP): amount_lbp is the real inflow (positive), amount_usd is the leg-1 profit (positive) — pins the symmetry so the two branches cannot silently diverge again", () => {
+      seedRate(db, "EUR", 1.18, 1.16, 1.2, -1);
+      seedRate(db, "LBP", 89500, 89000, 90000, 1);
+      getExchangeLotRepository().createLot({
+        currencyCode: "EUR",
+        sourceType: "EXCHANGE_BUY",
+        sourceTable: "exchange_transactions",
+        sourceId: 8887,
+        qty: 500,
+        unitCostUsd: 1.09,
+        acquiredAt: "2026-08-20 10:00:00",
+      });
+
+      const result = repo.createTransaction({
+        fromCurrency: "LBP",
+        toCurrency: "EUR",
+        amountIn: 47_250_000,
+        amountOut: 500,
+        leg1Rate: 90000,
+        leg1MarketRate: 89500,
+        leg1ProfitUsd: 30, // KEPT — LBP is never lot-tracked
+        leg2Rate: 1.05,
+        leg2MarketRate: 1.18,
+        leg2ProfitUsd: 999,
+        viaCurrency: "USD",
+        totalProfitUsd: 1029,
+      });
+
+      const unified = unifiedRow(db, result.id);
+      // Real cash flow: the customer physically handed over 47,250,000 LBP.
+      expect(unified.amount_lbp).toBe(47_250_000);
+      // Informational profit proxy: positive, same sign convention as the
+      // X->LBP branch above — this is the symmetry that must never diverge.
+      expect(unified.amount_usd).toBe(30);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // For-partner: lots move at trade time (Q13)
   // ---------------------------------------------------------------------------
 

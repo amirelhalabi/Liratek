@@ -5,7 +5,7 @@
  * Same owner decision as FinancialServiceRepository.stampedExchangeRate.test.ts:
  * the STAMP should reflect what the operator actually tendered
  * (`data.tender_exchange_rate`) when it's within `TENDER_RATE_BAND_PCT`
- * (±10%) of the server sell rate — the reconciliation anchor itself is
+ * (±15%) of the server sell rate — the reconciliation anchor itself is
  * unaffected; see RechargeRepository.legReconciliation.test.ts for the
  * band-reject/reconcile proofs, which stay green and untouched.
  *
@@ -240,7 +240,7 @@ describe("RechargeRepository — SEND stamps the tendered rate", () => {
     // A raw out-of-band tender_exchange_rate would also fail the (unmodified)
     // leg-reconciliation hard-reject if reconciliation actually ran (see
     // RechargeRepository.legReconciliation.test.ts's "REJECTS a
-    // tender_exchange_rate outside the ±10% band" case) — deferPayment skips
+    // tender_exchange_rate outside the ±15% band" case) — deferPayment skips
     // that check entirely, isolating the STAMP's own silent-fallback behavior.
     const result = repo.processRecharge({
       provider: "MTC",

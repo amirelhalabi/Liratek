@@ -166,8 +166,8 @@ describe("reconcileLegs", () => {
   });
 
   describe("tenderExchangeRate — reconcile at the till's own rate, banded against the server rate", () => {
-    it("band constant is exactly 0.10 (±10%)", () => {
-      expect(TENDER_RATE_BAND_PCT).toBe(0.1);
+    it("band constant is exactly 0.15 (±15%)", () => {
+      expect(TENDER_RATE_BAND_PCT).toBe(0.15);
     });
 
     it(
@@ -220,33 +220,40 @@ describe("reconcileLegs", () => {
       ).toThrow(/do not reconcile/);
     });
 
-    it("passes at exactly the +10% band boundary (single-currency legs, rate-independent math)", () => {
+    it("passes at exactly the +15% band boundary (single-currency legs, rate-independent math)", () => {
       // USD-only legs: the chosen rate never enters the arithmetic (division
       // by rate on a zero LBP amount), isolating the band decision itself.
+      // Derived from TENDER_RATE_BAND_PCT (not a hardcoded magic number, rule
+      // 14) so a future change to the constant can't silently void this test:
+      // 90,000 * 1.15 = 103,500 — exactly +15%.
       expect(() =>
         reconcileLegs({
           inLegs: [leg("USD", 100)],
           expectedTotals: expectedTotalIn(100, "USD"),
           exchangeRate: 90_000,
-          tenderExchangeRate: 99_000, // exactly +10%
+          tenderExchangeRate: 90_000 * (1 + TENDER_RATE_BAND_PCT), // exactly +15% = 103,500
           context: "test",
         }),
       ).not.toThrow();
     });
 
-    it("passes at exactly the -10% band boundary", () => {
+    it("passes at exactly the -15% band boundary", () => {
+      // 90,000 * 0.85 = 76,500 — exactly -15%.
       expect(() =>
         reconcileLegs({
           inLegs: [leg("USD", 100)],
           expectedTotals: expectedTotalIn(100, "USD"),
           exchangeRate: 90_000,
-          tenderExchangeRate: 81_000, // exactly -10%
+          tenderExchangeRate: 90_000 * (1 - TENDER_RATE_BAND_PCT), // exactly -15% = 76,500
           context: "test",
         }),
       ).not.toThrow();
     });
 
-    it("REJECTS a tender rate just outside the +10% band with a DISTINCT error (not 'do not reconcile')", () => {
+    it("REJECTS a tender rate just outside the +15% band with a DISTINCT error (not 'do not reconcile')", () => {
+      // 103,500 is the exact +15% boundary (accepted, proven above);
+      // 103,501 is one LBP unit past it — genuinely outside the band.
+      const justOutside = 90_000 * (1 + TENDER_RATE_BAND_PCT) + 1; // 103,501
       let message = "";
       expect(() => {
         try {
@@ -254,7 +261,7 @@ describe("reconcileLegs", () => {
             inLegs: [leg("USD", 100)],
             expectedTotals: expectedTotalIn(100, "USD"),
             exchangeRate: 90_000,
-            tenderExchangeRate: 99_001, // just over +10%
+            tenderExchangeRate: justOutside,
             context: "test",
           });
         } catch (e) {
@@ -264,7 +271,7 @@ describe("reconcileLegs", () => {
       }).toThrow();
       expect(message).not.toMatch(/do not reconcile/);
       expect(message).toMatch(/outside the accepted/);
-      expect(message).toContain("99001");
+      expect(message).toContain(String(justOutside));
       expect(message).toContain("90000");
     });
 
@@ -287,6 +294,21 @@ describe("reconcileLegs", () => {
           inLegs: [leg("LBP", 900000)],
           expectedTotals: expectedTotalIn(10, "USD"),
           exchangeRate: RATE,
+          context: "test",
+        }),
+      ).not.toThrow();
+    });
+
+    it("cornertech.liratek.shop live repro (2026-09-12): server 90,000 vs. tendered 100,000 (11.1% off) — ACCEPTED at ±15%, was refused at the old ±10% band", () => {
+      // The band widening's whole motivation: this exact pair (90,000 /
+      // 100,000) was rejected pre-widening (11.1% > 10%) on a WHISH_APP
+      // RECEIVE cashout. At ±15% it must now reconcile.
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("USD", 100)],
+          expectedTotals: expectedTotalIn(100, "USD"),
+          exchangeRate: 90_000,
+          tenderExchangeRate: 100_000,
           context: "test",
         }),
       ).not.toThrow();
@@ -485,21 +507,27 @@ describe("resolveStampedExchangeRate (stamp-only, never throws)", () => {
     expect(resolveStampedExchangeRate(90_000, undefined)).toBe(90_000);
   });
 
-  it("tender more than 10% off falls back to the server rate — and does NOT throw", () => {
+  it("tender more than 15% off falls back to the server rate — and does NOT throw", () => {
+    // 50,000 vs. 90,000 is 44.4% off — genuinely outside ±15%, not just ±10%.
     expect(() => resolveStampedExchangeRate(90_000, 50_000)).not.toThrow();
     expect(resolveStampedExchangeRate(90_000, 50_000)).toBe(90_000);
   });
 
-  it("passes at exactly the +10% band boundary — tender wins", () => {
-    expect(resolveStampedExchangeRate(90_000, 99_000)).toBe(99_000);
+  it("passes at exactly the +15% band boundary — tender wins", () => {
+    // Derived from TENDER_RATE_BAND_PCT (rule 14): 90,000 * 1.15 = 103,500.
+    const tender = 90_000 * (1 + TENDER_RATE_BAND_PCT);
+    expect(resolveStampedExchangeRate(90_000, tender)).toBe(tender);
   });
 
-  it("passes at exactly the -10% band boundary — tender wins", () => {
-    expect(resolveStampedExchangeRate(90_000, 81_000)).toBe(81_000);
+  it("passes at exactly the -15% band boundary — tender wins", () => {
+    // 90,000 * 0.85 = 76,500.
+    const tender = 90_000 * (1 - TENDER_RATE_BAND_PCT);
+    expect(resolveStampedExchangeRate(90_000, tender)).toBe(tender);
   });
 
-  it("falls back just outside the +10% band", () => {
-    expect(resolveStampedExchangeRate(90_000, 99_001)).toBe(90_000);
+  it("falls back just outside the +15% band", () => {
+    const tender = 90_000 * (1 + TENDER_RATE_BAND_PCT) + 1; // 103,501
+    expect(resolveStampedExchangeRate(90_000, tender)).toBe(90_000);
   });
 
   it("no valid server rate (e.g. 0) — trusts the tender rate as-is, does not throw", () => {
@@ -507,8 +535,8 @@ describe("resolveStampedExchangeRate (stamp-only, never throws)", () => {
     expect(resolveStampedExchangeRate(0, 89_000)).toBe(89_000);
   });
 
-  it("reuses TENDER_RATE_BAND_PCT (0.10) rather than a duplicated threshold", () => {
-    expect(TENDER_RATE_BAND_PCT).toBe(0.1);
+  it("reuses TENDER_RATE_BAND_PCT (0.15) rather than a duplicated threshold", () => {
+    expect(TENDER_RATE_BAND_PCT).toBe(0.15);
   });
 });
 
