@@ -186,9 +186,9 @@ test.describe("LIRA-176 — maintenance parts", () => {
       '[data-testid="client-autocomplete-field"]',
     );
     await clientField.fill(clientName);
-    await expect(modal.locator('[data-testid="client-dropdown"]')).toBeVisible(
-      { timeout: 5000 },
-    );
+    await expect(modal.locator('[data-testid="client-dropdown"]')).toBeVisible({
+      timeout: 5000,
+    });
     await modal.locator('[data-testid^="client-option-"]').first().click();
 
     // CheckoutModal auto-selects CUSTOMER_ACCOUNT once a chargeable client
@@ -203,13 +203,10 @@ test.describe("LIRA-176 — maintenance parts", () => {
     await completeBtn.click();
     await expect(modal).toBeHidden({ timeout: 15_000 });
 
-    const txn = await appPage.evaluate(
-      async (jobId) => {
-        const w = window as unknown as Api;
-        return w.api.transactions.getBySource("maintenance", jobId);
-      },
-      draftJob.id,
-    );
+    const txn = await appPage.evaluate(async (jobId) => {
+      const w = window as unknown as Api;
+      return w.api.transactions.getBySource("maintenance", jobId);
+    }, draftJob.id);
     expect(txn).not.toBeNull();
     if (!txn) return;
 
@@ -224,7 +221,10 @@ test.describe("LIRA-176 — maintenance parts", () => {
 
     // ── Refund from /audit (real button, bare confirm() path) ──
     await navigateTo(appPage, "/audit");
-    const row = appPage.locator("tbody tr").filter({ hasText: deviceName }).first();
+    const row = appPage
+      .locator("tbody tr")
+      .filter({ hasText: deviceName })
+      .first();
     await expect(row).toBeVisible({ timeout: 10_000 });
     const refundBtn = row.getByRole("button", { name: /^Refund$/ });
     await expect(refundBtn).toBeVisible();
@@ -313,13 +313,10 @@ test.describe("LIRA-176 — maintenance parts", () => {
     expect(job).not.toBeNull();
     if (!job) return;
 
-    const txn = await appPage.evaluate(
-      async (jobId) => {
-        const w = window as unknown as Api;
-        return w.api.transactions.getBySource("maintenance", jobId);
-      },
-      job.id,
-    );
+    const txn = await appPage.evaluate(async (jobId) => {
+      const w = window as unknown as Api;
+      return w.api.transactions.getBySource("maintenance", jobId);
+    }, job.id);
     expect(txn).not.toBeNull();
     if (!txn) return;
 

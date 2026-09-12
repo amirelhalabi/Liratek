@@ -40,7 +40,10 @@ export const HANDOFF_MAX_AGE_MS = 15 * 60 * 1000;
  * server-minted JWT carries one, so its absence means this is not one of ours
  * — and it could not have authenticated anyway.
  */
-export function isFreshHandoff(token: string, now: number = Date.now()): boolean {
+export function isFreshHandoff(
+  token: string,
+  now: number = Date.now(),
+): boolean {
   const claims = decodeJwtPayload(token);
   const iat = claims?.iat;
   if (typeof iat !== "number") return false;

@@ -46,7 +46,7 @@ export function resolveFlyctl() {
 
   console.error(
     "[fly] flyctl not found.\n" +
-      "      Install:  pwsh -c \"iwr https://fly.io/install.ps1 -useb | iex\"\n" +
+      '      Install:  pwsh -c "iwr https://fly.io/install.ps1 -useb | iex"\n' +
       "      Then log in ONCE in your own terminal — `fly auth login` refuses to\n" +
       "      run in a non-interactive shell:\n" +
       `      "${path.join(homedir(), ".fly", "bin", "flyctl.exe")}" auth login`,

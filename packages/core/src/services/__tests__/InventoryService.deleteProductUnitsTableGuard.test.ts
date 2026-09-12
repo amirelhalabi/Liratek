@@ -219,7 +219,9 @@ describe("InventoryService — product_units table-absent guard (LIRA-148)", () 
       expect(isDeleted(db, productId)).toBe(1);
       expect(
         db
-          .prepare(`SELECT COUNT(*) AS c FROM product_units WHERE product_id = ?`)
+          .prepare(
+            `SELECT COUNT(*) AS c FROM product_units WHERE product_id = ?`,
+          )
           .get(productId) as { c: number },
       ).toEqual({ c: 0 });
 

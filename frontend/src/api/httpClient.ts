@@ -290,7 +290,8 @@ export async function requestJson<T>(
 
       const err: ApiError = {
         status: res.status,
-        message: data?.error || data?.message || `Request failed (${res.status})`,
+        message:
+          data?.error || data?.message || `Request failed (${res.status})`,
         details: data,
       };
       throw err;

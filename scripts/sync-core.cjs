@@ -24,14 +24,20 @@ if (!fs.existsSync(src)) {
   process.exit(1);
 }
 if (!fs.existsSync(destPkg)) {
-  console.log("[sync-core] node_modules/@liratek/core absent — nothing to sync");
+  console.log(
+    "[sync-core] node_modules/@liratek/core absent — nothing to sync",
+  );
   process.exit(0);
 }
 if (fs.lstatSync(destPkg).isSymbolicLink()) {
-  console.log("[sync-core] node_modules/@liratek/core is a symlink — no sync needed");
+  console.log(
+    "[sync-core] node_modules/@liratek/core is a symlink — no sync needed",
+  );
   process.exit(0);
 }
 
 fs.rmSync(dest, { recursive: true, force: true });
 fs.cpSync(src, dest, { recursive: true });
-console.log("[sync-core] copied packages/core/dist -> node_modules/@liratek/core/dist");
+console.log(
+  "[sync-core] copied packages/core/dist -> node_modules/@liratek/core/dist",
+);

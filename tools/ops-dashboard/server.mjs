@@ -209,7 +209,9 @@ function runFlyctl(args, timeoutMs) {
     throw new Error(`flyctl ${args[0]}: ${r.error.message}`);
   }
   if (r.status !== 0) {
-    const firstStderrLine = (r.stderr || "").split(/\r?\n/).find((l) => l.trim()) ?? `exit ${r.status}`;
+    const firstStderrLine =
+      (r.stderr || "").split(/\r?\n/).find((l) => l.trim()) ??
+      `exit ${r.status}`;
     throw new Error(`flyctl ${args[0]}: ${firstStderrLine}`);
   }
   return JSON.parse(r.stdout);
@@ -217,7 +219,9 @@ function runFlyctl(args, timeoutMs) {
 
 async function getFlySection() {
   if (!flyctlAvailable()) {
-    throw new Error("flyctl not found on PATH or ~/.fly/bin — see scripts/fly.mjs");
+    throw new Error(
+      "flyctl not found on PATH or ~/.fly/bin — see scripts/fly.mjs",
+    );
   }
 
   const status = runFlyctl(["status", "--json"], 15_000);
@@ -270,7 +274,11 @@ async function getFlySection() {
       description: pick(r, ["Description", "description"]),
       reason: pick(r, ["Reason", "reason"]),
       createdAt: pick(r, ["CreatedAt", "created_at"]),
-      user: pick(r, ["User", "user"])?.Email ?? pick(r, ["User", "user"])?.email ?? pick(r, ["User", "user"]) ?? null,
+      user:
+        pick(r, ["User", "user"])?.Email ??
+        pick(r, ["User", "user"])?.email ??
+        pick(r, ["User", "user"]) ??
+        null,
       imageRef: pick(r, ["ImageRef", "image_ref"]),
       inProgress: pick(r, ["InProgress", "in_progress"]) ?? false,
       stable: pick(r, ["Stable", "stable"]) ?? false,
@@ -283,7 +291,9 @@ async function getFlySection() {
     const id = pick(v, ["id", "ID"]);
     let snapshots = [];
     try {
-      const snapRaw = id ? runFlyctl(["volumes", "snapshots", "list", id, "--json"], 15_000) : [];
+      const snapRaw = id
+        ? runFlyctl(["volumes", "snapshots", "list", id, "--json"], 15_000)
+        : [];
       snapshots = (Array.isArray(snapRaw) ? snapRaw : []).map((s) => ({
         id: pick(s, ["id", "ID"]),
         createdAt: pick(s, ["created_at", "CreatedAt"]),
@@ -303,9 +313,12 @@ async function getFlySection() {
       region: pick(v, ["region", "Region"]),
       state: pick(v, ["state", "State"]),
       encrypted: pick(v, ["encrypted", "Encrypted"]) ?? false,
-      attachedMachineId: pick(v, ["attached_machine_id", "AttachedMachineId"]) ?? null,
-      snapshotRetention: pick(v, ["snapshot_retention", "SnapshotRetention"]) ?? null,
-      autoBackupEnabled: pick(v, ["auto_backup_enabled", "AutoBackupEnabled"]) ?? false,
+      attachedMachineId:
+        pick(v, ["attached_machine_id", "AttachedMachineId"]) ?? null,
+      snapshotRetention:
+        pick(v, ["snapshot_retention", "SnapshotRetention"]) ?? null,
+      autoBackupEnabled:
+        pick(v, ["auto_backup_enabled", "AutoBackupEnabled"]) ?? false,
       hostStatus: pick(v, ["host_status", "HostStatus"]) ?? null,
       snapshots,
     };
@@ -322,7 +335,7 @@ async function getFlySection() {
     organization:
       status.Organization && typeof status.Organization === "object"
         ? status.Organization.Name || status.Organization.Slug || null
-        : status.Organization ?? null,
+        : (status.Organization ?? null),
     machineCount,
     // machineCount !== 1 is an INCIDENT, not spare capacity — SQLite has one
     // writer, and two machines on this volume means active corruption
@@ -342,7 +355,9 @@ async function getVercelSection() {
   if (!ENV) throw new Error(envError("VERCEL_TOKEN"));
   const { VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID } = ENV;
   if (!VERCEL_TOKEN || !VERCEL_PROJECT_ID) {
-    throw new Error("VERCEL_TOKEN / VERCEL_PROJECT_ID missing from backend/.env");
+    throw new Error(
+      "VERCEL_TOKEN / VERCEL_PROJECT_ID missing from backend/.env",
+    );
   }
   const headers = { Authorization: `Bearer ${VERCEL_TOKEN}` };
   const qs = (extra) => {
@@ -352,15 +367,23 @@ async function getVercelSection() {
   };
 
   const [depRes, domRes] = await Promise.all([
-    fetchJson(`https://api.vercel.com/v6/deployments?${qs({ limit: "10" })}`, { headers }),
+    fetchJson(`https://api.vercel.com/v6/deployments?${qs({ limit: "10" })}`, {
+      headers,
+    }),
     fetchJson(
       `https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/domains${VERCEL_TEAM_ID ? `?teamId=${VERCEL_TEAM_ID}` : ""}`,
       { headers },
     ),
   ]);
 
-  if (depRes.status >= 400) throw new Error(`Vercel deployments ${depRes.status}: ${depRes.json?.error?.message ?? depRes.text.slice(0, 200)}`);
-  if (domRes.status >= 400) throw new Error(`Vercel domains ${domRes.status}: ${domRes.json?.error?.message ?? domRes.text.slice(0, 200)}`);
+  if (depRes.status >= 400)
+    throw new Error(
+      `Vercel deployments ${depRes.status}: ${depRes.json?.error?.message ?? depRes.text.slice(0, 200)}`,
+    );
+  if (domRes.status >= 400)
+    throw new Error(
+      `Vercel domains ${domRes.status}: ${domRes.json?.error?.message ?? domRes.text.slice(0, 200)}`,
+    );
 
   const deployments = (depRes.json?.deployments ?? []).map((d) => ({
     uid: d.uid,
@@ -400,7 +423,9 @@ async function getCloudflareSection() {
   if (!ENV) throw new Error(envError("CLOUDFLARE_API_TOKEN"));
   const { CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID, APP_BASE_DOMAIN } = ENV;
   if (!CLOUDFLARE_API_TOKEN || !CLOUDFLARE_ZONE_ID) {
-    throw new Error("CLOUDFLARE_API_TOKEN / CLOUDFLARE_ZONE_ID missing from backend/.env");
+    throw new Error(
+      "CLOUDFLARE_API_TOKEN / CLOUDFLARE_ZONE_ID missing from backend/.env",
+    );
   }
   const headers = { Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` };
   const base = `https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}`;
@@ -413,12 +438,26 @@ async function getCloudflareSection() {
   // Cloudflare always answers 200 and wraps the real result in
   // {success, errors, result} — a bad token looks like a normal HTTP
   // response, not a fetch failure, so the error has to come from the body.
-  if (!zoneRes.json?.success) throw new Error(zoneRes.json?.errors?.[0]?.message ?? `zone lookup failed (${zoneRes.status})`);
-  if (!recRes.json?.success) throw new Error(recRes.json?.errors?.[0]?.message ?? `dns_records lookup failed (${recRes.status})`);
+  if (!zoneRes.json?.success)
+    throw new Error(
+      zoneRes.json?.errors?.[0]?.message ??
+        `zone lookup failed (${zoneRes.status})`,
+    );
+  if (!recRes.json?.success)
+    throw new Error(
+      recRes.json?.errors?.[0]?.message ??
+        `dns_records lookup failed (${recRes.status})`,
+    );
 
   const z = zoneRes.json.result;
   const records = (recRes.json.result ?? [])
-    .map((r) => ({ type: r.type, name: r.name, content: r.content, proxied: !!r.proxied, ttl: r.ttl }))
+    .map((r) => ({
+      type: r.type,
+      name: r.name,
+      content: r.content,
+      proxied: !!r.proxied,
+      ttl: r.ttl,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const baseDomain = APP_BASE_DOMAIN || z.name;
@@ -427,7 +466,11 @@ async function getCloudflareSection() {
   // `<slug>.<APP_BASE_DOMAIN>`. `www` is the platform host, not a tenant.
   const tenantHosts = records
     .filter((r) => r.type === "CNAME" && /vercel-dns/i.test(r.content))
-    .map((r) => (r.name.endsWith(`.${baseDomain}`) ? r.name.slice(0, -(baseDomain.length + 1)) : r.name))
+    .map((r) =>
+      r.name.endsWith(`.${baseDomain}`)
+        ? r.name.slice(0, -(baseDomain.length + 1))
+        : r.name,
+    )
     .filter((label) => label && label !== "www" && !label.includes("."));
 
   return {
@@ -507,7 +550,9 @@ let jwtCache = null; // { token }
 async function superAdminLogin() {
   const { SUPER_ADMIN_USERNAME, SUPER_ADMIN_PASSWORD } = ENV;
   if (!SUPER_ADMIN_USERNAME || !SUPER_ADMIN_PASSWORD) {
-    throw new Error("SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD missing from backend/.env");
+    throw new Error(
+      "SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD missing from backend/.env",
+    );
   }
   // MUST go through www.liratek.shop, never api.liratek.shop directly.
   // Vercel's rewrite is what sets X-Forwarded-Host to the platform realm
@@ -522,12 +567,17 @@ async function superAdminLogin() {
   const res = await fetchJson("https://www.liratek.shop/api/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: SUPER_ADMIN_USERNAME, password: SUPER_ADMIN_PASSWORD }),
+    body: JSON.stringify({
+      username: SUPER_ADMIN_USERNAME,
+      password: SUPER_ADMIN_PASSWORD,
+    }),
   });
   // Envelope is {success, data|error} at HTTP 200 even on failure — never
   // branch on status code here.
   if (!res.json?.success) {
-    throw new Error(`super-admin login failed: ${errMessage(res.json?.error) ?? res.status}`);
+    throw new Error(
+      `super-admin login failed: ${errMessage(res.json?.error) ?? res.status}`,
+    );
   }
   jwtCache = { token: res.json.data.token };
   return jwtCache.token;
@@ -546,7 +596,9 @@ async function adminGet(pathname) {
     });
   }
   if (!res.json?.success) {
-    throw new Error(`${pathname} failed: ${errMessage(res.json?.error) ?? res.status}`);
+    throw new Error(
+      `${pathname} failed: ${errMessage(res.json?.error) ?? res.status}`,
+    );
   }
   return res.json.data;
 }
@@ -560,9 +612,13 @@ async function getTenantsSection(vercelSection, cloudflareSection) {
   ]);
 
   const baseDomain = ENV.APP_BASE_DOMAIN || "liratek.shop";
-  const subsByTenantId = new Map((subsData.subscriptions ?? []).map((s) => [s.tenant_id, s]));
+  const subsByTenantId = new Map(
+    (subsData.subscriptions ?? []).map((s) => [s.tenant_id, s]),
+  );
 
-  const cfHosts = cloudflareSection.ok ? new Set(cloudflareSection.data.tenantHosts) : null;
+  const cfHosts = cloudflareSection.ok
+    ? new Set(cloudflareSection.data.tenantHosts)
+    : null;
   const vercelDomainNames = vercelSection.ok
     ? new Set(vercelSection.data.domains.map((d) => d.name))
     : null;
@@ -589,7 +645,9 @@ async function getTenantsSection(vercelSection, cloudflareSection) {
           }
         : null,
       dns: cfHosts ? cfHosts.has(t.slug) : null,
-      vercelDomain: vercelDomainNames ? vercelDomainNames.has(`${t.slug}.${baseDomain}`) : null,
+      vercelDomain: vercelDomainNames
+        ? vercelDomainNames.has(`${t.slug}.${baseDomain}`)
+        : null,
     };
   });
 
@@ -604,7 +662,9 @@ async function getTenantsSection(vercelSection, cloudflareSection) {
   } else {
     const tenantSlugs = new Set(tenants.map((t) => t.slug));
     const orphanDns = [...cfHosts].filter((h) => !tenantSlugs.has(h));
-    const missingDns = tenants.filter((t) => !cfHosts.has(t.slug)).map((t) => t.slug);
+    const missingDns = tenants
+      .filter((t) => !cfHosts.has(t.slug))
+      .map((t) => t.slug);
     const orphanVercel = [...vercelDomainNames]
       .filter((name) => name.endsWith(`.${baseDomain}`))
       .map((name) => name.slice(0, -(baseDomain.length + 1)))
@@ -625,7 +685,9 @@ async function getTenantsSection(vercelSection, cloudflareSection) {
 
 async function getBackupsSection(flySection) {
   const volumeSnapshots = flySection.ok
-    ? flySection.data.volumes.flatMap((v) => v.snapshots.map((s) => ({ volumeId: v.id, ...s })))
+    ? flySection.data.volumes.flatMap((v) =>
+        v.snapshots.map((s) => ({ volumeId: v.id, ...s })),
+      )
     : [];
 
   const base = {
@@ -636,7 +698,10 @@ async function getBackupsSection(flySection) {
     // is a statement about the LOCAL env this dashboard runs in, not about
     // whether replication is actually happening (that's the `logs` section's
     // litestream verdict).
-    endpointConfigured: !!(ENV && (ENV.LITESTREAM_ACCESS_KEY_ID || ENV.LITESTREAM_BUCKET)),
+    endpointConfigured: !!(
+      ENV &&
+      (ENV.LITESTREAM_ACCESS_KEY_ID || ENV.LITESTREAM_BUCKET)
+    ),
     volumeSnapshots,
     note: "The bucket holds .ltx transaction segments, not a .db file — nothing to download and open; `litestream restore` reassembles them.",
   };
@@ -655,15 +720,24 @@ async function getBackupsSection(flySection) {
   }
 
   try {
-    const res = await fetchJson(`https://api.cloudflare.com/client/v4/accounts/${R2_ACCOUNT_ID}/r2/buckets`, {
-      headers: { Authorization: `Bearer ${R2_API_TOKEN}` },
-    });
-    if (!res.json?.success) throw new Error(res.json?.errors?.[0]?.message ?? `r2 buckets failed (${res.status})`);
+    const res = await fetchJson(
+      `https://api.cloudflare.com/client/v4/accounts/${R2_ACCOUNT_ID}/r2/buckets`,
+      {
+        headers: { Authorization: `Bearer ${R2_API_TOKEN}` },
+      },
+    );
+    if (!res.json?.success)
+      throw new Error(
+        res.json?.errors?.[0]?.message ?? `r2 buckets failed (${res.status})`,
+      );
     return {
       ...base,
       r2: {
         available: true,
-        buckets: (res.json.result ?? []).map((b) => ({ name: b.name, creation_date: b.creation_date })),
+        buckets: (res.json.result ?? []).map((b) => ({
+          name: b.name,
+          creation_date: b.creation_date,
+        })),
       },
     };
   } catch (err) {
@@ -681,13 +755,21 @@ async function getBackupsSection(flySection) {
 // -----------------------------------------------------------------------
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
-const PINO_LEVELS = { 10: "trace", 20: "debug", 30: "info", 40: "warn", 50: "error", 60: "fatal" };
+const PINO_LEVELS = {
+  10: "trace",
+  20: "debug",
+  30: "info",
+  40: "warn",
+  50: "error",
+  60: "fatal",
+};
 
 function parseLogLine(raw) {
   const line = raw.replace(ANSI_RE, "");
   // "2026-09-09T21:41:18Z app[d8962dea53d438] fra [info]{...json...}"
   const m = line.match(/^(\S+)\s+app\[([^\]]+)\]\s+(\S+)\s+\[(\w+)\]\s*(.*)$/);
-  if (!m) return { at: null, machine: null, region: null, level: null, text: line };
+  if (!m)
+    return { at: null, machine: null, region: null, level: null, text: line };
   const [, at, machine, region, flyLevel, tail] = m;
   const braceIdx = tail.indexOf("{");
   let parsed = null;
@@ -717,7 +799,9 @@ function parseLogLine(raw) {
 
 async function getLogsSection(limit) {
   if (!flyctlAvailable()) {
-    throw new Error("flyctl not found on PATH or ~/.fly/bin — see scripts/fly.mjs");
+    throw new Error(
+      "flyctl not found on PATH or ~/.fly/bin — see scripts/fly.mjs",
+    );
   }
   const bin = resolveFlyctl();
   const r = spawnSync(bin, ["logs", "--no-tail", "--app", APP], {
@@ -729,14 +813,22 @@ async function getLogsSection(limit) {
   });
   if (r.error) throw new Error(`flyctl logs: ${r.error.message}`);
   if (r.status !== 0) {
-    const firstLine = (r.stderr || "").split(/\r?\n/).find((l) => l.trim()) ?? `exit ${r.status}`;
+    const firstLine =
+      (r.stderr || "").split(/\r?\n/).find((l) => l.trim()) ??
+      `exit ${r.status}`;
     throw new Error(`flyctl logs: ${firstLine}`);
   }
   const rawLines = (r.stdout || "").split(/\r?\n/).filter((l) => l.trim());
   const parsed = rawLines.map(parseLogLine);
   const machineIds = [...new Set(parsed.map((l) => l.machine).filter(Boolean))];
 
-  const counts = { total: parsed.length, error: 0, warn: 0, http4xx: 0, http5xx: 0 };
+  const counts = {
+    total: parsed.length,
+    error: 0,
+    warn: 0,
+    http4xx: 0,
+    http5xx: 0,
+  };
   for (const l of parsed) {
     if (l.level === "error" || l.level === "fatal") counts.error++;
     else if (l.level === "warn") counts.warn++;
@@ -754,13 +846,18 @@ async function getLogsSection(limit) {
   const full = r.stdout || "";
   let litestream;
   if (/litestream exited/i.test(full)) {
-    const evidence = full.split(/\r?\n/).find((l) => /litestream exited/i.test(l)) ?? null;
+    const evidence =
+      full.split(/\r?\n/).find((l) => /litestream exited/i.test(l)) ?? null;
     litestream = { verdict: "exited", evidence };
   } else if (/litestream replicating/i.test(full)) {
-    const evidence = full.split(/\r?\n/).find((l) => /litestream replicating/i.test(l)) ?? null;
+    const evidence =
+      full.split(/\r?\n/).find((l) => /litestream replicating/i.test(l)) ??
+      null;
     litestream = { verdict: "replicating", evidence };
   } else if (/Litestream NOT configured/i.test(full)) {
-    const evidence = full.split(/\r?\n/).find((l) => /Litestream NOT configured/i.test(l)) ?? null;
+    const evidence =
+      full.split(/\r?\n/).find((l) => /Litestream NOT configured/i.test(l)) ??
+      null;
     litestream = { verdict: "not-configured", evidence };
   } else {
     // NORMAL steady state, not a problem: the boot marker is printed once
@@ -820,7 +917,9 @@ async function buildSummary(fresh) {
 }
 
 async function buildLogs(fresh, limit) {
-  const logs = await cached(`logs:${limit}`, fresh, () => getLogsSection(limit));
+  const logs = await cached(`logs:${limit}`, fresh, () =>
+    getLogsSection(limit),
+  );
   return { generatedAt: new Date().toISOString(), sections: { logs } };
 }
 
@@ -847,7 +946,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/" || url.pathname === "/index.html") {
       if (!existsSync(INDEX_HTML)) {
         res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
-        res.end("ops dashboard: page not built yet (tools/ops-dashboard/public/index.html is missing)\n");
+        res.end(
+          "ops dashboard: page not built yet (tools/ops-dashboard/public/index.html is missing)\n",
+        );
         return;
       }
       const html = readFileSync(INDEX_HTML);
@@ -863,7 +964,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/logs") {
-      const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get("limit")) || 100));
+      const limit = Math.min(
+        1000,
+        Math.max(1, Number(url.searchParams.get("limit")) || 100),
+      );
       const logs = await buildLogs(fresh, limit);
       sendJson(res, 200, logs);
       return;
@@ -881,6 +985,8 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`[ops-dashboard] http://127.0.0.1:${PORT} (localhost-only)`);
   if (!ENV) {
-    console.log("[ops-dashboard] backend/.env not found — credential-dependent sections will report errors, not crash");
+    console.log(
+      "[ops-dashboard] backend/.env not found — credential-dependent sections will report errors, not crash",
+    );
   }
 });

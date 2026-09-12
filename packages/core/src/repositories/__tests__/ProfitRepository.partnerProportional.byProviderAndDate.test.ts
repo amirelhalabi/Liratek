@@ -296,7 +296,14 @@ function seedPartnerLedger(
 
 function seedFs(
   db: Database.Database,
-  opts: { provider: string; amount?: number; cost?: number; currency?: string; createdAt: string; settlementId?: number | null },
+  opts: {
+    provider: string;
+    amount?: number;
+    cost?: number;
+    currency?: string;
+    createdAt: string;
+    settlementId?: number | null;
+  },
 ): number {
   const res = db
     .prepare(
@@ -345,7 +352,13 @@ function seedAllocation(
     `INSERT INTO settlement_commission_allocations
        (tenant_id, settlement_ledger_id, financial_service_id, service_type, provider, commission_usd, commission_lbp, created_at)
      VALUES (1, ?, ?, 'SEND', ?, ?, 0, ?)`,
-  ).run(opts.settlementLedgerId, opts.financialServiceId, opts.provider, opts.commissionUsd, opts.createdAt);
+  ).run(
+    opts.settlementLedgerId,
+    opts.financialServiceId,
+    opts.provider,
+    opts.commissionUsd,
+    opts.createdAt,
+  );
 }
 
 function seedRecharge(
@@ -364,7 +377,12 @@ function seedRecharge(
   return Number(res.lastInsertRowid);
 }
 
-function seedRechargeTransaction(db: Database.Database, rId: number, profitUsd: number, createdAt: string): void {
+function seedRechargeTransaction(
+  db: Database.Database,
+  rId: number,
+  profitUsd: number,
+  createdAt: string,
+): void {
   db.prepare(
     `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, profit_usd, created_at)
      VALUES (1, 'RECHARGE', 'ACTIVE', 'recharges', ?, ?, ?)`,
@@ -373,14 +391,26 @@ function seedRechargeTransaction(db: Database.Database, rId: number, profitUsd: 
 
 function seedCustomService(
   db: Database.Database,
-  opts: { priceUsd: number; priceLbp: number; costUsd: number; costLbp: number; createdAt: string },
+  opts: {
+    priceUsd: number;
+    priceLbp: number;
+    costUsd: number;
+    costLbp: number;
+    createdAt: string;
+  },
 ): number {
   const res = db
     .prepare(
       `INSERT INTO custom_services (tenant_id, status, price_usd, price_lbp, cost_usd, cost_lbp, is_refunded, created_at)
        VALUES (1, 'completed', ?, ?, ?, ?, 0, ?)`,
     )
-    .run(opts.priceUsd, opts.priceLbp, opts.costUsd, opts.costLbp, opts.createdAt);
+    .run(
+      opts.priceUsd,
+      opts.priceLbp,
+      opts.costUsd,
+      opts.costLbp,
+      opts.createdAt,
+    );
   return Number(res.lastInsertRowid);
 }
 
@@ -397,21 +427,37 @@ function seedCustomServiceTransaction(
   ).run(csId, profitUsd, profitLbp, createdAt);
 }
 
-function seedLotoTicket(db: Database.Database, saleAmountLbp: number, createdAt: string): number {
+function seedLotoTicket(
+  db: Database.Database,
+  saleAmountLbp: number,
+  createdAt: string,
+): number {
   const res = db
-    .prepare(`INSERT INTO loto_tickets (tenant_id, sale_amount, is_refunded, created_at) VALUES (1, ?, 0, ?)`)
+    .prepare(
+      `INSERT INTO loto_tickets (tenant_id, sale_amount, is_refunded, created_at) VALUES (1, ?, 0, ?)`,
+    )
     .run(saleAmountLbp, createdAt);
   return Number(res.lastInsertRowid);
 }
 
-function seedLotoTransaction(db: Database.Database, ltId: number, profitLbp: number, createdAt: string): void {
+function seedLotoTransaction(
+  db: Database.Database,
+  ltId: number,
+  profitLbp: number,
+  createdAt: string,
+): void {
   db.prepare(
     `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, profit_lbp, created_at)
      VALUES (1, 'LOTO', 'ACTIVE', 'loto_tickets', ?, ?, ?)`,
   ).run(ltId, profitLbp, createdAt);
 }
 
-function seedExchange(db: Database.Database, amountIn: number, leg1ProfitUsd: number, createdAt: string): number {
+function seedExchange(
+  db: Database.Database,
+  amountIn: number,
+  leg1ProfitUsd: number,
+  createdAt: string,
+): number {
   const res = db
     .prepare(
       `INSERT INTO exchange_transactions (tenant_id, amount_in, leg1_profit_usd, leg2_profit_usd, is_refunded, created_at)
@@ -433,7 +479,8 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__;
+    delete (globalThis as unknown as Record<string, unknown>)
+      .__LIRATEK_TEST_DB__;
     db.close();
   });
 
@@ -441,19 +488,54 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
     it("0% / 50% / 100% partner coverage recognises 0 / half / full revenue+profit; count only at ratio > 0", () => {
       // Three providers (isolate getFinancialSettledByProvider's GROUP BY provider)
       // on three distinct dates (isolate getByDate's GROUP BY day).
-      const fs0 = seedFs(db, { provider: "P0", amount: 100, cost: 0, createdAt: "2026-07-05 12:00:00" });
+      const fs0 = seedFs(db, {
+        provider: "P0",
+        amount: 100,
+        cost: 0,
+        createdAt: "2026-07-05 12:00:00",
+      });
       seedFsTransaction(db, fs0, 10, "2026-07-05 12:00:00");
-      seedPartnerLedger(db, "financial_services", fs0, 0, "2026-07-05 12:00:00");
+      seedPartnerLedger(
+        db,
+        "financial_services",
+        fs0,
+        0,
+        "2026-07-05 12:00:00",
+      );
 
-      const fs50 = seedFs(db, { provider: "P50", amount: 100, cost: 0, createdAt: "2026-07-10 12:00:00" });
+      const fs50 = seedFs(db, {
+        provider: "P50",
+        amount: 100,
+        cost: 0,
+        createdAt: "2026-07-10 12:00:00",
+      });
       seedFsTransaction(db, fs50, 10, "2026-07-10 12:00:00");
-      seedPartnerLedger(db, "financial_services", fs50, 0.5, "2026-07-10 12:00:00");
+      seedPartnerLedger(
+        db,
+        "financial_services",
+        fs50,
+        0.5,
+        "2026-07-10 12:00:00",
+      );
 
-      const fs100 = seedFs(db, { provider: "P100", amount: 100, cost: 0, createdAt: "2026-07-15 12:00:00" });
+      const fs100 = seedFs(db, {
+        provider: "P100",
+        amount: 100,
+        cost: 0,
+        createdAt: "2026-07-15 12:00:00",
+      });
       seedFsTransaction(db, fs100, 10, "2026-07-15 12:00:00");
-      seedPartnerLedger(db, "financial_services", fs100, 1, "2026-07-15 12:00:00");
+      seedPartnerLedger(
+        db,
+        "financial_services",
+        fs100,
+        1,
+        "2026-07-15 12:00:00",
+      );
 
-      const rows = runWithTenant(1, () => repo.getFinancialSettledByProvider(FROM, TO));
+      const rows = runWithTenant(1, () =>
+        repo.getFinancialSettledByProvider(FROM, TO),
+      );
       const p0 = rows.find((r) => r.provider === "P0");
       const p50 = rows.find((r) => r.provider === "P50");
       const p100 = rows.find((r) => r.provider === "P100");
@@ -470,7 +552,9 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
       expect(p100?.profit_usd).toBeCloseTo(10, 2);
       expect(p100?.count).toBe(1);
 
-      const daily = runWithTenant(1, () => repo.getByDate(FROM_DATE, TO_DATE, FROM, TO));
+      const daily = runWithTenant(1, () =>
+        repo.getByDate(FROM_DATE, TO_DATE, FROM, TO),
+      );
       const d0 = daily.find((r) => r.date === "2026-07-05");
       const d50 = daily.find((r) => r.date === "2026-07-10");
       const d100 = daily.find((r) => r.date === "2026-07-15");
@@ -491,22 +575,75 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
       // mirroring LIRA158.settlementAttribution.test.ts's D7-period-assignment trick.
       const TXN_DAY = "2026-06-15 12:00:00";
 
-      const fs0 = seedFs(db, { provider: "A0", amount: 100, createdAt: TXN_DAY, settlementId: 901 });
+      const fs0 = seedFs(db, {
+        provider: "A0",
+        amount: 100,
+        createdAt: TXN_DAY,
+        settlementId: 901,
+      });
       seedFsTransaction(db, fs0, 0, TXN_DAY);
-      seedAllocation(db, { settlementLedgerId: 901, financialServiceId: fs0, provider: "A0", commissionUsd: 8, createdAt: "2026-07-05 12:00:00" });
-      seedPartnerLedger(db, "financial_services", fs0, 0, "2026-07-05 12:00:00");
+      seedAllocation(db, {
+        settlementLedgerId: 901,
+        financialServiceId: fs0,
+        provider: "A0",
+        commissionUsd: 8,
+        createdAt: "2026-07-05 12:00:00",
+      });
+      seedPartnerLedger(
+        db,
+        "financial_services",
+        fs0,
+        0,
+        "2026-07-05 12:00:00",
+      );
 
-      const fs50 = seedFs(db, { provider: "A50", amount: 100, createdAt: TXN_DAY, settlementId: 902 });
+      const fs50 = seedFs(db, {
+        provider: "A50",
+        amount: 100,
+        createdAt: TXN_DAY,
+        settlementId: 902,
+      });
       seedFsTransaction(db, fs50, 0, TXN_DAY);
-      seedAllocation(db, { settlementLedgerId: 902, financialServiceId: fs50, provider: "A50", commissionUsd: 8, createdAt: "2026-07-10 12:00:00" });
-      seedPartnerLedger(db, "financial_services", fs50, 0.5, "2026-07-10 12:00:00");
+      seedAllocation(db, {
+        settlementLedgerId: 902,
+        financialServiceId: fs50,
+        provider: "A50",
+        commissionUsd: 8,
+        createdAt: "2026-07-10 12:00:00",
+      });
+      seedPartnerLedger(
+        db,
+        "financial_services",
+        fs50,
+        0.5,
+        "2026-07-10 12:00:00",
+      );
 
-      const fs100 = seedFs(db, { provider: "A100", amount: 100, createdAt: TXN_DAY, settlementId: 903 });
+      const fs100 = seedFs(db, {
+        provider: "A100",
+        amount: 100,
+        createdAt: TXN_DAY,
+        settlementId: 903,
+      });
       seedFsTransaction(db, fs100, 0, TXN_DAY);
-      seedAllocation(db, { settlementLedgerId: 903, financialServiceId: fs100, provider: "A100", commissionUsd: 8, createdAt: "2026-07-15 12:00:00" });
-      seedPartnerLedger(db, "financial_services", fs100, 1, "2026-07-15 12:00:00");
+      seedAllocation(db, {
+        settlementLedgerId: 903,
+        financialServiceId: fs100,
+        provider: "A100",
+        commissionUsd: 8,
+        createdAt: "2026-07-15 12:00:00",
+      });
+      seedPartnerLedger(
+        db,
+        "financial_services",
+        fs100,
+        1,
+        "2026-07-15 12:00:00",
+      );
 
-      const rows = runWithTenant(1, () => repo.getFinancialSettledByProvider(FROM, TO));
+      const rows = runWithTenant(1, () =>
+        repo.getFinancialSettledByProvider(FROM, TO),
+      );
       const a0 = rows.find((r) => r.provider === "A0");
       const a50 = rows.find((r) => r.provider === "A50");
       const a100 = rows.find((r) => r.provider === "A100");
@@ -515,7 +652,9 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
       expect(a50?.profit_usd).toBeCloseTo(4, 2);
       expect(a100?.profit_usd).toBeCloseTo(8, 2);
 
-      const daily = runWithTenant(1, () => repo.getByDate(FROM_DATE, TO_DATE, FROM, TO));
+      const daily = runWithTenant(1, () =>
+        repo.getByDate(FROM_DATE, TO_DATE, FROM, TO),
+      );
       const d0 = daily.find((r) => r.date === "2026-07-05");
       const d50 = daily.find((r) => r.date === "2026-07-10");
       const d100 = daily.find((r) => r.date === "2026-07-15");
@@ -560,7 +699,9 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
       expect(c100?.profit_usd).toBeCloseTo(15, 2);
       expect(c100?.count).toBe(1);
 
-      const daily = runWithTenant(1, () => repo.getByDate(FROM_DATE, TO_DATE, FROM, TO));
+      const daily = runWithTenant(1, () =>
+        repo.getByDate(FROM_DATE, TO_DATE, FROM, TO),
+      );
       const d0 = daily.find((r) => r.date === "2026-07-05");
       const d50 = daily.find((r) => r.date === "2026-07-10");
       const d100 = daily.find((r) => r.date === "2026-07-15");
@@ -581,19 +722,51 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
 
   describe("Group 4 (site #16, standalone) — getByDate daily_custom, weighted by partnerCoverageRatio('custom_services','cs.id')", () => {
     it("0% / 50% / 100% partner coverage recognises 0 / half / full revenue+cost+profit (both currencies)", () => {
-      const cs0 = seedCustomService(db, { priceUsd: 30, priceLbp: 300000, costUsd: 10, costLbp: 100000, createdAt: "2026-07-05 12:00:00" });
+      const cs0 = seedCustomService(db, {
+        priceUsd: 30,
+        priceLbp: 300000,
+        costUsd: 10,
+        costLbp: 100000,
+        createdAt: "2026-07-05 12:00:00",
+      });
       seedCustomServiceTransaction(db, cs0, 20, 200000, "2026-07-05 12:00:00");
       seedPartnerLedger(db, "custom_services", cs0, 0, "2026-07-05 12:00:00");
 
-      const cs50 = seedCustomService(db, { priceUsd: 30, priceLbp: 300000, costUsd: 10, costLbp: 100000, createdAt: "2026-07-10 12:00:00" });
+      const cs50 = seedCustomService(db, {
+        priceUsd: 30,
+        priceLbp: 300000,
+        costUsd: 10,
+        costLbp: 100000,
+        createdAt: "2026-07-10 12:00:00",
+      });
       seedCustomServiceTransaction(db, cs50, 20, 200000, "2026-07-10 12:00:00");
-      seedPartnerLedger(db, "custom_services", cs50, 0.5, "2026-07-10 12:00:00");
+      seedPartnerLedger(
+        db,
+        "custom_services",
+        cs50,
+        0.5,
+        "2026-07-10 12:00:00",
+      );
 
-      const cs100 = seedCustomService(db, { priceUsd: 30, priceLbp: 300000, costUsd: 10, costLbp: 100000, createdAt: "2026-07-15 12:00:00" });
-      seedCustomServiceTransaction(db, cs100, 20, 200000, "2026-07-15 12:00:00");
+      const cs100 = seedCustomService(db, {
+        priceUsd: 30,
+        priceLbp: 300000,
+        costUsd: 10,
+        costLbp: 100000,
+        createdAt: "2026-07-15 12:00:00",
+      });
+      seedCustomServiceTransaction(
+        db,
+        cs100,
+        20,
+        200000,
+        "2026-07-15 12:00:00",
+      );
       seedPartnerLedger(db, "custom_services", cs100, 1, "2026-07-15 12:00:00");
 
-      const daily = runWithTenant(1, () => repo.getByDate(FROM_DATE, TO_DATE, FROM, TO));
+      const daily = runWithTenant(1, () =>
+        repo.getByDate(FROM_DATE, TO_DATE, FROM, TO),
+      );
       const d0 = daily.find((r) => r.date === "2026-07-05");
       const d50 = daily.find((r) => r.date === "2026-07-10");
       const d100 = daily.find((r) => r.date === "2026-07-15");
@@ -626,7 +799,9 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
       seedLotoTransaction(db, lt100, 100, "2026-07-15 12:00:00");
       seedPartnerLedger(db, "loto_tickets", lt100, 1, "2026-07-15 12:00:00");
 
-      const daily = runWithTenant(1, () => repo.getByDate(FROM_DATE, TO_DATE, FROM, TO));
+      const daily = runWithTenant(1, () =>
+        repo.getByDate(FROM_DATE, TO_DATE, FROM, TO),
+      );
       const d0 = daily.find((r) => r.date === "2026-07-05");
       const d50 = daily.find((r) => r.date === "2026-07-10");
       const d100 = daily.find((r) => r.date === "2026-07-15");
@@ -645,15 +820,35 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
   describe("Group 6 (site #18, standalone) — getByDate daily_exchange, weighted by partnerCoverageRatio('exchange_transactions','exchange_transactions.id')", () => {
     it("0% / 50% / 100% partner coverage recognises 0 / half / full USD revenue+profit (also guards the EXCHANGE_LEG_PROFIT precedence trap — leg1=40/leg2=0 means an unparenthesized '(leg1+leg2) * ratio' bug would leak leg1 unweighted)", () => {
       const ex0 = seedExchange(db, 200, 40, "2026-07-05 12:00:00");
-      seedPartnerLedger(db, "exchange_transactions", ex0, 0, "2026-07-05 12:00:00");
+      seedPartnerLedger(
+        db,
+        "exchange_transactions",
+        ex0,
+        0,
+        "2026-07-05 12:00:00",
+      );
 
       const ex50 = seedExchange(db, 200, 40, "2026-07-10 12:00:00");
-      seedPartnerLedger(db, "exchange_transactions", ex50, 0.5, "2026-07-10 12:00:00");
+      seedPartnerLedger(
+        db,
+        "exchange_transactions",
+        ex50,
+        0.5,
+        "2026-07-10 12:00:00",
+      );
 
       const ex100 = seedExchange(db, 200, 40, "2026-07-15 12:00:00");
-      seedPartnerLedger(db, "exchange_transactions", ex100, 1, "2026-07-15 12:00:00");
+      seedPartnerLedger(
+        db,
+        "exchange_transactions",
+        ex100,
+        1,
+        "2026-07-15 12:00:00",
+      );
 
-      const daily = runWithTenant(1, () => repo.getByDate(FROM_DATE, TO_DATE, FROM, TO));
+      const daily = runWithTenant(1, () =>
+        repo.getByDate(FROM_DATE, TO_DATE, FROM, TO),
+      );
       const d0 = daily.find((r) => r.date === "2026-07-05");
       const d50 = daily.find((r) => r.date === "2026-07-10");
       const d100 = daily.find((r) => r.date === "2026-07-15");
@@ -676,45 +871,95 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
 
   describe("Group 7 (site #19, standalone) — getRealizedCommissionTotals, weighted by partnerCoverageRatio('financial_services','fs.id')", () => {
     it("0% partner coverage recognises zero commission and zero count", () => {
-      const fsId = seedFs(db, { provider: "R0", amount: 100, createdAt: "2026-07-10 12:00:00" });
-      db.prepare(`UPDATE financial_services SET commission = 12 WHERE id = ?`).run(fsId);
+      const fsId = seedFs(db, {
+        provider: "R0",
+        amount: 100,
+        createdAt: "2026-07-10 12:00:00",
+      });
+      db.prepare(
+        `UPDATE financial_services SET commission = 12 WHERE id = ?`,
+      ).run(fsId);
       seedFsTransaction(db, fsId, 0, "2026-07-10 12:00:00");
-      seedPartnerLedger(db, "financial_services", fsId, 0, "2026-07-10 12:00:00");
+      seedPartnerLedger(
+        db,
+        "financial_services",
+        fsId,
+        0,
+        "2026-07-10 12:00:00",
+      );
 
-      const totals = runWithTenant(1, () => repo.getRealizedCommissionTotals(FROM, TO));
+      const totals = runWithTenant(1, () =>
+        repo.getRealizedCommissionTotals(FROM, TO),
+      );
       expect(totals.total_usd).toBe(0);
       expect(totals.count).toBe(0);
     });
 
     it("50% partner coverage recognises half the commission and counts the row once", () => {
-      const fsId = seedFs(db, { provider: "R50", amount: 100, createdAt: "2026-07-10 12:00:00" });
-      db.prepare(`UPDATE financial_services SET commission = 12 WHERE id = ?`).run(fsId);
+      const fsId = seedFs(db, {
+        provider: "R50",
+        amount: 100,
+        createdAt: "2026-07-10 12:00:00",
+      });
+      db.prepare(
+        `UPDATE financial_services SET commission = 12 WHERE id = ?`,
+      ).run(fsId);
       seedFsTransaction(db, fsId, 0, "2026-07-10 12:00:00");
-      seedPartnerLedger(db, "financial_services", fsId, 0.5, "2026-07-10 12:00:00");
+      seedPartnerLedger(
+        db,
+        "financial_services",
+        fsId,
+        0.5,
+        "2026-07-10 12:00:00",
+      );
 
-      const totals = runWithTenant(1, () => repo.getRealizedCommissionTotals(FROM, TO));
+      const totals = runWithTenant(1, () =>
+        repo.getRealizedCommissionTotals(FROM, TO),
+      );
       expect(totals.total_usd).toBeCloseTo(6, 2);
       expect(totals.count).toBe(1);
     });
 
     it("100% partner coverage recognises the full commission and counts the row once", () => {
-      const fsId = seedFs(db, { provider: "R100", amount: 100, createdAt: "2026-07-10 12:00:00" });
-      db.prepare(`UPDATE financial_services SET commission = 12 WHERE id = ?`).run(fsId);
+      const fsId = seedFs(db, {
+        provider: "R100",
+        amount: 100,
+        createdAt: "2026-07-10 12:00:00",
+      });
+      db.prepare(
+        `UPDATE financial_services SET commission = 12 WHERE id = ?`,
+      ).run(fsId);
       seedFsTransaction(db, fsId, 0, "2026-07-10 12:00:00");
-      seedPartnerLedger(db, "financial_services", fsId, 1, "2026-07-10 12:00:00");
+      seedPartnerLedger(
+        db,
+        "financial_services",
+        fsId,
+        1,
+        "2026-07-10 12:00:00",
+      );
 
-      const totals = runWithTenant(1, () => repo.getRealizedCommissionTotals(FROM, TO));
+      const totals = runWithTenant(1, () =>
+        repo.getRealizedCommissionTotals(FROM, TO),
+      );
       expect(totals.total_usd).toBeCloseTo(12, 2);
       expect(totals.count).toBe(1);
     });
 
     it("a NEVER-partner row (no FOR_% partner_ledger row at all) recognises its full commission unchanged — partnerCoverageRatio's COALESCE(...,1.0) default must not regress the overwhelming majority (non-partner) case", () => {
-      const fsId = seedFs(db, { provider: "WalkIn", amount: 100, createdAt: "2026-07-10 12:00:00" });
-      db.prepare(`UPDATE financial_services SET commission = 9 WHERE id = ?`).run(fsId);
+      const fsId = seedFs(db, {
+        provider: "WalkIn",
+        amount: 100,
+        createdAt: "2026-07-10 12:00:00",
+      });
+      db.prepare(
+        `UPDATE financial_services SET commission = 9 WHERE id = ?`,
+      ).run(fsId);
       seedFsTransaction(db, fsId, 0, "2026-07-10 12:00:00");
       // No seedPartnerLedger call at all.
 
-      const totals = runWithTenant(1, () => repo.getRealizedCommissionTotals(FROM, TO));
+      const totals = runWithTenant(1, () =>
+        repo.getRealizedCommissionTotals(FROM, TO),
+      );
       expect(totals.total_usd).toBeCloseTo(9, 2);
       expect(totals.count).toBe(1);
     });

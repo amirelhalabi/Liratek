@@ -63,8 +63,9 @@ describe("SessionRepository — signed-in devices", () => {
 
   beforeEach(() => {
     db = createTestDb();
-    (globalThis as unknown as { __LIRATEK_TEST_DB__?: unknown })
-      .__LIRATEK_TEST_DB__ = db;
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: unknown }
+    ).__LIRATEK_TEST_DB__ = db;
     repo = new SessionRepository();
   });
 
@@ -139,7 +140,9 @@ describe("SessionRepository — signed-in devices", () => {
     it("succeeds for the owning user inside the owning tenant", () => {
       const mine = create(10, 1);
 
-      const deleted = runWithTenant(1, () => repo.deleteByIdForUser(mine.id, 10));
+      const deleted = runWithTenant(1, () =>
+        repo.deleteByIdForUser(mine.id, 10),
+      );
 
       expect(deleted).toBe(true);
       expect(rowExists(mine.id)).toBe(false);
@@ -186,7 +189,10 @@ describe("SessionRepository — signed-in devices", () => {
       expect(safeOther.is_current).toBe(false);
 
       // And the reverse caller sees the opposite of both.
-      const fromOthersPerspective = repo.toSafeSession(mine, someoneElses.token);
+      const fromOthersPerspective = repo.toSafeSession(
+        mine,
+        someoneElses.token,
+      );
       expect(fromOthersPerspective.is_current).toBe(false);
     });
   });

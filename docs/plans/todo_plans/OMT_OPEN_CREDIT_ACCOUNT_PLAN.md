@@ -10,17 +10,17 @@ IMPLEMENT — all owner decisions answered (§1). Nothing built yet.**
 
 ## §1 Owner decisions
 
-| #   | Decision                                                                                                                                                                                                                              |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | OMT is ONE open-credit account. The counter (OMT SEND/RECEIVE), the OMT App wallet, and iPick credit all draw on it. Settlement is one payment to OMT.                                                                              |
+| #   | Decision                                                                                                                                                                                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | OMT is ONE open-credit account. The counter (OMT SEND/RECEIVE), the OMT App wallet, and iPick credit all draw on it. Settlement is one payment to OMT.                                                                             |
 | D2  | The OMT Cash Drawer (`OMT_System`, the PCD) holds **physical cash in store only**. Loading the OMT App wallet or iPick credit moves **no cash** — the wallet/iPick drawer goes up and the account debt goes up by the same amount. |
-| D3  | Every settlement of the account (counter, app, iPick debt alike) debits the **OMT Cash Drawer** (or whichever legs the admin picks; CASH resolves to the PCD as today).                                                              |
-| D4  | OMT App wallet top-up: **credit is the default**. Keep the existing drawer-to-drawer transfer available as an explicit alternative.                                                                                                    |
-| D5  | Historical OMT App cash top-ups: leave as recorded. No backfill.                                                                                                                                                                      |
-| D6  | Suppliers page: OMT shows as an **account card** with OMT counter / OMT App / iPick as **sub-rows**, each with its own drawer badge and contribution. Ledger and settlement queue merge all three with a **Type** column. |
-| D7  | Katsh stays standalone.                                                                                                                                                                                                              |
-| D8  | Partial settlement allocation: **oldest rows pre-selected, admin can change the selection**.                                                                                                                                          |
-| D9  | Whish-base shops / Whish App under Whish: **deferred**. The grouping is data (a column), not code, so it can be reconfigured later.                                                                                                    |
+| D3  | Every settlement of the account (counter, app, iPick debt alike) debits the **OMT Cash Drawer** (or whichever legs the admin picks; CASH resolves to the PCD as today).                                                            |
+| D4  | OMT App wallet top-up: **credit is the default**. Keep the existing drawer-to-drawer transfer available as an explicit alternative.                                                                                                |
+| D5  | Historical OMT App cash top-ups: leave as recorded. No backfill.                                                                                                                                                                   |
+| D6  | Suppliers page: OMT shows as an **account card** with OMT counter / OMT App / iPick as **sub-rows**, each with its own drawer badge and contribution. Ledger and settlement queue merge all three with a **Type** column.          |
+| D7  | Katsh stays standalone.                                                                                                                                                                                                            |
+| D8  | Partial settlement allocation: **oldest rows pre-selected, admin can change the selection**.                                                                                                                                       |
+| D9  | Whish-base shops / Whish App under Whish: **deferred**. The grouping is data (a column), not code, so it can be reconfigured later.                                                                                                |
 
 Owner's own words, for the model: _"the omt system works like open credit system where you can use
 as much as u want and then pay later"_; _"omt cash drawer is only for cash [in store]"_; _"when we
@@ -88,10 +88,10 @@ orphaned on void — a phantom debt forever.
 
 ## §4 Worked example (the reason for per-child allocation)
 
-| Event                                  | Ledger row today   | Account |
-| -------------------------------------- | ------------------ | ------- |
-| OMT SEND, principal 1,000 + fee 50     | OMT supplier +1,050 | 1,050  |
-| iPick supplier-credit top-up 200       | iPick supplier +200 | 1,250  |
+| Event                              | Ledger row today    | Account |
+| ---------------------------------- | ------------------- | ------- |
+| OMT SEND, principal 1,000 + fee 50 | OMT supplier +1,050 | 1,050   |
+| iPick supplier-credit top-up 200   | iPick supplier +200 | 1,250   |
 
 Owner pays OMT 1,250 once from the OMT Cash Drawer.
 

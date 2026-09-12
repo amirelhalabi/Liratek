@@ -489,7 +489,9 @@ export function allocationNotDebtPending(scaAlias: string): string {
  * a `supplier_ledger.id` global AUTOINCREMENT PK, so a sibling allocation row
  * for the SAME id can never belong to a different tenant.
  */
-export function cashlessCommissionBatch(settlementLedgerIdExpr: string): string {
+export function cashlessCommissionBatch(
+  settlementLedgerIdExpr: string,
+): string {
   return `EXISTS (
     SELECT 1 FROM settlement_commission_allocations sca2
     WHERE sca2.settlement_ledger_id = ${settlementLedgerIdExpr}
@@ -785,7 +787,10 @@ export function hasSettlementAllocationsTable(db: Database.Database): boolean {
  * EVERY pending row on such a fixture as "awaiting settlement", the wrong
  * direction from `embeddedCommission`'s own degradation.
  */
-export function atSettlementCommission(alias: string, supported: boolean): string {
+export function atSettlementCommission(
+  alias: string,
+  supported: boolean,
+): string {
   return supported ? `${alias}.commission_model = 1` : "1 = 0";
 }
 
@@ -806,7 +811,10 @@ export function atSettlementCommission(alias: string, supported: boolean): strin
  * every other rule-14 fragment in this file leaves tenant binds to the
  * caller).
  */
-export function currentSettlementAllocation(fsAlias: string, scaAlias: string): string {
+export function currentSettlementAllocation(
+  fsAlias: string,
+  scaAlias: string,
+): string {
   return `${scaAlias}.financial_service_id = ${fsAlias}.id AND ${scaAlias}.settlement_ledger_id = ${fsAlias}.settlement_id`;
 }
 
@@ -1247,8 +1255,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    */
   private _hasSettlementAllocationsTable(): boolean {
     if (this._hasSettlementAllocationsTableCache === null) {
-      this._hasSettlementAllocationsTableCache =
-        hasSettlementAllocationsTable(this.db);
+      this._hasSettlementAllocationsTableCache = hasSettlementAllocationsTable(
+        this.db,
+      );
     }
     return this._hasSettlementAllocationsTableCache;
   }

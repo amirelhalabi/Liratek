@@ -161,10 +161,7 @@ describe("administrative writes are blocked when read_only", () => {
     app.use(requireWritableSubscription);
     app.post(path, (_q, r) => r.json({ reached: true }));
 
-    await request(app)
-      .post(path)
-      .set("Authorization", TOKEN)
-      .expect(402);
+    await request(app).post(path).set("Authorization", TOKEN).expect(402);
   });
 });
 
@@ -179,18 +176,21 @@ describe("the sell path always stays writable — this is the fix", () => {
     "/api/recharge",
     "/api/debts",
     "/api/closing",
-  ])("POST %s succeeds even when the subscription is read_only", async (path) => {
-    const app = express();
-    app.use(express.json());
-    app.use(requireWritableSubscription);
-    app.post(path, (_q, r) => r.json({ success: true, reached: true }));
+  ])(
+    "POST %s succeeds even when the subscription is read_only",
+    async (path) => {
+      const app = express();
+      app.use(express.json());
+      app.use(requireWritableSubscription);
+      app.post(path, (_q, r) => r.json({ success: true, reached: true }));
 
-    const res = await request(app)
-      .post(path)
-      .set("Authorization", TOKEN)
-      .expect(200);
-    expect(res.body.reached).toBe(true);
-  });
+      const res = await request(app)
+        .post(path)
+        .set("Authorization", TOKEN)
+        .expect(200);
+      expect(res.body.reached).toBe(true);
+    },
+  );
 
   it("a POST /api/sales is NOT the 402 the pre-fix allowlist produced", async () => {
     // Regression guard for the exact production incident (DESKTOP_LICENSING_

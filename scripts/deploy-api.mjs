@@ -40,7 +40,8 @@ async function verify() {
   // 1. The process is up and serving.
   try {
     const { status, json } = await getJson(`${HOST}/health`);
-    if (status === 200 && json?.status === "ok") ok(`/health (uptime ${json.uptime}s)`);
+    if (status === 200 && json?.status === "ok")
+      ok(`/health (uptime ${json.uptime}s)`);
     else failures.push(`/health returned ${status}`);
   } catch (e) {
     failures.push(`/health unreachable: ${e.message}`);
@@ -57,7 +58,8 @@ async function verify() {
     const tenant = await getJson(`${HOST}/api/auth/signup-status`, {
       "X-Forwarded-Host": `cornertech.${BASE_DOMAIN}`,
     });
-    if (platform.json?.data?.platformHost === true) ok("platform host resolves");
+    if (platform.json?.data?.platformHost === true)
+      ok("platform host resolves");
     else failures.push("www did NOT resolve as the platform realm");
     if (tenant.json?.data?.platformHost === false) ok("tenant host resolves");
     else failures.push("a tenant subdomain resolved as the platform realm");
@@ -82,21 +84,27 @@ async function verify() {
   if (/REPLICATION IS OFF/i.test(logs)) {
     failures.push("litestream exited at startup — REPLICATION IS OFF");
   } else if (/Litestream NOT configured/i.test(logs)) {
-    failures.push("Litestream NOT configured — backups are OFF (set the LITESTREAM_* secrets)");
+    failures.push(
+      "Litestream NOT configured — backups are OFF (set the LITESTREAM_* secrets)",
+    );
   } else if (/litestream replicating/i.test(logs)) {
     ok("litestream replicating");
   } else {
     bad("litestream state unknown — boot line already out of the log window");
   }
 
-  if (/Database is up to date|migrations applied/i.test(logs)) ok("migrations applied");
+  if (/Database is up to date|migrations applied/i.test(logs))
+    ok("migrations applied");
   else bad("migration state unknown — boot line already out of the log window");
 
   // 4. Exactly one machine. Two writers on one SQLite file is corruption.
   const status = flyCapture(["status"]);
   const started = (status.match(/\bstarted\b/g) ?? []).length;
   if (started === 1) ok("exactly one machine running");
-  else failures.push(`expected 1 running machine, saw ${started} — run: yarn api -- scale count 1`);
+  else
+    failures.push(
+      `expected 1 running machine, saw ${started} — run: yarn api -- scale count 1`,
+    );
 
   return failures;
 }
@@ -121,7 +129,9 @@ if (failures.length) {
   console.error(`\n${failures.length} CHECK(S) FAILED:`);
   for (const f of failures) console.error(`  - ${f}`);
   console.error("\nLogs:   yarn api:logs");
-  console.error("Rollback: point api.liratek.shop back at the tunnel (DEPLOYMENT.md § 4d)");
+  console.error(
+    "Rollback: point api.liratek.shop back at the tunnel (DEPLOYMENT.md § 4d)",
+  );
   process.exit(1);
 }
 

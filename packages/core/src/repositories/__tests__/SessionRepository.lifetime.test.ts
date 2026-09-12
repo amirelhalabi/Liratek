@@ -1,8 +1,5 @@
 import Database from "better-sqlite3";
-import {
-  SessionRepository,
-  SESSION_DURATION,
-} from "../SessionRepository.js";
+import { SessionRepository, SESSION_DURATION } from "../SessionRepository.js";
 
 /**
  * How long a login lasts, and what keeps it alive.
@@ -29,8 +26,9 @@ describe("SessionRepository — how long a login lasts", () => {
 
   beforeEach(() => {
     db = new Database(":memory:");
-    (globalThis as unknown as { __LIRATEK_TEST_DB__?: unknown })
-      .__LIRATEK_TEST_DB__ = db;
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: unknown }
+    ).__LIRATEK_TEST_DB__ = db;
 
     db.exec(`
       CREATE TABLE tenants (

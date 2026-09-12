@@ -54,7 +54,7 @@ describe("VoiceBotService — OMT/Whish + Services navigation aliases", () => {
       },
     );
 
-    it("does not let the shorter \"services\" key swallow the longer \"custom services\" phrase (substring-match safety)", () => {
+    it('does not let the shorter "services" key swallow the longer "custom services" phrase (substring-match safety)', () => {
       // A naive substring scan that stopped at the FIRST key whose text is
       // contained in the phrase could match "services" before ever reaching
       // "custom services" — and if the two aliases pointed at different
@@ -62,9 +62,7 @@ describe("VoiceBotService — OMT/Whish + Services navigation aliases", () => {
       // are pinned to the SAME route here specifically so this ordering
       // hazard cannot produce a wrong answer, verified directly rather than
       // inferred from the table above.
-      expect(navigateTo("custom services")).toBe(
-        navigateTo("services"),
-      );
+      expect(navigateTo("custom services")).toBe(navigateTo("services"));
       expect(navigateTo("custom services")).toBe("/custom-services");
     });
   });

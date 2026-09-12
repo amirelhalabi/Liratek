@@ -202,8 +202,6 @@ function routeToKey(route: string): string {
   return route.replace(/^\//, "").replace(/-/g, "_") || "dashboard";
 }
 
-
-
 /** Map column count to Tailwind grid class */
 const colsClass: Record<number, string> = {
   2: "grid-cols-2",

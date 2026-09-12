@@ -45,7 +45,10 @@ export class SupplierService {
    * and settled at intake time; this is display-only current stock value.
    * Rule 13: delegates straight to the repository, no SQL here.
    */
-  getProductSupplierStockValue(): { supplier_id: number; stock_value_usd: number }[] {
+  getProductSupplierStockValue(): {
+    supplier_id: number;
+    stock_value_usd: number;
+  }[] {
     return getStockBatchRepository().getStockValueBySupplier();
   }
 

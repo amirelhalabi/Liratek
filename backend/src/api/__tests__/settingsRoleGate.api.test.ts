@@ -64,7 +64,10 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getSettingsService, PROFITS_PASSWORD_SETTING_KEY } from "@liratek/core";
+import {
+  getSettingsService,
+  PROFITS_PASSWORD_SETTING_KEY,
+} from "@liratek/core";
 import settingsRouter from "../settings.js";
 
 function buildApp(): Express {

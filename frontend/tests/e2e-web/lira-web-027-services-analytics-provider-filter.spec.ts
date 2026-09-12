@@ -94,9 +94,7 @@ test("GET /api/services/analytics?providers=... filters count and byProvider to 
     byProvider: Array<{ provider: string; currency: string; count: number }>;
   };
 
-  const getAnalytics = async (
-    providers?: string[],
-  ): Promise<Analytics> => {
+  const getAnalytics = async (providers?: string[]): Promise<Analytics> => {
     const qs = providers ? `?providers=${providers.join(",")}` : "";
     const r = await (
       await page.request.get(`${BACKEND_URL}/api/services/analytics${qs}`, {
@@ -181,9 +179,9 @@ test("GET /api/services/analytics?providers=... filters count and byProvider to 
     afterOmtAppOnly.byProvider.every((p) => p.provider === "OMT_APP"),
     JSON.stringify(afterOmtAppOnly.byProvider),
   ).toBe(true);
-  expect(
-    omtAppCountIn(afterOmtAppOnly) - omtAppCountIn(beforeOmtAppOnly),
-  ).toBe(1);
+  expect(omtAppCountIn(afterOmtAppOnly) - omtAppCountIn(beforeOmtAppOnly)).toBe(
+    1,
+  );
 
   // `?providers=OMT,OMT_APP` (the exact comma-joined shape
   // `frontend/src/api/backendApi.ts`'s `getOMTAnalytics` sends, and the

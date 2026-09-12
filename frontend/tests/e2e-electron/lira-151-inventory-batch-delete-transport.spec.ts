@@ -107,7 +107,9 @@ test.describe("Inventory batch delete — desktop (IPC) transport (LIRA-149)", (
     expect(before).toEqual([true, true]);
 
     await navigateTo(appPage, "/products");
-    await appPage.getByPlaceholder(/search by name, barcode/i).fill(SEARCH_SCOPE);
+    await appPage
+      .getByPlaceholder(/search by name, barcode/i)
+      .fill(SEARCH_SCOPE);
 
     const rowA = productRow(appPage, NAME_A);
     const rowB = productRow(appPage, NAME_B);
@@ -123,9 +125,9 @@ test.describe("Inventory batch delete — desktop (IPC) transport (LIRA-149)", (
     await expect(appPage.getByTestId("confirm-modal")).toBeVisible();
     // The unit-check runs before the button reads "Confirm" (LIRA-143 item
     // #7's IN_STOCK-IMEI disclosure) — wait it out.
-    await expect(
-      appPage.getByTestId("confirm-modal-confirm-btn"),
-    ).toHaveText("Confirm");
+    await expect(appPage.getByTestId("confirm-modal-confirm-btn")).toHaveText(
+      "Confirm",
+    );
     await appPage.getByTestId("confirm-modal-confirm-btn").click();
 
     // The notification must report the count the backend actually deleted —
@@ -134,7 +136,9 @@ test.describe("Inventory batch delete — desktop (IPC) transport (LIRA-149)", (
     // does for THIS file's own unique ids, but the wording is what the
     // ticket's bug (a) got wrong, so pin it precisely).
     await expect(
-      appPage.locator('[role="alert"]', { hasText: /2 products deleted/i }).first(),
+      appPage
+        .locator('[role="alert"]', { hasText: /2 products deleted/i })
+        .first(),
     ).toBeVisible({ timeout: 15_000 });
 
     await expect(rowA).toHaveCount(0);

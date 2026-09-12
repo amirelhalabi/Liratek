@@ -158,7 +158,9 @@ type SettleResult = { success?: boolean; id?: number; error?: string };
 type Api = {
   api: {
     omt: {
-      addTransaction: (d: Record<string, unknown>) => Promise<AddTransactionResult>;
+      addTransaction: (
+        d: Record<string, unknown>,
+      ) => Promise<AddTransactionResult>;
     };
     suppliers: {
       list: (
@@ -182,9 +184,7 @@ type Api = {
         limit?: number,
         filters?: Record<string, unknown>,
       ) => Promise<RecentTxnRow[] | { transactions?: RecentTxnRow[] }>;
-      void: (
-        id: number,
-      ) => Promise<{ success?: boolean; error?: string }>;
+      void: (id: number) => Promise<{ success?: boolean; error?: string }>;
     };
   };
 };
@@ -484,23 +484,18 @@ test.describe("LIRA-159 — Monthly P&L tracks the SETTLED commission, not the c
     // Identity, not position (rule 15): the SUPPLIER_SETTLEMENT transaction
     // this exact settlement wrote, matched by its own source_id — same
     // pattern lira-089 uses for its own void step.
-    const settlementTxn = await appPage.evaluate(
-      async (ledgerId: number) => {
-        const w = window as unknown as Api;
-        const recent = await w.api.transactions.getRecent(50, {
-          source_table: "supplier_ledger",
-        });
-        const list = Array.isArray(recent)
-          ? recent
-          : (recent.transactions ?? []);
-        return (
-          list.find(
-            (t) => t.type === "SUPPLIER_SETTLEMENT" && t.source_id === ledgerId,
-          ) ?? null
-        );
-      },
-      settlementLedgerId,
-    );
+    const settlementTxn = await appPage.evaluate(async (ledgerId: number) => {
+      const w = window as unknown as Api;
+      const recent = await w.api.transactions.getRecent(50, {
+        source_table: "supplier_ledger",
+      });
+      const list = Array.isArray(recent) ? recent : (recent.transactions ?? []);
+      return (
+        list.find(
+          (t) => t.type === "SUPPLIER_SETTLEMENT" && t.source_id === ledgerId,
+        ) ?? null
+      );
+    }, settlementLedgerId);
     expect(
       settlementTxn,
       "SUPPLIER_SETTLEMENT transaction not found",

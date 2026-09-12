@@ -343,10 +343,7 @@ router.get("/sessions", authenticateJWT, async (req, res): Promise<void> => {
     );
     res.json(createSuccessResponse(sessions));
   } catch (error) {
-    logger.error(
-      { error, userId: req.user.userId },
-      "Failed to list sessions",
-    );
+    logger.error({ error, userId: req.user.userId }, "Failed to list sessions");
     res
       .status(500)
       .json(
@@ -466,10 +463,7 @@ router.delete(
 
     try {
       const authService = getAuthService();
-      const revoked = await authService.revokeUserSession(
-        id,
-        req.user.userId,
-      );
+      const revoked = await authService.revokeUserSession(id, req.user.userId);
 
       if (!revoked) {
         // Same envelope-parity reasoning as the id check above: "not found /

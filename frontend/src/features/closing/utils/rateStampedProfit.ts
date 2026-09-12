@@ -1,4 +1,9 @@
-import { convert, MoneyError, type RateSide, type RateTable } from "@liratek/ui";
+import {
+  convert,
+  MoneyError,
+  type RateSide,
+  type RateTable,
+} from "@liratek/ui";
 
 /**
  * LIRA-174 — the Checkpoint/closing PDF's rate-stamped USD+LBP profit view
@@ -186,7 +191,8 @@ export function buildRateStampedProfitLines(
 }
 
 const formatUsd = (n: number): string => `$${n.toFixed(2)}`;
-const formatLbp = (n: number): string => `${Math.round(n).toLocaleString()} LBP`;
+const formatLbp = (n: number): string =>
+  `${Math.round(n).toLocaleString()} LBP`;
 
 /** Renders `RateStampedProfitLines` as plain text lines for the closing
  *  report (embedded verbatim in the PDF's `<pre>` block by

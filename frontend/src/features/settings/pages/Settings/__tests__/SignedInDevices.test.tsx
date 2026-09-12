@@ -72,9 +72,7 @@ let stopCapture: () => void = () => {};
 /** Captures every "notification:show" emission for the life of one test. */
 function captureNotifications(): string[] {
   const messages: string[] = [];
-  stopCapture = appEvents.on("notification:show", (msg) =>
-    messages.push(msg),
-  );
+  stopCapture = appEvents.on("notification:show", (msg) => messages.push(msg));
   return messages;
 }
 
@@ -90,9 +88,7 @@ describe("SignedInDevices — real error messages reach the screen", () => {
   });
 
   it("shows the server's reason when loading the list fails, not the generic fallback", async () => {
-    listUserSessions.mockRejectedValue(
-      apiThrow("Session store unreachable"),
-    );
+    listUserSessions.mockRejectedValue(apiThrow("Session store unreachable"));
 
     render(<SignedInDevices />);
 
@@ -130,9 +126,7 @@ describe("SignedInDevices — real error messages reach the screen", () => {
 
     render(<SignedInDevices />);
 
-    fireEvent.click(
-      await screen.findByText("Sign out everywhere else"),
-    );
+    fireEvent.click(await screen.findByText("Sign out everywhere else"));
 
     await waitFor(() =>
       expect(notifications).toContain("Too many sessions ended recently"),

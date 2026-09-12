@@ -377,7 +377,12 @@ function seedDebt(
     `INSERT INTO debt_ledger
        (tenant_id, client_id, transaction_type, amount_usd, transaction_id, covered_usd, created_at)
      VALUES (1, 1, 'Service Debt', ?, ?, ?, ?)`,
-  ).run(opts.amountUsd ?? 100, opts.fsTxnId, opts.coveredUsd ?? 0, opts.createdAt);
+  ).run(
+    opts.amountUsd ?? 100,
+    opts.fsTxnId,
+    opts.coveredUsd ?? 0,
+    opts.createdAt,
+  );
 }
 
 function coverDebt(db: Database.Database, fsTxnId: number): void {
@@ -398,7 +403,8 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__;
+    delete (globalThis as unknown as Record<string, unknown>)
+      .__LIRATEK_TEST_DB__;
     db.close();
   });
 
@@ -411,7 +417,12 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
       createdAt: TXN_DAY,
     });
     const fsTxnId = seedFsTransaction(db, fsId, TXN_DAY);
-    seedDebt(db, { fsTxnId, amountUsd: 100, coveredUsd: 0, createdAt: TXN_DAY });
+    seedDebt(db, {
+      fsTxnId,
+      amountUsd: 100,
+      coveredUsd: 0,
+      createdAt: TXN_DAY,
+    });
     seedSettlementTxn(db, {
       settlementLedgerId,
       profitUsd: 2.0,
@@ -429,7 +440,10 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     // Not realized while uncovered — over a window covering the settlement
     // day, the $2.00 must NOT appear (this is the gate D17 adds).
     let totals = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     expect(totals.profit_usd).toBe(0);
     expect(totals.count).toBe(0);
@@ -454,7 +468,10 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     coverDebt(db, fsTxnId);
 
     totals = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     expect(totals.profit_usd).toBe(2.0);
     expect(totals.count).toBe(1);
@@ -491,7 +508,10 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     });
 
     const totals = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     expect(totals.profit_usd).toBe(3.5);
     expect(totals.count).toBe(1);
@@ -515,7 +535,12 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     // Debt-pending — this bill WAS charged to the client's account — yet a
     // bills-only settlement must not care: the money is real (a provider
     // drawer top-up) the instant it's recognised.
-    seedDebt(db, { fsTxnId, amountUsd: 100, coveredUsd: 0, createdAt: TXN_DAY });
+    seedDebt(db, {
+      fsTxnId,
+      amountUsd: 100,
+      coveredUsd: 0,
+      createdAt: TXN_DAY,
+    });
     seedSettlementTxn(db, {
       settlementLedgerId,
       profitLbp: 20000,
@@ -531,7 +556,10 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     });
 
     const totals = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     expect(totals.profit_lbp).toBe(20000);
     expect(totals.count).toBe(1);
@@ -597,7 +625,10 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     // batch's full stamp (the pre-D17 shape) — only the OMT share (cash-paid,
     // not debt-pending) is currently recognised; the BILL share defers.
     const totals = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     expect(totals.profit_usd).toBe(1.0);
 
@@ -613,7 +644,10 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     // the total now matches the full entered commission.
     coverDebt(db, billFsTxnId);
     const totalsAfter = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     expect(totalsAfter.profit_usd).toBe(2.0);
   });
@@ -643,7 +677,10 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     });
 
     let totals = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     expect(totals.profit_usd).toBe(4.25);
 
@@ -657,7 +694,10 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     ).run(recognizedLedgerId);
 
     totals = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     expect(totals.profit_usd).toBe(0);
     let deferred = runWithTenant(1, () =>
@@ -712,7 +752,10 @@ describe("LIRA-158 D17 — cashless settlement commission defers on client debt"
     );
     expect(deferred.client_debt_profit_usd).toBe(0);
     totals = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     expect(totals.profit_usd).toBe(0);
   });
@@ -730,7 +773,8 @@ describe("LIRA-158 D17 Item 1 — getByUser/getByClient supplier-settlement arm"
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__;
+    delete (globalThis as unknown as Record<string, unknown>)
+      .__LIRATEK_TEST_DB__;
     db.close();
   });
 
@@ -744,7 +788,12 @@ describe("LIRA-158 D17 Item 1 — getByUser/getByClient supplier-settlement arm"
       createdAt: TXN_DAY,
     });
     const fsTxnId = seedFsTransaction(db, fsId, TXN_DAY);
-    seedDebt(db, { fsTxnId, amountUsd: 100, coveredUsd: 0, createdAt: TXN_DAY });
+    seedDebt(db, {
+      fsTxnId,
+      amountUsd: 100,
+      coveredUsd: 0,
+      createdAt: TXN_DAY,
+    });
     seedSettlementTxn(db, {
       settlementLedgerId,
       profitUsd: 2.0,
@@ -791,7 +840,12 @@ describe("LIRA-158 D17 Item 1 — getByUser/getByClient supplier-settlement arm"
     const fsTxnId = seedFsTransaction(db, fsId, TXN_DAY);
     // Debt-pending — irrelevant for a bills-only batch (immediate, never
     // client-debt-gated).
-    seedDebt(db, { fsTxnId, amountUsd: 100, coveredUsd: 0, createdAt: TXN_DAY });
+    seedDebt(db, {
+      fsTxnId,
+      amountUsd: 100,
+      coveredUsd: 0,
+      createdAt: TXN_DAY,
+    });
     seedSettlementTxn(db, {
       settlementLedgerId,
       profitLbp: 20000,
@@ -903,7 +957,8 @@ describe("LIRA-158 D17 — schema-drift fallback (pre-v150 fixture, no allocatio
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__;
+    delete (globalThis as unknown as Record<string, unknown>)
+      .__LIRATEK_TEST_DB__;
     db.close();
   });
 
@@ -915,12 +970,18 @@ describe("LIRA-158 D17 — schema-drift fallback (pre-v150 fixture, no allocatio
 
     expect(() => {
       runWithTenant(1, () =>
-        repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+        repo.getSupplierCommissionTotals(
+          SETTLE_DAY_ONLY_FROM,
+          SETTLE_DAY_ONLY_TO,
+        ),
       );
     }).not.toThrow();
 
     const totals = runWithTenant(1, () =>
-      repo.getSupplierCommissionTotals(SETTLE_DAY_ONLY_FROM, SETTLE_DAY_ONLY_TO),
+      repo.getSupplierCommissionTotals(
+        SETTLE_DAY_ONLY_FROM,
+        SETTLE_DAY_ONLY_TO,
+      ),
     );
     // Old, undifferentiated behavior: the stamp counts in full, regardless
     // of any debt — there is no allocations table to classify or gate on.

@@ -111,7 +111,6 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
 
   // Consolidated module group: recharge + ipec_katch + binance → one "Mobile Recharge" link
 
-
   // Build nav items from DB modules
   const allNavItems = useMemo(() => {
     let consolidatedInserted = false;

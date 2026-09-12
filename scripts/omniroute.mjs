@@ -87,7 +87,12 @@ const NODE_EXE = IS_WINDOWS ? "node.exe" : "node";
 function parseVersion(raw) {
   const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(raw ?? "");
   if (!m) return null;
-  return { major: +m[1], minor: +m[2], patch: +m[3], raw: `v${m[1]}.${m[2]}.${m[3]}` };
+  return {
+    major: +m[1],
+    minor: +m[2],
+    patch: +m[3],
+    raw: `v${m[1]}.${m[2]}.${m[3]}`,
+  };
 }
 
 function satisfiesPolicy(v) {
@@ -95,7 +100,11 @@ function satisfiesPolicy(v) {
   return NODE_POLICY.some((rule) => {
     if (v.major !== rule.major) return false;
     if (rule.minMinor !== undefined && v.minor < rule.minMinor) return false;
-    if (rule.minPatch !== undefined && v.minor === rule.minMinor && v.patch < rule.minPatch) {
+    if (
+      rule.minPatch !== undefined &&
+      v.minor === rule.minMinor &&
+      v.patch < rule.minPatch
+    ) {
       return false;
     }
     return true;
@@ -114,7 +123,9 @@ function resolveNodeDir() {
   const override = process.env.OMNIROUTE_NODE_DIR;
   if (override) {
     if (!existsSync(path.join(override, NODE_EXE))) {
-      fail(`OMNIROUTE_NODE_DIR is set to "${override}" but contains no ${NODE_EXE}.`);
+      fail(
+        `OMNIROUTE_NODE_DIR is set to "${override}" but contains no ${NODE_EXE}.`,
+      );
     }
     return override;
   }
@@ -126,7 +137,10 @@ function resolveNodeDir() {
       const version = parseVersion(entry);
       if (!satisfiesPolicy(version)) continue;
       // fnm layout: <root>/<version>/installation/node.exe
-      for (const dir of [path.join(root, entry, "installation"), path.join(root, entry, "bin")]) {
+      for (const dir of [
+        path.join(root, entry, "installation"),
+        path.join(root, entry, "bin"),
+      ]) {
         if (existsSync(path.join(dir, NODE_EXE))) {
           candidates.push({ version, dir });
           break;
@@ -150,14 +164,21 @@ function resolveNodeDir() {
 function resolveOmniroute() {
   const override = process.env.OMNIROUTE_ENTRY;
   if (override) {
-    if (!existsSync(override)) fail(`OMNIROUTE_ENTRY is set to "${override}" but does not exist.`);
+    if (!existsSync(override))
+      fail(`OMNIROUTE_ENTRY is set to "${override}" but does not exist.`);
     return override;
   }
 
   const roots = [];
-  const probe = spawnSync("npm", ["root", "-g"], { encoding: "utf8", shell: IS_WINDOWS });
-  if (probe.status === 0 && probe.stdout.trim()) roots.push(probe.stdout.trim());
-  roots.push(path.join(os.homedir(), "AppData", "Roaming", "npm", "node_modules"));
+  const probe = spawnSync("npm", ["root", "-g"], {
+    encoding: "utf8",
+    shell: IS_WINDOWS,
+  });
+  if (probe.status === 0 && probe.stdout.trim())
+    roots.push(probe.stdout.trim());
+  roots.push(
+    path.join(os.homedir(), "AppData", "Roaming", "npm", "node_modules"),
+  );
 
   for (const root of roots) {
     const entry = path.join(root, "omniroute", "bin", "omniroute.mjs");
@@ -206,14 +227,22 @@ function requireEnvironment() {
 
 /** PATH with the chosen Node FIRST, so spawned children inherit it (see #2). */
 function envWithNodeFirst(nodeDir) {
-  const key = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
-  return { ...process.env, [key]: `${nodeDir}${path.delimiter}${process.env[key] ?? ""}` };
+  const key =
+    Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  return {
+    ...process.env,
+    [key]: `${nodeDir}${path.delimiter}${process.env[key] ?? ""}`,
+  };
 }
 
 function start(args) {
   const { nodeDir, entry } = requireEnvironment();
-  const version = spawnSync(path.join(nodeDir, NODE_EXE), ["-v"], { encoding: "utf8" });
-  console.log(`  OmniRoute via Node ${version.stdout?.trim() ?? "?"} (${nodeDir})`);
+  const version = spawnSync(path.join(nodeDir, NODE_EXE), ["-v"], {
+    encoding: "utf8",
+  });
+  console.log(
+    `  OmniRoute via Node ${version.stdout?.trim() ?? "?"} (${nodeDir})`,
+  );
   console.log(`  entry: ${entry}\n`);
 
   const child = spawn(path.join(nodeDir, NODE_EXE), [entry, ...args], {
@@ -248,7 +277,9 @@ async function status() {
       console.log(
         "    A 500 usually means the server child ran on the wrong Node and fell",
       );
-      console.log("    back to the sql.js WASM driver. Stop it and start via this script.");
+      console.log(
+        "    back to the sql.js WASM driver. Stop it and start via this script.",
+      );
     }
     process.exitCode = 1;
   } catch {
@@ -261,7 +292,9 @@ function stop() {
   if (!IS_WINDOWS) {
     // Anchored on the global install dir, so this wrapper (scripts/omniroute.mjs)
     // is never itself a match — a bare -f omniroute makes `stop` kill itself.
-    const r = spawnSync("pkill", ["-f", "node_modules/omniroute/"], { stdio: "inherit" });
+    const r = spawnSync("pkill", ["-f", "node_modules/omniroute/"], {
+      stdio: "inherit",
+    });
     console.log(r.status === 0 ? "  ✔ stopped" : "  nothing running");
     return;
   }
@@ -279,7 +312,7 @@ function stop() {
     "  Where-Object { $_.CommandLine -like '*omniroute*' -and",
     "                 $_.CommandLine -notlike '*scripts?omniroute.mjs*' -and",
     "                 $self -notcontains $_.ProcessId };",
-    "if ($p) { $p | ForEach-Object { Write-Output \"stopped PID $($_.ProcessId)\";",
+    'if ($p) { $p | ForEach-Object { Write-Output "stopped PID $($_.ProcessId)";',
     "  Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }",
     "else { Write-Output 'nothing running' }",
   ].join(" ");
@@ -290,13 +323,19 @@ function doctor() {
   console.log(`  repo Node:      ${process.version} (unchanged by OmniRoute)`);
   const nodeDir = resolveNodeDir();
   if (nodeDir) {
-    const v = spawnSync(path.join(nodeDir, NODE_EXE), ["-v"], { encoding: "utf8" });
+    const v = spawnSync(path.join(nodeDir, NODE_EXE), ["-v"], {
+      encoding: "utf8",
+    });
     console.log(`  OmniRoute Node: ${v.stdout?.trim() ?? "?"}  ${nodeDir}`);
   } else {
-    console.log("  OmniRoute Node: NOT FOUND (see npm run omniroute for install steps)");
+    console.log(
+      "  OmniRoute Node: NOT FOUND (see npm run omniroute for install steps)",
+    );
   }
   const entry = resolveOmniroute();
-  console.log(`  entry:          ${entry ?? "NOT FOUND (npm install -g omniroute)"}`);
+  console.log(
+    `  entry:          ${entry ?? "NOT FOUND (npm install -g omniroute)"}`,
+  );
   if (entry) {
     const pkgRoot = path.resolve(path.dirname(entry), "..");
     console.log(

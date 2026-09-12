@@ -241,7 +241,11 @@ describe("fails SOFT — never throws into a signup", () => {
     // The single property the signup route depends on.
     for (const outcome of [
       () => fetchMock.mockRejectedValueOnce(new Error("boom")),
-      () => fetchMock.mockResolvedValueOnce({ status: 429, json: async () => null }),
+      () =>
+        fetchMock.mockResolvedValueOnce({
+          status: 429,
+          json: async () => null,
+        }),
       () =>
         fetchMock.mockResolvedValueOnce({
           status: 200,

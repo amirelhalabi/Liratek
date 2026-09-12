@@ -14,7 +14,12 @@
 import { jest } from "@jest/globals";
 
 jest.mock("../../server.js", () => ({
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 const validateSession = jest.fn();
@@ -59,7 +64,9 @@ describe("authenticateJWT — database error vs. genuine session expiry", () => 
   });
 
   it("answers 503, NOT 401, when validateSession throws", async () => {
-    validateSession.mockRejectedValue(new Error("SQLITE_BUSY: database is locked"));
+    validateSession.mockRejectedValue(
+      new Error("SQLITE_BUSY: database is locked"),
+    );
 
     const res = await request(buildApp())
       .get("/api/thing")

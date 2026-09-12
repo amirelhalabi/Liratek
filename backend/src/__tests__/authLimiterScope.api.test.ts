@@ -23,7 +23,12 @@
 import { jest } from "@jest/globals";
 
 jest.mock("../server.js", () => ({
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 import express, { type Express } from "express";
@@ -109,7 +114,8 @@ describe("auth rate limiting — scope", () => {
   it("signup-status stays reachable — the login page needs it to render", async () => {
     const app = appWithRouteLevelLimiter();
 
-    for (let i = 0; i < 5; i++) await request(app).get("/api/auth/me").expect(401);
+    for (let i = 0; i < 5; i++)
+      await request(app).get("/api/auth/me").expect(401);
 
     // Under the old mounting this returned 429 and the page could not even
     // decide whether to show the "Create your shop" link.

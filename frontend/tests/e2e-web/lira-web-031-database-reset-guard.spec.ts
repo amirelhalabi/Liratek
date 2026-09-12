@@ -174,8 +174,5 @@ test.describe("Database Reset guard (web/REST) — LIRA-165 (no real reset ever 
 
   // 4. Non-admin cannot reset — SKIPPED, see file header: no staff login
   // fixture exists in this suite (same gap lira-web-028/029 document).
-  test.skip(
-    "4. a non-admin (staff) cannot reach preview or reset at all — SKIPPED (no staff login fixture in this suite; see file header comment)",
-    () => {},
-  );
+  test.skip("4. a non-admin (staff) cannot reach preview or reset at all — SKIPPED (no staff login fixture in this suite; see file header comment)", () => {});
 });

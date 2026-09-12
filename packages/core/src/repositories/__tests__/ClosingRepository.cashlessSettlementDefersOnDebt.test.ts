@@ -216,7 +216,11 @@ function seedAllocation(row: {
   );
 }
 
-function seedDebt(row: { fsTxnId: number; coveredUsd: number; createdAt: string }): void {
+function seedDebt(row: {
+  fsTxnId: number;
+  coveredUsd: number;
+  createdAt: string;
+}): void {
   db.prepare(
     `INSERT INTO debt_ledger (tenant_id, client_id, transaction_type, amount_usd, transaction_id, covered_usd, created_at)
      VALUES (1, 1, 'Service Debt', 100, ?, ?, ?)`,
@@ -238,7 +242,10 @@ describe("ClosingRepository.getDailyStatsSnapshot — LIRA-158 D17 cashless comm
 
   it("1. a CASHLESS settlement's commission does not contribute to today's total while the client's debt is uncovered", () => {
     const settlementLedgerId = 801;
-    const fsId = seedFs({ settlementId: settlementLedgerId, createdAt: todayAtUtc("08") });
+    const fsId = seedFs({
+      settlementId: settlementLedgerId,
+      createdAt: todayAtUtc("08"),
+    });
     const fsTxnId = seedFsTransaction(fsId, todayAtUtc("08"));
     seedDebt({ fsTxnId, coveredUsd: 0, createdAt: todayAtUtc("08") });
     seedSettlementTxn({
@@ -260,7 +267,10 @@ describe("ClosingRepository.getDailyStatsSnapshot — LIRA-158 D17 cashless comm
 
   it("2. once the client's debt is covered, the SAME cashless settlement's commission contributes on the SETTLEMENT day", () => {
     const settlementLedgerId = 802;
-    const fsId = seedFs({ settlementId: settlementLedgerId, createdAt: todayAtUtc("08") });
+    const fsId = seedFs({
+      settlementId: settlementLedgerId,
+      createdAt: todayAtUtc("08"),
+    });
     const fsTxnId = seedFsTransaction(fsId, todayAtUtc("08"));
     seedSettlementTxn({
       settlementLedgerId,
@@ -283,7 +293,10 @@ describe("ClosingRepository.getDailyStatsSnapshot — LIRA-158 D17 cashless comm
 
   it("3. a BILLS-ONLY settlement's commission is unaffected by an uncovered client debt on the underlying bill — recognises immediately", () => {
     const settlementLedgerId = 803;
-    const fsId = seedFs({ settlementId: settlementLedgerId, createdAt: todayAtUtc("08") });
+    const fsId = seedFs({
+      settlementId: settlementLedgerId,
+      createdAt: todayAtUtc("08"),
+    });
     const fsTxnId = seedFsTransaction(fsId, todayAtUtc("08"));
     seedDebt({ fsTxnId, coveredUsd: 0, createdAt: todayAtUtc("08") });
     seedSettlementTxn({

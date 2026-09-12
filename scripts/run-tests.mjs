@@ -170,7 +170,12 @@ function runWorkspaceTest(ws) {
         code: null,
         elapsedMs: Date.now() - start,
         launchError: err.message,
-        summary: { suitesTotal: null, suitesFailed: null, testsTotal: null, testsFailed: null },
+        summary: {
+          suitesTotal: null,
+          suitesFailed: null,
+          testsTotal: null,
+          testsFailed: null,
+        },
       });
     });
 

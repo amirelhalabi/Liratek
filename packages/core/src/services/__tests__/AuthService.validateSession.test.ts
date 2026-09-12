@@ -1,6 +1,9 @@
 import { AuthService } from "../AuthService";
 import type { UserRepository } from "../../repositories/UserRepository";
-import type { SessionRepository, SessionEntity } from "../../repositories/SessionRepository";
+import type {
+  SessionRepository,
+  SessionEntity,
+} from "../../repositories/SessionRepository";
 import { DatabaseError } from "../../utils/errors";
 
 /**

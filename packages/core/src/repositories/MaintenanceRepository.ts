@@ -501,7 +501,8 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       amount_lbp: isLbp ? opts.finalAmount : 0,
       // Margin: parts margin (always USD) + labour margin (job currency) +
       // kept change per its own currency (T3).
-      profit_usd: partsMarginUsd + (isLbp ? 0 : profit) + (opts.keptChangeUsd ?? 0),
+      profit_usd:
+        partsMarginUsd + (isLbp ? 0 : profit) + (opts.keptChangeUsd ?? 0),
       profit_lbp: (isLbp ? profit : 0) + (opts.keptChangeLbp ?? 0),
       client_id: opts.clientId ?? null,
       exchange_rate: opts.exchangeRate,

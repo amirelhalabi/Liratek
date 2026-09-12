@@ -375,26 +375,34 @@ describe("DatabaseResetRepository", () => {
     // extra fixture needed.
     const before: Record<string, string> = {};
     for (const table of RESET_KEEP_TABLES) {
-      before[table] = JSON.stringify(db.prepare(`SELECT * FROM "${table}"`).all());
+      before[table] = JSON.stringify(
+        db.prepare(`SELECT * FROM "${table}"`).all(),
+      );
     }
 
     runWithTenant(1, () => repo.resetTenantData());
 
     for (const table of RESET_KEEP_TABLES) {
-      const after = JSON.stringify(db.prepare(`SELECT * FROM "${table}"`).all());
+      const after = JSON.stringify(
+        db.prepare(`SELECT * FROM "${table}"`).all(),
+      );
       expect(after).toBe(before[table]);
     }
   });
 
   it("deletes only ad-hoc suppliers, keeping module-owned and system rows", () => {
-    db.prepare(`INSERT INTO suppliers (tenant_id, name) VALUES (1, 'AdHoc Co')`).run();
+    db.prepare(
+      `INSERT INTO suppliers (tenant_id, name) VALUES (1, 'AdHoc Co')`,
+    ).run();
 
     runWithTenant(1, () => repo.resetTenantData());
 
     const byName = (name: string): number =>
       (
         db
-          .prepare(`SELECT COUNT(*) AS n FROM suppliers WHERE tenant_id = 1 AND name = ?`)
+          .prepare(
+            `SELECT COUNT(*) AS n FROM suppliers WHERE tenant_id = 1 AND name = ?`,
+          )
           .get(name) as { n: number }
       ).n;
 
@@ -501,7 +509,9 @@ describe("DatabaseResetRepository", () => {
 
   it("previewCounts reports the exact per-table counts resetTenantData will delete", () => {
     insertTenantFixture(db, 1);
-    db.prepare(`INSERT INTO suppliers (tenant_id, name) VALUES (1, 'AdHoc Co')`).run();
+    db.prepare(
+      `INSERT INTO suppliers (tenant_id, name) VALUES (1, 'AdHoc Co')`,
+    ).run();
 
     const preview = runWithTenant(1, () => repo.previewCounts());
 

@@ -74,9 +74,9 @@ export default function ProfitsPasswordPanel() {
   return (
     <div data-testid="profits-password-panel" className="space-y-4 max-w-md">
       <p className="text-sm text-slate-400">
-        This password is required from EVERYONE — including admins — on
-        every visit to the Profits page. A correct password unlocks Profits
-        for 15 minutes; navigating away locks it again immediately.
+        This password is required from EVERYONE — including admins — on every
+        visit to the Profits page. A correct password unlocks Profits for 15
+        minutes; navigating away locks it again immediately.
       </p>
 
       <div

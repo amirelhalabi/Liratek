@@ -127,7 +127,8 @@ export function registerProfitHandlers(): void {
       if (!accessSvc.isPasswordSet()) {
         return {
           success: false,
-          error: "No profits password has been set. Ask an admin to set one in Settings.",
+          error:
+            "No profits password has been set. Ask an admin to set one in Settings.",
         };
       }
 

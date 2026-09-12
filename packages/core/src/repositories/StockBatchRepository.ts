@@ -443,7 +443,10 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
    * permanently and later sales silently fall through to fallback pricing.
    * See `_restoreConsumptions` for the full semantics.
    */
-  restoreForMaintenancePart(maintenancePartId: number, quantity?: number): void {
+  restoreForMaintenancePart(
+    maintenancePartId: number,
+    quantity?: number,
+  ): void {
     this._restoreConsumptions(
       "maintenance_part_id",
       maintenancePartId,
@@ -496,7 +499,10 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
    * `SUM(quantity_remaining * unit_cost_usd)`. Excludes batches with no
    * supplier (opening/no-supplier stock has nothing to report per-supplier).
    */
-  getStockValueBySupplier(): { supplier_id: number; stock_value_usd: number }[] {
+  getStockValueBySupplier(): {
+    supplier_id: number;
+    stock_value_usd: number;
+  }[] {
     return this.query<{ supplier_id: number; stock_value_usd: number }>(
       `SELECT supplier_id, SUM(quantity_remaining * unit_cost_usd) AS stock_value_usd
        FROM product_stock_batches

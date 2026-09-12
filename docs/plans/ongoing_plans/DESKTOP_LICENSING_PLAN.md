@@ -17,18 +17,18 @@ The ask was "generate licences, see them, revoke them, decide where the key
 lives, re-check periodically". Nearly all of that exists. Rebuilding it would
 be the expensive mistake.
 
-| Asked for | Status | Where |
-| --- | --- | --- |
-| Generate a licence key | **Built** | `POST /api/admin/subscriptions/:tenantId/license-key` → `lsk_` + 16 random bytes, audited (`backend/src/api/admin.ts:545`) |
-| Issue it from the UI | **Built** | `PlanModal.tsx` |
-| Store it against a tenant | **Built** | `tenant_subscriptions.license_key`, PARTIAL UNIQUE so two shops can never share one |
-| Desktop presents it | **Built** | `GET /api/subscription/by-key` |
-| Periodic re-check | **Built** | `licenseSync.ts` — boot, then every 4 hours |
-| One entitlement implementation | **Built** | Sync writes the local row; all gates read it via the same `SubscriptionService` the web uses (rules 13/19) |
-| Per-module entitlement | **Built** | `entitled_modules` JSON; NULL = all |
-| Lapse handling | **Built** | `active → grace → read_only`, hourly `runLapseSweep()` |
-| Revoke a key | **Route exists** | `PATCH /api/admin/subscriptions/:tenantId` with `licenseKey: null` — but see §1 and §3.5 |
-| Licences overview | **Partial** | `GET /api/admin/subscriptions` lists them; no last-check-in, no machine count |
+| Asked for                      | Status           | Where                                                                                                                      |
+| ------------------------------ | ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Generate a licence key         | **Built**        | `POST /api/admin/subscriptions/:tenantId/license-key` → `lsk_` + 16 random bytes, audited (`backend/src/api/admin.ts:545`) |
+| Issue it from the UI           | **Built**        | `PlanModal.tsx`                                                                                                            |
+| Store it against a tenant      | **Built**        | `tenant_subscriptions.license_key`, PARTIAL UNIQUE so two shops can never share one                                        |
+| Desktop presents it            | **Built**        | `GET /api/subscription/by-key`                                                                                             |
+| Periodic re-check              | **Built**        | `licenseSync.ts` — boot, then every 4 hours                                                                                |
+| One entitlement implementation | **Built**        | Sync writes the local row; all gates read it via the same `SubscriptionService` the web uses (rules 13/19)                 |
+| Per-module entitlement         | **Built**        | `entitled_modules` JSON; NULL = all                                                                                        |
+| Lapse handling                 | **Built**        | `active → grace → read_only`, hourly `runLapseSweep()`                                                                     |
+| Revoke a key                   | **Route exists** | `PATCH /api/admin/subscriptions/:tenantId` with `licenseKey: null` — but see §1 and §3.5                                   |
+| Licences overview              | **Partial**      | `GET /api/admin/subscriptions` lists them; no last-check-in, no machine count                                              |
 
 ---
 
@@ -43,8 +43,12 @@ subscription reaches `read_only`. The exemption list is the whole of it:
 
 ```js
 const ALWAYS_WRITABLE = [
-  "/api/auth/login", "/api/auth/logout", "/api/auth/signup",
-  "/api/auth/signup-status", "/api/subscription", "/api/admin",
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/auth/signup",
+  "/api/auth/signup-status",
+  "/api/subscription",
+  "/api/admin",
 ];
 ```
 
@@ -56,11 +60,11 @@ an outage, but from an invoice being late.
 
 The industry answer is unanimous and none of it looks like this. Microsoft 365
 past its 30-day window drops to "view and print"; JetBrains reverted to
-*"you will no longer be locked out… you'll retain access with the free feature
-set"*; ICONICS keeps running "as previously licensed". Every one of them keeps
+_"you will no longer be locked out… you'll retain access with the free feature
+set"_; ICONICS keeps running "as previously licensed". Every one of them keeps
 the primary job working and removes the periphery.
 
-**Recommendation.** Invert the allowlist into a *denylist*. The sell path —
+**Recommendation.** Invert the allowlist into a _denylist_. The sell path —
 sales, payments, drawers, sessions, receipts, closing — is **never** gated by
 subscription state. What degrades is: reports and exports, new user creation,
 new device enrolment, module changes, settings, bulk import, backup config.
@@ -85,15 +89,15 @@ That is closer to right than wrong, and the research supports keeping it —
 with one distinction the current code does not make.
 
 **Keep failing open on "I could not reach the server."** Keygen's own
-integration guidance calls immediate denial *"not recommended unless your
-product relies on an active internet connection."* A till does not.
+integration guidance calls immediate denial _"not recommended unless your
+product relies on an active internet connection."_ A till does not.
 
 **Act only on "the server said something"** — an authenticated, signed
 statement. Today a 404 (unknown key) and a timeout are treated identically;
 they are completely different facts and only one of them is evidence.
 
-This one change converts the question from *"can I reach the server?"* — the
-wrong question in Lebanon — into *"do I hold a valid statement?"*, which is
+This one change converts the question from _"can I reach the server?"_ — the
+wrong question in Lebanon — into _"do I hold a valid statement?"_, which is
 answerable on a dead link.
 
 ---
@@ -128,7 +132,7 @@ server-side, verified in the desktop app against a pinned 32-byte public key.
 Why it is the right shape here:
 
 - It works on a dead link — the whole point for a Lebanese shop.
-- The client can verify *authenticity* offline; only *expiry* needs a clock.
+- The client can verify _authenticity_ offline; only _expiry_ needs a clock.
 - Ed25519 is Keygen's "overall recommended scheme"; the public key is 32 bytes
   and ships in the binary.
 
@@ -183,8 +187,8 @@ Recommendation, cheapest first:
 ### 3.5 Revocation — **TTL is your revocation SLA** ✅ decided
 
 Unanimous across every vendor that addresses it: a revoked licence cannot
-reach an offline machine. Cryptlex: *"a machine with no connectivity… never
-receives the change at all."* Keygen warns that a `null` TTL is "perpetual and
+reach an offline machine. Cryptlex: _"a machine with no connectivity… never
+receives the change at all."_ Keygen warns that a `null` TTL is "perpetual and
 **irrevocable**". Notably, **no mainstream licensing SDK implements a CRL** —
 they all revoke by not renewing.
 
@@ -194,7 +198,7 @@ refunded tenant keeps working until it expires.
 
 Do add an explicit `revoked` status that the server returns **when reachable**
 and the client honours immediately — an authenticated "revoked" is the one
-signal that should act at once. It should still *degrade* per §1, not lock.
+signal that should act at once. It should still _degrade_ per §1, not lock.
 
 Worth stealing Cryptlex's distinction: **suspend** self-heals on next sync;
 **revoke** is permanent and needs re-activation. Refunds and chargebacks are
@@ -204,7 +208,7 @@ the revoke case.
 
 Four unrelated vendors converged on ~24 hours: Sentinel RMS (86,400s default),
 Sentinel LDK V-Clock, FlexNet ("clock surfing", >24h future), LM-X (24h, and
-it ships a `LmxResetSystemClock` tool *specifically to clear false positives*).
+it ships a `LmxResetSystemClock` tool _specifically to clear false positives_).
 
 Implement: persist the maximum timestamp ever seen — from the server's signed
 `issued`, **not** the local clock — and compare **in UTC only** (LicenseSpring's
@@ -217,9 +221,9 @@ LUSAS to Arm ship canned support articles because it happens often enough to
 need one. A Lebanese shop with a flat CMOS battery is far likelier than a
 determined clock attacker.
 
-Keygen, honestly, on the ceiling here: *"you can't really prevent this attack
+Keygen, honestly, on the ceiling here: _"you can't really prevent this attack
 vector, because what the offline device says is the time, frankly, is the
-time."*
+time."_
 
 ### 3.7 Admin surface — **`last_check_in` is phase 1** ✅ decided
 
@@ -235,14 +239,14 @@ shown once at issue (current behaviour, and correct).
 
 ## 4. Build order
 
-| Phase | What | Why here |
-| --- | --- | --- |
-| **0 🔴** | Narrow `read_only` so it cannot block the sell path (§1) | Live hazard. Independent of everything else. Ship alone |
-| **1** | Record `last_check_in` + machine fingerprint per key; surface both in admin | Cheap, useful immediately, unblocks phases 3 and 4 |
-| **2** | Ed25519-signed licence blob; move key to `userData` + `safeStorage` | The core change — makes offline verification real |
-| **3** | 30-day (or 45–60) grace with visible countdown + escalating warnings | Depends on phase 2's `issued`/`expiry` |
-| **4** | Clock-tamper detection: freeze countdown, never deny | Depends on phase 1's timestamps |
-| **5** | Seat counting with self-service release — **only if phase 1 shows cloning is real** | Evidence first |
+| Phase    | What                                                                                | Why here                                                |
+| -------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **0 🔴** | Narrow `read_only` so it cannot block the sell path (§1)                            | Live hazard. Independent of everything else. Ship alone |
+| **1**    | Record `last_check_in` + machine fingerprint per key; surface both in admin         | Cheap, useful immediately, unblocks phases 3 and 4      |
+| **2**    | Ed25519-signed licence blob; move key to `userData` + `safeStorage`                 | The core change — makes offline verification real       |
+| **3**    | 30-day (or 45–60) grace with visible countdown + escalating warnings                | Depends on phase 2's `issued`/`expiry`                  |
+| **4**    | Clock-tamper detection: freeze countdown, never deny                                | Depends on phase 1's timestamps                         |
+| **5**    | Seat counting with self-service release — **only if phase 1 shows cloning is real** | Evidence first                                          |
 
 ---
 
@@ -252,10 +256,10 @@ shown once at issue (current behaviour, and correct).
 - **Hard machine binding.** Until phase 1 produces evidence of a real problem.
 - **TPM / secure monotonic counters.** No mainstream desktop licensing SDK uses
   them; the literature is SGX research and DRM patents, not shipping products.
-- **A stronger anti-crack scheme.** Any local check is defeatable — *"all it
-  takes is to replace your private keys with theirs, or patch a JMP."* Wyday's
-  framing is the right one: *"The point of licensing isn't to stop crackers…
-  it's to increase revenue by preventing casual piracy."*
+- **A stronger anti-crack scheme.** Any local check is defeatable — _"all it
+  takes is to replace your private keys with theirs, or patch a JMP."_ Wyday's
+  framing is the right one: _"The point of licensing isn't to stop crackers…
+  it's to increase revenue by preventing casual piracy."_
 - **A third-party licensing SaaS**, probably. The standard advice is buy, and
   the standard reason is unbudgeted edge cases — but LiraTek already has the
   multi-tenant server, subscription rows, entitlement allowlist and deploy
@@ -272,7 +276,7 @@ Nothing above is blocked on these except phase 5, but they shape the model:
 - **Priced per shop, per machine, or per seat?** Determines whether §3.4 ever
   becomes enforcement.
 - **Can one customer have both desktop and web, sharing one subscription row?**
-  Today desktop *is* tenant 1 locally, so a desktop install is a tenant. Whether
+  Today desktop _is_ tenant 1 locally, so a desktop install is a tenant. Whether
   a customer's desktop and web tenants are the same row is undecided and
   affects the schema.
 - **Perpetual + support window, or recurring?** Changes what `expiry` means.
@@ -289,14 +293,14 @@ Nothing above is blocked on these except phase 5, but they shape the model:
 Marked so nobody treats inference as fact later:
 
 - **No quantitative comparison exists** anywhere of the commercial cost of a
-  false lockout versus tolerated non-payment. The observation that *every*
+  false lockout versus tolerated non-payment. The observation that _every_
   documented disaster is a lockout (Autodesk's AWS outage, Deye remotely
   disabling inverters) is evidence about **what gets written about**, not a
   measured rate.
 - **No POS vendor documents its offline licence enforcement.** The POS
   findings are adjacent: Lightspeed's 28-day dunning is billing-side, and
-  Square/Shopify cap offline *risk* (24h, per-transaction limits) rather than
-  offline *function* — a good pattern to steal, but not direct evidence.
+  Square/Shopify cap offline _risk_ (24h, per-transaction limits) rather than
+  offline _function_ — a good pattern to steal, but not direct evidence.
 - **No vendor publishes false-positive rates** for fingerprinting or
   clock-tamper detection. Every "it costs support" claim is qualitative, and
   the loudest come from vendors selling tolerant matching.

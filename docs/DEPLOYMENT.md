@@ -239,12 +239,12 @@ inference (§ 8) deliberately resolves a contested username to the FIRST tenant
 **Executed and verified.** What actually happened, including the parts the plan
 did not predict:
 
-| | |
-| --- | --- |
-| App / machine | `liratek-api`, one machine in `fra`, 375 MB image |
-| Volume | `liratek_data`, 3 GB, **encrypted at rest**, scheduled snapshots (5 retained) |
-| Hostname | `api.liratek.shop` → CNAME `qemrnoy.liratek-api.fly.dev`, **DNS only**, Fly cert |
-| Data | migrated as a `VACUUM INTO` snapshot: CornerTech, 3 users, 18 transactions, v174 |
+|               |                                                                                  |
+| ------------- | -------------------------------------------------------------------------------- |
+| App / machine | `liratek-api`, one machine in `fra`, 375 MB image                                |
+| Volume        | `liratek_data`, 3 GB, **encrypted at rest**, scheduled snapshots (5 retained)    |
+| Hostname      | `api.liratek.shop` → CNAME `qemrnoy.liratek-api.fly.dev`, **DNS only**, Fly cert |
+| Data          | migrated as a `VACUUM INTO` snapshot: CornerTech, 3 users, 18 transactions, v174 |
 
 Verified end to end through the real chain (browser → Vercel → Fly): a tenant
 login on its own subdomain succeeds, the same credentials are refused on the
@@ -252,7 +252,7 @@ platform host, `ADMIN` resolves case-insensitively (v174), the shop name renders
 from migrated settings, and `platformHost` is correct on both hosts.
 
 **`X-Forwarded-Host` survives two proxies.** § 8 warns that losing it breaks
-every tenant login at once, and there are now *two* hops (Vercel then Fly)
+every tenant login at once, and there are now _two_ hops (Vercel then Fly)
 against `trust proxy` = 1. It works — measured, not assumed.
 
 ### Things that bit, recorded so they don't again
@@ -381,7 +381,7 @@ no-op instead of creating a second one.
 fly certs add api.liratek.shop     # then point that record at Fly (DNS only)
 ```
 
-After the DNS change there are **two** proxies in front of Express — Vercel *and*
+After the DNS change there are **two** proxies in front of Express — Vercel _and_
 Fly — while `server.ts` trusts one hop. Re-run the `platformHost` check through the
 real hostname, and a real tenant login. If `X-Forwarded-Host` arrives wrong, every
 tenant login fails at once with a generic "invalid credentials" (§ 8). This is the
@@ -565,15 +565,15 @@ assertion in the same layer, so it fails the build rather than shipping broken).
   both locally (varying the `Host` header against 127.0.0.1) and end to end
   through Vercel:
 
-  | Host                       | credentials                    | result                                      |
-  | -------------------------- | ------------------------------ | ------------------------------------------- |
-  | `<slug>.liratek.shop`      | that tenant's admin            | **accepted**, token issued                  |
-  | `<slug>.liratek.shop`      | wrong password                 | refused                                     |
-  | another tenant's subdomain | tenant A's admin               | refused                                     |
-  | `nosuchshop.liratek.shop`  | anything                       | refused                                     |
-  | `www.liratek.shop`         | any tenant's admin             | refused — platform realm, super admins only |
-  | `www.liratek.shop`         | a super admin                  | **accepted**                                |
-  | `liratek.shop` (apex)      | —                              | **308 → www before it reaches the backend** |
+  | Host                       | credentials         | result                                      |
+  | -------------------------- | ------------------- | ------------------------------------------- |
+  | `<slug>.liratek.shop`      | that tenant's admin | **accepted**, token issued                  |
+  | `<slug>.liratek.shop`      | wrong password      | refused                                     |
+  | another tenant's subdomain | tenant A's admin    | refused                                     |
+  | `nosuchshop.liratek.shop`  | anything            | refused                                     |
+  | `www.liratek.shop`         | any tenant's admin  | refused — platform realm, super admins only |
+  | `www.liratek.shop`         | a super admin       | **accepted**                                |
+  | `liratek.shop` (apex)      | —                   | **308 → www before it reaches the backend** |
 
   The refusals all use the same generic error as a bad password, so subdomains
   cannot be probed.

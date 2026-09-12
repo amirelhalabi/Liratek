@@ -130,10 +130,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import {
-  collectQueryUnits,
-  unitKey,
-} from "../testHelpers/sqlQueryUnits";
+import { collectQueryUnits, unitKey } from "../testHelpers/sqlQueryUnits";
 
 const SRC_ROOT = path.join(__dirname, "..", "..");
 
@@ -223,7 +220,6 @@ const GATE_CALL_REGEX = new RegExp(`\\b(?:${GATE_FRAGMENTS.join("|")})\\(`);
  * this guard's first version.
  */
 const PROFIT_TOKEN_REGEX = /profit|commission/i;
-
 
 /**
  * Query units that legitimately contain a "profit" column/alias but do NOT

@@ -467,8 +467,12 @@ export default function Maintenance() {
     if (!newStatus || newStatus === job.status) return;
 
     const cur: "USD" | "LBP" = job.currency === "LBP" ? "LBP" : "USD";
-    const priceStr = String(cur === "LBP" ? (job.price_lbp ?? 0) : (job.price_usd ?? 0));
-    const costStr = String(cur === "LBP" ? (job.cost_lbp ?? 0) : (job.cost_usd ?? 0));
+    const priceStr = String(
+      cur === "LBP" ? (job.price_lbp ?? 0) : (job.price_usd ?? 0),
+    );
+    const costStr = String(
+      cur === "LBP" ? (job.cost_lbp ?? 0) : (job.cost_usd ?? 0),
+    );
     const payload = buildJobPayload({
       id: job.id,
       deviceName: job.device_name,
@@ -700,12 +704,12 @@ export default function Maintenance() {
 
   const isFormDirty = Boolean(
     deviceName.trim() ||
-      issue.trim() ||
-      cost.trim() ||
-      price.trim() ||
-      clientName.trim() ||
-      clientPhone.trim() ||
-      parts.length > 0,
+    issue.trim() ||
+    cost.trim() ||
+    price.trim() ||
+    clientName.trim() ||
+    clientPhone.trim() ||
+    parts.length > 0,
   );
 
   const handleCancelForm = () => {
@@ -1232,7 +1236,9 @@ export default function Maintenance() {
             // job's totalAmount never includes parts in the first place
             // (they ride as extraTotals below), so there's nothing for an
             // LBP discount to eat into.
-            maxDiscount={currency === "USD" ? parseFloat(price) || 0 : undefined}
+            maxDiscount={
+              currency === "USD" ? parseFloat(price) || 0 : undefined
+            }
             extraTotals={
               currency === "LBP" && partsPriceUsd > 0
                 ? [{ amount: partsPriceUsd, currency: "USD" }]

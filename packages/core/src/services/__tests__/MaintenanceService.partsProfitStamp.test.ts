@@ -19,9 +19,7 @@ import {
   getTransactionRepository,
   resetTransactionRepository,
 } from "../../repositories/TransactionRepository";
-import {
-  resetStockBatchRepository,
-} from "../../repositories/StockBatchRepository";
+import { resetStockBatchRepository } from "../../repositories/StockBatchRepository";
 import {
   initFixedTenantContext,
   resetTenantContext,
@@ -302,7 +300,11 @@ describe("MaintenanceService — parts profit stamp (LIRA-176 phase 8a)", () => 
   // 7. The two-currency stamp — LBP labour + USD parts on ONE transaction.
   // ---------------------------------------------------------------------
   it("7. LBP job: labour 500,000 LBP (cost 300,000) + one part cost $4/price $9 stamps amount_lbp=500000, amount_usd=9, profit_lbp=200000, profit_usd=5", () => {
-    const productA = seedProduct(db, { name: "Battery", costUsd: 4, stock: 10 });
+    const productA = seedProduct(db, {
+      name: "Battery",
+      costUsd: 4,
+      stock: 10,
+    });
 
     const res = service.saveJob({
       device_name: "Samsung A54",

@@ -115,7 +115,10 @@ async function batchDelete(
     `${BACKEND_URL}/api/inventory/products/batch-delete`,
     { headers, data: { ids } },
   );
-  return { status: res.status(), body: (await res.json()) as BatchDeleteEnvelope };
+  return {
+    status: res.status(),
+    body: (await res.json()) as BatchDeleteEnvelope,
+  };
 }
 
 test.describe("Inventory batch delete — REST transport (LIRA-149)", () => {
@@ -186,9 +189,10 @@ test.describe("Inventory batch delete — REST transport (LIRA-149)", () => {
       `${BACKEND_URL}/api/inventory/products/not-a-number`,
       { headers },
     );
-    expect(res.status(), "envelope parity — pre-fix this route answered 400").toBe(
-      200,
-    );
+    expect(
+      res.status(),
+      "envelope parity — pre-fix this route answered 400",
+    ).toBe(200);
     const body = (await res.json()) as { success: boolean; error?: string };
     expect(body).toEqual({ success: false, error: "Invalid id" });
   });
@@ -202,9 +206,9 @@ test.describe("Inventory batch delete — REST transport (LIRA-149)", () => {
     const idB = await createProduct(page, headers, `${NAME_B} UI`);
 
     await page.goto("/#/products");
-    await expect(
-      page.getByRole("button", { name: "Add Product" }),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "Add Product" })).toBeVisible(
+      { timeout: 20_000 },
+    );
 
     const row = (name: string) =>
       page.locator("tbody tr").filter({ hasText: name });

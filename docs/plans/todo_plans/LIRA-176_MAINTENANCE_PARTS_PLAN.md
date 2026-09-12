@@ -22,22 +22,22 @@ list, a read-only status timeline, and a cancel-edit control.
 
 ## 1. Owner decisions (locked)
 
-| # | Question | Decision |
-|---|---|---|
-| D1 | When does stock decrement? | **On save/attach**, at any status. Removing a part or voiding the job restores it. |
-| D2 | Discount scope | **Labour only.** Part margins stay exactly `price − cost`. |
-| D3 | Part price override | **Editable, product `selling_price_usd` pre-filled.** Snapshot stored either way. |
-| D4 | Which items can be picked | **Default to the `Parts` category, with a toggle to search all categories.** |
-| D5 | LBP jobs | **Option 4 - no conversion.** Parts stay in USD; a pound-priced job with parts bills in both currencies. Decided 2026-09-07, superseding the earlier float-at-rate answer. |
-| D6 | Status timeline | **Yes, in this ticket.** New `maintenance_status_history` table. |
-| D7 | Refund/void stock | **Always restore.** Damaged parts are corrected by a manual stock adjustment. |
-| D8 | Profit visibility in the panel | **Admins only.** |
-| D9 | Profits page | **One Maintenance row, detail splits labour margin from parts margin.** |
-| D10 | Click behaviour | **Unchanged** — a row click still loads the job into the left form. Parts summary goes on the row; the parts editor and a read-only timeline live under the form. |
-| D11 | Cancel edit | **New X in the top right of the form.** Exits Edit Job, or clears a New Repair Job. Confirms only when fields are non-empty. |
-| D12 | Post-refund editability | **Parts unlock together with the amounts**, mirroring lira-130. |
-| D13 | Cost snapshot | **Attach time.** |
-| D14 | Receipt | **Itemised** — labour line plus one line per part. |
+| #   | Question                       | Decision                                                                                                                                                                   |
+| --- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | When does stock decrement?     | **On save/attach**, at any status. Removing a part or voiding the job restores it.                                                                                         |
+| D2  | Discount scope                 | **Labour only.** Part margins stay exactly `price − cost`.                                                                                                                 |
+| D3  | Part price override            | **Editable, product `selling_price_usd` pre-filled.** Snapshot stored either way.                                                                                          |
+| D4  | Which items can be picked      | **Default to the `Parts` category, with a toggle to search all categories.**                                                                                               |
+| D5  | LBP jobs                       | **Option 4 - no conversion.** Parts stay in USD; a pound-priced job with parts bills in both currencies. Decided 2026-09-07, superseding the earlier float-at-rate answer. |
+| D6  | Status timeline                | **Yes, in this ticket.** New `maintenance_status_history` table.                                                                                                           |
+| D7  | Refund/void stock              | **Always restore.** Damaged parts are corrected by a manual stock adjustment.                                                                                              |
+| D8  | Profit visibility in the panel | **Admins only.**                                                                                                                                                           |
+| D9  | Profits page                   | **One Maintenance row, detail splits labour margin from parts margin.**                                                                                                    |
+| D10 | Click behaviour                | **Unchanged** — a row click still loads the job into the left form. Parts summary goes on the row; the parts editor and a read-only timeline live under the form.          |
+| D11 | Cancel edit                    | **New X in the top right of the form.** Exits Edit Job, or clears a New Repair Job. Confirms only when fields are non-empty.                                               |
+| D12 | Post-refund editability        | **Parts unlock together with the amounts**, mirroring lira-130.                                                                                                            |
+| D13 | Cost snapshot                  | **Attach time.**                                                                                                                                                           |
+| D14 | Receipt                        | **Itemised** — labour line plus one line per part.                                                                                                                         |
 
 ---
 
@@ -107,15 +107,15 @@ owed in USD, because that is the only currency a product has a price in.
 
 ### 3.2 Column meanings after this change
 
-| Column                       | Meaning                                                                            | Changed?           |
-| ---------------------------- | ---------------------------------------------------------------------------------- | ------------------ |
-| `cost_usd` / `cost_lbp`      | **Labour cost only**                                                               | unchanged          |
-| `price_usd` / `price_lbp`    | **Labour price only**                                                              | unchanged          |
-| `discount_usd`               | Discount on labour only (D2)                                                       | unchanged          |
-| `parts_cost_usd`             | Denormalised parts cost, **always USD**                                            | NEW                |
-| `parts_price_usd`            | Denormalised parts price, **always USD**                                           | NEW                |
-| `final_amount_usd`           | Owed in USD = parts price, **plus** labour final when the job is USD-priced        | meaning widened    |
-| `final_amount_lbp`           | Owed in LBP = labour final when the job is LBP-priced, else 0                      | unchanged in practice |
+| Column                    | Meaning                                                                     | Changed?              |
+| ------------------------- | --------------------------------------------------------------------------- | --------------------- |
+| `cost_usd` / `cost_lbp`   | **Labour cost only**                                                        | unchanged             |
+| `price_usd` / `price_lbp` | **Labour price only**                                                       | unchanged             |
+| `discount_usd`            | Discount on labour only (D2)                                                | unchanged             |
+| `parts_cost_usd`          | Denormalised parts cost, **always USD**                                     | NEW                   |
+| `parts_price_usd`         | Denormalised parts price, **always USD**                                    | NEW                   |
+| `final_amount_usd`        | Owed in USD = parts price, **plus** labour final when the job is USD-priced | meaning widened       |
+| `final_amount_lbp`        | Owed in LBP = labour final when the job is LBP-priced, else 0               | unchanged in practice |
 
 Only **two** new columns, not four. Historical rows get `0` in both, so every existing job behaves
 exactly as before, and no money backfill is performed.
@@ -214,13 +214,13 @@ in the first two queries, surfaced by `ProfitService` on the existing `MAINTENAN
 
 ### 3.7 Reversal-symmetry matrix (rule 20 — mandatory)
 
-| Row written                                  | Written by                                                | Reversal owner                                                              |
-| -------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `maintenance_parts` line                     | `MaintenanceRepository.syncParts`                         | line removal in `syncParts`; job delete; void; refund                       |
-| `products.stock_quantity -= qty`             | `syncParts`                                               | `syncParts` delta on edit; `_restoreJobParts` on delete/void/refund         |
-| `stock_batch_consumptions` row               | `StockBatchRepository.consume(..., { maintenancePartId })` | `StockBatchRepository.restoreForMaintenancePart`                            |
-| `transactions` profit stamp (both currencies) | `processPayments`                                         | the existing generic REFUND/VOID negation                                   |
-| `debt_ledger` `Maintenance Debt`             | `bookClientDebtCharge`, residual now spans parts          | already owned by `_cancelDebt` via `MODULE_DEBT_TRANSACTION_TYPES`          |
+| Row written                                   | Written by                                                 | Reversal owner                                                      |
+| --------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| `maintenance_parts` line                      | `MaintenanceRepository.syncParts`                          | line removal in `syncParts`; job delete; void; refund               |
+| `products.stock_quantity -= qty`              | `syncParts`                                                | `syncParts` delta on edit; `_restoreJobParts` on delete/void/refund |
+| `stock_batch_consumptions` row                | `StockBatchRepository.consume(..., { maintenancePartId })` | `StockBatchRepository.restoreForMaintenancePart`                    |
+| `transactions` profit stamp (both currencies) | `processPayments`                                          | the existing generic REFUND/VOID negation                           |
+| `debt_ledger` `Maintenance Debt`              | `bookClientDebtCharge`, residual now spans parts           | already owned by `_cancelDebt` via `MODULE_DEBT_TRANSACTION_TYPES`  |
 
 Double-restore protection: `maintenance_parts.stock_restored` (0/1). Every restore path filters on
 `stock_restored = 0` and sets it to 1, exactly as `stock_batch_consumptions.is_restored` already
@@ -325,16 +325,23 @@ New types:
 
 ```ts
 export interface MaintenancePartInput {
-  id?: number;              // present when editing an existing line
+  id?: number; // present when editing an existing line
   product_id: number;
   quantity: number;
-  unit_price_usd?: number;  // omitted -> product's selling_price_usd (D3)
+  unit_price_usd?: number; // omitted -> product's selling_price_usd (D3)
 }
 
 export interface MaintenancePartRow {
-  id: number; maintenance_id: number; product_id: number; product_name: string;
-  quantity: number; unit_cost_usd: number; unit_price_usd: number;
-  stock_restored: number; created_at: string; updated_at: string;
+  id: number;
+  maintenance_id: number;
+  product_id: number;
+  product_name: string;
+  quantity: number;
+  unit_cost_usd: number;
+  unit_price_usd: number;
+  stock_restored: number;
+  created_at: string;
+  updated_at: string;
 }
 ```
 
@@ -354,7 +361,7 @@ New methods:
     and a `BusinessRuleError` naming the product and its available quantity when `changes === 0`.
     `allowOutOfStock` drops the `>=` clause, same escape hatch as the other two.
   - Draw also calls `getStockBatchRepository().consume(product_id, qty, { reason: 'SERVICE',
-    fallbackUnitCostUsd: product.cost_price_usd, maintenancePartId })`.
+fallbackUnitCostUsd: product.cost_price_usd, maintenancePartId })`.
   - `unit_cost_usd` snapshot = the weighted FIFO cost returned by `consume` when it covered the draw,
     else the product's `cost_price_usd`. This is the one place maintenance differs from custom
     services, which discard the FIFO cost because they have no cost column to fill. Here we do.
@@ -565,16 +572,16 @@ keeps every historical receipt byte-identical.
 Each phase ends with a reviewed diff and a commit. Per the standing check cadence, **no test, e2e,
 typecheck, lint, or format run happens between phases** — the full gate runs once, after Phase 7.
 
-| Phase | Scope | Agent |
-|---|---|---|
-| 1 | Migrations v170 + v171, `create_db.sql`, all test schemas | `database` |
-| 2 | `StockBatchRepository` owner column + `restoreForMaintenancePart` | `backend` |
-| 3 | `MaintenanceRepository`: parts CRUD, `syncParts`, `_restoreJobParts`, status history, lock fields, metadata | `backend` |
-| 4 | `MaintenanceService` totals + rate injection; `TransactionRepository` reversal hooks; validators | `backend` |
-| 5 | `ProfitRepository` USD cost fragment at all three call sites; `ClosingRepository` (blocker, §3.6); `ProfitService` parts split | `backend` |
-| 6 | IPC handler, preload, `electron.d.ts`, REST route, adapter, `ApiAdapter` type | `electron` then `frontend` |
-| 7 | Maintenance page: payload builder extraction, PartPicker, totals, row summary, timeline, profit block, cancel X; receipt | `frontend` |
-| 8 | Tests (§8) | `backend` + `frontend` |
+| Phase | Scope                                                                                                                          | Agent                      |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
+| 1     | Migrations v170 + v171, `create_db.sql`, all test schemas                                                                      | `database`                 |
+| 2     | `StockBatchRepository` owner column + `restoreForMaintenancePart`                                                              | `backend`                  |
+| 3     | `MaintenanceRepository`: parts CRUD, `syncParts`, `_restoreJobParts`, status history, lock fields, metadata                    | `backend`                  |
+| 4     | `MaintenanceService` totals + rate injection; `TransactionRepository` reversal hooks; validators                               | `backend`                  |
+| 5     | `ProfitRepository` USD cost fragment at all three call sites; `ClosingRepository` (blocker, §3.6); `ProfitService` parts split | `backend`                  |
+| 6     | IPC handler, preload, `electron.d.ts`, REST route, adapter, `ApiAdapter` type                                                  | `electron` then `frontend` |
+| 7     | Maintenance page: payload builder extraction, PartPicker, totals, row summary, timeline, profit block, cancel X; receipt       | `frontend`                 |
+| 8     | Tests (§8)                                                                                                                     | `backend` + `frontend`     |
 
 Phases 2 and 5 are independent of each other and may run in parallel once Phase 1 lands.
 

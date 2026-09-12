@@ -78,9 +78,7 @@ describe("DatabaseResetService.reset", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.data?.backupPath).toBe(
-      "C:\\backups\\liratek-2026-09-09.db",
-    );
+    expect(result.data?.backupPath).toBe("C:\\backups\\liratek-2026-09-09.db");
   });
 
   it("omits backupPath from the result when none was provided", () => {

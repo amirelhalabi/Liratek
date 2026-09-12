@@ -270,7 +270,12 @@ describe("buildServiceReceiptText", () => {
       created_at: "2026-09-01T10:00:00Z",
     };
     const legs = [
-      { method: "CASH", currency_code: "USD", amount: 50, direction: "IN" as const },
+      {
+        method: "CASH",
+        currency_code: "USD",
+        amount: 50,
+        direction: "IN" as const,
+      },
     ];
 
     const keyAbsent = build({

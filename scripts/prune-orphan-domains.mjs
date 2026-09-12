@@ -162,7 +162,10 @@ tenant as one (see the big comment on getTenantSlugs below).
 // ---------------------------------------------------------------------------
 
 async function fetchJson(url, options = {}) {
-  const res = await fetch(url, { ...options, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const res = await fetch(url, {
+    ...options,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
   const text = await res.text();
   let json = null;
   try {
@@ -246,7 +249,9 @@ async function getVercelDomains(env) {
     headers: { Authorization: `Bearer ${env.VERCEL_TOKEN}` },
   });
   if (status >= 400) {
-    throw new Error(`Vercel domains lookup failed (${status}): ${json?.error?.message ?? "unknown error"}`);
+    throw new Error(
+      `Vercel domains lookup failed (${status}): ${json?.error?.message ?? "unknown error"}`,
+    );
   }
 
   const suffix = `.${env.APP_BASE_DOMAIN}`;
@@ -268,9 +273,13 @@ async function deleteVercelDomain(env, host) {
   });
   // Same idempotency contract as `deprovisionTenantDomain`: 404 means it was
   // never registered (or already removed), which is the desired end state.
-  if (status >= 200 && status < 300) return { ok: true, detail: "Vercel domain removed" };
+  if (status >= 200 && status < 300)
+    return { ok: true, detail: "Vercel domain removed" };
   if (status === 404) return { ok: true, detail: "Vercel domain already gone" };
-  return { ok: false, detail: `Vercel delete failed (${status}): ${json?.error?.code ?? "unknown error"}` };
+  return {
+    ok: false,
+    detail: `Vercel delete failed (${status}): ${json?.error?.code ?? "unknown error"}`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -320,9 +329,12 @@ async function getTenantSlugs(env) {
     throw new Error("super-admin login reported success but returned no token");
   }
 
-  const tenantsRes = await fetchJson("https://www.liratek.shop/api/admin/tenants", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const tenantsRes = await fetchJson(
+    "https://www.liratek.shop/api/admin/tenants",
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
   if (!tenantsRes.json?.success) {
     throw new Error(
       `/api/admin/tenants failed: ${tenantsRes.json?.error?.message ?? tenantsRes.json?.error ?? tenantsRes.status}`,
@@ -413,12 +425,16 @@ async function main() {
 
   const env = loadEnvOrExit();
 
-  console.log("Fetching the live tenant registry (this must succeed before anything else runs)...");
+  console.log(
+    "Fetching the live tenant registry (this must succeed before anything else runs)...",
+  );
   let tenantSlugs;
   try {
     tenantSlugs = await getTenantSlugs(env);
   } catch (err) {
-    console.error(`\nFATAL — tenant lookup failed, nothing was touched:\n  ${err.message}\n`);
+    console.error(
+      `\nFATAL — tenant lookup failed, nothing was touched:\n  ${err.message}\n`,
+    );
     console.error(
       "Refusing to compute an orphan set without a verified tenant list — an\n" +
         "incomplete list would make every real tenant subdomain look orphaned.",
@@ -437,12 +453,16 @@ async function main() {
 
   const allLabels = new Set([...cfCandidates.keys(), ...vercelLabels]);
   const orphanLabels = [...allLabels]
-    .filter((label) => !tenantSlugs.has(label) && !protection.isProtectedLabel(label))
+    .filter(
+      (label) => !tenantSlugs.has(label) && !protection.isProtectedLabel(label),
+    )
     .sort();
 
   // Reassurance list: candidate-looking labels that WERE kept, and why.
   const keptLabels = [...allLabels]
-    .filter((label) => tenantSlugs.has(label) || protection.isProtectedLabel(label))
+    .filter(
+      (label) => tenantSlugs.has(label) || protection.isProtectedLabel(label),
+    )
     .sort();
 
   let targetLabels = orphanLabels;
@@ -544,17 +564,27 @@ async function main() {
     if (cfRecord) {
       cfResult = await deleteCloudflareRecord(env, cfRecord.id);
     }
-    console.log(`  ${cfResult.ok ? "✓" : "✗"} [${h}] Cloudflare: ${cfResult.detail}`);
+    console.log(
+      `  ${cfResult.ok ? "✓" : "✗"} [${h}] Cloudflare: ${cfResult.detail}`,
+    );
 
     let vercelResult = { ok: true, detail: "not registered on Vercel" };
     if (vercelLabels.has(label)) {
       vercelResult = await deleteVercelDomain(env, h);
     }
-    console.log(`  ${vercelResult.ok ? "✓" : "✗"} [${h}] Vercel: ${vercelResult.detail}`);
+    console.log(
+      `  ${vercelResult.ok ? "✓" : "✗"} [${h}] Vercel: ${vercelResult.detail}`,
+    );
 
     const ok = cfResult.ok && vercelResult.ok;
     if (!ok) anyFailed = true;
-    summary.push({ label, host: h, cloudflare: cfResult.detail, vercel: vercelResult.detail, ok });
+    summary.push({
+      label,
+      host: h,
+      cloudflare: cfResult.detail,
+      vercel: vercelResult.detail,
+      ok,
+    });
   }
 
   console.log("\n=== Summary ===");

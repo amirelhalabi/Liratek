@@ -60,7 +60,10 @@ export class BackupService {
   private backupDir: string;
   private repo: BackupRepository;
 
-  constructor(backupDir: string, repo: BackupRepository = getBackupRepository()) {
+  constructor(
+    backupDir: string,
+    repo: BackupRepository = getBackupRepository(),
+  ) {
     this.backupDir = backupDir;
     this.repo = repo;
   }

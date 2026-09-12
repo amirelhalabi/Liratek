@@ -118,9 +118,9 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
    * is cheap; this is not a hot path) rather than cached.
    */
   private _expensesHasSourceRefColumns(): boolean {
-    const cols = this.db
-      .prepare(`PRAGMA table_info(expenses)`)
-      .all() as { name: string }[];
+    const cols = this.db.prepare(`PRAGMA table_info(expenses)`).all() as {
+      name: string;
+    }[];
     return (
       cols.some((c) => c.name === "source_ref_table") &&
       cols.some((c) => c.name === "source_ref_id")

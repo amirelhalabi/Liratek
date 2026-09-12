@@ -61,7 +61,9 @@ type UnsettledSummaryRow = {
 type Api = {
   api: {
     omt: {
-      addTransaction: (d: Record<string, unknown>) => Promise<AddTransactionResult>;
+      addTransaction: (
+        d: Record<string, unknown>,
+      ) => Promise<AddTransactionResult>;
     };
     suppliers: {
       list: (

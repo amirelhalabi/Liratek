@@ -32,16 +32,18 @@ type Reply = { status: number; body?: unknown };
  */
 function mockFetchSequence(...replies: Reply[]) {
   const sent: Array<string | null> = [];
-  const fn = jest.fn(async (_url: string, init?: { headers?: Record<string, string> }) => {
-    sent.push(init?.headers?.Authorization ?? null);
-    const r = replies[Math.min(sent.length - 1, replies.length - 1)];
-    return {
-      ok: r.status >= 200 && r.status < 300,
-      status: r.status,
-      headers: { get: () => null },
-      text: async () => JSON.stringify(r.body ?? {}),
-    };
-  });
+  const fn = jest.fn(
+    async (_url: string, init?: { headers?: Record<string, string> }) => {
+      sent.push(init?.headers?.Authorization ?? null);
+      const r = replies[Math.min(sent.length - 1, replies.length - 1)];
+      return {
+        ok: r.status >= 200 && r.status < 300,
+        status: r.status,
+        headers: { get: () => null },
+        text: async () => JSON.stringify(r.body ?? {}),
+      };
+    },
+  );
   (globalThis as unknown as { fetch: unknown }).fetch = fn;
   return { fn, sent };
 }
@@ -92,7 +94,12 @@ describe("requestJson — 401 handling", () => {
   });
 
   it("does NOT fire for the login request — a 401 there is a wrong password", async () => {
-    mockFetch(401, { error: { code: "INVALID_CREDENTIALS", message: "Invalid username or password" } });
+    mockFetch(401, {
+      error: {
+        code: "INVALID_CREDENTIALS",
+        message: "Invalid username or password",
+      },
+    });
 
     await expect(
       requestJson("/api/auth/login", { method: "POST", auth: false }),
@@ -184,9 +191,14 @@ describe("requestJson — 401 handling", () => {
     // is all there was. Nothing to fall back to, so this IS a logout.
     setImpersonationToken("dead-impersonation");
 
-    const { sent } = mockFetchSequence({ status: 401, body: { error: "Session expired" } });
+    const { sent } = mockFetchSequence({
+      status: 401,
+      body: { error: "Session expired" },
+    });
 
-    await expect(requestJson("/api/settings")).rejects.toMatchObject({ status: 401 });
+    await expect(requestJson("/api/settings")).rejects.toMatchObject({
+      status: 401,
+    });
 
     expect(sent).toEqual(["Bearer dead-impersonation"]); // no retry with nothing
     expect(getImpersonationToken()).toBeNull();
@@ -198,12 +210,20 @@ describe("requestJson — 401 handling", () => {
     setToken("also-dead-login");
     setImpersonationToken("dead-impersonation");
 
-    const { sent } = mockFetchSequence({ status: 401, body: { error: "Session expired" } });
+    const { sent } = mockFetchSequence({
+      status: 401,
+      body: { error: "Session expired" },
+    });
 
-    await expect(requestJson("/api/settings")).rejects.toMatchObject({ status: 401 });
+    await expect(requestJson("/api/settings")).rejects.toMatchObject({
+      status: 401,
+    });
 
     // Dead impersonation -> retry with login -> login dead too -> stop.
-    expect(sent).toEqual(["Bearer dead-impersonation", "Bearer also-dead-login"]);
+    expect(sent).toEqual([
+      "Bearer dead-impersonation",
+      "Bearer also-dead-login",
+    ]);
     expect(getImpersonationToken()).toBeNull();
     expect(getToken()).toBeNull();
     expect(changed).toBe(1);

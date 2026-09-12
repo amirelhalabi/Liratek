@@ -66,10 +66,7 @@ export function registerMaintenanceHandlers(): void {
     try {
       return service.getStatusHistory(v.data.id);
     } catch (error) {
-      maintenanceLogger.error(
-        { error },
-        "maintenance:getStatusHistory failed",
-      );
+      maintenanceLogger.error({ error }, "maintenance:getStatusHistory failed");
       return [];
     }
   });

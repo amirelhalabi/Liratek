@@ -389,9 +389,7 @@ describe("ProductList delete confirm — stale-probe guard (LIRA-150)", () => {
       resolveB([{ id: 3, imei: "222222222222222" }]);
       await promiseB;
     });
-    await waitFor(() =>
-      expect(confirmMessage()).toContain("222222222222222"),
-    );
+    await waitFor(() => expect(confirmMessage()).toContain("222222222222222"));
     // Never assert only the positive — a version that renders BOTH products'
     // IMEIs would still pass a "B is present" check. Assert A's is absent.
     expect(confirmMessage()).not.toContain("111111111111111");

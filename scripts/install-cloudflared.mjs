@@ -37,12 +37,15 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const toolsDir = join(repoRoot, ".tools");
 
-const BASE = "https://github.com/cloudflare/cloudflared/releases/latest/download";
+const BASE =
+  "https://github.com/cloudflare/cloudflared/releases/latest/download";
 
 function assetFor(platform, arch) {
   const a = arch === "arm64" ? "arm64" : "amd64";
-  if (platform === "win32") return { file: `cloudflared-windows-${a}.exe`, out: "cloudflared.exe" };
-  if (platform === "linux") return { file: `cloudflared-linux-${a}`, out: "cloudflared" };
+  if (platform === "win32")
+    return { file: `cloudflared-windows-${a}.exe`, out: "cloudflared.exe" };
+  if (platform === "linux")
+    return { file: `cloudflared-linux-${a}`, out: "cloudflared" };
   return null; // macOS ships a .tgz -- `brew install cloudflared` is simpler there
 }
 
@@ -74,12 +77,26 @@ console.log(`[cloudflared] -> ${target}`);
 
 const r = spawnSync(
   "curl",
-  ["-4", "-L", "--fail", "--retry", "2", "--retry-delay", "3", "-#", "-o", target, url],
+  [
+    "-4",
+    "-L",
+    "--fail",
+    "--retry",
+    "2",
+    "--retry-delay",
+    "3",
+    "-#",
+    "-o",
+    target,
+    url,
+  ],
   { stdio: "inherit" },
 );
 
 if (r.error) {
-  console.error(`[cloudflared] curl unavailable (${r.error.message}). Download manually:\n  ${url}`);
+  console.error(
+    `[cloudflared] curl unavailable (${r.error.message}). Download manually:\n  ${url}`,
+  );
   process.exit(1);
 }
 if (r.status !== 0) {
@@ -91,7 +108,9 @@ if (process.platform !== "win32") chmodSync(target, 0o755);
 
 const v = spawnSync(target, ["--version"], { encoding: "utf8" });
 if (v.status !== 0) {
-  console.error(`[cloudflared] downloaded but will not run:\n${v.stderr || ""}`);
+  console.error(
+    `[cloudflared] downloaded but will not run:\n${v.stderr || ""}`,
+  );
   process.exit(1);
 }
 console.log(`[cloudflared] installed: ${v.stdout.trim()}`);

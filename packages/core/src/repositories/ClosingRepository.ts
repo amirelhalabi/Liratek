@@ -1052,7 +1052,8 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         .get(tenantId) as { profit_usd: number };
 
       finProfitSettlement = {
-        profit_usd: billsOnlySettlement.profit_usd + cashlessSettlement.profit_usd,
+        profit_usd:
+          billsOnlySettlement.profit_usd + cashlessSettlement.profit_usd,
       };
     }
 

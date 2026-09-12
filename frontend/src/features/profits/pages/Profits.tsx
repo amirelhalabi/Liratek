@@ -826,12 +826,11 @@ export default function Profits() {
                       <span className="text-yellow-400 text-right">
                         {(summary.financial_services.pending_commission_usd >
                           0 ||
-                          summary.financial_services
-                            .pending_commission_lbp > 0) && (
+                          summary.financial_services.pending_commission_lbp >
+                            0) && (
                           <span className="block">
                             {formatAmount(
-                              summary.financial_services
-                                .pending_commission_usd,
+                              summary.financial_services.pending_commission_usd,
                               "USD",
                             )}
                             {summary.financial_services
@@ -852,8 +851,10 @@ export default function Profits() {
                             data-testid="overview-finsvc-awaiting-settlement"
                             className="block text-[11px] text-yellow-500/80 font-normal"
                           >
-                            {summary.financial_services
-                              .awaiting_settlement_count}{" "}
+                            {
+                              summary.financial_services
+                                .awaiting_settlement_count
+                            }{" "}
                             awaiting settlement
                           </span>
                         )}
@@ -1849,14 +1850,13 @@ export default function Profits() {
                     ALWAYS 0 for a fully-post-cutover (model-1) period — this
                     count is the only honest signal that money is actually
                     still pending, unknowable until settlement. */}
-                {(commissionsData.month.awaiting_settlement_count ?? 0) >
-                  0 && (
+                {(commissionsData.month.awaiting_settlement_count ?? 0) > 0 && (
                   <p
                     data-testid="commissions-month-awaiting-settlement"
                     className="text-xs text-amber-400/80 mt-2"
                   >
-                    {commissionsData.month.awaiting_settlement_count}{" "}
-                    awaiting settlement
+                    {commissionsData.month.awaiting_settlement_count} awaiting
+                    settlement
                   </p>
                 )}
               </div>
@@ -1876,14 +1876,13 @@ export default function Profits() {
                     pending settlement
                   </p>
                 )}
-                {(commissionsData.today.awaiting_settlement_count ?? 0) >
-                  0 && (
+                {(commissionsData.today.awaiting_settlement_count ?? 0) > 0 && (
                   <p
                     data-testid="commissions-today-awaiting-settlement"
                     className="text-xs text-amber-400/80 mt-2"
                   >
-                    {commissionsData.today.awaiting_settlement_count}{" "}
-                    awaiting settlement
+                    {commissionsData.today.awaiting_settlement_count} awaiting
+                    settlement
                   </p>
                 )}
               </div>
@@ -1919,9 +1918,8 @@ export default function Profits() {
                       data-testid="revenue-by-provider-awaiting-caption"
                       className="text-xs text-amber-400/80"
                     >
-                      {awaitingSettlementCount} awaiting settlement —
-                      commission unknown until settled, not reflected in the
-                      chart above
+                      {awaitingSettlementCount} awaiting settlement — commission
+                      unknown until settled, not reflected in the chart above
                     </p>
                   )}
                 </div>

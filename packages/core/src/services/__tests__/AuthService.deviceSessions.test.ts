@@ -1,6 +1,9 @@
 import { AuthService } from "../AuthService";
 import type { UserRepository } from "../../repositories/UserRepository";
-import type { SessionRepository, SessionEntity } from "../../repositories/SessionRepository";
+import type {
+  SessionRepository,
+  SessionEntity,
+} from "../../repositories/SessionRepository";
 import { DatabaseError } from "../../utils/errors";
 
 /**
@@ -94,28 +97,34 @@ describe("AuthService.revokeOtherSessions — never revokes the caller's own ses
   });
 
   it("propagates a repository throw from findActiveByUserId instead of swallowing it into 0", async () => {
-    const dbError = new DatabaseError("Failed to find active sessions by user ID", {
-      cause: new Error("SQLITE_BUSY"),
-    });
+    const dbError = new DatabaseError(
+      "Failed to find active sessions by user ID",
+      {
+        cause: new Error("SQLITE_BUSY"),
+      },
+    );
     const { service, sessionRepo } = makeService({
       findActiveByUserId: jest.fn(() => {
         throw dbError;
       }),
     });
 
-    await expect(service.revokeOtherSessions(42, "tok-current")).rejects.toThrow(
-      DatabaseError,
-    );
+    await expect(
+      service.revokeOtherSessions(42, "tok-current"),
+    ).rejects.toThrow(DatabaseError);
     expect(sessionRepo.deleteByIdForUser).not.toHaveBeenCalled();
   });
 
   it("propagates a repository throw from deleteByIdForUser instead of swallowing it into a partial count", async () => {
     const own = makeSession({ id: 2, token: "tok-current" });
     const other1 = makeSession({ id: 1, token: "tok-other-1" });
-    const dbError = new DatabaseError("Failed to delete session by id for user", {
-      cause: new Error("SQLITE_BUSY"),
-      entityId: 1,
-    });
+    const dbError = new DatabaseError(
+      "Failed to delete session by id for user",
+      {
+        cause: new Error("SQLITE_BUSY"),
+        entityId: 1,
+      },
+    );
 
     const { service } = makeService({
       findActiveByUserId: jest.fn(() => [other1, own]),
@@ -124,8 +133,8 @@ describe("AuthService.revokeOtherSessions — never revokes the caller's own ses
       }),
     });
 
-    await expect(service.revokeOtherSessions(42, "tok-current")).rejects.toThrow(
-      DatabaseError,
-    );
+    await expect(
+      service.revokeOtherSessions(42, "tok-current"),
+    ).rejects.toThrow(DatabaseError);
   });
 });

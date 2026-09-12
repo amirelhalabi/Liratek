@@ -79,9 +79,7 @@ function seedTxn(
   sourceId: number,
 ): number {
   const res = db
-    .prepare(
-      `INSERT INTO txn_fixture (source_table, source_id) VALUES (?, ?)`,
-    )
+    .prepare(`INSERT INTO txn_fixture (source_table, source_id) VALUES (?, ?)`)
     .run(sourceTable, sourceId);
   return Number(res.lastInsertRowid);
 }

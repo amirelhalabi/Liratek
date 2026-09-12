@@ -150,10 +150,7 @@ function todayAtUtc(hour: string): string {
   ).ts;
 }
 
-function insertFs(row: {
-  commission: number;
-  createdAt: string;
-}): number {
+function insertFs(row: { commission: number; createdAt: string }): number {
   const res = db
     .prepare(
       `INSERT INTO financial_services (tenant_id, currency, commission, commission_model, is_refunded, created_at)
@@ -163,7 +160,11 @@ function insertFs(row: {
   return Number(res.lastInsertRowid);
 }
 
-function insertRecharge(row: { price: number; cost: number; createdAt: string }): number {
+function insertRecharge(row: {
+  price: number;
+  cost: number;
+  createdAt: string;
+}): number {
   const res = db
     .prepare(
       `INSERT INTO recharges (tenant_id, currency_code, price, cost, is_refunded, created_at)
@@ -173,7 +174,10 @@ function insertRecharge(row: { price: number; cost: number; createdAt: string })
   return Number(res.lastInsertRowid);
 }
 
-function insertCustomService(row: { profitUsd: number; createdAt: string }): number {
+function insertCustomService(row: {
+  profitUsd: number;
+  createdAt: string;
+}): number {
   const res = db
     .prepare(
       `INSERT INTO custom_services (tenant_id, profit_usd, status, is_refunded, created_at)
@@ -199,7 +203,10 @@ function insertMaintenance(row: {
  *  `notPartnerPending(refTable, idExpr)` evaluate to FALSE for that row
  *  (the exact shape `ProfitRepository.notPartnerPending`'s doc comment
  *  describes: a FOR_% row whose covered_amount is still short of amount). */
-function insertUncoveredPartnerObligation(refTable: string, refId: number): void {
+function insertUncoveredPartnerObligation(
+  refTable: string,
+  refId: number,
+): void {
   db.prepare(
     `INSERT INTO partner_ledger (tenant_id, partner_id, transaction_type, reference_table, reference_id, amount, direction, covered_amount)
      VALUES (1, 1, 'FOR_PARTNER_CHARGE', ?, ?, 100, 'CREDIT', 0)`,
@@ -238,7 +245,11 @@ describe("ClosingRepository.getDailyStatsSnapshot — LIRA-160 notPartnerPending
 
   describe("rechargeProfit", () => {
     it("excludes a for-partner recharge margin while the partner obligation is uncovered", () => {
-      const rId = insertRecharge({ price: 10, cost: 4, createdAt: todayAtUtc("10") });
+      const rId = insertRecharge({
+        price: 10,
+        cost: 4,
+        createdAt: todayAtUtc("10"),
+      });
       insertUncoveredPartnerObligation("recharges", rId);
 
       const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());
@@ -255,7 +266,10 @@ describe("ClosingRepository.getDailyStatsSnapshot — LIRA-160 notPartnerPending
 
   describe("customProfit", () => {
     it("excludes a for-partner custom-service margin while the partner obligation is uncovered", () => {
-      const csId = insertCustomService({ profitUsd: 15, createdAt: todayAtUtc("10") });
+      const csId = insertCustomService({
+        profitUsd: 15,
+        createdAt: todayAtUtc("10"),
+      });
       insertUncoveredPartnerObligation("custom_services", csId);
 
       const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());

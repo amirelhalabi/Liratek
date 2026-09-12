@@ -148,9 +148,9 @@ test.describe("LIRA-071 — Profits password gate", () => {
     // rest of this test proceeds by first ensuring a KNOWN password is set.
     if (!initialStatus.isSet) {
       await navigateTo(appPage, "/profits");
-      await expect(
-        appPage.getByTestId("profits-no-password-set"),
-      ).toBeVisible({ timeout: 10_000 });
+      await expect(appPage.getByTestId("profits-no-password-set")).toBeVisible({
+        timeout: 10_000,
+      });
       // Profits content must not render behind the fail-closed screen.
       await expect(appPage.getByTestId("profits-lock-screen")).toHaveCount(0);
 

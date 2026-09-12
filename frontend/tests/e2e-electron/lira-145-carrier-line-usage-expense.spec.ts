@@ -87,12 +87,7 @@
  *                                   current credits (test (c))
  */
 
-import {
-  test,
-  expect,
-  navigateTo,
-  ensureProfitsUnlocked,
-} from "./fixtures";
+import { test, expect, navigateTo, ensureProfitsUnlocked } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });

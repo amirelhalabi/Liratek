@@ -6,15 +6,15 @@ and non-GET is rejected with 405).
 
 ## Panels
 
-| Panel | Shows | Source |
-| --- | --- | --- |
-| **Fly / machine** | Machine count (red if ≠ 1 — SQLite has one writer, two machines on the volume is corruption, not capacity), state, region, image tag, health checks, recent deploy events, last 10 releases, volumes + snapshots | local `flyctl status/releases/volumes` |
-| **Tenants** | Every tenant, subscription plan/status, and a DNS/Vercel drift block (orphan CNAME, missing CNAME, orphan Vercel domain) | super-admin login + `/api/admin/tenants` + `/api/admin/subscriptions`, reconciled against the Cloudflare/Vercel panels |
-| **Vercel deployments** | Last 10 deployments (state, branch, commit, author) and registered domains | Vercel REST API |
-| **Cloudflare DNS** | Zone status, all DNS records, which are tenant CNAMEs (amber if one points at Vercel with the orange cloud on — that causes a redirect loop) | Cloudflare REST API |
-| **Backups & Litestream** | R2 bucket identity, Fly volume snapshots, and litestream's last-seen state from the logs | Fly volumes + (optionally) R2, see below |
-| **Backend health** | `/health` + `/health/detailed` — database and reachability drive the light; the memory check is informational only (see note below) | `https://www.liratek.shop/health*` |
-| **Recent logs** | Parsed `flyctl logs --no-tail`, newest first, 4xx amber / 5xx red | local `flyctl logs` |
+| Panel                    | Shows                                                                                                                                                                                                            | Source                                                                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Fly / machine**        | Machine count (red if ≠ 1 — SQLite has one writer, two machines on the volume is corruption, not capacity), state, region, image tag, health checks, recent deploy events, last 10 releases, volumes + snapshots | local `flyctl status/releases/volumes`                                                                                 |
+| **Tenants**              | Every tenant, subscription plan/status, and a DNS/Vercel drift block (orphan CNAME, missing CNAME, orphan Vercel domain)                                                                                         | super-admin login + `/api/admin/tenants` + `/api/admin/subscriptions`, reconciled against the Cloudflare/Vercel panels |
+| **Vercel deployments**   | Last 10 deployments (state, branch, commit, author) and registered domains                                                                                                                                       | Vercel REST API                                                                                                        |
+| **Cloudflare DNS**       | Zone status, all DNS records, which are tenant CNAMEs (amber if one points at Vercel with the orange cloud on — that causes a redirect loop)                                                                     | Cloudflare REST API                                                                                                    |
+| **Backups & Litestream** | R2 bucket identity, Fly volume snapshots, and litestream's last-seen state from the logs                                                                                                                         | Fly volumes + (optionally) R2, see below                                                                               |
+| **Backend health**       | `/health` + `/health/detailed` — database and reachability drive the light; the memory check is informational only (see note below)                                                                              | `https://www.liratek.shop/health*`                                                                                     |
+| **Recent logs**          | Parsed `flyctl logs --no-tail`, newest first, 4xx amber / 5xx red                                                                                                                                                | local `flyctl logs`                                                                                                    |
 
 Everything is fetched in parallel and each card fails independently — one
 broken source never blanks the page.

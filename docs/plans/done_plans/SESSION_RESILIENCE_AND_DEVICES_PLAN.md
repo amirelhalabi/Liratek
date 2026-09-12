@@ -29,7 +29,7 @@ small, clearly correct, and should go first.
 
 **Part 2 is a feature** — the owner asked whether one account should be allowed
 on two machines at once. It already is, and that turns out to be the right
-answer for a shop; what is missing is not a restriction but *visibility*.
+answer for a shop; what is missing is not a restriction but _visibility_.
 
 Ordered by risk. Part 1 can log a cashier out mid-sale; Part 2 cannot hurt
 anyone.
@@ -41,12 +41,12 @@ anyone.
 Worth recording, because two plausible theories were investigated and **both
 were wrong**, and the next person will otherwise re-investigate them.
 
-| Theory | Verdict |
-| --- | --- |
-| Concurrent logins are blocked — one account, one machine | **False.** `AuthService.login` only calls `createSession`; there is no `deleteByUserId` on the login path, no unique index on `sessions.user_id`, and the live database held **12 simultaneous sessions** for the same user. Two API clients and two browser contexts both stayed authenticated for 8+ minutes of polling |
-| The server serves requests before the database is ready, so a deploy logs everyone out | **False.** `getDatabase()` runs synchronously *before* `httpServer.listen()` (`backend/src/server.ts:242-245`). There is no such window |
+| Theory                                                                                 | Verdict                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Concurrent logins are blocked — one account, one machine                               | **False.** `AuthService.login` only calls `createSession`; there is no `deleteByUserId` on the login path, no unique index on `sessions.user_id`, and the live database held **12 simultaneous sessions** for the same user. Two API clients and two browser contexts both stayed authenticated for 8+ minutes of polling |
+| The server serves requests before the database is ready, so a deploy logs everyone out | **False.** `getDatabase()` runs synchronously _before_ `httpServer.listen()` (`backend/src/server.ts:242-245`). There is no such window                                                                                                                                                                                   |
 
-What *is* real is the error handling described in Part 1. It was found while
+What _is_ real is the error handling described in Part 1. It was found while
 chasing the above, and it has not been proven to be the cause of any specific
 reported logout — it is a latent defect, not a diagnosis. Do not write the
 commit message as though it fixes a known incident.
@@ -65,8 +65,8 @@ commit message as though it fixes a known incident.
 }
 ```
 
-`null` from `validateSession` has exactly one meaning to its caller: *this
-session is not valid*. `authenticateJWT` (`backend/src/middleware/auth.ts`)
+`null` from `validateSession` has exactly one meaning to its caller: _this
+session is not valid_. `authenticateJWT` (`backend/src/middleware/auth.ts`)
 turns it into `401 "Session expired"`, the frontend's `requestJson` treats a
 401 on a credential it actually sent as the end of the session, discards the
 token and fires `UNAUTHORIZED_EVENT`, and `AuthContext` drops the user to the
@@ -96,10 +96,10 @@ precisely how this investigation started and why it took as long as it did.
 Distinguish **"this session is invalid"** from **"I could not check"**. They
 are different answers and deserve different status codes:
 
-| Situation | `validateSession` | HTTP | Client behaviour |
-| --- | --- | --- | --- |
-| No such session row / expired / tenant suspended / user deactivated | `null` | **401** | Sign out — correct, the session really is over |
-| Database threw | *propagates* | **503** | Fail the request, keep the session |
+| Situation                                                           | `validateSession` | HTTP    | Client behaviour                               |
+| ------------------------------------------------------------------- | ----------------- | ------- | ---------------------------------------------- |
+| No such session row / expired / tenant suspended / user deactivated | `null`            | **401** | Sign out — correct, the session really is over |
+| Database threw                                                      | _propagates_      | **503** | Fail the request, keep the session             |
 
 `503` is the honest code: the service is temporarily unable to answer. It also
 already does the right thing on the client — `requestJson` only ends a session
@@ -107,16 +107,16 @@ on `401`, so a 503 fails one request and leaves the login intact. That wants a
 test pinning it rather than being left as an accident.
 
 **Do not** make this fail open. The `null` cases must keep returning `null` and
-must keep producing 401; only a *thrown* error becomes 503. An
+must keep producing 401; only a _thrown_ error becomes 503. An
 "if in doubt, allow" reading of this change would be a security hole.
 
 ### Files
 
-| File | Change |
-| --- | --- |
-| `packages/core/src/services/AuthService.ts` | Delete the blanket `catch` in `validateSession`, or narrow it so infrastructure errors propagate. Document why the two outcomes differ |
-| `backend/src/middleware/auth.ts` | `.then()` keeps `null → 401`. `.catch()` becomes **503** with a distinct body, and logs at `error` (it is a server fault, not a user event) |
-| `frontend/src/api/httpClient.ts` | No production change expected — verify and pin that 503 neither clears the token nor fires `UNAUTHORIZED_EVENT` |
+| File                                        | Change                                                                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src/services/AuthService.ts` | Delete the blanket `catch` in `validateSession`, or narrow it so infrastructure errors propagate. Document why the two outcomes differ      |
+| `backend/src/middleware/auth.ts`            | `.then()` keeps `null → 401`. `.catch()` becomes **503** with a distinct body, and logs at `error` (it is a server fault, not a user event) |
+| `frontend/src/api/httpClient.ts`            | No production change expected — verify and pin that 503 neither clears the token nor fires `UNAUTHORIZED_EVENT`                             |
 
 Check whether any other caller of `validateSession` relies on the swallow
 before removing it — the Socket.IO handshake deliberately does **not** call it
@@ -167,19 +167,19 @@ visibility.**
   revocable row, already carrying `device_type`, `device_info`, `ip_address`
   and `last_activity_at`.
 
-What is genuinely missing is that a user cannot *see* where they are signed in,
+What is genuinely missing is that a user cannot _see_ where they are signed in,
 or end a session they no longer control — a laptop left at home, a shared
 terminal. That is the real need behind the question.
 
 ### What already exists
 
-| Piece | Where | Reusable? |
-| --- | --- | --- |
-| `getUserSessions(userId)` | `AuthService:273` | Yes — but see the security note |
-| `logoutAll(userId)` | `AuthService:262` | Yes — powers "sign out everywhere" |
-| `findActiveByUserId` | `SessionRepository:372` | Yes, tenant-scoped |
-| `deleteByUserId` | `SessionRepository:396` | Yes, tenant-scoped |
-| Device columns | `sessions` table | Already populated at login |
+| Piece                     | Where                   | Reusable?                          |
+| ------------------------- | ----------------------- | ---------------------------------- |
+| `getUserSessions(userId)` | `AuthService:273`       | Yes — but see the security note    |
+| `logoutAll(userId)`       | `AuthService:262`       | Yes — powers "sign out everywhere" |
+| `findActiveByUserId`      | `SessionRepository:372` | Yes, tenant-scoped                 |
+| `deleteByUserId`          | `SessionRepository:396` | Yes, tenant-scoped                 |
+| Device columns            | `sessions` table        | Already populated at login         |
 
 ### The security constraint that shapes the design
 
@@ -191,7 +191,7 @@ worse than the problem being solved.
 So:
 
 - Add a `SafeSession` shape: `{ id, device_type, device_info, ip_address,
-  created_at, last_activity_at, is_current }`. No token, ever.
+created_at, last_activity_at, is_current }`. No token, ever.
 - `is_current` is computed **on the server** by comparing against
   `req.user.sessionToken`. The client is never given the material to compute it.
 - Revocation is **by `id`**, never by token — the client has no token to send.
@@ -208,7 +208,7 @@ So:
    - `GET /api/auth/sessions` → the caller's own sessions, `is_current` flagged
    - `DELETE /api/auth/sessions/:id` → revoke one of the caller's own
    - `POST /api/auth/sessions/revoke-others` → `logoutAll` minus the current one
-   Audit every revocation (`auditRest`), as `logout` already is.
+     Audit every revocation (`auditRest`), as `logout` already is.
 3. **IPC parity — rule 19.** Desktop shares `sessions` and the same
    repository, so the feature works there; it needs the mirroring handlers.
    `electron-app/handlers/authHandlers.ts` currently exposes only
@@ -232,7 +232,7 @@ So:
   permission question and drags in the tenant-admin/staff boundary; it can
   follow once the plumbing exists.
 - **Where in Settings?** `UsersManager` is the closest neighbour, but this is
-  about the *current* user, not user administration. A small section of its own
+  about the _current_ user, not user administration. A small section of its own
   reads better than bolting it onto Users.
 - **Expired rows.** `findActiveByUserId` filters on `expires_at > now`, so the
   list is already live-only. Note that no sweep runs on the web backend, so

@@ -206,8 +206,10 @@ test.describe("LIRA-102 — monthly P&L uses the local business month", () => {
           ok: seed.success !== false,
           commission: row?.commission ?? null,
           createdAt: row?.created_at ?? null,
-          julDelta: julAfter.serviceCommissionsUSD - julBefore.serviceCommissionsUSD,
-          junDelta: junAfter.serviceCommissionsUSD - junBefore.serviceCommissionsUSD,
+          julDelta:
+            julAfter.serviceCommissionsUSD - julBefore.serviceCommissionsUSD,
+          junDelta:
+            junAfter.serviceCommissionsUSD - junBefore.serviceCommissionsUSD,
           expenseError: expenseSeed.error ?? null,
           expenseOk: expenseSeed.success !== false,
           julExpenseDelta: julAfter.expensesUSD - julBefore.expensesUSD,

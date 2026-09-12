@@ -37,27 +37,27 @@ export function partnerCoverageRatio(refTable: string, idExpr: string): string {
 ```
 
 - Row selection (`reference_table`, `reference_id`, `transaction_type LIKE
-  'FOR\_%' ESCAPE '\'`) is copy-identical to `notPartnerPending`'s own WHERE
+'FOR\_%' ESCAPE '\'`) is copy-identical to `notPartnerPending`'s own WHERE
   clause (rule 14 — one definition of "what counts as a partner row"). The
   only difference is this fragment does **not** additionally filter
-  `covered_amount < amount - 0.005` — every matching FOR_% row (covered or
+  `covered_amount < amount - 0.005` — every matching FOR\_% row (covered or
   not) must contribute to both SUMs, or an already-fully-covered row would
   be silently dropped from the ratio.
-- **Defaults to 1.0** when a row has no FOR_% rows at all (both SUMs are
+- **Defaults to 1.0** when a row has no FOR\_% rows at all (both SUMs are
   SQL NULL → division is NULL → outer `COALESCE` returns 1.0) — a
   non-partner row recognises fully, unchanged from today.
 - **Clamped to `[0, 1]`** via the scalar (2-argument, not the 1-argument
   aggregate) `MIN`/`MAX` forms — verified empirically that better-sqlite3's
   bundled SQLite resolves 2-argument `MIN`/`MAX` to the scalar row-wise form
   even when one argument is itself an aggregate expression (`SUM(...)`
-  collapsed to a single row); see the "multiple FOR_% rows" and
+  collapsed to a single row); see the "multiple FOR\_% rows" and
   "over-coverage" unit tests.
-- **`NULLIF` guards the division** so a zero-`amount` FOR_% row degrades to
+- **`NULLIF` guards the division** so a zero-`amount` FOR\_% row degrades to
   the same 1.0 default instead of propagating a bare NULL.
 - **Derived at read time, never stamped.** `PartnerRepository
-  .applySettlementCoverage` (incrementing `covered_amount`, oldest-uncovered-
+.applySettlementCoverage` (incrementing `covered_amount`, oldest-uncovered-
   first FIFO, ~line 424) and `TransactionRepository
-  ._unwindPartnerSettlementCoverage` (decrementing it, newest-covered-first
+._unwindPartnerSettlementCoverage` (decrementing it, newest-covered-first
   reverse-FIFO, ~line 3286) both change what this fragment returns on the
   very next read, with no reversal code of its own needed — rule 20 is
   satisfied by construction because nothing is recorded against the source
@@ -75,17 +75,17 @@ schema (`source_rows(id)` + `partner_ledger(reference_table, reference_id,
 transaction_type, amount, covered_amount, tenant_id)`), independent of any
 `ProfitRepository` method (the fragment isn't wired into one yet):
 
-| # | Case | Result |
-|---|---|---|
-| 1 | No FOR_% rows at all | `1.0` |
-| 2 | Zero coverage | `0` |
-| 3 | Half coverage | `0.5` |
-| 4 | Full coverage | `1.0` |
-| 5 | Over-coverage | clamped to `1.0` |
-| 6 | Defensively-negative `covered_amount` | clamped to `0` |
-| 7 | Two FOR_% rows, $100/$100 covered + $0/$300 uncovered | `0.25` (dollar-weighted `SUM(covered)/SUM(amount)`), explicitly asserted `!= 0.5` (the naive per-row average) — proves aggregation, not averaging |
-| 8 | A `THROUGH_%` row present, no `FOR_%` row | `1.0`, and cross-checked that `notPartnerPending`'s own NOT EXISTS agrees (`true` = not pending) on the identical fixture — proves both fragments select the same rows |
-| 9 | Two different source rows, one covered one not | ratios are independent per row (no global-scan leakage) |
+| #   | Case                                                   | Result                                                                                                                                                                 |
+| --- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | No FOR\_% rows at all                                  | `1.0`                                                                                                                                                                  |
+| 2   | Zero coverage                                          | `0`                                                                                                                                                                    |
+| 3   | Half coverage                                          | `0.5`                                                                                                                                                                  |
+| 4   | Full coverage                                          | `1.0`                                                                                                                                                                  |
+| 5   | Over-coverage                                          | clamped to `1.0`                                                                                                                                                       |
+| 6   | Defensively-negative `covered_amount`                  | clamped to `0`                                                                                                                                                         |
+| 7   | Two FOR\_% rows, $100/$100 covered + $0/$300 uncovered | `0.25` (dollar-weighted `SUM(covered)/SUM(amount)`), explicitly asserted `!= 0.5` (the naive per-row average) — proves aggregation, not averaging                      |
+| 8   | A `THROUGH_%` row present, no `FOR_%` row              | `1.0`, and cross-checked that `notPartnerPending`'s own NOT EXISTS agrees (`true` = not pending) on the identical fixture — proves both fragments select the same rows |
+| 9   | Two different source rows, one covered one not         | ratios are independent per row (no global-scan leakage)                                                                                                                |
 
 **Result: 9 passed, 9 total.**
 
@@ -124,27 +124,27 @@ shifted every subsequent line by a constant +98). The task's own line
 citations (`~432/~688`, `~1127-1400`, `~1619-2058`) map to the **pre-change**
 file; add 98 to land on the row in the table below.
 
-| # | Current line | Enclosing method / CTE | `refTable` arg | Monetary columns returned by that query |
-|---|---|---|---|---|
-| 1 | 530 | `salePaidOrPartnerSettled(alias)` helper — embeds `notPartnerPending("sales", alias.id)` in its OR-arm | `sales` | *(indirect — see §5; consumed by `getSalesRevCost`, `getSalesProfit`, `getByDate`'s `daily_sales`/`daily_sales_profit`, and via a second wrapper by `getByUser`/`getByClient`'s sale arm)* |
-| 2 | 786 | `supplierSettlementProfitArm(hasAllocations, currency)` helper — one gate inside the `cashless` CASE branch | `financial_services` | *(indirect — see §5; consumed by `getByUser`/`getByClient`'s SUPPLIER_SETTLEMENT arm: `profit_usd`/`profit_lbp` only, no revenue/cost pair)* |
-| 3 | 1225 | `getSupplierCommissionTotals` — `cashless` bucket | `financial_services` | `profit_usd`, `profit_lbp`, `count` (`COUNT(DISTINCT sca.settlement_ledger_id)`) |
-| 4 | 1255 | `getFinancialSettledByCurrency` | `financial_services` | `revenue`, `commission`, `count` (`COUNT(*)`) — grouped by currency |
-| 5 | 1323 | `getMobileServicesByCurrency` | `financial_services` | `revenue`, `cost`, `profit`, `count` (`COUNT(*)`) — grouped by currency |
-| 6 | 1351 | `getRechargesByCurrency` | `recharges` | `revenue`, `cost`, `profit`, `count` (`COUNT(*)`) — grouped by currency |
-| 7 | 1382 | `getCustomServicesTotals` | `custom_services` | `revenue_usd`, `revenue_lbp`, `cost_usd`, `cost_lbp`, `profit_usd`, `profit_lbp`, `count` (`COUNT(*)`) |
-| 8 | 1444 | `getLotoTotals` | `loto_tickets` | `revenue_lbp`, `profit_lbp`, `count` (`COUNT(*)`) |
-| 9 | 1498 | `getExchangeTotals` | `exchange_transactions` | `profit_usd`, `revenue_usd`, `count` (`COUNT(*)`) |
-| 10 | 1717 | `getFinancialSettledByProvider` — allocation (UNION) arm | `financial_services` | `profit_usd`, `profit_lbp` (real); `revenue_usd`, `revenue_lbp` deliberately `0` (no revenue/cost pair for a commission-only allocation); `count` deliberately `0 AS count` (the underlying fs row is already counted once by the base arm — see #11) |
-| 11 | 1749 | `getFinancialSettledByProvider` — base arm | `financial_services` | `revenue_usd`, `revenue_lbp`, `profit_usd`, `profit_lbp`, `count` (`COUNT(*)`) — the two arms are `UNION ALL`'d then re-`SUM`'d/re-`GROUP BY`'d by the outer query into the method's final `FinByProviderRow` (same five columns) |
-| 12 | 1778 | `getRechargesByCarrier` | `recharges` | `revenue_usd`, `revenue_lbp`, `cost_usd`, `cost_lbp`, `profit_usd`, `profit_lbp`, `count` (`COUNT(*)`) — grouped by carrier |
-| 13 | 1845 | `getByDate` — `daily_commissions` allocation arm (`dailyCommissionsAllocationArm`) | `financial_services` | `profit_usd`, `profit_lbp` (real); `revenue_usd`, `revenue_lbp` deliberately `0`. **No count column at all** — `getByDate`'s final `ProfitByDateRow` never exposes a per-day count |
-| 14 | 1928 | `getByDate` — `daily_commissions` base arm | `financial_services` | `profit_usd`, `profit_lbp`, `revenue_usd`, `revenue_lbp` (no count, same reason as #13) |
-| 15 | 1950 | `getByDate` — `daily_recharges` CTE | `recharges` | `revenue_usd`, `revenue_lbp`, `cost_usd`, `cost_lbp`, `profit_usd`, `profit_lbp` (no count) |
-| 16 | 1970 | `getByDate` — `daily_custom` CTE | `custom_services` | `revenue_usd`, `revenue_lbp`, `cost_usd`, `cost_lbp`, `profit_usd`, `profit_lbp` (no count) |
-| 17 | 2004 | `getByDate` — `daily_loto` CTE | `loto_tickets` | `revenue_lbp`, `profit_lbp` (no count) |
-| 18 | 2028 | `getByDate` — `daily_exchange` CTE | `exchange_transactions` | `revenue_usd`, `profit_usd` (no count) |
-| 19 | 2156 | `getRealizedCommissionTotals` | `financial_services` | `total_usd`, `total_lbp`, `count` (`COUNT(*)`) |
+| #   | Current line | Enclosing method / CTE                                                                                      | `refTable` arg          | Monetary columns returned by that query                                                                                                                                                                                                               |
+| --- | ------------ | ----------------------------------------------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 530          | `salePaidOrPartnerSettled(alias)` helper — embeds `notPartnerPending("sales", alias.id)` in its OR-arm      | `sales`                 | _(indirect — see §5; consumed by `getSalesRevCost`, `getSalesProfit`, `getByDate`'s `daily_sales`/`daily_sales_profit`, and via a second wrapper by `getByUser`/`getByClient`'s sale arm)_                                                            |
+| 2   | 786          | `supplierSettlementProfitArm(hasAllocations, currency)` helper — one gate inside the `cashless` CASE branch | `financial_services`    | _(indirect — see §5; consumed by `getByUser`/`getByClient`'s SUPPLIER_SETTLEMENT arm: `profit_usd`/`profit_lbp` only, no revenue/cost pair)_                                                                                                          |
+| 3   | 1225         | `getSupplierCommissionTotals` — `cashless` bucket                                                           | `financial_services`    | `profit_usd`, `profit_lbp`, `count` (`COUNT(DISTINCT sca.settlement_ledger_id)`)                                                                                                                                                                      |
+| 4   | 1255         | `getFinancialSettledByCurrency`                                                                             | `financial_services`    | `revenue`, `commission`, `count` (`COUNT(*)`) — grouped by currency                                                                                                                                                                                   |
+| 5   | 1323         | `getMobileServicesByCurrency`                                                                               | `financial_services`    | `revenue`, `cost`, `profit`, `count` (`COUNT(*)`) — grouped by currency                                                                                                                                                                               |
+| 6   | 1351         | `getRechargesByCurrency`                                                                                    | `recharges`             | `revenue`, `cost`, `profit`, `count` (`COUNT(*)`) — grouped by currency                                                                                                                                                                               |
+| 7   | 1382         | `getCustomServicesTotals`                                                                                   | `custom_services`       | `revenue_usd`, `revenue_lbp`, `cost_usd`, `cost_lbp`, `profit_usd`, `profit_lbp`, `count` (`COUNT(*)`)                                                                                                                                                |
+| 8   | 1444         | `getLotoTotals`                                                                                             | `loto_tickets`          | `revenue_lbp`, `profit_lbp`, `count` (`COUNT(*)`)                                                                                                                                                                                                     |
+| 9   | 1498         | `getExchangeTotals`                                                                                         | `exchange_transactions` | `profit_usd`, `revenue_usd`, `count` (`COUNT(*)`)                                                                                                                                                                                                     |
+| 10  | 1717         | `getFinancialSettledByProvider` — allocation (UNION) arm                                                    | `financial_services`    | `profit_usd`, `profit_lbp` (real); `revenue_usd`, `revenue_lbp` deliberately `0` (no revenue/cost pair for a commission-only allocation); `count` deliberately `0 AS count` (the underlying fs row is already counted once by the base arm — see #11) |
+| 11  | 1749         | `getFinancialSettledByProvider` — base arm                                                                  | `financial_services`    | `revenue_usd`, `revenue_lbp`, `profit_usd`, `profit_lbp`, `count` (`COUNT(*)`) — the two arms are `UNION ALL`'d then re-`SUM`'d/re-`GROUP BY`'d by the outer query into the method's final `FinByProviderRow` (same five columns)                     |
+| 12  | 1778         | `getRechargesByCarrier`                                                                                     | `recharges`             | `revenue_usd`, `revenue_lbp`, `cost_usd`, `cost_lbp`, `profit_usd`, `profit_lbp`, `count` (`COUNT(*)`) — grouped by carrier                                                                                                                           |
+| 13  | 1845         | `getByDate` — `daily_commissions` allocation arm (`dailyCommissionsAllocationArm`)                          | `financial_services`    | `profit_usd`, `profit_lbp` (real); `revenue_usd`, `revenue_lbp` deliberately `0`. **No count column at all** — `getByDate`'s final `ProfitByDateRow` never exposes a per-day count                                                                    |
+| 14  | 1928         | `getByDate` — `daily_commissions` base arm                                                                  | `financial_services`    | `profit_usd`, `profit_lbp`, `revenue_usd`, `revenue_lbp` (no count, same reason as #13)                                                                                                                                                               |
+| 15  | 1950         | `getByDate` — `daily_recharges` CTE                                                                         | `recharges`             | `revenue_usd`, `revenue_lbp`, `cost_usd`, `cost_lbp`, `profit_usd`, `profit_lbp` (no count)                                                                                                                                                           |
+| 16  | 1970         | `getByDate` — `daily_custom` CTE                                                                            | `custom_services`       | `revenue_usd`, `revenue_lbp`, `cost_usd`, `cost_lbp`, `profit_usd`, `profit_lbp` (no count)                                                                                                                                                           |
+| 17  | 2004         | `getByDate` — `daily_loto` CTE                                                                              | `loto_tickets`          | `revenue_lbp`, `profit_lbp` (no count)                                                                                                                                                                                                                |
+| 18  | 2028         | `getByDate` — `daily_exchange` CTE                                                                          | `exchange_transactions` | `revenue_usd`, `profit_usd` (no count)                                                                                                                                                                                                                |
+| 19  | 2156         | `getRealizedCommissionTotals`                                                                               | `financial_services`    | `total_usd`, `total_lbp`, `count` (`COUNT(*)`)                                                                                                                                                                                                        |
 
 Also note: `getSalesRevCost` (revenue_usd, cost_usd, `count = COUNT(DISTINCT
 s.id)`) and `getSalesProfit` (`profit_usd`) don't call `notPartnerPending`
@@ -252,7 +252,7 @@ Nine of the 19 sites return a count column, and every one of them is a raw
 integer row/entity count:
 
 - `getSupplierCommissionTotals` cashless (#3): `COUNT(DISTINCT
-  sca.settlement_ledger_id)`
+sca.settlement_ledger_id)`
 - `getFinancialSettledByCurrency` (#4), `getMobileServicesByCurrency` (#5),
   `getRechargesByCurrency` (#6), `getCustomServicesTotals` (#7),
   `getLotoTotals` (#8), `getExchangeTotals` (#9), `getFinancialSettledByProvider`
@@ -268,8 +268,8 @@ inherently a **row-membership tally**, never a dollar amount. Multiplying a
 1. Has no sensible UI rendering — verified concretely, not assumed:
    `ProfitService.ts` passes every one of these `count` fields straight
    through unmodified (`count: salesRevCost.count`, `finSvc.count +=
-   row.count`, etc. — lines 286-775), and `frontend/src/features/profits
-   /pages/Profits.tsx` renders them as bare integers with a unit suffix and
+row.count`, etc. — lines 286-775), and `frontend/src/features/profits
+/pages/Profits.tsx` renders them as bare integers with a unit suffix and
    no formatting (`{summary.sales.count} sales`,
    `{summary.financial_services.count} txns`,
    `{summary.mobile_services.count} txns`,
@@ -286,7 +286,7 @@ too."** Two candidate resolutions, named here so the lane doesn't have to
 rediscover the question:
 
 - **(a) Count on any recognition at all** — `count` becomes `SUM(CASE WHEN
-  ratio > 0 THEN 1 ELSE 0 END)`, i.e. a row is counted the moment it starts
+ratio > 0 THEN 1 ELSE 0 END)`, i.e. a row is counted the moment it starts
   contributing anything, matching "how many transactions have SOME revenue
   showing in this view."
 - **(b) Count only full recognition** — `count` stays gated on `ratio = 1`

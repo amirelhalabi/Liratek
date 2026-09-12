@@ -11243,7 +11243,9 @@ export const MIGRATIONS: Migration[] = [
     down: (db) => {
       // Same reason as up(): a minimal test schema may have no users table.
       if (!tableExists(db, "users")) {
-        console.log("Migration v174 rollback: no users table here — nothing to do");
+        console.log(
+          "Migration v174 rollback: no users table here — nothing to do",
+        );
         return;
       }
 

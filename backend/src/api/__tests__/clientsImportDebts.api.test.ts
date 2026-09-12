@@ -20,7 +20,12 @@
 import { jest } from "@jest/globals";
 
 jest.mock("../../server.js", () => ({
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 const importClientsWithDebts = jest.fn();
@@ -48,7 +53,8 @@ let currentUser: { userId: number; role: string; tenantId: number } | null = {
 };
 jest.mock("../../middleware/auth.js", () => ({
   authenticateJWT: (req: any, res: any, next: () => void) => {
-    if (!currentUser) return res.status(401).json({ error: "No token provided" });
+    if (!currentUser)
+      return res.status(401).json({ error: "No token provided" });
     req.user = currentUser;
     next();
   },
@@ -106,13 +112,17 @@ describe("POST /api/clients/import-debts", () => {
   describe("access control — must match the desktop handler", () => {
     it("rejects an unauthenticated request", async () => {
       currentUser = null;
-      await post({ clients: [{ name: "A", phone: "03", entries: [ENTRY] }] }).expect(401);
+      await post({
+        clients: [{ name: "A", phone: "03", entries: [ENTRY] }],
+      }).expect(401);
       expect(importClientsWithDebts).not.toHaveBeenCalled();
     });
 
     it("rejects a non-admin — the IPC handler is requireRole(['admin'])", async () => {
       currentUser = { userId: 7, role: "staff", tenantId: 1 };
-      await post({ clients: [{ name: "A", phone: "03", entries: [ENTRY] }] }).expect(403);
+      await post({
+        clients: [{ name: "A", phone: "03", entries: [ENTRY] }],
+      }).expect(403);
       expect(importClientsWithDebts).not.toHaveBeenCalled();
     });
   });
@@ -138,7 +148,10 @@ describe("POST /api/clients/import-debts", () => {
       userId: 999,
     }).expect(200);
 
-    const [, userId] = importClientsWithDebts.mock.calls[0] as [unknown, number];
+    const [, userId] = importClientsWithDebts.mock.calls[0] as [
+      unknown,
+      number,
+    ];
     // 42 is the authenticated user; 999 must be ignored. Every imported
     // debt_ledger row is stamped with this.
     expect(userId).toBe(42);
@@ -154,18 +167,24 @@ describe("POST /api/clients/import-debts", () => {
     it("accepts a client with NO phone — the service discards those and reports it", async () => {
       // Rejecting here would turn a partial import plus a summary into a total
       // failure, which is not what the desktop path does.
-      await post({ clients: [{ name: "No Phone", phone: "", entries: [ENTRY] }] }).expect(200);
+      await post({
+        clients: [{ name: "No Phone", phone: "", entries: [ENTRY] }],
+      }).expect(200);
       expect(importClientsWithDebts).toHaveBeenCalled();
     });
 
     it("accepts a long description rather than failing the whole import", async () => {
       const long = { ...ENTRY, description: "x".repeat(1500) };
-      await post({ clients: [{ name: "Ali", phone: "03", entries: [long] }] }).expect(200);
+      await post({
+        clients: [{ name: "Ali", phone: "03", entries: [long] }],
+      }).expect(200);
       expect(importClientsWithDebts).toHaveBeenCalled();
     });
 
     it("accepts a client with zero entries", async () => {
-      await post({ clients: [{ name: "Ali", phone: "03", entries: [] }] }).expect(200);
+      await post({
+        clients: [{ name: "Ali", phone: "03", entries: [] }],
+      }).expect(200);
       expect(importClientsWithDebts).toHaveBeenCalled();
     });
 
@@ -194,7 +213,9 @@ describe("POST /api/clients/import-debts", () => {
   });
 
   it("audits the import, matching the desktop handler's client_import row", async () => {
-    await post({ clients: [{ name: "Ali", phone: "03", entries: [ENTRY] }] }).expect(200);
+    await post({
+      clients: [{ name: "Ali", phone: "03", entries: [ENTRY] }],
+    }).expect(200);
     expect(auditLog).toHaveBeenCalled();
     const row = auditLog.mock.calls[0]!.at(-1) as Record<string, unknown>;
     expect(row.entity_type).toBe("client_import");

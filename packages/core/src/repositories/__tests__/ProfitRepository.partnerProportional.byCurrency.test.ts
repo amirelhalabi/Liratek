@@ -372,9 +372,7 @@ describe("ProfitRepository — partner-proportional recognition (Lane B)", () =>
     seedTxn(db, "recharges", r3, "RECHARGE", 15);
     seedPartnerRow(db, "recharges", r3, 100, 100);
 
-    const rows = runWithTenant(1, () =>
-      repo.getRechargesByCurrency(FROM, TO),
-    );
+    const rows = runWithTenant(1, () => repo.getRechargesByCurrency(FROM, TO));
     const usd = rows.find((r) => r.currency_code === "USD");
     // NEW: revenue = 100*0+200*0.5+300*1 = 400; cost = 30*0+60*0.5+90*1 = 120;
     // profit = 5*0+10*0.5+15*1 = 20.

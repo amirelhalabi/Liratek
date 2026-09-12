@@ -19,7 +19,6 @@ interface PaymentMethodRow {
 const MANDATORY_MODULES = new Set(["pos", "inventory"]);
 const MANDATORY_PMS = new Set(["CASH"]);
 
-
 function Toggle({
   checked,
   onChange,

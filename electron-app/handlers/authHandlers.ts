@@ -487,7 +487,10 @@ export function registerAuthHandlers(): void {
       return { success: true, data: sessions };
     } catch (error) {
       authLogger.error(
-        { error: error instanceof Error ? error.message : String(error), userId: auth.userId },
+        {
+          error: error instanceof Error ? error.message : String(error),
+          userId: auth.userId,
+        },
         "List sessions error",
       );
       return {
@@ -584,7 +587,10 @@ export function registerAuthHandlers(): void {
       return { success: true, data: { revoked } };
     } catch (error) {
       authLogger.error(
-        { error: error instanceof Error ? error.message : String(error), userId: auth.userId },
+        {
+          error: error instanceof Error ? error.message : String(error),
+          userId: auth.userId,
+        },
         "Revoke other sessions error",
       );
       return {

@@ -44,12 +44,7 @@
  *    profit-delta test fails by exactly `returnedCredits * R`.
  */
 
-import {
-  test,
-  expect,
-  navigateTo,
-  ensureProfitsUnlocked,
-} from "./fixtures";
+import { test, expect, navigateTo, ensureProfitsUnlocked } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });

@@ -577,9 +577,8 @@ async function registerHandlers() {
     const holdMoneyHandlers = await import("./handlers/holdMoneyHandlers.js");
     const carrierLineHandlers =
       await import("./handlers/carrierLineHandlers.js");
-    const databaseResetHandlers = await import(
-      "./handlers/databaseResetHandlers.js"
-    );
+    const databaseResetHandlers =
+      await import("./handlers/databaseResetHandlers.js");
 
     // Register all handlers
     authHandlers.registerAuthHandlers();

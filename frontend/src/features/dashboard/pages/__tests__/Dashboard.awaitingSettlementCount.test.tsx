@@ -165,9 +165,7 @@ jest.mock("../../../closing/components/InitialDrawerAmountsModal", () => ({
 
 async function renderDashboard() {
   const utils = render(<Dashboard />);
-  await waitFor(() =>
-    expect(mockGetUnsettledSummary).toHaveBeenCalledTimes(1),
-  );
+  await waitFor(() => expect(mockGetUnsettledSummary).toHaveBeenCalledTimes(1));
   await screen.findByText(/Pending Settlement —/);
   return utils;
 }

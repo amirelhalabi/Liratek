@@ -119,7 +119,9 @@ function createSchema(db: Database.Database): void {
     CREATE TABLE expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, status TEXT DEFAULT 'active', amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0, expense_date TEXT, is_refunded INTEGER DEFAULT 0);
     CREATE TABLE exchange_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, amount_in REAL DEFAULT 0, leg1_profit_usd REAL DEFAULT 0, leg2_profit_usd REAL DEFAULT 0, is_refunded INTEGER DEFAULT 0, created_at TEXT);
   `);
-  db.prepare(`INSERT INTO users (id, tenant_id, username) VALUES (1, 1, 'cashier1')`).run();
+  db.prepare(
+    `INSERT INTO users (id, tenant_id, username) VALUES (1, 1, 'cashier1')`,
+  ).run();
 }
 
 /** Seeds a RECHARGE-type transaction (ELSE branch) with an optional partner_ledger coverage row. */
@@ -216,7 +218,11 @@ describe("ProfitRepository — partner-proportional recognition (getByUser/getBy
     });
 
     it("100% coverage -> full revenue/profit recognised", () => {
-      seedRechargeTxn(db, { amountUsd: 100, profitUsd: 20, coveredAmount: 100 });
+      seedRechargeTxn(db, {
+        amountUsd: 100,
+        profitUsd: 20,
+        coveredAmount: 100,
+      });
       const rows = runWithTenant(1, () => repo.getByUser(FROM, TO));
       expect(rows[0].revenue_usd).toBeCloseTo(100, 5);
       expect(rows[0].profit_usd).toBeCloseTo(20, 5);
@@ -264,7 +270,11 @@ describe("ProfitRepository — partner-proportional recognition (getByUser/getBy
     });
 
     it("0% and 100% reproduce the old binary extremes", () => {
-      const t0 = seedRechargeTxn(db, { amountUsd: 100, profitUsd: 20, coveredAmount: 0 });
+      const t0 = seedRechargeTxn(db, {
+        amountUsd: 100,
+        profitUsd: 20,
+        coveredAmount: 0,
+      });
       void t0;
       let rows = runWithTenant(1, () => repo.getByClient(FROM, TO, 50));
       expect(rows[0].revenue_usd).toBeCloseTo(0, 5);
@@ -272,7 +282,11 @@ describe("ProfitRepository — partner-proportional recognition (getByUser/getBy
       db.prepare(`DELETE FROM transactions`).run();
       db.prepare(`DELETE FROM partner_ledger`).run();
       db.prepare(`DELETE FROM recharges`).run();
-      seedRechargeTxn(db, { amountUsd: 100, profitUsd: 20, coveredAmount: 100 });
+      seedRechargeTxn(db, {
+        amountUsd: 100,
+        profitUsd: 20,
+        coveredAmount: 100,
+      });
       rows = runWithTenant(1, () => repo.getByClient(FROM, TO, 50));
       expect(rows[0].revenue_usd).toBeCloseTo(100, 5);
     });
@@ -292,7 +306,11 @@ describe("ProfitRepository — partner-proportional recognition (getByUser/getBy
     });
 
     it("100% coverage -> nothing deferred", () => {
-      seedRechargeTxn(db, { amountUsd: 100, profitUsd: 20, coveredAmount: 100 });
+      seedRechargeTxn(db, {
+        amountUsd: 100,
+        profitUsd: 20,
+        coveredAmount: 100,
+      });
       const row = runWithTenant(1, () => repo.getDeferredProfit(FROM, TO));
       expect(row.partner_profit_usd).toBeCloseTo(0, 5);
     });
@@ -307,7 +325,10 @@ describe("ProfitRepository — partner-proportional recognition (getByUser/getBy
       seedRechargeTxn(db, { amountUsd: 100, profitUsd: 20, coveredAmount: 50 });
       const realized = runWithTenant(1, () => repo.getByUser(FROM, TO));
       const deferred = runWithTenant(1, () => repo.getDeferredProfit(FROM, TO));
-      expect(realized[0].profit_usd + deferred.partner_profit_usd).toBeCloseTo(20, 5);
+      expect(realized[0].profit_usd + deferred.partner_profit_usd).toBeCloseTo(
+        20,
+        5,
+      );
     });
   });
 });

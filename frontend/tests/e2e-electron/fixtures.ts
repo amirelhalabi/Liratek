@@ -662,9 +662,7 @@ type ProfitsGateApi = {
     setPassword: (
       password: string,
     ) => Promise<{ success: boolean; error?: string }>;
-    unlock: (
-      password: string,
-    ) => Promise<{ success: boolean; error?: string }>;
+    unlock: (password: string) => Promise<{ success: boolean; error?: string }>;
   };
 };
 
@@ -761,9 +759,7 @@ export async function unlockProfitsPage(page: Page): Promise<void> {
     );
   }
 
-  await page
-    .getByTestId("profits-password-input")
-    .fill(E2E_PROFITS_PASSWORD);
+  await page.getByTestId("profits-password-input").fill(E2E_PROFITS_PASSWORD);
   await page.getByTestId("profits-unlock-submit").click();
   await expect(lockScreen).toHaveCount(0, { timeout: 15_000 });
 }

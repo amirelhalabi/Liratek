@@ -4441,8 +4441,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    */
   private _hasSettlementAllocationsTable(): boolean {
     if (this._hasSettlementAllocationsTableCache === null) {
-      this._hasSettlementAllocationsTableCache =
-        hasSettlementAllocationsTable(this.db);
+      this._hasSettlementAllocationsTableCache = hasSettlementAllocationsTable(
+        this.db,
+      );
     }
     return this._hasSettlementAllocationsTableCache;
   }

@@ -287,7 +287,9 @@ describe("ProfitRepository — zero-row continuity (Task 2, havingAnyContributio
       seedTxn(db, "recharges", r1, "RECHARGE", 0, 10);
       seedPartnerRow(db, "recharges", r1, 100, 0);
 
-      const rows = runWithTenant(1, () => repo.getRechargesByCurrency(FROM, TO));
+      const rows = runWithTenant(1, () =>
+        repo.getRechargesByCurrency(FROM, TO),
+      );
       expect(rows.find((r) => r.currency_code === "LBP")).toBeUndefined();
     });
 
@@ -301,7 +303,9 @@ describe("ProfitRepository — zero-row continuity (Task 2, havingAnyContributio
       seedTxn(db, "recharges", r1, "RECHARGE", 0, 10);
       seedPartnerRow(db, "recharges", r1, 100, 50);
 
-      const rows = runWithTenant(1, () => repo.getRechargesByCurrency(FROM, TO));
+      const rows = runWithTenant(1, () =>
+        repo.getRechargesByCurrency(FROM, TO),
+      );
       const lbp = rows.find((r) => r.currency_code === "LBP");
       expect(lbp).toBeDefined();
       expect(lbp?.revenue).toBeCloseTo(50, 2);

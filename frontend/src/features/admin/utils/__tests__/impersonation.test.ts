@@ -118,7 +118,11 @@ describe("bootstrapImpersonationSession (imperative)", () => {
     expect(applied).toBe(false);
     expect(getImpersonationToken()).toBeNull();
     // Leaving it in the address bar is how it gets replayed AGAIN.
-    expect(win.history.replaceState).toHaveBeenCalledWith({}, "", "/#/dashboard");
+    expect(win.history.replaceState).toHaveBeenCalledWith(
+      {},
+      "",
+      "/#/dashboard",
+    );
   });
 
   it("refuses a token with no readable iat — it is not one of ours", () => {
@@ -221,6 +225,8 @@ describe("isFreshHandoff", () => {
   it("tolerates a client clock that runs BEHIND the server (iat in the future)", () => {
     // Skew is why the window is minutes wide, not seconds; a future iat is the
     // benign direction and must never lock a legitimate handoff out.
-    expect(isFreshHandoff(makeToken({ iat: (now + 60_000) / 1000 }), now)).toBe(true);
+    expect(isFreshHandoff(makeToken({ iat: (now + 60_000) / 1000 }), now)).toBe(
+      true,
+    );
   });
 });

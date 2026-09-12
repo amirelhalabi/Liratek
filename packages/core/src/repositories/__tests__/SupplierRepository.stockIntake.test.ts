@@ -23,8 +23,14 @@
 
 import Database from "better-sqlite3";
 import { ProductRepository } from "../ProductRepository.js";
-import { getSupplierRepository, resetSupplierRepository } from "../SupplierRepository.js";
-import { getStockBatchRepository, resetStockBatchRepository } from "../StockBatchRepository.js";
+import {
+  getSupplierRepository,
+  resetSupplierRepository,
+} from "../SupplierRepository.js";
+import {
+  getStockBatchRepository,
+  resetStockBatchRepository,
+} from "../StockBatchRepository.js";
 import { resetProductSupplierRepository } from "../ProductSupplierRepository.js";
 import { resetStockAdjustmentRepository } from "../StockAdjustmentRepository.js";
 import { resetTransactionRepository } from "../TransactionRepository.js";
@@ -262,9 +268,10 @@ function seedSupplierAndProduct(
 ): { supplierId: number; productId: number } {
   const supplierId = opts.supplierId ?? 1;
   const productId = opts.productId ?? 1;
-  db.prepare(
-    `INSERT INTO suppliers (id, name) VALUES (?, ?)`,
-  ).run(supplierId, opts.supplierName ?? SUPPLIER_NAME);
+  db.prepare(`INSERT INTO suppliers (id, name) VALUES (?, ?)`).run(
+    supplierId,
+    opts.supplierName ?? SUPPLIER_NAME,
+  );
   db.prepare(
     `INSERT INTO product_suppliers (id, name, supplier_id) VALUES (?, ?, ?)`,
   ).run(supplierId, opts.supplierName ?? SUPPLIER_NAME, supplierId);
@@ -480,7 +487,9 @@ describe("SupplierRepository / ProductRepository — event-based stock intake ba
     expect(ledgerCount.n).toBe(0);
 
     const batch = db
-      .prepare(`SELECT quantity, books_debt FROM product_stock_batches WHERE id = ?`)
+      .prepare(
+        `SELECT quantity, books_debt FROM product_stock_batches WHERE id = ?`,
+      )
       .get(result.batch_id) as { quantity: number; books_debt: number };
     expect(batch.quantity).toBe(10);
     expect(batch.books_debt).toBe(0);
@@ -549,11 +558,15 @@ describe("SupplierRepository / ProductRepository — event-based stock intake ba
     // Nothing was written — the whole receiveStock call rolled back inside
     // its own db.transaction(), not just the ledger insert.
     const ledgerCount = db
-      .prepare(`SELECT COUNT(*) AS n FROM supplier_ledger WHERE supplier_id = ?`)
+      .prepare(
+        `SELECT COUNT(*) AS n FROM supplier_ledger WHERE supplier_id = ?`,
+      )
       .get(supplierId) as { n: number };
     expect(ledgerCount.n).toBe(0);
     const batchCount = db
-      .prepare(`SELECT COUNT(*) AS n FROM product_stock_batches WHERE product_id = ?`)
+      .prepare(
+        `SELECT COUNT(*) AS n FROM product_stock_batches WHERE product_id = ?`,
+      )
       .get(productId) as { n: number };
     expect(batchCount.n).toBe(0);
     const product = db
@@ -609,7 +622,9 @@ describe("SupplierRepository / ProductRepository — event-based stock intake ba
     expect(reactivated.id).toBe(created.id);
 
     const row = db
-      .prepare(`SELECT is_active, is_deleted, supplier FROM products WHERE id = ?`)
+      .prepare(
+        `SELECT is_active, is_deleted, supplier FROM products WHERE id = ?`,
+      )
       .get(created.id) as {
       is_active: number;
       is_deleted: number;

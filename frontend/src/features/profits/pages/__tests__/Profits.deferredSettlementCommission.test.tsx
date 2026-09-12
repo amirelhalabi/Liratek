@@ -138,9 +138,7 @@ function baseSummary() {
 
 async function renderOverview() {
   const utils = render(<Profits />);
-  await waitFor(() =>
-    expect(mockGetProfitSummary).toHaveBeenCalledTimes(1),
-  );
+  await waitFor(() => expect(mockGetProfitSummary).toHaveBeenCalledTimes(1));
   await waitFor(() =>
     expect(screen.queryByText("Loading...")).not.toBeInTheDocument(),
   );

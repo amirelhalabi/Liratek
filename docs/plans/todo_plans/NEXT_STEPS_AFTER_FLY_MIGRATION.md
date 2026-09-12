@@ -17,13 +17,13 @@ too. The web side is verified end to end; **desktop is not verified at all.**
 
 What reaches desktop:
 
-| Change | Desktop impact |
-| --- | --- |
-| Migration **v174** (`username_case_insensitive`) | Runs on every desktop database. Renames + deactivates case-duplicate usernames. If a shop has `admin` and `Admin`, **one of them stops working** |
-| `UserRepository` `USERNAME_MATCH` | Every login lookup on desktop is now `COLLATE NOCASE` |
-| `SettingsService.getAllSettings()` now **throws** instead of returning `[]` | Any desktop caller that relied on the silent empty array now sees an exception |
-| `BackupService` → `VACUUM INTO` + fixed `listBackups()` | The desktop backup UI is the only consumer. Behaviour changed materially |
-| `create_db.sql` NOCASE indexes | Fresh desktop installs only |
+| Change                                                                      | Desktop impact                                                                                                                                   |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Migration **v174** (`username_case_insensitive`)                            | Runs on every desktop database. Renames + deactivates case-duplicate usernames. If a shop has `admin` and `Admin`, **one of them stops working** |
+| `UserRepository` `USERNAME_MATCH`                                           | Every login lookup on desktop is now `COLLATE NOCASE`                                                                                            |
+| `SettingsService.getAllSettings()` now **throws** instead of returning `[]` | Any desktop caller that relied on the silent empty array now sees an exception                                                                   |
+| `BackupService` → `VACUUM INTO` + fixed `listBackups()`                     | The desktop backup UI is the only consumer. Behaviour changed materially                                                                         |
+| `create_db.sql` NOCASE indexes                                              | Fresh desktop installs only                                                                                                                      |
 
 **The check (owner runs it — see `CLAUDE.md`):**
 
@@ -48,14 +48,14 @@ for the web database and has never been exercised on a desktop file.
 
 ## 2. Small fixes found today (all cheap) 🟡
 
-| Fix | Where | Note |
-| --- | --- | --- |
-| **"Last activity" is mislabelled** | `TenantRepository.listAll()` | It is `MAX(transactions.created_at)`, so a shop that logged in but sold nothing shows NULL and reads as "never seen". Relabel to "Last sale", or widen to also consider `sessions.last_activity_at` |
-| **`/health/detailed` always reports `unhealthy`** | backend health route | Memory check compares heap 45/47 MB against a 42 MB threshold while RSS is 100 MB of 512 MB. Fly uses `/health` so nothing is broken — but do not wire monitoring to `/health/detailed` until fixed |
-| **The `DATABASE_KEY` log line lies** | `connection.ts` + `sqlcipher.ts` | Logs `applied:true, supported:true` on a plaintext database, because stock `better-sqlite3` silently ignores `PRAGMA key` (proved by canary). Make `applySqlCipherKey` detect that the key had no effect and report `applied:false` — a security log that asserts the opposite of reality is worse than no log |
-| ~~`deleteTenant` does not deprovision DNS~~ **FIXED** | `TenantProvisioningService` / `tenantDomains.ts` | Both the delete path and the slug-rename path in `backend/src/api/admin.ts` now call `deprovisionTenantDomain` (commit `b82aa523`). Three pre-fix orphans remain: `acme-shop`, `echo-co`, `foxtrot-co` — see the next row |
-| Delete the three orphan subdomains | Cloudflare + Vercel | One-off cleanup — run `yarn ops:prune` (dry run by default, `--yes` to actually delete) |
-| Retire the `test` tenant (id 5) when finished testing | super-admin UI | Keep it until item 3 is done — it is the only second tenant, and the split needs one |
+| Fix                                                   | Where                                            | Note                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **"Last activity" is mislabelled**                    | `TenantRepository.listAll()`                     | It is `MAX(transactions.created_at)`, so a shop that logged in but sold nothing shows NULL and reads as "never seen". Relabel to "Last sale", or widen to also consider `sessions.last_activity_at`                                                                                                            |
+| **`/health/detailed` always reports `unhealthy`**     | backend health route                             | Memory check compares heap 45/47 MB against a 42 MB threshold while RSS is 100 MB of 512 MB. Fly uses `/health` so nothing is broken — but do not wire monitoring to `/health/detailed` until fixed                                                                                                            |
+| **The `DATABASE_KEY` log line lies**                  | `connection.ts` + `sqlcipher.ts`                 | Logs `applied:true, supported:true` on a plaintext database, because stock `better-sqlite3` silently ignores `PRAGMA key` (proved by canary). Make `applySqlCipherKey` detect that the key had no effect and report `applied:false` — a security log that asserts the opposite of reality is worse than no log |
+| ~~`deleteTenant` does not deprovision DNS~~ **FIXED** | `TenantProvisioningService` / `tenantDomains.ts` | Both the delete path and the slug-rename path in `backend/src/api/admin.ts` now call `deprovisionTenantDomain` (commit `b82aa523`). Three pre-fix orphans remain: `acme-shop`, `echo-co`, `foxtrot-co` — see the next row                                                                                      |
+| Delete the three orphan subdomains                    | Cloudflare + Vercel                              | One-off cleanup — run `yarn ops:prune` (dry run by default, `--yes` to actually delete)                                                                                                                                                                                                                        |
+| Retire the `test` tenant (id 5) when finished testing | super-admin UI                                   | Keep it until item 3 is done — it is the only second tenant, and the split needs one                                                                                                                                                                                                                           |
 
 ---
 
@@ -71,7 +71,7 @@ here; the ordering that matters:
   file", retiring the 68-table cascade
 - **D** move CornerTech and Test into per-tenant files (hours, trivial at N=2)
 - **E** hosting cleanups: Cloudflare proxied + wildcard `*.liratek.shop`, which
-  retires `tenantDomains.ts` per-tenant DNS *and* fixes item 2's orphan problem
+  retires `tenantDomains.ts` per-tenant DNS _and_ fixes item 2's orphan problem
   by removing per-tenant records entirely
 
 **Backups need nothing new for this** (checked): Litestream 0.5 replicates a
@@ -96,7 +96,7 @@ invite code are in § 3 of that doc — **Turnstile is the minimum bar.**
 
 ## 5. Backups — from working to trustworthy 🟢
 
-Live and restore-verified. What is missing is *routine*:
+Live and restore-verified. What is missing is _routine_:
 
 - **A restore drill on a schedule.** A restore proven once is proven once. Put
   it on a monthly reminder — the two commands are in

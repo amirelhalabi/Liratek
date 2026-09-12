@@ -58,7 +58,11 @@ describe("Services StatsCards — awaiting-settlement caption (LIRA-163)", () =>
 
   it("defaults to omitted when the props are simply absent (older cached payload shape)", () => {
     render(
-      <StatsCards todayCommission={0} monthCommission={0} owedByProvider={{}} />,
+      <StatsCards
+        todayCommission={0}
+        monthCommission={0}
+        owedByProvider={{}}
+      />,
     );
 
     expect(

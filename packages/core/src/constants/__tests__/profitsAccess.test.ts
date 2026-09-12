@@ -5,7 +5,10 @@
  * `hasProfitsUnlock` and `sweepExpired`. See `../profitsAccess.ts` for the
  * exact documented semantics (boundary is EXPIRED, future stamp is LIVE).
  */
-import { isProfitsUnlockLive, PROFITS_UNLOCK_TTL_MS } from "../profitsAccess.js";
+import {
+  isProfitsUnlockLive,
+  PROFITS_UNLOCK_TTL_MS,
+} from "../profitsAccess.js";
 
 describe("isProfitsUnlockLive", () => {
   const NOW = 1_000_000_000_000; // arbitrary fixed epoch ms

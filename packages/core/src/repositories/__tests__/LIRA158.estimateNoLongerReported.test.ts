@@ -309,8 +309,7 @@ function useTestDb(db: Database.Database): void {
 }
 
 function clearTestDb(): void {
-  delete (globalThis as unknown as Record<string, unknown>)
-    .__LIRATEK_TEST_DB__;
+  delete (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__;
 }
 
 // =============================================================================
@@ -537,9 +536,9 @@ describe("LIRA-158 Phase 2a — FinancialServiceRepository.getAnalytics", () => 
     // (FinancialServiceRepository.ts) — a fixed constant like `D` above would
     // flake near local midnight, so seed against the DB's own 'now' the same
     // way FinancialServiceRepository.tenantIsolation.test.ts does.
-    const today = db
-      .prepare(`SELECT DATE('now', 'localtime') as d`)
-      .get() as { d: string };
+    const today = db.prepare(`SELECT DATE('now', 'localtime') as d`).get() as {
+      d: string;
+    };
     const todayAt = `${today.d} 10:00:00`;
 
     insertFs(db, {
@@ -574,9 +573,9 @@ describe("LIRA-158 Phase 2a — FinancialServiceRepository.getAnalytics", () => 
   // ---------------------------------------------------------------------------
 
   it("LIRA-163: today.awaiting_settlement_count counts only STILL-UNSETTLED model-1 rows, and byProvider carries the same per-provider count", () => {
-    const today = db
-      .prepare(`SELECT DATE('now', 'localtime') as d`)
-      .get() as { d: string };
+    const today = db.prepare(`SELECT DATE('now', 'localtime') as d`).get() as {
+      d: string;
+    };
     const todayAt = `${today.d} 10:00:00`;
 
     // Counts: unsettled model-1 (OMT).
@@ -626,9 +625,7 @@ describe("LIRA-158 Phase 2a — FinancialServiceRepository.getAnalytics", () => 
 
   it("LIRA-163: month.awaiting_settlement_count mirrors the today scope for the current month bound", () => {
     const monthAt = db
-      .prepare(
-        `SELECT strftime('%Y-%m-15 10:00:00', 'now', 'localtime') as d`,
-      )
+      .prepare(`SELECT strftime('%Y-%m-15 10:00:00', 'now', 'localtime') as d`)
       .get() as { d: string };
 
     insertFs(db, {

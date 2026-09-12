@@ -439,8 +439,7 @@ describe("FinancialRepository.getMonthlyPL — LIRA-159 D1 composition", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     createSchema(db);
-    (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__ =
-      db;
+    (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__ = db;
     initFixedTenantContext(TENANT_ID);
     // MUST run after __LIRATEK_TEST_DB__ is (re)pointed and BEFORE the test
     // body calls getMonthlyPL — see this file's header comment on singleton
@@ -689,9 +688,9 @@ describe("FinancialRepository.getMonthlyPL — LIRA-159 D1 composition", () => {
              strftime('%Y-%m', date('now','localtime','start of month') || ' 00:01:00') AS localMonth`,
         )
         .get() as { ts: string; localMonth: string };
-      const utcMonth = db.prepare(`SELECT strftime('%Y-%m', ?) AS m`).get(
-        probe.ts,
-      ) as { m: string };
+      const utcMonth = db
+        .prepare(`SELECT strftime('%Y-%m', ?) AS m`)
+        .get(probe.ts) as { m: string };
 
       if (utcMonth.m === probe.localMonth) {
         // This branch is now reached ONLY when LOCAL_OFFSET_HOURS > 0 (that

@@ -358,8 +358,8 @@ export default function AdjustStockModal({
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    Books a delivery: raises stock, sets this as the
-                    product's new cost, and adds{" "}
+                    Books a delivery: raises stock, sets this as the product's
+                    new cost, and adds{" "}
                     {product.supplier?.trim()
                       ? "what you owe the supplier (unless marked old stock)"
                       : "nothing to any supplier balance (no supplier set)"}
@@ -462,8 +462,7 @@ export default function AdjustStockModal({
                 Cost Batches
               </h3>
               <p className="text-xs text-slate-500 mb-2">
-                Oldest stock sells first — batches are listed oldest to
-                newest.
+                Oldest stock sells first — batches are listed oldest to newest.
               </p>
               <div className="space-y-2 max-h-32 overflow-y-auto">
                 {batches.map((batch) => (

@@ -20,10 +20,7 @@ jest.mock("../socket", () => ({ connectSocket }));
 jest.mock("../backendApi", () => ({ isElectron: () => electron }));
 jest.mock("../httpClient", () => ({ getToken: () => token }));
 
-import {
-  subscribeToInvalidation,
-  resetRealtimeForTests,
-} from "../realtime";
+import { subscribeToInvalidation, resetRealtimeForTests } from "../realtime";
 
 /** Fire what the backend would emit. */
 function emit(entity: string, action = "create") {

@@ -34,19 +34,19 @@ joined `LOWER(p.supplier) = LOWER(product_suppliers.name)`, filtered `p.is_activ
 
 Consequences, all confirmed:
 
-| Event                             | Effect on "owed" today                                                    |
-| --------------------------------- | ------------------------------------------------------------------------- |
-| POS sale (`SalesRepository.ts:772-776`) | **falls** by qty × cost — owner bug (2)                              |
-| Sale refund (`:1537`)             | **rises** again                                                           |
-| Cost-price edit                   | retroactively **re-prices the debt**                                      |
-| Product soft-delete               | **no change** — the query filters `is_active` only, delete sets `is_deleted` |
-| Adding stock (any path)           | **no ledger row is ever written** — there is nothing to opt out of        |
+| Event                                   | Effect on "owed" today                                                       |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| POS sale (`SalesRepository.ts:772-776`) | **falls** by qty × cost — owner bug (2)                                      |
+| Sale refund (`:1537`)                   | **rises** again                                                              |
+| Cost-price edit                         | retroactively **re-prices the debt**                                         |
+| Product soft-delete                     | **no change** — the query filters `is_active` only, delete sets `is_deleted` |
+| Adding stock (any path)                 | **no ledger row is ever written** — there is nothing to opt out of           |
 
 And bug (3): the modal's `OWED` reads the stock-derived map
 (`Suppliers/index.tsx:482-495, 2256-2257`) while `SupplierService.writeOffSupplierDebt:168` guards
 against **ledger-only** `getSupplierBalance` (= 0 for a product supplier). The standalone supplier
 write-off has **never** been able to succeed for a product supplier since it shipped in `a3d09e7b`
-(2026-07-19). The *bundled* Pay-form discount has no balance guard and does post — likely what the
+(2026-07-19). The _bundled_ Pay-form discount has no balance guard and does post — likely what the
 owner actually used. A write-off also books **+profit** ("discount received",
 `moneyPosting.ts:727-732`), which is right for real forgiveness and wrong for old stock.
 
@@ -57,20 +57,20 @@ It requires moving to event-based booking, which fixes all three reports with on
 
 ## 1. Owner decisions (2026-09-06 interview) — ALL IMPLEMENTED (see §4 "As built")
 
-| #       | Decision                                                                                                                                                                                                                                                                                                        |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **D1**  | **Book debt when stock arrives.** One `supplier_ledger` row of qty × unit cost per delivery. Balance = Σ non-refunded ledger rows, the same formula company suppliers already use. Sales, refunds, deletes and cost edits never move it.                                                                          |
-| **D2**  | **Booking events:** the **Add Product** form (including the POS quick-add, which embeds the same form) and the **restock action**. File import is not used by the owner — left on the Add Product path, so it books like any other create.                                                                       |
-| **D3**  | **Keep the existing stock button** (name unchanged — owner: _"no need to change its name"_). It gains **quantity received**, **unit cost**, and the **old-stock checkbox**, with fields and layout mirroring the Add Product form.                                                                                |
-| **D4**  | **Stored cost price becomes the newest purchase price** on a restock (display / pricing reference).                                                                                                                                                                                                              |
-| **D5**  | **FIFO cost batches for profit.** Each delivery is a batch with its own quantity and unit cost; a sale consumes the **oldest batch first**. Invisible at POS — one product row, no batch picking anywhere. Owner explicitly rejected any "select from a list of items with a cost for each".                       |
-| **D6**  | **"Old stock" checkbox is per-entry** and resets every time. Shown only when the Supplier field is filled. Creates a batch (so profit still works) with **no debt row**.                                                                                                                                          |
-| **D7**  | **Permissions: admin + staff on BOTH transports.** Fixes the existing parity gap (desktop `admin\|staff` at `inventoryHandlers.ts:134-138` vs web `admin` only at `backend/src/api/inventory.ts:136-138`).                                                                                                        |
-| **D8**  | **REMOVE the standalone supplier write-off** (button, modal, hook, adapter, preload, IPC handler, REST route, schema, service + repository method). **Keep** the bundled Pay-form discount, which is the remaining forgiveness path.                                                                              |
-| **D9**  | **Purchases tab:** drop the guessed Paid/Status columns and the Outstanding footer (`Suppliers/index.tsx:576-598, 1487-1491`). Show the real received/paid history from actual records, plus a separate informational "Stock on hand" line (this page is the only per-supplier stock-value view in the app).       |
-| **D10** | **Undo:** every delivery appears in the Transactions page and an admin can void it — removing the debt and the batch. **Refuses** if any unit from that batch has already been sold, so a voided delivery can never leave sold units with no cost behind them.                                                     |
-| **D11** | **Existing stock:** one **opening batch per product** at its current cost, marked settled, **no debt**. Nothing on the Suppliers page starts out owed.                                                                                                                                                           |
-| **D12** | **Live data:** the `amir` supplier ($100, one product) is **test data — ignore**. The web deployment is **owner-only testing**, no real tenants. So no balance-preservation migration is needed; only the opening-batch backfill.                                                                                 |
+| #       | Decision                                                                                                                                                                                                                                                                                                     |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **D1**  | **Book debt when stock arrives.** One `supplier_ledger` row of qty × unit cost per delivery. Balance = Σ non-refunded ledger rows, the same formula company suppliers already use. Sales, refunds, deletes and cost edits never move it.                                                                     |
+| **D2**  | **Booking events:** the **Add Product** form (including the POS quick-add, which embeds the same form) and the **restock action**. File import is not used by the owner — left on the Add Product path, so it books like any other create.                                                                   |
+| **D3**  | **Keep the existing stock button** (name unchanged — owner: _"no need to change its name"_). It gains **quantity received**, **unit cost**, and the **old-stock checkbox**, with fields and layout mirroring the Add Product form.                                                                           |
+| **D4**  | **Stored cost price becomes the newest purchase price** on a restock (display / pricing reference).                                                                                                                                                                                                          |
+| **D5**  | **FIFO cost batches for profit.** Each delivery is a batch with its own quantity and unit cost; a sale consumes the **oldest batch first**. Invisible at POS — one product row, no batch picking anywhere. Owner explicitly rejected any "select from a list of items with a cost for each".                 |
+| **D6**  | **"Old stock" checkbox is per-entry** and resets every time. Shown only when the Supplier field is filled. Creates a batch (so profit still works) with **no debt row**.                                                                                                                                     |
+| **D7**  | **Permissions: admin + staff on BOTH transports.** Fixes the existing parity gap (desktop `admin\|staff` at `inventoryHandlers.ts:134-138` vs web `admin` only at `backend/src/api/inventory.ts:136-138`).                                                                                                   |
+| **D8**  | **REMOVE the standalone supplier write-off** (button, modal, hook, adapter, preload, IPC handler, REST route, schema, service + repository method). **Keep** the bundled Pay-form discount, which is the remaining forgiveness path.                                                                         |
+| **D9**  | **Purchases tab:** drop the guessed Paid/Status columns and the Outstanding footer (`Suppliers/index.tsx:576-598, 1487-1491`). Show the real received/paid history from actual records, plus a separate informational "Stock on hand" line (this page is the only per-supplier stock-value view in the app). |
+| **D10** | **Undo:** every delivery appears in the Transactions page and an admin can void it — removing the debt and the batch. **Refuses** if any unit from that batch has already been sold, so a voided delivery can never leave sold units with no cost behind them.                                               |
+| **D11** | **Existing stock:** one **opening batch per product** at its current cost, marked settled, **no debt**. Nothing on the Suppliers page starts out owed.                                                                                                                                                       |
+| **D12** | **Live data:** the `amir` supplier ($100, one product) is **test data — ignore**. The web deployment is **owner-only testing**, no real tenants. So no balance-preservation migration is needed; only the opening-batch backfill.                                                                            |
 
 ### Deferred
 

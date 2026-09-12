@@ -90,7 +90,13 @@ jest.mock("@/features/sales/pages/POS/components/CheckoutModal", () => ({
               currency: props.currency ?? "USD",
               payment_usd: props.currency === "LBP" ? 0 : props.totalAmount,
               payment_lbp: props.currency === "LBP" ? props.totalAmount : 0,
-              payments: [{ method: "CASH", currency_code: props.currency ?? "USD", amount: props.totalAmount }],
+              payments: [
+                {
+                  method: "CASH",
+                  currency_code: props.currency ?? "USD",
+                  amount: props.totalAmount,
+                },
+              ],
               change_given_usd: 0,
               change_given_lbp: 0,
               exchange_rate: 90000,

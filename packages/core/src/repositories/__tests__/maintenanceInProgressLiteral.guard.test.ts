@@ -82,6 +82,8 @@ describe('Maintenance status — no "In Progress" (space) literal in production 
     // confirms this test fixture is actually exercising the strip, not
     // trivially passing because the string is absent altogether.
     expect(SPACE_LITERAL.test(maintenanceRepoSrc)).toBe(true);
-    expect(SPACE_LITERAL.test(stripLineComments(maintenanceRepoSrc))).toBe(false);
+    expect(SPACE_LITERAL.test(stripLineComments(maintenanceRepoSrc))).toBe(
+      false,
+    );
   });
 });

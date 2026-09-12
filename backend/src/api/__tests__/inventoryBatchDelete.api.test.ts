@@ -91,12 +91,14 @@ describe("POST /api/inventory/products/batch-delete", () => {
   });
 
   it("deletes the given ids, returning the service's envelope verbatim (rule 13/14/19b)", async () => {
-    const spy = jest.spyOn(inventoryService, "batchDeleteProducts").mockReturnValue({
-      success: true,
-      deleted: 3,
-      removed_unit_count: 2,
-      removed_unit_imeis: ["IMEI-1", "IMEI-2"],
-    });
+    const spy = jest
+      .spyOn(inventoryService, "batchDeleteProducts")
+      .mockReturnValue({
+        success: true,
+        deleted: 3,
+        removed_unit_count: 2,
+        removed_unit_imeis: ["IMEI-1", "IMEI-2"],
+      });
 
     const res = await request(app)
       .post("/api/inventory/products/batch-delete")

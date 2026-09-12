@@ -173,7 +173,13 @@ function insertTxn(row: {
       `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, profit_lbp, created_at)
        VALUES (1, ?, 'ACTIVE', ?, ?, ?, ?)`,
     )
-    .run(row.type, row.sourceTable, row.sourceId, row.profitLbp ?? 0, row.createdAt);
+    .run(
+      row.type,
+      row.sourceTable,
+      row.sourceId,
+      row.profitLbp ?? 0,
+      row.createdAt,
+    );
   return Number(res.lastInsertRowid);
 }
 
@@ -214,7 +220,13 @@ function insertCoveredDebt(row: {
   db.prepare(
     `INSERT INTO debt_ledger (tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, covered_usd, covered_lbp, is_refunded, created_at)
      VALUES (1, 1, ?, ?, 0, ?, ?, 0, 0, ?)`,
-  ).run(row.transactionType, row.amountUsd, row.txnId, row.amountUsd, row.createdAt);
+  ).run(
+    row.transactionType,
+    row.amountUsd,
+    row.txnId,
+    row.amountUsd,
+    row.createdAt,
+  );
 }
 
 function insertFs(commission: number, createdAt: string): number {
@@ -227,7 +239,11 @@ function insertFs(commission: number, createdAt: string): number {
   return Number(res.lastInsertRowid);
 }
 
-function insertRecharge(price: number, cost: number, createdAt: string): number {
+function insertRecharge(
+  price: number,
+  cost: number,
+  createdAt: string,
+): number {
   const res = db
     .prepare(
       `INSERT INTO recharges (tenant_id, currency_code, price, cost, is_refunded, created_at)

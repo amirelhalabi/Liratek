@@ -208,22 +208,20 @@ export function ResetDataPanel() {
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-white mb-2">
-          This DELETES
-        </h3>
+        <h3 className="text-sm font-semibold text-white mb-2">This DELETES</h3>
         <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
           <li>All transactions, payments, and drawer movements</li>
           <li>Closings, debts, and supplier/partner ledgers</li>
           <li>Products, stock, and clients</li>
           <li>
-            The mobile-services catalog (it re-seeds itself automatically on
-            the next login)
+            The mobile-services catalog (it re-seeds itself automatically on the
+            next login)
           </li>
           <li>The audit log</li>
         </ul>
         <p className="text-xs text-slate-500 mt-2">
-          Drawer balances are set to zero — the app will ask for opening
-          amounts again the next time it's used.
+          Drawer balances are set to zero — the app will ask for opening amounts
+          again the next time it's used.
         </p>
       </div>
 

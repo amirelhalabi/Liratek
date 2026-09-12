@@ -66,7 +66,10 @@ import {
   PROFITS_UNLOCK_TTL_MS,
 } from "@liratek/core";
 import profitsRouter from "../profits.js";
-import { revokeProfitsUnlock, grantProfitsUnlock } from "../../middleware/profitsUnlock.js";
+import {
+  revokeProfitsUnlock,
+  grantProfitsUnlock,
+} from "../../middleware/profitsUnlock.js";
 
 const TENANT_ID = 1;
 const USER_ID = 42;

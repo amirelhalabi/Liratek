@@ -127,8 +127,7 @@ router.post(
       // `result` (not `data`) to match the IPC shape the page already reads.
       res.json(createSuccessResponse({ result }));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Import failed";
+      const message = error instanceof Error ? error.message : "Import failed";
       // HTTP 200 with success:false would match IPC exactly, but every other
       // failure in this router answers 4xx/5xx and the adapter branches on
       // `success` either way.

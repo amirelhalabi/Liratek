@@ -84,9 +84,7 @@ describe("buildJobPayload — `parts` key presence per save path", () => {
     // `toBeUndefined()` (which passes for both an absent key AND a key
     // explicitly set to `undefined`, hiding the exact regression this test
     // guards).
-    expect(Object.prototype.hasOwnProperty.call(payload, "parts")).toBe(
-      false,
-    );
+    expect(Object.prototype.hasOwnProperty.call(payload, "parts")).toBe(false);
   });
 
   it("status transition preserves an existing discount instead of resending the raw price", async () => {
@@ -110,9 +108,7 @@ describe("buildJobPayload — `parts` key presence per save path", () => {
 
     render(<Maintenance />);
     await waitFor(() => {
-      expect(
-        screen.getByText("Discounted Transition Job"),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Discounted Transition Job")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByTitle("Mark In Progress"));

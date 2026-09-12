@@ -65,7 +65,7 @@ Both run the same business logic — the only difference is the transport (IPC v
 
 - **Frontend**: React 19 + TypeScript + Tailwind CSS + Vite 7
 - **Desktop**: Electron 31 (main process hosts the business logic; renderer talks over IPC)
-- **Web backend**: Express 4 + Node.js, serving REST over the *same* shared core
+- **Web backend**: Express 4 + Node.js, serving REST over the _same_ shared core
 - **Shared core**: `@liratek/core` — every repository and service, used by both transports
 - **Database**: Better SQLite3 (WAL mode; one file, `tenant_id`-scoped rows)
 - **Testing**: Jest + Playwright
@@ -75,14 +75,14 @@ Both run the same business logic — the only difference is the transport (IPC v
 
 ## 🧩 Two Products, One Codebase
 
-|                    | Desktop (Electron)                      | Web (multi-tenant)                          |
-| ------------------ | --------------------------------------- | ------------------------------------------- |
-| **Who it's for**   | One shop, on its own machine            | Many shops on one deployment                |
-| **Transport**      | IPC (`window.api.*`)                    | REST (`/api/*`)                             |
-| **Database**       | Local SQLite file, offline-first        | One SQLite file, rows scoped by `tenant_id` |
+|                    | Desktop (Electron)                       | Web (multi-tenant)                          |
+| ------------------ | ---------------------------------------- | ------------------------------------------- |
+| **Who it's for**   | One shop, on its own machine             | Many shops on one deployment                |
+| **Transport**      | IPC (`window.api.*`)                     | REST (`/api/*`)                             |
+| **Database**       | Local SQLite file, offline-first         | One SQLite file, rows scoped by `tenant_id` |
 | **Tenant**         | Fixed at boot (`initFixedTenantContext`) | Resolved from the request `Host`            |
-| **Entitlement**    | **License key**                         | **Subscription row**                        |
-| **Works offline?** | Yes — this is the point                 | No                                          |
+| **Entitlement**    | **License key**                          | **Subscription row**                        |
+| **Works offline?** | Yes — this is the point                  | No                                          |
 
 The rule that keeps them honest: **both transports call the same `@liratek/core` service, which calls the same repository.** No business logic lives in an IPC handler or a REST route. A feature is not finished until it works in both — see rule 19 in `CLAUDE.md`.
 
@@ -98,12 +98,12 @@ Every tenant-owned table carries a `tenant_id`. Scoping is applied automatically
 
 Set `APP_BASE_DOMAIN` to switch this on. Left unset, the app behaves exactly as a single-tenant deployment.
 
-| Host                     | Realm       | Who may sign in                |
-| ------------------------ | ----------- | ------------------------------ |
-| `<slug>.<domain>`        | that tenant | that tenant's users only       |
-| `<domain>`, `www.`, `admin.` | platform | **super admins only**          |
-| an unrecognised subdomain | none       | nobody                         |
-| any host off the base domain | disabled | behaves as single-tenant       |
+| Host                         | Realm       | Who may sign in          |
+| ---------------------------- | ----------- | ------------------------ |
+| `<slug>.<domain>`            | that tenant | that tenant's users only |
+| `<domain>`, `www.`, `admin.` | platform    | **super admins only**    |
+| an unrecognised subdomain    | none        | nobody                   |
+| any host off the base domain | disabled    | behaves as single-tenant |
 
 A shop's credentials work **only** on that shop's own hostname, and the platform host signs in staff. Every refusal returns the same generic error, so subdomains cannot be probed — which is why the platform login page carries a notice telling shop staff where they should be instead.
 
@@ -133,7 +133,7 @@ Each tenant carries `entitled_modules` — an explicit list of module keys (`NUL
 
 Two details that matter:
 
-- It lives in `tenant_subscriptions`, **not** in the `modules` table — that table is writable by the tenant's *own* admin, who could otherwise grant themselves the upgrade. What a shop actually gets is the intersection: **entitled AND enabled**.
+- It lives in `tenant_subscriptions`, **not** in the `modules` table — that table is writable by the tenant's _own_ admin, who could otherwise grant themselves the upgrade. What a shop actually gets is the intersection: **entitled AND enabled**.
 - `dashboard`, `settings`, `audit` and `closing` are never gated. A shop must always be able to see its own state and close its day.
 
 ### Desktop licensing
@@ -358,7 +358,7 @@ VERCEL_TEAM_ID=               # Optional: only for team-scoped projects
 ```
 
 > **Behind a proxy?** The backend trusts one hop of `X-Forwarded-*` so that
-> `req.hostname` reflects the *original* Host. Tenant resolution depends on it:
+> `req.hostname` reflects the _original_ Host. Tenant resolution depends on it:
 > if `trust proxy` is removed or a proxy stops sending `X-Forwarded-Host`,
 > every tenant login fails at once with a generic "invalid credentials" — a
 > symptom that points nowhere near the cause. See `docs/DEPLOYMENT.md`.

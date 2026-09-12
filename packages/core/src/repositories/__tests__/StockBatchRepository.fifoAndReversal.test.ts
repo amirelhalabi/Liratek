@@ -19,7 +19,10 @@ import {
   TransactionRepository,
   resetTransactionRepository,
 } from "../TransactionRepository.js";
-import { getSupplierRepository, resetSupplierRepository } from "../SupplierRepository.js";
+import {
+  getSupplierRepository,
+  resetSupplierRepository,
+} from "../SupplierRepository.js";
 import {
   initFixedTenantContext,
   resetTenantContext,
@@ -262,9 +265,9 @@ function bookIntake(
     transaction_id: booked.transactionId,
     created_by: 1,
   });
-  db.prepare(`UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = 1`).run(
-    quantity,
-  );
+  db.prepare(
+    `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = 1`,
+  ).run(quantity);
   return {
     batchId,
     transactionId: booked.transactionId,
@@ -370,7 +373,9 @@ describe("StockBatchRepository — FIFO consumption/restoration", () => {
     );
 
     const secondBatch = db
-      .prepare(`SELECT quantity_remaining FROM product_stock_batches WHERE id = ?`)
+      .prepare(
+        `SELECT quantity_remaining FROM product_stock_batches WHERE id = ?`,
+      )
       .get(second) as { quantity_remaining: number };
     expect(secondBatch.quantity_remaining).toBe(2);
   });
@@ -395,14 +400,20 @@ describe("StockBatchRepository — FIFO consumption/restoration", () => {
     db.prepare(
       `INSERT INTO sale_items (id, sale_id, product_id, quantity) VALUES (1, 1, 1, 3)`,
     ).run();
-    batchRepo.consume(1, 3, { saleItemId: 1, reason: "SALE", fallbackUnitCostUsd: 999 });
+    batchRepo.consume(1, 3, {
+      saleItemId: 1,
+      reason: "SALE",
+      fallbackUnitCostUsd: 999,
+    });
 
     // Refund 1 unit — restores newest-consumption-first, i.e. the unit taken
     // from the SECOND batch (the $12 one).
     batchRepo.restoreForSaleItem(1, 1);
 
     const secondBatch = db
-      .prepare(`SELECT quantity_remaining FROM product_stock_batches WHERE id = ?`)
+      .prepare(
+        `SELECT quantity_remaining FROM product_stock_batches WHERE id = ?`,
+      )
       .get(second) as { quantity_remaining: number };
     expect(secondBatch.quantity_remaining).toBe(3); // fully restored (had taken 1, given 1 back)
   });
@@ -551,7 +562,9 @@ describe("TransactionRepository — rule 20 reversal owner for SUPPLIER_STOCK_IN
       reason: "SALE",
       fallbackUnitCostUsd: 5,
     });
-    db.prepare(`UPDATE products SET stock_quantity = stock_quantity - 1 WHERE id = 1`).run();
+    db.prepare(
+      `UPDATE products SET stock_quantity = stock_quantity - 1 WHERE id = 1`,
+    ).run();
 
     const ledgerBefore = ledgerSum();
     const stockBefore = (
@@ -574,7 +587,9 @@ describe("TransactionRepository — rule 20 reversal owner for SUPPLIER_STOCK_IN
     ).stock_quantity;
     expect(stockAfter).toBe(stockBefore);
     const batch = db
-      .prepare(`SELECT quantity, quantity_remaining FROM product_stock_batches WHERE id = ?`)
+      .prepare(
+        `SELECT quantity, quantity_remaining FROM product_stock_batches WHERE id = ?`,
+      )
       .get(batchId) as { quantity: number; quantity_remaining: number };
     expect(batch.quantity).toBe(5);
     expect(batch.quantity_remaining).toBe(4);
@@ -607,10 +622,14 @@ describe("TransactionRepository — rule 20 reversal owner for SUPPLIER_STOCK_IN
       reason: "SERVICE",
       fallbackUnitCostUsd: 0,
     });
-    db.prepare(`UPDATE products SET stock_quantity = stock_quantity - 1 WHERE id = 1`).run();
+    db.prepare(
+      `UPDATE products SET stock_quantity = stock_quantity - 1 WHERE id = 1`,
+    ).run();
 
     const batchBefore = db
-      .prepare(`SELECT quantity_remaining FROM product_stock_batches WHERE id = ?`)
+      .prepare(
+        `SELECT quantity_remaining FROM product_stock_batches WHERE id = ?`,
+      )
       .get(batchId) as { quantity_remaining: number };
     expect(batchBefore.quantity_remaining).toBe(4);
 
@@ -628,7 +647,9 @@ describe("TransactionRepository — rule 20 reversal owner for SUPPLIER_STOCK_IN
     txnRepo.voidTransaction(serviceTxnId, 1);
 
     const batchAfter = db
-      .prepare(`SELECT quantity_remaining FROM product_stock_batches WHERE id = ?`)
+      .prepare(
+        `SELECT quantity_remaining FROM product_stock_batches WHERE id = ?`,
+      )
       .get(batchId) as { quantity_remaining: number };
     expect(batchAfter.quantity_remaining).toBe(5);
 

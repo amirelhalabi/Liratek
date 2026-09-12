@@ -116,7 +116,10 @@ router.post(
         summary: `Reset database (${result.totalDeleted} rows deleted across ${
           Object.keys(result.deletedRows).length
         } tables)`,
-        new_values: { deletedRows: result.deletedRows, totalDeleted: result.totalDeleted },
+        new_values: {
+          deletedRows: result.deletedRows,
+          totalDeleted: result.totalDeleted,
+        },
       });
 
       // IPC-identical payload shape: `data` is the raw DatabaseResetResult,
@@ -130,7 +133,8 @@ router.post(
       // as the IPC handler's return value.
       res.json({
         success: false,
-        error: error instanceof Error ? error.message : "Failed to reset database",
+        error:
+          error instanceof Error ? error.message : "Failed to reset database",
       });
     }
   },

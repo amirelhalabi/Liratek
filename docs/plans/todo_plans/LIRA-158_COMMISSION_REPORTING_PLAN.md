@@ -10,12 +10,12 @@ site. Every file:line below was opened and read; claims that were only inferred 
 
 ## §0 Baseline (re-measured on HEAD `f23cbee8`, after the v160 commit)
 
-| Gate         | Result                                                                     |
-| ------------ | -------------------------------------------------------------------------- |
-| `yarn typecheck` | **clean**, exit 0 (1m16s elapsed — a real run, not a silent no-op)     |
-| `yarn lint`      | exit 0 — **0 errors, 543 warnings** (9 + 534 across the two workspaces) |
-| `yarn test`      | **4,611 passed**, 465 suites, 1 skipped — backend 622 / frontend 1,317 / core 2,672 |
-| desktop e2e      | NOT re-measured — needs the `yarn dev` → stop → run cycle (owner's)     |
+| Gate             | Result                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `yarn typecheck` | **clean**, exit 0 (1m16s elapsed — a real run, not a silent no-op)                         |
+| `yarn lint`      | exit 0 — **0 errors, 543 warnings** (9 + 534 across the two workspaces)                    |
+| `yarn test`      | **4,611 passed**, 465 suites, 1 skipped — backend 622 / frontend 1,317 / core 2,672        |
+| desktop e2e      | NOT re-measured — needs the `yarn dev` → stop → run cycle (owner's)                        |
 | web e2e          | NOT re-measured — same, and must run AFTER desktop (`rebuild:node` breaks the desktop ABI) |
 
 Deltas vs the figure carried in the ticket: jest **4,554 → 4,611** (+57). Lint's "534" was one
@@ -47,18 +47,18 @@ The repository auto-calculates the estimate itself and does **not** zero it for 
 (`FinancialServiceRepository.ts:1291-1344`, bound into the INSERT at :1448-1450 / :1688). What the
 column ends up holding depends on the provider:
 
-| Shape (all `commission_model = 1`) | `fs.commission` after creation | What Profits shows today |
-| ---------------------------------- | ------------------------------ | ------------------------ |
+| Shape (all `commission_model = 1`) | `fs.commission` after creation | What Profits shows today                  |
+| ---------------------------------- | ------------------------------ | ----------------------------------------- |
 | **OMT** SEND/RECEIVE               | the auto-calc **estimate**     | the stale estimate — the ticket's framing |
 | **WHISH** SEND/RECEIVE             | **0** (forced, `:1325-1327`)   | **nothing, ever** — even after settlement |
-| **BILL** (Katsh)                   | **0** (never auto-calculated)  | **nothing, ever** |
+| **BILL** (Katsh)                   | **0** (never auto-calculated)  | **nothing, ever**                         |
 
 This matters because **all six** `fs.commission` readers carry `AND commission > 0`
 (`ProfitRepository.ts:1380, 1419, 1438, 1540, 1664, 1758`). A WHISH or BILL row is not merely
-mis-valued — it is *structurally excluded from the WHERE clause*. A fix that adds an allocations
+mis-valued — it is _structurally excluded from the WHERE clause_. A fix that adds an allocations
 UNION but leaves `commission > 0` in place will still report zero for two of the three shapes.
-`ProfitRepository.ts:609-611` states the BILL half in-source: *"a BILL row's
-`financial_services.commission` column stays 0 forever."*
+`ProfitRepository.ts:609-611` states the BILL half in-source: _"a BILL row's
+`financial_services.commission` column stays 0 forever."_
 
 **Corollary that constrains every branch:** you cannot detect a new-model row by `commission === 0`.
 You must read `commission_model`.
@@ -69,8 +69,8 @@ You must read `commission_model`.
 
 ```ts
 const commission = useCostPriceFlow
-  ? price - cost + telecomCreditReturnCredit   // a MARGIN
-  : calculatedCommission;                       // a supplier-commission ESTIMATE
+  ? price - cost + telecomCreditReturnCredit // a MARGIN
+  : calculatedCommission; // a supplier-commission ESTIMATE
 ```
 
 with `useCostPriceFlow = data.cost !== undefined && data.cost > 0` (`:1083`), and `const cost =
@@ -79,8 +79,8 @@ persisted twin of `useCostPriceFlow`**.
 
 This overlaps `commission_model = 1`, and not rarely: **every BILL row takes the cost/price branch.**
 All three submission sites send `cost = price = bill amount` (`KatchForm.tsx:1272-1273`, `:1404-1405`,
-`:1778-1779`), so a bill's `commission` is the expression `price - cost`, which merely *evaluates to
-0* today. It is not a supplier commission that happens to be zero — it is a margin.
+`:1778-1779`), so a bill's `commission` is the expression `price - cost`, which merely _evaluates to
+0_ today. It is not a supplier commission that happens to be zero — it is a margin.
 
 **Consequence, and it is a trap in both directions:**
 
@@ -91,8 +91,8 @@ All three submission sites send `cost = price = bill amount` (`KatchForm.tsx:127
   **silently deletes a bill's margin** the day one is priced above cost. Correct gate:
   `commissionModel === 1 && !useCostPriceFlow`.
 
-Stated as the rule that generates both: *remove only the value that came from
-`calculatedCommission`.* A margin is earned at transaction time and is not deferred to settlement —
+Stated as the rule that generates both: _remove only the value that came from
+`calculatedCommission`._ A margin is earned at transaction time and is not deferred to settlement —
 it is not what D7 re-assigns.
 
 Neither the ticket nor the parent plan names this. It was found by tracing `useCostPriceFlow`
@@ -126,7 +126,7 @@ Verified: the only user-visible surface for `finProfit` is the line
 `frontend/src/features/closing/utils/closingReportGenerator.ts:115`, rendered into a **generated
 PDF**. A sweep of `frontend/src/features/closing/**` for `/profit|commission/i` found only the type
 declaration at `:25` and that render. No dashboard tile, no closing summary card. The ticket's
-"most owner-visible" ranking for surface #6 is wrong — it is the *least* visible, though still
+"most owner-visible" ranking for surface #6 is wrong — it is the _least_ visible, though still
 wrong and still in scope (it is the D10 surface).
 
 **Bonus defect in the same query** (`ClosingRepository.ts:693-699`): `finProfit` has **no
@@ -155,7 +155,7 @@ fixture must create them (§5).
 `TransactionRepository.ts:3650`, `DELETE FROM settlement_commission_allocations WHERE
 settlement_ledger_id = ? AND tenant_id = ?`; the comment at :3624 confirms the tables carry no
 soft-void column by design. Reversed allocations are physically gone, so no `is_voided` gate is
-needed. (An fs row refunded *without* voiding the settlement still needs the existing
+needed. (An fs row refunded _without_ voiding the settlement still needs the existing
 `notRefunded(...)`.)
 
 ---
@@ -167,11 +167,11 @@ needed. (An fs row refunded *without* voiding the settlement still needs the exi
 Three advocates (pro-A, pro-B, third-way) and three judges (correctness / owner-decision compliance
 / implementation risk) ran independently over the verified map. The result was **unanimous**:
 
-| Option | Correctness | D-compliance | Risk | |
-| ------ | ----------- | ------------ | ---- | - |
-| A — stamp 0, recognition moves to settlement | 7 | 8 | 6 | |
-| B — keep the stamp, repoint every read to allocations | 4 | 3 | 3 | |
-| **C — hybrid (below)** | **8** | **9** | **8** | **winner on every lens** |
+| Option                                                | Correctness | D-compliance | Risk  |                          |
+| ----------------------------------------------------- | ----------- | ------------ | ----- | ------------------------ |
+| A — stamp 0, recognition moves to settlement          | 7           | 8            | 6     |                          |
+| B — keep the stamp, repoint every read to allocations | 4           | 3            | 3     |                          |
+| **C — hybrid (below)**                                | **8**       | **9**        | **8** | **winner on every lens** |
 
 Both A's and B's own advocates concluded their option is insufficient alone, each naming the
 other's mechanism as the missing half. That convergence, not the scores, is the real signal.
@@ -200,8 +200,8 @@ stamped onto a `SUPPLIER_SETTLEMENT` transaction (`source_table: 'supplier_ledge
 `ProfitRepository.getSupplierCommissionTotals:624-644` with `${dateRange("created_at")}` over
 `transactions` — **settlement day, not transaction day**. `SUPPLIER_SETTLEMENT` is already in
 `PROFIT_TXN_TYPES` (:444-445); its REFUND counterpart already nets it to 0
-(`TransactionRepository.ts:1625`); and the doc block at `:414-441` *pre-authorises exactly this
-routing in writing*.
+(`TransactionRepository.ts:1625`); and the doc block at `:414-441` _pre-authorises exactly this
+routing in writing_.
 
 **Answer to Q1: yes — stamp 0 for the commission TERM only (keep `kept_change`), and in the same
 change widen the settlement stamp past `isBillsOnlyBatch`.** The two halves are an interlock, not
@@ -211,7 +211,7 @@ alternatives:
   `getFinancialSettledByCurrency` sums the estimate stamp at the same moment the widened settlement
   row adds the real figure. `ProfitService.ts:436-454` folds **both** `finSvc.commission_usd` and
   `supplierCommission.profit_usd` into `grossProfitUsd`. The existing no-double-count argument at
-  `ProfitRepository.ts:607-611` rests on *"a BILL row's commission column stays 0 forever"* — true
+  `ProfitRepository.ts:607-611` rests on _"a BILL row's commission column stays 0 forever"_ — true
   for BILL, **false for OMT**.
 - Zeroing alone leaves By Module and By Date at zero (§3 Phase 3).
 
@@ -245,7 +245,7 @@ OMT SEND/RECEIVE traffic on any deployment**. Measured on the local DB (`~/Docum
 schema v159, via Python stdlib `sqlite3`): **0 rows**, and 0 `FINANCIAL_SERVICE` transactions with a
 nonzero profit stamp.
 
-That DB holds 2 rows total, so the count alone proves little — the *structural* bound is the
+That DB holds 2 rows total, so the count alone proves little — the _structural_ bound is the
 argument. Ship a **guarded one-shot migration** anyway (§3 Phase 0): it is ~15 lines, it is the only
 thing standing between a mixed-convention history and a silently wrong report, and no read-side test
 can distinguish an old model-1 row carrying an estimate from a new one carrying 0.
@@ -279,8 +279,8 @@ including this one.
 - `down()` restores the term.
 - Migration test asserting a pre-existing model-**0** row is untouched (precedent:
   `SupplierPaymentIsAutoBackfillMigration.test.ts`).
-- Update `electron-app/create_db.sql` if any DDL changes (rule 10). *Expected: none — this is
-  data-only.*
+- Update `electron-app/create_db.sql` if any DDL changes (rule 10). _Expected: none — this is
+  data-only._
 
 ### Phase 1 — write path (the interlock; both halves in ONE commit)
 
@@ -297,7 +297,7 @@ including this one.
 3. Leave `fs.commission` and `metadata_json.commission` as written — they remain the estimate of
    record. Their read sites are handled in Phase 2.
 
-**Rule 17 obligation:** both halves must be proven failing-first, and specifically the *interlock* —
+**Rule 17 obligation:** both halves must be proven failing-first, and specifically the _interlock_ —
 apply half 2 alone and demonstrate the double-count, then apply half 1 and watch it resolve.
 
 ### Phase 2 — read path: stop the estimate reaching reports
@@ -378,17 +378,17 @@ is exactly what `settlement_commission_allocations` carries (`provider`, `servic
 These will fail and **must be re-derived, not silenced**. Each was named with a line number by the
 advocates; spot-check before editing (agent line numbers drifted by 1-2 in several places).
 
-| Test | Pins |
-| ---- | ---- |
-| `frontend/tests/e2e-electron/lira-103-business-day-today.spec.ts:117` | `expect(r.commission).toBeGreaterThan(0)` on a real OMT SEND, plus a Closing `totalProfitUSD` delta — **verified by hand** |
-| `lira-102-business-day-monthly.spec.ts:135-139` | same collision for `getMonthlyPL` |
-| `ProfitRepository.commissionGates.test.ts` | the LIRA-108 consistency file; its `seedSettledCommission` writes column and stamp to the same value |
-| `ProfitRepository.tenantIsolation.test.ts:465+` | commission 5/15 per tenant; a `getByDate` profit of 72 including 5 USD of FS commission |
-| `ProfitService.transactionBased.test.ts:488+` | 12 realized / 7 pending |
-| `ProfitService.supplierSettlementCommission.test.ts:457-478` | the explicit **no-double-count** guard — widening `isBillsOnlyBatch` puts this directly in the line of fire. It is the most important test in the list: it should still pass, for a new reason. |
-| `FinancialServiceRepository.telecomOnlyDays.test.ts:894` | asserts stored commission == stamped profit — Phase 1 deliberately breaks this invariant for model-1 rows; confirm the row under test is model 0 |
-| `FinancialServiceRepository.tenantIsolation.test.ts:213+` | `getAnalytics` today.commission = 5 |
-| `lira-108-keep-change-modules.spec.ts:179-218` | **must survive** — it is the proof that only the commission term was zeroed |
+| Test                                                                  | Pins                                                                                                                                                                                            |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontend/tests/e2e-electron/lira-103-business-day-today.spec.ts:117` | `expect(r.commission).toBeGreaterThan(0)` on a real OMT SEND, plus a Closing `totalProfitUSD` delta — **verified by hand**                                                                      |
+| `lira-102-business-day-monthly.spec.ts:135-139`                       | same collision for `getMonthlyPL`                                                                                                                                                               |
+| `ProfitRepository.commissionGates.test.ts`                            | the LIRA-108 consistency file; its `seedSettledCommission` writes column and stamp to the same value                                                                                            |
+| `ProfitRepository.tenantIsolation.test.ts:465+`                       | commission 5/15 per tenant; a `getByDate` profit of 72 including 5 USD of FS commission                                                                                                         |
+| `ProfitService.transactionBased.test.ts:488+`                         | 12 realized / 7 pending                                                                                                                                                                         |
+| `ProfitService.supplierSettlementCommission.test.ts:457-478`          | the explicit **no-double-count** guard — widening `isBillsOnlyBatch` puts this directly in the line of fire. It is the most important test in the list: it should still pass, for a new reason. |
+| `FinancialServiceRepository.telecomOnlyDays.test.ts:894`              | asserts stored commission == stamped profit — Phase 1 deliberately breaks this invariant for model-1 rows; confirm the row under test is model 0                                                |
+| `FinancialServiceRepository.tenantIsolation.test.ts:213+`             | `getAnalytics` today.commission = 5                                                                                                                                                             |
+| `lira-108-keep-change-modules.spec.ts:179-218`                        | **must survive** — it is the proof that only the commission term was zeroed                                                                                                                     |
 
 ---
 
@@ -407,7 +407,7 @@ unconditional prepares**. Known-deficient fixtures that any repointed query will
 
 The cheaper alternative for read paths: carry `_hasSettlementAllocationsTable()`-style guards so an
 old fixture degrades to the legacy branch instead of throwing. Prefer the guard where the query
-already has one nearby; prefer fixing the fixture where the test is *about* the new behaviour.
+already has one nearby; prefer fixing the fixture where the test is _about_ the new behaviour.
 
 ---
 
@@ -486,7 +486,7 @@ Recorded so a later session doesn't rediscover them as new bugs.
    **Never pipe the build through `tail`** — the exit code comes from tail.
    A frontend-facing export must be added to **`browser.ts`**, not just `index.ts`.
 5. Desktop e2e (owner's cycle): `yarn dev` → stop → `npx playwright test --config
-   playwright.electron.config.ts` with `env -u ELECTRON_RUN_AS_NODE`. **Desktop before web.**
+playwright.electron.config.ts` with `env -u ELECTRON_RUN_AS_NODE`. **Desktop before web.**
 6. Web e2e last (`rebuild:node` breaks the desktop ABI).
 7. `yarn format` is the owner's — never run it.
 
@@ -506,20 +506,20 @@ future session must not read them as a regression and "fix" them back.
 "3 transactions awaiting settlement". Legacy model-0 rows keep their dollar figure. This confirms
 `COMMISSION_AT_SETTLEMENT_PLAN.md` §4 Phase 3. Rationale reinforced by §1.1: WHISH and BILL rows
 have no estimate at all (the column is 0), so a dollar figure would render "$0.00" and read as
-*settled for nothing* rather than *not yet known*.
+_settled for nothing_ rather than _not yet known_.
 
 **D17 — CASHLESS settlement commission DEFERS until the client repays (2026-08-31).** Asked whether
 a settlement-granted commission is earned unconditionally or is contingent on collecting the client's
-debt, the owner answered from practice: *"I might settle omt whish batches out of my own drawer
-(before the customer owing us omt related debt actually pays)."* That is decisive — the shop fronts
+debt, the owner answered from practice: _"I might settle omt whish batches out of my own drawer
+(before the customer owing us omt related debt actually pays)."_ That is decisive — the shop fronts
 real cash against an uncollected tab, so the commission is not yet real money.
 
 The gate keys on **whether money actually arrived at settlement**, NOT on `commission_model`:
 
-| Batch shape | What arrives at settlement | Recognition |
-| ----------- | -------------------------- | ----------- |
-| **Bills-only** (Katsh/iPick) | REAL money — a provider-funded drawer top-up (`_bookBillsCommissionDrawerTopUp`) or payment legs | **Immediate, unchanged.** Deferring it would break "money is real" in the opposite direction — the cash is literally in the drawer. |
-| **Cashless** (OMT/WHISH, and mixed bills+OMT) | Nothing. A `SUPPLIER_PAYS_US` ledger credit; the commission is cash NOT paid out while the principal was fronted | **Defers** until the underlying row's client debt is covered. |
+| Batch shape                                   | What arrives at settlement                                                                                       | Recognition                                                                                                                         |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **Bills-only** (Katsh/iPick)                  | REAL money — a provider-funded drawer top-up (`_bookBillsCommissionDrawerTopUp`) or payment legs                 | **Immediate, unchanged.** Deferring it would break "money is real" in the opposite direction — the cash is literally in the drawer. |
+| **Cashless** (OMT/WHISH, and mixed bills+OMT) | Nothing. A `SUPPLIER_PAYS_US` ledger credit; the commission is cash NOT paid out while the principal was fronted | **Defers** until the underlying row's client debt is covered.                                                                       |
 
 Ledger proof for the worked example: `+105 (creation TOP_UP) − 103 (SETTLEMENT) − 2 (SUPPLIER_PAYS_US)
 = 0`. The shop's $2 is $2 it did not pay out, against a $105 receivable it may never collect.
@@ -528,6 +528,7 @@ Sub-case decided the same way: **a bill row settled inside a MIXED batch defers 
 batch takes the cashless branch and no money arrives for it either.
 
 Two consequences that are part of the decision, not side effects:
+
 1. `getSupplierCommissionTotals` must be re-sourced for the cashless portion from
    `settlement_commission_allocations` — the settlement stamp has no per-row link to client debt.
    Bills keep reading the stamp. The partition must be exhaustive and disjoint or it double-counts.

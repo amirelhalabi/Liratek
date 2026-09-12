@@ -37,7 +37,9 @@ function getCustomBackupDir(): string | null {
   return null;
 }
 
-export function getBackupServiceInstance(): ReturnType<typeof getBackupService> {
+export function getBackupServiceInstance(): ReturnType<
+  typeof getBackupService
+> {
   if (!backupService) {
     const backupDir = getCustomBackupDir() || getDefaultBackupDir();
     backupService = getBackupService(backupDir);

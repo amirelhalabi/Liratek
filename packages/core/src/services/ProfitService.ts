@@ -345,11 +345,10 @@ export class ProfitService {
       // ProfitSummary.financial_services.awaiting_settlement_count's doc
       // comment. getFinancialPendingByCurrency above is UNCHANGED (still the
       // source of revenue/count) — this is an addition, not a swap.
-      finSvc.awaiting_settlement_count =
-        this.repo.getPendingCommissionTotals(
-          fromDt,
-          toDt,
-        ).awaiting_settlement_count;
+      finSvc.awaiting_settlement_count = this.repo.getPendingCommissionTotals(
+        fromDt,
+        toDt,
+      ).awaiting_settlement_count;
 
       // Payment-method fees — immediate shop profit kept in the wallet drawer,
       // recorded as PM_FEE payment rows but previously never counted anywhere.
@@ -788,9 +787,7 @@ export class ProfitService {
             const parts: string[] = [];
             if (p.total_usd > 0) parts.push(`$${p.total_usd.toFixed(2)}`);
             if (p.awaiting_settlement_count > 0) {
-              parts.push(
-                `${p.awaiting_settlement_count} awaiting settlement`,
-              );
+              parts.push(`${p.awaiting_settlement_count} awaiting settlement`);
             }
             return `${p.provider} ${parts.length > 0 ? parts.join(", ") : "$0.00"}`;
           })

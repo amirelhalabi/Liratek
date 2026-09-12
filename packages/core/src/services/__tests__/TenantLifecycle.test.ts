@@ -102,7 +102,9 @@ afterEach(() => db.close());
 
 describe("guards — what must NOT be possible", () => {
   it("REFUSES to delete tenant 1, even with the right slug", () => {
-    expect(() => service.deleteTenant(1, "default")).toThrow(/cannot be deleted/i);
+    expect(() => service.deleteTenant(1, "default")).toThrow(
+      /cannot be deleted/i,
+    );
     expect(count("tenants")).toBe(3);
   });
 
@@ -185,7 +187,9 @@ describe("a real delete", () => {
     // defer_foreign_keys is transaction-scoped; if it leaked, later writes
     // would silently accept dangling references.
     expect(() =>
-      db.prepare("INSERT INTO clients (tenant_id, name) VALUES (999, 'z')").run(),
+      db
+        .prepare("INSERT INTO clients (tenant_id, name) VALUES (999, 'z')")
+        .run(),
     ).toThrow(/FOREIGN KEY/i);
   });
 });
@@ -204,7 +208,9 @@ describe("renaming a slug", () => {
   });
 
   it("refuses a slug another tenant already has", () => {
-    expect(() => service.changeTenantSlug(2, "innocent")).toThrow(/already taken/i);
+    expect(() => service.changeTenantSlug(2, "innocent")).toThrow(
+      /already taken/i,
+    );
     expect(tenants.getById(2)?.slug).toBe("doomed");
   });
 
@@ -223,6 +229,8 @@ describe("renaming a slug", () => {
   });
 
   it("refuses a tenant that does not exist", () => {
-    expect(() => service.changeTenantSlug(999, "whatever")).toThrow(/No tenant/i);
+    expect(() => service.changeTenantSlug(999, "whatever")).toThrow(
+      /No tenant/i,
+    );
   });
 });

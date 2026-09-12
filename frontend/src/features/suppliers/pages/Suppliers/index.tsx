@@ -1382,7 +1382,10 @@ export default function SuppliersPage() {
                           ? "…"
                           : `$${(selectedStockValueUsd ?? 0).toFixed(2)}`}
                       </span>
-                      <span className="text-slate-600"> (inventory value, not debt)</span>
+                      <span className="text-slate-600">
+                        {" "}
+                        (inventory value, not debt)
+                      </span>
                     </div>
                   </div>
                   {ledgerQuery.isLoading ? (

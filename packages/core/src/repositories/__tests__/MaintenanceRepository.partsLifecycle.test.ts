@@ -301,7 +301,9 @@ function profitSumForJob(
 
 function partsOf(db: Database.Database, jobId: number) {
   return db
-    .prepare(`SELECT * FROM maintenance_parts WHERE maintenance_id = ? ORDER BY id ASC`)
+    .prepare(
+      `SELECT * FROM maintenance_parts WHERE maintenance_id = ? ORDER BY id ASC`,
+    )
     .all(jobId) as {
     id: number;
     product_id: number;
@@ -442,9 +444,9 @@ describe("MaintenanceRepository — parts lifecycle (LIRA-176 phase 8a)", () => 
     repo.deleteJob(jobId);
     // Still exactly `before` — deleteJob must NOT restore a second time.
     expect(stockOf(db, productA)).toBe(before);
-    expect(db.prepare(`SELECT status FROM maintenance WHERE id=?`).get(jobId)).toEqual(
-      { status: "Deleted" },
-    );
+    expect(
+      db.prepare(`SELECT status FROM maintenance WHERE id=?`).get(jobId),
+    ).toEqual({ status: "Deleted" });
   });
 
   // ---------------------------------------------------------------------
@@ -457,7 +459,9 @@ describe("MaintenanceRepository — parts lifecycle (LIRA-176 phase 8a)", () => 
       status: "Received",
     });
 
-    repo.syncParts(jobId, [{ product_id: productA, quantity: 2, unit_price_usd: 10 }]);
+    repo.syncParts(jobId, [
+      { product_id: productA, quantity: 2, unit_price_usd: 10 },
+    ]);
     const afterAttach = stockOf(db, productA);
     expect(afterAttach).toBe(8);
     expect(partsOf(db, jobId)).toHaveLength(1);
@@ -495,7 +499,9 @@ describe("MaintenanceRepository — parts lifecycle (LIRA-176 phase 8a)", () => 
     const jobId = res.id as number;
 
     expect(() =>
-      repo.syncParts(jobId, [{ product_id: productB, quantity: 1, unit_price_usd: 6 }]),
+      repo.syncParts(jobId, [
+        { product_id: productB, quantity: 1, unit_price_usd: 6 },
+      ]),
     ).toThrow(MAINTENANCE_PARTS_EDIT_BLOCKED_ERROR);
     // Rejected BEFORE any stock moved.
     expect(stockOf(db, productB)).toBe(5);
@@ -508,7 +514,9 @@ describe("MaintenanceRepository — parts lifecycle (LIRA-176 phase 8a)", () => 
     getTransactionRepository().refundTransaction(txn.id, 1);
 
     expect(() =>
-      repo.syncParts(jobId, [{ product_id: productB, quantity: 1, unit_price_usd: 6 }]),
+      repo.syncParts(jobId, [
+        { product_id: productB, quantity: 1, unit_price_usd: 6 },
+      ]),
     ).not.toThrow();
     expect(stockOf(db, productB)).toBe(4);
   });
@@ -518,7 +526,11 @@ describe("MaintenanceRepository — parts lifecycle (LIRA-176 phase 8a)", () => 
   //    save (no orphan job row, no stock movement).
   // ---------------------------------------------------------------------
   it("6. out-of-stock parts on create rolls back the whole save — no job row left behind, stock unchanged", () => {
-    const productA = seedProduct(db, { name: "Rare Screen", costUsd: 5, stock: 3 });
+    const productA = seedProduct(db, {
+      name: "Rare Screen",
+      costUsd: 5,
+      stock: 3,
+    });
     const beforeStock = stockOf(db, productA);
     const beforeCount = (
       db.prepare(`SELECT COUNT(*) c FROM maintenance`).get() as { c: number }
@@ -546,26 +558,37 @@ describe("MaintenanceRepository — parts lifecycle (LIRA-176 phase 8a)", () => 
   // ---------------------------------------------------------------------
   it("8. syncParts reconciliation matrix: add, increase, decrease, remove, and a no-op resend move exactly the expected stock delta", () => {
     const productA = seedProduct(db, { name: "Screen", costUsd: 5, stock: 20 });
-    const jobId = repo.createJob({ device_name: "iPhone 13", status: "Received" });
+    const jobId = repo.createJob({
+      device_name: "iPhone 13",
+      status: "Received",
+    });
 
     // Add: 3 units.
-    repo.syncParts(jobId, [{ product_id: productA, quantity: 3, unit_price_usd: 10 }]);
+    repo.syncParts(jobId, [
+      { product_id: productA, quantity: 3, unit_price_usd: 10 },
+    ]);
     expect(stockOf(db, productA)).toBe(17);
     let rows = partsOf(db, jobId);
     expect(rows).toHaveLength(1);
     const partId = rows[0].id;
 
     // Increase: 3 -> 5 (draw 2 more).
-    repo.syncParts(jobId, [{ id: partId, product_id: productA, quantity: 5, unit_price_usd: 10 }]);
+    repo.syncParts(jobId, [
+      { id: partId, product_id: productA, quantity: 5, unit_price_usd: 10 },
+    ]);
     expect(stockOf(db, productA)).toBe(15);
 
     // Decrease: 5 -> 2 (return 3).
-    repo.syncParts(jobId, [{ id: partId, product_id: productA, quantity: 2, unit_price_usd: 10 }]);
+    repo.syncParts(jobId, [
+      { id: partId, product_id: productA, quantity: 2, unit_price_usd: 10 },
+    ]);
     expect(stockOf(db, productA)).toBe(18);
 
     // No-op resend of the identical array — must move nothing.
     const beforeNoop = stockOf(db, productA);
-    repo.syncParts(jobId, [{ id: partId, product_id: productA, quantity: 2, unit_price_usd: 10 }]);
+    repo.syncParts(jobId, [
+      { id: partId, product_id: productA, quantity: 2, unit_price_usd: 10 },
+    ]);
     expect(stockOf(db, productA)).toBe(beforeNoop);
 
     // Remove: incoming array no longer contains the row -> full restore + delete.
@@ -580,13 +603,20 @@ describe("MaintenanceRepository — parts lifecycle (LIRA-176 phase 8a)", () => 
   // ---------------------------------------------------------------------
   it("9. unit_cost_usd is snapshotted at attach time and does not move when the product's cost_price_usd later changes", () => {
     const productA = seedProduct(db, { name: "Screen", costUsd: 5, stock: 10 });
-    const jobId = repo.createJob({ device_name: "iPhone 13", status: "Received" });
+    const jobId = repo.createJob({
+      device_name: "iPhone 13",
+      status: "Received",
+    });
 
-    repo.syncParts(jobId, [{ product_id: productA, quantity: 1, unit_price_usd: 10 }]);
+    repo.syncParts(jobId, [
+      { product_id: productA, quantity: 1, unit_price_usd: 10 },
+    ]);
     const snapshot = partsOf(db, jobId)[0];
     expect(snapshot.unit_cost_usd).toBeCloseTo(5, 6);
 
-    db.prepare(`UPDATE products SET cost_price_usd = 999 WHERE id = ?`).run(productA);
+    db.prepare(`UPDATE products SET cost_price_usd = 999 WHERE id = ?`).run(
+      productA,
+    );
 
     const jobAfterReprice = repo.findById(jobId);
     expect(jobAfterReprice?.parts_cost_usd).toBeCloseTo(5, 6);

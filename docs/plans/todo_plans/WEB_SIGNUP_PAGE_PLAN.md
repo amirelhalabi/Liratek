@@ -27,15 +27,15 @@ ONE transaction:
 
 Supporting pieces already in place:
 
-| Piece | Where |
-| --- | --- |
-| `createTenantSchema` — incl. `adminUsername` / `adminPassword` | `packages/core/src/validators/tenant.ts:19` |
-| `tenants` table with `slug TEXT NOT NULL UNIQUE` | `packages/core/src/db/migrations/index.ts:5099` |
-| Provisioning route (super-admin gated) | `backend/src/api/admin.ts:85` |
-| Reserved-slug blocklist + charset validation | `packages/core/src/utils/tenantSlug.ts` |
-| Password complexity rules | `validatePasswordComplexity` in core |
+| Piece                                                          | Where                                           |
+| -------------------------------------------------------------- | ----------------------------------------------- |
+| `createTenantSchema` — incl. `adminUsername` / `adminPassword` | `packages/core/src/validators/tenant.ts:19`     |
+| `tenants` table with `slug TEXT NOT NULL UNIQUE`               | `packages/core/src/db/migrations/index.ts:5099` |
+| Provisioning route (super-admin gated)                         | `backend/src/api/admin.ts:85`                   |
+| Reserved-slug blocklist + charset validation                   | `packages/core/src/utils/tenantSlug.ts`         |
+| Password complexity rules                                      | `validatePasswordComplexity` in core            |
 
-**So sign-up is not a new feature.** It is an *unauthenticated entry point* to a
+**So sign-up is not a new feature.** It is an _unauthenticated entry point_ to a
 service that already works, plus a page.
 
 ## 2. What is missing
@@ -54,17 +54,17 @@ service that already works, plus a page.
 
 The desktop wizard (`frontend/src/features/setup/SetupWizard.tsx`) renders:
 
-| Desktop step | Component | Sign-up? |
-| --- | --- | --- |
-| 0 | `StepDetect` — find an existing install / network DB | **Drop.** No local filesystem to detect. |
-| -1 | `StepJoinShop` — join a shop over the LAN | **Drop.** Joining is "log in to your tenant" on the web. |
-| 1 | `Step1Account` — shop name + admin credentials | **Keep** — the core of sign-up. Add the slug field. |
-| 2 | `StepBaseSystem` | **Keep.** |
-| 3 | `Step2Modules` — which modules are enabled | **Keep**, or defer to Settings post-signup (see D3). |
-| 4 | `Step3Currencies` | **Keep**, or defer. |
-| 5 | `Step4Users` — additional staff users | **Defer.** Do it in Settings once logged in; it lengthens signup for no gain. |
-| 6 | `StepDrawerAmounts` — opening drawer balances | **Defer.** Money data; belongs after first login, not before the account exists. |
-| 7 | `StepComplete` | **Keep**, but it ends by sending the user to their tenant, not by relaunching an app. |
+| Desktop step | Component                                            | Sign-up?                                                                              |
+| ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 0            | `StepDetect` — find an existing install / network DB | **Drop.** No local filesystem to detect.                                              |
+| -1           | `StepJoinShop` — join a shop over the LAN            | **Drop.** Joining is "log in to your tenant" on the web.                              |
+| 1            | `Step1Account` — shop name + admin credentials       | **Keep** — the core of sign-up. Add the slug field.                                   |
+| 2            | `StepBaseSystem`                                     | **Keep.**                                                                             |
+| 3            | `Step2Modules` — which modules are enabled           | **Keep**, or defer to Settings post-signup (see D3).                                  |
+| 4            | `Step3Currencies`                                    | **Keep**, or defer.                                                                   |
+| 5            | `Step4Users` — additional staff users                | **Defer.** Do it in Settings once logged in; it lengthens signup for no gain.         |
+| 6            | `StepDrawerAmounts` — opening drawer balances        | **Defer.** Money data; belongs after first login, not before the account exists.      |
+| 7            | `StepComplete`                                       | **Keep**, but it ends by sending the user to their tenant, not by relaunching an app. |
 
 (`Step3DatabasePath.tsx` exists in the folder but is not rendered by the wizard —
 desktop-only regardless, since it picks a local file path.)

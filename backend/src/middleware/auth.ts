@@ -300,8 +300,13 @@ export function authenticateJWT(
         // request and leaves the token and session intact for the retry.
         // Logged at error (not warn, like the 401 branch above) because this
         // is a server fault to investigate, not routine session-expiry noise.
-        logger.error({ error }, "Session validation threw — could not verify session");
-        res.status(503).json({ error: "Could not validate session, please retry" });
+        logger.error(
+          { error },
+          "Session validation threw — could not verify session",
+        );
+        res
+          .status(503)
+          .json({ error: "Could not validate session, please retry" });
       });
   } catch (error) {
     logger.error({ error }, "JWT verification failed");

@@ -35,13 +35,13 @@ then runs the same verifier `yarn api:deploy` runs. The manual command still
 works and is still the right tool for deploying uncommitted work or re-rolling
 the machine — it is no longer something you must remember.
 
-| I changed… | To ship it |
-| --- | --- |
-| `frontend/` | `git push` — Vercel builds from `main` |
-| `backend/` or `packages/core/` | `git push` — the Deploy API workflow runs |
-| both | `git push` — both pipelines run independently |
-| a migration | it applies on the next backend boot, i.e. on that deploy |
-| something uncommitted | `yarn api:deploy` — deploys your working tree |
+| I changed…                     | To ship it                                               |
+| ------------------------------ | -------------------------------------------------------- |
+| `frontend/`                    | `git push` — Vercel builds from `main`                   |
+| `backend/` or `packages/core/` | `git push` — the Deploy API workflow runs                |
+| both                           | `git push` — both pipelines run independently            |
+| a migration                    | it applies on the next backend boot, i.e. on that deploy |
+| something uncommitted          | `yarn api:deploy` — deploys your working tree            |
 
 The workflow only fires for paths that end up in the image (`backend/**`,
 `packages/core/**`, `fly.toml`, `package.json`, `yarn.lock`), so a docs or
@@ -56,7 +56,7 @@ It needs a repository secret **`FLY_API_TOKEN`**, created once with:
 fly tokens create deploy -a liratek-api
 ```
 
-then added under *Settings → Secrets and variables → Actions*. Without it the
+then added under _Settings → Secrets and variables → Actions_. Without it the
 workflow stops on its first step and says so.
 
 ---
@@ -78,7 +78,7 @@ yarn api -- ssh sftp put <local> /data/x.db
 
 **`flyctl` is deliberately never called directly.** The installer needs
 elevation to create its shortcut, so on Windows the binary exists at
-`%USERPROFILE%\.fly\bin\flyctl.exe` but `fly` is *not* on PATH — in Git Bash it
+`%USERPROFILE%\.fly\bin\flyctl.exe` but `fly` is _not_ on PATH — in Git Bash it
 is not on PATH either way. `scripts/fly.mjs` resolves it. An agent already lost
 time concluding flyctl was missing.
 
@@ -97,7 +97,7 @@ non-interactive shell, so do it once in your own terminal:
 script therefore asserts:
 
 1. `/health` responds
-2. **`X-Forwarded-Host` still survives Vercel → Fly.** If it stops, *every*
+2. **`X-Forwarded-Host` still survives Vercel → Fly.** If it stops, _every_
    tenant login fails at once with a generic "invalid credentials" — a symptom
    pointing nowhere near the cause. Cheapest possible tripwire.
 3. Migrations applied (boot marker)

@@ -9,16 +9,16 @@
 
 ## 1. What is decided
 
-| Decision | Owner's call | Why |
-| --- | --- | --- |
-| **One database file per tenant** | Yes | See § 2. Reverses the earlier "shared file + `tenant_id` filter" recommendation. |
-| **A separate control-plane database** | Yes | `tenants`, `tenant_subscriptions`, super-admin users/sessions, platform audit. |
-| **Backend leaves the owner's laptop** | Yes | Power and internet in Lebanon must not be a dependency of other people's shops. |
-| **Cloudflare Tunnel retired for production** | Yes | It exists to reach a machine that should not be the server. |
-| ~~Turso Cloud as the hosted database~~ | **DROPPED after Phase 0**, 2026-09-09 | Compatible, but reads cost a network round-trip each and this data layer is deliberately chatty; embedded replicas fix reads yet keep a local file anyway, leaving managed durability as the only gain — bought with network-bound writes and an availability coupling. § 4bis has the measurements. |
-| **Local SQLite files on the host, one per tenant** | Yes | Reads *and* writes at ~0.1 ms, zero data-layer change, no third party that can stop shops selling. Durability via Litestream → R2 plus the snapshot built this session. |
-| **Fly.io for compute** (`fra`), SPA stays on Vercel | Owner's decision, 2026-09-09 | Backend off the laptop. Runbook: `docs/DEPLOYMENT.md` § 4d, config in `fly.toml`. Cutover is one DNS record on `api.liratek.shop`. |
-| **Desktop app unchanged** | Yes | Stays offline-first on a local file with `better-sqlite3`. Non-negotiable: an offline till is the product. |
+| Decision                                            | Owner's call                          | Why                                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **One database file per tenant**                    | Yes                                   | See § 2. Reverses the earlier "shared file + `tenant_id` filter" recommendation.                                                                                                                                                                                                                     |
+| **A separate control-plane database**               | Yes                                   | `tenants`, `tenant_subscriptions`, super-admin users/sessions, platform audit.                                                                                                                                                                                                                       |
+| **Backend leaves the owner's laptop**               | Yes                                   | Power and internet in Lebanon must not be a dependency of other people's shops.                                                                                                                                                                                                                      |
+| **Cloudflare Tunnel retired for production**        | Yes                                   | It exists to reach a machine that should not be the server.                                                                                                                                                                                                                                          |
+| ~~Turso Cloud as the hosted database~~              | **DROPPED after Phase 0**, 2026-09-09 | Compatible, but reads cost a network round-trip each and this data layer is deliberately chatty; embedded replicas fix reads yet keep a local file anyway, leaving managed durability as the only gain — bought with network-bound writes and an availability coupling. § 4bis has the measurements. |
+| **Local SQLite files on the host, one per tenant**  | Yes                                   | Reads _and_ writes at ~0.1 ms, zero data-layer change, no third party that can stop shops selling. Durability via Litestream → R2 plus the snapshot built this session.                                                                                                                              |
+| **Fly.io for compute** (`fra`), SPA stays on Vercel | Owner's decision, 2026-09-09          | Backend off the laptop. Runbook: `docs/DEPLOYMENT.md` § 4d, config in `fly.toml`. Cutover is one DNS record on `api.liratek.shop`.                                                                                                                                                                   |
+| **Desktop app unchanged**                           | Yes                                   | Stays offline-first on a local file with `better-sqlite3`. Non-negotiable: an offline till is the product.                                                                                                                                                                                           |
 
 Explicitly **not** changing: the schema, `tenant_id` on every table (always `1` per
 tenant file, exactly as desktop already does), every repository, every service, the
@@ -42,7 +42,7 @@ This reverses an earlier recommendation. Three verified facts changed it:
 
 3. **The process-wide caches are schema-shape only** — `tableExistsCache`,
    `_hasCommissionModelColumnCache`, `_hasSettlementAllocationsTableCache`. They cache
-   *"does this column exist"*, not data, and are identical across tenants **provided
+   _"does this column exist"_, not data, and are identical across tenants **provided
    every tenant file is at the same migration version**. That is an invariant to
    enforce (§ 6), not a blocker.
 
@@ -52,7 +52,7 @@ copying its file; and placement becomes possible — no query joins across tenan
 nothing forces all tenants onto one node.
 
 **Timing is the strongest argument: there is exactly one real tenant today.** The
-current file *is* CornerTech's. Splitting now moves a handful of control-plane rows.
+current file _is_ CornerTech's. Splitting now moves a handful of control-plane rows.
 At twenty tenants it is a migration project with downtime.
 
 Side benefit: the realmless-login ambiguity that caused the `admin`/`Admin` incident
@@ -93,7 +93,7 @@ per file as well).
 
 ## 4. Phase 0 — the compatibility spike (BLOCKING)
 
-Turso is a *server-mediated* SQLite. LiraTek is built on SQLite internals. Three
+Turso is a _server-mediated_ SQLite. LiraTek is built on SQLite internals. Three
 findings from the vendor docs say this must be measured before it is committed to,
 not after.
 
@@ -105,21 +105,21 @@ marks `db.pragma()` — plus `backup()` and function registration — unsupporte
 
 **23 production call sites** (75 including tests):
 
-| Pragma | Uses | Consequence if unavailable |
-| --- | --- | --- |
-| `foreign_keys = ON` | 4 | Referential integrity across 68 tables |
-| `foreign_key_check` | 4 | Migration verification |
-| `foreign_keys = OFF` | 2 | **The migration runner brackets every batch with this** — it is what makes v172's table rebuild possible |
-| `defer_foreign_keys = ON` | 1 | `deleteTenantCascade` |
-| `table_info(...)` | 4 | `tenantScopedTables()`, `tableExists`, migrations |
-| `journal_mode = WAL`, `busy_timeout`, `synchronous`, `cache_size`, `wal_checkpoint` | 8 | Server-managed remotely; likely moot |
+| Pragma                                                                              | Uses | Consequence if unavailable                                                                               |
+| ----------------------------------------------------------------------------------- | ---- | -------------------------------------------------------------------------------------------------------- |
+| `foreign_keys = ON`                                                                 | 4    | Referential integrity across 68 tables                                                                   |
+| `foreign_key_check`                                                                 | 4    | Migration verification                                                                                   |
+| `foreign_keys = OFF`                                                                | 2    | **The migration runner brackets every batch with this** — it is what makes v172's table rebuild possible |
+| `defer_foreign_keys = ON`                                                           | 1    | `deleteTenantCascade`                                                                                    |
+| `table_info(...)`                                                                   | 4    | `tenantScopedTables()`, `tableExists`, migrations                                                        |
+| `journal_mode = WAL`, `busy_timeout`, `synchronous`, `cache_size`, `wal_checkpoint` | 8    | Server-managed remotely; likely moot                                                                     |
 
 Many are mechanically rewritable as `db.prepare("PRAGMA …")`. The question is not
 syntax, it is **whether the engine honours them**.
 
 ### 4.2 Foreign keys are OFF by default and per-connection
 
-libSQL documents foreign keys as **disabled by default**, enabled per *connection*
+libSQL documents foreign keys as **disabled by default**, enabled per _connection_
 via `PRAGMA foreign_keys=ON`, and **not togglable inside a multi-statement
 transaction**. Vendor discussion notes this is awkward on a server model, where a
 session is not guaranteed to be one connection.
@@ -150,7 +150,7 @@ Spike tasks:
 4. Targeted probes, each pass/fail:
    - a `db.transaction(fn)` that throws **rolls back** every statement;
    - inserting a child row with a bogus parent id **throws**;
-   - FK enforcement still holds on the *next* statement and inside a transaction;
+   - FK enforcement still holds on the _next_ statement and inside a transaction;
    - a `foreign_keys = OFF` bracketed table rebuild completes;
    - `VACUUM INTO` (or a documented substitute) produces a restorable file;
    - measured latency of a representative 10-statement checkout transaction from the
@@ -174,21 +174,21 @@ plan is unchanged either way — that is deliberate: **Phases A–D are storage-
 Ran against a real Turso database, `liratek-spike-amir619h.aws-eu-west-1.turso.io`
 (AWS Ireland), with the `libsql` driver on Windows. **From the owner's laptop in
 Lebanon**, so every figure below includes a ~150–200 ms Beirut→Ireland hop and is
-**not** the production number. The *ratios* generalise; the absolutes do not.
+**not** the production number. The _ratios_ generalise; the absolutes do not.
 
 ### Compatibility: PASS — and the vendor docs are wrong
 
 Every blocker in § 4.1 and § 4.2 evaporated on contact:
 
-| Concern from the plan | Measured |
-| --- | --- |
-| `db.pragma()` unsupported | **Works.** Returned `[{"foreign_keys":1}]` |
-| Foreign keys OFF by default | **Already ON**, and enforced |
-| FK enforcement per-connection / unreliable | Orphan insert rejected with `SQLITE_CONSTRAINT: FOREIGN KEY constraint failed`, and **still enforced on later statements** |
-| Transaction rollback | **Correct** — a throw mid-transaction left 0 of 1 rows; an FK violation rolled the whole transaction back |
-| `foreign_keys = OFF` rebuild bracket (v172) | **Works**, and the pragma restores to ON afterwards |
-| `defer_foreign_keys` (`deleteTenantCascade`) | Accepted |
-| `ROW_NUMBER()` (v174), partial unique index, `COLLATE NOCASE`, `table_info` | All work |
+| Concern from the plan                                                       | Measured                                                                                                                   |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `db.pragma()` unsupported                                                   | **Works.** Returned `[{"foreign_keys":1}]`                                                                                 |
+| Foreign keys OFF by default                                                 | **Already ON**, and enforced                                                                                               |
+| FK enforcement per-connection / unreliable                                  | Orphan insert rejected with `SQLITE_CONSTRAINT: FOREIGN KEY constraint failed`, and **still enforced on later statements** |
+| Transaction rollback                                                        | **Correct** — a throw mid-transaction left 0 of 1 rows; an FK violation rolled the whole transaction back                  |
+| `foreign_keys = OFF` rebuild bracket (v172)                                 | **Works**, and the pragma restores to ON afterwards                                                                        |
+| `defer_foreign_keys` (`deleteTenantCascade`)                                | Accepted                                                                                                                   |
+| `ROW_NUMBER()` (v174), partial unique index, `COLLATE NOCASE`, `table_info` | All work                                                                                                                   |
 
 So § 4.1/§ 4.2 are **withdrawn**. The `libsql` API doc marking `pragma()`
 unsupported is stale.
@@ -209,13 +209,13 @@ backups must come from Turso's own managed backup / point-in-time restore (or
 
 ### The real problem: latency amplification
 
-| Workload | Remote only | Embedded replica |
-| --- | --- | --- |
-| 50 sequential `SELECT`s | **9 829 ms** (196.6 ms each) | **4 ms** (0.1 ms each) |
-| 1 `SELECT` returning 200 rows | 316 ms | 1 ms |
-| 10-write transaction (a checkout) | 3 554 ms | **8 019 ms** |
-| 10 individual writes | 5 288 ms | 10 590 ms |
-| initial replica sync | — | 19 977 ms |
+| Workload                          | Remote only                  | Embedded replica       |
+| --------------------------------- | ---------------------------- | ---------------------- |
+| 50 sequential `SELECT`s           | **9 829 ms** (196.6 ms each) | **4 ms** (0.1 ms each) |
+| 1 `SELECT` returning 200 rows     | 316 ms                       | 1 ms                   |
+| 10-write transaction (a checkout) | 3 554 ms                     | **8 019 ms**           |
+| 10 individual writes              | 5 288 ms                     | 10 590 ms              |
+| initial replica sync              | —                            | 19 977 ms              |
 
 Three things to take from this:
 
@@ -233,7 +233,7 @@ Three things to take from this:
 
 With embedded replicas you keep a **local database file on the server anyway** — so
 you have not escaped local state, you have added a sync dependency on top of it. At
-that point Turso's marginal value over § 8 is *managed durability and branching*,
+that point Turso's marginal value over § 8 is _managed durability and branching_,
 bought with a write path that is network-bound and an availability coupling where
 Turso being down stops every shop selling.
 
@@ -262,14 +262,14 @@ single-writer constraint stated in its own comments.
 
 ### VPS options
 
-| Provider | ~Price | Nearest useful region | Notes |
-| --- | --- | --- | --- |
-| **Hetzner** CX22 / CAX11 (ARM) | €4–5/mo | Falkenstein, Nuremberg, Helsinki | Best price/performance; EU + US only |
-| **Vultr** | $5–6/mo | **Dubai** | Closest to Beirut of the mainstream providers |
-| **DigitalOcean** | $6/mo | Frankfurt, Amsterdam | Simplest UI, easy snapshots |
-| **Linode / Akamai** | $5/mo | Frankfurt | Comparable to DO |
-| **Fly.io** | usage-based | Frankfurt, Amsterdam | Volumes work, but its many-small-VMs model fights single-writer SQLite; pin to one machine |
-| **Railway / Render** | $5–20/mo | EU | Managed PaaS with disks; less control, more money |
+| Provider                       | ~Price      | Nearest useful region            | Notes                                                                                      |
+| ------------------------------ | ----------- | -------------------------------- | ------------------------------------------------------------------------------------------ |
+| **Hetzner** CX22 / CAX11 (ARM) | €4–5/mo     | Falkenstein, Nuremberg, Helsinki | Best price/performance; EU + US only                                                       |
+| **Vultr**                      | $5–6/mo     | **Dubai**                        | Closest to Beirut of the mainstream providers                                              |
+| **DigitalOcean**               | $6/mo       | Frankfurt, Amsterdam             | Simplest UI, easy snapshots                                                                |
+| **Linode / Akamai**            | $5/mo       | Frankfurt                        | Comparable to DO                                                                           |
+| **Fly.io**                     | usage-based | Frankfurt, Amsterdam             | Volumes work, but its many-small-VMs model fights single-writer SQLite; pin to one machine |
+| **Railway / Render**           | $5–20/mo    | EU                               | Managed PaaS with disks; less control, more money                                          |
 
 **Region rule, and it changes with the Phase 0 outcome:**
 
@@ -277,8 +277,8 @@ single-writer constraint stated in its own comments.
   query crosses that link, so VPS↔Turso latency dominates end-user latency.
 - **If local files**: pick for proximity to Lebanon (Vultr Dubai, else Frankfurt).
 
-*Assumption (unverified): Turso primary regions map to AWS regions including
-Frankfurt. Confirm in the dashboard before choosing the VPS region.*
+_Assumption (unverified): Turso primary regions map to AWS regions including
+Frankfurt. Confirm in the dashboard before choosing the VPS region._
 
 ### Front door
 
@@ -295,15 +295,15 @@ load-bearing for tenant resolution).
 
 ## 6. Phases
 
-| Phase | Work | Est. | Depends on |
-| --- | --- | --- | --- |
-| **0** | Compatibility spike + decision (§ 4) | ~1 day | Turso account ✅ |
-| **A** | Tenant-aware `getDatabase()`: connection map keyed by tenant id, migrate-on-open, idle close. Failing-first tests. | ~1 day | 0 |
-| **B** | Control-plane split: `tenants`, `tenant_subscriptions`, super-admin users/sessions, platform audit. **Touches login, impersonation, subscriptions.** | 2–3 days | A |
-| **C** | Provisioning creates a tenant database from `create_db.sql` + migrations + config seed + first admin. Tenant delete becomes "archive the file" — the 68-table cascade becomes unnecessary. | ~1 day | A, B |
-| **D** | Move CornerTech: current file becomes tenant 1; extract control-plane rows. Trivial at N=1. | hours | C |
-| **E** | Hosting: VPS, compose up, Caddy TLS, Cloudflare proxied + wildcard DNS, tunnel retired. | ~1 day | D |
-| **F** | Durability: continuous backup per tenant database, encrypted, off-machine. Managed by Turso if Phase 0 passes; otherwise § 8. | ~1 day | E |
+| Phase | Work                                                                                                                                                                                       | Est.     | Depends on       |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | ---------------- |
+| **0** | Compatibility spike + decision (§ 4)                                                                                                                                                       | ~1 day   | Turso account ✅ |
+| **A** | Tenant-aware `getDatabase()`: connection map keyed by tenant id, migrate-on-open, idle close. Failing-first tests.                                                                         | ~1 day   | 0                |
+| **B** | Control-plane split: `tenants`, `tenant_subscriptions`, super-admin users/sessions, platform audit. **Touches login, impersonation, subscriptions.**                                       | 2–3 days | A                |
+| **C** | Provisioning creates a tenant database from `create_db.sql` + migrations + config seed + first admin. Tenant delete becomes "archive the file" — the 68-table cascade becomes unnecessary. | ~1 day   | A, B             |
+| **D** | Move CornerTech: current file becomes tenant 1; extract control-plane rows. Trivial at N=1.                                                                                                | hours    | C                |
+| **E** | Hosting: VPS, compose up, Caddy TLS, Cloudflare proxied + wildcard DNS, tunnel retired.                                                                                                    | ~1 day   | D                |
+| **F** | Durability: continuous backup per tenant database, encrypted, off-machine. Managed by Turso if Phase 0 passes; otherwise § 8.                                                              | ~1 day   | E                |
 
 ### Invariants to enforce, not assume
 
@@ -319,13 +319,13 @@ load-bearing for tenant resolution).
 
 ## 7. Cost
 
-| Item | Monthly |
-| --- | --- |
-| VPS (Hetzner CX22 / Vultr) | ~$5–6 |
-| Turso Developer (unlimited databases, 9 GB, 25 M row writes) | $4.99 |
-| Domain | ~$1 |
-| Cloudflare proxy, Universal SSL | $0 |
-| **Total** | **~$11/mo** |
+| Item                                                         | Monthly     |
+| ------------------------------------------------------------ | ----------- |
+| VPS (Hetzner CX22 / Vultr)                                   | ~$5–6       |
+| Turso Developer (unlimited databases, 9 GB, 25 M row writes) | $4.99       |
+| Domain                                                       | ~$1         |
+| Cloudflare proxy, Universal SSL                              | $0          |
+| **Total**                                                    | **~$11/mo** |
 
 Free tier allows 100 databases and 5 GB, which covers development and the first
 tenants. Current database size: **1.2 MB**.
@@ -344,9 +344,9 @@ Local SQLite files on the VPS volume, one per tenant, under `/data/tenants/<id>.
 - ~~Assumption: Litestream's config is a static list of databases, so dynamically
   created tenant files need config regeneration on provisioning.~~ **WRONG —
   checked 2026-09-09.** Litestream 0.5 replicates a DIRECTORY: `dir` + `pattern`
-  + `watch: true` discovers a newly created database within seconds without a
-  restart, and namespaces the replica by the file's relative path. So the
-  per-tenant case needs no machinery at all — see § 10.
+  - `watch: true` discovers a newly created database within seconds without a
+    restart, and namespaces the replica by the file's relative path. So the
+    per-tenant case needs no machinery at all — see § 10.
 
 Phases A–D are identical in this branch. Only the connection string and Phase F
 change — which is why the spike is cheap to lose.

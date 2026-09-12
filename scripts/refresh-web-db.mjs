@@ -38,8 +38,12 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const LIVE = process.env.LIVE_DB_PATH || join(homedir(), "Documents", "LiraTek", "liratek.db");
-const WEB = process.env.WEB_DB_PATH || join(homedir(), "Documents", "LiraTek", "liratek-web-dev.db");
+const LIVE =
+  process.env.LIVE_DB_PATH ||
+  join(homedir(), "Documents", "LiraTek", "liratek.db");
+const WEB =
+  process.env.WEB_DB_PATH ||
+  join(homedir(), "Documents", "LiraTek", "liratek-web-dev.db");
 
 if (!existsSync(LIVE)) {
   console.error(
@@ -99,4 +103,6 @@ if (!done) {
 }
 
 console.log(`[web-db] done — ${(statSync(WEB).size / 1048576).toFixed(2)} MB`);
-console.log(`[web-db] restart the backend to pick it up (it holds an open handle).`);
+console.log(
+  `[web-db] restart the backend to pick it up (it holds an open handle).`,
+);

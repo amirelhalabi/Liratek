@@ -35,7 +35,9 @@ jest.mock("@liratek/ui", () => {
     }),
     MultiPaymentInput: (props: {
       totals: Money[];
-      onChange: (lines: { method: string; currencyCode: string; amount: number }[]) => void;
+      onChange: (
+        lines: { method: string; currencyCode: string; amount: number }[],
+      ) => void;
     }) => {
       mockMultiPaymentPropsLog.push({ totals: props.totals });
       return (

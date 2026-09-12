@@ -42,8 +42,8 @@ function makeService() {
   ];
 
   const getAllSettings = jest.fn(() => allSettings);
-  const getSetting = jest.fn(
-    (key: string) => allSettings.find((s) => s.key_name === key),
+  const getSetting = jest.fn((key: string) =>
+    allSettings.find((s) => s.key_name === key),
   );
   const getSettingValue = jest.fn(
     (key: string) => allSettings.find((s) => s.key_name === key)?.value,

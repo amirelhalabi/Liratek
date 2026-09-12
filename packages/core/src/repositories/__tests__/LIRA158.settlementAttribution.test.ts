@@ -429,7 +429,12 @@ function seedFs(
 function seedFsTransaction(
   db: Database.Database,
   fsId: number,
-  opts: { profitUsd?: number; profitLbp?: number; amountUsd?: number; createdAt: string },
+  opts: {
+    profitUsd?: number;
+    profitLbp?: number;
+    amountUsd?: number;
+    createdAt: string;
+  },
 ): number {
   const res = db
     .prepare(
@@ -437,7 +442,13 @@ function seedFsTransaction(
          (tenant_id, type, status, source_table, source_id, amount_usd, profit_usd, profit_lbp, created_at)
        VALUES (1, 'FINANCIAL_SERVICE', 'ACTIVE', 'financial_services', ?, ?, ?, ?, ?)`,
     )
-    .run(fsId, opts.amountUsd ?? 100, opts.profitUsd ?? 0, opts.profitLbp ?? 0, opts.createdAt);
+    .run(
+      fsId,
+      opts.amountUsd ?? 100,
+      opts.profitUsd ?? 0,
+      opts.profitLbp ?? 0,
+      opts.createdAt,
+    );
   return Number(res.lastInsertRowid);
 }
 
@@ -494,7 +505,8 @@ describe("LIRA-158 Phase 3 — settlement-sourced attribution + D15 pending coun
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__;
+    delete (globalThis as unknown as Record<string, unknown>)
+      .__LIRATEK_TEST_DB__;
     db.close();
   });
 
@@ -749,7 +761,8 @@ describe("LIRA-158 Phase 3 — schema-drift fallback (pre-v148/v150 fixture)", (
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__;
+    delete (globalThis as unknown as Record<string, unknown>)
+      .__LIRATEK_TEST_DB__;
     db.close();
   });
 

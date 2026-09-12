@@ -2285,14 +2285,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * blocking a reversal there is the safe direction.
    */
   /** A line this guard already counts as "touched" by an item refund — the ORIGINAL predicate, unchanged (rule 14: named once, reused, not re-pasted). */
-  private static readonly SALE_ITEM_REFUND_TOUCHED =
-    `(COALESCE(refunded_quantity, 0) > 0
+  private static readonly SALE_ITEM_REFUND_TOUCHED = `(COALESCE(refunded_quantity, 0) > 0
       OR (COALESCE(is_refunded, 0) <> 0
           AND COALESCE(refunded_quantity, 0) < quantity))`;
 
   /** A line that still has quantity left to refund individually from the sale detail. */
-  private static readonly SALE_ITEM_HAS_REFUNDABLE_REMAINDER =
-    `(COALESCE(is_refunded, 0) = 0 AND COALESCE(refunded_quantity, 0) < quantity)`;
+  private static readonly SALE_ITEM_HAS_REFUNDABLE_REMAINDER = `(COALESCE(is_refunded, 0) = 0 AND COALESCE(refunded_quantity, 0) < quantity)`;
 
   private _assertNoPartialItemRefunds(original: TransactionEntity): void {
     if (original.source_table !== "sales" || original.source_id == null) {

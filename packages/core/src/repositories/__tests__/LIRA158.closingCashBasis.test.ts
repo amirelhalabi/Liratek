@@ -279,7 +279,12 @@ function insertFs(row: {
       `INSERT INTO financial_services
          (tenant_id, currency, commission, is_refunded, created_at)
        VALUES (1, ?, ?, ?, ?)`,
-    ).run(row.currency ?? "USD", row.commission, row.isRefunded ?? 0, row.createdAt);
+    ).run(
+      row.currency ?? "USD",
+      row.commission,
+      row.isRefunded ?? 0,
+      row.createdAt,
+    );
   }
 }
 

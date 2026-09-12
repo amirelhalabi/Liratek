@@ -112,7 +112,9 @@ function createSchema(db: Database.Database): void {
     CREATE TABLE expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, status TEXT DEFAULT 'active', amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0, expense_date TEXT, is_refunded INTEGER DEFAULT 0);
     CREATE TABLE exchange_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, amount_in REAL DEFAULT 0, leg1_profit_usd REAL DEFAULT 0, leg2_profit_usd REAL DEFAULT 0, is_refunded INTEGER DEFAULT 0, created_at TEXT);
   `);
-  db.prepare(`INSERT INTO users (id, tenant_id, username) VALUES (1, 1, 'cashier1')`).run();
+  db.prepare(
+    `INSERT INTO users (id, tenant_id, username) VALUES (1, 1, 'cashier1')`,
+  ).run();
 }
 
 /**
@@ -152,7 +154,12 @@ function seedForPartnerSale(
   db.prepare(
     `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, direction, covered_amount, created_at)
      VALUES (1, 'FOR_TEST', 'sales', ?, ?, 'DEBIT', ?, ?)`,
-  ).run(saleId, opts.partnerAmount ?? opts.finalAmountUsd, opts.coveredAmount, D);
+  ).run(
+    saleId,
+    opts.partnerAmount ?? opts.finalAmountUsd,
+    opts.coveredAmount,
+    D,
+  );
   return saleId;
 }
 

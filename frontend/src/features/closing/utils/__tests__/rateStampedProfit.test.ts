@@ -18,7 +18,11 @@ const SELL_RATE = 90_000;
 
 describe("buildRateStampedProfitLines", () => {
   it("converts a known input correctly for both totals (verified by a second method: LBP amount / rate, and USD amount * rate)", () => {
-    const lines = buildRateStampedProfitLines(USD_PROFIT, LBP_PROFIT, SELL_RATE);
+    const lines = buildRateStampedProfitLines(
+      USD_PROFIT,
+      LBP_PROFIT,
+      SELL_RATE,
+    );
 
     expect(lines.usdAmount).toBe(100);
     expect(lines.lbpAmount).toBe(900_000);
@@ -66,7 +70,11 @@ describe("buildRateStampedProfitLines", () => {
 
 describe("formatRateStampedProfitBlock", () => {
   it("renders all four lines with the rate printed on both converted totals and on neither native line", () => {
-    const lines = buildRateStampedProfitLines(USD_PROFIT, LBP_PROFIT, SELL_RATE);
+    const lines = buildRateStampedProfitLines(
+      USD_PROFIT,
+      LBP_PROFIT,
+      SELL_RATE,
+    );
     const block = formatRateStampedProfitBlock(lines);
     const rows = block.split("\n");
 
@@ -74,9 +82,7 @@ describe("formatRateStampedProfitBlock", () => {
     expect(block).toContain("USD amount: $100.00");
     expect(block).toContain("LBP amount (Loto only): 900,000 LBP");
     expect(block).toContain("Total (USD) @ 90,000 (sell rate): $110.00");
-    expect(block).toContain(
-      "Total (LBP) @ 90,000 (sell rate): 9,900,000 LBP",
-    );
+    expect(block).toContain("Total (LBP) @ 90,000 (sell rate): 9,900,000 LBP");
 
     // The two native lines must NOT carry a rate annotation.
     const usdLine = rows.find((r) => r.includes("USD amount"))!;

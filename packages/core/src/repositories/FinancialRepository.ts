@@ -7,7 +7,12 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { activeExpense, dateRange, notRefunded, getProfitRepository } from "./ProfitRepository.js";
+import {
+  activeExpense,
+  dateRange,
+  notRefunded,
+  getProfitRepository,
+} from "./ProfitRepository.js";
 import { monthBounds } from "../utils/localDate.js";
 
 export interface MonthlyPL {

@@ -171,8 +171,7 @@ describe("LIRA-116 module→route static guard", () => {
     // Anchored on the 'omt_whish' key literal, then key,label,icon,route in
     // that tuple order — cannot accidentally capture a neighbouring module's
     // route, and tolerant of the hand-aligned column whitespace in this file.
-    const pattern =
-      /'omt_whish'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'([^']*)'/;
+    const pattern = /'omt_whish'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'([^']*)'/;
     const match = mustMatch(
       source,
       pattern,
@@ -198,7 +197,7 @@ describe("LIRA-116 module→route static guard", () => {
       source,
       pattern,
       file,
-      "the per-tenant module seed tuple starting with \"omt_whish\" (key, label, icon, route)",
+      'the per-tenant module seed tuple starting with "omt_whish" (key, label, icon, route)',
     );
     expectRoute(
       match[1],
@@ -255,12 +254,7 @@ describe("LIRA-116 module→route static guard", () => {
       file,
       'the ROUTE_MAPPING entry for the "omt whish" spoken phrase',
     );
-    expectRoute(
-      match[1],
-      "/omt-whish",
-      file,
-      'ROUTE_MAPPING["omt whish"]',
-    );
+    expectRoute(match[1], "/omt-whish", file, 'ROUTE_MAPPING["omt whish"]');
   });
 
   // --------------------------------------------------------------------
@@ -308,7 +302,7 @@ describe("LIRA-116 module→route static guard", () => {
   // --------------------------------------------------------------------
   // Site 6 — frontend/src/app/App.tsx
   // --------------------------------------------------------------------
-  it("App.tsx declares a <Route path=\"/omt-whish\">", () => {
+  it('App.tsx declares a <Route path="/omt-whish">', () => {
     const file = "frontend/src/app/App.tsx";
     const source = readSource(file);
     const pattern = /<Route\s+path="\/omt-whish"/;

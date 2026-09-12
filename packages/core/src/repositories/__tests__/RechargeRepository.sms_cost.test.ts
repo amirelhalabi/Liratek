@@ -296,9 +296,7 @@ function latestTxnProfit(db: Database.Database): {
     .get() as { profit_usd: number; profit_lbp: number };
 }
 
-function smsExpenses(
-  db: Database.Database,
-): Array<{
+function smsExpenses(db: Database.Database): Array<{
   amount_usd: number;
   amount_lbp: number;
   category: string;
@@ -527,7 +525,9 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
         userId: 1,
       });
       const rechargeId = (
-        db.prepare("SELECT id FROM recharges ORDER BY id DESC LIMIT 1").get() as {
+        db
+          .prepare("SELECT id FROM recharges ORDER BY id DESC LIMIT 1")
+          .get() as {
           id: number;
         }
       ).id;
@@ -772,10 +772,7 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
       // Every drawer touched by create() is back to its pre-create balance —
       // MTC (stock + SMS fee) AND General (customer cash), per currency.
       expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(mtcBefore, 4);
-      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(
-        generalBefore,
-        4,
-      );
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(generalBefore, 4);
 
       // The SMS expense sibling was cascade-voided (rule 20) — soft-voided
       // via the SAME _markSourceRefunded machinery every other expense void

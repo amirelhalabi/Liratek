@@ -276,9 +276,9 @@ describe("supplierSettlementProfitArm — proportional partner coverage (2026-09
     const settlementLedgerId = 507;
     const txnId = insertSettlementTxn(db, settlementLedgerId, 0);
     const fsId = insertFs(db, settlementLedgerId);
-    db.prepare(`UPDATE financial_services SET is_refunded = 1 WHERE id = ?`).run(
-      fsId,
-    );
+    db.prepare(
+      `UPDATE financial_services SET is_refunded = 1 WHERE id = ?`,
+    ).run(fsId);
     insertAllocationUsd(db, settlementLedgerId, fsId, 20, "OMT");
     seedPartnerRow(db, fsId, 100, 100); // even fully covered — refund excludes it regardless
 

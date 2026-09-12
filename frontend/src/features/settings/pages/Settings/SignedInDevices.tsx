@@ -72,8 +72,7 @@ export default function SignedInDevices() {
   }, [load]);
 
   const handleRevoke = async (session: SafeSession) => {
-    if (!confirm("End this session? That device will be signed out."))
-      return;
+    if (!confirm("End this session? That device will be signed out.")) return;
     setRevokingId(session.id);
     try {
       const res = await api.revokeSession(session.id);
@@ -142,10 +141,10 @@ export default function SignedInDevices() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-slate-400 text-sm">
-          Every device currently signed in to your account. End a session on
-          a device you no longer control — the current device shows a{" "}
-          <span className="text-slate-300">This device</span> badge and can
-          only sign itself out normally.
+          Every device currently signed in to your account. End a session on a
+          device you no longer control — the current device shows a{" "}
+          <span className="text-slate-300">This device</span> badge and can only
+          sign itself out normally.
         </p>
         <button
           onClick={handleRevokeOthers}

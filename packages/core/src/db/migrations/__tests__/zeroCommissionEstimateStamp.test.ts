@@ -258,21 +258,72 @@ describe("migration v161 — zero_commission_estimate_stamp_for_at_settlement_ro
 
   it("case 6 — down() round-trip restores every case's original stamp exactly", () => {
     // Build one DB covering cases 1-5 at once.
-    const fs1 = insertFs(db, { commission: 0.5, commissionModel: 1, currency: "USD" });
-    const t1 = insertTxn(db, { type: "FINANCIAL_SERVICE", sourceId: fs1, profitUsd: 0.5, profitLbp: 0 });
+    const fs1 = insertFs(db, {
+      commission: 0.5,
+      commissionModel: 1,
+      currency: "USD",
+    });
+    const t1 = insertTxn(db, {
+      type: "FINANCIAL_SERVICE",
+      sourceId: fs1,
+      profitUsd: 0.5,
+      profitLbp: 0,
+    });
 
-    const fs2 = insertFs(db, { commission: 0.5, commissionModel: 1, currency: "USD" });
-    const t2 = insertTxn(db, { type: "FINANCIAL_SERVICE", sourceId: fs2, profitUsd: 2.5, profitLbp: 0 });
+    const fs2 = insertFs(db, {
+      commission: 0.5,
+      commissionModel: 1,
+      currency: "USD",
+    });
+    const t2 = insertTxn(db, {
+      type: "FINANCIAL_SERVICE",
+      sourceId: fs2,
+      profitUsd: 2.5,
+      profitLbp: 0,
+    });
 
-    const fs3 = insertFs(db, { commission: 30000, commissionModel: 1, currency: "LBP" });
-    const t3 = insertTxn(db, { type: "FINANCIAL_SERVICE", sourceId: fs3, profitUsd: 1.25, profitLbp: 30000 });
+    const fs3 = insertFs(db, {
+      commission: 30000,
+      commissionModel: 1,
+      currency: "LBP",
+    });
+    const t3 = insertTxn(db, {
+      type: "FINANCIAL_SERVICE",
+      sourceId: fs3,
+      profitUsd: 1.25,
+      profitLbp: 30000,
+    });
 
-    const fs4 = insertFs(db, { commission: 5, commissionModel: 0, currency: "USD" });
-    const t4 = insertTxn(db, { type: "FINANCIAL_SERVICE", sourceId: fs4, profitUsd: 5, profitLbp: 0 });
+    const fs4 = insertFs(db, {
+      commission: 5,
+      commissionModel: 0,
+      currency: "USD",
+    });
+    const t4 = insertTxn(db, {
+      type: "FINANCIAL_SERVICE",
+      sourceId: fs4,
+      profitUsd: 5,
+      profitLbp: 0,
+    });
 
-    const fs5 = insertFs(db, { commission: 0.75, commissionModel: 1, currency: "USD", isRefunded: 1 });
-    const t5orig = insertTxn(db, { type: "FINANCIAL_SERVICE", sourceId: fs5, profitUsd: 0.75, profitLbp: 0 });
-    const t5refund = insertTxn(db, { type: "REFUND", sourceId: fs5, profitUsd: -0.75, profitLbp: 0 });
+    const fs5 = insertFs(db, {
+      commission: 0.75,
+      commissionModel: 1,
+      currency: "USD",
+      isRefunded: 1,
+    });
+    const t5orig = insertTxn(db, {
+      type: "FINANCIAL_SERVICE",
+      sourceId: fs5,
+      profitUsd: 0.75,
+      profitLbp: 0,
+    });
+    const t5refund = insertTxn(db, {
+      type: "REFUND",
+      sourceId: fs5,
+      profitUsd: -0.75,
+      profitLbp: 0,
+    });
 
     const before = {
       t1: profitOf(db, t1),
@@ -305,8 +356,17 @@ describe("migration v161 — zero_commission_estimate_stamp_for_at_settlement_ro
 
   it("case 7 — zero matching rows: up() reports 0/0 changes and throws nothing", () => {
     // Only a model-0 row exists — nothing for v161 to touch.
-    const fsId = insertFs(db, { commission: 5, commissionModel: 0, currency: "USD" });
-    insertTxn(db, { type: "FINANCIAL_SERVICE", sourceId: fsId, profitUsd: 5, profitLbp: 0 });
+    const fsId = insertFs(db, {
+      commission: 5,
+      commissionModel: 0,
+      currency: "USD",
+    });
+    insertTxn(db, {
+      type: "FINANCIAL_SERVICE",
+      sourceId: fsId,
+      profitUsd: 5,
+      profitLbp: 0,
+    });
 
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
     try {

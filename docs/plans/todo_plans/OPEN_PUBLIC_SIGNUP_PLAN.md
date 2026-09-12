@@ -14,21 +14,21 @@
 `SIGNUP_INVITE_CODE` being set — unset means the route 403s, which is the safe
 default. Every success permanently:
 
-| Consumes | Where | Recoverable? |
-| --- | --- | --- |
-| A slug | `tenants` table | Only by deleting the tenant |
-| A **Cloudflare DNS record** | your CF zone | Yes, but it is third-party quota |
-| A **domain on your Vercel project** | your Vercel account | Vercel enforces a per-project domain limit |
-| A subscription row | `tenant_subscriptions` | Yes |
-| A full config seed | 11 tables | Yes |
-| *(after the per-tenant split)* a **database file** | the Fly volume | Disk |
+| Consumes                                           | Where                  | Recoverable?                               |
+| -------------------------------------------------- | ---------------------- | ------------------------------------------ |
+| A slug                                             | `tenants` table        | Only by deleting the tenant                |
+| A **Cloudflare DNS record**                        | your CF zone           | Yes, but it is third-party quota           |
+| A **domain on your Vercel project**                | your Vercel account    | Vercel enforces a per-project domain limit |
+| A subscription row                                 | `tenant_subscriptions` | Yes                                        |
+| A full config seed                                 | 11 tables              | Yes                                        |
+| _(after the per-tenant split)_ a **database file** | the Fly volume         | Disk                                       |
 
 What is already in place: the slug charset + reserved-name blocklist, the whole
 provisioning happening in one transaction, and `signupLimiter`.
 
 **Why that is not enough on its own.** `signupLimiter` is **5 per hour per IP**
 (`SIGNUP_RATE_LIMIT_MAX`, `backend/src/middleware/rateLimit.ts`). That is a
-*rate* limit, not a total, and it is per-IP — defeated by patience or a handful
+_rate_ limit, not a total, and it is per-IP — defeated by patience or a handful
 of addresses. And signup collects only `contactName` and `contactPhone`, both
 **optional and unverified** (`packages/core/src/validators/tenant.ts`), with no
 payment step, because the subscription model is deliberately no-trial and
@@ -36,7 +36,7 @@ owner-managed. So a fake tenant costs an abuser nothing while consuming quota on
 accounts the owner pays for.
 
 The specific bad day: a script exhausts the Vercel per-project domain limit, and
-the next *real* shop cannot be onboarded.
+the next _real_ shop cannot be onboarded.
 
 ---
 
@@ -44,8 +44,8 @@ the next *real* shop cannot be onboarded.
 
 **Do this first regardless — it is small and it may remove the entire motivation.**
 
-The complaint is not that a gate exists, it is that a shop must be *told a
-secret and type it*. `frontend/src/features/auth/pages/Signup.tsx` does not read
+The complaint is not that a gate exists, it is that a shop must be _told a
+secret and type it_. `frontend/src/features/auth/pages/Signup.tsx` does not read
 the code from the URL (no `useSearchParams`), so today it must be typed.
 
 Make it a shareable link:

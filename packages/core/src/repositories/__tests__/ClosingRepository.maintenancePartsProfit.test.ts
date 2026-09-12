@@ -125,7 +125,13 @@ function insertMaintenance(row: {
     `INSERT INTO maintenance
        (tenant_id, final_amount_usd, cost_usd, parts_cost_usd, status, created_at)
      VALUES (1, ?, ?, ?, ?, ?)`,
-  ).run(row.finalAmountUsd, row.costUsd, row.partsCostUsd, row.status, row.createdAt);
+  ).run(
+    row.finalAmountUsd,
+    row.costUsd,
+    row.partsCostUsd,
+    row.status,
+    row.createdAt,
+  );
 }
 
 afterEach(() => {

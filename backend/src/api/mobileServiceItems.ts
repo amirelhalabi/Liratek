@@ -207,47 +207,43 @@ router.put("/:id", requireRole(["admin"]), (req, res): void => {
 // (`/:id/toggle-active`, two segments) never collides with `/:id` (one
 // segment) or `/:id`'s PUT above regardless of declaration order, but it's
 // placed right after PUT /:id for readability.
-router.put(
-  "/:id/toggle-active",
-  requireRole(["admin"]),
-  (req, res): void => {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id)) {
-      res.status(400).json({ success: false, error: "Invalid id" });
-      return;
+router.put("/:id/toggle-active", requireRole(["admin"]), (req, res): void => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ success: false, error: "Invalid id" });
+    return;
+  }
+  try {
+    const service = getMobileServiceItemService();
+    const result = service.toggleActive(id);
+    if (result.success) {
+      // Mirrors mobileServiceItemHandlers.ts's
+      // mobile-service-items:toggle-active audit (toggle/mobile_service_item)
+      // action/entity, but NOT its unconditional call site: the IPC handler
+      // calls `audit(...)` even when `result.success` is false, logging a
+      // "Toggled #N" row for a toggle that never happened. `auditRest`'s own
+      // contract (audit.ts) is explicit that callers gate on
+      // `result.success` first — a failed toggle is not an action taken, so
+      // it is not worth an audit row. This is a deliberate REST/IPC
+      // divergence (the IPC side's unconditional audit is the one out of
+      // step with the documented contract), not an oversight.
+      auditRest(req, {
+        action: "toggle",
+        entity_type: "mobile_service_item",
+        entity_id: String(id),
+        summary: `Toggled mobile service item #${id}`,
+      });
     }
-    try {
-      const service = getMobileServiceItemService();
-      const result = service.toggleActive(id);
-      if (result.success) {
-        // Mirrors mobileServiceItemHandlers.ts's
-        // mobile-service-items:toggle-active audit (toggle/mobile_service_item)
-        // action/entity, but NOT its unconditional call site: the IPC handler
-        // calls `audit(...)` even when `result.success` is false, logging a
-        // "Toggled #N" row for a toggle that never happened. `auditRest`'s own
-        // contract (audit.ts) is explicit that callers gate on
-        // `result.success` first — a failed toggle is not an action taken, so
-        // it is not worth an audit row. This is a deliberate REST/IPC
-        // divergence (the IPC side's unconditional audit is the one out of
-        // step with the documented contract), not an oversight.
-        auditRest(req, {
-          action: "toggle",
-          entity_type: "mobile_service_item",
-          entity_id: String(id),
-          summary: `Toggled mobile service item #${id}`,
-        });
-      }
-      // Rule 19c envelope parity: a business-rule failure from the service
-      // (e.g. "Item not found") is a HANDLED failure — HTTP 200 always, so
-      // requestJson() resolves to {success:false} instead of throwing an
-      // ApiError the adapter's caller never expects.
-      res.status(200).json(result);
-    } catch (error) {
-      logger.error({ error }, "Toggle mobile service item error");
-      res.status(500).json({ success: false, error: "Failed to toggle item" });
-    }
-  },
-);
+    // Rule 19c envelope parity: a business-rule failure from the service
+    // (e.g. "Item not found") is a HANDLED failure — HTTP 200 always, so
+    // requestJson() resolves to {success:false} instead of throwing an
+    // ApiError the adapter's caller never expects.
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error({ error }, "Toggle mobile service item error");
+    res.status(500).json({ success: false, error: "Failed to toggle item" });
+  }
+});
 
 // DELETE /api/mobile-service-items/:id (admin) — hard delete. Mirrors the
 // IPC `mobile-service-items:delete` handler: same role, same service call.

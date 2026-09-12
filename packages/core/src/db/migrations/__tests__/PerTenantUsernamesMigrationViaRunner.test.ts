@@ -19,7 +19,12 @@
  */
 
 import Database from "better-sqlite3";
-import { runMigrations, rollbackTo, getCurrentVersion, MIGRATIONS } from "../index";
+import {
+  runMigrations,
+  rollbackTo,
+  getCurrentVersion,
+  MIGRATIONS,
+} from "../index";
 
 /**
  * Minimal pre-v172 schema: `users` in its OLD shape (globally unique username)
@@ -129,7 +134,9 @@ describe("v172 per_tenant_usernames — via the real migration runner", () => {
 
     expect(() => insertUser(db, 2, "admin")).not.toThrow();
     const rows = db
-      .prepare(`SELECT tenant_id FROM users WHERE username = 'admin' ORDER BY tenant_id`)
+      .prepare(
+        `SELECT tenant_id FROM users WHERE username = 'admin' ORDER BY tenant_id`,
+      )
       .all() as { tenant_id: number }[];
     expect(rows.map((r) => r.tenant_id)).toEqual([1, 2]);
   });

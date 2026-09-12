@@ -129,8 +129,7 @@ export function ProfitsPasswordGate({
           </h2>
           <p className="text-sm text-slate-400 mb-6">
             No profits password has been set yet. An admin must set one in
-            Settings &rsaquo; Profits Password before anyone can view this
-            page.
+            Settings &rsaquo; Profits Password before anyone can view this page.
           </p>
           {user?.role === "admin" && (
             <button

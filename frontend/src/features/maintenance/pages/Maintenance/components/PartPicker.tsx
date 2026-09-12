@@ -23,7 +23,12 @@ export interface PartLine {
 /** Strip the display-only `product_name` before sending to `saveMaintenanceJob`. */
 export function toPartsPayload(
   parts: PartLine[],
-): Array<{ id?: number; product_id: number; quantity: number; unit_price_usd: number }> {
+): Array<{
+  id?: number;
+  product_id: number;
+  quantity: number;
+  unit_price_usd: number;
+}> {
   return parts.map((p) => ({
     ...(p.id != null ? { id: p.id } : {}),
     product_id: p.product_id,
@@ -207,7 +212,9 @@ export default function PartPicker({
                   type="button"
                   disabled={disabled}
                   onClick={() =>
-                    updateLine(index, { quantity: Math.max(1, part.quantity - 1) })
+                    updateLine(index, {
+                      quantity: Math.max(1, part.quantity - 1),
+                    })
                   }
                   className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -219,7 +226,9 @@ export default function PartPicker({
                 <button
                   type="button"
                   disabled={disabled}
-                  onClick={() => updateLine(index, { quantity: part.quantity + 1 })}
+                  onClick={() =>
+                    updateLine(index, { quantity: part.quantity + 1 })
+                  }
                   className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Plus size={10} />

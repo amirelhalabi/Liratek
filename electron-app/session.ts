@@ -2,11 +2,7 @@ import { safeStorage, app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import {
-  logger,
-  isProfitsUnlockLive,
-  SESSION_DURATION,
-} from "@liratek/core";
+import { logger, isProfitsUnlockLive, SESSION_DURATION } from "@liratek/core";
 
 export type UserRole = "admin" | "staff";
 

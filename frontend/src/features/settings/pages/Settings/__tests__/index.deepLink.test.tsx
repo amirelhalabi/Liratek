@@ -118,9 +118,7 @@ describe("Settings — ?tab= deep link", () => {
       mockSearchParams = new URLSearchParams({ tab: "diagnostics" });
       render(<Settings />);
       expect(screen.getByTestId("panel-shop")).toBeInTheDocument();
-      expect(
-        screen.queryByTestId("panel-diagnostics"),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId("panel-diagnostics")).not.toBeInTheDocument();
     });
 
     it("falls back to Shop Config for ?tab=license instead of mounting LicensePanel", () => {

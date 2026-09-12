@@ -242,9 +242,7 @@ test.describe("LIRA-165 — stock intake cost visibility", () => {
     // hidden — proving the ">= 2" gate from the low side before proving it
     // from the high side below.
     await openAdjustModal(appPage);
-    await expect(
-      appPage.getByText(/\+2 @ \$1200\.00 \(0 → 2\)/),
-    ).toBeVisible();
+    await expect(appPage.getByText(/\+2 @ \$1200\.00 \(0 → 2\)/)).toBeVisible();
     await expect(
       appPage.getByRole("heading", { name: "Cost Batches" }),
     ).toHaveCount(0);
@@ -269,12 +267,8 @@ test.describe("LIRA-165 — stock intake cost visibility", () => {
     ).toBeVisible();
     await expect(appPage.getByText(/2 units @ \$1200\.00/)).toBeVisible();
     await expect(appPage.getByText(/2 units @ \$1300\.00/)).toBeVisible();
-    await expect(
-      appPage.getByText(/\+2 @ \$1200\.00 \(0 → 2\)/),
-    ).toBeVisible();
-    await expect(
-      appPage.getByText(/\+2 @ \$1300\.00 \(2 → 4\)/),
-    ).toBeVisible();
+    await expect(appPage.getByText(/\+2 @ \$1200\.00 \(0 → 2\)/)).toBeVisible();
+    await expect(appPage.getByText(/\+2 @ \$1300\.00 \(2 → 4\)/)).toBeVisible();
 
     // --- A plain correction: no cost applies to shrinkage --------------
     await submitAdjustment(appPage, {
@@ -293,12 +287,8 @@ test.describe("LIRA-165 — stock intake cost visibility", () => {
 
     // The two priced entries are still exactly as they were — the new
     // cost-free row didn't retroactively touch them.
-    await expect(
-      appPage.getByText(/\+2 @ \$1200\.00 \(0 → 2\)/),
-    ).toBeVisible();
-    await expect(
-      appPage.getByText(/\+2 @ \$1300\.00 \(2 → 4\)/),
-    ).toBeVisible();
+    await expect(appPage.getByText(/\+2 @ \$1200\.00 \(0 → 2\)/)).toBeVisible();
+    await expect(appPage.getByText(/\+2 @ \$1300\.00 \(2 → 4\)/)).toBeVisible();
 
     // Leave the UI clean for whatever spec runs next.
     await appPage.getByRole("button", { name: "Cancel" }).click();

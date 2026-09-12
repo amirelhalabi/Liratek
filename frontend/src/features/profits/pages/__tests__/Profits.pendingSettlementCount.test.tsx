@@ -103,7 +103,9 @@ function paymentRowCells(
     r.querySelector("td")?.textContent?.includes(methodSubstring),
   );
   if (!row) {
-    throw new Error(`No payment-method row found containing "${methodSubstring}"`);
+    throw new Error(
+      `No payment-method row found containing "${methodSubstring}"`,
+    );
   }
   return Array.from(row.querySelectorAll("td"));
 }
@@ -267,7 +269,9 @@ describe("Profits — Commissions tab, Provider Performance (Today) honesty fix"
     fireEvent.click(screen.getByRole("button", { name: /commissions/i }));
     await waitFor(() => expect(mockGetOMTAnalytics).toHaveBeenCalledTimes(1));
     await screen.findByText("Provider Performance (Today)");
-    await waitFor(() => expect(providerRowCells(container, "OMT")).toBeTruthy());
+    await waitFor(() =>
+      expect(providerRowCells(container, "OMT")).toBeTruthy(),
+    );
 
     const omtCells = providerRowCells(container, "OMT");
     expect(omtCells[1].textContent).toBe("10");

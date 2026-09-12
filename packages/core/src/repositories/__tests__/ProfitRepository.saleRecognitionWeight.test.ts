@@ -51,9 +51,7 @@ function insertSale(
   finalAmountUsd: number,
 ): number {
   const info = db
-    .prepare(
-      `INSERT INTO sales (paid_usd, final_amount_usd) VALUES (?, ?)`,
-    )
+    .prepare(`INSERT INTO sales (paid_usd, final_amount_usd) VALUES (?, ?)`)
     .run(paidUsd, finalAmountUsd);
   return Number(info.lastInsertRowid);
 }

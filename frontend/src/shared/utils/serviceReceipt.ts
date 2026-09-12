@@ -108,17 +108,20 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
   // dollar parts together. Price only: metadata carries no cost/margin field
   // for parts, so there is nothing to accidentally leak here.
   const rawParts = meta.parts;
-  const parts: Array<{ name: string; quantity: number; unit_price_usd: number }> =
-    Array.isArray(rawParts)
-      ? rawParts.filter(
-          (p): p is { name: string; quantity: number; unit_price_usd: number } =>
-            typeof p === "object" &&
-            p !== null &&
-            typeof (p as Record<string, unknown>).name === "string" &&
-            typeof (p as Record<string, unknown>).quantity === "number" &&
-            typeof (p as Record<string, unknown>).unit_price_usd === "number",
-        )
-      : [];
+  const parts: Array<{
+    name: string;
+    quantity: number;
+    unit_price_usd: number;
+  }> = Array.isArray(rawParts)
+    ? rawParts.filter(
+        (p): p is { name: string; quantity: number; unit_price_usd: number } =>
+          typeof p === "object" &&
+          p !== null &&
+          typeof (p as Record<string, unknown>).name === "string" &&
+          typeof (p as Record<string, unknown>).quantity === "number" &&
+          typeof (p as Record<string, unknown>).unit_price_usd === "number",
+      )
+    : [];
 
   const border = "=".repeat(WIDTH);
   const rule = "-".repeat(WIDTH);
@@ -173,7 +176,8 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
   // part reads as a plain name. Absent/empty/malformed metadata.parts
   // renders nothing, keeping every historical receipt byte-identical.
   for (const part of parts) {
-    const label = part.quantity > 1 ? `${part.name} x${part.quantity}` : part.name;
+    const label =
+      part.quantity > 1 ? `${part.name} x${part.quantity}` : part.name;
     r += line(label, fmtMoney(part.unit_price_usd * part.quantity, "USD"));
   }
 

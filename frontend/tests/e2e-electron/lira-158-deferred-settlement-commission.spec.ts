@@ -154,9 +154,7 @@ type Api = {
 const WIDE_FROM = "2000-01-01";
 const WIDE_TO = "2100-01-01";
 
-async function getProfitFigures(
-  page: Page,
-): Promise<{
+async function getProfitFigures(page: Page): Promise<{
   commissionUsd: number;
   commissionCount: number;
   deferredClientDebtUsd: number;
@@ -403,21 +401,18 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
     // estimate — LIRA-158 §1.1: an OMT row's `commission` column holds the
     // estimate untouched (D6/D3), which is the whole premise of "enter a
     // commission deliberately different from it" below. ──────────────────
-    const unsettledRow = await appPage.evaluate(
-      async (amount: number) => {
-        const w = window as unknown as Api;
-        const rows = await w.api.suppliers.getUnsettledTransactions("OMT");
-        return (
-          rows.find(
-            (r) =>
-              r.service_type === "SEND" &&
-              r.currency !== "LBP" &&
-              Math.abs(r.amount - amount) < 0.005,
-          ) ?? null
-        );
-      },
-      AMOUNT,
-    );
+    const unsettledRow = await appPage.evaluate(async (amount: number) => {
+      const w = window as unknown as Api;
+      const rows = await w.api.suppliers.getUnsettledTransactions("OMT");
+      return (
+        rows.find(
+          (r) =>
+            r.service_type === "SEND" &&
+            r.currency !== "LBP" &&
+            Math.abs(r.amount - amount) < 0.005,
+        ) ?? null
+      );
+    }, AMOUNT);
     expect(unsettledRow, "unsettled OMT SEND row not found").toBeTruthy();
     const estimate = unsettledRow!.commission;
     expect(estimate).toBeGreaterThan(0);
@@ -452,7 +447,8 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
       "a fully-deferred settlement must not increment the recognised count",
     ).toBe(0);
     expect(
-      ipcAfterSettle.deferredClientDebtUsd - ipcBeforeSettle.deferredClientDebtUsd,
+      ipcAfterSettle.deferredClientDebtUsd -
+        ipcBeforeSettle.deferredClientDebtUsd,
       "the ENTERED commission (not the estimate) must appear as deferred",
     ).toBeCloseTo(ENTERED_COMMISSION, 2);
 
@@ -461,7 +457,8 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
       pageAfterSettle.commissionUsd - pageBeforeSettle.commissionUsd,
     ).toBeCloseTo(0, 1);
     expect(
-      pageAfterSettle.deferredClientDebtUsd - pageBeforeSettle.deferredClientDebtUsd,
+      pageAfterSettle.deferredClientDebtUsd -
+        pageBeforeSettle.deferredClientDebtUsd,
     ).toBeCloseTo(ENTERED_COMMISSION, 1);
 
     // ── 6. Repay the client's WHOLE debt through the real Debts page ─────
@@ -490,7 +487,8 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
       "this settlement now contributes recognised commission — count +1",
     ).toBe(1);
     expect(
-      ipcAfterRepay.deferredClientDebtUsd - ipcAfterSettle.deferredClientDebtUsd,
+      ipcAfterRepay.deferredClientDebtUsd -
+        ipcAfterSettle.deferredClientDebtUsd,
       "the deferred bucket gives back exactly what it just recognised",
     ).toBeCloseTo(-ENTERED_COMMISSION, 2);
 
@@ -498,7 +496,8 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
       pageAfterRepay.commissionUsd - pageAfterSettle.commissionUsd,
     ).toBeCloseTo(ENTERED_COMMISSION, 1);
     expect(
-      pageAfterRepay.deferredClientDebtUsd - pageAfterSettle.deferredClientDebtUsd,
+      pageAfterRepay.deferredClientDebtUsd -
+        pageAfterSettle.deferredClientDebtUsd,
     ).toBeCloseTo(-ENTERED_COMMISSION, 1);
   });
 });

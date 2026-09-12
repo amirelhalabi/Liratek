@@ -144,9 +144,7 @@ function insertProduct(
  *  because `insertProduct` has no such option — every other test in this
  *  file relies on a freshly-inserted product defaulting to `is_deleted = 0`. */
 function softDeleteProduct(db: Database.Database, productId: number): void {
-  db.prepare(`UPDATE products SET is_deleted = 1 WHERE id = ?`).run(
-    productId,
-  );
+  db.prepare(`UPDATE products SET is_deleted = 1 WHERE id = ?`).run(productId);
 }
 
 function insertClient(
@@ -737,9 +735,7 @@ describe("ProductUnitRepository", () => {
       runWithTenant(1, () =>
         repo.addUnits(deletedProductId, ["111111111111111"]),
       );
-      runWithTenant(1, () =>
-        repo.addUnits(liveProductId, ["222222222222222"]),
-      );
+      runWithTenant(1, () => repo.addUnits(liveProductId, ["222222222222222"]));
       softDeleteProduct(db, deletedProductId);
 
       const deleted = runWithTenant(1, () =>

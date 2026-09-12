@@ -124,7 +124,10 @@ const SCANNED_FILES: { tag: string; path: string }[] = [
 
 /** The model-gate fragment pair (rule 14) — see file header. Both defined
  *  (as `function <name>(`) exclusively in `ProfitRepository.ts`. */
-const GATE_FRAGMENTS = ["embeddedCommission", "atSettlementCommission"] as const;
+const GATE_FRAGMENTS = [
+  "embeddedCommission",
+  "atSettlementCommission",
+] as const;
 const GATE_CALL_REGEX = new RegExp(`\\b(?:${GATE_FRAGMENTS.join("|")})\\(`);
 
 /**
@@ -501,7 +504,9 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
     SCANNED_FILES.map((f) => [f.tag, fs.readFileSync(f.path, "utf8")] as const),
   );
   const boundariesByFile = new Map(
-    SCANNED_FILES.map((f) => [f.tag, findMethodBoundaries(sources.get(f.tag)!)] as const),
+    SCANNED_FILES.map(
+      (f) => [f.tag, findMethodBoundaries(sources.get(f.tag)!)] as const,
+    ),
   );
   const units = SCANNED_FILES.flatMap((f) => [
     ...collectQueryUnits(sources.get(f.tag)!, f.tag),
@@ -541,7 +546,12 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
       expect(BARE_COMMISSION_COLUMN_REGEX.test(s)).toBe(false);
     }
     // And a genuine read shape must still match.
-    for (const s of ["fs.commission", "fs2.commission", "commission > 0", "(commission)"]) {
+    for (const s of [
+      "fs.commission",
+      "fs2.commission",
+      "commission > 0",
+      "(commission)",
+    ]) {
       expect(BARE_COMMISSION_COLUMN_REGEX.test(s)).toBe(true);
     }
   });

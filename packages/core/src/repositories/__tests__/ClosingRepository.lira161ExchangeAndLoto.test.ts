@@ -202,7 +202,11 @@ function insertLotoTicket(row: { createdAt: string }): number {
   return Number(res.lastInsertRowid);
 }
 
-function insertLotoTransaction(row: { lotoTicketId: number; profitLbp: number; createdAt: string }): void {
+function insertLotoTransaction(row: {
+  lotoTicketId: number;
+  profitLbp: number;
+  createdAt: string;
+}): void {
   db.prepare(
     `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, profit_lbp, created_at)
      VALUES (1, 'LOTO', 'ACTIVE', 'loto_tickets', ?, ?, ?)`,
@@ -223,7 +227,10 @@ function insertExchangeTransaction(row: {
   return Number(res.lastInsertRowid);
 }
 
-function insertUncoveredPartnerObligation(refTable: string, refId: number): void {
+function insertUncoveredPartnerObligation(
+  refTable: string,
+  refId: number,
+): void {
   db.prepare(
     `INSERT INTO partner_ledger (tenant_id, partner_id, transaction_type, reference_table, reference_id, amount, direction, covered_amount)
      VALUES (1, 1, 'FOR_PARTNER_CHARGE', ?, ?, 100, 'CREDIT', 0)`,
@@ -246,7 +253,11 @@ describe("ClosingRepository.getDailyStatsSnapshot — LIRA-161 loto + exchange",
   describe("loto", () => {
     it("a same-day loto commission now reaches totalProfitLBP", () => {
       const ticketId = insertLotoTicket({ createdAt: todayAtUtc("10") });
-      insertLotoTransaction({ lotoTicketId: ticketId, profitLbp: 4500, createdAt: todayAtUtc("10") });
+      insertLotoTransaction({
+        lotoTicketId: ticketId,
+        profitLbp: 4500,
+        createdAt: todayAtUtc("10"),
+      });
 
       const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());
       expect(snap.totalProfitLBP).toBe(4500);
@@ -256,7 +267,11 @@ describe("ClosingRepository.getDailyStatsSnapshot — LIRA-161 loto + exchange",
 
     it("excludes a for-partner loto commission while the partner obligation is uncovered", () => {
       const ticketId = insertLotoTicket({ createdAt: todayAtUtc("10") });
-      insertLotoTransaction({ lotoTicketId: ticketId, profitLbp: 4500, createdAt: todayAtUtc("10") });
+      insertLotoTransaction({
+        lotoTicketId: ticketId,
+        profitLbp: 4500,
+        createdAt: todayAtUtc("10"),
+      });
       insertUncoveredPartnerObligation("loto_tickets", ticketId);
 
       const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());
@@ -266,21 +281,31 @@ describe("ClosingRepository.getDailyStatsSnapshot — LIRA-161 loto + exchange",
 
   describe("exchange", () => {
     it("a same-day exchange spread now reaches totalProfitUSD", () => {
-      insertExchangeTransaction({ leg1ProfitUsd: 2.5, createdAt: todayAtUtc("10") });
+      insertExchangeTransaction({
+        leg1ProfitUsd: 2.5,
+        createdAt: todayAtUtc("10"),
+      });
 
       const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());
       expect(snap.totalProfitUSD).toBe(2.5);
     });
 
     it("sums BOTH legs of a lot-tracked cross-currency exchange", () => {
-      insertExchangeTransaction({ leg1ProfitUsd: 0, leg2ProfitUsd: 3.25, createdAt: todayAtUtc("10") });
+      insertExchangeTransaction({
+        leg1ProfitUsd: 0,
+        leg2ProfitUsd: 3.25,
+        createdAt: todayAtUtc("10"),
+      });
 
       const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());
       expect(snap.totalProfitUSD).toBe(3.25);
     });
 
     it("excludes a for-partner exchange spread while the partner obligation is uncovered", () => {
-      const exId = insertExchangeTransaction({ leg1ProfitUsd: 2.5, createdAt: todayAtUtc("10") });
+      const exId = insertExchangeTransaction({
+        leg1ProfitUsd: 2.5,
+        createdAt: todayAtUtc("10"),
+      });
       insertUncoveredPartnerObligation("exchange_transactions", exId);
 
       const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());

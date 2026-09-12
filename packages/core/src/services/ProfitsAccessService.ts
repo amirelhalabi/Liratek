@@ -3,7 +3,10 @@ import {
   getSettingsRepository,
 } from "../repositories/SettingsRepository.js";
 import { hashPassword, verifyPassword } from "../utils/crypto.js";
-import { PROFITS_PASSWORD_SETTING_KEY, PROFITS_PASSWORD_MIN_LENGTH } from "../constants/profitsAccess.js";
+import {
+  PROFITS_PASSWORD_SETTING_KEY,
+  PROFITS_PASSWORD_MIN_LENGTH,
+} from "../constants/profitsAccess.js";
 import { settingsLogger } from "../utils/logger.js";
 
 /**

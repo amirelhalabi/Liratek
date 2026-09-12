@@ -561,7 +561,9 @@ describe("LIRA-158 Phase 1 — the interlock (EDIT 1 + EDIT 2)", () => {
         });
 
         const fs = db
-          .prepare(`SELECT commission_model FROM financial_services WHERE id = ?`)
+          .prepare(
+            `SELECT commission_model FROM financial_services WHERE id = ?`,
+          )
           .get(fsId) as { commission_model: number };
         expect(fs.commission_model).toBe(0);
 
@@ -598,7 +600,9 @@ describe("LIRA-158 Phase 1 — the interlock (EDIT 1 + EDIT 2)", () => {
         });
 
         const fs = db
-          .prepare(`SELECT commission_model FROM financial_services WHERE id = ?`)
+          .prepare(
+            `SELECT commission_model FROM financial_services WHERE id = ?`,
+          )
           .get(fsId) as { commission_model: number };
         expect(fs.commission_model).toBe(1); // BILL is always AT_SETTLEMENT
 
