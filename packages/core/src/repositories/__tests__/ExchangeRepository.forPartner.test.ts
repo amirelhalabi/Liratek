@@ -282,6 +282,10 @@ describe("ExchangeRepository.createTransaction() — for-partner (LIRA-081)", ()
     expect(txn).toBeDefined();
     expect(txn.profit_usd).toBeCloseTo(5, 2);
     expect(txn.client_name).toBe("Exchange Partner [partner]");
+    // Summary amounts go through the shared `formatMoneyAmount` (USD is
+    // symbol-prefixed, LBP comma-grouped and suffixed) so the stored text
+    // matches the row's own cash-flow badge.
+    expect(txn.summary).toBe("Exchange: $100 → 9,000,000 LBP");
 
     // Only ONE payment row was written (the toCurrency OUT leg) — no IN leg.
     const payments = db.prepare("SELECT * FROM payments").all() as any[];

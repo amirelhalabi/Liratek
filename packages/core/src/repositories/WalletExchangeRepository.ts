@@ -2,7 +2,11 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
-import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  formatMoneyAmount,
+} from "./moneyPosting.js";
 
 export type WalletDrawerName = "OMT_App" | "Whish_App";
 export type WalletCurrency = "USD" | "LBP";
@@ -140,7 +144,7 @@ export class WalletExchangeRepository extends BaseRepository<WalletExchangeEntit
         profit_usd: 0,
         profit_lbp: 0,
         exchange_rate: data.rate,
-        summary: `${drawerLabel} Exchange: ${data.amountIn.toLocaleString()} ${data.fromCurrency} → ${data.amountOut.toLocaleString()} ${data.toCurrency}`,
+        summary: `${drawerLabel} Exchange: ${formatMoneyAmount(data.amountIn, data.fromCurrency)} → ${formatMoneyAmount(data.amountOut, data.toCurrency)}`,
         metadata_json: {
           drawer_name: data.drawerName,
           from_currency: data.fromCurrency,

@@ -15,6 +15,7 @@ import {
   assertPartnerIdRequired,
   reconcileLegs,
   expectedTotalIn,
+  formatMoneyAmount,
 } from "./moneyPosting.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import {
@@ -448,7 +449,12 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           isForPartner && data.partnerId
             ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
             : (data.clientName ?? null),
-        summary: `Exchange: ${data.amountIn} ${data.fromCurrency} → ${data.amountOut} ${data.toCurrency}${data.viaCurrency ? ` (via ${data.viaCurrency})` : ""}`,
+        // Thousands separators come from the ONE shared summary formatter
+        // (`formatMoneyAmount`) so the stored text and the row's cash-flow
+        // badge never disagree on the same number — a live row showed
+        // "→ 10146000 LBP" beside a badge of "10,146,000 LBP" (owner
+        // report 2026-09-12).
+        summary: `Exchange: ${formatMoneyAmount(data.amountIn, data.fromCurrency)} → ${formatMoneyAmount(data.amountOut, data.toCurrency)}${data.viaCurrency ? ` (via ${data.viaCurrency})` : ""}`,
         metadata_json: {
           type,
           from_currency: data.fromCurrency,

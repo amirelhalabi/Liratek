@@ -15,6 +15,7 @@ import express from "express";
 import {
   getWalletExchangeService,
   createWalletExchangeSchema,
+  formatMoneyAmount,
 } from "@liratek/core";
 import {
   authenticateJWT,
@@ -23,6 +24,18 @@ import {
 } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+
+/**
+ * Audit-summary label for the converted amount — twin of the same helper in
+ * electron-app/handlers/walletExchangeHandlers.ts. `amountOut` is optional on
+ * the service result (always set on success), so this never invents a `0` for
+ * a missing figure.
+ */
+function outLabel(amount: number | undefined, currency: string): string {
+  return amount === undefined
+    ? `unknown ${currency}`
+    : formatMoneyAmount(amount, currency);
+}
 
 const router = express.Router();
 
@@ -65,7 +78,7 @@ router.post(
         auditRest(req as AuthRequest, {
           action: "create",
           entity_type: "wallet_exchange",
-          summary: `${String(req.body.drawerName).replace("_", " ")} Exchange: ${req.body.amountIn} ${req.body.fromCurrency} → ${result.amountOut} ${req.body.toCurrency}`,
+          summary: `${String(req.body.drawerName).replace("_", " ")} Exchange: ${formatMoneyAmount(Number(req.body.amountIn), String(req.body.fromCurrency))} → ${outLabel(result.amountOut, String(req.body.toCurrency))}`,
           metadata: {
             drawer_name: req.body.drawerName,
             from_currency: req.body.fromCurrency,

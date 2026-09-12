@@ -415,6 +415,13 @@ describe("ExchangeRepository — override chain (bookedProfitUsd + cross non-deg
     const unified = unifiedRow(db, buyId);
     expect(unified.profit_usd).toBeCloseTo(50, 6);
 
+    // The stored summary renders both amounts through the ONE shared
+    // summary formatter (`formatMoneyAmount`), so it carries thousands
+    // separators and never disagrees with the transactions-table cash-flow
+    // badge on the same row. Pre-fix this read "→ 9990400 LBP" beside a
+    // badge of "9,990,400 LBP" (owner report 2026-09-12).
+    expect(unified.summary).toBe("Exchange: 100 EUR → 9,990,400 LBP (via USD)");
+
     // ── Step 2: a later direct SELL of the same 100 EUR at 1.20 ──────────
     const rawSellPayload = {
       fromCurrency: "USD",

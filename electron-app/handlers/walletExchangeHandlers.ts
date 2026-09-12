@@ -9,12 +9,28 @@
  */
 
 import { ipcMain } from "electron";
-import { getWalletExchangeService, createChildLogger } from "@liratek/core";
+import {
+  getWalletExchangeService,
+  createChildLogger,
+  formatMoneyAmount,
+} from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import { validatePayload, WalletExchangeSchema } from "../schemas/index.js";
 
 const walletExchangeLogger = createChildLogger({ module: "wallet-exchange" });
+
+/**
+ * Audit-summary label for the converted amount. `amountOut` is optional on
+ * the service result (it is always set on success), so this never invents a
+ * `0` for a missing figure — a fabricated money number in the audit log is
+ * worse than an explicit "unknown".
+ */
+function outLabel(amount: number | undefined, currency: string): string {
+  return amount === undefined
+    ? `unknown ${currency}`
+    : formatMoneyAmount(amount, currency);
+}
 
 let service: ReturnType<typeof getWalletExchangeService> | null = null;
 
@@ -57,7 +73,7 @@ export function registerWalletExchangeHandlers(): void {
           audit(e.sender.id, {
             action: "create",
             entity_type: "wallet_exchange",
-            summary: `${validation.data.drawerName.replace("_", " ")} Exchange: ${validation.data.amountIn} ${validation.data.fromCurrency} → ${result.amountOut} ${validation.data.toCurrency}`,
+            summary: `${validation.data.drawerName.replace("_", " ")} Exchange: ${formatMoneyAmount(validation.data.amountIn, validation.data.fromCurrency)} → ${outLabel(result.amountOut, validation.data.toCurrency)}`,
             metadata: {
               drawer_name: validation.data.drawerName,
               from_currency: validation.data.fromCurrency,
