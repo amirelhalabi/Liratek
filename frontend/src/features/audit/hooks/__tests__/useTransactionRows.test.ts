@@ -201,6 +201,65 @@ describe("useTransactionRows", () => {
     expect(result.current.filteredRows.map((r) => r.id)).toEqual([2]);
   });
 
+  it("hides an auto EXPENSE row (SMS_Transfer_Fee) under the default 'All types' filter", async () => {
+    // ExpenseRepository.createExpense stamps metadata.is_auto = true on the
+    // auto-generated SMS_Transfer_Fee sibling row (source_ref_table set) —
+    // same D2-style default-view hide as auto SUPPLIER_PAYMENT rows.
+    //
+    // Rule 17: this is the guard test named in useTransactionRows.ts's
+    // filterVisible comment — commenting out the `r.type === "EXPENSE"`
+    // branch there (falling through to `return true`) must make this fail.
+    mockFetch.mockResolvedValue([
+      {
+        id: 1,
+        type: "EXPENSE",
+        created_at: "2026-08-28 09:00:00",
+        metadata_json: JSON.stringify({
+          is_auto: true,
+          source_ref_table: "recharge_transactions",
+        }),
+      },
+      {
+        id: 2,
+        type: "EXPENSE",
+        created_at: "2026-08-28 08:00:00",
+        metadata_json: null, // manual expense — no is_auto key at all
+      },
+    ] as never);
+
+    const { result } = renderHook(() => useTransactionRows(BASE));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.rows.map((r) => r.id)).toEqual([2]);
+  });
+
+  it("reveals the auto EXPENSE row under the 'Expense' filter, manual row stays visible", async () => {
+    mockFetch.mockResolvedValue([
+      {
+        id: 1,
+        type: "EXPENSE",
+        created_at: "2026-08-28 09:00:00",
+        metadata_json: JSON.stringify({
+          is_auto: true,
+          source_ref_table: "recharge_transactions",
+        }),
+      },
+      {
+        id: 2,
+        type: "EXPENSE",
+        created_at: "2026-08-28 08:00:00",
+        metadata_json: null,
+      },
+    ] as never);
+
+    const { result } = renderHook(() =>
+      useTransactionRows({ ...BASE, selectedFilter: "Expense" }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.rows.map((r) => r.id).sort()).toEqual([1, 2]);
+  });
+
   it("refetches when reload() is called", async () => {
     mockFetch.mockResolvedValue(makeRows(30) as never);
 

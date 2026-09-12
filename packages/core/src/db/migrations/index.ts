@@ -11290,6 +11290,106 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v175 — Backfill metadata_json.is_auto on historical auto-generated
+  // EXPENSE transactions (Transactions-table default-view visibility)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 175,
+    name: "backfill_expense_is_auto_metadata",
+    description:
+      "Data-only backfill: stamp top-level metadata_json.is_auto = true on historical " +
+      "EXPENSE transactions whose linked `expenses` row (source_table='expenses', " +
+      "source_id=expenses.id) has source_ref_table IS NOT NULL — i.e. a system-generated " +
+      "sibling expense (the recharge SMS transfer fee, financial-service fees, the " +
+      "supplier-ledger auto expense — the five writers listed on ExpenseRepository's " +
+      "CreateExpenseData.source_ref_table doc comment), not something an operator typed " +
+      "into the Expenses form. " +
+      "" +
+      "Exact precedent, same shape: migration v130 backfilled metadata.is_auto on historical " +
+      "SUPPLIER_PAYMENT rows from supplier_ledger.is_auto so the Transactions table could hide " +
+      "auto-generated ledger siblings by default without hiding manual supplier payments " +
+      "(CQ-8/D2). This is that same default-view rule extended to EXPENSE (see " +
+      "frontend/src/features/audit/auditConstants.ts isAutoRow / isSupplierPaymentVisible): " +
+      "EXPENSE cannot be blanket-hidden by type the way CLIENT_CREATED is, because a manual " +
+      "expense must stay visible, so the discriminator has to be per-row metadata instead. " +
+      "" +
+      "Going forward, ExpenseRepository.createExpense derives this same flag at write time " +
+      "from source_ref_table (one derivation point, not one per writer) — this migration only " +
+      "back-fills the rows written before that derivation existed. Pure UPDATE, no ALTER — safe " +
+      "on both fresh and prod DBs; a fresh install has no historical rows to touch, so " +
+      "create_db.sql needs no change for this migration. " +
+      "" +
+      "Defensive like v130: NULL or malformed metadata_json is normalized to '{}' before " +
+      "json_set rather than left to fail json_set/json_valid mid-boot. Idempotent: json_set-ing " +
+      "the same key to the same value twice is a no-op the second time, and the whole guard is " +
+      "skipped (not just failed) when a test's minimal schema lacks `transactions`/`expenses` or " +
+      "the source_ref_table column, mirroring v174's tableExists guard for `users`.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (
+        !tableExists(db, "transactions") ||
+        !tableExists(db, "expenses") ||
+        !columnExists(db, "expenses", "source_ref_table")
+      ) {
+        console.log(
+          "Migration v175: skipped (transactions/expenses/source_ref_table not present — minimal test schema)",
+        );
+        return;
+      }
+      const result = db
+        .prepare(
+          `UPDATE transactions
+           SET metadata_json = json_set(
+             CASE
+               WHEN metadata_json IS NULL THEN '{}'
+               WHEN json_valid(metadata_json) = 0 THEN '{}'
+               ELSE metadata_json
+             END,
+             '$.is_auto', json('true')
+           )
+           WHERE type = 'EXPENSE'
+             AND source_table = 'expenses'
+             AND EXISTS (
+               SELECT 1 FROM expenses e
+               WHERE e.id = transactions.source_id
+                 AND e.tenant_id = transactions.tenant_id
+                 AND e.source_ref_table IS NOT NULL
+             )`,
+        )
+        .run();
+      console.log(
+        `Migration v175: backfilled is_auto metadata on ${result.changes} historical EXPENSE transaction(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      if (
+        !tableExists(db, "transactions") ||
+        !columnExists(db, "transactions", "metadata_json")
+      ) {
+        console.log(
+          "Migration v175 rollback: skipped (transactions/metadata_json not present — minimal test schema)",
+        );
+        return;
+      }
+      // Only strip the key from rows this migration (or the derivation it
+      // mirrors) actually set it on — type='EXPENSE' with is_auto currently
+      // true — rather than every EXPENSE row's metadata_json, so an
+      // unrelated key a caller wrote is never touched.
+      const result = db
+        .prepare(
+          `UPDATE transactions
+           SET metadata_json = json_remove(metadata_json, '$.is_auto')
+           WHERE type = 'EXPENSE'
+             AND json_valid(metadata_json) = 1
+             AND json_extract(metadata_json, '$.is_auto') = 1`,
+        )
+        .run();
+      console.log(
+        `Migration v175 rolled back: removed is_auto metadata from ${result.changes} EXPENSE transaction(s)`,
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

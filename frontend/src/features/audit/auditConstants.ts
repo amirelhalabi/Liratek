@@ -88,11 +88,18 @@ export function parseMetaSafe(
 
 /** True only when the row's metadata explicitly flags it auto-generated.
  *  Manual rows (no key at all) and unparsable/missing metadata read as
- *  `false` — the safe default is "visible", not "hidden". */
+ *  `false` — the safe default is "visible", not "hidden". Type-agnostic —
+ *  shared by SUPPLIER_PAYMENT (D2) and EXPENSE (see isExpenseVisible below). */
+export function isAutoRow(metaJson: string | null | undefined): boolean {
+  return parseMetaSafe(metaJson).is_auto === true;
+}
+
+/** @deprecated alias of `isAutoRow` kept for the SUPPLIER_PAYMENT call sites
+ *  below — behavior is byte-identical to before this was extracted. */
 export function isAutoSupplierPayment(
   metaJson: string | null | undefined,
 ): boolean {
-  return parseMetaSafe(metaJson).is_auto === true;
+  return isAutoRow(metaJson);
 }
 
 /**
@@ -119,6 +126,47 @@ export function isSupplierPaymentVisible(
     return true;
   }
   return !isAutoSupplierPayment(metaJson);
+}
+
+// ---------------------------------------------------------------------------
+// EXPENSE default-view visibility (SMS_Transfer_Fee auto-expense clutter)
+// ---------------------------------------------------------------------------
+//
+// Five auto-expense writers (recharge SMS transfer fee among them) book an
+// EXPENSE row via ExpenseRepository.createExpense whenever they pass a
+// `source_ref_table`; that repository now stamps metadata.is_auto = true on
+// those rows (core-side fix, already shipped — see ticket). Mirrors the D2
+// SUPPLIER_PAYMENT rule above: a manual expense (Expenses page entry) is a
+// first-class visible Transactions row by default, and only the
+// auto-generated siblings stay hidden until the operator explicitly filters
+// for EXPENSE (FILTER_GROUPS "Other" group, "Expense" option).
+//
+// Rule 17 (CLAUDE.md): prove this fails first — comment out the
+// `r.type === "EXPENSE"` branch in useTransactionRows.ts's filterVisible
+// (so it falls through to `return true` unconditionally) and confirm the
+// "auto EXPENSE row hidden under All types" test in
+// useTransactionRows.test.ts fails, then restore the branch.
+
+/**
+ * Whether an EXPENSE row should be visible under the given filter state.
+ * `activeOption` is the currently selected FILTER_GROUPS entry, or undefined
+ * for "All types".
+ *
+ *   - The "Expense" filter (`type: "EXPENSE"`) always reveals the row,
+ *     auto-generated or not.
+ *   - Any other filter (including "All types"): manual rows show, auto rows
+ *     (metadata.is_auto === true) stay hidden.
+ *
+ * A manual expense (no `is_auto` key, or unparsable/absent metadata) always
+ * reads as visible — `isAutoRow` returning `false` on parse failure is
+ * already the safe default, so no extra guard is added here.
+ */
+export function isExpenseVisible(
+  metaJson: string | null | undefined,
+  activeOption: Pick<FilterOption, "type"> | undefined,
+): boolean {
+  if (activeOption?.type === "EXPENSE") return true;
+  return !isAutoRow(metaJson);
 }
 
 export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [

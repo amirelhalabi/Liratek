@@ -3,7 +3,11 @@ import {
   getRecentTransactions,
   type TransactionFiltersParam,
 } from "@/api/backendApi";
-import { FILTER_GROUPS, isSupplierPaymentVisible } from "../auditConstants";
+import {
+  FILTER_GROUPS,
+  isExpenseVisible,
+  isSupplierPaymentVisible,
+} from "../auditConstants";
 import { isCashTransaction, extraCurrencyLegs } from "../cashFlow";
 import type { TransactionPaymentLeg } from "../cashFlow";
 
@@ -70,7 +74,8 @@ const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
 // auto-generated ledger siblings (metadata.is_auto === true) stay hidden by
 // default — see isSupplierPaymentVisible (auditConstants.ts), applied
 // per-row below since the SQL-level `excludeTypes` can only exclude by
-// type, not by metadata.
+// type, not by metadata. EXPENSE follows the same per-row pattern (see
+// isExpenseVisible) for the auto-generated SMS_Transfer_Fee/etc rows.
 export const HIDDEN_TRANSACTION_TYPES = new Set(["CLIENT_CREATED"]);
 
 /** Multiplier applied to the requested row count on the first fetch, and
@@ -139,6 +144,18 @@ export function useTransactionRows({
           if (HIDDEN_TRANSACTION_TYPES.has(r.type)) return false;
           if (r.type === "SUPPLIER_PAYMENT") {
             return isSupplierPaymentVisible(r.metadata_json, activeOption);
+          }
+          // Auto-generated EXPENSE rows (e.g. the recharge SMS transfer fee,
+          // ExpenseRepository.createExpense stamping metadata.is_auto when
+          // source_ref_table is set) stay hidden by default, same rule as
+          // SUPPLIER_PAYMENT above — a per-row JS check because is_auto lives
+          // in metadata_json, which the SQL-level excludeTypes can't see.
+          // Rule 17: prove this fails first — comment out this branch (fall
+          // through to `return true`) and confirm the "auto EXPENSE hidden
+          // under All types" test in useTransactionRows.test.ts fails, then
+          // restore it.
+          if (r.type === "EXPENSE") {
+            return isExpenseVisible(r.metadata_json, activeOption);
           }
           return true;
         });

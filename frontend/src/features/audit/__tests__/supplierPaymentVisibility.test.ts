@@ -10,7 +10,9 @@
  */
 import {
   FILTER_GROUPS,
+  isAutoRow,
   isAutoSupplierPayment,
+  isExpenseVisible,
   isSupplierPaymentVisible,
   type FilterOption,
 } from "../auditConstants";
@@ -115,5 +117,69 @@ describe("FILTER_GROUPS — Suppliers and Partners are first-class groups (CQ-8)
       { label: "Partner Payment", type: "PARTNER_PAYMENT" },
       { label: "Partner Adjustment", type: "PARTNER_ADJUSTMENT" },
     ]);
+  });
+});
+
+describe("isAutoRow — type-agnostic extraction (SMS_Transfer_Fee ticket)", () => {
+  it("true only when metadata.is_auto === true", () => {
+    expect(isAutoRow(autoMeta)).toBe(true);
+  });
+
+  it("false for manual rows (no is_auto key at all)", () => {
+    expect(isAutoRow(manualMeta)).toBe(false);
+  });
+
+  it("false for missing/malformed metadata — safe default is visible", () => {
+    expect(isAutoRow(null)).toBe(false);
+    expect(isAutoRow(undefined)).toBe(false);
+    expect(isAutoRow("not-json{")).toBe(false);
+  });
+
+  it("isAutoSupplierPayment is a byte-identical regression check against isAutoRow", () => {
+    // Same truth table, same inputs → same outputs as before this ticket's
+    // extraction. SUPPLIER_PAYMENT behavior must not change.
+    for (const meta of [autoMeta, manualMeta, null, undefined, "not-json{"]) {
+      expect(isAutoSupplierPayment(meta)).toBe(isAutoRow(meta));
+    }
+  });
+});
+
+describe("isExpenseVisible — auto EXPENSE (SMS_Transfer_Fee) default-view hide rule", () => {
+  const autoExpenseMeta = JSON.stringify({
+    is_auto: true,
+    source_ref_table: "recharge_transactions",
+  });
+  const manualExpenseMeta = JSON.stringify({ category: "Utilities" });
+
+  it("manual expense visible with no filter active ('All types')", () => {
+    expect(isExpenseVisible(manualExpenseMeta, undefined)).toBe(true);
+  });
+
+  it("auto expense hidden with no filter active", () => {
+    expect(isExpenseVisible(autoExpenseMeta, undefined)).toBe(false);
+  });
+
+  it("auto expense stays hidden under an unrelated filter (e.g. RECHARGE)", () => {
+    const rechargeFilter: FilterOption = {
+      label: "MTC",
+      type: "RECHARGE",
+      provider: "MTC",
+    };
+    expect(isExpenseVisible(autoExpenseMeta, rechargeFilter)).toBe(false);
+    expect(isExpenseVisible(manualExpenseMeta, rechargeFilter)).toBe(true);
+  });
+
+  it("explicit 'Expense' filter overrides the default hide — reveals auto rows too", () => {
+    const expenseFilter: FilterOption = { label: "Expense", type: "EXPENSE" };
+    expect(isExpenseVisible(autoExpenseMeta, expenseFilter)).toBe(true);
+    expect(isExpenseVisible(manualExpenseMeta, expenseFilter)).toBe(true);
+  });
+
+  it("manual expense with unparsable/absent metadata always stays visible", () => {
+    expect(isExpenseVisible(null, undefined)).toBe(true);
+    expect(isExpenseVisible(undefined, undefined)).toBe(true);
+    expect(isExpenseVisible("not-json{", undefined)).toBe(true);
+    const rechargeFilter: FilterOption = { label: "MTC", type: "RECHARGE" };
+    expect(isExpenseVisible("not-json{", rechargeFilter)).toBe(true);
   });
 });

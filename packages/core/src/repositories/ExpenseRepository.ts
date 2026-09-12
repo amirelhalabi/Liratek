@@ -185,6 +185,21 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
           category: data.category,
           paid_by: paidBy,
           expense_date: data.expense_date,
+          // Derived — never caller-supplied. Mirrors the SUPPLIER_PAYMENT
+          // precedent (CQ-8/D2, migration v130): a system-generated sibling
+          // row (recharge SMS fee, financial-service fee, supplier-ledger
+          // auto expense, …) is flagged so the Transactions table can hide
+          // it by default without hiding a manual expense entry. Sourced
+          // from `source_ref_table`, the same generic parent-link column
+          // all five auto-expense writers already set (v166) — one
+          // derivation here instead of five call sites passing the flag
+          // themselves, so a future sixth writer gets it for free and none
+          // can drift. Assigned AFTER the extra_metadata spread (like
+          // category/paid_by/expense_date above) so a caller's own
+          // extra_metadata can never override it either way; `undefined` is
+          // dropped by JSON.stringify, so a manual expense's metadata_json
+          // has no `is_auto` key at all, same as before this change.
+          is_auto: data.source_ref_table ? true : undefined,
         },
         transaction_time: data.transaction_time,
       });
