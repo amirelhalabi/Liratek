@@ -2,11 +2,22 @@
  * RateHandlers Unit Tests
  *
  * Tests IPC handler registration and delegation to RateService.
+ *
+ * Revived 2026-09-13: this suite used to mock a local "../../services" path
+ * that never existed as an import in rateHandlers.ts's actual code — the
+ * handler resolves getRateService() from "@liratek/core" directly — so the
+ * mock silently missed and every handler call fell through to the REAL
+ * RateService against no database ("Database not initialized. Call
+ * initDatabase() first."), and `mockService.listRates`/`setRate` were never
+ * called. Fixed by mocking "@liratek/core" itself (jest.requireActual +
+ * override, the pattern established by exchangeLotHandlers.test.ts /
+ * authHandlers.sessions.test.ts in this folder) so getRateService is
+ * intercepted while settingsLogger and everything else stays real.
  */
 
 import { ipcMain } from "electron";
 import { registerRateHandlers } from "../rateHandlers";
-import { getRateService } from "../../services";
+import { getRateService } from "@liratek/core";
 import { requireRole } from "../../session";
 
 // Mock dependencies
@@ -16,10 +27,13 @@ jest.mock("electron", () => ({
   },
 }));
 
-jest.mock("../../services", () => ({
-  getRateService: jest.fn(),
-  resetRateService: jest.fn(),
-}));
+jest.mock("@liratek/core", () => {
+  const actual = jest.requireActual("@liratek/core");
+  return {
+    ...actual,
+    getRateService: jest.fn(),
+  };
+});
 
 jest.mock("../../session", () => ({
   requireRole: jest.fn(),

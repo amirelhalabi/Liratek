@@ -9,6 +9,7 @@
     "build:main": "tsc -p tsconfig.json",
     "build:preload": "tsc -p tsconfig.preload.json && node -e \"require('fs').renameSync('dist/preload.js','dist/preload.cjs')\"",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.preload.json --noEmit",
+    "test": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs",
     "setup:dist": "node -e \"require('fs').copyFileSync('dist-package.json','dist/package.json')\"",
     "start": "electron .",
     "env:setup": "node -e \"const fs=require('fs');if(!fs.existsSync('.env'))fs.copyFileSync('.env.dev','.env')\"",

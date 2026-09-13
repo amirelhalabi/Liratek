@@ -2,11 +2,32 @@
  * OMTHandlers Unit Tests
  *
  * Tests IPC handler registration and delegation to FinancialService.
+ *
+ * Revived 2026-09-13: three things had drifted since this suite was written —
+ * (1) `omt:add-transaction` gained a `requireRole(event.sender.id, …)` gate
+ *     that reads `event.sender.id`, while these tests still invoked
+ *     handlers with a bare `{}` event, throwing `TypeError: Cannot read
+ *     properties of undefined (reading 'id')`.
+ * (2) `getFinancialService` is imported from "@liratek/core" (not a local
+ *     "../../services" module — that mock target no longer matches
+ *     anything omtHandlers.ts imports, so the old
+ *     `jest.mock("../../services", …)` was silently mocking a module the
+ *     handler never requires).
+ * (3) the payload shape itself moved: `FinancialServiceSchema`
+ *     (electron-app/schemas/index.ts) validates `amount`/`currency`/
+ *     `commission`, not the old `amountUSD`/`amountLBP`/`commissionUSD`/
+ *     `commissionLBP` fields this suite used to send — a payload in the old
+ *     shape now fails validation before ever reaching the service. The
+ *     handler also now stamps the authenticated `userId` onto the data it
+ *     forwards to `addTransaction`.
+ * `omt:get-history`/`omt:get-analytics` don't read `event` at all and don't
+ * gain a role gate, so those two describe blocks are otherwise unchanged.
  */
 
 import { ipcMain } from "electron";
 import { registerOMTHandlers } from "../omtHandlers";
-import { getFinancialService } from "../../services";
+import { getFinancialService } from "@liratek/core";
+import { requireRole } from "../../session";
 
 // Mock dependencies
 jest.mock("electron", () => ({
@@ -15,9 +36,20 @@ jest.mock("electron", () => ({
   },
 }));
 
-jest.mock("../../services", () => ({
-  getFinancialService: jest.fn(),
-  resetFinancialService: jest.fn(),
+jest.mock("@liratek/core", () => {
+  const actual = jest.requireActual("@liratek/core");
+  return {
+    ...actual,
+    getFinancialService: jest.fn(),
+  };
+});
+
+jest.mock("../../session", () => ({
+  requireRole: jest.fn(),
+}));
+
+jest.mock("../auditHelper", () => ({
+  audit: jest.fn(),
 }));
 
 describe("OMTHandlers", () => {
@@ -49,6 +81,10 @@ describe("OMTHandlers", () => {
     };
     (getFinancialService as jest.Mock).mockReturnValue(mockService);
 
+    // Default: user is admin (userId 7 — deliberately distinct from the
+    // sender id used below).
+    (requireRole as jest.Mock).mockReturnValue({ ok: true, userId: 7 });
+
     registerOMTHandlers();
   });
 
@@ -75,15 +111,18 @@ describe("OMTHandlers", () => {
       const transactionData = {
         provider: "OMT",
         serviceType: "SEND",
-        amountUSD: 100,
-        amountLBP: 0,
-        commissionUSD: 5,
-        commissionLBP: 0,
+        amount: 100,
+        currency: "USD",
+        commission: 5,
       };
 
-      const result = await handler({}, transactionData);
+      const result = await handler({ sender: { id: 1 } }, transactionData);
 
-      expect(mockService.addTransaction).toHaveBeenCalledWith(transactionData);
+      expect(requireRole).toHaveBeenCalledWith(1, ["admin", "staff"]);
+      expect(mockService.addTransaction).toHaveBeenCalledWith({
+        ...transactionData,
+        userId: 7,
+      });
       expect(result).toEqual({ success: true, id: 1 });
     });
 
@@ -92,15 +131,17 @@ describe("OMTHandlers", () => {
       const transactionData = {
         provider: "WHISH",
         serviceType: "RECEIVE",
-        amountUSD: 50,
-        amountLBP: 0,
-        commissionUSD: 3,
-        commissionLBP: 0,
+        amount: 50,
+        currency: "USD",
+        commission: 3,
       };
 
-      const result = await handler({}, transactionData);
+      const result = await handler({ sender: { id: 1 } }, transactionData);
 
-      expect(mockService.addTransaction).toHaveBeenCalledWith(transactionData);
+      expect(mockService.addTransaction).toHaveBeenCalledWith({
+        ...transactionData,
+        userId: 7,
+      });
       expect(result).toEqual({ success: true, id: 1 });
     });
 
@@ -111,7 +152,17 @@ describe("OMTHandlers", () => {
       });
 
       const handler = handlers.get("omt:add-transaction")!;
-      const result = await handler({}, { provider: "OMT" });
+      // A schema-valid payload — the old `{ provider: "OMT" }` fragment
+      // this test used to send now fails FinancialServiceSchema validation
+      // (missing serviceType/amount) before ever reaching the service,
+      // which would prove the wrong thing (a validation error, not a
+      // propagated service failure).
+      const transactionData = {
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 10,
+      };
+      const result = await handler({ sender: { id: 1 } }, transactionData);
 
       expect(result).toEqual({ success: false, error: "Transaction failed" });
     });

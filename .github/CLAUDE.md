@@ -2,7 +2,7 @@
 
 Loads automatically when working under `.github/`. Root context is `../CLAUDE.md`.
 
-- **CI** (`ci.yml`): runs on PRs → install → lint → typecheck → backend-tests → frontend-tests → build
+- **CI** (`ci.yml`): runs on PRs → install → lint → typecheck → backend-tests → core-tests → electron-handler-tests → frontend-tests → build
 - **Release** (`build.yml`): triggered by `v*` tags or manual → tests → draft release → build Windows → publish
 - **Node version**: 20, **Yarn**: via corepack
 - **Required secrets**: `UPDATE_TOKEN` (auto-update auth), `GH_TOKEN` (auto-provided)

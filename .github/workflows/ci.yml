@@ -198,6 +198,78 @@ jobs:
 
           echo "[core-tests] floor check passed — $suites_total suite(s), $tests_total test(s), floor $MIN_SUITES/$MIN_TESTS."
 
+  # electron-app/handlers/__tests__/ was orphaned from every runner until
+  # 2026-09-13 (jest.config.cjs's `roots` only listed `schemas`) — 15 of its
+  # 31 suites had rotted unnoticed in that time. They were repaired and wired
+  # into `yarn workspace @liratek/electron-app test`; this job is what makes
+  # that gate a PR instead of only running on someone's machine.
+  #
+  # No `rebuild:node` step here (unlike backend-tests/core-tests above):
+  # every suite under handlers/__tests__/ mocks `@liratek/core` and/or
+  # `../../db` wholesale (verified by reading each suite's `jest.mock(...)`
+  # calls) — none construct a real better-sqlite3 database, so the ABI the
+  # root `postinstall` built (Electron, not Node) never gets touched.
+  electron-handler-tests:
+    name: Electron Handler Tests
+    runs-on: ubuntu-latest
+    needs: install
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Restore dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CI_CACHE_PATHS }}
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      # LIRA-123 lesson (scripts/run-e2e.mjs), same as the "Core tests with
+      # suite-count floor" step below: a step that runs nothing and exits 0
+      # is indistinguishable from a pass — this is the specific defence
+      # against this directory rotting back into silence unnoticed.
+      #
+      # Floor: current counts are 30 suites / 155 tests — 29 handler suites
+      # under handlers/__tests__/ plus the pre-existing
+      # schemas/__tests__/FinancialServiceSchema.feePayments.test.ts, which
+      # this same config also runs (verified locally 2026-09-13 via
+      # `yarn workspace @liratek/electron-app test`, with
+      # updaterHandlers.test.ts / updaterHandlers_registration.test.ts
+      # excluded via jest.config.cjs's testPathIgnorePatterns — see that
+      # file for why). Floor set below today's counts but high enough to
+      # catch a collapse.
+      - name: Electron handler tests with suite-count floor
+        run: |
+          MIN_SUITES=25
+          MIN_TESTS=120
+
+          set +e
+          yarn workspace @liratek/electron-app test > electron-test-output.log 2>&1
+          test_exit=$?
+          set -e
+          cat electron-test-output.log
+
+          suites_total=$(grep -E "^Test Suites:" electron-test-output.log | grep -oE "[0-9]+ total" | grep -oE "[0-9]+" || true)
+          tests_total=$(grep -E "^Tests:" electron-test-output.log | grep -oE "[0-9]+ total" | grep -oE "[0-9]+" || true)
+
+          echo "[electron-handler-tests] exit=$test_exit suites_total=${suites_total:-<none>} tests_total=${tests_total:-<none>}"
+
+          if [ "$test_exit" -ne 0 ]; then
+            echo "[electron-handler-tests] jest exited $test_exit — real test failure(s), see output above."
+            exit "$test_exit"
+          fi
+
+          if [ -z "$suites_total" ] || [ -z "$tests_total" ]; then
+            echo "[electron-handler-tests] FLOOR CHECK FAILED — no 'Test Suites:'/'Tests:' summary line found even though jest exited 0. Treating this as the LIRA-123 failure mode (a green exit code without the suite actually running)."
+            exit 1
+          fi
+
+          if [ "$suites_total" -lt "$MIN_SUITES" ] || [ "$tests_total" -lt "$MIN_TESTS" ]; then
+            echo "[electron-handler-tests] FLOOR CHECK FAILED — reported $suites_total suite(s)/$tests_total test(s), below the floor of $MIN_SUITES suites / $MIN_TESTS tests."
+            exit 1
+          fi
+
+          echo "[electron-handler-tests] floor check passed — $suites_total suite(s), $tests_total test(s), floor $MIN_SUITES/$MIN_TESTS."
+
   frontend-tests:
     name: Frontend Tests
     runs-on: ubuntu-latest
@@ -228,7 +300,15 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, backend-tests, core-tests, frontend-tests]
+    needs:
+      [
+        lint,
+        typecheck,
+        backend-tests,
+        core-tests,
+        electron-handler-tests,
+        frontend-tests,
+      ]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
