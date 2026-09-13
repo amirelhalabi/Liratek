@@ -276,6 +276,7 @@ export default function CheckpointModal({
         user_id: user?.id ?? 0,
         drawer_name: drawerName,
         amounts,
+        closing_date: localDay(),
       };
       // The SIM count travels as counted values only — the backend reads the
       // expected side off carrier_lines and derives the drawer from the sum.

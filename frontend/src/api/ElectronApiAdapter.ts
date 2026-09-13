@@ -320,6 +320,7 @@ export class ElectronApiAdapter implements ApiAdapter {
       expected_amount: number;
       physical_amount: number;
     }>;
+    closing_date?: string;
     carrier_lines?: Array<{
       carrier_line_id: number;
       counted_credits: number;

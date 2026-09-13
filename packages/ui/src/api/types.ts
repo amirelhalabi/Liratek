@@ -1245,6 +1245,10 @@ export type ApiAdapter = {
       expected_amount: number;
       physical_amount: number;
     }>;
+    /** The client's own local calendar day (`YYYY-MM-DD`), sent so a
+     *  web-hosted server (which doesn't know the shop's timezone) doesn't
+     *  have to guess "today". */
+    closing_date?: string;
     /** Per-line SIM counts, MTC/Alfa only (carrier-lines-validity Phase 3).
      *  Only counted values cross the wire; the expected side is read
      *  server-side off carrier_lines. */

@@ -305,6 +305,12 @@ export function registerDatabaseHandlers(): void {
           expected_amount: number;
           physical_amount: number;
         }>;
+        /** The CLIENT's own local calendar day (YYYY-MM-DD, e.g. from the
+         *  frontend's `localDay()` helper), sent because the server can't
+         *  be trusted to know the shop's timezone (web deploys run on a
+         *  UTC machine while the shop is Beirut, UTC+3). Falls back to the
+         *  server's own `localDay()` in ClosingRepository when omitted. */
+        closing_date?: string;
         /** Per-line SIM counts (MTC/Alfa) — carrier-lines-validity Phase 3.
          *  Mirrors `createCheckpointSchema.carrier_lines` in
          *  packages/core/src/validators/closing.ts, which the REST twin

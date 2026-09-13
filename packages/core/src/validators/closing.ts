@@ -80,6 +80,20 @@ export const createCheckpointSchema = z.object({
     .min(1, "At least one drawer amount is required"),
   /** Optional — present only for the MTC/Alfa cards. */
   carrier_lines: z.array(checkpointCarrierLineSchema).optional(),
+  /**
+   * The CLIENT's own local calendar day (`YYYY-MM-DD`), e.g. the browser's
+   * `localDay()`. The server cannot infer this: on web the process runs in
+   * whatever timezone the Fly machine boots in (UTC), not the shop's, so a
+   * checkpoint taken between 00:00-03:00 Beirut would otherwise be filed
+   * under the wrong (previous) UTC day. Optional so any existing caller that
+   * omits it keeps falling back to the server's own `localDay()`
+   * (`ClosingRepository.createCheckpoint`) — unchanged behaviour for
+   * desktop, where server-local IS shop-local.
+   */
+  closing_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+    .optional(),
 });
 
 export type DrawerAmountInput = z.infer<typeof drawerAmountSchema>;

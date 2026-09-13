@@ -831,6 +831,15 @@ contextBridge.exposeInMainWorld("api", {
         expected_amount: number;
         physical_amount: number;
       }>;
+      /** The CLIENT's own local calendar day (YYYY-MM-DD, e.g. from the
+       *  frontend's `localDay()` helper). The server can't be trusted to
+       *  know the shop's timezone (web deploys run on a UTC machine while
+       *  the shop is Beirut, UTC+3), so the client stamps its own day and
+       *  the server's `localDay()` is only a fallback for callers that omit
+       *  this (rule 12 — the preload data type must include every field the
+       *  frontend sends, or it's silently dropped at the type level even
+       *  though nothing strips it at runtime). */
+      closing_date?: string;
       /** Per-line SIM counts, MTC/Alfa only (rule 12 — spelled out in full so
        *  a future refactor cannot silently drop a field). Only the COUNTED
        *  values travel; the expected side is read server-side off

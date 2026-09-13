@@ -170,6 +170,10 @@ export interface CreateCheckpointData {
   /** Per-line SIM counts (MTC/Alfa). Absent/empty on every non-carrier
    *  drawer, which is why the whole feature is additive. */
   carrier_lines?: CheckpointCarrierLineCount[];
+  /** The CLIENT's own local calendar day (`YYYY-MM-DD`). Falls back to the
+   *  server's `localDay()` when omitted — see the comment on `closingDate`
+   *  in `createCheckpoint` for why the client's value must win. */
+  closing_date?: string;
 }
 
 export interface DrawerCheckpointStatus {
@@ -525,9 +529,18 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     error?: string;
   } {
     try {
-      // Machine-local calendar day (not UTC) — a checkpoint recorded at 01:00
-      // Beirut must file under today, not yesterday's UTC day.
-      const closingDate = localDay();
+      // The CLIENT supplies its own local calendar day (`data.closing_date`,
+      // e.g. the browser's `localDay()`) — that is the only reliable source
+      // of "the shop's today". On desktop the server process IS the shop's
+      // PC, so server-local and client-local agree and callers can omit it.
+      // On web the server runs whichever timezone the host booted in (UTC on
+      // Fly), not the shop's, so `localDay()` here is a FALLBACK for the rare
+      // caller that omits the field, not the source of truth — trusting it
+      // as the primary value is exactly the bug this comment used to
+      // describe as correct: a checkpoint taken at 01:00 Beirut got filed
+      // under the previous UTC day and vanished from the (client-computed)
+      // "today" timeline.
+      const closingDate = data.closing_date ?? localDay();
       const tenantId = getCurrentTenantId();
 
       const stmt = this.db.prepare(`

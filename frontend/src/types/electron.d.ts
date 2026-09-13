@@ -2133,6 +2133,10 @@ export interface ElectronAPI {
         expected_amount: number;
         physical_amount: number;
       }>;
+      /** The CLIENT's own local calendar day (YYYY-MM-DD, e.g. from the
+       *  frontend's `localDay()` helper), sent because the server can't be
+       *  trusted to know the shop's timezone. */
+      closing_date?: string;
       /** Per-line SIM counts, MTC/Alfa only (carrier-lines-validity Phase 3). */
       carrier_lines?: Array<{
         carrier_line_id: number;
