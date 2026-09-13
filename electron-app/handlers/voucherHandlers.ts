@@ -52,39 +52,52 @@ export function registerVoucherHandlers(): void {
     }
   });
 
-  // List vouchers (optionally filtered by status / client)
-  ipcMain.handle("voucher:get-all", (event, filters?: VoucherFilters) => {
-    try {
-      const auth = requireRole(event.sender.id, ["admin", "staff"]);
-      if (!auth.ok) return { success: false, error: auth.error };
+  // List vouchers (optionally filtered by status / client). `day` is the
+  // CLIENT's own local calendar day (`YYYY-MM-DD`) — falls back to the
+  // server's own `localDay()` when omitted (see VoucherRepository's doc for
+  // why the server's day alone is untrustworthy on web).
+  ipcMain.handle(
+    "voucher:get-all",
+    (event, filters?: VoucherFilters, day?: string) => {
+      try {
+        const auth = requireRole(event.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
 
-      return getServiceInstance().getVouchers(filters ?? {});
-    } catch (error) {
-      voucherLogger.error({ error }, "voucher:get-all failed");
-      return {
-        success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to load vouchers",
-      };
-    }
-  });
+        return getServiceInstance().getVouchers(filters ?? {}, day);
+      } catch (error) {
+        voucherLogger.error({ error }, "voucher:get-all failed");
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : "Failed to load vouchers",
+        };
+      }
+    },
+  );
 
-  // Live validation for checkout (look up a code, report redeemability)
-  ipcMain.handle("voucher:validate", (event, code: string) => {
-    try {
-      const auth = requireRole(event.sender.id, ["admin", "staff"]);
-      if (!auth.ok) return { success: false, error: auth.error };
+  // Live validation for checkout (look up a code, report redeemability).
+  // `day` is the CLIENT's own local calendar day — see the doc on
+  // "voucher:get-all" above.
+  ipcMain.handle(
+    "voucher:validate",
+    (event, code: string, day?: string) => {
+      try {
+        const auth = requireRole(event.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
 
-      return getServiceInstance().validateVoucher(code);
-    } catch (error) {
-      voucherLogger.error({ error }, "voucher:validate failed");
-      return {
-        success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to validate voucher",
-      };
-    }
-  });
+        return getServiceInstance().validateVoucher(code, day);
+      } catch (error) {
+        voucherLogger.error({ error }, "voucher:validate failed");
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to validate voucher",
+        };
+      }
+    },
+  );
 
   // Cancel (void) a pending voucher — admin only
   ipcMain.handle("voucher:cancel", (event, id: number) => {

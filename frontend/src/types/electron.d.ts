@@ -1051,12 +1051,19 @@ export interface ElectronAPI {
       expiryDate?: string | null;
       note?: string | null;
     }) => Promise<{ success: boolean; voucher?: Voucher; error?: string }>;
-    getAll: (filters?: {
-      status?: "pending" | "redeemed" | "expired" | "cancelled";
-      clientId?: number;
-    }) => Promise<{ success: boolean; vouchers?: Voucher[]; error?: string }>;
+    /** `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
+     *  frontend's `localDay()`), sent because the server can't be trusted to
+     *  know the shop's timezone. */
+    getAll: (
+      filters?: {
+        status?: "pending" | "redeemed" | "expired" | "cancelled";
+        clientId?: number;
+      },
+      day?: string,
+    ) => Promise<{ success: boolean; vouchers?: Voucher[]; error?: string }>;
     validate: (
       code: string,
+      day?: string,
     ) => Promise<{ success: boolean; voucher?: Voucher; error?: string }>;
     cancel: (
       id: number,
@@ -1098,6 +1105,11 @@ export interface ElectronAPI {
       mobileServiceItemId: number;
       carrierLineId?: number;
       transaction_time?: string;
+      /** The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
+       *  frontend's `localDay()`) — fed to the validity-extension projection
+       *  so the shop's own day (not the server's, untrustworthy on web)
+       *  decides VALID/GRACE/BURNED classification and the 365-day ceiling. */
+      client_day?: string;
     }) => Promise<{
       success: boolean;
       data?: {
@@ -1430,6 +1442,12 @@ export interface ElectronAPI {
        *  payment sheet actually converted the customer's tender at — used
        *  only for leg reconciliation, never the stamped exchange_rate. */
       tender_exchange_rate?: number;
+      /** The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
+       *  frontend's `localDay()`) — fed to the DAYS-sale validity decrement,
+       *  the CREDIT_BUYBACK credit movement, and a redeemed GIFT_CARD
+       *  voucher's expiry check, all of which otherwise evaluate against the
+       *  server's day (untrustworthy on web). */
+      client_day?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     topUpApp: (data: {
       provider:
@@ -2161,7 +2179,10 @@ export interface ElectronAPI {
       >;
       error?: string;
     }>;
-    hasOpeningBalanceToday: () => Promise<boolean>;
+    /** `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
+     *  frontend's `localDay()`), sent because the server can't be trusted to
+     *  know the shop's timezone. */
+    hasOpeningBalanceToday: (day?: string) => Promise<boolean>;
     hasInitialBalancesSet: () => Promise<boolean>;
     hasStartingCheckpoint: () => Promise<boolean>;
     getInitialCheckpointDate: () => Promise<string | null>;

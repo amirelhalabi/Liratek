@@ -96,6 +96,23 @@ export const createCheckpointSchema = z.object({
     .optional(),
 });
 
+/**
+ * GET /api/closing/has-opening-balance-today query contract. The CLIENT's own
+ * local calendar day (`YYYY-MM-DD`, e.g. the browser's `localDay()`) — the
+ * server cannot infer this on web, which runs on whatever timezone the Fly
+ * machine boots in (UTC), not the shop's (Beirut, UTC+3). Optional so an
+ * omitted value falls back to the server's own `localDay()`
+ * (`ClosingRepository.hasOpeningBalanceToday`) — unchanged behaviour for
+ * desktop and any caller that doesn't send it. Mirrors `closing_date` on
+ * `createCheckpointSchema` above.
+ */
+export const hasOpeningBalanceTodayQuerySchema = z.object({
+  day: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+    .optional(),
+});
+
 export type DrawerAmountInput = z.infer<typeof drawerAmountSchema>;
 export type SetOpeningBalancesInput = z.infer<typeof setOpeningBalancesSchema>;
 export type CreateDailyClosingInput = z.infer<typeof createDailyClosingSchema>;
@@ -104,3 +121,6 @@ export type CheckpointCarrierLineInput = z.infer<
   typeof checkpointCarrierLineSchema
 >;
 export type CreateCheckpointInput = z.infer<typeof createCheckpointSchema>;
+export type HasOpeningBalanceTodayQueryInput = z.infer<
+  typeof hasOpeningBalanceTodayQuerySchema
+>;

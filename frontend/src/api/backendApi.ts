@@ -1484,17 +1484,26 @@ export async function partnerWriteOff(payload: {
 
 // Vouchers (gift cards) — config CRUD; all channels return the service
 // envelope directly ({ success, voucher?/vouchers?, error? }).
-export async function vouchersGetAll(filters?: {
-  status?: string;
-  clientId?: number;
-}) {
+// `day` on both reads below is the CLIENT's own local calendar day
+// (`YYYY-MM-DD`, e.g. `localDay()`) — the server can't be trusted to know the
+// shop's timezone (web runs on a UTC Fly machine, the shop is Beirut UTC+3),
+// so an expired-today voucher would otherwise read pending/expired up to 3h
+// out of step with the shop. See `VoucherRepository.withEffectiveStatus`.
+export async function vouchersGetAll(
+  filters?: {
+    status?: string;
+    clientId?: number;
+  },
+  day?: string,
+) {
   return ipcOrHttp(
-    async () => getElectronApi().vouchers.getAll(filters),
+    async () => getElectronApi().vouchers.getAll(filters, day),
     async () => {
       const qs = new URLSearchParams();
       if (filters?.status) qs.set("status", filters.status);
       if (filters?.clientId != null)
         qs.set("clientId", String(filters.clientId));
+      if (day) qs.set("day", day);
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return requestJson<{
         success: boolean;
@@ -1516,13 +1525,13 @@ export async function vouchersCreate(payload: any) {
   );
 }
 
-export async function vouchersValidate(code: string) {
+export async function vouchersValidate(code: string, day?: string) {
   return ipcOrHttp(
-    async () => getElectronApi().vouchers.validate(code),
+    async () => getElectronApi().vouchers.validate(code, day),
     async () =>
       requestJson<{ success: boolean; voucher?: any; error?: string }>(
         `/api/vouchers/validate`,
-        { method: "POST", body: { code } },
+        { method: "POST", body: { code, day } },
       ),
   );
 }
@@ -2215,12 +2224,13 @@ export async function getSystemExpectedBalancesDynamic(): Promise<
   return res.balances;
 }
 
-export async function hasOpeningBalanceToday() {
+export async function hasOpeningBalanceToday(day?: string) {
   if (isElectron()) {
-    return (window as any).api.closing.hasOpeningBalanceToday();
+    return (window as any).api.closing.hasOpeningBalanceToday(day);
   }
+  const qs = day ? `?day=${encodeURIComponent(day)}` : "";
   const res = await requestJson<{ success: boolean; hasOpening: boolean }>(
-    "/api/closing/has-opening-balance-today",
+    `/api/closing/has-opening-balance-today${qs}`,
   );
   return res.hasOpening;
 }
@@ -6730,6 +6740,10 @@ export async function selfChargeTelecomItem(data: {
   mobileServiceItemId: number;
   carrierLineId?: number;
   transaction_time?: string;
+  /** The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. `localDay()`) —
+   *  fed to the validity-extension projection so the shop's own day (not the
+   *  server's, untrustworthy on web) decides the outcome. */
+  client_day?: string;
 }): Promise<{
   success: boolean;
   data?: SelfChargeTelecomItemResult;

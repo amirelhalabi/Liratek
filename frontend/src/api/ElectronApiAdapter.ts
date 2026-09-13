@@ -274,6 +274,7 @@ export class ElectronApiAdapter implements ApiAdapter {
     mobileServiceItemId: number;
     carrierLineId?: number;
     transaction_time?: string;
+    client_day?: string;
   }) => api.selfChargeTelecomItem(data);
 
   // ---------------------------------------------------------------------------
@@ -304,7 +305,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   getSystemExpectedBalancesDynamic = () =>
     api.getSystemExpectedBalancesDynamic();
-  hasOpeningBalanceToday = () => api.hasOpeningBalanceToday();
+  hasOpeningBalanceToday = (day?: string) => api.hasOpeningBalanceToday(day);
   getDailyStatsSnapshot = () => api.getDailyStatsSnapshot();
   recalculateDrawerBalances = () => api.recalculateDrawerBalances();
   updateDailyClosing = (id: number, data: any) =>
@@ -858,8 +859,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Nested namespace mirroring window.api.vouchers (dual-mode IPC/REST).
   // All channels return the service envelope directly.
   vouchers = {
-    getAll: (filters?: { status?: string; clientId?: number }) =>
-      api.vouchersGetAll(filters),
+    getAll: (
+      filters?: { status?: string; clientId?: number },
+      day?: string,
+    ) => api.vouchersGetAll(filters, day),
     create: (data: {
       clientId: number;
       amount: number;
@@ -867,7 +870,7 @@ export class ElectronApiAdapter implements ApiAdapter {
       expiryDate?: string | null;
       note?: string | null;
     }) => api.vouchersCreate(data),
-    validate: (code: string) => api.vouchersValidate(code),
+    validate: (code: string, day?: string) => api.vouchersValidate(code, day),
     cancel: (id: number) => api.vouchersCancel(id),
   };
 

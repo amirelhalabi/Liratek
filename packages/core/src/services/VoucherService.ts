@@ -109,9 +109,15 @@ export class VoucherService {
   // Reads
   // ---------------------------------------------------------------------------
 
-  getVouchers(filters: VoucherFilters = {}): VoucherListResult {
+  /**
+   * `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`) — see
+   * `VoucherRepository.withEffectiveStatus`'s doc for why the server's own
+   * day is untrustworthy on web. Optional; falls back to the server's own
+   * `localDay()`.
+   */
+  getVouchers(filters: VoucherFilters = {}, day?: string): VoucherListResult {
     try {
-      const vouchers = this.repo.getAll(filters);
+      const vouchers = this.repo.getAll(filters, day);
       return { success: true, vouchers };
     } catch (error) {
       voucherLogger.error({ error, filters }, "getVouchers failed");
@@ -121,15 +127,16 @@ export class VoucherService {
 
   /**
    * Look up a voucher by code and report whether it can currently be redeemed.
-   * Used by the checkout UI for live validation.
+   * Used by the checkout UI for live validation. `day` is the CLIENT's own
+   * local calendar day — see `getVouchers`' doc above.
    */
-  validateVoucher(code: string): VoucherResult {
+  validateVoucher(code: string, day?: string): VoucherResult {
     try {
       const normalized = (code || "").trim().toUpperCase();
       if (!normalized) {
         return { success: false, error: "Enter a voucher code" };
       }
-      const voucher = this.repo.getByCode(normalized);
+      const voucher = this.repo.getByCode(normalized, day);
       if (!voucher) {
         return { success: false, error: "Voucher not found" };
       }
@@ -197,6 +204,9 @@ export function redeemVoucherLines(
   context: string,
   transactionId: number | null,
   userId: number,
+  /** The CLIENT's own local calendar day — see `VoucherService.getVouchers`'
+   *  doc. Optional; falls back to the server's own `localDay()`. */
+  day?: string,
 ): void {
   const repo = getVoucherRepository();
   for (const line of lines) {
@@ -205,6 +215,7 @@ export function redeemVoucherLines(
       context,
       transactionId,
       userId,
+      day,
     });
   }
 }

@@ -122,6 +122,19 @@ export interface RechargeData {
   clientName?: string;
   userId?: number;
   transaction_time?: string;
+  /**
+   * The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the frontend's
+   * `localDay()`). Fed to `CarrierLineService.applyMovement`'s `today` for
+   * the DAYS-sale validity decrement and the CREDIT_BUYBACK credit movement
+   * below — see `CarrierLineRepository.ApplyCarrierLineMovementInput.today`'s
+   * doc for why a server-computed day is untrustworthy on web (Fly runs UTC,
+   * the shop is Beirut UTC+3) and why `transaction_time` (backdating-only,
+   * undefined on every normal real-time recharge) cannot substitute for it.
+   * Also reused, unchanged in effect, as the "today" a redeemed GIFT_CARD
+   * voucher's expiry is checked against (`VoucherRepository.redeemByCode`).
+   * Optional; falls back to the server's own `localDay()`.
+   */
+  client_day?: string;
   /** T3 keep-change (KC-3): kept (not returned) change per currency —
    *  added to the transaction's profit stamp (tender-native amounts). */
   kept_change_usd?: number;
@@ -911,6 +924,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
                 context: "recharge",
                 transactionId: txnId,
                 userId: createdBy,
+                day: data.client_day,
               });
               hasDebt = true;
               continue;
@@ -1036,6 +1050,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               validityDaysDelta: -Math.abs(data.amount),
               reason: "DAYS_SALE",
               transactionId: txnId,
+              today: data.client_day,
             });
             if (!validityMovement.success) {
               throw new Error(
@@ -1472,6 +1487,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           validityDaysDelta: 0,
           reason: "CREDIT_BUYBACK",
           transactionId: txnId,
+          today: data.client_day,
         });
         if (!movement.success) {
           throw new Error(

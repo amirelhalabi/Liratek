@@ -46,6 +46,7 @@ import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
 import { isSelfChargeEligible } from "../utils/selfChargeEligibility";
+import { localDay } from "@/shared/utils/localDay";
 import { HistoryModal } from "./HistoryModal";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
@@ -1078,6 +1079,10 @@ function KatchFormInner({
       const res = await api.selfChargeTelecomItem({
         mobileServiceItemId: selfChargeItem.id,
         carrierLineId: targetLine.id,
+        // The shop's own calendar day, not the server's (untrustworthy on
+        // web — Fly runs UTC, the shop is Beirut UTC+3): decides whether the
+        // line's validity extension lands as VALID/GRACE/BURNED.
+        client_day: localDay(),
       });
       if (!res.success || !res.data) {
         setSelfChargeError(res.error || "Self-charge failed");

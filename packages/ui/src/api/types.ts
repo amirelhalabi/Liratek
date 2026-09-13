@@ -1217,7 +1217,10 @@ export type ApiAdapter = {
   getSystemExpectedBalancesDynamic: () => Promise<
     Record<string, Record<string, number>>
   >;
-  hasOpeningBalanceToday: () => Promise<boolean>;
+  /** `day` is the client's own local calendar day (`YYYY-MM-DD`), sent so a
+   *  web-hosted server (which doesn't know the shop's timezone) doesn't have
+   *  to guess "today". */
+  hasOpeningBalanceToday: (day?: string) => Promise<boolean>;
   getDailyStatsSnapshot: () => Promise<DailyStatsSnapshot>;
   recalculateDrawerBalances: () => Promise<ApiResult>;
   updateDailyClosing: (
@@ -1643,6 +1646,10 @@ export type ApiAdapter = {
     mobileServiceItemId: number;
     carrierLineId?: number;
     transaction_time?: string;
+    /** The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. `localDay()`)
+     *  — fed to the validity-extension projection so the shop's own day (not
+     *  the server's, untrustworthy on web) decides the outcome. */
+    client_day?: string;
   }) => Promise<{
     success: boolean;
     data?: {
@@ -1902,10 +1909,16 @@ export type ApiAdapter = {
   /** Vouchers (gift cards) — config CRUD. Channels return the service
    *  envelope directly ({ success, voucher?/vouchers?, error? }). */
   vouchers: {
-    getAll: (filters?: {
-      status?: string;
-      clientId?: number;
-    }) => Promise<{ success: boolean; vouchers?: any[]; error?: string }>;
+    /** `day` is the client's own local calendar day (`YYYY-MM-DD`), sent so a
+     *  web-hosted server (which doesn't know the shop's timezone) doesn't
+     *  misclassify a voucher's pending/expired status. */
+    getAll: (
+      filters?: {
+        status?: string;
+        clientId?: number;
+      },
+      day?: string,
+    ) => Promise<{ success: boolean; vouchers?: any[]; error?: string }>;
     create: (data: {
       clientId: number;
       amount: number;
@@ -1915,6 +1928,7 @@ export type ApiAdapter = {
     }) => Promise<{ success: boolean; voucher?: any; error?: string }>;
     validate: (
       code: string,
+      day?: string,
     ) => Promise<{ success: boolean; voucher?: any; error?: string }>;
     cancel: (
       id: number,

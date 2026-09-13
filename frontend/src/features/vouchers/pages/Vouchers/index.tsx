@@ -12,6 +12,7 @@ import {
 import { PageHeader, DecimalInput, useApi } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import type { Voucher } from "@/types/electron";
+import { localDay } from "@/shared/utils/localDay";
 
 type StatusFilter = "all" | "pending" | "redeemed" | "expired" | "cancelled";
 
@@ -67,7 +68,11 @@ export function VouchersPage() {
   const loadVouchers = useCallback(async () => {
     setLoading(true);
     setListError(null);
-    const result = await api.vouchers.getAll();
+    // The server can't be trusted to know the shop's timezone (web runs on a
+    // UTC Fly machine, the shop is Beirut UTC+3) — send the browser's own
+    // calendar day so a voucher's pending/expired status is never up to 3h
+    // out of step with the shop.
+    const result = await api.vouchers.getAll(undefined, localDay());
     if (result.success) {
       setVouchers(result.vouchers ?? []);
     } else {

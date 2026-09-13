@@ -292,9 +292,17 @@ contextBridge.exposeInMainWorld("api", {
       expiryDate?: string | null;
       note?: string | null;
     }) => ipcRenderer.invoke("voucher:create", data),
-    getAll: (filters?: { status?: string; clientId?: number }) =>
-      ipcRenderer.invoke("voucher:get-all", filters),
-    validate: (code: string) => ipcRenderer.invoke("voucher:validate", code),
+    /** `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
+     *  frontend's `localDay()`) — the server can't be trusted to know the
+     *  shop's timezone (web deploys run on a UTC machine while the shop is
+     *  Beirut, UTC+3). Falls back to the server's own `localDay()` when
+     *  omitted. */
+    getAll: (
+      filters?: { status?: string; clientId?: number },
+      day?: string,
+    ) => ipcRenderer.invoke("voucher:get-all", filters, day),
+    validate: (code: string, day?: string) =>
+      ipcRenderer.invoke("voucher:validate", code, day),
     cancel: (id: number) => ipcRenderer.invoke("voucher:cancel", id),
   },
 
@@ -319,11 +327,14 @@ contextBridge.exposeInMainWorld("api", {
     // LIRA-090 §5.2 — self-charge a telecom catalog item to the shop's own
     // carrier line. Admin only. Fields: mobileServiceItemId (required),
     // carrierLineId (optional — defaults to the item's carrier's primary line),
-    // transaction_time (optional).
+    // transaction_time (optional), client_day (optional — the CLIENT's own
+    // local calendar day, fed to the validity-extension projection so it
+    // isn't decided by the server's day, untrustworthy on web).
     selfChargeTelecomItem: (data: {
       mobileServiceItemId: number;
       carrierLineId?: number;
       transaction_time?: string;
+      client_day?: string;
     }) => ipcRenderer.invoke("financial:self-charge-telecom-item", data),
   },
 
@@ -524,6 +535,14 @@ contextBridge.exposeInMainWorld("api", {
        *  payment sheet actually converted the customer's tender at — used
        *  only for leg reconciliation, never the stamped exchange_rate. */
       tender_exchange_rate?: number;
+      /** The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
+       *  frontend's `localDay()`) — fed to the DAYS-sale validity decrement,
+       *  the CREDIT_BUYBACK credit movement, and a redeemed GIFT_CARD
+       *  voucher's expiry check, all of which otherwise evaluate against the
+       *  server's day (untrustworthy on web — Fly runs UTC, the shop is
+       *  Beirut UTC+3). Falls back to the server's own `localDay()` when
+       *  omitted. */
+      client_day?: string;
     }) => ipcRenderer.invoke("recharge:process", data),
     topUpApp: (data: {
       provider:
@@ -855,8 +874,13 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("closing:get-last-checkpoint-actuals"),
     getLastCheckpointPerDrawer: () =>
       ipcRenderer.invoke("closing:get-last-checkpoint-per-drawer"),
-    hasOpeningBalanceToday: () =>
-      ipcRenderer.invoke("closing:has-opening-balance-today"),
+    /** `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
+     *  frontend's `localDay()`), sent because the server can't be trusted to
+     *  know the shop's timezone (web deploys run on a UTC machine while the
+     *  shop is Beirut, UTC+3). Falls back to the server's own `localDay()`
+     *  when omitted. */
+    hasOpeningBalanceToday: (day?: string) =>
+      ipcRenderer.invoke("closing:has-opening-balance-today", day),
     hasInitialBalancesSet: () =>
       ipcRenderer.invoke("closing:has-initial-balances-set"),
     hasStartingCheckpoint: () =>

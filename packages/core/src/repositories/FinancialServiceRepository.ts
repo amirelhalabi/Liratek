@@ -523,6 +523,20 @@ export interface SelfChargeTelecomItemData {
   carrierLineId?: number;
   userId?: number;
   transaction_time?: string;
+  /**
+   * The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the frontend's
+   * `localDay()`). Fed to `CarrierLineService.applyMovement`'s `today` for
+   * the validity-extension projection this method performs (positive
+   * `validityDaysDelta` — the ONLY self-charge caller that ever passes a
+   * non-zero one, which is exactly where `today` decides VALID/GRACE/BURNED
+   * classification and the 365-day ceiling). `transaction_time` is NOT
+   * reusable for this: it is populated only when the operator explicitly
+   * backdates a transaction (undefined on every real-time self-charge), so
+   * relying on it would leave the common case with no client day at all —
+   * this is a distinct, always-available signal for "what day is it right
+   * now". Optional; falls back to the server's own `localDay()`.
+   */
+  client_day?: string;
 }
 
 export interface SelfChargeTelecomItemResult {
@@ -4298,6 +4312,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         validityDaysDelta: validityDays,
         reason: "SELF_CHARGE",
         transactionId: txnId,
+        today: data.client_day,
       });
       if (!movement.success) {
         // LIRA-157 — pass the movement's own message through UNDECORATED. It

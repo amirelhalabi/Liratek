@@ -6,13 +6,14 @@
 
 import { Router } from "express";
 import { requireAuth, requireRole, AuthRequest } from "../middleware/auth.js";
-import { validateRequest } from "../middleware/validation.js";
+import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
 import {
   getClosingService,
   setOpeningBalancesSchema,
   createDailyClosingSchema,
   createCheckpointSchema,
+  hasOpeningBalanceTodayQuerySchema,
   type CheckpointFilters,
 } from "@liratek/core";
 import { logger } from "../server.js";
@@ -39,18 +40,29 @@ router.get(
   },
 );
 
-// GET /api/closing/has-opening-balance-today
-router.get("/has-opening-balance-today", requireAuth, async (_req, res) => {
-  try {
-    const hasOpening = closingService.hasOpeningBalanceToday();
-    res.json({ success: true, hasOpening });
-  } catch (error) {
-    logger.error({ error }, "Check opening balance error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to check opening balance" });
-  }
-});
+// GET /api/closing/has-opening-balance-today?day=YYYY-MM-DD — `day` is the
+// CLIENT's own local calendar day (rule 18/23-style fix, sibling of
+// createCheckpoint's `closing_date`): the server can't be trusted to know the
+// shop's timezone (web runs on a UTC Fly machine, the shop is Beirut UTC+3),
+// so the client sends its own day and the server's `localDay()` is only a
+// fallback for a caller that omits it.
+router.get(
+  "/has-opening-balance-today",
+  requireAuth,
+  validateQuery(hasOpeningBalanceTodayQuerySchema),
+  async (req, res) => {
+    try {
+      const { day } = req.query as unknown as { day?: string };
+      const hasOpening = closingService.hasOpeningBalanceToday(day);
+      res.json({ success: true, hasOpening });
+    } catch (error) {
+      logger.error({ error }, "Check opening balance error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to check opening balance" });
+    }
+  },
+);
 
 // GET /api/closing/last-checkpoint-per-drawer — drawer status board (staleness
 // badges, dashboard). Mirrors IPC's closing:get-last-checkpoint-per-drawer

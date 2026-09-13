@@ -71,6 +71,14 @@ export interface ApplyMovementInput {
    *  refund reversal (nothing to reverse it FROM). Pass the real id
    *  whenever the calling flow creates one. */
   transactionId?: number | null;
+  /**
+   * The CLIENT's own local calendar day (`YYYY-MM-DD`) — threaded straight
+   * through to `CarrierLineRepository.applyMovement`'s identically-named
+   * field, which feeds `computeAppliedState`'s `today`. See that field's doc
+   * for why a server-computed day is untrustworthy on web. Optional; falls
+   * back to the server's own `localDay()`.
+   */
+  today?: string;
 }
 
 export interface ApplyMovementData {
@@ -287,6 +295,7 @@ export class CarrierLineService {
           : {}),
         reason: input.reason,
         transactionId: input.transactionId ?? null,
+        today: input.today,
       });
 
       financialLogger.info(

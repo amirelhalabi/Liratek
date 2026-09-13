@@ -213,6 +213,21 @@ export interface ApplyCarrierLineMovementInput {
   /** The unified `transactions.id` this movement rides on, or null for a
    *  non-transactional (manual) adjustment. */
   transactionId: number | null;
+  /**
+   * The CLIENT's own local calendar day (`YYYY-MM-DD`), fed through to
+   * `computeAppliedState`'s `today` parameter. Falls back to the server's own
+   * `localDay()` when omitted (unchanged behaviour for desktop, and for every
+   * caller that doesn't have a client day to send).
+   *
+   * WHY THIS MATTERS HERE, specifically: `today` decides whether a charge
+   * lands on the line's own expiry, revives it from today (grace window), or
+   * is refused as burned (`projectValidityExpiry`) — a server day that
+   * disagrees with the shop's real calendar day (web runs on a UTC Fly
+   * machine; the shop is Beirut, UTC+3) can misclassify a line as VALID/GRACE/
+   * BURNED for up to 3 hours a day, and the 365-day ceiling shifts by the same
+   * margin. See `utils/carrierLineValidity.ts`'s header for the full rule.
+   */
+  today?: string;
 }
 
 /** Output of {@link CarrierLineRepository.applyMovement} /
@@ -701,6 +716,10 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
         input.creditsDelta,
         input.validityDaysDelta,
         input.validityExpiresAt,
+        // Passing `undefined` through is fine — `computeAppliedState`'s own
+        // `today` parameter defaults to `localDay()` when its argument is
+        // undefined, so an omitted `input.today` is unchanged behaviour.
+        input.today,
       );
       const updatedLine = this.updateLine(input.carrierLineId, nextState)!;
 

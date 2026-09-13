@@ -381,10 +381,14 @@ export function registerDatabaseHandlers(): void {
     }
   });
 
-  // Check if opening balance exists for today (no auth required — called on login)
-  ipcMain.handle("closing:has-opening-balance-today", async () => {
+  // Check if opening balance exists for today (no auth required — called on login).
+  // `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
+  // frontend's `localDay()`) — falls back to the server's own `localDay()`
+  // when omitted (ClosingRepository.hasOpeningBalanceToday's doc explains
+  // why the server's day alone is wrong on web).
+  ipcMain.handle("closing:has-opening-balance-today", async (_event, day?: string) => {
     try {
-      return getClosingService().hasOpeningBalanceToday();
+      return getClosingService().hasOpeningBalanceToday(day);
     } catch (err) {
       closingLogger.error({ err }, "closing:has-opening-balance-today failed");
       return false;

@@ -1422,8 +1422,19 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
 
   /**
    * Check if there is at least one checkpoint record in daily_closings for today's date.
+   *
+   * `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`), e.g. the
+   * browser's `localDay()`. Falls back to the server's own `localDay()` when
+   * omitted — desktop's server process IS the shop's own machine, so the two
+   * agree there and every existing caller is unaffected. On web the server
+   * runs whichever timezone the host booted in (UTC on Fly), not the shop's
+   * (Beirut, UTC+3), so trusting the server's day here reproduces the exact
+   * checkpoint bug (a 00:00-03:00 Beirut login could be told it still needs
+   * an opening balance for "today" when the shop's own today already has
+   * one, or vice-versa) — see `createCheckpoint`'s identical `closing_date`
+   * fix (rule 18) for the full writeup.
    */
-  hasOpeningBalanceToday(): boolean {
+  hasOpeningBalanceToday(day?: string): boolean {
     // closing_date is a plain 'YYYY-MM-DD' string stamped via localDay() (see
     // createCheckpoint) — compare against that SAME JS-computed value, not
     // SQLite's own DATE('now','localtime'). The two are NOT interchangeable:
@@ -1440,7 +1451,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       .prepare(
         `SELECT 1 FROM daily_closings WHERE closing_date = ? AND tenant_id = ? LIMIT 1`,
       )
-      .get(localDay(), getCurrentTenantId());
+      .get(day ?? localDay(), getCurrentTenantId());
     return row !== undefined;
   }
 

@@ -11,6 +11,7 @@ import {
   SESSION_CHANGED_EVENT,
   getToken,
 } from "@/api/httpClient";
+import { localDay } from "@/shared/utils/localDay";
 
 interface User {
   id: number;
@@ -233,9 +234,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem("sessionToken", result.sessionToken);
         }
 
-        // Check if opening balance needs to be set for today
+        // Check if opening balance needs to be set for today. Sends the
+        // CLIENT's own local calendar day — on web the server can't be
+        // trusted to know the shop's timezone (see
+        // ClosingRepository.hasOpeningBalanceToday's doc), so the browser
+        // supplies it rather than letting the server guess.
         try {
-          const hasOpening = await api.hasOpeningBalanceToday();
+          const hasOpening = await api.hasOpeningBalanceToday(localDay());
           setNeedsOpening(!hasOpening);
         } catch (error) {
           logger.error("Failed to check opening balance:", error);

@@ -24,7 +24,12 @@ router.use(authenticateJWT);
 const writeGate = requireRole(["admin", "staff"]);
 const adminGate = requireRole(["admin"]);
 
-// GET /api/vouchers?status=&clientId=  — list vouchers (admin+staff, mirrors IPC)
+// GET /api/vouchers?status=&clientId=&day=  — list vouchers (admin+staff,
+// mirrors IPC). `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`) —
+// the server can't be trusted to know the shop's timezone (web runs on a UTC
+// Fly machine, the shop is Beirut UTC+3), so an expired-today voucher would
+// otherwise read pending/expired up to 3h out of step with the shop. Falls
+// back to the server's own `localDay()` when omitted.
 router.get("/", writeGate, (req, res) => {
   const filters: VoucherFilters = {};
   const status = req.query.status;
@@ -36,7 +41,12 @@ router.get("/", writeGate, (req, res) => {
   }
   const clientId = Number(req.query.clientId);
   if (Number.isFinite(clientId)) filters.clientId = clientId;
-  const result = getVoucherService().getVouchers(filters);
+  const day =
+    typeof req.query.day === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(req.query.day)
+      ? req.query.day
+      : undefined;
+  const result = getVoucherService().getVouchers(filters, day);
   res.json(result);
 });
 
@@ -68,15 +78,19 @@ router.post(
   },
 );
 
-// POST /api/vouchers/validate  { code } — look up a voucher by code (static, before /:id)
-// Deliberately NOT audited: this is a READ that uses POST only to carry the
-// code in a body. Nothing changes, so an audit row would be noise.
+// POST /api/vouchers/validate  { code, day? } — look up a voucher by code
+// (static, before /:id). `day` is the CLIENT's own local calendar day — see
+// the GET / route above for why. Deliberately NOT audited: this is a READ
+// that uses POST only to carry the code in a body. Nothing changes, so an
+// audit row would be noise.
 router.post("/validate", writeGate, (req, res) => {
-  const code =
-    typeof (req.body as { code?: unknown } | undefined)?.code === "string"
-      ? (req.body as { code: string }).code
-      : "";
-  const result = getVoucherService().validateVoucher(code);
+  const body = req.body as { code?: unknown; day?: unknown } | undefined;
+  const code = typeof body?.code === "string" ? body.code : "";
+  const day =
+    typeof body?.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.day)
+      ? body.day
+      : undefined;
+  const result = getVoucherService().validateVoucher(code, day);
   res.json(result);
 });
 

@@ -137,10 +137,13 @@ export class ClosingService {
 
   /**
    * Check if there is at least one checkpoint record for today's date.
+   * `day` is the client's own local calendar day (`YYYY-MM-DD`) — see
+   * `ClosingRepository.hasOpeningBalanceToday`'s doc for why the server's own
+   * day is only a fallback, not the source of truth, on web.
    */
-  hasOpeningBalanceToday(): boolean {
+  hasOpeningBalanceToday(day?: string): boolean {
     try {
-      return this.repo.hasOpeningBalanceToday();
+      return this.repo.hasOpeningBalanceToday(day);
     } catch (error) {
       closingLogger.error(
         { error },

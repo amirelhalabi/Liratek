@@ -456,6 +456,20 @@ export const selfChargeTelecomItemSchema = z.object({
    *  omitted. */
   carrierLineId: z.number().int().positive().optional(),
   transaction_time: transactionTimeSchema,
+  /**
+   * The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the frontend's
+   * `localDay()`) — fed to the validity-extension projection this movement
+   * performs, so the shop's own calendar day decides VALID/GRACE/BURNED
+   * classification and the 365-day ceiling instead of the server's (which
+   * disagrees on web — Fly runs UTC, the shop is Beirut UTC+3). Optional;
+   * falls back to the server's own `localDay()`. See
+   * `SelfChargeTelecomItemData.client_day`'s doc for why `transaction_time`
+   * cannot substitute for this.
+   */
+  client_day: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+    .optional(),
 });
 
 export type SelfChargeTelecomItemInput = z.infer<

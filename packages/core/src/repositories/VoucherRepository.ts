@@ -65,15 +65,31 @@ export interface RedeemVoucherParams {
   context: string;
   transactionId: number | null;
   userId: number;
+  /**
+   * The CLIENT's own local calendar day (`YYYY-MM-DD`), compared against the
+   * voucher's stored `expiry_date`. Falls back to the server's own
+   * `localDay()` when omitted — unchanged behaviour for desktop (where the
+   * server process IS the shop's machine) and for any caller that doesn't
+   * supply one. On web the server runs whichever timezone the host booted in
+   * (UTC on Fly), not the shop's (Beirut, UTC+3), so trusting it alone can
+   * read a voucher as valid/expired up to 3 hours out of step with the shop
+   * — see `withEffectiveStatus`'s identical fix for the read-side twin of
+   * this bug.
+   */
+  day?: string;
 }
 
 const VOUCHER_COLUMNS =
   "id, code, client_id, client_name, client_phone, amount, currency_code, expiry_date, status, redeemed_at, redeemed_by, redeemed_in_transaction, redeemed_transaction_id, cancelled_at, cancelled_by, note, created_by, created_at, updated_at";
 
 // `effective_status` downgrades a still-pending voucher to 'expired' when its
-// expiry date has passed, without mutating the stored row.
+// expiry date has passed, without mutating the stored row. Takes a bound `?`
+// parameter (the CLIENT's own local calendar day) rather than SQLite's own
+// `date('now')` — the same reasoning as `withEffectiveStatus` below: the
+// server's day disagrees with the shop's for up to 3h/day on web, and a
+// literal `date('now')` could never be overridden by a caller's `day` at all.
 const EFFECTIVE_STATUS_EXPR = `CASE
-  WHEN status = 'pending' AND expiry_date IS NOT NULL AND expiry_date < date('now')
+  WHEN status = 'pending' AND expiry_date IS NOT NULL AND expiry_date < ?
   THEN 'expired'
   ELSE status
 END`;
@@ -95,35 +111,46 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
   // Reads
   // ---------------------------------------------------------------------------
 
-  /** Map a stored row to its effective status (pending → expired when past expiry). */
-  private withEffectiveStatus(row: VoucherEntity): VoucherEntity {
-    if (
-      row.status === "pending" &&
-      row.expiry_date &&
-      row.expiry_date < localDay()
-    ) {
+  /**
+   * Map a stored row to its effective status (pending → expired when past
+   * expiry). `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`);
+   * falls back to the server's own `localDay()` when omitted — see
+   * `RedeemVoucherParams.day`'s doc for why the server's day alone is
+   * untrustworthy on web.
+   */
+  private withEffectiveStatus(
+    row: VoucherEntity,
+    day: string = localDay(),
+  ): VoucherEntity {
+    if (row.status === "pending" && row.expiry_date && row.expiry_date < day) {
       return { ...row, status: "expired" };
     }
     return row;
   }
 
-  getByCode(code: string): VoucherEntity | null {
+  getByCode(code: string, day?: string): VoucherEntity | null {
     const row = this.db
       .prepare(
         `SELECT ${VOUCHER_COLUMNS} FROM vouchers WHERE code = ? AND tenant_id = ?`,
       )
       .get(code, getCurrentTenantId()) as VoucherEntity | undefined;
-    return row ? this.withEffectiveStatus(row) : null;
+    return row ? this.withEffectiveStatus(row, day) : null;
   }
 
   /**
    * List vouchers, newest first, with effective status applied.
    * When filtering by status, the effective (computed) status is used so that
    * date-expired pending vouchers show under "expired".
+   *
+   * `day` is the CLIENT's own local calendar day — applied BOTH to the
+   * `filters.status` WHERE clause (via `EFFECTIVE_STATUS_EXPR`'s bound `?`)
+   * and to the in-app `withEffectiveStatus` recompute below, so a status
+   * filter and each row's own displayed `status` field can never disagree.
    */
-  getAll(filters: VoucherFilters = {}): VoucherEntity[] {
+  getAll(filters: VoucherFilters = {}, day?: string): VoucherEntity[] {
     const clauses: string[] = [];
     const params: unknown[] = [getCurrentTenantId()];
+    const effectiveDay = day ?? localDay();
 
     if (filters.clientId) {
       clauses.push("client_id = ?");
@@ -131,7 +158,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     }
     if (filters.status) {
       clauses.push(`(${EFFECTIVE_STATUS_EXPR}) = ?`);
-      params.push(filters.status);
+      params.push(effectiveDay, filters.status);
     }
 
     // tenant_id is always the first predicate (literal, statically visible to
@@ -142,7 +169,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
         `SELECT ${VOUCHER_COLUMNS} FROM vouchers WHERE tenant_id = ?${extraWhere} ORDER BY created_at DESC, id DESC`,
       )
       .all(...params) as VoucherEntity[];
-    return rows.map((r) => this.withEffectiveStatus(r));
+    return rows.map((r) => this.withEffectiveStatus(r, effectiveDay));
   }
 
   // ---------------------------------------------------------------------------
@@ -223,7 +250,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
    * Throws an Error with a user-facing message when the voucher cannot be redeemed.
    */
   redeemByCode(params: RedeemVoucherParams): VoucherEntity {
-    const { code, context, transactionId, userId } = params;
+    const { code, context, transactionId, userId, day } = params;
 
     const voucher = this.db
       .prepare(
@@ -240,7 +267,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     if (voucher.status === "redeemed") {
       throw new Error(`Voucher ${code} has already been redeemed`);
     }
-    const today = localDay();
+    const today = day ?? localDay();
     if (voucher.expiry_date && voucher.expiry_date < today) {
       throw new Error(`Voucher ${code} has expired`);
     }

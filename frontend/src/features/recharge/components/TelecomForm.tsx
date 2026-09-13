@@ -21,6 +21,7 @@ import { PaymentSheet } from "./PaymentSheet";
 import { CardGridPayView, type CardGridPayItem } from "./CardGridPayView";
 import { CarrierLinesPanel } from "./CarrierLinesPanel";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
+import { localDay } from "@/shared/utils/localDay";
 import { snapValidityDaysUp } from "../utils/validityDays";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { convertLBPToUSD } from "@/utils/paymentUtils";
@@ -403,6 +404,10 @@ export function TelecomForm({
         payments: [],
         partnerId: selectedPartnerId,
         partnerMode: "FOR" as const,
+        // The shop's own calendar day, not the server's (untrustworthy on
+        // web): decides the DAYS-sale validity decrement when
+        // rechargeType === "DAYS".
+        client_day: localDay(),
       });
       if (result && !result.success) {
         appEvents.emit(

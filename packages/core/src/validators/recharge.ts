@@ -93,6 +93,21 @@ export const createRechargeSchema = z
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
     transaction_time: transactionTimeSchema,
+    /**
+     * The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the frontend's
+     * `localDay()`). Fed to the DAYS-sale validity decrement, the
+     * CREDIT_BUYBACK credit movement, and a redeemed GIFT_CARD voucher's
+     * expiry check — all of which otherwise evaluate against the SERVER's
+     * day, which disagrees with the shop's on web (Fly runs UTC, the shop is
+     * Beirut UTC+3) for up to 3h a day. `transaction_time` above cannot
+     * substitute for this: it is populated only when the operator explicitly
+     * backdates (undefined on every normal real-time recharge). Optional;
+     * falls back to the server's own `localDay()`.
+     */
+    client_day: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+      .optional(),
     // PFT-3a (Partner FOR-Transactions): the unpaid remainder routes to
     // partner_ledger instead of the client's debt_ledger when set. Only "FOR"
     // is valid for recharges.

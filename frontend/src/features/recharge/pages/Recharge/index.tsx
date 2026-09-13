@@ -7,6 +7,7 @@ import {
 } from "react";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { localDay } from "@/shared/utils/localDay";
 import { appEvents, useApi } from "@liratek/ui";
 import { costOfValidityDaysUsd } from "@liratek/core";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
@@ -620,6 +621,10 @@ export default function MobileRecharge() {
             }
           : {}),
         transaction_time: telecomTransactionTime,
+        // The shop's own calendar day, not the server's (untrustworthy on
+        // web): decides the DAYS-sale validity decrement, the CREDIT_BUYBACK
+        // credit movement, and a redeemed GIFT_CARD voucher's expiry check.
+        client_day: localDay(),
       });
       if (result && !result.success) {
         alert(result.error || "Failed to process recharge");
@@ -1013,6 +1018,7 @@ export default function MobileRecharge() {
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
         transaction_time: telecomTransactionTime,
+        client_day: localDay(),
       });
       if (result && !result.success) {
         alert(result.error || "Failed to process Alfa gift");
