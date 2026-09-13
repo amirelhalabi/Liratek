@@ -48,7 +48,8 @@ import type { LotoRepository } from "../repositories/LotoRepository.js";
 import { getLotoRepository } from "../repositories/LotoRepository.js";
 
 import { lotoLogger } from "../utils/logger.js";
-import { localDay } from "../utils/localDate.js";
+import { addDaysToDateString } from "../utils/carrierLineValidity.js";
+import { clientDay } from "../utils/requestDay.js";
 
 export interface SellTicketData {
   /** T3 keep-change: kept change per currency → profit stamp. */
@@ -163,7 +164,7 @@ export class LotoService {
         commission_amount,
         is_winner: data.is_winner ? 1 : 0,
         prize_amount: data.prize_amount || 0,
-        sale_date: data.sale_date || localDay(),
+        sale_date: data.sale_date || clientDay(),
         payment_method: data.payment_method,
         currency: data.currency || "LBP",
         note: data.note,
@@ -930,17 +931,22 @@ export class LotoService {
    */
   createScheduledCheckpoint(checkpointDate?: string): LotoCheckpoint {
     try {
-      const date = checkpointDate || localDay();
+      const date = checkpointDate || clientDay();
 
       // Find the last checkpoint to determine the start date
       const lastCheckpoint = this.getLastCheckpoint();
       let startDate = "1970-01-01";
       if (lastCheckpoint) {
-        // Start from the day AFTER the last checkpoint's period_end
-        // to avoid double-counting tickets on the boundary day
-        const nextDay = new Date(lastCheckpoint.period_end);
-        nextDay.setDate(nextDay.getDate() + 1);
-        startDate = localDay(nextDay);
+        // Start from the day AFTER the last checkpoint's period_end, to avoid
+        // double-counting tickets on the boundary day. Computed with
+        // addDaysToDateString (pure UTC calendar-date arithmetic) rather than
+        // `new Date(period_end)` + `setDate` + `localDay()`: that combo parses
+        // the YYYY-MM-DD string as UTC midnight but then formats with LOCAL
+        // getters, so at a negative UTC offset "UTC midnight" is still the
+        // PREVIOUS local day and adding one day lands back on period_end
+        // itself — reintroducing the exact double-count this comment says it
+        // prevents. See LotoService.checkpoint.test.ts's rule-17 note.
+        startDate = addDaysToDateString(lastCheckpoint.period_end, 1);
       }
 
       // Create a checkpoint for the period since the last checkpoint
@@ -986,7 +992,7 @@ export class LotoService {
       const prizeData: LotoCashPrizeCreate = {
         ticket_number: data.ticket_number?.trim() || undefined,
         prize_amount: data.prize_amount,
-        prize_date: data.prize_date || localDay(),
+        prize_date: data.prize_date || clientDay(),
         userId: data.userId,
         deferPayment: data.deferPayment,
         exchange_rate: data.exchange_rate,

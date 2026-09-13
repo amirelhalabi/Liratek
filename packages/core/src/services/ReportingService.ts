@@ -13,6 +13,7 @@ import type {
   DebtAgingBuckets,
   OverdueDebtEntry,
 } from "../repositories/TransactionRepository.js";
+import { addDaysToDateString } from "../utils/carrierLineValidity.js";
 import logger from "../utils/logger.js";
 
 // =============================================================================
@@ -147,13 +148,63 @@ export class ReportingService {
   // Helpers
   // ---------------------------------------------------------------------------
 
+  /**
+   * `YYYY-MM-DD` calendar date, used to validate `from`/`to` before doing any
+   * date arithmetic on them.
+   */
+  private static readonly DATE_STRING_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  /**
+   * Enumerate every calendar date from `from` to `to` inclusive.
+   *
+   * Pure string/UTC arithmetic via {@link addDaysToDateString} — no `Date`
+   * object is ever mutated with local-time setters. That distinction is the
+   * whole fix: the previous implementation parsed `from`/`to` as UTC midnight
+   * (`new Date("2026-03-27")`) but advanced the loop with `current.setDate()`,
+   * which operates in the MACHINE'S LOCAL time zone. On a DST-observing
+   * desktop (this app runs on the shop's own Beirut PC, not the Fly backend —
+   * the reverse of the usual "web is UTC and wrong" direction) "advance one
+   * local calendar day" is 23 or 25 hours across a transition, not 24, so the
+   * UTC instant drifted across midnight and `toISOString()` emitted the wrong
+   * calendar date — duplicating one day and dropping another. Iterating
+   * `YYYY-MM-DD` strings sidesteps local time entirely: there is no `Date`
+   * object alive across iterations for a time zone to disagree with.
+   *
+   * Guards against a malformed or reversed `from`/`to` turning this into an
+   * infinite loop: a range failing the `YYYY-MM-DD` shape check, or with
+   * `from` after `to`, returns `[]` immediately rather than looping. (A valid,
+   * non-reversed range can never loop forever — each step advances the
+   * lexicographically-comparable ISO string by exactly one calendar day, so
+   * `current` strictly increases toward `to`.)
+   */
   private getDateRange(from: string, to: string): string[] {
+    if (
+      !ReportingService.DATE_STRING_RE.test(from) ||
+      !ReportingService.DATE_STRING_RE.test(to) ||
+      from > to
+    ) {
+      if (
+        !ReportingService.DATE_STRING_RE.test(from) ||
+        !ReportingService.DATE_STRING_RE.test(to)
+      ) {
+        logger.warn(
+          { from, to },
+          "ReportingService.getDateRange: malformed date string",
+        );
+      } else {
+        logger.warn(
+          { from, to },
+          "ReportingService.getDateRange: reversed range",
+        );
+      }
+      return [];
+    }
+
     const dates: string[] = [];
-    const current = new Date(from);
-    const end = new Date(to);
-    while (current <= end) {
-      dates.push(current.toISOString().split("T")[0]);
-      current.setDate(current.getDate() + 1);
+    let current = from;
+    while (current <= to) {
+      dates.push(current);
+      current = addDaysToDateString(current, 1);
     }
     return dates;
   }

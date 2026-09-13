@@ -5,6 +5,7 @@ import LotoMonthlyFeeRepository from "../../repositories/LotoMonthlyFeeRepositor
 import LotoCheckpointRepository from "../../repositories/LotoCheckpointRepository.js";
 import LotoCashPrizeRepository from "../../repositories/LotoCashPrizeRepository.js";
 import LotoService from "../LotoService.js";
+import { runWithTenant } from "../../db/tenantContext.js";
 
 describe("LotoService Checkpoint Functionality", () => {
   let db: Database.Database;
@@ -474,6 +475,88 @@ describe("LotoService Checkpoint Functionality", () => {
       expect(scheduledCheckpoint).toBeDefined();
       expect(scheduledCheckpoint.period_start).toBe("1970-01-01"); // Epoch date
       expect(scheduledCheckpoint.period_end).toBe("2024-01-10");
+    });
+
+    /**
+     * CLAUDE.md rule 27 — timezone hazard, real bug (not defence-in-depth).
+     *
+     * The pre-fix code computed the next day as
+     * `new Date(lastCheckpoint.period_end); nextDay.setDate(nextDay.getDate() + 1); localDay(nextDay)`.
+     * `new Date("2026-09-12")` parses as UTC midnight, but `localDay()` reads
+     * it back with LOCAL getters. At a negative UTC offset, UTC midnight on
+     * the 12th is still the 11th on the local clock, so "+1 day" lands back
+     * on the 12th — the exact same day as `period_end` — instead of the
+     * 13th. That reintroduces the double-count the surrounding comment says
+     * it prevents: the boundary day's tickets get aggregated into BOTH the
+     * old checkpoint and the new one.
+     *
+     * The fix uses `addDaysToDateString` (`utils/carrierLineValidity.ts`),
+     * which parses and formats the calendar-date string entirely in UTC, so
+     * it has no local-timezone-dependent behavior at all.
+     *
+     * Rule-17 discharge note (2026-09-13): copied LotoService.ts to a temp
+     * path outside the repo (md5sum-verified), reverted
+     * `createScheduledCheckpoint`'s `startDate` computation to the pre-fix
+     * `new Date` + `setDate` + `localDay()` form (re-adding the `localDay`
+     * import it needs), and ran the whole file under a negative UTC offset:
+     *
+     *   node ../../node_modules/cross-env/src/bin/cross-env.js TZ=America/New_York \
+     *     node ../../node_modules/jest/bin/jest.js --config jest.config.cjs \
+     *     --testPathPatterns "LotoService.checkpoint"
+     *
+     * Two tests failed exactly as predicted (2 failed, 18 passed, 20 total)
+     * — this test, AND the pre-existing "should create a scheduled
+     * checkpoint from the last checkpoint date" test, which uses the same
+     * boundary-day arithmetic and had been silently depending on the
+     * positive-offset default all along:
+     *
+     *   ● createScheduledCheckpoint › should create a scheduled checkpoint from the last checkpoint date
+     *     Expected: "2024-01-06"
+     *     Received: "2024-01-05"
+     *
+     *   ● createScheduledCheckpoint › should not double-count the boundary day at a negative UTC offset
+     *     Expected: "2026-09-13"
+     *     Received: "2026-09-12"
+     *
+     * Restored LotoService.ts from the temp copy (md5sum-verified identical
+     * to the pre-revert fixed version); `git diff --stat -- \
+     * packages/core/src/services/LotoService.ts` showed only the intended
+     * fix (15 insertions/9 deletions: the two `localDay()` → `clientDay()`
+     * fallback swaps, the `addDaysToDateString` import + boundary-day fix,
+     * and their comments) — nothing left over from the revert. Re-ran the
+     * same command under TZ=America/New_York — 20/20 passed. Re-ran again
+     * under TZ=Asia/Beirut (the suite's cross-env default, a POSITIVE
+     * offset where the bug was always latent) — 20/20 passed there too.
+     */
+    it("should not double-count the boundary day at a negative UTC offset (rule 17 — see discharge note above)", () => {
+      db.exec("DELETE FROM loto_checkpoints WHERE 1=1");
+
+      const insertCheckpoint = db.prepare(`
+        INSERT INTO loto_checkpoints
+          (checkpoint_date, period_start, period_end, total_sales, total_commission, total_tickets, total_prizes)
+        VALUES (?, ?, ?, 0, 0, 0, 0)
+      `);
+      insertCheckpoint.run("2026-09-12", "2026-09-01", "2026-09-12");
+
+      const scheduledCheckpoint =
+        service.createScheduledCheckpoint("2026-09-14");
+
+      expect(scheduledCheckpoint.period_start).toBe("2026-09-13");
+    });
+  });
+
+  describe("createScheduledCheckpoint — request-day fallback (rule 27, defence-in-depth)", () => {
+    it("prefers the tenant-context clientDay over the machine's local day when checkpointDate is omitted", () => {
+      db.exec("DELETE FROM loto_checkpoints WHERE 1=1");
+
+      const scheduledCheckpoint = runWithTenant(
+        1,
+        () => service.createScheduledCheckpoint(),
+        { clientDay: "2030-05-20" },
+      );
+
+      expect(scheduledCheckpoint.checkpoint_date).toBe("2030-05-20");
+      expect(scheduledCheckpoint.period_end).toBe("2030-05-20");
     });
   });
 });
