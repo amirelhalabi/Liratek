@@ -14,10 +14,50 @@
  * `LotoCheckpointUpdate` field would pass a looser assertion but fail this
  * one.
  *
- * Rule-17 note: the "invalid payload rejected" / "fields survive intact"
- * assertions below have NOT yet been proven to fail against the pre-fix code
- * (no validation at all, raw passthrough) — that failing-first proof is
- * still owed before this counts as a fully guarded regression test.
+ * Rule-17 note (discharged 2026-09-13, two separate reverts — one per
+ * assertion family):
+ *
+ * Proof 1 — "rejects an invalid payload" (validation-removal revert).
+ * Stripped the `validatePayload` call from `loto:checkpoint:update` in
+ * `lotoHandlers.ts`, changing `service.updateCheckpoint(id, v.data)` back to
+ * `service.updateCheckpoint(id, data)` (raw passthrough, no schema). Ran
+ * `npx jest --config jest.config.cjs --roots "<rootDir>/handlers"
+ * --testPathPatterns "checkpointUpdateValidation"` — only the "rejects an
+ * invalid payload" case failed:
+ *   expect(jest.fn()).not.toHaveBeenCalled()
+ *   Expected number of calls: 0
+ *   Received number of calls: 1
+ *   1: 7, {"total_sales": "not-a-number"}
+ * 1 failed, 2 passed, 3 total. The two "fields survive intact" cases stayed
+ * green on this revert — expected, not a gap: with no schema at all there is
+ * no stripping to catch, so raw passthrough trivially satisfies "every field
+ * reaches the service unchanged." That revert was the wrong lever for those
+ * two assertions; it could only ever prove the rejection case. Reverted from
+ * a pre-edit copy; `git diff --stat -- electron-app/handlers/lotoHandlers.ts`
+ * printed nothing afterward.
+ *
+ * Proof 2 — "fields survive intact" (schema-field-removal revert, per rule
+ * 23's strip-trap: a field present in the payload/handler but MISSING from
+ * the schema vanishes silently). The real schema definition is
+ * `packages/core/src/validators/loto.ts`'s `lotoCheckpointUpdateSchema`
+ * (electron-app/schemas/index.ts only re-exports it as
+ * `LotoCheckpointUpdateSchema`) — a CORE file, wider blast radius than a
+ * handler revert, so backed it up to a temp copy first. Removed the
+ * `settlement_id: z.number().int().positive().optional(),` line from
+ * `lotoCheckpointUpdateSchema`. Ran the same test command — only the "passes
+ * a valid full payload through ... every field intact" case failed:
+ *   expect(jest.fn()).toHaveBeenCalledWith(...expected)
+ *   - Expected
+ *   + Received
+ *     ...
+ *   -   "settlement_id": 3,
+ *       "total_commission": 50000,
+ *   Number of calls: 1
+ * 1 failed, 2 passed, 3 total — `settlement_id` was silently stripped from
+ * `v.data` before it reached the service, exactly the rule-23 defect class.
+ * The note-only partial case stayed green (it never sends `settlement_id`).
+ * Reverted from a pre-edit copy; `git diff --stat -- packages/core/src/
+ * validators/loto.ts` printed nothing afterward.
  */
 
 import { ipcMain } from "electron";

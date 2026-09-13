@@ -21,10 +21,32 @@
  * schema still runs — an invalid payload must be refused WITHOUT ever
  * reaching the service.
  *
- * Rule-17 note: neither assertion below has yet been proven to fail against
- * the pre-fix code (no validation at all; `category` silently dropped) —
- * that failing-first proof is still owed before this counts as a fully
- * guarded regression test.
+ * Rule-17 note (discharged 2026-09-13): two separate reverts, both in
+ * `../customServiceHandlers.ts`, one at a time from a pre-edit copy.
+ *
+ * (1) No validation at all: removed the `validatePayload(
+ * CustomServiceUpdateMetadataSchema, data)` call/guard and rewired the
+ * service call to read straight off `data` instead of `v.data`. Ran
+ * `cd electron-app && npx jest --config jest.config.cjs --roots
+ * "<rootDir>/handlers" --testPathPatterns
+ * "customServiceHandlers.updateMetadataValidation"` — both invalid-payload
+ * tests failed:
+ *   expect(jest.fn()).not.toHaveBeenCalled()
+ *   Expected number of calls: 0
+ *   Received number of calls: 1
+ * (the non-positive-id case called the service with
+ * `(-3, {...note:"x"...}, "user-7")`; the over-long-note case likewise).
+ * 2 failed, 1 passed, 3 total. Reverted from the pre-edit copy;
+ * `git diff --stat -- ../customServiceHandlers.ts` printed nothing after.
+ *
+ * (2) `category` silently dropped (schema kept, forwarding trimmed): with
+ * validation restored, removed just the `category: v.data.category,` line
+ * from the service call's second argument. Same runner invocation — the
+ * "category rescued from the strip-trap" test failed:
+ *   expect(jest.fn()).toHaveBeenCalledWith(...expected)
+ *   - Expected  "category": "repairs",   (missing from the Received object)
+ * 1 failed, 2 passed, 3 total. Reverted from the pre-edit copy;
+ * `git diff --stat -- ../customServiceHandlers.ts` printed nothing after.
  */
 
 import { ipcMain } from "electron";

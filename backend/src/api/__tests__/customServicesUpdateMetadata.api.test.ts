@@ -26,11 +26,19 @@
  * not CustomServiceService/CustomServiceRepository internals, which are the
  * core agent's own suites).
  *
- * Rule-17 note: the failing-first proof (temporarily reverting the route's
- * `updateCustomServiceMetadata` call to omit `category: req.body.category`,
- * watching the test below fail, then reverting) is still owed — this file
- * was written under a constraint forbidding test runs; whoever runs the
- * suite next should do that proof once and record it here.
+ * Rule-17 note (discharged 2026-09-13): in `../customServices.ts`, removed
+ * `category: req.body.category,` from the `/update-metadata` route's
+ * `updateCustomServiceMetadata` call (the route's other four fields were
+ * left untouched — the pre-fix hand-picked-fields shape). Ran `cd backend
+ * && npx jest --maxWorkers=2 --testPathPatterns
+ * "customServicesUpdateMetadata"` — both category-forwarding tests failed:
+ *   expect(jest.fn()).toHaveBeenCalledWith(...expected)
+ *   - Expected  "category": "Insurance",   (missing from Received)
+ * and, for the category-only-field case:
+ *   - Expected  "category": "Repair",      (missing from Received)
+ * 2 failed, 1 passed (the unauthenticated-request test, unaffected), 3
+ * total. Reverted from a pre-edit copy; `git diff --stat --
+ * ../customServices.ts` printed nothing afterward.
  */
 
 import { jest } from "@jest/globals";

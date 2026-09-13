@@ -13,10 +13,21 @@
  * schema still runs — an invalid payload must be refused WITHOUT ever
  * reaching the service.
  *
- * Rule-17 note: the "invalid payload rejected" assertion below has NOT yet
- * been proven to fail against the pre-fix code (no validation at all) —
- * that failing-first proof is still owed before this counts as a fully
- * guarded regression test.
+ * Rule-17 note (discharged 2026-09-13): stripped the `validatePayload` call
+ * from `loto:update-metadata` in `lotoHandlers.ts`, changing
+ * `service.updateLotoMetadata(v.data.id, { note: v.data.note }, editedBy)`
+ * back to `service.updateLotoMetadata(data.id, { note: data.note },
+ * editedBy)` (raw passthrough, no schema). Ran `npx jest --config
+ * jest.config.cjs --roots "<rootDir>/handlers" --testPathPatterns
+ * "lotoHandlers.updateMetadataValidation"` — both rejection cases failed,
+ * e.g.:
+ *   expect(jest.fn()).not.toHaveBeenCalled()
+ *   Expected number of calls: 0
+ *   Received number of calls: 1
+ *   1: 0, {"note": "x"}, "user-7"
+ * (same shape for the over-long-note case). 2 failed, 1 passed, 3 total.
+ * Reverted from a pre-edit copy; `git diff --stat -- electron-app/handlers/lotoHandlers.ts`
+ * printed nothing afterward.
  */
 
 import { ipcMain } from "electron";
