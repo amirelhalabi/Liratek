@@ -13,6 +13,7 @@ import type {
   DatabaseResetResult,
   SafeSession,
   Client,
+  CreateUserInput,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -2780,21 +2781,46 @@ export async function deleteRate(to_code: string) {
 
 // ==================== Users API ====================
 
-export async function getNonAdminUsers() {
-  if (isElectron()) {
-    return (window as any).api.auth.getNonAdminUsers();
-  }
-  const res = await requestJson<{ success: boolean; users: any[] }>(
-    "/api/users/non-admins",
+/** One row of the Settings › Users list (every non-admin account this
+ *  tenant has). Not imported from `@liratek/core`: `UserRepository`'s safe
+ *  user shape isn't re-exported from either entry point, so this is
+ *  hand-kept in sync (same convention as `StockBatchRow` in
+ *  `packages/ui/src/api/types.ts`) rather than forcing an import. */
+export type NonAdminUser = {
+  id: number;
+  username: string;
+  role: "admin" | "staff";
+  is_active: number;
+};
+
+/**
+ * Read: was a raw `isElectron() ? window.api… : fetch…` transport gate
+ * (CLAUDE.md rule 19a) instead of going through `ipcOrHttp` like every other
+ * dual-mode function here — it worked on both transports today only because
+ * nothing else touched it, not because the pattern was safe. Rewritten to
+ * match `createUser` below: the Electron branch returns the RAW array (the
+ * preload binding already does, same as before), and the HTTP branch reads
+ * `res.users` off the envelope and unwraps to the same raw array — the
+ * adapter's read contract (CLAUDE.md Dual-Transport section: reads return
+ * the raw shape, writes return the envelope).
+ */
+export async function getNonAdminUsers(): Promise<NonAdminUser[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().auth.getNonAdminUsers(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        users: NonAdminUser[];
+      }>("/api/users/non-admins");
+      return res.users || [];
+    },
   );
-  return res.users || [];
 }
 
-export async function createUser(data: {
-  username: string;
-  password: string;
-  role: string;
-}) {
+/** Payload type is DERIVED from `createUserSchema`
+ *  (packages/core/src/validators/user.ts), not hand-copied (rule 21) —
+ *  same import as `packages/ui/src/api/types.ts`'s `ApiAdapter.createUser`. */
+export async function createUser(data: CreateUserInput) {
   return ipcOrHttp(
     async () =>
       getElectronApi().auth.createUser(data.username, data.password, data.role),

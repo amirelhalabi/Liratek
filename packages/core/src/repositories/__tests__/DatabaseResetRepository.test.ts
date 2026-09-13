@@ -518,10 +518,40 @@ describe("DatabaseResetRepository", () => {
     for (const table of RESET_WIPE_TABLES) {
       expect(preview.counts[table]).toBe(1);
     }
-    // Only the ad-hoc supplier counts toward the partial-wipe preview.
-    expect(preview.counts.suppliers).toBe(1);
     expect(preview.totalRows).toBe(
       Object.values(preview.counts).reduce((sum, n) => sum + n, 0),
     );
+
+    // `suppliers` is the count the preview can get wrong on its own, because
+    // it is the only PARTIAL table — a predicate, not a whole table. Assert it
+    // against what the reset ACTUALLY deletes rather than a hand-counted
+    // literal: this line previously read `toBe(1)` ("only the ad-hoc
+    // supplier"), overlooking that `insertTenantFixture` seeds its own
+    // `Fixture Supplier 1` with no `module_key`/`provider` and `is_system = 0`
+    // — itself ad-hoc, making the true answer 2. A literal goes stale the
+    // moment a fixture or a seed changes; a delta cannot.
+    const result = runWithTenant(1, () => repo.resetTenantData());
+    expect(result.deletedRows.suppliers).toBe(preview.counts.suppliers);
+
+    // …and both are non-zero, so the agreement is not two matching zeroes,
+    // while the module/system-owned seeds survive.
+    expect(preview.counts.suppliers).toBeGreaterThan(0);
+    const kept = db
+      .prepare(`SELECT COUNT(*) AS n FROM suppliers WHERE tenant_id = 1`)
+      .get() as { n: number };
+    expect(kept.n).toBeGreaterThan(0);
+
+    // `totalDeleted` is legitimately LOWER than `totalRows` — do not "fix"
+    // that to an equality. The wipe runs parent-before-child, so a child row
+    // is often already gone by FK cascade when its own `DELETE` runs, and
+    // `changes` reports 0 for it. Measured here: 7 tables
+    // (daily_closing_carrier_lines, maintenance_parts,
+    // maintenance_status_history, session_cart_items,
+    // settlement_commission_allocations, stock_adjustments,
+    // supplier_settlements). Every one of those rows IS deleted — only the
+    // attribution differs — which makes the PREVIEW the honest number for the
+    // confirmation UI and `totalDeleted` the under-count.
+    expect(result.totalDeleted).toBeLessThanOrEqual(preview.totalRows);
+    expect(result.totalDeleted).toBeGreaterThan(0);
   });
 });

@@ -497,15 +497,42 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
-   * Update user details (excludes password)
+   * Update user details (excludes password).
+   *
+   * Deliberately NOT delegating to the generic `BaseRepository.update()`:
+   * that unconditionally appends `updated_at = datetime('now')` to its SET
+   * clause, and — same reason `softDeleteById`/`restore` below are already
+   * overridden — the `users` table has no `updated_at` column, so the
+   * generic path would throw "no such column: updated_at" the first time
+   * this method is actually called (it was dead code with zero callers
+   * until `AuthService.setUserRole` started using it). This mirrors
+   * `softDeleteById`/`restore`'s fix shape: an explicit, tenant-scoped
+   * UPDATE that never references `updated_at`.
+   *
+   * Tenant-scoped like every other write here: an `id` belonging to
+   * another tenant matches zero rows and this returns `null`, the same
+   * outcome as an `id` that does not exist at all.
    */
   updateUser(
     id: number,
     data: Omit<UpdateUserData, "password_hash">,
   ): SafeUser | null {
-    const updated = this.update(id, data);
-    if (!updated) return null;
-    return this.findByIdSafe(id);
+    const columns = Object.keys(data);
+    if (columns.length === 0) return this.findByIdSafe(id);
+
+    try {
+      const setClause = columns.map((col) => `${col} = ?`).join(", ");
+      const values = Object.values(data);
+      const query = `UPDATE ${this.tableName} SET ${setClause} WHERE id = ? AND tenant_id = ?`;
+      const result = this.execute(query, ...values, id, getCurrentTenantId());
+      if (result.changes === 0) return null;
+      return this.findByIdSafe(id);
+    } catch (error) {
+      throw new DatabaseError("Failed to update user", {
+        cause: error,
+        entityId: id,
+      });
+    }
   }
 
   /**

@@ -7,7 +7,7 @@
  */
 
 import type { ApiAdapter } from "@liratek/ui";
-import type { ProductListFilters } from "@liratek/core";
+import type { ProductListFilters, CreateUserInput } from "@liratek/core";
 import * as api from "./backendApi";
 
 export class ElectronApiAdapter implements ApiAdapter {
@@ -405,8 +405,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Users
   // ---------------------------------------------------------------------------
   getNonAdminUsers = () => api.getNonAdminUsers();
-  createUser = (data: { username: string; password: string; role: string }) =>
-    api.createUser(data);
+  createUser = (data: CreateUserInput) => api.createUser(data);
   setUserActive = (userId: number, is_active: boolean) =>
     api.setUserActive(userId, is_active);
   setUserRole = (userId: number, role: string) => api.setUserRole(userId, role);
@@ -859,10 +858,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Nested namespace mirroring window.api.vouchers (dual-mode IPC/REST).
   // All channels return the service envelope directly.
   vouchers = {
-    getAll: (
-      filters?: { status?: string; clientId?: number },
-      day?: string,
-    ) => api.vouchersGetAll(filters, day),
+    getAll: (filters?: { status?: string; clientId?: number }, day?: string) =>
+      api.vouchersGetAll(filters, day),
     create: (data: {
       clientId: number;
       amount: number;

@@ -734,13 +734,27 @@ export function registerAuthHandlers(): void {
       if (!v.ok) return { success: false, error: v.error };
 
       try {
+        let changed: boolean;
         if (v.data.is_active === 0) {
           // Deactivate
           const session = getSessionInfo(e.sender.id);
-          authService.deactivateUser(v.data.id, session?.userId || 0, "admin");
+          changed = authService.deactivateUser(
+            v.data.id,
+            session?.userId || 0,
+            "admin",
+          );
         } else {
           // Reactivate
-          authService.reactivateUser(v.data.id, "admin");
+          changed = authService.reactivateUser(v.data.id, "admin");
+        }
+        // deactivateUser/reactivateUser return `false` when no row was
+        // updated (unknown id, or — now that these are tenant-scoped — an
+        // id belonging to another tenant). Discarding that and always
+        // auditing + returning success:true reported success for a
+        // mutation that never happened; REST's mirror already branches on
+        // this (rule 19 — the two transports must agree).
+        if (!changed) {
+          return { success: false, error: "User not found" };
         }
         audit(e.sender.id, {
           action: "update",
@@ -778,12 +792,25 @@ export function registerAuthHandlers(): void {
       if (!v.ok) return { success: false, error: v.error };
 
       try {
-        // Direct database update for role change (not in AuthService yet)
-        const db = getDatabase();
-        db.prepare(`UPDATE users SET role = ? WHERE id = ?`).run(
-          v.data.role,
+        // Delegates to AuthService.setUserRole, which writes through
+        // UserRepository.updateUser (tenant-scoped: WHERE id = ? AND
+        // tenant_id = ?) — the previous raw
+        // `UPDATE users SET role = ? WHERE id = ?` here had no tenant_id
+        // predicate and let an admin change another tenant's user's role
+        // by guessing an id.
+        const changed = authService.setUserRole(
           v.data.id,
+          v.data.role,
+          "admin",
         );
+        // setUserRole returns `false` when no row was updated (unknown id,
+        // or an id belonging to another tenant) — discarding that and
+        // always auditing + returning success:true reported success for a
+        // role change that never happened. REST's mirror already branches
+        // on this (rule 19 — the two transports must agree).
+        if (!changed) {
+          return { success: false, error: "User not found" };
+        }
         audit(e.sender.id, {
           action: "update",
           entity_type: "user",

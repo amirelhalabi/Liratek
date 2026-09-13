@@ -8,6 +8,9 @@ export * from "./product.js";
 export * from "./inventory.js";
 export * from "./sale.js";
 export * from "./auth.js";
+// User management (create/password/active/role) — deliberately a separate
+// module from auth.js; see user.ts's header for why.
+export * from "./user.js";
 export * from "./common.js";
 export * from "./financial.js";
 export * from "./debt.js";

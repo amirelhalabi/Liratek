@@ -43,22 +43,23 @@ path and confirm the test count before running.
 
 Hard-won, and the reason this file exists. Each line below cost a failed run.
 
-| Where | What bites |
-| --- | --- |
-| Login | `input[placeholder="Enter username"]`, `input[type="password"]`; JWT lands in `localStorage["liratek.jwt"]` |
-| Clients | inputs are `name="full_name"` / `name="phone_number"` — the *placeholders* are `"John Doe"` / `"03 123 456"`, so matching a placeholder like `/full name/i` finds nothing. Save button: **"Save Client"** |
-| Phone validation | **8 digits, no spaces** (`03123456`). `03 000 875` is rejected with "Invalid phone number format" |
-| Partners | placeholders `"Partner name"`, `"+961 XX XXX XXX"`; the action is **"Create"**, not "Save" |
-| Products | `name="name"`, `name="cost_price"`, `name="retail_price"`, `name="stock_quantity"`; **"Save Product"** |
-| Maintenance | there are **TWO** `placeholder="0.00"` inputs — the **second** is price-to-client. Filling `.first()` leaves the job at $0.00 and checkout opens with a zero total |
-| Maintenance checkout | needs a **customer** (`client-autocomplete-field`) before "Complete Sale" will post |
-| Exchange | submit is **"Proceed to Payout"**, then a dialog whose payout amount is **already correct** — overwriting it creates `Remaining (Debt)`. Just click **"Pay 103,240 LBP"** |
-| Recharge | "Proceed to Pay" only *reveals* the submit, which is labelled with the amount: **"Pay 300,000 LBP"** |
-| Loto | **two** buttons read "Sell Ticket"; the submit is the **last** one |
-| OMT / Whish | providers are `OMT ↑ / ↓` and `WHISH ↑ / ↓` (direction); submit is **"Record Send"** |
-| Payment sheets | the amount input id is per-line: `[data-testid^="payment-amount-"]` |
-| Checkpoint | **`/#/checkpoint` is not a route** — it silently falls back to the Dashboard. The modal opens from a drawer card's `button[title="Checkpoint"]`, and only when the `sessionManagement` flag is on |
-| Success detection | match a completion phrase, not a bare word. `/sold/i` matched the stats label "Tickets **Sold** 0" and reported a false success for a sale that never happened |
+| Where                | What bites                                                                                                                                                                                                                                                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Login                | `input[placeholder="Enter username"]`, `input[type="password"]`; JWT lands in `localStorage["liratek.jwt"]`                                                                                                                                                                                                                                       |
+| Clients              | inputs are `name="full_name"` / `name="phone_number"` — the _placeholders_ are `"John Doe"` / `"03 123 456"`, so matching a placeholder like `/full name/i` finds nothing. Save button: **"Save Client"**                                                                                                                                         |
+| Phone validation     | **8 digits, no spaces** (`03123456`). `03 000 875` is rejected with "Invalid phone number format"                                                                                                                                                                                                                                                 |
+| Partners             | placeholders `"Partner name"`, `"+961 XX XXX XXX"`; the action is **"Create"**, not "Save"                                                                                                                                                                                                                                                        |
+| Products             | `name="name"`, `name="cost_price"`, `name="retail_price"`, `name="stock_quantity"`; **"Save Product"**                                                                                                                                                                                                                                            |
+| Maintenance          | there are **TWO** `placeholder="0.00"` inputs — the **second** is price-to-client. Filling `.first()` leaves the job at $0.00 and checkout opens with a zero total                                                                                                                                                                                |
+| Maintenance checkout | needs a **customer** (`client-autocomplete-field`) before "Complete Sale" will post                                                                                                                                                                                                                                                               |
+| Exchange             | submit is **"Proceed to Payout"**, then a dialog whose payout amount is **already correct** — overwriting it creates `Remaining (Debt)`. Just click **"Pay 103,240 LBP"**                                                                                                                                                                         |
+| Recharge             | "Proceed to Pay" only _reveals_ the submit, which is labelled with the amount: **"Pay 300,000 LBP"**                                                                                                                                                                                                                                              |
+| Loto                 | **two** buttons read "Sell Ticket"; the submit is the **last** one                                                                                                                                                                                                                                                                                |
+| OMT / Whish          | providers are `OMT ↑ / ↓` and `WHISH ↑ / ↓` (direction); submit is **"Record Send"**                                                                                                                                                                                                                                                              |
+| Payment sheets       | the amount input id is per-line: `[data-testid^="payment-amount-"]`                                                                                                                                                                                                                                                                               |
+| Checkpoint           | **`/#/checkpoint` is not a route** — it silently falls back to the Dashboard. The modal opens from a drawer card's `button[title="Checkpoint"]`, and only when the `sessionManagement` flag is on                                                                                                                                                 |
+| Success detection    | match a completion phrase, not a bare word. `/sold/i` matched the stats label "Tickets **Sold** 0" and reported a false success for a sale that never happened                                                                                                                                                                                    |
+| Settings → Users     | flow 16 deliberately does **not** use `verdict()`. It re-reads the new user from `/api/users/non-admins` with the page's own JWT, because the defect it guards was a route that returned `{success:true,id:1}` **without writing a row** — a toast check passes against that stub. When a route can lie, only reading the record back is evidence |
 
 ## Reading the results
 
@@ -80,4 +81,12 @@ Hard-won, and the reason this file exists. Each line below cost a failed run.
   flow, fix the driver rather than assuming a regression.
 
 A baseline run on 2026-09-13 against the test tenant: **10 SUBMITTED, 2 SKIP
-(carrier lines already existed), 3 UNCLEAR, 0 HTTP errors.**
+(carrier lines already existed), 3 UNCLEAR, 0 HTTP errors.** Flow 16 (user
+creation) was added after that run and is not in those numbers.
+
+## ⚠ It creates a real LOGIN
+
+Flow 16 creates a real staff user (`smoke<NNNN>` / `Smoke@123`) on the target
+tenant, and like every other flow here there is no cleanup. On a tenant that is
+not disposable, delete it afterwards — a smoke account with a known password is
+a standing credential.

@@ -548,6 +548,54 @@ export class AuthService {
     return this.userRepo.restore(userId);
   }
 
+  /**
+   * Change a user's role (admin only operation).
+   *
+   * Guards mirror deactivateUser above: same authorization check, and the
+   * same last-admin protection — demoting the last active admin to staff
+   * would leave the tenant with no admin, the exact outcome
+   * deactivateUser already refuses for deletion. reactivateUser has no
+   * such guard because activating never reduces the admin count, and
+   * neither does promoting staff -> admin here, so the guard only applies
+   * to an admin -> staff change.
+   *
+   * The write goes through userRepo.updateUser, which is TENANT-SCOPED
+   * (an explicit `WHERE id = ? AND tenant_id = ?` — see that method's own
+   * doc comment for why it does not delegate to the generic
+   * `BaseRepository.update()`): a userId belonging to another tenant
+   * simply does not match the WHERE clause and this returns false, the
+   * same not-found-shaped outcome as an id that does not exist at all —
+   * mirroring reactivateUser/deactivateUser, which also report failure as
+   * `false` rather than throwing on an unknown id. This replaces the old
+   * IPC handler's raw
+   * `UPDATE users SET role = ? WHERE id = ?` (no tenant_id predicate),
+   * which let an admin change another TENANT's user's role by guessing an
+   * id.
+   */
+  setUserRole(
+    userId: number,
+    role: "admin" | "staff",
+    actorRole: string,
+  ): boolean {
+    // Authorization check
+    if (actorRole !== "admin") {
+      throw new AuthorizationError("Only administrators can change roles");
+    }
+
+    // Check if this would demote the last admin
+    const user = this.userRepo.findById(userId);
+    if (
+      user?.role === "admin" &&
+      role === "staff" &&
+      this.userRepo.countActiveAdmins() <= 1
+    ) {
+      throw new BusinessRuleError("Cannot demote the last administrator");
+    }
+
+    const updated = this.userRepo.updateUser(userId, { role });
+    return updated !== null;
+  }
+
   // ---------------------------------------------------------------------------
   // Query Methods
   // ---------------------------------------------------------------------------

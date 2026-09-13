@@ -1,8 +1,30 @@
 import { useEffect, useState } from "react";
-import { Select, useApi } from "@liratek/ui";
+import { Select, appEvents, useApi } from "@liratek/ui";
 import { DataTable, TextInput } from "@liratek/ui";
 import PasswordInput from "@/shared/components/PasswordInput";
 import { validatePassword } from "@/shared/utils/validatePassword";
+import { messageFrom } from "@/api/apiError";
+
+/**
+ * User creation used to fail completely silently on the web transport: no
+ * success feedback ever existed on either transport (the only positive
+ * signal was the table refreshing), and none of the actions below had a
+ * try/catch — `requestJson` throws a plain `{status,message,details}` OBJECT
+ * on any non-2xx (see `apiError.ts`'s `messageFrom` doc comment), not an
+ * `Error`, so a 401/403 from `requireRole` rejected, React swallowed the
+ * unhandled rejection, and nothing rendered. Every action here now goes
+ * through `messageFrom` + the app's shared toast (`appEvents` +
+ * `notification:show`, same mechanism `SignedInDevices.tsx` and
+ * `ModulesManager.tsx` already use) for both success and failure, instead of
+ * `alert()`.
+ */
+function notifySuccess(message: string) {
+  appEvents.emit("notification:show", message, "success");
+}
+
+function notifyError(err: unknown, fallback: string) {
+  appEvents.emit("notification:show", messageFrom(err, fallback), "error");
+}
 
 export default function UsersManager() {
   const api = useApi();
@@ -18,6 +40,7 @@ export default function UsersManager() {
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<"admin" | "staff">("staff");
+  const [creating, setCreating] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -28,6 +51,8 @@ export default function UsersManager() {
         role: (u.role === "admin" ? "admin" : "staff") as "admin" | "staff",
       }));
       setList(normalized);
+    } catch (e) {
+      notifyError(e, "Failed to load users");
     } finally {
       setLoading(false);
     }
@@ -38,46 +63,80 @@ export default function UsersManager() {
   }, []);
 
   const toggleActive = async (id: number, is_active: number) => {
-    await api.setUserActive(id, is_active ? false : true);
-    load();
+    try {
+      const res = await api.setUserActive(id, is_active ? false : true);
+      if (!res.success) {
+        notifyError(res.error, "Failed to update user status");
+        return;
+      }
+      notifySuccess(is_active ? "User deactivated" : "User activated");
+      await load();
+    } catch (e) {
+      notifyError(e, "Failed to update user status");
+    }
   };
 
   const changeRole = async (id: number, role: "admin" | "staff") => {
     const newRole = role === "admin" ? "staff" : "admin";
-    await api.setUserRole(id, newRole);
-    load();
+    try {
+      const res = await api.setUserRole(id, newRole);
+      if (!res.success) {
+        notifyError(res.error, "Failed to change role");
+        return;
+      }
+      notifySuccess(`Role changed to ${newRole}`);
+      await load();
+    } catch (e) {
+      notifyError(e, "Failed to change role");
+    }
   };
 
   const createUser = async () => {
     if (!newUsername || !newPassword) {
-      alert("Username and password required");
+      notifyError(null, "Username and password required");
       return;
     }
     const pwResult = validatePassword(newPassword);
     if (!pwResult.valid) {
-      alert(pwResult.errors.join("\n"));
+      notifyError(null, pwResult.errors.join(" "));
       return;
     }
-    const res = await api.createUser({
-      username: newUsername,
-      password: newPassword,
-      role: newRole,
-    });
-    if (!res.success) {
-      alert(res.error);
-      return;
+    setCreating(true);
+    try {
+      const res = await api.createUser({
+        username: newUsername,
+        password: newPassword,
+        role: newRole,
+      });
+      if (!res.success) {
+        notifyError(res.error, "Failed to create user");
+        return;
+      }
+      notifySuccess(`User "${newUsername}" created`);
+      setNewUsername("");
+      setNewPassword("");
+      setNewRole("staff");
+      await load();
+    } catch (e) {
+      notifyError(e, "Failed to create user");
+    } finally {
+      setCreating(false);
     }
-    setNewUsername("");
-    setNewPassword("");
-    setNewRole("staff");
-    load();
   };
 
   const setPassword = async (id: number) => {
     const pwd = prompt("Enter new password");
     if (!pwd) return;
-    const res = await api.setUserPassword(id, pwd);
-    if (!res.success) alert(res.error);
+    try {
+      const res = await api.setUserPassword(id, pwd);
+      if (!res.success) {
+        notifyError(res.error, "Failed to set password");
+        return;
+      }
+      notifySuccess("Password updated");
+    } catch (e) {
+      notifyError(e, "Failed to set password");
+    }
   };
 
   return (
@@ -111,9 +170,10 @@ export default function UsersManager() {
         />
         <button
           onClick={createUser}
-          className="px-3 py-1 bg-violet-600 rounded text-white"
+          disabled={creating}
+          className="px-3 py-1 bg-violet-600 rounded text-white disabled:opacity-50"
         >
-          Create
+          {creating ? "Creating…" : "Create"}
         </button>
       </div>
 

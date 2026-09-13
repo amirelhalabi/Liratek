@@ -172,6 +172,18 @@ import {
   type CustomServiceUpdateMetadataInput,
   lotoUpdateMetadataSchema,
   type LotoUpdateMetadataInput,
+  // User management (create/password/active/role) — shared with the REST
+  // routes via packages/core/src/validators/user.ts (rule 14/19b). Cast
+  // bridges the zod major mismatch (core types against zod 4, this
+  // workspace types against zod 3); the runtime API used is identical.
+  createUserSchema as coreCreateUserSchema,
+  setUserPasswordSchema as coreSetUserPasswordSchema,
+  setUserActiveSchema as coreSetUserActiveSchema,
+  setUserRoleSchema as coreSetUserRoleSchema,
+  type CreateUserInput,
+  type SetUserPasswordInput,
+  type SetUserActiveInput,
+  type SetUserRoleInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -301,26 +313,23 @@ export const ProductListFiltersSchema =
 // Auth / Users
 // =============================================================================
 
-export const CreateUserSchema = z.object({
-  username: z.string().min(1, "Username is required"),
-  password: z.string().min(4, "Password must be at least 4 characters"),
-  role: z.enum(["admin", "staff"]),
-});
+// These four re-export packages/core/src/validators/user.ts's schemas
+// (rule 14/19b — one definition shared by IPC and REST) instead of a local
+// duplicate. Names kept identical so every existing import in this file
+// keeps working. Cast bridges the zod major mismatch (core types against
+// zod 4, this workspace types against zod 3); the runtime API used is
+// identical.
+export const CreateUserSchema =
+  coreCreateUserSchema as unknown as z.ZodSchema<CreateUserInput>;
 
-export const SetPasswordSchema = z.object({
-  id: z.number().int().positive(),
-  password: z.string().min(4, "Password must be at least 4 characters"),
-});
+export const SetPasswordSchema =
+  coreSetUserPasswordSchema as unknown as z.ZodSchema<SetUserPasswordInput>;
 
-export const SetUserActiveSchema = z.object({
-  id: z.number().int().positive(),
-  is_active: z.union([z.literal(0), z.literal(1)]),
-});
+export const SetUserActiveSchema =
+  coreSetUserActiveSchema as unknown as z.ZodSchema<SetUserActiveInput>;
 
-export const SetUserRoleSchema = z.object({
-  id: z.number().int().positive(),
-  role: z.enum(["admin", "staff"]),
-});
+export const SetUserRoleSchema =
+  coreSetUserRoleSchema as unknown as z.ZodSchema<SetUserRoleInput>;
 
 // =============================================================================
 // Expenses

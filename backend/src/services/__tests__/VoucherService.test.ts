@@ -99,8 +99,10 @@ describe("VoucherService", () => {
       mockRepo.getByCode.mockReturnValue(makeVoucher() as never);
       const result = service.validateVoucher("gift-abcd-1234");
       expect(result.success).toBe(true);
-      // codes are normalized to upper-case before lookup
-      expect(mockRepo.getByCode).toHaveBeenCalledWith("GIFT-ABCD-1234");
+      // codes are normalized to upper-case before lookup (assert only the
+      // first arg — getByCode also takes an optional `day` the caller may
+      // omit, so pinning the full arg list is brittle to that parameter)
+      expect(mockRepo.getByCode.mock.calls[0][0]).toBe("GIFT-ABCD-1234");
     });
 
     it("rejects an unknown code", () => {
