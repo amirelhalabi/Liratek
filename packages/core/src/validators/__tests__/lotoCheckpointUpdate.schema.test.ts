@@ -11,10 +11,16 @@
  * and the money fields (`total_sales`/`total_commission`/`total_prizes`/
  * `is_settled`/`settlement_id`) a checkpoint settlement depends on.
  *
- * Rule 17 (failing-first proof owed, not run here): to prove the
- * "rejects a bad type" case actually guards something, temporarily change
- * `total_sales` back to `z.any()` (or drop the field entirely), re-run this
- * file, confirm the "rejects a bad type" test fails, then revert.
+ * Rule-17 note (discharged 2026-09-13): changed `total_sales` back to
+ * `z.any().optional()` in `packages/core/src/validators/loto.ts`. Ran
+ * `npx jest --testPathPatterns "lotoCheckpointUpdate.schema"` —
+ * "rejects a bad type on a money field (total_sales: string)" failed:
+ *   expect(received).toThrow()
+ *   Received function did not throw
+ * (the parse of `{ total_sales: "abc" }` succeeded instead). 1 failed, 5
+ * passed, 6 total. Reverted from a pre-edit copy;
+ * `git diff --stat -- packages/core/src/validators/loto.ts` printed nothing
+ * afterward.
  */
 
 import { describe, it, expect } from "@jest/globals";

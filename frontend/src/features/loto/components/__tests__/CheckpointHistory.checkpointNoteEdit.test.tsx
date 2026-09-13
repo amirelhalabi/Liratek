@@ -18,12 +18,22 @@
  * the buggy code too, since the buggy code also calls a function and often
  * resolves `{ success: true }`.
  *
- * Rule 17 (failing-first proof owed, not run here): to prove this test
- * actually catches the bug, temporarily revert `handleSaveEdit` to call
- * `api.loto.updateMetadata({ id: editingId, note: editNoteValue })` again,
- * re-run this file, and confirm
- * "does NOT call api.loto.updateMetadata" fails (because it WOULD have been
- * called) — then revert back to the fix.
+ * Rule-17 note (discharged 2026-09-13): reverted `handleSaveEdit` in
+ * `frontend/src/features/loto/components/CheckpointHistory.tsx` to call
+ * `api.loto.updateMetadata({ id: editingId, note: editNoteValue })` instead
+ * of `api.loto.checkpoint.update(editingId, { note: editNoteValue })`. Ran
+ * `npx jest --maxWorkers=2 --testPathPatterns "CheckpointHistory.checkpointNoteEdit"`
+ * — the test failed:
+ *   expect(jest.fn()).toHaveBeenCalled()
+ *   Expected number of calls: >= 1
+ *   Received number of calls:    0
+ * (`mockCheckpointUpdate` was never called — the reverted code called
+ * `mockUpdateMetadata` instead, which resolved `undefined` since this test
+ * never stubs a return value for it, so `handleSaveEdit` then threw
+ * `TypeError: Cannot read properties of undefined (reading 'success')`).
+ * 1 failed, 1 total. Reverted from a pre-edit copy;
+ * `git diff --stat -- frontend/src/features/loto/components/CheckpointHistory.tsx`
+ * printed nothing afterward.
  */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CheckpointHistory } from "../CheckpointHistory";

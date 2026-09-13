@@ -14,6 +14,29 @@
  * real DB — this test is only proving InventoryService's own guard/pass-
  * through logic, not the SQL `unit = ?` clause (that's ProductRepository's
  * own concern).
+ *
+ * Rule-17 note (discharged 2026-09-13): removed the `data.unit !== undefined`
+ * arm from the `hasField` guard in
+ * `packages/core/src/services/InventoryService.ts`'s `batchUpdateProducts`.
+ * Ran `npx jest --testPathPatterns "InventoryService.batchUpdateUnit"` — 3 of
+ * 5 failed:
+ *   "accepts a unit-only payload…" — the guard now saw no known field and
+ *   rejected it:
+ *     - Expected  - 2
+ *     + Received  + 3
+ *         Object {
+ *     -     "success": true,
+ *     -     "updated": 2,
+ *     +     "error": "No fields to update",
+ *     +     "success": false,
+ *     +     "updated": 0,
+ *         }
+ *   "forwards `unit`…" and "forwards `unit: null`…" both failed with
+ *   `Expected number of calls: 0` on `mockProductRepo.batchUpdateProducts` —
+ *   the guard rejected before the repository was ever called.
+ * 3 failed, 2 passed, 5 total. Reverted from a pre-edit copy;
+ * `git diff --stat -- packages/core/src/services/InventoryService.ts` printed
+ * nothing afterward.
  */
 
 import { InventoryService } from "../InventoryService.js";
