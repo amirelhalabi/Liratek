@@ -39,9 +39,19 @@
  * Everything here is pure (no DB, no I/O, `today` injectable) so the repository
  * write path, the reversal path, and the pre-submit UI warning all compute the
  * SAME projection from the same code instead of three drifting copies.
+ *
+ * ⚠ This module is re-exported from `browser.ts` (KatchForm and
+ * CarrierLinesPanel both import from it), so it must stay free of Node
+ * built-ins — that means `localDay()`, never `clientDay()`, for the `today`
+ * default: `clientDay()` lives in the server-only `utils/requestDay.ts` and
+ * pulls in `node:async_hooks` via the tenant context. Server callers on the
+ * request path resolve the day themselves and pass `today` explicitly
+ * (`CarrierLineRepository.computeAppliedState` does); in the browser
+ * `localDay()` IS the client's own day, which is the value the server would
+ * have received anyway.
  */
 
-import { clientDay } from "./localDate.js";
+import { localDay } from "./localDate.js";
 
 // =============================================================================
 // Constants (owner-stated, 2026-08-29)
@@ -131,7 +141,7 @@ export interface LineValidityClassification {
 }
 
 /**
- * Where a line stands relative to today. Pure whenever `today` is supplied explicitly (as every test here does) — pass `today` to test it across a date boundary without mocking a clock. The default (`clientDay()`) is the one impure part: it reads the ambient request's tenant-context day, falling back to the machine's `localDay()`, for the rare direct caller that omits it (`CarrierLineRepository.applyMovement`'s production path always resolves and passes `today` explicitly, so this default is not on that hot path today).
+ * Where a line stands relative to today. Pure whenever `today` is supplied explicitly (as every test here does) — pass `today` to test it across a date boundary without mocking a clock. The default (`localDay()`) is the one impure part: it reads the machine's own calendar day, for the rare direct caller that omits it (`CarrierLineRepository.applyMovement`'s production path always resolves and passes `today` explicitly, so this default is not on that hot path today; the browser callers that DO omit it are running on the client's own clock, which is the right day).
  *
  * `daysRemaining` here MUST agree with the frontend's `daysRemaining()`
  * display helper (`frontend/src/shared/utils/daysRemaining.ts`): both are
@@ -140,7 +150,7 @@ export interface LineValidityClassification {
  */
 export function classifyLineValidity(
   expiry: string | null | undefined,
-  today: string = clientDay(),
+  today: string = localDay(),
 ): LineValidityClassification {
   if (!expiry) return { state: "NO_EXPIRY", lapseDays: 0, daysRemaining: 0 };
 
@@ -181,7 +191,7 @@ export interface ValidityProjection {
 
 /**
  * Project a line's new expiry for a `daysDelta` day movement, per THE RULE at
- * the top of this file. Pure whenever `today` is supplied explicitly (as every test here does) — pass `today` to test it across a date boundary without mocking a clock. The default (`clientDay()`) is the one impure part: it reads the ambient request's tenant-context day, falling back to the machine's `localDay()`, for the rare direct caller that omits it (`CarrierLineRepository.applyMovement`'s production path always resolves and passes `today` explicitly, so this default is not on that hot path today).
+ * the top of this file. Pure whenever `today` is supplied explicitly (as every test here does) — pass `today` to test it across a date boundary without mocking a clock. The default (`localDay()`) is the one impure part: it reads the machine's own calendar day, for the rare direct caller that omits it (`CarrierLineRepository.applyMovement`'s production path always resolves and passes `today` explicitly, so this default is not on that hot path today; the browser callers that DO omit it are running on the client's own clock, which is the right day).
  *
  * A zero delta is a no-op that reports the line's current state, so callers can
  * use this to classify without branching on the delta first.
@@ -194,7 +204,7 @@ export interface ValidityProjection {
 export function projectValidityExpiry(
   expiry: string | null | undefined,
   daysDelta: number,
-  today: string = clientDay(),
+  today: string = localDay(),
 ): ValidityProjection {
   const { state, lapseDays } = classifyLineValidity(expiry, today);
   const unchanged: ValidityProjection = {

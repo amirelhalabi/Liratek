@@ -14,7 +14,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getDebtRepository } from "./DebtRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { clientDay } from "../utils/localDate.js";
+import { clientDay } from "../utils/requestDay.js";
 
 // =============================================================================
 // Entity Types

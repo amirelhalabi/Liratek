@@ -1,7 +1,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { closingLogger } from "../utils/logger.js";
-import { clientDay } from "../utils/localDate.js";
+import { clientDay } from "../utils/requestDay.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";

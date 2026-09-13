@@ -47,7 +47,7 @@ interface TenantStore {
    * to learn something about the request that isn't one of its own
    * arguments (rule 27 — dual-transport hazard). Null when the caller
    * supplied nothing, or supplied a value that failed `CLIENT_DAY_PATTERN`.
-   * `clientDay()` (utils/localDate.ts) is the public accessor everything
+   * `clientDay()` (utils/requestDay.ts) is the public accessor everything
    * else should call — it folds this into the `localDay()` fallback so an
    * absent/invalid value is always harmless.
    */
@@ -100,7 +100,11 @@ export function runWithTenant<T>(
   options?: { clientDay?: string | null },
 ): T {
   return tenantAls.run(
-    { tenantId, bypass: false, clientDay: normalizeClientDay(options?.clientDay) },
+    {
+      tenantId,
+      bypass: false,
+      clientDay: normalizeClientDay(options?.clientDay),
+    },
     fn,
   );
 }
@@ -167,7 +171,7 @@ export function isTenantBypass(): boolean {
  * `runWithoutTenant()` bypass, or when none/an invalid one was supplied.
  *
  * This is the low-level accessor — request-path code should call
- * `clientDay()` (`utils/localDate.ts`) instead, which folds this into the
+ * `clientDay()` (`utils/requestDay.ts`) instead, which folds this into the
  * same `?? localDay()` fallback every other caller here already uses, so
  * desktop (no ALS scope, ever) and any test that doesn't set one keep
  * behaving exactly as before.

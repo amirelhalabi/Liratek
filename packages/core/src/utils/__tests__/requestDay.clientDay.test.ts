@@ -1,5 +1,5 @@
 /**
- * `clientDay()` (utils/localDate.ts) — the request-path counterpart to
+ * `clientDay()` (utils/requestDay.ts) — the request-path counterpart to
  * `localDay()`. CLAUDE.md rule 27: `localDay()` reads the MACHINE's calendar
  * day, which is the shop's own clock on desktop but a Fly container's (no
  * `TZ`, i.e. UTC) on web — wrong for ~3h every night. `clientDay()` prefers
@@ -16,7 +16,8 @@
  * agreeing.
  */
 
-import { clientDay, localDay } from "../localDate";
+import { clientDay } from "../requestDay";
+import { localDay } from "../localDate";
 import { runWithTenant, runWithoutTenant } from "../../db/tenantContext";
 
 describe("clientDay()", () => {

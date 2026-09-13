@@ -9,7 +9,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { clientDay } from "../utils/localDate.js";
+import { clientDay } from "../utils/requestDay.js";
 // LIRA-157 — the ONE carrier-line validity rule (grace window, stacking,
 // 365-day ceiling) and the calendar-date helpers that used to be private to
 // this file. Moved out so the pre-submit UI projection computes the SAME
