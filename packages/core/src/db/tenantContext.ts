@@ -40,9 +40,36 @@ interface TenantStore {
   tenantId: number | null;
   /** True only inside `runWithoutTenant()`. */
   bypass: boolean;
+  /**
+   * The CLIENT's own local calendar day (`YYYY-MM-DD`), carried alongside
+   * the tenant id for the same reason the tenant id is carried here at all:
+   * a synchronous better-sqlite3 call deep in a repository has no other way
+   * to learn something about the request that isn't one of its own
+   * arguments (rule 27 — dual-transport hazard). Null when the caller
+   * supplied nothing, or supplied a value that failed `CLIENT_DAY_PATTERN`.
+   * `clientDay()` (utils/localDate.ts) is the public accessor everything
+   * else should call — it folds this into the `localDay()` fallback so an
+   * absent/invalid value is always harmless.
+   */
+  clientDay: string | null;
 }
 
 const tenantAls = new AsyncLocalStorage<TenantStore>();
+
+/**
+ * Format a client-supplied calendar day must match to be trusted into the
+ * context — `YYYY-MM-DD`, the same shape `localDay()` produces. Exported so
+ * `backend/src/middleware/auth.ts` validates the `X-Client-Day` header
+ * against this SAME pattern rather than a re-typed copy (rule 14: a
+ * business-rule predicate is defined once).
+ */
+export const CLIENT_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeClientDay(value: string | null | undefined): string | null {
+  return typeof value === "string" && CLIENT_DAY_PATTERN.test(value)
+    ? value
+    : null;
+}
 
 /**
  * Module-level fallback tenant id for single-tenant/desktop mode. Set once at
@@ -57,9 +84,25 @@ let fixedTenantId: number | null = null;
  * call — e.g. a control-plane operation that needs to act "as" a specific
  * tenant for a moment — overrides the outer scope for its own extent only;
  * the outer scope is restored automatically once the nested call returns.
+ *
+ * `options.clientDay`, when given, is the CLIENT's own local calendar day
+ * (`YYYY-MM-DD`) for this same async extent — set by
+ * `backend/src/middleware/auth.ts` from the `X-Client-Day` request header,
+ * alongside the tenant id, since both answer "whose request is this" rather
+ * than anything the server's own clock can know. A value that fails
+ * `CLIENT_DAY_PATTERN` is silently dropped (stored as `null`, same as
+ * omitting it) — never throws, so a malformed or spoofed header can never
+ * fail a request over this alone (rule 27).
  */
-export function runWithTenant<T>(tenantId: number, fn: () => T): T {
-  return tenantAls.run({ tenantId, bypass: false }, fn);
+export function runWithTenant<T>(
+  tenantId: number,
+  fn: () => T,
+  options?: { clientDay?: string | null },
+): T {
+  return tenantAls.run(
+    { tenantId, bypass: false, clientDay: normalizeClientDay(options?.clientDay) },
+    fn,
+  );
 }
 
 /**
@@ -73,7 +116,7 @@ export function runWithTenant<T>(tenantId: number, fn: () => T): T {
  * for review.
  */
 export function runWithoutTenant<T>(fn: () => T): T {
-  return tenantAls.run({ tenantId: null, bypass: true }, fn);
+  return tenantAls.run({ tenantId: null, bypass: true, clientDay: null }, fn);
 }
 
 /**
@@ -115,6 +158,22 @@ export function getCurrentTenantId(): number {
  */
 export function isTenantBypass(): boolean {
   return tenantAls.getStore()?.bypass ?? false;
+}
+
+/**
+ * The CLIENT's own local calendar day (`YYYY-MM-DD`) for the current async
+ * scope, if `runWithTenant()` was given one and it passed
+ * `CLIENT_DAY_PATTERN`. `undefined` outside any scope, inside a
+ * `runWithoutTenant()` bypass, or when none/an invalid one was supplied.
+ *
+ * This is the low-level accessor — request-path code should call
+ * `clientDay()` (`utils/localDate.ts`) instead, which folds this into the
+ * same `?? localDay()` fallback every other caller here already uses, so
+ * desktop (no ALS scope, ever) and any test that doesn't set one keep
+ * behaving exactly as before.
+ */
+export function getContextClientDay(): string | undefined {
+  return tenantAls.getStore()?.clientDay ?? undefined;
 }
 
 /**

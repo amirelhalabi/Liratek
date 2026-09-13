@@ -1,4 +1,5 @@
 import { viteBackendUrl } from "@/config/viteEnv";
+import { localDay } from "@/shared/utils/localDay";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -185,6 +186,7 @@ export async function requestJson<T>(
         headers.Authorization = `Bearer ${token}`;
         sentToken = token;
       }
+      headers["X-Client-Day"] = localDay();
     }
 
     const res = await fetch(url, {

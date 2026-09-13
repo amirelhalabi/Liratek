@@ -9,18 +9,55 @@
  * `DATE(col, 'localtime') = DATE('now', 'localtime')` convention used across the
  * reporting repositories (SalesRepository, FinancialServiceRepository, …).
  *
- * On the desktop app the machine is the shop's PC (Beirut). On the web backend
- * the machine is the server — pin `TZ=Asia/Beirut` there (see
- * docs/plans/done_plans/LOCAL_BUSINESS_DAY_PLAN.md).
+ * On the desktop app the machine IS the shop's PC (Beirut), so `localDay()`
+ * is always correct there — it, and this whole module, remain fine for
+ * desktop/CLI code and for migrations, which never run per-request.
+ *
+ * On the web backend the machine is a Fly container with no `TZ` set (UTC),
+ * NOT the shop's clock — see CLAUDE.md rule 27. Do NOT "fix" that by pinning
+ * `TZ=Asia/Beirut` on the server: that hides the symptom for one tenant while
+ * leaving every other tenant in a different zone silently wrong, and trades a
+ * visible bug for an invisible one. For any REQUEST-path caller that needs
+ * the shop's actual calendar day, use `clientDay()` below instead of
+ * `localDay()` — it prefers the day the client itself supplied (via
+ * `runWithTenant()`'s `clientDay` option / the `X-Client-Day` header) and
+ * only falls back to this machine's day when none was supplied.
  */
 
 import { ValidationError } from "./errors.js";
+import { getContextClientDay } from "../db/tenantContext.js";
 
 const pad = (n: number): string => n.toString().padStart(2, "0");
 
 /** Local calendar day as `YYYY-MM-DD`. */
 export function localDay(date: Date = new Date()): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * The CLIENT's own local calendar day (`YYYY-MM-DD`) for a REQUEST-path
+ * caller: the value set in the current tenant-context scope (see
+ * `runWithTenant()`'s `clientDay` option in `db/tenantContext.ts`) if one is
+ * present, else this machine's own `localDay()`.
+ *
+ * Use this instead of `localDay()` in any repository/service method reached
+ * from an HTTP request or IPC call whose answer depends on "what day is it
+ * for the shop" — voucher expiry, carrier-line validity, login balance
+ * checks, checkpoints, and anything else CLAUDE.md rule 27 calls a
+ * dual-transport hazard. On desktop there is never an active
+ * `runWithTenant()` scope (the fixed-tenant fallback carries no day), so
+ * `clientDay()` reduces to `localDay()` there automatically — no behavior
+ * change for desktop, CLI tools, or migrations, which should keep calling
+ * `localDay()` directly (they don't run inside a request context anyway).
+ *
+ * An explicit parameter a caller already threads through (`closing_date`,
+ * `client_day`, `day`, …) still wins over this — those are checked BEFORE
+ * falling back to `clientDay()`, exactly as they fell back to `localDay()`
+ * before this existed. This function only removes the need to add a NEW
+ * explicit parameter for every future caller.
+ */
+export function clientDay(): string {
+  return getContextClientDay() ?? localDay();
 }
 
 /** Local calendar month as `YYYY-MM`. */

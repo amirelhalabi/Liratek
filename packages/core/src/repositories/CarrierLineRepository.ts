@@ -9,7 +9,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { localDay } from "../utils/localDate.js";
+import { clientDay } from "../utils/localDate.js";
 // LIRA-157 — the ONE carrier-line validity rule (grace window, stacking,
 // 365-day ceiling) and the calendar-date helpers that used to be private to
 // this file. Moved out so the pre-submit UI projection computes the SAME
@@ -215,9 +215,11 @@ export interface ApplyCarrierLineMovementInput {
   transactionId: number | null;
   /**
    * The CLIENT's own local calendar day (`YYYY-MM-DD`), fed through to
-   * `computeAppliedState`'s `today` parameter. Falls back to the server's own
-   * `localDay()` when omitted (unchanged behaviour for desktop, and for every
-   * caller that doesn't have a client day to send).
+   * `computeAppliedState`'s `today` parameter. Falls back to `clientDay()`
+   * when omitted — the request's tenant-context `X-Client-Day` value if the
+   * caller is inside one, else the server's own `localDay()` (unchanged
+   * behaviour for desktop, and for every caller that doesn't have a client
+   * day to send AND isn't itself running inside a wrapped web request).
    *
    * WHY THIS MATTERS HERE, specifically: `today` decides whether a charge
    * lands on the line's own expiry, revives it from today (grace window), or
@@ -717,8 +719,10 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
         input.validityDaysDelta,
         input.validityExpiresAt,
         // Passing `undefined` through is fine — `computeAppliedState`'s own
-        // `today` parameter defaults to `localDay()` when its argument is
-        // undefined, so an omitted `input.today` is unchanged behaviour.
+        // `today` parameter defaults to `clientDay()` when its argument is
+        // undefined, so an omitted `input.today` still resolves the ambient
+        // request's client day when one is set, and to `localDay()` (unchanged
+        // behaviour) otherwise.
         input.today,
       );
       const updatedLine = this.updateLine(input.carrierLineId, nextState)!;
@@ -1004,7 +1008,7 @@ function computeAppliedState(
    *  when supplied (Phase 3; see the input type's doc for why the delta form
    *  cannot express a counted date on an expired line). */
   validityExpiresAt?: string,
-  today: string = localDay(),
+  today: string = clientDay(),
 ): Pick<UpdateCarrierLineData, "credits" | "validity_expires_at"> {
   const newCredits = (line.credits ?? 0) + creditsDelta;
 

@@ -14,7 +14,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getDebtRepository } from "./DebtRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { localDay } from "../utils/localDate.js";
+import { clientDay } from "../utils/localDate.js";
 
 // =============================================================================
 // Entity Types
@@ -67,14 +67,18 @@ export interface RedeemVoucherParams {
   userId: number;
   /**
    * The CLIENT's own local calendar day (`YYYY-MM-DD`), compared against the
-   * voucher's stored `expiry_date`. Falls back to the server's own
-   * `localDay()` when omitted — unchanged behaviour for desktop (where the
-   * server process IS the shop's machine) and for any caller that doesn't
-   * supply one. On web the server runs whichever timezone the host booted in
-   * (UTC on Fly), not the shop's (Beirut, UTC+3), so trusting it alone can
-   * read a voucher as valid/expired up to 3 hours out of step with the shop
-   * — see `withEffectiveStatus`'s identical fix for the read-side twin of
-   * this bug.
+   * voucher's stored `expiry_date`. Falls back to `clientDay()` when
+   * omitted — which itself prefers the request's tenant-context `X-Client-Day`
+   * value and only then falls back to the server's own `localDay()` — so an
+   * explicit `day` here still wins for the one caller (RechargeRepository)
+   * that already threads its own, while the other five `redeemByCode`
+   * callers now get the request's client day for free with no plumbing of
+   * their own. Unchanged behaviour for desktop (no request-scoped context is
+   * ever active there, so `clientDay()` reduces to `localDay()`). On web the
+   * server runs whichever timezone the host booted in (UTC on Fly), not the
+   * shop's (Beirut, UTC+3), so trusting the server's day alone can read a
+   * voucher as valid/expired up to 3 hours out of step with the shop — see
+   * `withEffectiveStatus`'s identical fix for the read-side twin of this bug.
    */
   day?: string;
 }
@@ -114,13 +118,13 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
   /**
    * Map a stored row to its effective status (pending → expired when past
    * expiry). `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`);
-   * falls back to the server's own `localDay()` when omitted — see
-   * `RedeemVoucherParams.day`'s doc for why the server's day alone is
-   * untrustworthy on web.
+   * falls back to `clientDay()` (request context, then `localDay()`) when
+   * omitted — see `RedeemVoucherParams.day`'s doc for why the server's own
+   * day alone is untrustworthy on web.
    */
   private withEffectiveStatus(
     row: VoucherEntity,
-    day: string = localDay(),
+    day: string = clientDay(),
   ): VoucherEntity {
     if (row.status === "pending" && row.expiry_date && row.expiry_date < day) {
       return { ...row, status: "expired" };
@@ -150,7 +154,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
   getAll(filters: VoucherFilters = {}, day?: string): VoucherEntity[] {
     const clauses: string[] = [];
     const params: unknown[] = [getCurrentTenantId()];
-    const effectiveDay = day ?? localDay();
+    const effectiveDay = day ?? clientDay();
 
     if (filters.clientId) {
       clauses.push("client_id = ?");
@@ -267,7 +271,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     if (voucher.status === "redeemed") {
       throw new Error(`Voucher ${code} has already been redeemed`);
     }
-    const today = day ?? localDay();
+    const today = day ?? clientDay();
     if (voucher.expiry_date && voucher.expiry_date < today) {
       throw new Error(`Voucher ${code} has expired`);
     }

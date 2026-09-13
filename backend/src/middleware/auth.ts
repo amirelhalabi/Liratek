@@ -282,7 +282,10 @@ export function authenticateJWT(
         // AsyncLocalStorage keeps this context across await points inside
         // route handlers, so every repository call in this request resolves
         // getCurrentTenantId() to the JWT's tenant.
-        runWithTenant(tenantId, () => next());
+        const clientDayHeader = req.headers["x-client-day"];
+        const clientDay =
+          typeof clientDayHeader === "string" ? clientDayHeader : undefined;
+        runWithTenant(tenantId, () => next(), { clientDay });
       })
       .catch((error: unknown) => {
         // A THROWN error means validateSession could not answer the question

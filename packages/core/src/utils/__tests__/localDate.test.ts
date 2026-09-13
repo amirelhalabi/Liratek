@@ -11,10 +11,12 @@
  * rejection, and purity (no dependency on the system clock — the function
  * deliberately never calls `new Date()` with no argument).
  *
- * Deliberately imports ONLY `../localDate` (which itself imports only
- * `./errors.js`) — neither pulls in `better-sqlite3` or any repository, so
- * this file runs under plain Node with no native-module/ABI dependency at
- * all (verified: `../errors.js` has zero imports of its own).
+ * Deliberately imports ONLY `../localDate` (which itself imports `./errors.js`
+ * and `../db/tenantContext.js` — the latter added for `clientDay()`, see
+ * `localDate.clientDay.test.ts`) — neither pulls in `better-sqlite3` or any
+ * repository, so this file runs under plain Node with no native-module/ABI
+ * dependency at all (verified: both of localDate.ts's imports are pure JS/
+ * `node:async_hooks`, zero native deps transitively).
  */
 
 import { monthBounds } from "../localDate";

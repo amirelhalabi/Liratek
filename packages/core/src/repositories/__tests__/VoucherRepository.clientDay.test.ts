@@ -36,6 +36,7 @@ import {
 } from "../VoucherRepository.js";
 import { resetDebtRepository } from "../DebtRepository.js";
 import { localDay } from "../../utils/localDate.js";
+import { runWithTenant } from "../../db/tenantContext.js";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -203,5 +204,83 @@ describe("VoucherRepository — client-supplied `day`", () => {
     });
 
     expect(voucher.status).toBe("redeemed");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Context-driven clientDay — the actual payoff of threading `clientDay()`
+  // through the tenant-context scope: `redeemByCode`'s five OTHER callers
+  // (Sales, FinancialService, CustomService x2, SessionPayment — see
+  // 1ad3f8d9's "SCOPED, NOT SILENT" note) never pass an explicit `day` and
+  // never will get one added per-caller. What fixes them all at once is
+  // `authenticateJWT` wrapping the whole request in
+  // `runWithTenant(tenantId, fn, { clientDay })` — these cases prove that
+  // ambient wrapping is sufficient on its own, with NO explicit `day`
+  // anywhere in the call.
+  // ---------------------------------------------------------------------------
+
+  describe("context-driven clientDay (no explicit `day` param — the 5 unwired callers' fix)", () => {
+    it("getByCode reads 'expired' when the AMBIENT request context's clientDay is past expiry, with no explicit `day` argument", () => {
+      const code = insertVoucher();
+
+      runWithTenant(
+        1,
+        () => {
+          expect(repo.getByCode(code)!.status).toBe("expired");
+        },
+        { clientDay: futureClientDay },
+      );
+
+      // Outside that request scope, the same call reverts to the server's
+      // real day — proves the context, not some global mutation, drove it.
+      expect(repo.getByCode(code)!.status).toBe("pending");
+    });
+
+    it("redeemByCode REJECTS as expired under the ambient request context's clientDay, with no explicit `day` argument", () => {
+      const code = insertVoucher();
+
+      expect(() =>
+        runWithTenant(
+          1,
+          () =>
+            repo.redeemByCode({
+              code,
+              context: "test",
+              transactionId: null,
+              userId: 1,
+            }),
+          { clientDay: futureClientDay },
+        ),
+      ).toThrow(/expired/i);
+
+      const creditRows = (
+        db.prepare(`SELECT COUNT(*) AS n FROM debt_ledger`).get() as {
+          n: number;
+        }
+      ).n;
+      expect(creditRows).toBe(0);
+    });
+
+    it("an explicit `day` argument still wins over the ambient request context's clientDay", () => {
+      const code = insertVoucher();
+
+      // Context says "expired" (futureClientDay), but the explicit `day`
+      // argument (realToday) says "not expired yet" — the explicit
+      // parameter must win, exactly as it did for RechargeRepository's
+      // `client_day` before this change existed.
+      const voucher = runWithTenant(
+        1,
+        () =>
+          repo.redeemByCode({
+            code,
+            context: "test",
+            transactionId: null,
+            userId: 1,
+            day: realToday,
+          }),
+        { clientDay: futureClientDay },
+      );
+
+      expect(voucher.status).toBe("redeemed");
+    });
   });
 });

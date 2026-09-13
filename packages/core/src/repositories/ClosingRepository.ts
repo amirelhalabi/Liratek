@@ -1,7 +1,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { closingLogger } from "../utils/logger.js";
-import { localDay } from "../utils/localDate.js";
+import { clientDay } from "../utils/localDate.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
@@ -170,9 +170,9 @@ export interface CreateCheckpointData {
   /** Per-line SIM counts (MTC/Alfa). Absent/empty on every non-carrier
    *  drawer, which is why the whole feature is additive. */
   carrier_lines?: CheckpointCarrierLineCount[];
-  /** The CLIENT's own local calendar day (`YYYY-MM-DD`). Falls back to the
-   *  server's `localDay()` when omitted — see the comment on `closingDate`
-   *  in `createCheckpoint` for why the client's value must win. */
+  /** The CLIENT's own local calendar day (`YYYY-MM-DD`). Falls back to
+   *  `clientDay()` when omitted — see the comment on `closingDate` in
+   *  `createCheckpoint` for why the client's value must win. */
   closing_date?: string;
 }
 
@@ -534,13 +534,15 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       // of "the shop's today". On desktop the server process IS the shop's
       // PC, so server-local and client-local agree and callers can omit it.
       // On web the server runs whichever timezone the host booted in (UTC on
-      // Fly), not the shop's, so `localDay()` here is a FALLBACK for the rare
-      // caller that omits the field, not the source of truth — trusting it
-      // as the primary value is exactly the bug this comment used to
-      // describe as correct: a checkpoint taken at 01:00 Beirut got filed
-      // under the previous UTC day and vanished from the (client-computed)
-      // "today" timeline.
-      const closingDate = data.closing_date ?? localDay();
+      // Fly), not the shop's, so an explicit `data.closing_date` still wins,
+      // and `clientDay()` — the request's own `X-Client-Day` context value,
+      // falling back to `localDay()` only when that's also absent — is the
+      // fallback for the rare caller that omits the field, not the source of
+      // truth. Trusting the server's bare `localDay()` as primary is exactly
+      // the bug this comment used to describe as correct: a checkpoint taken
+      // at 01:00 Beirut got filed under the previous UTC day and vanished
+      // from the (client-computed) "today" timeline.
+      const closingDate = data.closing_date ?? clientDay();
       const tenantId = getCurrentTenantId();
 
       const stmt = this.db.prepare(`
@@ -1424,34 +1426,36 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Check if there is at least one checkpoint record in daily_closings for today's date.
    *
    * `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`), e.g. the
-   * browser's `localDay()`. Falls back to the server's own `localDay()` when
-   * omitted — desktop's server process IS the shop's own machine, so the two
-   * agree there and every existing caller is unaffected. On web the server
-   * runs whichever timezone the host booted in (UTC on Fly), not the shop's
-   * (Beirut, UTC+3), so trusting the server's day here reproduces the exact
-   * checkpoint bug (a 00:00-03:00 Beirut login could be told it still needs
-   * an opening balance for "today" when the shop's own today already has
-   * one, or vice-versa) — see `createCheckpoint`'s identical `closing_date`
-   * fix (rule 18) for the full writeup.
+   * browser's `localDay()`. Falls back to `clientDay()` when omitted — the
+   * request's own `X-Client-Day` context value, and only then the server's
+   * bare `localDay()` — so desktop (no request-scoped context there, every
+   * existing caller unaffected) and any explicit `day` argument behave
+   * exactly as before. On web the server runs whichever timezone the host
+   * booted in (UTC on Fly), not the shop's (Beirut, UTC+3), so trusting the
+   * server's bare day here reproduces the exact checkpoint bug (a
+   * 00:00-03:00 Beirut login could be told it still needs an opening
+   * balance for "today" when the shop's own today already has one, or
+   * vice-versa) — see `createCheckpoint`'s identical `closing_date` fix
+   * (rule 18) for the full writeup.
    */
   hasOpeningBalanceToday(day?: string): boolean {
-    // closing_date is a plain 'YYYY-MM-DD' string stamped via localDay() (see
+    // closing_date is a plain 'YYYY-MM-DD' string stamped via clientDay() (see
     // createCheckpoint) — compare against that SAME JS-computed value, not
     // SQLite's own DATE('now','localtime'). The two are NOT interchangeable:
     // SQLite's 'localtime' modifier calls the platform C runtime's localtime(),
     // which on Windows does not reliably honor an IANA TZ string (e.g.
     // TZ=Asia/Beirut resolves to the wrong UTC offset there), while Node's own
-    // Date getters (which localDay() uses) correctly respect process.env.TZ on
-    // every platform. Binding the same JS value on both sides of the
-    // comparison removes the cross-system disagreement entirely — verified
-    // via a direct comparison: with TZ=Asia/Beirut, SQLite's
+    // Date getters (which localDay()/clientDay() use) correctly respect
+    // process.env.TZ on every platform. Binding the same JS value on both
+    // sides of the comparison removes the cross-system disagreement entirely
+    // — verified via a direct comparison: with TZ=Asia/Beirut, SQLite's
     // DATE('now','localtime') on Windows returned a day BEHIND the correct
     // Beirut calendar day.
     const row = this.db
       .prepare(
         `SELECT 1 FROM daily_closings WHERE closing_date = ? AND tenant_id = ? LIMIT 1`,
       )
-      .get(day ?? localDay(), getCurrentTenantId());
+      .get(day ?? clientDay(), getCurrentTenantId());
     return row !== undefined;
   }
 
@@ -1593,10 +1597,18 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   }
 
   /**
-   * Get checkpoint timeline for a date
+   * Get checkpoint timeline for a date.
+   *
+   * `date_from`/`date_to` default to "today" when the caller omits them —
+   * `clientDay()` here (the request's own `X-Client-Day` context value,
+   * falling back to `localDay()`) so a request near midnight Beirut doesn't
+   * default to the wrong day's window on web, same class of bug as the
+   * `closing_date` fix on `createCheckpoint` above. An explicit `date_from`/
+   * `date_to` from the caller still wins outright — this only changes what
+   * "unset" resolves to.
    */
   getCheckpointTimeline(filters: CheckpointFilters = {}): CheckpointRecord[] {
-    const today = localDay();
+    const today = clientDay();
     const {
       date_from = today,
       date_to = today,
