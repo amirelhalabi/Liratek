@@ -1,11 +1,27 @@
 # Transport-parity audit — finding the rest of the Settle Debt class
 
-> **Status: Phases 1–2 done; every §6.4 and §6.6 item closed except the
-> rule-17 proofs. UNCOMMITTED, UNCHECKED (2026-09-12).** The sweep landed in
-> 43 files (now staged); the follow-up batch added 23 more plus 14 new test
-> files. **Nothing has been run** — no typecheck, lint, jest or e2e (owner
-> runs those), so every rule-17 failing-first proof is outstanding and no
-> guard test here counts as a guard yet. §6 is the desktop-regression code
+> **Status: COMPLETE (2026-09-13). Phases 1–2 done, every §6.4 and §6.6
+> item closed, and the rule-17 debt discharged — all 14 guard tests were
+> run against their own reverted bug and every one of them failed there**
+> (commits `08cbbad4`, `7a2d3a7e`, `e2796f55`). No false guard in the
+> batch. Each fix was reverted from a temp copy, the test run, the observed
+> failure quoted into that file's header, and the production file restored
+> and verified byte-identical with `git diff --stat` before the next — one
+> revert live at a time.
+>
+> One method correction came out of it, and it generalises: **removing
+> validation cannot prove a "fields survive intact" assertion.** With no
+> schema there is nothing to strip, so raw passthrough satisfies such a
+> test trivially. Those assertions guard rule 23 (Zod silently dropping a
+> key the schema forgot), so their faithful pre-fix state is a schema
+> MISSING a field. Two files needed that second revert; doing it reproduced
+> the rule-23 class live — `settlement_id` vanished en route to the service
+> with no error. Had the first revert been accepted as proof, those
+> assertions would now carry a discharged stamp while guarding nothing,
+> which is worse than an honest "owed" because nobody re-reads a tick.
+>
+> Historical note (superseded): this doc previously read "UNCOMMITTED,
+> UNCHECKED — nothing has been run", which was accurate when written. §6 is the desktop-regression code
 > review, done by reading only; §6.4 records the four planned follow-ups
 > (including a correction to one item's stated rationale, which was wrong)
 > and §6.6 everything else found while auditing — among it a loto
@@ -79,8 +95,8 @@ Three things had to line up, and all three are still true elsewhere:
 page/component where the two branches construct object literals.
 
 **Sharpest sub-case:** a field that has a `.default()` in the schema. In the
-reported bug `amountUSD`/`amountLBP` defaulted to `0`, so their snake_case
-twins failed _silently into zeroes_ rather than erroring. `clientId` has no
+reported bug `amountUSD`/`amountLBP` defaulted to `0`, so their snake*case
+twins failed \_silently into zeroes* rather than erroring. `clientId` has no
 default, which is the only reason this surfaced as an error instead of a
 **$0 repayment booked against the wrong client**. Any drifted field whose
 schema entry carries `.default()` is a silent-corruption candidate, not an
@@ -425,12 +441,27 @@ can discharge. Two were found by reading rather than by the plan's own
 defect classes, and one of those (the checkpoint/ticket id collision) was
 more severe than anything in §6.4.
 
-**Rule 17 debt — the whole batch, and the ONLY item here nobody can close
-from the keyboard.** Fourteen new test files were written and **none were
-run** (owner's instruction). Per rule 17 a guard test proves nothing until it
-has been shown to FAIL on the pre-fix code. Each file carries a comment
-naming its own failing-first procedure; that proof is owed before any of them
-counts as a guard:
+**Rule 17 debt — DISCHARGED 2026-09-13 (`08cbbad4`, `7a2d3a7e`,
+`e2796f55`).** Fourteen new test files were written and none were run
+(owner's instruction at the time). All fourteen have since been run against
+their own reverted bug and **every one of them failed there**, so each now
+counts as a guard. The observed failure is quoted in each file's own header
+— read it there, not here, so the evidence cannot drift from the test.
+
+Two files needed a SECOND revert, and the reason generalises: removing
+validation cannot prove a "fields survive intact" assertion (nothing to
+strip ⇒ passthrough passes trivially). Those guard rule 23 instead, so they
+were proven by removing a field FROM THE SCHEMA. See the doc header.
+
+⚠ Eight of these live in `electron-app/handlers/__tests__/`, which **no
+runner executes** — the jest config's `roots` is `schemas` only. They were
+proven via an explicit
+`npx jest --config jest.config.cjs --roots "<rootDir>/handlers"` invocation.
+Proving them was half the job; until that directory is wired into a runner
+they still guard nothing day to day, and 15 of its 31 suites have already
+rotted unnoticed. Separate, open.
+
+The fourteen:
 
 ```
 backend/src/api/__tests__/customServicesUpdateMetadata.api.test.ts
