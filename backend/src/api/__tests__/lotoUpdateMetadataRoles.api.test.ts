@@ -30,11 +30,19 @@
  * this is a ROUTE-wiring test (which role gate applies to which path), not
  * a LotoService/repository test (those are the core agent's own suites).
  *
- * Rule-17 note: the failing-first proof (temporarily reverting the route to
- * its pre-fix position after the router-level gate, watching test 1 below
- * fail, then reverting) is still owed — this file was written under a
- * constraint forbidding test runs; whoever runs the suite next should do
- * that proof once and record it here.
+ * Rule-17 note (discharged 2026-09-13): in `../loto.ts`, moved the
+ * `/update-metadata` route (dropping its own `requireRole(["admin",
+ * "staff"])`) to register AFTER `router.use(requireRole(["admin"]))`
+ * instead of before it — its pre-fix position, inheriting the router-level
+ * admin-only gate. Ran `cd backend && npx jest --maxWorkers=2
+ * --testPathPatterns "lotoUpdateMetadataRoles"` — test 1 failed:
+ *   expect(received).toBe(expected) // Object.is equality
+ *   Expected: 200
+ *   Received: 403
+ * (the other five tests, including the admin-JWT and router-gate-sanity
+ * cases, still passed). 1 failed, 5 passed, 6 total. Reverted from a
+ * pre-edit copy; `git diff --stat -- backend/src/api/loto.ts` printed
+ * nothing afterward.
  */
 
 import { jest } from "@jest/globals";

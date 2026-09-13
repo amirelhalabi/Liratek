@@ -22,11 +22,19 @@
  *
  * Same mocking shape as `inventoryHandlers.batchUpdateRoleGate.test.ts`.
  *
- * Rule-17 note: the role-gate assertions below have NOT yet been proven to
- * fail against the pre-fix code (the missing `requireRole` calls) — that
- * failing-first proof (temporarily strip the six `requireRole` calls, watch
- * every "rejects" case below fail, then revert) is still owed before this
- * counts as a fully guarded regression test.
+ * Rule-17 note (discharged 2026-09-13): stripped all six `requireRole`
+ * blocks from `inventoryHandlers.ts` (create/update/delete-category,
+ * create/update/delete-product-supplier), leaving each handler's `try` with
+ * no auth check. Ran `npx jest --config jest.config.cjs --roots
+ * "<rootDir>/handlers" --testPathPatterns "categorySupplierRoleGate"` — all
+ * six "rejects" cases failed, e.g.:
+ *   expect(jest.fn()).toHaveBeenCalledWith(...expected)
+ *   Expected: 1, ["admin", "staff"]
+ *   Number of calls: 0
+ * (same shape for all six channels; "allows an admin/staff caller through"
+ * still passed). 6 failed, 1 passed, 7 total. Reverted from a pre-edit copy;
+ * `git diff --stat -- electron-app/handlers/inventoryHandlers.ts` printed
+ * nothing afterward.
  */
 
 import { ipcMain } from "electron";

@@ -19,10 +19,19 @@
  * still runs for real — a non-admin/staff caller must be refused WITHOUT
  * ever reaching the service.
  *
- * Rule-17 note: the role-gate assertion below has NOT yet been proven to
- * fail against the pre-fix code (the missing `requireRole` call) — that
- * failing-first proof is still owed before this counts as a fully guarded
- * regression test.
+ * Rule-17 note (discharged 2026-09-13): removed the `requireRole(e.sender.id,
+ * ["admin", "staff"])` block from `inventory:batch-update` in
+ * `inventoryHandlers.ts`, leaving the handler go straight to
+ * `validatePayload(BatchUpdateSchema, payload)`. Ran `npx jest --config
+ * jest.config.cjs --roots "<rootDir>/handlers" --testPathPatterns
+ * "batchUpdateRoleGate"` — "rejects a non-admin/staff caller" failed:
+ *   expect(jest.fn()).toHaveBeenCalledWith(...expected)
+ *   Expected: 1, ["admin", "staff"]
+ *   Number of calls: 0
+ * (the other two tests — allow-through and empty-ids validation — still
+ * passed, as expected since they don't touch the gate). 1 failed, 2 passed,
+ * 3 total. Reverted from a pre-edit copy; `git diff --stat --
+ * electron-app/handlers/inventoryHandlers.ts` printed nothing afterward.
  */
 
 import { ipcMain } from "electron";
