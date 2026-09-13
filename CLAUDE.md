@@ -22,6 +22,10 @@ Vercel builds `frontend/` from `main`; `.github/workflows/deploy-api.yml`
 deploys `backend/` (which bundles `packages/core/`) to Fly and then runs the
 verifier below. The manual commands remain the right tool for deploying an
 UNCOMMITTED working tree, or re-rolling the machine without a code change.
+`.github/workflows/ci.yml` now also runs on every push to `main` (lint,
+typecheck, tenant-scoping/bind-arity checks, core/backend/frontend tests,
+build) — a separate workflow from the deploy pipeline above, so it reports
+rather than blocks a bad push.
 
 ```bash
 yarn api:deploy    # build remotely, deploy, then VERIFY it came up

@@ -34,6 +34,10 @@ architecture, `docs/plans/todo_plans/PRODUCTION_DATABASE_AND_HOSTING_PLAN.md`.
 then runs the same verifier `yarn api:deploy` runs. The manual command still
 works and is still the right tool for deploying uncommitted work or re-rolling
 the machine — it is no longer something you must remember.
+`.github/workflows/ci.yml` also runs on every push to `main` now (lint,
+typecheck, core/backend/frontend tests, build) — a separate workflow that
+does not gate `deploy-api.yml`, since both fire independently off the same
+push.
 
 | I changed…                     | To ship it                                               |
 | ------------------------------ | -------------------------------------------------------- |

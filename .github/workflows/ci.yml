@@ -3,7 +3,13 @@ name: CI
 on:
   pull_request:
     branches: [main, dev, develop]
+  push:
+    branches: [main]
 
+# github.ref differs between the two trigger types (pull_request uses the
+# synthetic refs/pull/<n>/merge ref, push uses refs/heads/main), so a push to
+# main and a PR targeting main never land in the same concurrency group and
+# cannot cancel each other. Verified, not changed.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
