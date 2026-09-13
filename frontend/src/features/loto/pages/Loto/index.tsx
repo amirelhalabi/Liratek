@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { localDay } from "@/shared/utils/localDay";
+import { addDaysToDateString } from "@liratek/core";
 import { appEvents, useApi, PageHeader, DecimalInput } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -169,10 +170,13 @@ export function LotoPage() {
       const lastResult = await lotoApi.checkpoint.getLast();
       let periodStart = "1970-01-01";
       if (lastResult.success && lastResult.checkpoint) {
-        // Start from the day AFTER the last checkpoint's period_end
-        const nextDay = new Date(lastResult.checkpoint.period_end);
-        nextDay.setDate(nextDay.getDate() + 1);
-        periodStart = localDay(nextDay);
+        // Start from the day AFTER the last checkpoint's period_end.
+        // Pure UTC calendar-date arithmetic (rule 14/29) — a `new
+        // Date(...)`/`setDate` round-trip mixes UTC parsing with local
+        // stepping and drops/repeats a day at negative UTC offsets and
+        // across DST transitions (same defect class fixed in core's
+        // 3a3c96bd for LotoService/ReportingService).
+        periodStart = addDaysToDateString(lastResult.checkpoint.period_end, 1);
       }
 
       const today = localDay();

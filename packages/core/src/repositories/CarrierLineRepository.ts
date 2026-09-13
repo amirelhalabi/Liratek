@@ -11,14 +11,16 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { clientDay } from "../utils/requestDay.js";
 // LIRA-157 — the ONE carrier-line validity rule (grace window, stacking,
-// 365-day ceiling) and the calendar-date helpers that used to be private to
-// this file. Moved out so the pre-submit UI projection computes the SAME
-// answer as this write path instead of a second copy (rule 14).
+// 365-day ceiling) that used to be private to this file. Moved out so the
+// pre-submit UI projection computes the SAME answer as this write path
+// instead of a second copy (rule 14).
 import {
   burnedLineMessage,
-  daysBetweenDateStrings,
   projectValidityExpiry,
 } from "../utils/carrierLineValidity.js";
+// Generic calendar-date arithmetic — not carrier-line specific, so it lives
+// in its own leaf module rather than in carrierLineValidity.js (rule 14).
+import { daysBetweenDateStrings } from "../utils/calendarDate.js";
 import type { TelecomCarrierKey } from "../utils/telecomCredit.js";
 import {
   CarrierLineMovementRepository,
@@ -154,11 +156,12 @@ export interface UpdateBalanceData {
 }
 
 // -----------------------------------------------------------------------------
-// Date helpers and the validity rule itself now live in
-// `utils/carrierLineValidity.ts` (LIRA-157). They were module-private here,
-// which meant the only way to know where a charge would land was to perform
-// it — the UI could not warn, and the rule could not be unit-tested without a
-// database. Persistence stays in this file; the policy is imported.
+// The validity rule itself now lives in `utils/carrierLineValidity.ts`
+// (LIRA-157), which in turn imports its generic calendar-date arithmetic from
+// `utils/calendarDate.ts`. Both were module-private here, which meant the
+// only way to know where a charge would land was to perform it — the UI
+// could not warn, and the rule could not be unit-tested without a database.
+// Persistence stays in this file; the policy is imported.
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------

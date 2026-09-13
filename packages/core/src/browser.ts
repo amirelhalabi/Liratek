@@ -28,6 +28,15 @@ export * from "./utils/formatMoney.js";
 // load with "does not provide an export named 'deliveredCostLbp'".
 export * from "./utils/telecomCredit.js";
 
+// Generic calendar-date arithmetic (`addDaysToDateString`/
+// `daysBetweenDateStrings`) — pure `YYYY-MM-DD` string math, no Node.js deps.
+// Split out of carrierLineValidity.js (below) so a caller with no carrier-line
+// involvement doesn't have to import a carrier-line module to add a day to a
+// date string; carrierLineValidity.ts itself now imports from here rather
+// than defining these. Must be exported HERE, not only from index.ts — see
+// the telecomCredit.js note above for the exact failure mode this avoids.
+export * from "./utils/calendarDate.js";
+
 // Carrier-line validity rule (LIRA-157) — pure calendar-date arithmetic over
 // `YYYY-MM-DD` strings plus `localDay()`, no Node.js deps. KatchForm imports
 // `projectValidityExpiry`/`MAX_LINE_VALIDITY_DAYS` to warn before a self-charge

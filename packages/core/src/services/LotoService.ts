@@ -48,7 +48,7 @@ import type { LotoRepository } from "../repositories/LotoRepository.js";
 import { getLotoRepository } from "../repositories/LotoRepository.js";
 
 import { lotoLogger } from "../utils/logger.js";
-import { addDaysToDateString } from "../utils/carrierLineValidity.js";
+import { addDaysToDateString } from "../utils/calendarDate.js";
 import { clientDay } from "../utils/requestDay.js";
 
 export interface SellTicketData {

@@ -23,6 +23,11 @@ export * from "./utils/tenantSlug.js";
 export * from "./utils/localDate.js";
 export * from "./utils/requestDay.js";
 export * from "./utils/telecomCredit.js";
+// Generic calendar-date arithmetic (rule 14 — the one definition, moved out
+// of carrierLineValidity.js so date-neutral callers don't import a
+// carrier-line module to add a day to a date). Re-exported from BOTH entry
+// points for the same reason carrierLineValidity.js is: see browser.ts.
+export * from "./utils/calendarDate.js";
 export * from "./utils/carrierLineValidity.js";
 export * from "./utils/insuranceFulfillment.js";
 export * from "./utils/phoneNumber.js";

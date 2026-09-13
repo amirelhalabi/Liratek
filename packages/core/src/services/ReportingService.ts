@@ -13,7 +13,7 @@ import type {
   DebtAgingBuckets,
   OverdueDebtEntry,
 } from "../repositories/TransactionRepository.js";
-import { addDaysToDateString } from "../utils/carrierLineValidity.js";
+import { addDaysToDateString } from "../utils/calendarDate.js";
 import logger from "../utils/logger.js";
 
 // =============================================================================

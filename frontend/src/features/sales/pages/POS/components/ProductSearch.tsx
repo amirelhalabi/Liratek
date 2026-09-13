@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { addDaysToDateString } from "@liratek/core";
 import {
   Search,
   ShoppingCart,
@@ -288,9 +289,13 @@ function ProductSearch({
   };
 
   const shiftDate = (days: number) => {
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() + days);
-    setSelectedDate(d.toISOString().split("T")[0]);
+    // Pure UTC calendar-date arithmetic (rule 14/29) — a `new
+    // Date(...)`/`setDate`/`toISOString` round-trip mixes UTC parsing with
+    // local stepping and local-to-UTC formatting; it silently no-ops (or
+    // drops/repeats a day) across a local DST transition, e.g. Beirut's
+    // spring-forward, where a local day is 23 hours (same defect class
+    // fixed in core's 3a3c96bd).
+    setSelectedDate(addDaysToDateString(selectedDate, days));
   };
 
   const displayDateStr = () => {

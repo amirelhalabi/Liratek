@@ -49,9 +49,17 @@
  * (`CarrierLineRepository.computeAppliedState` does); in the browser
  * `localDay()` IS the client's own day, which is the value the server would
  * have received anyway.
+ *
+ * The generic `YYYY-MM-DD` arithmetic this rule is built on —
+ * `addDaysToDateString`/`daysBetweenDateStrings` — used to be defined here,
+ * but that made every date-neutral caller (loto checkpoints, reporting date
+ * ranges) import a carrier-line module just to add a day to a date. They now
+ * live in `./calendarDate.js`, which this file imports; carrier-line rules
+ * stay here, generic calendar maths lives there.
  */
 
 import { localDay } from "./localDate.js";
+import { addDaysToDateString, daysBetweenDateStrings } from "./calendarDate.js";
 
 // =============================================================================
 // Constants (owner-stated, 2026-08-29)
@@ -78,45 +86,6 @@ export const MAX_LINE_VALIDITY_DAYS = 365;
  * Inclusive: lapsed by exactly 5 days is still chargeable; 6 is not.
  */
 export const LINE_REVIVAL_GRACE_DAYS = 5;
-
-// =============================================================================
-// Calendar-date helpers
-// =============================================================================
-
-/**
- * Add (or, for a negative `days`, subtract) whole days to a `YYYY-MM-DD`
- * calendar-date string. Parsed/formatted entirely in UTC — a calendar date has
- * no timezone of its own, so doing this arithmetic in UTC sidesteps any
- * local-timezone month/day-rollover bug entirely (contrast `localDate.ts`,
- * which deliberately uses local getters because IT answers "what day is it on
- * the shop's clock right now" — a different question from "what date is N days
- * after this stored calendar date").
- *
- * Moved here from `CarrierLineRepository` by LIRA-157 so the frontend's
- * pre-submit projection can reuse it rather than re-implement it.
- */
-export function addDaysToDateString(dateStr: string, days: number): string {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  date.setUTCDate(date.getUTCDate() + days);
-  const y = date.getUTCFullYear();
-  const m = (date.getUTCMonth() + 1).toString().padStart(2, "0");
-  const d = date.getUTCDate().toString().padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-/**
- * Whole-day difference `toStr - fromStr` between two `YYYY-MM-DD` calendar
- * dates, computed in UTC (a fixed 86,400,000 ms/day — no DST ambiguity ever
- * applies to a pure calendar date). Negative when `toStr` precedes `fromStr`.
- */
-export function daysBetweenDateStrings(fromStr: string, toStr: string): number {
-  const [fy, fm, fd] = fromStr.split("-").map(Number);
-  const [ty, tm, td] = toStr.split("-").map(Number);
-  const fromMs = Date.UTC(fy, fm - 1, fd);
-  const toMs = Date.UTC(ty, tm - 1, td);
-  return Math.round((toMs - fromMs) / 86_400_000);
-}
 
 // =============================================================================
 // Classification
