@@ -15,11 +15,8 @@ import { appEvents, PageHeader, useApi, DecimalInput } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { HistoryModal } from "./components/HistoryModal";
-import PartPicker, {
-  toPartsPayload,
-  partsTotalUsd,
-  type PartLine,
-} from "./components/PartPicker";
+import PartPicker, { type PartLine } from "./components/PartPicker";
+import { toPartsPayload, partsTotalUsd } from "./components/partsMath";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
