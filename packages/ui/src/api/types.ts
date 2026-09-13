@@ -12,6 +12,7 @@ import type {
   DatabaseResetResult,
   SafeSession,
   AddRepaymentInput,
+  CreateUserInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -22,6 +23,7 @@ export type {
   DatabaseResetResult,
   SafeSession,
   AddRepaymentInput,
+  CreateUserInput,
 };
 
 export type ApiUser = {
@@ -1394,11 +1396,15 @@ export type ApiAdapter = {
   // Users
   // ---------------------------------------------------------------------------
   getNonAdminUsers: () => Promise<any[]>;
-  createUser: (data: {
-    username: string;
-    password: string;
-    role: string;
-  }) => Promise<ApiResult & { id?: number }>;
+  /**
+   * Payload type is DERIVED from `createUserSchema`
+   * (packages/core/src/validators/user.ts), not hand-copied (rule 21): the
+   * schema's `role` is a `"admin" | "staff"` enum, tighter than the plain
+   * `string` this signature used to declare, so a typo'd role now fails to
+   * typecheck here instead of surfacing only as a 400 at runtime. Same
+   * import pattern as `AddRepaymentInput` above.
+   */
+  createUser: (data: CreateUserInput) => Promise<ApiResult & { id?: number }>;
   setUserActive: (userId: number, is_active: boolean) => Promise<ApiResult>;
   setUserRole: (userId: number, role: string) => Promise<ApiResult>;
   setUserPassword: (userId: number, password: string) => Promise<ApiResult>;
