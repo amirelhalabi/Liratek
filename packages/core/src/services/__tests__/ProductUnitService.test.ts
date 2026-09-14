@@ -20,6 +20,7 @@ import type {
   ProductRepository,
   ProductEntity,
 } from "../../repositories/ProductRepository";
+import { runWithTenant } from "../../db/tenantContext";
 
 function makeUnit(
   overrides: Partial<ProductUnitEntity> = {},
@@ -246,6 +247,66 @@ describe("ProductUnitService", () => {
         state: "NONE",
       });
     });
+
+    /**
+     * Rule 27 (dual-transport day hazard) — `today`'s default used to be
+     * `new Date().toISOString().slice(0, 10)`, which is ALWAYS the UTC day
+     * regardless of transport or timezone. Between 00:00-03:00 Beirut, UTC
+     * is still the previous calendar day, so a warranty that expired
+     * yesterday would still read `COVERED` on both desktop and web. The
+     * fixed default is `clientDay()`, which prefers the tenant-context day
+     * set by `runWithTenant(..., { clientDay })` over the machine's own day.
+     *
+     * This test pins the case that expression got wrong: a warranty whose
+     * `until` is the day BEFORE the context's `clientDay`, with the
+     * MACHINE's real day (whatever day the test actually runs on) left far
+     * in the past by comparison — only a default that reads the context day
+     * reports EXPIRED here.
+     *
+     * Rule-17 note (discharged 2026-09-14): reverted `getUnitStory`'s
+     * `today` default parameter back to
+     * `new Date().toISOString().slice(0, 10)` and ran
+     * `npx jest --config jest.config.cjs --roots "<rootDir>/src/services" --testPathPatterns "ProductUnitService" -t "clientDay"`.
+     * This test failed:
+     *   expect(received).toBe(expected)
+     *   Expected: "EXPIRED"
+     *   Received: "COVERED"
+     * (the machine's real current date read `until: "2030-05-19"` as still
+     * in the future, ignoring the `clientDay` override entirely). Restored
+     * from a copy kept outside the repo; `git diff --stat -- src/services/ProductUnitService.ts`
+     * printed nothing afterward.
+     */
+    it("defaults `today` to the context's clientDay — until the day BEFORE it is EXPIRED", () => {
+      const mockRepo = {
+        getUnitStoryByImei: jest.fn().mockReturnValue([
+          {
+            ...makeUnit({ status: "SOLD", sale_item_id: 501 }),
+            product_name: "iPhone 13",
+            warranty_until: "2030-05-19",
+            is_refunded: 0,
+            refunded_quantity: 0,
+            quantity: 1,
+            sold_price_usd: 999,
+            sale_id: 10,
+            sold_at: "2026-08-01 10:00:00",
+            client_id: 5,
+            client_name: "Jane Doe",
+          },
+        ]),
+      } as unknown as ProductUnitRepository;
+      const service = new ProductUnitService(
+        mockRepo,
+        {} as unknown as ProductRepository,
+      );
+
+      const story = runWithTenant(
+        1,
+        () => service.getUnitStory("111111111111111"),
+        { clientDay: "2030-05-20" },
+      );
+
+      expect(story[0].warranty.state).toBe("EXPIRED");
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -410,6 +471,52 @@ describe("ProductUnitService", () => {
         "2026-08-25",
       );
       expect(rows[0].warranty.state).toBe("NONE");
+    });
+
+    /**
+     * Rule 27 (dual-transport day hazard) — same fix as `getUnitStory`'s
+     * (see that describe block's comment for the full rationale): `today`'s
+     * default must be `clientDay()`, not the UTC `new Date().toISOString()`
+     * day, or a warranty that expired hours ago still reads COVERED during
+     * 00:00-03:00 Beirut on both transports.
+     *
+     * Rule-17 note (discharged 2026-09-14): reverted `listUnits`'s `today`
+     * default parameter back to `new Date().toISOString().slice(0, 10)` and
+     * ran the same targeted `-t "clientDay"` jest invocation as
+     * `getUnitStory`'s guard. This test failed identically:
+     *   expect(received).toBe(expected)
+     *   Expected: "EXPIRED"
+     *   Received: "COVERED"
+     * Restored from a copy kept outside the repo; `git diff --stat --
+     * src/services/ProductUnitService.ts` printed nothing afterward.
+     */
+    it("defaults `today` to the context's clientDay — until the day BEFORE it is EXPIRED", () => {
+      const mockRepo = {
+        listUnits: jest.fn().mockReturnValue({
+          rows: [
+            makeListRow({
+              id: 1,
+              status: "SOLD",
+              sale_item_id: 501,
+              warranty_until: "2030-05-19",
+              sale_refunded: 0,
+            }),
+          ],
+          total: 1,
+        }),
+      } as unknown as ProductUnitRepository;
+      const service = new ProductUnitService(
+        mockRepo,
+        {} as unknown as ProductRepository,
+      );
+
+      const { rows } = runWithTenant(
+        1,
+        () => service.listUnits({ limit: 50, offset: 0 }),
+        { clientDay: "2030-05-20" },
+      );
+
+      expect(rows[0].warranty.state).toBe("EXPIRED");
     });
 
     // -------------------------------------------------------------------------

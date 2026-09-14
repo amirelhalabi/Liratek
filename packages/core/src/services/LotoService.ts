@@ -559,6 +559,22 @@ export class LotoService {
   /**
    * Check and record monthly fee if it's the first Monday of the month
    * Call this on app startup
+   *
+   * Rule 27 (dual-transport day hazard): "first Monday of the month" used to
+   * be read off `new Date()` — the MACHINE's clock. On desktop that's the
+   * shop's own day; on the Fly backend (UTC, 3h behind Beirut) the window
+   * 00:00-03:00 Beirut still reads as the previous UTC day, so on the first
+   * Monday of a month the server would see Sunday and skip the record. Derive
+   * everything from `clientDay()` (the request's own day, falling back to the
+   * machine's) instead, and read `today` as a plain YYYY-MM-DD string so
+   * desktop and web always agree.
+   *
+   * Day-of-week from a YYYY-MM-DD string must be computed in UTC — parsing
+   * `${day}T00:00:00Z` and reading `getUTCDay()` — never with LOCAL getters
+   * (`new Date(day).getDay()`), which would parse the string as UTC midnight
+   * but then read it back with the machine's local offset, reintroducing the
+   * exact class of bug this fix closes (see createScheduledCheckpoint's
+   * addDaysToDateString comment for the same trap).
    */
   checkAndRecordMonthlyFee(): { recorded: boolean; fee?: LotoMonthlyFee } {
     try {
@@ -566,17 +582,20 @@ export class LotoService {
         return { recorded: false };
       }
 
-      const today = new Date();
-      const isMonday = today.getDay() === 1;
-      const isFirstWeek = today.getDate() <= 7;
+      const today = clientDay();
+      const isMonday = new Date(`${today}T00:00:00Z`).getUTCDay() === 1;
+      const dayOfMonth = parseInt(today.slice(8, 10), 10);
+      const isFirstWeek = dayOfMonth <= 7;
 
       if (!isMonday || !isFirstWeek) {
         return { recorded: false };
       }
 
+      const year = parseInt(today.slice(0, 4), 10);
+      const currentMonth = today.slice(5, 7);
+
       // Check if already recorded for this month
-      const existingFees = this.getMonthlyFees(today.getFullYear());
-      const currentMonth = (today.getMonth() + 1).toString().padStart(2, "0");
+      const existingFees = this.getMonthlyFees(year);
       const alreadyRecorded = existingFees.some(
         (f) => f.fee_month === currentMonth,
       );
@@ -590,7 +609,7 @@ export class LotoService {
       const fee = this.recordMonthlyFee({
         fee_amount: feeAmount,
         fee_month: currentMonth,
-        fee_year: today.getFullYear(),
+        fee_year: year,
         note: "Auto-recorded on first Monday",
       });
 

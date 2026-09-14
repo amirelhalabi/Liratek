@@ -29,6 +29,7 @@ import {
   type ProductRepository,
 } from "../repositories/ProductRepository.js";
 import { inventoryLogger } from "../utils/logger.js";
+import { clientDay } from "../utils/requestDay.js";
 
 // =============================================================================
 // Warranty status — pure, unit-testable, no DB
@@ -256,8 +257,11 @@ export class ProductUnitService {
    * {@link WarrantyStatus} — the same `computeWarrantyStatus` call
    * `getUnitStory` makes, fed the same three inputs (override date, refund
    * flag, sale-stamped date), so the two reads can never disagree about a
-   * unit's verdict. `today` defaults to the current date (ISO,
-   * `YYYY-MM-DD`) and is injectable for tests.
+   * unit's verdict. `today` defaults to `clientDay()` (rule 27 — the
+   * request's own local day when one is set, else the machine's; never the
+   * UTC `new Date().toISOString()` day, which would still report yesterday's
+   * expired units as `COVERED` during 00:00-03:00 Beirut) and is injectable
+   * for tests.
    *
    * `total` passes through untouched from the repository — it is the
    * unpaged count over the same filters, for the pager.
@@ -272,7 +276,7 @@ export class ProductUnitService {
    */
   listUnits(
     filters: UnitListFilters,
-    today: string = new Date().toISOString().slice(0, 10),
+    today: string = clientDay(),
   ): UnitListResult {
     try {
       const page = this.repo.listUnits(filters);
@@ -297,7 +301,8 @@ export class ProductUnitService {
   /**
    * The walk-in lookup (decision #7): every unit matching `imei`, each
    * stamped with its computed {@link WarrantyStatus}. `today` defaults to
-   * the current date (ISO, `YYYY-MM-DD`) and is injectable for tests.
+   * `clientDay()` (rule 27 — see `listUnits`'s doc comment) and is
+   * injectable for tests.
    *
    * As in `listUnits`, the row spread carries `product_warranty_months`
    * (display-only model term) through untouched and never feeds it to
@@ -305,7 +310,7 @@ export class ProductUnitService {
    */
   getUnitStory(
     imei: string,
-    today: string = new Date().toISOString().slice(0, 10),
+    today: string = clientDay(),
   ): UnitStoryWithWarranty[] {
     try {
       const rows = this.repo.getUnitStoryByImei(imei);
