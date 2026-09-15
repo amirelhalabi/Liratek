@@ -118,6 +118,13 @@ export interface TransactionPaymentLeg {
   signed_amount: number;
   currency_code: string;
   method: string;
+  /**
+   * The drawer this leg moved money in/out of. Present for legs read from
+   * the `payments` table; absent for legs reconstructed from other sources
+   * (CUSTOMER_ACCOUNT settlements built from `debt_ledger`, which move no
+   * drawer).
+   */
+  drawer_name?: string;
 }
 
 /**
@@ -797,6 +804,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         signed_amount: p.amount,
         currency_code: p.currency_code,
         method: p.method,
+        // exactOptionalPropertyTypes: never assign `drawer_name: undefined`.
+        // Guard on truthiness — the column can be NULL at runtime even
+        // though the query's row type declares it `string`.
+        ...(p.drawer_name ? { drawer_name: p.drawer_name } : {}),
       };
     };
 

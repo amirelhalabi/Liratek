@@ -269,6 +269,25 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
     expect(row!.payments).toEqual([]);
   });
 
+  it("carries drawer_name onto a leg read from payments (checkpoint-adjustment drawer labeling)", () => {
+    insertTxn(db, { id: 1, type: "CHECKPOINT", summary: "Checkpoint" });
+    insertLeg(db, 1, {
+      method: "CHECKPOINT_ADJUSTMENT",
+      currency: "USD",
+      amount: 13_531,
+      drawer: "General",
+      note: "Checkpoint reconciliation",
+    });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(row.payments).toHaveLength(1);
+    expect(row.payments[0]).toMatchObject({
+      method: "CHECKPOINT_ADJUSTMENT",
+      drawer_name: "General",
+      amount: 13_531,
+    });
+  });
+
   it("groups legs by their own transaction across multiple rows", () => {
     insertTxn(db, { id: 1, summary: "First" });
     insertTxn(db, { id: 2, summary: "Second" });

@@ -75,6 +75,12 @@ export * from "./constants/systemFloatDrawers.js";
 // the frontend is the main consumer -- so it belongs in BOTH entry points.
 export * from "./constants/drawerModules.js";
 
+// The checkpoint-adjustment payments.method code — pure string constant, no
+// Node.js deps. The Transactions audit page (transactionDisplay.ts) imports
+// CHECKPOINT_ADJUSTMENT_METHOD from here to label a checkpoint leg's drawer
+// (rule 14) instead of retyping the literal ClosingRepository posts it with.
+export * from "./constants/checkpointAdjustment.js";
+
 // Drawer currency policy (UNRESTRICTED_DRAWERS / isUnrestrictedDrawer) — pure
 // `as const` tuple + one pure predicate, no Node.js deps. Settings →
 // CurrencyManager imports `isUnrestrictedDrawer` to omit the General drawer

@@ -291,6 +291,8 @@ export interface TransactionPaymentLeg {
   signed_amount: number;
   currency_code: string;
   method: string;
+  /** The drawer this leg moved money in/out of; absent for legs with no drawer (e.g. CUSTOMER_ACCOUNT). */
+  drawer_name?: string;
 }
 
 /**

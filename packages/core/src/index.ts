@@ -143,3 +143,8 @@ export * from "./config/env.js";
 export * from "./constants/subscription.js";
 
 export * from "./constants/drawerModules.js";
+
+// The checkpoint-adjustment payments.method code — shared with browser.ts so
+// the frontend's audit display can label a checkpoint leg's drawer from the
+// SAME definition ClosingRepository posts it with (rule 14).
+export * from "./constants/checkpointAdjustment.js";

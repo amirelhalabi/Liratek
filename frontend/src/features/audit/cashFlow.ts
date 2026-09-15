@@ -322,6 +322,8 @@ export type TransactionPaymentLeg = {
   signed_amount: number;
   currency_code: string;
   method: string;
+  /** The drawer this leg moved money in/out of; absent for legs with no drawer (e.g. CUSTOMER_ACCOUNT). */
+  drawer_name?: string;
 };
 
 /** Format a single payment amount with its currency, e.g. "$50" or "100,000 LBP". */

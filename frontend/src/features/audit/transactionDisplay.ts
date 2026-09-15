@@ -15,6 +15,7 @@
  * components or helpers, not both (react-refresh/only-export-components).
  */
 import type { CSSProperties } from "react";
+import { CHECKPOINT_ADJUSTMENT_METHOD } from "@liratek/core";
 import {
   formatLegAmount,
   extraCurrencyLegs,
@@ -240,6 +241,33 @@ export function fallbackMethodLabel(method: string): string {
     .split("_")
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
     .join(" ");
+}
+
+/**
+ * Per-leg method label for the payment-detail rows (LIRA-067 expander /
+ * export). A checkpoint reconciliation leg names its own drawer — e.g.
+ * "Checkpoint General" instead of the generic "Checkpoint Adjustment" —
+ * because a single checkpoint can post one adjustment leg per drawer, and
+ * without the drawer name every one of them reads identically. Falls back to
+ * today's expression (`labelByCode` lookup, then title-cased method code) for
+ * every other leg, and for a checkpoint leg with no `drawer_name` (legacy
+ * rows predating this field).
+ *
+ * Deliberately NOT used by `formatPaymentMethods` (the Method column): that
+ * function dedupes labels across all of a row's legs, so drawer-specific
+ * labels would turn a nine-drawer checkpoint's Method cell into "Checkpoint
+ * General + Checkpoint OMT_System + …". The Method column keeps reading
+ * "Checkpoint Adjustment" — this is a deliberate scope decision, not an
+ * inconsistency to "fix" later.
+ */
+export function legMethodLabel(
+  leg: TransactionPaymentLeg,
+  labelByCode: Map<string, string>,
+): string {
+  if (leg.method === CHECKPOINT_ADJUSTMENT_METHOD && leg.drawer_name) {
+    return `Checkpoint ${leg.drawer_name}`;
+  }
+  return labelByCode.get(leg.method) ?? fallbackMethodLabel(leg.method);
 }
 
 /**

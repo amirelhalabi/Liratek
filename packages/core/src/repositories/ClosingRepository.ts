@@ -4,6 +4,7 @@ import { closingLogger } from "../utils/logger.js";
 import { clientDay } from "../utils/requestDay.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { CHECKPOINT_ADJUSTMENT_METHOD } from "../constants/checkpointAdjustment.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import {
   getCarrierLineRepository,
@@ -25,14 +26,6 @@ import {
   notRefunded,
   saleFullyPaid,
 } from "./ProfitRepository.js";
-
-/**
- * Payments-journal method used for the balance adjustment posted when a
- * checkpoint's physical count differs from the live drawer balance. It is a
- * real (non-CUSTOMER_ACCOUNT) method so it is included in drawer-balance
- * recalculations.
- */
-const CHECKPOINT_ADJUSTMENT_METHOD = "CHECKPOINT_ADJUSTMENT";
 
 /** Sub-cent threshold below which a reconciliation delta is treated as zero. */
 const RECONCILE_EPSILON = 0.0001;

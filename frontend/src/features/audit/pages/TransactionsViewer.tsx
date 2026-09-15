@@ -19,8 +19,8 @@ import { formatLegAmount } from "../cashFlow";
 import {
   billsCommissionModeLine,
   billsOnlyCommissionAmount,
-  fallbackMethodLabel,
   formatPaymentMethods,
+  legMethodLabel,
   methodLegsFor,
   sessionVars,
 } from "../transactionDisplay";
@@ -371,9 +371,7 @@ export default function TransactionsViewer({
             {legs.map((leg, i) => (
               <div key={i}>
                 {leg.direction === "in" ? "In" : "Out"} —{" "}
-                {methodLabelByCode.get(leg.method) ??
-                  fallbackMethodLabel(leg.method)}
-                : {formatLegAmount(leg)}
+                {legMethodLabel(leg, methodLabelByCode)}: {formatLegAmount(leg)}
               </div>
             ))}
           </div>
