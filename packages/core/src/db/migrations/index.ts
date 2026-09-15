@@ -11515,6 +11515,448 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 177,
+    name: "correct_v174_duplicate_rename",
+    type: "typescript",
+    description:
+      "v174 (username_case_insensitive) renamed one of every pair of usernames " +
+      "differing only in case, picking the survivor with: is_active DESC, " +
+      "MAX(sessions.last_activity_at) DESC, session COUNT DESC, id ASC. That " +
+      "rank is blind on desktop: deleteExpiredSessions() runs at every boot " +
+      "(electron-app/main.ts), so `sessions` is routinely EMPTY. On the " +
+      "owner's real database both 'admin' (id 1) and 'Admin' (id 2) tied at " +
+      "zero sessions, fell through to id ASC, and kept the auto-seeded id 1 " +
+      "-- renaming id 2, 'Admin.dup-2', which was the ONLY account with a " +
+      "password the owner had. Total lockout, unrecoverable from the UI. " +
+      "" +
+      "The evidence v174 never consulted: audit_log had 13 'login' rows, ALL " +
+      "for user_id = 2, and audit_log is never pruned anywhere in this " +
+      "codebase (verified) -- unlike sessions, it is a durable record of who " +
+      "actually signed in. This migration re-decides v174's renames using " +
+      "that evidence and swaps names back where v174 chose wrong. " +
+      "" +
+      "A NEW migration, not an edit to v174, because v174 is already recorded " +
+      "as applied on every upgraded shop and will never re-run there; a " +
+      "not-yet-upgraded shop runs v174 then v177 back to back, so one " +
+      "corrective pass fixes both populations. " +
+      "" +
+      "SAFETY, not aggression. A claimant (a user v174 renamed to " +
+      "'<name>.dup-<id>', '<name>.retired-<id>', or the early " +
+      "'<name>.dupe-<id>' form) gets its name back only when restoring it is " +
+      "a strict improvement -- the name is free -- or the claimant has at " +
+      "least one recorded login AND the current holder of the name has none, " +
+      "or an older one. A claimant with ZERO login evidence is NEVER " +
+      "restored: absence of proof is not proof the swap is safe, and v174's " +
+      "choice, however blind, still WORKS today -- the account is reachable, " +
+      "just under a different name. When several claimants target the same " +
+      "freed name in one tenant/platform realm, only the best-evidenced one " +
+      "may compete for it; the rest stay renamed. Realms never cross: two " +
+      "tenants each with their own 'admin'/'Admin.dup-N' pair are decided " +
+      "independently, exactly like v174. " +
+      "" +
+      "is_active is reactivated ONLY for a restored '.retired-' claimant -- " +
+      "the early form's unambiguous 'v174 disabled this, not an admin' " +
+      "marker. A '.dup-'/'.dupe-' claimant's is_active is never touched: " +
+      "v174's current form never disables, so if it is off here an admin " +
+      "chose that deliberately after the fact. " +
+      "" +
+      "Swap mechanics go through a throwaway name because the two NOCASE " +
+      "unique indexes forbid a direct swap: the holder is parked under ITS " +
+      "OWN current spelling + '.v177tmp', the claimant takes the freed name, " +
+      "then the holder is renamed to ITS OWN prior spelling + '.dup-<id>' -- " +
+      "so a wrongly-favoured 'admin' ends up 'admin.dup-1', not a " +
+      "normalized 'Admin.dup-1'; it keeps recognizably its own name, exactly " +
+      "like every other v174 loser. " +
+      "" +
+      "TWO MORE GATES, both lockout-class. First: a claimant is never " +
+      "restored if it would come back INACTIVE, because UserRepository's " +
+      "findByUsername/findByUsernameInRealm (the actual login lookups) both " +
+      "filter 'AND is_active = 1' -- restoring a disabled claimant would " +
+      "free the holder's name onto a row nobody can log into, locking out " +
+      "BOTH spellings at once. The one exception is the early '.retired-' " +
+      "form, reactivated in the same swap, so its current is_active is " +
+      "v174's own artifact, not a signal to respect. Second: the swap for " +
+      "one group must never THROW past its own boundary. " +
+      "runMigrations' per-migration transaction catch RETHROWS with no " +
+      "outer recovery, so an uncaught error here would abort the ENTIRE " +
+      "migration batch -- every till fails to boot, not just this shop's " +
+      "duplicate. A NOCASE collision on the throwaway or final name is rare " +
+      "but not impossible, so each group's mutation is try/caught: on " +
+      "failure it unwinds what it already changed (claimant first, then the " +
+      "un-parked holder -- reverse order, because undoing the holder first " +
+      "would collide with the claimant still sitting on the freed name) and " +
+      "moves on to the next group, leaving the failed pair exactly as v174 " +
+      "left it. " +
+      "" +
+      "Data-only: no schema change, so create_db.sql needs no edit -- a " +
+      "fresh database has never run v174 and so has no duplicate renames to " +
+      "correct.",
+    up(db: Database.Database) {
+      // Same reason v174 documents: a minimal test schema may have nothing
+      // to do with users at all.
+      if (!tableExists(db, "users")) {
+        console.log("Migration v177: no users table here — nothing to do");
+        return;
+      }
+
+      // No evidence means DO NOT GUESS. Leaving v174's choice alone is
+      // strictly safer than a coin flip — this is the whole point of the
+      // migration, not a shortcut around it.
+      if (!tableExists(db, "audit_log")) {
+        console.log(
+          "Migration v177: no audit_log table here — no evidence to " +
+            "re-decide v174's renames, leaving them as-is",
+        );
+        return;
+      }
+      if (
+        !columnExists(db, "audit_log", "action") ||
+        !columnExists(db, "audit_log", "user_id") ||
+        !columnExists(db, "audit_log", "created_at")
+      ) {
+        console.log(
+          "Migration v177: audit_log is missing action/user_id/created_at " +
+            "— no usable login evidence, leaving v174's renames as-is",
+        );
+        return;
+      }
+
+      interface UserRow {
+        id: number;
+        tenant_id: number | null;
+        username: string;
+        role: string;
+        is_active: number;
+      }
+
+      // Claimants = every row any form of v174 renamed. `.retired-`/`.dupe-`
+      // are the EARLIER shipped form (see v174's own down()) — at least one
+      // database in the wild applied that version before the rule hardened.
+      const claimants = db
+        .prepare(
+          `SELECT id, tenant_id, username, role, is_active FROM users
+            WHERE username LIKE '%.dup-' || id
+               OR username LIKE '%.retired-' || id
+               OR username LIKE '%.dupe-' || id
+            ORDER BY id`,
+        )
+        .all() as UserRow[];
+
+      if (claimants.length === 0) {
+        console.log(
+          "Migration v177: no v174-renamed duplicates found — nothing to " +
+            "re-decide",
+        );
+        return;
+      }
+
+      type Suffix = "dup" | "retired" | "dupe";
+      interface Claimant extends UserRow {
+        originalName: string;
+        suffix: Suffix;
+      }
+
+      const parsed: Claimant[] = [];
+      for (const c of claimants) {
+        const bySuffix: [Suffix, string][] = [
+          ["dup", `.dup-${c.id}`],
+          ["retired", `.retired-${c.id}`],
+          ["dupe", `.dupe-${c.id}`],
+        ];
+        for (const [suffix, tail] of bySuffix) {
+          if (c.username.endsWith(tail)) {
+            parsed.push({
+              ...c,
+              originalName: c.username.slice(0, -tail.length),
+              suffix,
+            });
+            break;
+          }
+        }
+      }
+
+      // Login evidence for one user id. Absent rows read as { lastLogin:
+      // null, n: 0 } — SQLite aggregates over zero matching rows that way,
+      // not as no row at all.
+      const evidenceStmt = db.prepare(
+        `SELECT MAX(created_at) AS lastLogin, COUNT(*) AS n
+           FROM audit_log WHERE action = 'login' AND user_id = ?`,
+      );
+      function evidenceFor(userId: number): {
+        lastLogin: string | null;
+        n: number;
+      } {
+        return evidenceStmt.get(userId) as {
+          lastLogin: string | null;
+          n: number;
+        };
+      }
+
+      function errMsg(error: unknown): string {
+        return error instanceof Error ? error.message : String(error);
+      }
+
+      // Group by (realm, folded original name) — COALESCE partitions the
+      // platform realm (tenant_id NULL) as a value, not as "distinct from
+      // everything", same as v174's own partition. Several claimants can
+      // target one name (three case-variants of "admin"); only the
+      // best-evidenced one may compete for it below.
+      const groups = new Map<string, Claimant[]>();
+      for (const p of parsed) {
+        const key = `${p.tenant_id ?? -1}::${p.originalName.toLowerCase()}`;
+        const arr = groups.get(key);
+        if (arr) arr.push(p);
+        else groups.set(key, [p]);
+      }
+
+      const holderStmt = db.prepare(
+        `SELECT id, tenant_id, username, role, is_active FROM users
+          WHERE username COLLATE NOCASE = ?
+            AND COALESCE(tenant_id, -1) = COALESCE(?, -1)
+            AND id != ?`,
+      );
+
+      const parkHolder = db.prepare(
+        `UPDATE users SET username = username || '.v177tmp' WHERE id = ?`,
+      );
+      const renameTo = db.prepare(`UPDATE users SET username = ? WHERE id = ?`);
+      const reactivate = db.prepare(
+        `UPDATE users SET is_active = 1 WHERE id = ?`,
+      );
+
+      let auditStmt: Database.Statement | null = null;
+      try {
+        auditStmt = db.prepare(
+          `INSERT INTO audit_log
+             (tenant_id, user_id, username, role, action, entity_type, entity_id, summary)
+           VALUES (?, ?, ?, ?, 'update', 'user', ?, ?)`,
+        );
+      } catch {
+        auditStmt = null;
+      }
+
+      let restored = 0;
+
+      for (const group of groups.values()) {
+        // Rank the group's own claimants: most recent login wins, count
+        // breaks ties, id is the last deterministic resort. Only the winner
+        // gets to compete against the current holder — the rest stay
+        // renamed regardless of what happens next.
+        const ranked = [...group].sort((a, b) => {
+          const ae = evidenceFor(a.id);
+          const be = evidenceFor(b.id);
+          const al = ae.lastLogin ?? "";
+          const bl = be.lastLogin ?? "";
+          if (al !== bl) return al > bl ? -1 : 1;
+          if (ae.n !== be.n) return be.n - ae.n;
+          return a.id - b.id;
+        });
+        const claimant = ranked[0];
+
+        // GATE: never restore a name onto a claimant that would come back
+        // INACTIVE. UserRepository's findByUsername/findByUsernameInRealm
+        // (the actual login lookups) both filter `AND is_active = 1` — so
+        // swapping the real name onto a disabled row means NEITHER spelling
+        // resolves to a working login afterwards: the holder lost its name,
+        // and the claimant can't be found under the new one either. That is
+        // strictly worse than doing nothing. The one exception is the early
+        // '.retired-' form, which this migration reactivates in the very
+        // same swap (below) — its CURRENT is_active is v174's own artifact,
+        // not a signal an admin chose it.
+        if (claimant.is_active !== 1 && claimant.suffix !== "retired") {
+          continue;
+        }
+
+        const claimantEvidence = evidenceFor(claimant.id);
+
+        const holder = holderStmt.get(
+          claimant.originalName,
+          claimant.tenant_id,
+          claimant.id,
+        ) as UserRow | undefined;
+
+        let shouldRestore = false;
+        let reason = "";
+
+        if (!holder) {
+          // Restoring into a free name is strictly an improvement — no
+          // login evidence is required because there is no downside.
+          shouldRestore = true;
+          reason = "the name was free";
+        } else if (claimantEvidence.n === 0) {
+          // Never act on zero evidence, no matter how weak the holder's.
+          shouldRestore = false;
+        } else {
+          const holderEvidence = evidenceFor(holder.id);
+          if (holderEvidence.n === 0) {
+            shouldRestore = true;
+            reason =
+              `'${holder.username}' (id ${holder.id}) has no recorded ` +
+              `logins; '${claimant.username}' has ${claimantEvidence.n}`;
+          } else if (
+            (claimantEvidence.lastLogin ?? "") >
+            (holderEvidence.lastLogin ?? "")
+          ) {
+            shouldRestore = true;
+            reason =
+              `'${claimant.username}' logged in more recently ` +
+              `(${claimantEvidence.lastLogin} vs ${holderEvidence.lastLogin})`;
+          } else if (
+            (claimantEvidence.lastLogin ?? "") ===
+              (holderEvidence.lastLogin ?? "") &&
+            claimantEvidence.n > holderEvidence.n
+          ) {
+            shouldRestore = true;
+            reason =
+              `equal last login but '${claimant.username}' has more ` +
+              `logins (${claimantEvidence.n} vs ${holderEvidence.n})`;
+          } else {
+            // Holder's evidence is at least as good — keep v174's choice.
+            shouldRestore = false;
+          }
+        }
+
+        if (!shouldRestore) continue;
+
+        const claimantOldUsername = claimant.username;
+        let holderNewUsername: string | null = null;
+
+        // GATE: this whole mutation must not throw past this point.
+        // `runMigrations` wraps migration.up() in a per-migration
+        // transaction whose catch RETHROWS with no outer recovery (verified
+        // against the runner below) — an uncaught error here aborts the
+        // ENTIRE migration batch, not just this one group, which means the
+        // app fails to boot for every shop on this database. The
+        // surrounding transaction does NOT save us: it only makes the
+        // rethrow atomic, it doesn't stop it from propagating. A collision
+        // on the NOCASE unique index — some other row already sitting on
+        // '<holder>.dup-<holderId>' — is vanishingly rare but not
+        // impossible, and the blast radius of not catching it is total. On
+        // failure: undo whatever this group already changed, log it, and
+        // move on to the next group, leaving this pair exactly as v174 left
+        // it.
+        let parkSucceeded = false;
+        let claimantRenamed = false;
+        try {
+          if (holder) {
+            // Go through a throwaway name: the NOCASE unique indexes forbid
+            // the claimant and holder from ever sharing a folded name, even
+            // for one statement.
+            parkHolder.run(holder.id);
+            parkSucceeded = true;
+            renameTo.run(claimant.originalName, claimant.id);
+            claimantRenamed = true;
+            // Holder demoted under ITS OWN prior spelling, not the
+            // claimant's — same convention v174 uses for every loser it
+            // renames.
+            holderNewUsername = `${holder.username}.dup-${holder.id}`;
+            renameTo.run(holderNewUsername, holder.id);
+          } else {
+            renameTo.run(claimant.originalName, claimant.id);
+            claimantRenamed = true;
+          }
+
+          // Reactivate ONLY the early '.retired-' form's unambiguous
+          // marker. A '.dup-'/'.dupe-' claimant's is_active is left exactly
+          // as found — v174's current form never disables, so an admin may
+          // have.
+          if (claimant.suffix === "retired") {
+            reactivate.run(claimant.id);
+          }
+
+          restored++;
+
+          if (auditStmt) {
+            try {
+              const summary = holder
+                ? `Migration v177 restored '${claimantOldUsername}' to ` +
+                  `'${claimant.originalName}': ${reason}. v174's ` +
+                  `session-based tie-break had no session history to go on ` +
+                  `and guessed wrong; '${holderNewUsername}' still works ` +
+                  `under that name.`
+                : `Migration v177 restored '${claimantOldUsername}' to ` +
+                  `'${claimant.originalName}': the name was free, so ` +
+                  `restoring it is a strict improvement over v174's rename.`;
+              auditStmt.run(
+                claimant.tenant_id,
+                claimant.id,
+                claimant.originalName,
+                claimant.role,
+                String(claimant.id),
+                summary,
+              );
+            } catch (auditError) {
+              console.log(
+                `Migration v177: could not write an audit row for ` +
+                  `restoring '${claimant.originalName}' ` +
+                  `(${errMsg(auditError)}). The rename itself succeeded.`,
+              );
+            }
+          }
+        } catch (error) {
+          // Undo in REVERSE order. The claimant goes back to its OLD
+          // (still-renamed) name FIRST, then the holder is un-parked —
+          // reversed, the holder's original name would still collide with
+          // the claimant sitting on the folded-equivalent spelling, so the
+          // revert would fail for the exact same reason the forward swap
+          // did.
+          if (claimantRenamed) {
+            try {
+              renameTo.run(claimantOldUsername, claimant.id);
+            } catch (revertError) {
+              console.log(
+                `Migration v177: could not revert claimant ` +
+                  `'${claimant.originalName}' (id ${claimant.id}) back to ` +
+                  `'${claimantOldUsername}' after a failed swap ` +
+                  `(${errMsg(revertError)}). Left mid-swap; check manually.`,
+              );
+            }
+          }
+          if (holder && parkSucceeded) {
+            try {
+              renameTo.run(holder.username, holder.id);
+            } catch (revertError) {
+              console.log(
+                `Migration v177: could not un-park holder ` +
+                  `'${holder.username}' (id ${holder.id}) after a failed ` +
+                  `swap (${errMsg(revertError)}). Holder may be stuck ` +
+                  `under '.v177tmp'; check manually.`,
+              );
+            }
+          }
+          console.log(
+            `Migration v177: could not restore '${claimantOldUsername}' ` +
+              `(id ${claimant.id}) to '${claimant.originalName}'` +
+              `${holder ? ` over holder '${holder.username}' (id ${holder.id})` : ""} ` +
+              `(${errMsg(error)}). Left as v174 left it.`,
+          );
+          continue;
+        }
+      }
+
+      console.log(
+        `Migration v177: re-decided v174's duplicate renames using ` +
+          `audit_log login evidence; ${restored} account(s) restored to ` +
+          `their original name`,
+      );
+    },
+    down(db: Database.Database) {
+      // v177 only reverses a MISTAKE v174 made when choosing a survivor; it
+      // never invents new state of its own. v174's own down() already strips
+      // the '.dup-<id>' suffix this migration leaves on the loser side of
+      // every swap it makes (and its earlier '.retired-'/'.dupe-' forms), so
+      // rolling back v174 already undoes everything v177 changed. Inventing
+      // an inverse "swap it back" here would just re-break the exact login
+      // v177 exists to fix, for no reason — a logged no-op is the correct,
+      // symmetric rollback.
+      console.log(
+        "Migration v177 rollback: no-op — rolling back v174 (which strips " +
+          "the '.dup-<id>' suffix this migration leaves behind) already " +
+          "restores the pre-v174 state",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
