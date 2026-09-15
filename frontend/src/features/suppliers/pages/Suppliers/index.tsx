@@ -26,8 +26,15 @@ import {
   useSupplierLedgerEntryMutation,
   useUnsettledTransactionsQuery,
   useSettleTransactionsMutation,
+  useSupplierAccountBalancesQuery,
+  useSupplierAccountLedgerQuery,
+  useSupplierAccountUnsettledQuery,
   type UnsettledSupplierTransaction,
+  type AccountBalance,
+  type AccountLedgerEntry,
+  type AccountUnsettledRow,
 } from "../../hooks/useSuppliers";
+import { AccountSettleSheet } from "../../components/AccountSettleSheet";
 
 type Supplier = {
   id: number;
@@ -54,6 +61,11 @@ type Supplier = {
    *  ('USD' by default; Katsh is 'LBP' — 20,000 LBP/bill, not USD).
    *  Undefined on schemas older than v151. */
   commission_rate_currency?: "USD" | "LBP" | null;
+  /** OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187, v176) — self-FK to the
+   *  account parent ('OMT') for a child supplier ('OMT App', 'iPick').
+   *  NULL for a standalone supplier and for the parent itself. Undefined on
+   *  schemas older than v176. */
+  account_supplier_id?: number | null;
 };
 
 type SupplierBalance = {
@@ -114,14 +126,16 @@ type SupplierTxn = {
   is_settled: number;
   /**
    * Computed by the repository (SUPPLIER_OWED_EXPR — the ONE owed-per-row
-   * definition): 0 for wallet-provider transfers, cost for a LEGACY
-   * cost-flow row (`supplier_debt_booked = 1`) and 0 for a post-C5 one
-   * (LIRA-122 — the debt already lives in a TOP_UP ledger entry booked at
-   * top-up time, so a prepaid sale owes nothing on its own row), and for
-   * OMT/WHISH the FEE SPLIT ONLY (|fee| − |commission|), same for SEND
-   * and RECEIVE — the principal moved through the system float at transaction
-   * time and is not owed. All owed math on this page sums this — never
-   * re-derive it.
+   * definition, `FinancialServiceRepository.ts`): 0 for wallet-provider
+   * transfers, cost for a LEGACY cost-flow row (`supplier_debt_booked = 1`)
+   * and 0 for a post-C5 one (LIRA-122 — the debt already lives in a TOP_UP
+   * ledger entry booked at top-up time, so a prepaid sale owes nothing on
+   * its own row), and for OMT/WHISH the GROSS amount — `+(amount + fee)`
+   * for a SEND, `−(amount − fee)` for a RECEIVE (primary-cash-drawer model,
+   * 2026-07-30: the principal lives in the PCD as the shop's own physical
+   * cash, not a provider-side float, so the full amount owed the provider
+   * is booked here — the shop's commission cut settles separately, at
+   * settlement). All owed math on this page sums this — never re-derive it.
    */
   supplier_owed: number;
   fifo_status: "paid" | "partial" | "unpaid";
@@ -137,12 +151,27 @@ type SupplierTxn = {
   settled_commission_lbp?: number | null;
 };
 
+// OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187/188) — the `AccountBalance` /
+// `AccountChildBalance` / `AccountLedgerEntry` / `AccountUnsettledRow`
+// shapes live in `../../hooks/useSuppliers` (imported above, next to the
+// query hooks that fetch them) rather than being re-declared here, so the
+// hooks file and this page share one definition (rule 14) instead of two
+// drifting copies across files in the same lane.
+
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — the account members (OMT,
+ * OMT App, iPick) are no longer looked up here: their drawer badge comes
+ * from real data (`AccountChildBalance.drawer_name`, sourced from
+ * `service_providers.drawer_name`) inside the account card instead of a
+ * hardcoded guess. This map is now a fallback ONLY for company suppliers
+ * that are NOT part of an account and for whom `getSuppliers()` still
+ * carries no `drawer_name` of its own (a cross-lane gap — see
+ * CROSS_LANE_REQUESTS: `getSuppliers()`/`SupplierEntity` has no
+ * `drawer_name` column today, only `AccountChildBalance` does).
+ */
 const PROVIDER_DRAWER: Record<string, string> = {
-  OMT: "OMT_System",
   WHISH: "Whish_System",
-  iPick: "iPick",
   Katsh: "Katsh",
-  OMT_APP: "OMT_App",
   WHISH_APP: "Whish_App",
   LOTO: "Loto",
 };
@@ -317,6 +346,304 @@ function balanceColor(amount: number): string {
   return balanceTextColor(amount, BALANCE_EPS);
 }
 
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188, D6) — the OMT open-credit
+ * account rendered as ONE card in the Companies list, replacing separate
+ * top-level tiles for OMT / OMT App / iPick. Three sub-rows inside it (the
+ * OMT counter, OMT App, iPick — `account.children`, parent first per
+ * `getAccountBalances`' own ordering): each shows its own drawer badge
+ * (`AccountChildBalance.drawer_name`, real data — never a hardcoded map),
+ * its per-currency contribution, and its unsettled count. Sub-rows have NO
+ * settle button — only the card's own header selects the account parent,
+ * which keeps the EXISTING per-supplier Settle tab/flow unchanged (account
+ * settlement across all three members is LIRA-189, wave 2 — not built).
+ *
+ * Fetches its own unsettled-count data (`useSupplierAccountUnsettledQuery`)
+ * so the query only runs for cards that are actually rendered, and so the
+ * hook lives in one place obeying the Rules of Hooks (called once per card
+ * instance, not conditionally inside a `.map()` in the parent).
+ *
+ * Backward-compat testid: `supplier-tile-OMT` is kept (nested, on the
+ * header only) alongside the new `supplier-account-card-OMT` on the outer
+ * card — `lira-158`/`lira-159` (pre-existing, outside this batch's lanes)
+ * still select OMT via `supplier-tile-${provider}` and are not touched by
+ * this change. See this lane's RISKS/DECISIONS.
+ */
+function SupplierAccountCard({
+  account,
+  selectedSupplierId,
+  onSelect,
+  isAdmin,
+  onSettle,
+}: {
+  account: AccountBalance;
+  selectedSupplierId: number | null;
+  onSelect: (supplierId: number) => void;
+  /** OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, wave 2) — same admin gate
+   *  as the settle/cashflow mutations the sheet calls
+   *  (`requireRole(["admin"])` on both transports). */
+  isAdmin: boolean;
+  /** Opens the account-wide settle sheet for THIS account (CONTRACT_W2.md
+   *  §3 W6: "On the OMT account card, the settle button..."). */
+  onSettle: (account: AccountBalance) => void;
+}) {
+  const unsettledQuery = useSupplierAccountUnsettledQuery(
+    account.account_supplier_id,
+  );
+  const unsettled: AccountUnsettledRow[] = unsettledQuery.data ?? [];
+  const unsettledCountByProvider = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of unsettled) {
+      const key = row.source_provider ?? "";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [unsettled]);
+
+  const parentChild = account.children.find((c) => c.is_parent);
+  const testIdSuffix = parentChild?.provider ?? String(account.account_supplier_id);
+  const isParentSelected = selectedSupplierId === account.account_supplier_id;
+
+  return (
+    <div
+      data-testid={`supplier-account-card-${testIdSuffix}`}
+      className={`rounded-lg border transition-colors ${
+        isParentSelected
+          ? "border-orange-500 bg-slate-700"
+          : "border-slate-700/60 hover:border-slate-600"
+      }`}
+    >
+      <button
+        type="button"
+        data-testid={`supplier-tile-${testIdSuffix}`}
+        onClick={() => onSelect(account.account_supplier_id)}
+        className="w-full text-left p-3"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-white">
+              {account.account_name}
+            </span>
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-600/60 text-slate-300 uppercase tracking-wider">
+              Account
+            </span>
+          </div>
+        </div>
+        <div className="mt-1 text-xs font-mono">
+          <span
+            data-testid="supplier-account-balance-usd"
+            className={balanceColor(account.total_usd)}
+          >
+            ${account.total_usd.toFixed(2)}
+          </span>
+          <span className="text-slate-600"> | </span>
+          <span
+            data-testid="supplier-account-balance-lbp"
+            className={balanceColor(account.total_lbp)}
+          >
+            {account.total_lbp.toLocaleString()} LBP
+          </span>
+        </div>
+      </button>
+      {isAdmin && (
+        <div className="px-3 pb-2">
+          <button
+            type="button"
+            data-testid="supplier-account-settle-button"
+            onClick={(e) => {
+              // Not nested inside the selection `<button>` above, but keep
+              // this harmless even if that ever changes.
+              e.stopPropagation();
+              onSettle(account);
+            }}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+            title="Settle the counter, OMT App and iPick in one payment"
+          >
+            Settle Account
+          </button>
+        </div>
+      )}
+      <div className="px-3 pb-2 space-y-1">
+        {account.children.map((child) => {
+          const childSelected = selectedSupplierId === child.supplier_id;
+          const childSuffix = child.provider ?? String(child.supplier_id);
+          const unsettledCount = unsettledCountByProvider.get(
+            child.provider ?? "",
+          );
+          return (
+            <div
+              key={child.supplier_id}
+              data-testid={`supplier-account-subrow-${childSuffix}`}
+              onClick={() => onSelect(child.supplier_id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") onSelect(child.supplier_id);
+              }}
+              className={`flex items-center justify-between rounded px-2 py-1.5 text-xs cursor-pointer ${
+                childSelected ? "bg-slate-600" : "hover:bg-slate-700/60"
+              }`}
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-slate-300 truncate">{child.name}</span>
+                {child.drawer_name && (
+                  <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                    {drawerDisplayLabel(child.drawer_name)}
+                  </span>
+                )}
+                <span className="text-[9px] text-slate-500 italic shrink-0">
+                  part of {account.account_name} account
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {!!unsettledCount && (
+                  <span className="text-[10px] text-amber-400">
+                    {unsettledCount} unsettled
+                  </span>
+                )}
+                <span
+                  data-testid={`supplier-account-subrow-balance-${childSuffix}`}
+                  className={`font-mono ${balanceColor(
+                    child.total_usd !== 0 ? child.total_usd : child.total_lbp,
+                  )}`}
+                >
+                  {child.total_usd !== 0
+                    ? `$${child.total_usd.toFixed(2)}`
+                    : `${child.total_lbp.toLocaleString()} LBP`}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188, D6) — the merged Payments
+ * ledger for an account PARENT: parent + every child's `supplier_ledger`
+ * rows, each carrying a Type/Source cell (`source_name`) plus a type
+ * filter defaulting to "All". Deliberately a SEPARATE table from the
+ * single-provider one below (not a parameterized shared table) — every
+ * existing Suppliers jest test selects a non-account supplier, so leaving
+ * that table's JSX byte-for-byte unchanged in its own branch is the
+ * zero-regression path (this table only renders when
+ * `isSelectedAccountParent` is true, which none of the pre-existing tests
+ * trigger).
+ */
+function AccountLedgerTable({
+  rows,
+  typeFilter,
+  onTypeFilterChange,
+  typeOptions,
+}: {
+  rows: AccountLedgerEntry[];
+  typeFilter: string;
+  onTypeFilterChange: (value: string) => void;
+  typeOptions: string[];
+}) {
+  const filtered =
+    typeFilter === "ALL"
+      ? rows
+      : rows.filter((r) => r.source_name === typeFilter);
+  return (
+    <div className="mt-6">
+      <div className="flex items-center justify-between mb-2 px-1">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+          Payments
+        </h3>
+        <select
+          data-testid="supplier-ledger-type-filter"
+          value={typeFilter}
+          onChange={(e) => onTypeFilterChange(e.target.value)}
+          className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-orange-500"
+        >
+          <option value="ALL">All types</option>
+          {typeOptions.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="border border-slate-700 rounded-xl overflow-hidden">
+        <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
+          <div className="col-span-2">Entry</div>
+          <div className="col-span-2">Source</div>
+          <div className="col-span-2 text-right">USD</div>
+          <div className="col-span-2 text-right">LBP</div>
+          <div className="col-span-2">Note</div>
+          <div className="col-span-2">Date</div>
+        </div>
+        <div className="max-h-[30vh] overflow-y-auto">
+          {filtered.map((row) => (
+            <div
+              key={row.id}
+              className={`grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center ${row.is_refunded ? "opacity-60" : ""}`}
+            >
+              <div className="col-span-2 flex items-center gap-1">
+                <EntryTypeBadge
+                  type={row.entry_type}
+                  direction={ledgerRowDirection(
+                    row.amount_usd,
+                    row.amount_lbp,
+                  )}
+                />
+                {!!row.is_refunded && (
+                  <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
+                    VOIDED
+                  </span>
+                )}
+              </div>
+              <div
+                data-testid="supplier-ledger-type-cell"
+                className="col-span-2 text-slate-300 text-xs truncate"
+                title={row.source_provider ?? undefined}
+              >
+                {row.source_name}
+              </div>
+              <div
+                className={`col-span-2 text-right font-mono ${
+                  row.is_refunded
+                    ? "line-through text-slate-500"
+                    : balanceColor(row.amount_usd)
+                }`}
+              >
+                {row.amount_usd !== 0
+                  ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
+                  : "—"}
+              </div>
+              <div
+                className={`col-span-2 text-right font-mono ${
+                  row.is_refunded
+                    ? "line-through text-slate-500"
+                    : balanceColor(row.amount_lbp)
+                }`}
+              >
+                {row.amount_lbp !== 0
+                  ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
+                  : "—"}
+              </div>
+              <div className="col-span-2 text-slate-300 truncate text-xs">
+                {row.note || ""}
+              </div>
+              <div className="col-span-2 text-slate-400 text-xs">
+                {parseDbDate(row.created_at).toLocaleString()}
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="text-slate-500 text-sm p-3">
+              No payment entries yet.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SuppliersPage() {
   const { methods } = usePaymentMethods();
   const { partnerSystem } = useShopBase();
@@ -371,6 +698,20 @@ export default function SuppliersPage() {
   const [adjustMoveCash, setAdjustMoveCash] = useState(true);
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
+  // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, wave 2) — the account-wide
+  // settle sheet (counter + OMT App + iPick, ONE call). Holds the account
+  // to settle directly (from `SupplierAccountCard`'s own `onSettle`
+  // callback) rather than deriving it from `selectedSupplierId` — the
+  // card's settle button opens the sheet WITHOUT first requiring that
+  // account to be the selected one (CONTRACT_W2.md §3 W6 / lira-web-035's
+  // UI pass clicks it directly). Conditionally rendered (not just hidden)
+  // below so its internal state resets on every open, same convention as
+  // `showSettleConfirm`'s CounterpartySettleModal.
+  const [settlingAccount, setSettlingAccount] = useState<AccountBalance | null>(
+    null,
+  );
+  useModalFocusFix(!!settlingAccount);
+
   // D5 — batch settlement (resurrected from the orphaned
   // Settings/SupplierLedger.tsx, admin-only, built on the shared
   // CounterpartySettleModal). Selection is keyed off the SAME
@@ -420,6 +761,10 @@ export default function SuppliersPage() {
   const suppliersQuery = useSuppliersQuery();
   const balancesQuery = useSupplierBalancesQuery();
   const productBalancesQuery = useProductSupplierBalancesQuery();
+  // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — every account's rolled-up
+  // balance, fetched unconditionally like the two reads above (cheap read,
+  // empty array on a tenant with no account parent).
+  const accountBalancesQuery = useSupplierAccountBalancesQuery();
 
   const selectedSupplier = useMemo(
     () =>
@@ -448,6 +793,74 @@ export default function SuppliersPage() {
   const allTxns = (allTxnsQuery.data ?? []) as SupplierTxn[];
   const unsettledTxns = (unsettledQuery.data ??
     []) as UnsettledSupplierTransaction[];
+  const accountBalances = (accountBalancesQuery.data ??
+    []) as AccountBalance[];
+
+  // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188, D6) — `account_supplier_id`
+  // (parent id) → its rolled-up AccountBalance, and the set of supplier ids
+  // that are account CHILDREN (never the parent itself). Empty on a tenant
+  // with no account parent, so every filter/branch below degrades to the
+  // pre-LIRA-188 behaviour untouched.
+  const accountByParentId = useMemo(() => {
+    const map = new Map<number, AccountBalance>();
+    for (const a of accountBalances) map.set(a.account_supplier_id, a);
+    return map;
+  }, [accountBalances]);
+
+  const accountChildSupplierIds = useMemo(() => {
+    const set = new Set<number>();
+    for (const a of accountBalances) {
+      for (const c of a.children) {
+        if (!c.is_parent) set.add(c.supplier_id);
+      }
+    }
+    return set;
+  }, [accountBalances]);
+
+  // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188, D6) — is the CURRENTLY
+  // selected supplier an account parent? If so the Payments/ledger table
+  // below switches to the merged account ledger (Type column + filter)
+  // instead of `selectedSupplier`'s own single-provider ledger — everything
+  // ELSE about the selected supplier's panel (tabs, Settle, Pay/Receive)
+  // stays byte-for-byte the existing per-supplier behaviour (contract: "the
+  // account card keeps the existing settle button... do not change what the
+  // button does").
+  const selectedAccount = selectedSupplierId
+    ? accountByParentId.get(selectedSupplierId)
+    : undefined;
+  const isSelectedAccountParent = !!selectedAccount;
+
+  const accountLedgerQuery = useSupplierAccountLedgerQuery(
+    isSelectedAccountParent ? selectedSupplierId : null,
+    200,
+  );
+  const accountLedgerRows = (accountLedgerQuery.data ??
+    []) as AccountLedgerEntry[];
+
+  const ledgerTypeOptions = useMemo(() => {
+    if (!selectedAccount) return [];
+    // Every known member name, not just names seen in the (possibly
+    // limited/empty) ledger rows — so the filter offers "OMT App"/"iPick"
+    // even before either has a single payment entry yet.
+    return selectedAccount.children.map((c) => c.name).sort();
+  }, [selectedAccount]);
+
+  // D6 — "a type filter chip defaulting to all". Reset whenever the
+  // selection changes so a stale filter from a previous account doesn't
+  // silently hide rows after switching suppliers.
+  const [ledgerTypeFilter, setLedgerTypeFilter] = useState<string>("ALL");
+  useEffect(() => {
+    setLedgerTypeFilter("ALL");
+  }, [selectedSupplierId]);
+
+  /** Shared by every left-list click target (plain tile, account card
+   *  header, account sub-row) — one place decides which tab a freshly
+   *  selected supplier lands on (rule 14: was three copies of this same
+   *  two-line ternary before LIRA-188 added two more click targets). */
+  const selectSupplierFromList = (supplierId: number) => {
+    setSelectedSupplierId(supplierId);
+    setActiveTab(viewCategory === "products" ? "items" : "settle");
+  };
 
   const sortedSuppliers = useMemo(
     () =>
@@ -456,8 +869,16 @@ export default function SuppliersPage() {
         .filter((s) =>
           viewCategory === "companies" ? s.is_system === 1 : s.is_system === 0,
         )
+        // LIRA-188 (D6) — an account child ('OMT App', 'iPick') no longer
+        // gets its own top-level tile; it surfaces only as a sub-row inside
+        // its account's card (rendered from `sortedSuppliers` below, keyed
+        // off the account PARENT id, which stays in this list unchanged).
+        .filter(
+          (s) =>
+            viewCategory !== "companies" || !accountChildSupplierIds.has(s.id),
+        )
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [suppliers, partnerSystem, viewCategory],
+    [suppliers, partnerSystem, viewCategory, accountChildSupplierIds],
   );
 
   const balanceBySupplier = useMemo(() => {
@@ -481,6 +902,19 @@ export default function SuppliersPage() {
     let lbp = 0;
     for (const s of sortedSuppliers) {
       if (s.is_active === 0) continue;
+      // LIRA-188 — `sortedSuppliers` no longer lists the account's children
+      // as separate rows (they were filtered out above), so summing each
+      // row's OWN balance here would silently drop their debt from the
+      // page-wide total. For an account parent, use the already-rolled-up
+      // `AccountBalance` total (parent + children, exactly what the
+      // account card's headline shows) instead of the parent's solo row.
+      const account =
+        viewCategory === "companies" ? accountByParentId.get(s.id) : undefined;
+      if (account) {
+        usd += Number(account.total_usd || 0);
+        lbp += Number(account.total_lbp || 0);
+        continue;
+      }
       const b = activeBalanceMap.get(s.id);
       if (b) {
         usd += Number(b.total_usd || 0);
@@ -488,7 +922,7 @@ export default function SuppliersPage() {
       }
     }
     return { usd, lbp };
-  }, [sortedSuppliers, activeBalanceMap]);
+  }, [sortedSuppliers, activeBalanceMap, accountByParentId, viewCategory]);
 
   const hasOmtFee = useMemo(
     () => allTxns.some((t) => t.omt_fee != null && t.omt_fee > 0),
@@ -756,17 +1190,20 @@ export default function SuppliersPage() {
   );
 
   // Owed per row = supplier_owed, computed by the repository's single
-  // SUPPLIER_OWED_EXPR. OMT/WHISH float model (owner-confirmed 2026-07-29):
-  // supplier_owed is now FEE-ONLY (|fee| − |commission|, both SEND and
-  // RECEIVE) — the shop's commission is ALREADY excluded from this figure.
-  // Net you pay = supplier_owed itself, NOT owed − commission again (that
-  // was the old gross-principal model's math and would double-subtract the
-  // shop's cut under the new one). LBP rows are excluded from the
-  // batch-settle CASH math (no LBP settle amount handled here — out of
-  // scope) EXCEPT bills (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1): a
-  // bill's principal never reaches the ledger (SUPPLIER_OWED_EXPR's BILL
-  // branch is always 0), only its settlement commission does, so a BILL row
-  // must stay selectable even though it's LBP-denominated.
+  // SUPPLIER_OWED_EXPR, gated per row on `commission_model` (D3): a LEGACY
+  // row (0) is read FEE-ONLY (|fee| − |commission|) exactly as it was
+  // written pre-cutover, so its owed figure already nets out the shop's
+  // commission — see `settleNetPayUsd` below for where that legacy-vs-
+  // new-model split actually happens (primary-cash-drawer model, 2026-07-30:
+  // a NEW-MODEL row (1) is GROSS instead — the commission settles
+  // separately, entered at settlement — because the principal now lives in
+  // the PCD as the shop's own cash, not a provider float; FEATURE_GUIDE.md
+  // §8). LBP rows are excluded from the batch-settle CASH math (no LBP
+  // settle amount handled here — out of scope) EXCEPT bills
+  // (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1): a bill's principal never
+  // reaches the ledger (SUPPLIER_OWED_EXPR's BILL branch is always 0), only
+  // its settlement commission does, so a BILL row must stay selectable even
+  // though it's LBP-denominated.
   const selectedUnsettled = useMemo(
     () => unsettledTxns.filter((t) => selectedSettleIds.has(t.id)),
     [unsettledTxns, selectedSettleIds],
@@ -937,6 +1374,55 @@ export default function SuppliersPage() {
   const settleHasActiveLegs = settlePaymentLines.some((p) => p.amount > 0);
   const settleOwesCash =
     Math.abs(settleNetPayUsd) > 0.005 || Math.abs(settleNetPayLbp) > 0.005;
+
+  // ── LIRA-193 — reconcile entered payment legs against the net amount
+  // owed, per currency, before Confirm is even reachable. Ports
+  // AccountSettleSheet's underpaid/overpaid/reconciles shape (rule 14 — one
+  // pattern for "does the entered payment match the target", not a second
+  // one invented here) onto THIS screen's own target figures,
+  // `settleNetPayUsd`/`settleNetPayLbp` — summed independently, never
+  // collapsed through an exchange rate (LIRA-119's own lesson: a settlement
+  // can genuinely be USD-owed or LBP-owed, never converted between the
+  // two). Same 0.005 tolerance `SupplierRepository.settleTransactions`
+  // itself now enforces (LIRA-193's core fix), so Confirm can never be
+  // enabled for a payload the repository is about to reject with
+  // "Settlement payment legs do not reconcile to the net amount owed".
+  //
+  // Deliberately does NOT wire MultiPaymentInput's `onReturnChange`/
+  // `onKeptChange` below — a supplier settlement has no customer to hand
+  // change back to, and the repository now rejects any leg carrying
+  // `direction: "OUT"` outright. Do not "helpfully" add them.
+  const settleEnteredUsd = useMemo(
+    () =>
+      settlePaymentLines
+        .filter((p) => p.amount > 0 && p.currencyCode !== "LBP")
+        .reduce((s, p) => s + p.amount, 0),
+    [settlePaymentLines],
+  );
+  const settleEnteredLbp = useMemo(
+    () =>
+      settlePaymentLines
+        .filter((p) => p.amount > 0 && p.currencyCode === "LBP")
+        .reduce((s, p) => s + p.amount, 0),
+    [settlePaymentLines],
+  );
+  const settleUnderpaid =
+    settleOwesCash &&
+    (settleEnteredUsd < settleNetPayUsd - 0.005 ||
+      settleEnteredLbp < settleNetPayLbp - 0.005);
+  // A currency that's simultaneously under AND over (a stray leg in the
+  // "wrong" currency while the right one still falls short) reports as
+  // underpaid — the operator still needs to add money before overpayment
+  // is even the relevant problem. Not reachable today (settleNetPayLbp is
+  // structurally 0 in this branch — see its own comment), kept correct for
+  // when a future LBP-eligible non-bill row stops that being true.
+  const settleOverpaid =
+    settleOwesCash &&
+    !settleUnderpaid &&
+    (settleEnteredUsd > settleNetPayUsd + 0.005 ||
+      settleEnteredLbp > settleNetPayLbp + 0.005);
+  const settleLegsReconcile = !settleUnderpaid && !settleOverpaid;
+
   // Owner follow-up (2026-08-13) — "Other payment" mode's legs are NOT a
   // net-pay tender (settleOwesCash is always false for a bills-only batch);
   // they collect the entered COMMISSION instead. Same two-sided shape as
@@ -952,7 +1438,7 @@ export default function SuppliersPage() {
         : settleHasActiveLegs
       : settleHasActiveLegs // Top-up: no MultiPaymentInput renders, structurally always false
     : settleOwesCash
-      ? !settleHasActiveLegs
+      ? !settleHasActiveLegs || !settleLegsReconcile
       : settleHasActiveLegs;
   // LIRA-119 — same USD-hardcoding bug, second location: the "Owed … − Net
   // you pay" strip UNDER the row list (shown before the operator has even
@@ -1018,11 +1504,15 @@ export default function SuppliersPage() {
     setSettleSubmitting(true);
     try {
       const trimmedNote = settleNote.trim();
-      // No drawer_name: OMT_System/Whish_System is the provider FLOAT, never
-      // a real cash drawer — settlement pays the net amount EXCLUSIVELY
-      // through the payment-method legs the admin picks below (activeLines),
-      // matching recordSupplierCashflow's own contract. A $0/0 LBP net (both
-      // settleNetPayUsd and settleNetPayLbp === 0) needs no legs at all.
+      // No drawer_name: settlement pays the net amount EXCLUSIVELY through
+      // the payment-method legs the admin picks below (activeLines),
+      // matching recordSupplierCashflow's own contract — even though
+      // OMT_System/Whish_System is real physical cash now (the primary cash
+      // drawer, not a provider float; primary-cash-drawer model, 2026-07-30),
+      // a CASH leg here still resolves to it via the payment-method
+      // machinery, not a bare drawer credit bypassing that leg. A $0/0 LBP
+      // net (both settleNetPayUsd and settleNetPayLbp === 0) needs no legs
+      // at all.
       //
       // NEW-MODEL batch (D8): commission_usd/commission_lbp become the
       // MONEY-BEARING entered figures (settleEnteredCommission*), plus the
@@ -1160,6 +1650,27 @@ export default function SuppliersPage() {
           </div>
           <div className="space-y-1">
             {sortedSuppliers.map((s) => {
+              // LIRA-188 (D6) — an account parent ('OMT') renders as a
+              // rolled-up account card with sub-rows instead of the plain
+              // tile below. Empty `accountByParentId` (no account parent on
+              // this tenant) means every supplier falls through unchanged.
+              const account =
+                viewCategory === "companies"
+                  ? accountByParentId.get(s.id)
+                  : undefined;
+              if (account) {
+                return (
+                  <SupplierAccountCard
+                    key={s.id}
+                    account={account}
+                    selectedSupplierId={selectedSupplierId}
+                    onSelect={selectSupplierFromList}
+                    isAdmin={isAdmin}
+                    onSettle={setSettlingAccount}
+                  />
+                );
+              }
+
               const b = activeBalanceMap.get(s.id);
               const active = s.id === selectedSupplierId;
               const drawer = s.provider
@@ -1169,12 +1680,7 @@ export default function SuppliersPage() {
                 <button
                   key={s.id}
                   data-testid={`supplier-tile-${s.provider ?? s.id}`}
-                  onClick={() => {
-                    setSelectedSupplierId(s.id);
-                    setActiveTab(
-                      viewCategory === "products" ? "items" : "settle",
-                    );
-                  }}
+                  onClick={() => selectSupplierFromList(s.id)}
                   className={`w-full text-left p-3 rounded-lg transition-colors ${
                     active ? "bg-slate-700" : "hover:bg-slate-700/50"
                   } ${s.is_active === 0 ? "opacity-60" : ""}`}
@@ -1275,6 +1781,14 @@ export default function SuppliersPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, wave 2) — the
+                      account-wide settle BUTTON lives on the account CARD
+                      itself (CONTRACT_W2.md §3 W6: "On the OMT account
+                      card, the settle button opens an account settlement
+                      sheet") — see `SupplierAccountCard`'s own
+                      `onSettle`/`isAdmin` props below, not here. Both e2e
+                      lanes' specs agree it must render exactly once, on the
+                      card, not duplicated in this per-supplier panel. */}
                   {/* LIRA-080: Add Credit / Debt — a manual supplier_ledger
                       correction with a "Cash moved" toggle (default ON).
                       Admin-only: it reuses the addLedgerEntry / cashflow
@@ -1911,7 +2425,18 @@ export default function SuppliersPage() {
                 </CounterpartySettleModal>
               )}
 
-              {/* Ledger history */}
+              {/* Ledger history — LIRA-188 (D6): an account parent shows
+                  the MERGED account ledger (Type column + filter) instead
+                  of its own single-provider one. Everything else about the
+                  selected supplier's panel is unaffected. */}
+              {isSelectedAccountParent ? (
+                <AccountLedgerTable
+                  rows={accountLedgerRows}
+                  typeFilter={ledgerTypeFilter}
+                  onTypeFilterChange={setLedgerTypeFilter}
+                  typeOptions={ledgerTypeOptions}
+                />
+              ) : (
               <div className="mt-6">
                 <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
                   Payments
@@ -2031,6 +2556,7 @@ export default function SuppliersPage() {
                   </div>
                 </div>
               </div>
+              )}
             </>
           )}
         </div>
@@ -2442,6 +2968,29 @@ export default function SuppliersPage() {
                   </span>
                 </div>
               )}
+
+              {/* LIRA-193 — same inline-message convention as
+                  AccountSettleSheet's "supplier-account-settle-mismatch":
+                  name the exact overage and what to reduce to, rather than
+                  leaving the operator to find out at a failed submit. */}
+              {!isBillsOnlyBatch && settleOwesCash && !settleLegsReconcile && (
+                <p
+                  className="text-amber-400 text-xs"
+                  data-testid="settle-payment-mismatch"
+                >
+                  {settleUnderpaid
+                    ? "The entered payment doesn't cover the amount owed for these transactions — enter the full net amount or deselect some transactions."
+                    : `The entered payment is ${formatMoney(
+                        (settleNetPayCurrency === "LBP"
+                          ? settleEnteredLbp
+                          : settleEnteredUsd) - settleNetPayAmount,
+                        settleNetPayCurrency,
+                      )} more than the net amount. Settlement legs must match exactly — reduce the payment to ${formatMoney(
+                        settleNetPayAmount,
+                        settleNetPayCurrency,
+                      )}.`}
+                </p>
+              )}
             </div>
           }
           multiPaymentInputKey={settleKey}
@@ -2510,6 +3059,21 @@ export default function SuppliersPage() {
             />
           </div>
         </CounterpartySettleModal>
+      )}
+
+      {/* OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, wave 2) — account-wide
+          settle sheet. Conditional render (not `hidden`) so its internal
+          selection/payment-leg state resets on every open. Driven by
+          `settlingAccount` (set directly by `SupplierAccountCard`'s
+          `onSettle`), NOT by `selectedSupplierId`/`selectedAccount` — the
+          card's settle button must open the sheet even when that account
+          isn't the currently-selected supplier in the right-hand panel. */}
+      {settlingAccount && (
+        <AccountSettleSheet
+          account={settlingAccount}
+          onClose={() => setSettlingAccount(null)}
+          onSettled={() => setSettlingAccount(null)}
+        />
       )}
     </div>
   );

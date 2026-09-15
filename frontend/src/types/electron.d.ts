@@ -203,6 +203,79 @@ export interface UnsettledSummary {
 }
 
 /**
+ * OMT open-credit account (LIRA-187/188) — `'OMT'` is the account parent;
+ * `'OMT App'` and `'iPick'` are children linked via
+ * `suppliers.account_supplier_id`. Ledger rows never move (plan §2); this is
+ * a read-time rollup. Mirrors `@liratek/core`'s `AccountBalance`
+ * (`SupplierRepository.ts`) verbatim (rule 14).
+ */
+export interface AccountBalance {
+  account_supplier_id: number;
+  account_name: string;
+  /** Parent + children, summed. */
+  total_usd: number;
+  total_lbp: number;
+  children: AccountChildBalance[];
+}
+
+/** @see AccountBalance */
+export interface AccountChildBalance {
+  supplier_id: number;
+  name: string;
+  provider: string | null;
+  /** From `service_providers.drawer_name`; null if unknown. */
+  drawer_name: string | null;
+  total_usd: number;
+  total_lbp: number;
+  /** true for the OMT counter row itself (the account parent). */
+  is_parent: boolean;
+}
+
+/**
+ * One row of the OMT account's unioned ledger (parent + every child),
+ * newest first. `source_name` is the Suppliers page's Type column value.
+ * Mirrors `@liratek/core`'s `AccountLedgerEntry` verbatim (rule 14).
+ */
+export interface AccountLedgerEntry {
+  id: number;
+  supplier_id: number;
+  /** 'OMT' | 'OMT_APP' | 'iPick' */
+  source_provider: string | null;
+  /** 'OMT' | 'OMT App' | 'iPick' — the Type column. */
+  source_name: string;
+  entry_type: string;
+  amount_usd: number;
+  amount_lbp: number;
+  note: string | null;
+  created_at: string;
+  is_refunded: number;
+  settlement_id: number | null;
+}
+
+/**
+ * One row of the OMT account's unsettled queue — a union of two
+ * structurally different sources (plan §9.3): pending `financial_services`
+ * rows (kind FINANCIAL_SERVICE) and raw `supplier_ledger` rows with
+ * `settlement_id IS NULL` (kind LEDGER). Mirrors `@liratek/core`'s
+ * `AccountUnsettledRow` verbatim (rule 14).
+ */
+export interface AccountUnsettledRow {
+  kind: "FINANCIAL_SERVICE" | "LEDGER";
+  id: number;
+  supplier_id: number;
+  source_provider: string | null;
+  /** The Type column. */
+  source_name: string;
+  created_at: string;
+  amount_usd: number;
+  amount_lbp: number;
+  /** Set for LEDGER rows. */
+  entry_type: string | null;
+  /** Set for FINANCIAL_SERVICE rows. */
+  service_type: string | null;
+}
+
+/**
  * LIRA-064: a single structured in/out payment leg for a transaction.
  *
  * `direction` is from the shop's perspective: `"in"` is money the customer
@@ -1464,10 +1537,18 @@ export interface ElectronAPI {
       sourceDrawer: string;
     }) => Promise<{ success: boolean; error?: string }>;
     topUpFromSupplier: (data: {
-      provider: "iPick" | "Katsh";
+      provider: "iPick" | "Katsh" | "OMT_APP";
       amount: number;
       currency: "USD" | "LBP";
     }) => Promise<{ success: boolean; error?: string }>;
+    // OMT open-credit account (LIRA-192) — the mirror of topUpFromSupplier:
+    // wallet balance leaves OMT_App and the OMT account is credited
+    // principal + commission (recognised at settlement, wave 2). Admin-only.
+    cashoutToSupplier: (data: {
+      provider: "OMT_APP";
+      amount: number;
+      currency: "USD" | "LBP";
+    }) => Promise<{ success: boolean; error?: string; commission?: number }>;
     topUpFromPartner: (data: {
       provider: "WHISH_APP";
       partnerId: number;
@@ -1563,6 +1644,16 @@ export interface ElectronAPI {
         settlement_commission_lbp?: number | null;
       }>
     >;
+    // OMT open-credit account (LIRA-188) — read-only rollup across the
+    // account parent (OMT) and its children (OMT App, iPick). No role gate.
+    getAccountBalances: () => Promise<AccountBalance[]>;
+    getAccountLedger: (
+      accountSupplierId: number,
+      limit?: number,
+    ) => Promise<AccountLedgerEntry[]>;
+    getAccountUnsettled: (
+      accountSupplierId: number,
+    ) => Promise<AccountUnsettledRow[]>;
     create: (data: {
       name: string;
       contact_name?: string;
@@ -1618,6 +1709,32 @@ export interface ElectronAPI {
       /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
       drawer_name?: string;
       note?: string;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
+    // payment across the account parent (OMT) + its children (OMT App,
+    // iPick), allocated per child by the repository. `account_supplier_id`
+    // travels inside `data` (unlike the REST route, IPC has no URL to source
+    // it from). The repository re-validates every selected id against
+    // account membership — the client's selection is never trusted.
+    settleAccount: (data: {
+      account_supplier_id: number;
+      direction: "PAY" | "COLLECT";
+      selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
+      amount_usd: number;
+      amount_lbp: number;
+      commission_usd: number;
+      commission_lbp: number;
+      entry_mode?: "LUMP" | "RATE";
+      commission_rate?: number;
+      commission_unit_count?: number;
+      note?: string;
+      exchange_rate?: number;
       payments?: Array<{
         method: string;
         currency_code: string;

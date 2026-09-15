@@ -1,6 +1,32 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
 
+// ── OMT open-credit account types (LIRA-187/188) ───────────────────────────
+//
+// Imported from `@liratek/ui` (re-exported here so every existing consumer
+// in this feature can keep importing them from this hooks file) rather than
+// hand-copied: `packages/ui/src/api/types.ts` already mirrors
+// `SupplierRepository`'s (`packages/core`) `AccountBalance` /
+// `AccountChildBalance` / `AccountLedgerEntry` / `AccountUnsettledRow`
+// verbatim (rule 14) and its barrel (`packages/ui/src/api/index.ts`)
+// re-exports all four — a THIRD hand-typed copy here had already drifted
+// (this file used to declare `AccountUnsettledRow.commission_usd`/
+// `commission_lbp` as optional/nullable; core populates them unconditionally
+// — see that field's doc comment on `SupplierRepository.AccountUnsettledRow`
+// for why a caller never needs an `?? 0` guard on it).
+import type {
+  AccountBalance,
+  AccountChildBalance,
+  AccountLedgerEntry,
+  AccountUnsettledRow,
+} from "@liratek/ui";
+export type {
+  AccountBalance,
+  AccountChildBalance,
+  AccountLedgerEntry,
+  AccountUnsettledRow,
+};
+
 // ── Shared query keys ─────────────────────────────────────────────────────────
 export const SUPPLIER_KEYS = {
   all: ["suppliers"] as const,
@@ -17,7 +43,37 @@ export const SUPPLIER_KEYS = {
   allTransactions: (provider: string) =>
     ["supplier-all-transactions", provider] as const,
   purchases: (id: number) => ["supplier-purchases", id] as const,
+  // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — the OMT open-credit
+  // account rollup: one balances read (every account, parent+children
+  // summed) plus per-account ledger/unsettled reads keyed by the account
+  // parent's supplier id.
+  accountBalances: ["supplier-account-balances"] as const,
+  accountLedger: (accountSupplierId: number) =>
+    ["supplier-account-ledger", accountSupplierId] as const,
+  accountUnsettled: (accountSupplierId: number) =>
+    ["supplier-account-unsettled", accountSupplierId] as const,
 };
+
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — every mutation below that
+ * changes a `supplier_ledger` row already invalidates `SUPPLIER_KEYS.all`/
+ * `.balances`/`.ledger(id)` for the SINGLE supplier it acted on; NONE of
+ * them knew about the account rollup reads before this ticket, so the
+ * account card/merged ledger could show a stale total right after e.g.
+ * paying down iPick directly. One shared invalidator (rule 14 — a single
+ * definition, reused by every mutation here) instead of four separate,
+ * drifting copies. `accountLedger`/`accountUnsettled` are invalidated by
+ * KEY PREFIX (no specific parent id needed — the mutation only knows the
+ * child's own id/provider, not which account it belongs to) since
+ * TanStack Query matches a partial query key as a prefix by default.
+ */
+function invalidateAccountQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.accountBalances });
+  queryClient.invalidateQueries({ queryKey: ["supplier-account-ledger"] });
+  queryClient.invalidateQueries({ queryKey: ["supplier-account-unsettled"] });
+}
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
@@ -43,6 +99,59 @@ export function useSupplierLedgerQuery(supplierId: number | null) {
     queryKey: SUPPLIER_KEYS.ledger(supplierId ?? 0),
     queryFn: () => api.getSupplierLedger(supplierId!, 200),
     enabled: !!supplierId,
+  });
+}
+
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — every account's rolled-up
+ * balance (parent + children summed, per currency), one read for the whole
+ * Companies tab. Empty array on a tenant with no account parent (e.g. no
+ * 'OMT' supplier) — the page then renders every supplier as a plain tile,
+ * unchanged.
+ */
+export function useSupplierAccountBalancesQuery() {
+  const api = useApi();
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.accountBalances,
+    queryFn: () => api.getSupplierAccountBalances() as Promise<
+      AccountBalance[]
+    >,
+  });
+}
+
+/** @see useSupplierAccountBalancesQuery — the account's merged ledger
+ *  (parent + children), fed to the Type column when the selected supplier
+ *  IS an account parent. Disabled (no fetch) when there's no parent id. */
+export function useSupplierAccountLedgerQuery(
+  accountSupplierId: number | null,
+  limit?: number,
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.accountLedger(accountSupplierId ?? 0),
+    queryFn: () =>
+      api.getSupplierAccountLedger(accountSupplierId!, limit) as Promise<
+        AccountLedgerEntry[]
+      >,
+    enabled: !!accountSupplierId,
+  });
+}
+
+/** @see useSupplierAccountBalancesQuery — the account's unioned unsettled
+ *  queue, used only to derive a per-child unsettled COUNT on the account
+ *  card's sub-rows (read-only in this wave; account settlement is
+ *  LIRA-189). Disabled (no fetch) when there's no parent id. */
+export function useSupplierAccountUnsettledQuery(
+  accountSupplierId: number | null,
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.accountUnsettled(accountSupplierId ?? 0),
+    queryFn: () =>
+      api.getSupplierAccountUnsettled(accountSupplierId!) as Promise<
+        AccountUnsettledRow[]
+      >,
+    enabled: !!accountSupplierId,
   });
 }
 
@@ -163,6 +272,7 @@ export function useAddLedgerEntryMutation(supplierId: number | null) {
           queryKey: SUPPLIER_KEYS.ledger(supplierId),
         });
       }
+      invalidateAccountQueries(queryClient);
     },
   });
 }
@@ -242,6 +352,7 @@ export function useSupplierCashflowMutation(
           });
         }
       }
+      invalidateAccountQueries(queryClient);
     },
   });
 }
@@ -287,6 +398,7 @@ export function useSupplierLedgerEntryMutation(
           });
         }
       }
+      invalidateAccountQueries(queryClient);
     },
   });
 }
@@ -301,14 +413,20 @@ export function useSupplierLedgerEntryMutation(
  * D5 — batch-settle a set of pending financial_services rows with a
  * supplier (admin-only on both transports).
  *
- * OMT/WHISH float model (owner-confirmed 2026-07-29): `supplier_owed` per
- * row is now fee-only (`|fee| − |commission|`, already net of the shop's
- * cut) — `amount_usd`/`amount_lbp` sent here is simply the SUM of the
- * outstanding `supplier_owed`, never reduced by `commission_usd` a second
- * time (see Suppliers/index.tsx's `settleNetPayUsd`). `commission_usd`/
- * `commission_lbp` are informational/audit only now — no drawer effect.
- * `supplierSettleSchema` has NO discount field — a batch settle is
- * cash/commission only, never bundled with a forgiveness row.
+ * `supplier_owed` per row is `SUPPLIER_OWED_EXPR`, gated per row on
+ * `commission_model` (primary-cash-drawer model, 2026-07-30; superseded the
+ * 2026-07-29 float model's fee-only design — FEATURE_GUIDE.md §8): a LEGACY
+ * row is fee-only (`|fee| − |commission|`, already net of the shop's cut),
+ * a NEW-MODEL row is GROSS (commission settles separately). Either way,
+ * `amount_usd`/`amount_lbp` sent here is simply the SUM of the outstanding
+ * `supplier_owed` across the selection — see Suppliers/index.tsx's
+ * `settleNetPayUsd` for exactly where the legacy-vs-new-model split in that
+ * sum's *meaning* is handled; this hook only forwards whatever the caller
+ * computed. `commission_usd`/`commission_lbp` are informational/audit only
+ * for a legacy batch — no drawer effect; for a new-model batch they are the
+ * real, money-bearing entered commission (D8). `supplierSettleSchema` has
+ * NO discount field — a batch settle is cash/commission only, never
+ * bundled with a forgiveness row.
  */
 export function useSettleTransactionsMutation(
   supplierId: number | null,
@@ -361,6 +479,102 @@ export function useSettleTransactionsMutation(
           queryKey: SUPPLIER_KEYS.allTransactions(provider),
         });
       }
+      invalidateAccountQueries(queryClient);
+    },
+  });
+}
+
+// ── OMT open-credit account settlement (LIRA-189, wave 2) ──────────────────
+
+/**
+ * Wire shape sent to `settleSupplierAccount` — mirrors `SettleAccountData`
+ * (`packages/core/src/repositories/SupplierRepository.ts`) verbatim (rule
+ * 14: one shape, not re-derived per layer) MINUS `account_supplier_id`
+ * (passed as this hook's own argument, matching the adapter signature
+ * `settleSupplierAccount(accountSupplierId, data)`, §2.2) and MINUS
+ * `created_by` (never sent by the client — every existing settle/cashflow
+ * mutation in this file omits it too; the handler/route injects the actor
+ * from the session/JWT, rule 19c).
+ */
+export interface SettleAccountRequest {
+  direction: "PAY" | "COLLECT";
+  selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
+  amount_usd: number;
+  amount_lbp: number;
+  commission_usd: number;
+  commission_lbp: number;
+  entry_mode?: "LUMP" | "RATE";
+  commission_rate?: number;
+  commission_unit_count?: number;
+  note?: string;
+  exchange_rate?: number;
+  payments?: Array<{
+    method: string;
+    currency_code: string;
+    amount: number;
+    direction?: "IN" | "OUT";
+  }>;
+}
+
+export interface SettleAccountResult {
+  success: boolean;
+  id?: number;
+  error?: string;
+}
+
+/**
+ * Settle the whole OMT open-credit account (counter + OMT App + iPick) in
+ * ONE call (rule 16 — the caller never makes a follow-up call for the
+ * payment legs). Admin-only on both transports.
+ *
+ * `settleSupplierAccount` is called through a defensive cast rather than a
+ * plain `api.settleSupplierAccount(...)` call: lane W4 (shared transport
+ * plumbing) adds this method to `ApiAdapter` in parallel with this lane, and
+ * this file must compile — and its own jest tests must be able to mock the
+ * method — regardless of which lane's diff lands in the working tree first.
+ * Same pattern as `useUnsettledTransactionsQuery`'s `getUnsettledTransactions`
+ * cast above. See this lane's CROSS_LANE_REQUESTS: once W4 lands, this cast
+ * becomes redundant (harmless) — it is not meant to be a permanent shape.
+ */
+export function useSettleSupplierAccountMutation(
+  accountSupplierId: number | null,
+) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: SettleAccountRequest): Promise<SettleAccountResult> => {
+      if (!accountSupplierId) {
+        return Promise.reject(
+          new Error(
+            "useSettleSupplierAccountMutation: accountSupplierId is required",
+          ),
+        );
+      }
+      return (
+        api as unknown as {
+          settleSupplierAccount: (
+            accountSupplierId: number,
+            data: SettleAccountRequest,
+          ) => Promise<SettleAccountResult>;
+        }
+      ).settleSupplierAccount(accountSupplierId, data);
+    },
+    onSuccess: () => {
+      // The batch can touch any/all of the account's children at once — none
+      // of the per-child query keys are known here (only the account parent
+      // id is), so invalidate broadly by prefix rather than enumerating
+      // children: `["supplier-ledger"]` (every open per-supplier ledger),
+      // `["supplier-unsettled"]` and `["supplier-all-transactions"]` (every
+      // open per-provider queue/history) match as prefixes of their own
+      // parameterized keys (`SUPPLIER_KEYS.ledger(id)` etc.) the same way
+      // `invalidateAccountQueries` already relies on for the account reads.
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
+      queryClient.invalidateQueries({ queryKey: ["supplier-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["supplier-unsettled"] });
+      queryClient.invalidateQueries({ queryKey: ["supplier-all-transactions"] });
+      invalidateAccountQueries(queryClient);
     },
   });
 }

@@ -12,6 +12,7 @@ import {
   getFinancialService,
   supplierLedgerEntrySchema,
   supplierSettleSchema,
+  supplierSettleAccountSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
 } from "@liratek/core";
@@ -143,6 +144,23 @@ router.get("/product-stock-value", requireAuth, async (_req, res) => {
   }
 });
 
+// GET /api/suppliers/account-balances — OMT open-credit account (LIRA-188):
+// per-currency balances for every account parent, rolled up with its
+// children (mirrors suppliers:account-balances). Declared here, before the
+// parameterized `/:id/...` routes below, per this file's static-before-param
+// convention.
+router.get("/account-balances", requireAuth, async (_req, res) => {
+  try {
+    const balances = supplierService.getAccountBalances();
+    res.json({ success: true, balances });
+  } catch (error) {
+    logger.error({ error }, "Get supplier account balances error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get account balances" });
+  }
+});
+
 // GET /api/suppliers/:id/ledger
 router.get("/:id/ledger", requireAuth, async (req, res) => {
   try {
@@ -162,6 +180,52 @@ router.get("/:id/ledger", requireAuth, async (req, res) => {
     res
       .status(500)
       .json({ success: false, error: "Failed to get supplier ledger" });
+  }
+});
+
+// GET /api/suppliers/:id/account-ledger — OMT open-credit account (LIRA-188):
+// unioned ledger rows across the parent + its children, newest first, each
+// carrying which member it came from (mirrors suppliers:account-ledger).
+router.get("/:id/account-ledger", requireAuth, async (req, res) => {
+  try {
+    const accountSupplierId = parseInt(req.params.id);
+    if (isNaN(accountSupplierId)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      return;
+    }
+
+    const limit = req.query.limit
+      ? parseInt(req.query.limit as string)
+      : undefined;
+    const ledger = supplierService.getAccountLedger(accountSupplierId, limit);
+    res.json({ success: true, ledger });
+  } catch (error) {
+    logger.error({ error }, "Get supplier account ledger error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get account ledger" });
+  }
+});
+
+// GET /api/suppliers/:id/account-unsettled — OMT open-credit account
+// (LIRA-188): unioned unsettled rows (financial_services + raw
+// supplier_ledger, plan §9.3) across the parent + its children (mirrors
+// suppliers:account-unsettled).
+router.get("/:id/account-unsettled", requireAuth, async (req, res) => {
+  try {
+    const accountSupplierId = parseInt(req.params.id, 10);
+    if (isNaN(accountSupplierId)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      return;
+    }
+
+    const transactions = supplierService.getAccountUnsettled(accountSupplierId);
+    res.json({ success: true, transactions });
+  } catch (error) {
+    logger.error({ error }, "Get supplier account unsettled error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get account unsettled" });
   }
 });
 
@@ -338,6 +402,52 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to settle transactions" });
+    }
+  },
+);
+
+// POST /api/suppliers/:id/settle-account — OMT open-credit account
+// settlement (LIRA-189): ONE payment across the account parent + its
+// children (counter / OMT App / iPick, LIRA-187/188), mirrors
+// suppliers:settle-account. `:id` is the account parent's supplier id
+// (account_supplier_id), sourced from the URL exactly like `supplier_id` is
+// for /:id/settle above — the repository re-validates every selected row
+// against account membership, never trusting the client's ids.
+router.post(
+  "/:id/settle-account",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, account_supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(supplierSettleAccountSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = supplierService.settleAccount({
+        ...req.body,
+        created_by: req.user!.userId,
+      });
+      if (result.success) {
+        // Mirrors supplierHandlers.ts's suppliers:settle-account audit
+        // (settle/supplier_account_settlement).
+        auditRest(req, {
+          action: "settle",
+          entity_type: "supplier_account_settlement",
+          summary: `Settled OMT account #${req.body.account_supplier_id} (${req.body.direction}, ${req.body.selections.length} row${req.body.selections.length === 1 ? "" : "s"})`,
+          metadata: {
+            account_supplier_id: req.body.account_supplier_id,
+            direction: req.body.direction,
+            count: req.body.selections.length,
+          },
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Settle supplier account error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to settle account" });
     }
   },
 );

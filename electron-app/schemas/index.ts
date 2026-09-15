@@ -26,6 +26,9 @@ import {
   voucherCreateSchema,
   supplierLedgerEntrySchema,
   supplierSettleSchema,
+  // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — the
+  // cast-bridge pattern immediately below mirrors SupplierSettleSchema's.
+  supplierSettleAccountSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
   receiveStockSchema,
@@ -65,12 +68,16 @@ import {
   topUpFromPartnerSchema,
   topUpFromClientSchema,
   updateRechargeMetadataSchema,
+  // OMT open-credit account (LIRA-192) — the cashout write, mirroring
+  // topUpFromSupplier's cast-bridge pattern immediately below (rule 14/19b).
+  rechargeCashoutSchema,
   type CreateRechargeInput,
   type TopUpAppInput,
   type TopUpFromSupplierInput,
   type TopUpFromPartnerInput,
   type TopUpFromClientInput,
   type UpdateRechargeMetadataInput,
+  type RechargeCashoutInput,
   type SelfChargeTelecomItemInput,
   type StockAdjustInput,
   type ProductListFilters,
@@ -101,6 +108,7 @@ import {
   type SessionCheckoutInput,
   type SupplierLedgerEntryInput,
   type SupplierSettleInput,
+  type SupplierSettleAccountInput,
   type SupplierCashflowInput,
   type SupplierPurchaseCreateInput,
   type ReceiveStockInput,
@@ -445,6 +453,15 @@ export const TopUpAppSchema =
 
 export const TopUpFromSupplierSchema =
   topUpFromSupplierSchema as unknown as z.ZodSchema<TopUpFromSupplierInput>;
+
+// OMT open-credit account (LIRA-192) — cashout is the mirror of
+// topUpFromSupplier: OMT_App wallet down, OMT account credited
+// principal + commission. Shared with the REST route
+// (POST /api/recharge/cashout-to-supplier, backend/src/api/recharge.ts).
+// Cast bridges the zod major mismatch (core types against zod 4, this
+// workspace types against zod 3); the runtime API used is identical.
+export const RechargeCashoutSchema =
+  rechargeCashoutSchema as unknown as z.ZodSchema<RechargeCashoutInput>;
 
 export const TopUpFromPartnerSchema =
   topUpFromPartnerSchema as unknown as z.ZodSchema<TopUpFromPartnerInput>;
@@ -1129,6 +1146,10 @@ export const SupplierLedgerEntrySchema =
   supplierLedgerEntrySchema as unknown as z.ZodSchema<SupplierLedgerEntryInput>;
 export const SupplierSettleSchema =
   supplierSettleSchema as unknown as z.ZodSchema<SupplierSettleInput>;
+// OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) —
+// consumed by supplierHandlers.ts's `suppliers:settle-account` IPC channel.
+export const SupplierSettleAccountSchema =
+  supplierSettleAccountSchema as unknown as z.ZodSchema<SupplierSettleAccountInput>;
 export const SupplierCashflowSchema =
   supplierCashflowSchema as unknown as z.ZodSchema<SupplierCashflowInput>;
 export const SupplierPurchaseCreateSchema =

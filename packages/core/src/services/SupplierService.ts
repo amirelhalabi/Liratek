@@ -14,6 +14,18 @@ import {
   type SupplierPurchase,
   type CreateSupplierPurchaseData,
 } from "../repositories/index.js";
+// OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187/188) — imported directly from
+// SupplierRepository.js rather than the repositories/index.js barrel: this
+// lane owns SupplierRepository.ts/SupplierService.ts only, not the shared
+// barrel (see CROSS_LANE_REQUESTS in this ticket's build report) — it should
+// still re-export these for other callers (e.g. IPC/REST handlers) to import
+// the conventional way.
+import type {
+  AccountBalance,
+  AccountLedgerEntry,
+  AccountUnsettledRow,
+  SettleAccountData,
+} from "../repositories/SupplierRepository.js";
 import { toErrorString } from "../utils/errors.js";
 
 export interface SupplierResult {
@@ -35,6 +47,23 @@ export class SupplierService {
 
   getProductSupplierBalances(): SupplierBalance[] {
     return this.repo.getProductSupplierBalances();
+  }
+
+  // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187/188) — thin pass-throughs
+  // (rule 13: no SQL here, the repository owns every query).
+  getAccountBalances(): AccountBalance[] {
+    return this.repo.getAccountBalances();
+  }
+
+  getAccountLedger(
+    accountSupplierId: number,
+    limit?: number,
+  ): AccountLedgerEntry[] {
+    return this.repo.getAccountLedger(accountSupplierId, limit);
+  }
+
+  getAccountUnsettled(accountSupplierId: number): AccountUnsettledRow[] {
+    return this.repo.getAccountUnsettled(accountSupplierId);
   }
 
   /**
@@ -114,6 +143,33 @@ export class SupplierService {
           error: "Settlement amounts cannot be negative",
         };
       const res = this.repo.settleTransactions(data);
+      return { success: true, id: res.id };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
+
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, CONTRACT_W2.md §2.1) — thin
+   * pass-through (rule 13): validation of the money fields themselves
+   * (direction cross-check, per-member commission scoping, etc.) lives in
+   * the repository, next to the SQL it protects.
+   */
+  settleAccount(data: SettleAccountData): SupplierResult {
+    try {
+      if (!data.account_supplier_id)
+        return { success: false, error: "account_supplier_id is required" };
+      if (!data.selections?.length)
+        return {
+          success: false,
+          error: "No rows selected for account settlement",
+        };
+      if (data.amount_usd < 0 || data.amount_lbp < 0)
+        return {
+          success: false,
+          error: "Settlement amounts cannot be negative",
+        };
+      const res = this.repo.settleAccount(data);
       return { success: true, id: res.id };
     } catch (e) {
       return { success: false, error: toErrorString(e) };

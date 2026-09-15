@@ -11390,6 +11390,131 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 176,
+    name: "add_supplier_account_link",
+    description:
+      "LIRA-187 (OMT open-credit account, wave 1 — " +
+      "docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1/§5). OMT is " +
+      "ONE open-credit account; 'iPick' and 'OMT App' are CHILDREN of the " +
+      "'OMT' parent supplier row, linked by a new nullable self-FK " +
+      "suppliers.account_supplier_id. Ledger rows never move — each child " +
+      "keeps writing its own supplier_ledger rows under its own supplier id; " +
+      "the account is a read-time rollup over parent + children built in " +
+      "LIRA-188 (SupplierRepository.getAccountBalances/getAccountLedger/" +
+      "getAccountUnsettled). This migration is schema-only and " +
+      "zero-behaviour-change: no existing balance/ledger/settlement query " +
+      "reads the new column yet. " +
+      "" +
+      "Also adds supplier_ledger.settlement_id (nullable). Recon finding " +
+      "(plan §9.3): supplier_ledger has NO per-row settled flag today — only " +
+      "financial_services does (is_settled/settled_at/settlement_id). iPick / " +
+      "OMT App / Katsh supplier-credit debt can currently only be paid down " +
+      "in bulk via recordSupplierCashflow, never selected row-by-row. Without " +
+      "this column, LIRA-189's D8 selectable settlement queue ('oldest rows " +
+      "pre-selected, admin can change the selection') cannot mark a single " +
+      "ledger row as settled without bulk-clearing the whole child. " +
+      "settlement_id IS NULL means open/unsettled — same convention as " +
+      "financial_services. One migration, two columns, per the plan. " +
+      "" +
+      "Seed is per-tenant, parameterless and idempotent: one correlated " +
+      "UPDATE links every tenant's 'iPick' and 'OMT_APP' supplier rows to " +
+      "THEIR OWN tenant's 'OMT' supplier row (scoped by " +
+      "p.tenant_id = suppliers.tenant_id, never a fixed id, so it can never " +
+      "cross tenants), guarded by account_supplier_id IS NULL so re-running " +
+      "up() cannot reassign a row an admin later re-parents by hand (LIRA-191). " +
+      "A tenant with no 'OMT' supplier is excluded by the EXISTS clause and " +
+      "ends with NULL, not a crash and not a link to another tenant's OMT. " +
+      "Katsh, Whish and Whish App are not in the seed's provider list and " +
+      "stay NULL (D7 — Katsh standalone; D9 — Whish-base grouping deferred " +
+      "to LIRA-191). electron-app/create_db.sql carries the identical column " +
+      "additions, indexes, and seed UPDATE (placed after the existing " +
+      "supplier seed INSERT) so a fresh install and a migrated install agree. " +
+      "" +
+      "Copies the ADD COLUMN shape of v166 add_expenses_source_ref: PRAGMA " +
+      "table_info guard (via this file's tableExists/columnExists helpers) " +
+      "before each ALTER TABLE ... ADD COLUMN so a minimal jest schema " +
+      "lacking suppliers/supplier_ledger skips instead of throwing (this " +
+      "repo's known trap — a missing table makes every test in a migration " +
+      "test file die in setup, not just the assertion that touches it); " +
+      "down() uses native ALTER TABLE ... DROP COLUMN, which this " +
+      "better-sqlite3 build supports (20+ existing sites per v166's own note).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "suppliers")) {
+        console.log("Migration v176 skipped: 'suppliers' table not present");
+      } else {
+        if (!columnExists(db, "suppliers", "account_supplier_id")) {
+          db.exec(
+            `ALTER TABLE suppliers ADD COLUMN account_supplier_id INTEGER DEFAULT NULL REFERENCES suppliers(id)`,
+          );
+        }
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_suppliers_account_supplier_id ON suppliers(account_supplier_id)`,
+        );
+
+        // Seed (LIRA-187): link every tenant's 'iPick' / 'OMT_APP' supplier
+        // row to THEIR OWN tenant's 'OMT' supplier row. The correlated
+        // subquery is scoped by `p.tenant_id = suppliers.tenant_id`, so it
+        // can never resolve to another tenant's OMT row; the outer EXISTS
+        // clause excludes a tenant that has no 'OMT' supplier entirely,
+        // leaving its children NULL rather than erroring. The
+        // `account_supplier_id IS NULL` guard makes re-running this
+        // idempotent AND makes it safe to run after LIRA-191 lets an admin
+        // manually re-parent a child — this seed never overwrites a link
+        // that already exists.
+        db.exec(`
+          UPDATE suppliers
+             SET account_supplier_id = (
+                   SELECT p.id FROM suppliers p
+                    WHERE p.provider = 'OMT' AND p.tenant_id = suppliers.tenant_id
+                    LIMIT 1)
+           WHERE provider IN ('iPick', 'OMT_APP')
+             AND account_supplier_id IS NULL
+             AND EXISTS (SELECT 1 FROM suppliers p
+                          WHERE p.provider = 'OMT' AND p.tenant_id = suppliers.tenant_id)
+        `);
+      }
+
+      if (!tableExists(db, "supplier_ledger")) {
+        console.log(
+          "Migration v176 skipped: 'supplier_ledger' table not present",
+        );
+      } else {
+        if (!columnExists(db, "supplier_ledger", "settlement_id")) {
+          db.exec(
+            `ALTER TABLE supplier_ledger ADD COLUMN settlement_id INTEGER DEFAULT NULL`,
+          );
+        }
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_supplier_ledger_settlement_id ON supplier_ledger(settlement_id)`,
+        );
+      }
+
+      console.log(
+        "Migration v176: added suppliers.account_supplier_id + supplier_ledger.settlement_id, seeded per-tenant OMT account links",
+      );
+    },
+    down(db: Database.Database) {
+      if (
+        tableExists(db, "suppliers") &&
+        columnExists(db, "suppliers", "account_supplier_id")
+      ) {
+        db.exec(`DROP INDEX IF EXISTS idx_suppliers_account_supplier_id`);
+        db.exec(`ALTER TABLE suppliers DROP COLUMN account_supplier_id`);
+      }
+      if (
+        tableExists(db, "supplier_ledger") &&
+        columnExists(db, "supplier_ledger", "settlement_id")
+      ) {
+        db.exec(`DROP INDEX IF EXISTS idx_supplier_ledger_settlement_id`);
+        db.exec(`ALTER TABLE supplier_ledger DROP COLUMN settlement_id`);
+      }
+      console.log(
+        "Migration v176 rolled back: removed suppliers.account_supplier_id + supplier_ledger.settlement_id",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

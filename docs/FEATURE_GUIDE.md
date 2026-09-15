@@ -450,6 +450,46 @@ later designs exist to fix it, by different means.
 
 ---
 
+### 8.2 Supplier ACCOUNTS — several suppliers, one balance (LIRA-187→192, 2026-09-15)
+
+A supplier may be a **child of another supplier**, via the nullable self-FK
+`suppliers.account_supplier_id` (migration v176). Today `iPick` and `'OMT App'` are children of
+`'OMT'`, because the shop holds ONE open-credit account with OMT that all three draw on.
+
+**Ledger rows NEVER move.** Each child keeps writing its own `supplier_ledger` rows under its own
+`supplier_id`; the account is a **read-time rollup** (`getAccountBalances` / `getAccountLedger` /
+`getAccountUnsettled`). That is what keeps every existing void path working — a reversal still finds
+its row exactly where the flow wrote it.
+
+| Fact | Detail |
+| ---- | ------ |
+| Membership predicate | ONE fragment, `accountMemberOf` — never re-derive it (rule 14) |
+| Page | The parent renders as an account card; children are sub-rows with their own drawer badge and contribution, and have **no settle button** of their own |
+| Balance vs ledger list | The rollup BALANCE excludes refunded rows; the ledger LIST includes them so the UI can badge them "Voided". Two different questions — do not unify them |
+| Settlement | `settleAccount` writes **one ledger row per child touched**, so each child nets to 0 individually. A single lump row on the parent would leave one child overpaid and another unpaid |
+| Direction | Settlement supports **PAY and COLLECT** — cashouts (§8.2) can make the account net negative |
+| Deferred commission | An OMT App cashout's commission is stored in `transactions.metadata_json.commission` (there is no column) and recognised as profit **at settlement**, summed server-side. Never ask the operator to total it |
+| OUT legs | **Rejected outright** in `settleAccount`. A supplier settlement has no customer, so there is no change to return — and an equal-and-opposite pair was a way to wash money between two drawers |
+
+### 8.3 OMT App wallet — credit in, cashout out
+
+Loading the OMT App wallet and cashing it back out are **mirror images**, and neither moves physical
+cash. Both leave the **PCD at delta exactly 0**.
+
+| Flow | Wallet drawer | `'OMT App'` ledger | Profit |
+| ---- | ------------- | ------------------ | ------ |
+| Credit top-up of `X` | `+X` | `+X` (shop owes OMT) | — |
+| Cashout of `X` | `−X` | `−(X + commission)` at 0.1% | **0 at creation**; recognised at settlement |
+
+The cashout books `entry_type: 'PAYMENT'` (which `addLedgerEntry` force-negates) — **never**
+`SUPPLIER_PAYS_US`, which carries the opposite sign. Over-drawing the wallet is blocked. A credit
+top-up is **not voidable** (`RECHARGE_TOPUP` is non-reversible for every provider, iPick included);
+the correction is an opposite manual entry. A **cashout IS voidable**, deliberately, because it
+stamps a commission and an unfixable mistake would leave phantom earnings.
+
+Wallet SEND/RECEIVE still book **no** supplier ledger row ("Fix B") — correct, because the debt is
+booked once, at load time. Do not "fix" that.
+
 ## 9. Void / refund
 
 - Journal pattern: void writes a same-type reversal row (`reverses_id` set, negated
@@ -657,6 +697,27 @@ Copy this into your task when building any flow that moves money:
     (§8.1's explainer). Write the invariant for your flow (§8.1's
     `Σ(drawer deltas) + Σ(receivable deltas) − Δ(owed) = c + kept_change` is the
     template) and prove it holds, per currency, failing-first (rule 17), before merging.
+
+15. **Reconcile the payment legs against the amount, and make ONE rule decide which legs count**
+    (added 2026-09-15, from LIRA-189's four hardening rounds — see
+    `OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` §11). Any flow that accepts `payments[]` and moves a drawer
+    must answer two questions, and the second is the one that gets missed:
+    **(a) Does anything compare the legs to the amount being recorded?** If not, an overpay silently
+    drains the drawer and an underpay silently settles a debt nobody paid — with no ledger row, no
+    profit stamp and no error. It surfaces weeks later as a drawer that will not reconcile.
+    **(b) Do the guard and the posting loop agree on which legs count?** They drift. Four separate
+    leaks in one method came from exactly this: the guard summed every leg while the posting loop
+    `continue`d past non-drawer-affecting methods (`CUSTOMER_ACCOUNT`, `GIFT_CARD`), so a batch paid
+    entirely in those was stamped fully settled with **zero dollars moving**. Derive both sides from
+    ONE predicate; never write `isDrawerAffectingMethod` in two places.
+    Two more from the same family: an **equal-and-opposite IN/OUT pair** nets to zero in a guard that
+    only checks the net, yet routes to two DIFFERENT drawers and washes money between them unaudited
+    (`settleAccount` closed this by rejecting OUT legs outright — a supplier settlement has no
+    customer, so there is no change to return); and any read taken **before** the write transaction
+    and acted on inside it is a race — move it in, and check `.run().changes`, because a stamp that
+    silently affects zero rows must never count as success.
+    **This bug class is LIVE in shipped code** (`settleTransactions`, `recordSupplierCashflow`) —
+    LIRA-193.
 
 ### Counterparty checklist
 

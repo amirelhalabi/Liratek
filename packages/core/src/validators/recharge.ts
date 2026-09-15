@@ -185,7 +185,26 @@ export const topUpAppSchema = z.object({
 });
 
 export const topUpFromSupplierSchema = z.object({
-  provider: z.enum(["iPick", "Katsh"]),
+  // OMT_APP added by LIRA-190 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md D2/D4): the
+  // OMT App wallet now loads on OMT credit too, mirroring iPick/Katsh — no
+  // source drawer touched, debt booked on the 'OMT App' supplier.
+  provider: z.enum(["iPick", "Katsh", "OMT_APP"]),
+  amount: z.number().positive(),
+  currency: z.enum(["USD", "LBP"]),
+});
+
+/**
+ * LIRA-192 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §8.7) — the mirror of
+ * `topUpFromSupplierSchema`, for the OMT App wallet's "Cash Out to OMT"
+ * button (`recharge:cashout-to-supplier` IPC / `POST
+ * /api/recharge/cashout-to-supplier` REST). Shared by both transports (rules
+ * 14 + 19b), same pattern as every other schema in this file.
+ *
+ * OMT App only for now (D16) — `z.literal`, not an enum, so a future
+ * iPick/Katsh cashout is a deliberate schema change, not a silent widen.
+ */
+export const rechargeCashoutSchema = z.object({
+  provider: z.literal("OMT_APP"),
   amount: z.number().positive(),
   currency: z.enum(["USD", "LBP"]),
 });
@@ -234,6 +253,7 @@ export type GetRechargeStockInput = z.infer<typeof getRechargeStockSchema>;
 export type GetRechargeHistoryInput = z.infer<typeof getRechargeHistorySchema>;
 export type TopUpAppInput = z.infer<typeof topUpAppSchema>;
 export type TopUpFromSupplierInput = z.infer<typeof topUpFromSupplierSchema>;
+export type RechargeCashoutInput = z.infer<typeof rechargeCashoutSchema>;
 export type TopUpFromPartnerInput = z.infer<typeof topUpFromPartnerSchema>;
 export type TopUpFromClientInput = z.infer<typeof topUpFromClientSchema>;
 export type UpdateRechargeMetadataInput = z.infer<

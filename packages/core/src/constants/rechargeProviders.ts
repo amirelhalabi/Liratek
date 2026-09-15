@@ -38,7 +38,15 @@ export const TOP_UP_PROVIDER_DRAWERS: Record<TopUpProvider, string> = {
 export const TOP_UP_PROVIDER_DEFAULT_SOURCES: Record<TopUpProvider, string> = {
   MTC: "General",
   Alfa: "General",
-  OMT_APP: "OMT_System",
+  // OMT_APP was "OMT_System" until LIRA-190/D2+D4 (OMT_OPEN_CREDIT_ACCOUNT_
+  // PLAN.md §1, §5): loading the OMT App wallet moves NO physical cash — the
+  // shop's OMT open-credit account absorbs it (RechargeRepository
+  // .topUpFromSupplier, now the DEFAULT funding choice in the UI). Defaulting
+  // this transfer path's source to the OMT Cash Drawer used to silently
+  // drain it on every wallet load; "General" keeps the explicit
+  // drawer-to-drawer transfer (topUpApp) available as the alternative
+  // without that side effect.
+  OMT_APP: "General",
   WHISH_APP: "General",
   OMT_SYSTEM: "General",
   WHISH_SYSTEM: "General",

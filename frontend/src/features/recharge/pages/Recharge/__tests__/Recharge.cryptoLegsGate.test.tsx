@@ -60,6 +60,7 @@ jest.mock("../../../components", () => ({
   KatchForm: () => null,
   TelecomForm: () => null,
   OmtWhishAppTransferForm: () => null,
+  OmtAppCashoutModal: () => null,
   ProviderTabs: ({
     onSelectProvider,
   }: {

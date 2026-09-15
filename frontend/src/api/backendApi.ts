@@ -20,6 +20,9 @@ import type {
   OMTAnalytics,
   DailyStatsSnapshot,
   MaintenanceStatusHistoryRow,
+  AccountBalance,
+  AccountLedgerEntry,
+  AccountUnsettledRow,
 } from "@liratek/ui";
 
 export type { ProductListFilters };
@@ -1945,7 +1948,7 @@ export async function topUpApp(payload: {
 // client) close the same rule-19 gap `topUpApp` above already had a (dead)
 // REST branch for.
 export async function topUpFromSupplier(payload: {
-  provider: "iPick" | "Katsh";
+  provider: "iPick" | "Katsh" | "OMT_APP";
   amount: number;
   currency: "USD" | "LBP";
 }) {
@@ -1954,6 +1957,26 @@ export async function topUpFromSupplier(payload: {
   }
   return requestJson<{ success: boolean; error?: string }>(
     `/api/recharge/top-up-from-supplier`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+// OMT open-credit account (LIRA-192) — the mirror of topUpFromSupplier:
+// OMT_App wallet balance leaves, the OMT account is credited principal +
+// commission (recognised as profit at settlement, wave 2). Admin only.
+export async function cashoutToSupplier(payload: {
+  provider: "OMT_APP";
+  amount: number;
+  currency: "USD" | "LBP";
+}) {
+  if (isElectron()) {
+    return (window as any).api.recharge.cashoutToSupplier(payload);
+  }
+  return requestJson<{ success: boolean; error?: string; commission?: number }>(
+    `/api/recharge/cashout-to-supplier`,
     {
       method: "POST",
       body: payload,
@@ -2455,6 +2478,58 @@ export async function getSupplierLedger(supplierId: number, limit?: number) {
   );
 }
 
+// OMT open-credit account (LIRA-188) — read-only rollup across the account
+// parent (OMT) and its children (OMT App, iPick). No role gate.
+export async function getSupplierAccountBalances(): Promise<
+  AccountBalance[]
+> {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getAccountBalances(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        balances: AccountBalance[];
+      }>(`/api/suppliers/account-balances`);
+      return res.balances || [];
+    },
+  );
+}
+
+export async function getSupplierAccountLedger(
+  accountSupplierId: number,
+  limit?: number,
+): Promise<AccountLedgerEntry[]> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().suppliers.getAccountLedger(accountSupplierId, limit),
+    async () => {
+      const qs = new URLSearchParams();
+      if (limit) qs.set("limit", limit.toString());
+      const res = await requestJson<{
+        success: boolean;
+        ledger: AccountLedgerEntry[];
+      }>(`/api/suppliers/${accountSupplierId}/account-ledger?${qs.toString()}`);
+      return res.ledger || [];
+    },
+  );
+}
+
+export async function getSupplierAccountUnsettled(
+  accountSupplierId: number,
+): Promise<AccountUnsettledRow[]> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().suppliers.getAccountUnsettled(accountSupplierId),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        transactions: AccountUnsettledRow[];
+      }>(`/api/suppliers/${accountSupplierId}/account-unsettled`);
+      return res.transactions || [];
+    },
+  );
+}
+
 export async function createSupplier(data: {
   name: string;
   contact_name?: string;
@@ -2536,10 +2611,14 @@ export async function settleTransactions(data: {
   /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
   drawer_name?: string;
   note?: string;
+  // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.5 (rule-12 completeness gap): typed in
+  // electron.d.ts but missing here — closed alongside settleSupplierAccount
+  // below (LIRA-189's collect direction needs a leg markable OUT).
   payments?: Array<{
     method: string;
     currency_code: string;
     amount: number;
+    direction?: "IN" | "OUT";
   }>;
 }) {
   return ipcOrHttp(
@@ -2547,6 +2626,50 @@ export async function settleTransactions(data: {
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/suppliers/${data.supplier_id}/settle`,
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+// OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
+// payment across the account parent (OMT) + its children (OMT App, iPick),
+// allocated per child by the repository. `accountSupplierId` is the account
+// parent's supplier id, matching getSupplierAccountLedger's two-arg shape;
+// the REST route sources it from the URL (`/:id/settle-account`) exactly
+// like settleTransactions above does for `/:id/settle`, so it is deliberately
+// NOT duplicated into the REST body here. The IPC channel has no URL, so it
+// IS merged into the payload sent to `suppliers.settleAccount`.
+export async function settleSupplierAccount(
+  accountSupplierId: number,
+  data: {
+    direction: "PAY" | "COLLECT";
+    selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
+    amount_usd: number;
+    amount_lbp: number;
+    commission_usd: number;
+    commission_lbp: number;
+    entry_mode?: "LUMP" | "RATE";
+    commission_rate?: number;
+    commission_unit_count?: number;
+    note?: string;
+    exchange_rate?: number;
+    payments?: Array<{
+      method: string;
+      currency_code: string;
+      amount: number;
+      direction?: "IN" | "OUT";
+    }>;
+  },
+) {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().suppliers.settleAccount({
+        account_supplier_id: accountSupplierId,
+        ...data,
+      }),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/suppliers/${accountSupplierId}/settle-account`,
         { method: "POST", body: data },
       ),
   );

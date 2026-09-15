@@ -108,6 +108,18 @@ export const TRANSACTION_PRESENTATION: Record<
     color: "text-purple-300",
     direction: "dynamic",
   },
+  // LIRA-192 (OMT open-credit account, §8): the OMT App wallet's own
+  // cash-out — the mirror of an OMT_APP RECHARGE_TOPUP. Direction is fixed
+  // "out", unlike RECHARGE_TOPUP: the OMT_App drawer only ever DECREASES
+  // here (the principal + commission become debt on the OMT account, no
+  // drawer ever receives cash), so there is no metadata-dependent shape to
+  // resolve — styled like the existing DRAWER_CASHOUT entry (fixed "out",
+  // rose family) rather than the dynamic RECHARGE_TOPUP above it.
+  WALLET_CASHOUT: {
+    label: "OMT App Cash-Out",
+    color: "text-rose-300",
+    direction: "out",
+  },
   MTC_TOPUP: {
     label: "MTC Top-up",
     color: "text-violet-400",

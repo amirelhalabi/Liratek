@@ -6,6 +6,7 @@ import {
   SupplierCreateSchema,
   SupplierLedgerEntrySchema,
   SupplierSettleSchema,
+  SupplierSettleAccountSchema,
   SupplierCashflowSchema,
   SupplierPurchaseCreateSchema,
   validatePayload,
@@ -29,6 +30,36 @@ export function registerSupplierHandlers(): void {
     "suppliers:ledger",
     (_e, supplierId: number, limit?: number) => {
       return service.getSupplierLedger(supplierId, limit);
+    },
+  );
+
+  // ── OMT open-credit account (LIRA-188) ──────────────────────────────────
+  // Read-only rollups over the account parent + its children
+  // (suppliers.account_supplier_id, LIRA-187). Same no-role-gate treatment
+  // as the reads above — every renderer that can reach the IPC bridge is an
+  // authenticated app session.
+
+  /** Per-currency balances for every account parent, rolled up with its
+   *  children (LIRA-188 §2.4 AccountBalance[]). */
+  ipcMain.handle("suppliers:account-balances", () => {
+    return service.getAccountBalances();
+  });
+
+  /** Unioned ledger rows across an account's parent + children, newest
+   *  first, each row carrying which member it came from. */
+  ipcMain.handle(
+    "suppliers:account-ledger",
+    (_e, accountSupplierId: number, limit?: number) => {
+      return service.getAccountLedger(accountSupplierId, limit);
+    },
+  );
+
+  /** Unioned unsettled rows (financial_services + raw supplier_ledger,
+   *  plan §9.3) across an account's parent + children. */
+  ipcMain.handle(
+    "suppliers:account-unsettled",
+    (_e, accountSupplierId: number) => {
+      return service.getAccountUnsettled(accountSupplierId);
     },
   );
 
@@ -115,6 +146,36 @@ export function registerSupplierHandlers(): void {
       metadata: {
         supplier_id: v.data.supplier_id,
         count: v.data.financial_service_ids.length,
+      },
+    });
+    return result;
+  });
+
+  // ── OMT open-credit account settlement (LIRA-189) ──────────────────────
+  // One payment across the account parent + its children (counter / OMT App
+  // / iPick, LIRA-187/188). The repository re-validates every selected id
+  // against account membership — the client's selection is never trusted.
+
+  /** Settle the OMT open-credit account as ONE transaction (admin only) */
+  ipcMain.handle("suppliers:settle-account", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(SupplierSettleAccountSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.settleAccount({
+      ...v.data,
+      created_by: auth.userId,
+    });
+    audit(e.sender.id, {
+      action: "settle",
+      entity_type: "supplier_account_settlement",
+      summary: `Settled OMT account #${v.data.account_supplier_id} (${v.data.direction}, ${v.data.selections.length} row${v.data.selections.length === 1 ? "" : "s"})`,
+      metadata: {
+        account_supplier_id: v.data.account_supplier_id,
+        direction: v.data.direction,
+        count: v.data.selections.length,
       },
     });
     return result;

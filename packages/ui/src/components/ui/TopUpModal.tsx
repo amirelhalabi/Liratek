@@ -41,6 +41,10 @@ export interface TopUpModalProps {
    * When provided for Katsh/iPick, replaces the from-drawer layout with a
    * supplier credit layout: the supplier extends credit, no cash leaves any
    * drawer. The operator settles with the supplier later via the Suppliers page.
+   *
+   * When provided for OMT_APP, this is one of TWO funding sources the
+   * operator can pick between (D4) — "On OMT credit" (default) or "Transfer
+   * from drawer" (`onConfirm`, unchanged) — rather than the only option.
    */
   onConfirmSupplier?: (data: {
     amount: number;
@@ -104,9 +108,24 @@ export default function TopUpModal({
     };
   }, [isOpen]);
 
+  // OMT App: unlike iPick/Katsh (supplier credit is the ONLY option), the
+  // owner kept the drawer-to-drawer transfer available as an explicit
+  // alternative to the new OMT-credit default (D4). So OMT App gets a
+  // funding-source CHOICE instead of a fixed mode — the two other supplier
+  // members don't need one because they never had a transfer path to begin
+  // with.
+  const isOmtApp = provider === "OMT_APP";
+  const omtAppHasCreditOption = isOmtApp && !!onConfirmSupplier;
+  const [omtAppFundingMode, setOmtAppFundingMode] = useState<
+    "credit" | "transfer"
+  >("credit");
+
   // Katsh/iPick: the supplier extends credit — no cash leaves any drawer.
+  // OMT App reaches the same supplier-credit path only while the funding
+  // choice above is set to "On OMT credit".
   const isSupplierCredit =
-    (provider === "iPick" || provider === "Katsh") && !!onConfirmSupplier;
+    ((provider === "iPick" || provider === "Katsh") && !!onConfirmSupplier) ||
+    (omtAppHasCreditOption && omtAppFundingMode === "credit");
 
   // Whish App: top up either from a partner credit line or by buying credits
   // from a client (client transfers credits, shop keeps a fee, pays out cash).
@@ -173,6 +192,8 @@ export default function TopUpModal({
       setManualFee("");
       setIncludingFees(false);
       setClientName("");
+      // D4: OMT credit is the default every time the modal (re)opens.
+      setOmtAppFundingMode("credit");
     }
   }, [isOpen, defaultSourceDrawer]);
 
@@ -513,6 +534,45 @@ export default function TopUpModal({
                 </>
               )}
             </>
+          )}
+
+          {omtAppHasCreditOption && (
+            /* Funding source choice — OMT App only (D4). "On OMT credit" is
+               the default; "Transfer from drawer" keeps the pre-existing
+               drawer-to-drawer path available as an explicit alternative. */
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Funding Source
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  data-testid="topup-funding-credit"
+                  onClick={() => setOmtAppFundingMode("credit")}
+                  disabled={isSubmitting}
+                  className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors ${
+                    omtAppFundingMode === "credit"
+                      ? "bg-violet-600 text-white"
+                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  } disabled:opacity-50`}
+                >
+                  On OMT credit
+                </button>
+                <button
+                  type="button"
+                  data-testid="topup-funding-transfer"
+                  onClick={() => setOmtAppFundingMode("transfer")}
+                  disabled={isSubmitting}
+                  className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors ${
+                    omtAppFundingMode === "transfer"
+                      ? "bg-violet-600 text-white"
+                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  } disabled:opacity-50`}
+                >
+                  Transfer from drawer
+                </button>
+              </div>
+            </div>
           )}
 
           {!isWhishTopUp && isSupplierCredit && (

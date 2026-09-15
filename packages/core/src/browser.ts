@@ -135,6 +135,15 @@ export * from "./constants/profitsAccess.js";
 // this avoids.
 export * from "./constants/resetTables.js";
 
+// OMT App wallet cashout commission (LIRA-192, OMT_OPEN_CREDIT_ACCOUNT_PLAN.md
+// §8) — pure arithmetic over an amount/currency pair, no Node.js deps.
+// OmtAppCashoutModal.tsx imports `omtAppCashoutCommission` to render the
+// SAME commission preview the repository will independently stamp, rather
+// than hand-rolling a second `× 0.001` in the renderer (rule 14). Must be
+// exported HERE, not only from index.ts — see the telecomCredit.js note
+// above for the exact failure mode this avoids.
+export * from "./constants/omtAppCashout.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

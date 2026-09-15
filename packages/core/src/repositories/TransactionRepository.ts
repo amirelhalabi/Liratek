@@ -1994,6 +1994,22 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * oldest-first and bumps paid_usd; nothing records the split, so we un-apply
    * the same USD-equivalent reverse-FIFO: newest-covered first, capped at each
    * purchase's paid_usd). No-op for every other transaction shape.
+   *
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §8.7 (LIRA-192) finding — `type ===
+   * "SUPPLIER_PAYMENT" && source_table === "supplier_ledger"` is NOT unique
+   * to a `recordSupplierCashflow` manual cash payment: `addLedgerEntry`'s
+   * no-`drawer_name` branch stamps that SAME type/table pair for every
+   * `entry_type: "PAYMENT"` ledger row that has no real drawer leg of its
+   * own (e.g. `RechargeRepository.cashoutToSupplier`'s auto, cashless
+   * account-credit sibling — is_auto:true, source_ref_table:"recharges").
+   * That sibling never ran `_applyPurchaseFifoCoverage` — nothing in
+   * `cashoutToSupplier` touches `supplier_purchases` — so without this
+   * `is_auto` check, voiding it would "give back" FIFO coverage that was
+   * never taken, corrupting `supplier_purchases.paid_usd` for whatever
+   * unrelated purchases happen to be open on that supplier.
+   * `recordSupplierCashflow`'s own ledger row is NEVER `is_auto` (its
+   * INSERT never sets the column, default 0), so this stays a no-op change
+   * for the manual-payment case this method exists for.
    */
   private _unapplySupplierPurchaseCoverage(original: TransactionEntity): void {
     if (
@@ -2009,12 +2025,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       entry_type: string;
       amount_usd: number;
       amount_lbp: number;
+      is_auto: number;
     }>(
-      `SELECT supplier_id, entry_type, amount_usd, amount_lbp FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
+      `SELECT supplier_id, entry_type, amount_usd, amount_lbp, is_auto FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
       original.source_id,
       tenantId,
     );
-    if (!ledger || ledger.entry_type !== "PAYMENT") return;
+    if (!ledger || ledger.entry_type !== "PAYMENT" || ledger.is_auto) return;
 
     const rate = original.exchange_rate || 89000;
     let remaining =
@@ -2068,6 +2085,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   }
 
   /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.3/§10.2 (LIRA-187, v176) — true when
+   * the connected `supplier_ledger` table already carries the
+   * account-settlement `settlement_id` column (D8's per-row selectable
+   * queue: unlike `financial_services`, a raw ledger row — iPick/OMT App
+   * TOP_UP, or an OMT App `WALLET_CASHOUT` PAYMENT row — had NO per-row
+   * settled marker before this migration). Same schema-drift-guard shape as
+   * `_supplierLedgerHasSourceRefColumns` above: a fixture predating v176
+   * (most of this file's own hand-rolled test DBs) must degrade to "this row
+   * can never be settled" rather than throwing `no such column`.
+   */
+  private _supplierLedgerHasSettlementIdColumn(): boolean {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(supplier_ledger)`)
+      .all() as { name: string }[];
+    return cols.some((c) => c.name === "settlement_id");
+  }
+
+  /**
    * LIRA-091 — refuse a void/refund up-front (before any write) if this
    * transaction's own event booked an auto supplier-ledger sibling
    * (FinancialServiceRepository's is_auto:true BILL-commission /
@@ -2083,13 +2118,35 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * a manual supplier adjustment instead. A no-op when there is no unrefunded
    * sibling at all (nothing to protect), so a settled WALLET-provider FS row
    * (which never books a sibling) stays voidable.
+   *
+   * LIRA-189 extension (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.3/§10.2) — v176
+   * lets an account settlement stamp `settlement_id` directly on a RAW
+   * `supplier_ledger` row (D8's LEDGER-kind selection), which is exactly the
+   * shape of an OMT App `WALLET_CASHOUT`'s auto sibling
+   * (`RechargeRepository.cashoutToSupplier`: `source_ref_table: 'recharges'`,
+   * NOT `'financial_services'`). `_supplierSourceSettlementId` below only
+   * ever resolves the settlement stamp for a `financial_services`-anchored
+   * parent (that is where `settleTransactions`/`settleAccount` stamp a
+   * COUNTER row's settlement), so it always returns null for a
+   * `recharges`-sourced parent and would silently let a settled cashout be
+   * voided out from under an already-netted settlement batch — corrupting
+   * its per-child math exactly the way this whole guard exists to prevent.
+   * Checking the sibling row's OWN `settlement_id` first closes that gap for
+   * ANY non-`financial_services` source table without touching the
+   * FS-anchored path at all (a SEND/RECEIVE's own ledger sibling is never
+   * independently selected/settled — only its `financial_services` parent
+   * is — so this extra check is a harmless no-op for that case).
    */
   private _assertSupplierSiblingsVoidable(original: TransactionEntity): void {
     if (!original.source_table || original.source_id == null) return;
     if (!this._supplierLedgerHasSourceRefColumns()) return;
     const tenantId = getCurrentTenantId();
-    const hasUnrefundedSibling = this.queryOne<{ id: number }>(
-      `SELECT id FROM supplier_ledger
+    const hasSettlementIdColumn = this._supplierLedgerHasSettlementIdColumn();
+    const sibling = this.queryOne<{
+      id: number;
+      settlement_id: number | null;
+    }>(
+      `SELECT id${hasSettlementIdColumn ? ", settlement_id" : ", NULL AS settlement_id"} FROM supplier_ledger
         WHERE source_ref_table = ? AND source_ref_id = ? AND tenant_id = ?
           AND is_auto = 1 AND COALESCE(is_refunded, 0) = 0
         LIMIT 1`,
@@ -2097,7 +2154,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       original.source_id,
       tenantId,
     );
-    if (!hasUnrefundedSibling) return;
+    if (!sibling) return;
+
+    if (hasSettlementIdColumn && sibling.settlement_id != null) {
+      throw new DatabaseError(
+        `Cannot void/refund — its auto supplier-ledger entry has already been included in settlement #${sibling.settlement_id}; correct the supplier balance with a manual adjustment instead.`,
+        { entityId: original.id },
+      );
+    }
 
     const settlementId = this._supplierSourceSettlementId(
       original.source_table,
@@ -3544,21 +3608,112 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * `supplier_settlements` + `settlement_commission_allocations` rows
    * (`_reverseCommissionAtSettlementRecords` — no soft-void column exists on
    * either table, so DELETE is the correct reversal, not a compensating row).
+   *
+   * LIRA-189 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5/§9.4) — generalized for the
+   * OMT ACCOUNT settlement (`SupplierRepository.settleAccount`), which
+   * settles the counter + OMT App + iPick TOGETHER under ONE
+   * SUPPLIER_SETTLEMENT transaction but writes ONE per-child PAYMENT/
+   * SUPPLIER_PAYS_US `supplier_ledger` row PER CHILD touched (contract §1 —
+   * never a single lump row on the parent, or one child stays overpaid and
+   * another unpaid). That is N ledger rows under ONE transaction, where the
+   * legacy single-supplier `settleTransactions` writes exactly one. The
+   * primitive that makes both shapes reversible by the SAME code is already
+   * proven by `settleTransactions` itself: its "Link ledger entry to unified
+   * transaction" step stamps `supplier_ledger.transaction_id = <the
+   * settlement's own transaction id>` on its lone SETTLEMENT row — i.e. that
+   * row is findable BOTH by `original.source_id` (today's convention) AND by
+   * `transaction_id = original.id`. Querying by `transaction_id = original.id`
+   * therefore finds every per-child row an account settlement wrote for
+   * free, while degrading to exactly the one row `original.source_id` already
+   * named for an ordinary single-supplier settlement — NO behavior change
+   * for `settleTransactions`, proven by that identity rather than assumed.
+   * `original.source_id` is unioned in defensively (never assume
+   * `transaction_id` was set on every row an as-yet-unlanded `settleAccount`
+   * writes) so a settlement whose parent has no debt of its own (all debt on
+   * children, no assumed parent row to anchor to — §1's own constraint)
+   * still fully reverses as long as EITHER link names it.
+   *
+   * Each per-child row this settlement wrote is itself the anchor other
+   * tables' settlement markers point at — exactly like `original.source_id`
+   * already was for the single-row case:
+   *   - `financial_services.settlement_id` (the OMT counter's own rows —
+   *     the only child with FINANCIAL_SERVICE-kind selections) — the
+   *     existing un-stamp loop below is untouched, only WHERE-scoped to
+   *     every per-child id instead of the one `original.source_id`.
+   *   - `supplier_ledger.settlement_id` (v176 — a RAW ledger row directly
+   *     selected as D8's LEDGER-kind: iPick/OMT App TOP_UP rows, or an OMT
+   *     App WALLET_CASHOUT PAYMENT row) — reset to NULL so the row re-enters
+   *     the unsettled queue, mirroring the financial_services un-stamp.
+   *     Schema-drift-guarded (`_supplierLedgerHasSettlementIdColumn`) for
+   *     every fixture in this file that predates v176.
+   *   - the settlement's OWN N per-child rows are soft-voided (is_refunded),
+   *     never un-stamped — they are what THIS settlement wrote, not what it
+   *     merely marked. The generic step 4 in `_voidTransactionInternal`/
+   *     `refundTransaction` (`_markSourceRefunded('supplier_ledger',
+   *     original.source_id)`) already does this for the ONE row
+   *     `original.source_id` names; this method covers the rest.
+   *
+   * Deferred cashout commission (D14, §8.3a): summed and stamped onto THIS
+   * settlement transaction's own `profit_usd`/`profit_lbp` by `settleAccount`
+   * — needs NO bespoke reversal here. A VOID flips `original.status` to
+   * VOIDED and its reversal row carries no profit columns at all (profit
+   * aggregation reads ACTIVE rows only, so the original's profit simply
+   * stops counting); a REFUND's reversal row explicitly negates
+   * `profit_usd`/`profit_lbp` from the original (see the REFUND INSERT a few
+   * hundred lines up). Both are the SAME generic mechanism every other
+   * transaction's profit reversal already uses — this method never touches
+   * `transactions.profit_usd`/`profit_lbp` directly.
    */
   private _reverseSupplierSettlement(
     original: TransactionEntity,
     userId: number,
   ): void {
-    if (
-      original.type !== "SUPPLIER_SETTLEMENT" ||
-      original.source_table !== "supplier_ledger" ||
-      original.source_id == null
-    ) {
+    if (original.type !== "SUPPLIER_SETTLEMENT") {
       return;
     }
     const tenantId = getCurrentTenantId();
 
-    // Un-stamp financial_services rows THIS exact settlement touched.
+    // Every supplier_ledger row THIS settlement transaction wrote — see the
+    // doc comment above for why `transaction_id = original.id` alone already
+    // covers `settleTransactions`' single-row shape, and `original.source_id`
+    // is unioned in defensively for a not-yet-landed `settleAccount` shape
+    // that might not set `transaction_id` on every row it writes.
+    const linkedLedgerRows =
+      original.source_table === "supplier_ledger" && original.source_id != null
+        ? this.query<{ id: number }>(
+            `SELECT id FROM supplier_ledger
+             WHERE (transaction_id = ? OR id = ?) AND tenant_id = ?`,
+            original.id,
+            original.source_id,
+            tenantId,
+          )
+        : this.query<{ id: number }>(
+            `SELECT id FROM supplier_ledger WHERE transaction_id = ? AND tenant_id = ?`,
+            original.id,
+            tenantId,
+          );
+    if (linkedLedgerRows.length === 0) {
+      return;
+    }
+    const settlementLedgerIds = linkedLedgerRows.map((r) => r.id);
+    const idPlaceholders = settlementLedgerIds.map(() => "?").join(",");
+
+    // Soft-void every per-child settlement row this batch wrote — the
+    // generic step 4 (`_markSourceRefunded`) already did this for the ONE
+    // row `original.source_id` names; re-touching it here is a harmless
+    // idempotent no-op (`is_refunded = 0` guard).
+    this.execute(
+      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+       WHERE id IN (${idPlaceholders}) AND tenant_id = ? AND is_refunded = 0`,
+      ...settlementLedgerIds,
+      tenantId,
+    );
+
+    // Un-stamp financial_services rows THIS exact settlement touched —
+    // scoped by settlement_id IN (every per-child row this batch wrote),
+    // never the metadata id list (only settlement_id proves a row STILL
+    // belongs to exactly this settlement at reversal time). Reduces to the
+    // original `= original.source_id` behavior when only one id exists.
     const settled = this.query<{
       id: number;
       provider: string;
@@ -3567,8 +3722,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       commission_model: number;
     }>(
       `SELECT id, provider, service_type, commission, commission_model FROM financial_services
-       WHERE settlement_id = ? AND tenant_id = ?`,
-      original.source_id,
+       WHERE settlement_id IN (${idPlaceholders}) AND tenant_id = ?`,
+      ...settlementLedgerIds,
       tenantId,
     );
     for (const fs of settled) {
@@ -3605,15 +3760,38 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }
     }
 
+    // LIRA-189 (v176) — un-stamp raw supplier_ledger rows (D8's selectable
+    // queue: iPick/OMT App TOP_UP rows, or an OMT App WALLET_CASHOUT PAYMENT
+    // row) this batch marked settled. Excludes the settlement's OWN
+    // per-child rows (settlementLedgerIds) — those are soft-voided above,
+    // not un-stamped; a soft-voided row's settlement_id is irrelevant since
+    // is_refunded already excludes it from every balance/queue read.
+    // Schema-drift guarded like every other supplier_ledger column check in
+    // this file — a hand-rolled pre-v176 jest fixture has no such column.
+    if (this._supplierLedgerHasSettlementIdColumn()) {
+      this.execute(
+        `UPDATE supplier_ledger SET settlement_id = NULL
+         WHERE settlement_id IN (${idPlaceholders}) AND id NOT IN (${idPlaceholders}) AND tenant_id = ?`,
+        ...settlementLedgerIds,
+        ...settlementLedgerIds,
+        tenantId,
+      );
+    }
+
     // COMMISSION_AT_SETTLEMENT_PLAN.md D5/D6, rule 20 — the commission
     // credit ledger row itself (SUPPLIER_PAYS_US) is already soft-voided for
     // FREE by step 5c's generic LIRA-091 sibling cascade
     // (`_cascadeSupplierSiblingVoid`, which runs BEFORE this method and is
     // keyed off THIS exact `source_table`/`source_id` — the shape
     // `SupplierRepository._bookCommissionAtSettlement` links it with). What
-    // remains: the derived audit/reporting records this settlement wrote for
-    // a new-model batch.
-    this._reverseCommissionAtSettlementRecords(original.source_id, tenantId);
+    // remains: the derived audit/reporting records this settlement wrote —
+    // per per-child ledger row, since an account settlement may stamp one
+    // `supplier_settlements` record PER child (each keyed by ITS OWN
+    // ledger_entry_id, `supplier_settlements.ledger_entry_id` being UNIQUE),
+    // not just the one `original.source_id` named.
+    for (const ledgerId of settlementLedgerIds) {
+      this._reverseCommissionAtSettlementRecords(ledgerId, tenantId);
+    }
   }
 
   /**

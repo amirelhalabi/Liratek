@@ -27,10 +27,21 @@ export const supplierLedgerEntrySchema = z.object({
 // magnitude by the repository's Math.abs(). Rejecting non-positive amounts
 // here — mirroring partnerSettlementLegSchema's existing `.positive()` — closes
 // the gap at the validation boundary instead of special-casing it downstream.
+//
+// OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.5 (rule-12 completeness gap): `direction`
+// was typed in electron.d.ts but missing from this schema (and four other
+// layers — backendApi.ts, ElectronApiAdapter.ts, packages/ui/src/api/types.ts,
+// preload.ts — each owned by a different lane). LIRA-189's account-settlement
+// collect direction needs a leg to be markable as an OUT (change/return) leg
+// rather than an IN (customer-paid) one, per rule 16's partitionLegs
+// convention (utils/payments.ts) — so it is added here, shared by every
+// schema that reuses this fragment (supplierSettleSchema, supplierCashflowSchema,
+// supplierSettleAccountSchema below), instead of being duplicated per caller.
 const supplierPaymentLegSchema = z.object({
   method: z.string().min(1),
   currency_code: z.string().min(1),
   amount: z.number().positive(),
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 export const supplierSettleSchema = z.object({
@@ -109,6 +120,49 @@ export const supplierCashflowSchema = z
     path: ["discount"],
   });
 
+// LIRA-189 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5, CONTRACT_W2.md §2.1) — settle
+// the WHOLE OMT open-credit account (the counter, OMT App and iPick
+// together) in one call. `account_supplier_id` is the parent supplier id;
+// `selections` is the operator's explicit tick-list from the merged
+// unsettled queue (LIRA-188's getAccountUnsettled) — the frontend
+// pre-selects oldest-first (D8) but the repository MUST re-validate every id
+// against account membership at write time and never trust these ids alone.
+// `direction` mirrors recordSupplierCashflow's PAY/RECEIVE (§8.4: cashout
+// credits can flip the account net negative, i.e. OMT owes the shop, which
+// needs the COLLECT/RECEIVE path) — reused, not duplicated (rule 14).
+// `created_by` is deliberately NOT part of this schema: like every sibling
+// settle/cashflow schema above, the actor is injected by the handler/route
+// from the session (IPC) or the JWT (REST, rule 19c), never trusted from the
+// request body.
+export const supplierSettleAccountSchema = z.object({
+  account_supplier_id: z.number().int().positive(),
+  direction: z.enum(["PAY", "COLLECT"]),
+  selections: z
+    .array(
+      z.object({
+        kind: z.enum(["FINANCIAL_SERVICE", "LEDGER"]),
+        id: z.number().int().positive(),
+      })
+    )
+    .min(1),
+  amount_usd: z.number(),
+  amount_lbp: z.number(),
+  // Operator-entered per-child settlement commission — same shape/meaning as
+  // supplierSettleSchema's commission_usd/commission_lbp above. LIRA-189 also
+  // sums the STORED commission of any WALLET_CASHOUT rows in the batch from
+  // transactions.metadata_json.commission (D14, plan §8.3a) and stamps that
+  // automatically; that sum is computed server-side and is NOT part of this
+  // field or this schema.
+  commission_usd: z.number(),
+  commission_lbp: z.number(),
+  entry_mode: z.enum(["LUMP", "RATE"]).optional(),
+  commission_rate: z.number().nonnegative().optional(),
+  commission_unit_count: z.number().int().nonnegative().optional(),
+  note: z.string().optional(),
+  exchange_rate: z.number().positive().optional(),
+  payments: z.array(supplierPaymentLegSchema).optional(),
+});
+
 /** Log a delivery batch for a product supplier (FIFO payment coverage). */
 export const supplierPurchaseCreateSchema = z.object({
   supplier_id: z.number().int().positive(),
@@ -129,6 +183,9 @@ export type SupplierLedgerEntryInput = z.infer<
   typeof supplierLedgerEntrySchema
 >;
 export type SupplierSettleInput = z.infer<typeof supplierSettleSchema>;
+export type SupplierSettleAccountInput = z.infer<
+  typeof supplierSettleAccountSchema
+>;
 export type SupplierCashflowInput = z.infer<typeof supplierCashflowSchema>;
 export type SupplierPurchaseCreateInput = z.infer<
   typeof supplierPurchaseCreateSchema

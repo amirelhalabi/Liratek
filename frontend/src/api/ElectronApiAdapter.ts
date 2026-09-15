@@ -225,10 +225,16 @@ export class ElectronApiAdapter implements ApiAdapter {
     sourceDrawer: string;
   }) => api.topUpApp(payload);
   topUpFromSupplier = (payload: {
-    provider: "iPick" | "Katsh";
+    provider: "iPick" | "Katsh" | "OMT_APP";
     amount: number;
     currency: "USD" | "LBP";
   }) => api.topUpFromSupplier(payload);
+  /** OMT open-credit account (LIRA-192) — mirror of topUpFromSupplier. */
+  cashoutToSupplier = (payload: {
+    provider: "OMT_APP";
+    amount: number;
+    currency: "USD" | "LBP";
+  }) => api.cashoutToSupplier(payload);
   topUpFromPartner = (payload: {
     provider: "WHISH_APP";
     partnerId: number;
@@ -349,6 +355,12 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getSupplierBalances(includeInactive);
   getSupplierLedger = (supplierId: number, limit?: number) =>
     api.getSupplierLedger(supplierId, limit);
+  /** OMT open-credit account (LIRA-188) — account parent + children rollup. */
+  getSupplierAccountBalances = () => api.getSupplierAccountBalances();
+  getSupplierAccountLedger = (accountSupplierId: number, limit?: number) =>
+    api.getSupplierAccountLedger(accountSupplierId, limit);
+  getSupplierAccountUnsettled = (accountSupplierId: number) =>
+    api.getSupplierAccountUnsettled(accountSupplierId);
   createSupplier = (data: {
     name: string;
     contact_name?: string;
@@ -370,6 +382,32 @@ export class ElectronApiAdapter implements ApiAdapter {
     exchange_rate?: number;
     discount?: { amount_usd: number; amount_lbp: number; reason?: string };
   }) => api.recordSupplierCashflow(data);
+  /** OMT open-credit account settlement (LIRA-189) — mirror of
+   *  settleTransactions above, but scoped to the whole account and taking
+   *  the account parent's id separately (matching getSupplierAccountLedger's
+   *  two-arg shape) since backendApi.ts needs it to build the REST URL. */
+  settleSupplierAccount = (
+    accountSupplierId: number,
+    data: {
+      direction: "PAY" | "COLLECT";
+      selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
+      amount_usd: number;
+      amount_lbp: number;
+      commission_usd: number;
+      commission_lbp: number;
+      entry_mode?: "LUMP" | "RATE";
+      commission_rate?: number;
+      commission_unit_count?: number;
+      note?: string;
+      exchange_rate?: number;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+    },
+  ) => api.settleSupplierAccount(accountSupplierId, data);
   // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
   // write-off is gone; the bundled pay-form discount in
   // recordSupplierCashflow above is the only surviving forgive-debt path.

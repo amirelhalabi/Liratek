@@ -330,6 +330,91 @@ export type UnsettledSummary = {
 };
 
 /**
+ * OMT open-credit account (LIRA-187/188) — `'OMT'` is the account parent;
+ * `'OMT App'` and `'iPick'` are children linked via
+ * `suppliers.account_supplier_id`. Ledger rows never move (plan §2); this is
+ * a read-time rollup. Mirrors `@liratek/core`'s `AccountBalance`
+ * (`SupplierRepository.ts`) verbatim (rule 14) — not imported directly
+ * because this file is bundled by Vite/frontend jest, which resolve
+ * `@liratek/core` to its browser-only entrypoint.
+ */
+export type AccountBalance = {
+  account_supplier_id: number;
+  account_name: string;
+  /** Parent + children, summed. */
+  total_usd: number;
+  total_lbp: number;
+  children: AccountChildBalance[];
+};
+
+/** @see AccountBalance */
+export type AccountChildBalance = {
+  supplier_id: number;
+  name: string;
+  provider: string | null;
+  /** From `service_providers.drawer_name`; null if unknown. */
+  drawer_name: string | null;
+  total_usd: number;
+  total_lbp: number;
+  /** true for the OMT counter row itself (the account parent). */
+  is_parent: boolean;
+};
+
+/**
+ * One row of the OMT account's unioned ledger (parent + every child),
+ * newest first. `source_name` is the Suppliers page's Type column value.
+ * Mirrors `@liratek/core`'s `AccountLedgerEntry` verbatim (rule 14).
+ */
+export type AccountLedgerEntry = {
+  id: number;
+  supplier_id: number;
+  /** 'OMT' | 'OMT_APP' | 'iPick' */
+  source_provider: string | null;
+  /** 'OMT' | 'OMT App' | 'iPick' — the Type column. */
+  source_name: string;
+  entry_type: string;
+  amount_usd: number;
+  amount_lbp: number;
+  note: string | null;
+  created_at: string;
+  is_refunded: number;
+  settlement_id: number | null;
+};
+
+/**
+ * One row of the OMT account's unsettled queue — a union of two
+ * structurally different sources (plan §9.3): pending `financial_services`
+ * rows (kind FINANCIAL_SERVICE) and raw `supplier_ledger` rows with
+ * `settlement_id IS NULL` (kind LEDGER). Mirrors `@liratek/core`'s
+ * `AccountUnsettledRow` verbatim (rule 14).
+ */
+export type AccountUnsettledRow = {
+  kind: "FINANCIAL_SERVICE" | "LEDGER";
+  id: number;
+  supplier_id: number;
+  source_provider: string | null;
+  /** The Type column. */
+  source_name: string;
+  created_at: string;
+  amount_usd: number;
+  amount_lbp: number;
+  /** Set for LEDGER rows. */
+  entry_type: string | null;
+  /** Set for FINANCIAL_SERVICE rows. */
+  service_type: string | null;
+  /**
+   * Deferred cashout commission this row contributes to `settleAccount`'s
+   * recognised profit (D14, §8.3a) — always 0 except a WALLET_CASHOUT
+   * LEDGER row, never `undefined`. Mirrors `@liratek/core`'s
+   * `AccountUnsettledRow` verbatim (rule 14) — see its doc comment for the
+   * shared-predicate guarantee that this can never disagree with what
+   * settlement actually stamps.
+   */
+  commission_usd: number;
+  commission_lbp: number;
+};
+
+/**
  * LIRA-163: per-currency slice of `getOMTAnalytics`'s `today`/`month`
  * buckets, mirroring `FinancialServiceRepository.CurrencyStats`.
  * `awaiting_settlement_count` is optional so an older cached payload (or a
@@ -1110,12 +1195,21 @@ export type ApiAdapter = {
     currency: "USD" | "LBP";
     sourceDrawer: string;
   }) => Promise<ApiResult>;
-  /** Katsh/iPick: the supplier extends credit — no source drawer moves. */
+  /** Katsh/iPick/OMT App: the supplier extends credit — no source drawer
+   *  moves (D2/D4 — OMT App's default funding path, LIRA-190). */
   topUpFromSupplier: (payload: {
-    provider: "iPick" | "Katsh";
+    provider: "iPick" | "Katsh" | "OMT_APP";
     amount: number;
     currency: "USD" | "LBP";
   }) => Promise<ApiResult>;
+  /** OMT open-credit account (LIRA-192) — the mirror of topUpFromSupplier:
+   *  OMT_App wallet balance leaves, the OMT account is credited principal +
+   *  commission (recognised as profit at settlement, wave 2). Admin only. */
+  cashoutToSupplier: (payload: {
+    provider: "OMT_APP";
+    amount: number;
+    currency: "USD" | "LBP";
+  }) => Promise<{ success: boolean; error?: string; commission?: number }>;
   /** Whish App: a partner extends credit — no source drawer moves. */
   topUpFromPartner: (payload: {
     provider: "WHISH_APP";
@@ -1292,6 +1386,20 @@ export type ApiAdapter = {
   getSuppliers: (search?: string, includeInactive?: boolean) => Promise<any[]>;
   getSupplierBalances: (includeInactive?: boolean) => Promise<any[]>;
   getSupplierLedger: (supplierId: number, limit?: number) => Promise<any[]>;
+  /** OMT open-credit account (LIRA-188) — per-currency balances for every
+   *  account parent, rolled up with its children. No role gate. */
+  getSupplierAccountBalances: () => Promise<AccountBalance[]>;
+  /** Unioned ledger rows across an account's parent + children, newest
+   *  first, each carrying which member it came from. */
+  getSupplierAccountLedger: (
+    accountSupplierId: number,
+    limit?: number,
+  ) => Promise<AccountLedgerEntry[]>;
+  /** Unioned unsettled rows (financial_services + raw supplier_ledger,
+   *  plan §9.3) across an account's parent + children. */
+  getSupplierAccountUnsettled: (
+    accountSupplierId: number,
+  ) => Promise<AccountUnsettledRow[]>;
   createSupplier: (data: {
     name: string;
     contact_name?: string;
@@ -1332,7 +1440,15 @@ export type ApiAdapter = {
     /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
     drawer_name?: string;
     note?: string;
-    payments?: Array<{ method: string; currency_code: string; amount: number }>;
+    // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.5 (rule-12 completeness gap): typed
+    // in electron.d.ts but missing here — closed alongside settleSupplierAccount
+    // below (LIRA-189's collect direction needs a leg markable OUT).
+    payments?: Array<{
+      method: string;
+      currency_code: string;
+      amount: number;
+      direction?: "IN" | "OUT";
+    }>;
   }) => Promise<ApiResult & { id?: number }>;
   /** Pay a supplier down / record a supplier paying us, via payment legs. */
   recordSupplierCashflow: (data: {
@@ -1345,6 +1461,42 @@ export type ApiAdapter = {
      *  RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row. */
     discount?: { amount_usd: number; amount_lbp: number; reason?: string };
   }) => Promise<ApiResult & { id?: number }>;
+  /**
+   * OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
+   * payment across the account parent (OMT) + its children (OMT App, iPick),
+   * allocated per child by the repository. `accountSupplierId` is the
+   * account parent's supplier id (mirrors getSupplierAccountLedger's
+   * two-arg shape); `direction` mirrors recordSupplierCashflow's PAY/RECEIVE
+   * (here PAY/COLLECT — §8.4: cashout credits can flip the account net
+   * negative, needing the collect/RECEIVE path). `selections` is the
+   * operator's explicit tick-list from getSupplierAccountUnsettled — the
+   * frontend pre-selects oldest-first (D8) but the repository re-validates
+   * every id against account membership. Mirrors `@liratek/core`'s
+   * `SettleAccountData` verbatim (rule 14), minus `account_supplier_id`
+   * (passed separately here) and `created_by` (injected server-side, rule 19c).
+   */
+  settleSupplierAccount: (
+    accountSupplierId: number,
+    data: {
+      direction: "PAY" | "COLLECT";
+      selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
+      amount_usd: number;
+      amount_lbp: number;
+      commission_usd: number;
+      commission_lbp: number;
+      entry_mode?: "LUMP" | "RATE";
+      commission_rate?: number;
+      commission_unit_count?: number;
+      note?: string;
+      exchange_rate?: number;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+    },
+  ) => Promise<ApiResult & { id?: number }>;
   // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
   // write-off is gone; recordSupplierCashflow's bundled `discount` leg above
   // is the only surviving forgive-debt path. `debtWriteOff`/`partnerWriteOff`

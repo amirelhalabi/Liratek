@@ -559,10 +559,18 @@ contextBridge.exposeInMainWorld("api", {
       sourceDrawer: string;
     }) => ipcRenderer.invoke("recharge:top-up-app", data),
     topUpFromSupplier: (data: {
-      provider: "iPick" | "Katsh";
+      provider: "iPick" | "Katsh" | "OMT_APP";
       amount: number;
       currency: "USD" | "LBP";
     }) => ipcRenderer.invoke("recharge:top-up-from-supplier", data),
+    // OMT open-credit account (LIRA-192) — the mirror of topUpFromSupplier:
+    // wallet balance leaves OMT_App and the OMT account is credited
+    // principal + commission. Admin-only write (RechargeCashoutSchema).
+    cashoutToSupplier: (data: {
+      provider: "OMT_APP";
+      amount: number;
+      currency: "USD" | "LBP";
+    }) => ipcRenderer.invoke("recharge:cashout-to-supplier", data),
     topUpFromPartner: (data: {
       provider: "WHISH_APP";
       partnerId: number;
@@ -592,6 +600,18 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("suppliers:balances", includeInactive),
     getLedger: (supplierId: number, limit?: number) =>
       ipcRenderer.invoke("suppliers:ledger", supplierId, limit),
+    // OMT open-credit account (LIRA-188) — read-only rollup across the
+    // account parent (OMT) and its children (OMT App, iPick). No role gate:
+    // these are reads, same as getBalances/getLedger above.
+    getAccountBalances: () => ipcRenderer.invoke("suppliers:account-balances"),
+    getAccountLedger: (accountSupplierId: number, limit?: number) =>
+      ipcRenderer.invoke(
+        "suppliers:account-ledger",
+        accountSupplierId,
+        limit,
+      ),
+    getAccountUnsettled: (accountSupplierId: number) =>
+      ipcRenderer.invoke("suppliers:account-unsettled", accountSupplierId),
     create: (data: {
       name: string;
       contact_name?: string;
@@ -632,12 +652,42 @@ contextBridge.exposeInMainWorld("api", {
       /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
       drawer_name?: string;
       note?: string;
+      // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.5 (rule-12 completeness gap): typed
+      // in electron.d.ts but missing here — closed alongside settleAccount
+      // below (LIRA-189's collect direction needs a leg markable OUT).
       payments?: Array<{
         method: string;
         currency_code: string;
         amount: number;
+        direction?: "IN" | "OUT";
       }>;
     }) => ipcRenderer.invoke("suppliers:settle-transactions", data),
+    // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
+    // payment across the account parent (OMT) + its children (OMT App,
+    // iPick), allocated per child by the repository. `account_supplier_id`
+    // travels inside `data` (unlike the REST route, IPC has no URL to source
+    // it from). The repository re-validates every selected id against
+    // account membership — the client's selection is never trusted.
+    settleAccount: (data: {
+      account_supplier_id: number;
+      direction: "PAY" | "COLLECT";
+      selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
+      amount_usd: number;
+      amount_lbp: number;
+      commission_usd: number;
+      commission_lbp: number;
+      entry_mode?: "LUMP" | "RATE";
+      commission_rate?: number;
+      commission_unit_count?: number;
+      note?: string;
+      exchange_rate?: number;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+    }) => ipcRenderer.invoke("suppliers:settle-account", data),
     recordCashflow: (data: {
       supplier_id: number;
       direction: "PAY" | "RECEIVE";

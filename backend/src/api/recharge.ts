@@ -10,6 +10,7 @@ import {
   topUpFromPartnerSchema,
   topUpFromClientSchema,
   updateRechargeMetadataSchema,
+  rechargeCashoutSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
 import type { AuthRequest } from "../middleware/auth.js";
@@ -226,6 +227,54 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to process supplier top-up" });
+    }
+  },
+);
+
+// POST /api/recharge/cashout-to-supplier - Cash Out to OMT (LIRA-192,
+// D10-D16): the mirror of top-up-from-supplier above. OMT_App drawer down,
+// OMT account credited principal + commission, no physical cash moves.
+// Role-parity with `recharge:cashout-to-supplier` — admin ONLY (unlike the
+// top-up arms, which are admin+staff), because it stamps a commission and is
+// the one wallet flow that can push the OMT account negative (plan §8.4).
+// `rechargeCashoutSchema` is THE shared contract (rules 14 + 19b), re-exported
+// as `RechargeCashoutSchema` from electron-app/schemas/index.ts for the IPC
+// twin. `userId` comes from the JWT, never the body.
+router.post(
+  "/cashout-to-supplier",
+  requireRole(["admin"]),
+  validateRequest(rechargeCashoutSchema),
+  async (req, res): Promise<void> => {
+    try {
+      const rechargeService = getRechargeService();
+      const userId = (req as AuthRequest).user!.userId;
+      const result = rechargeService.cashoutToSupplier({
+        ...req.body,
+        userId,
+      });
+      if (result.success) {
+        // Mirrors rechargeHandlers.ts's recharge:cashout-to-supplier audit
+        // (create/recharge_cashout).
+        auditRest(req, {
+          action: "create",
+          entity_type: "recharge_cashout",
+          summary: `Cash Out to OMT ${req.body.provider}: ${req.body.amount} ${req.body.currency}`,
+          metadata: {
+            provider: req.body.provider,
+            amount: req.body.amount,
+            currency: req.body.currency,
+            commission: result.commission,
+          },
+        });
+      }
+      // Match the IPC envelope: HTTP 200 with { success: false, error } even
+      // on a business-rule failure (e.g. the D15 over-draw guard) — rule 19c.
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "OMT App cash-out error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to process cash-out" });
     }
   },
 );

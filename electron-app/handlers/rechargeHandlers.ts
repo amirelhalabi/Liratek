@@ -21,6 +21,7 @@ import {
   TopUpFromPartnerSchema,
   TopUpFromClientSchema,
   UpdateRechargeMetadataSchema,
+  RechargeCashoutSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -137,13 +138,17 @@ export function registerRechargeHandlers(): void {
     },
   );
 
-  // Top up Katsh/iPick drawer via supplier credit (admin and staff)
+  // Top up Katsh/iPick/OMT App drawer via supplier credit (admin and staff).
+  // OMT_APP widened in LIRA-190 (D2/D4): the app wallet now loads on OMT
+  // credit by default, same as iPick already did — no source drawer is
+  // touched, the destination drawer goes up, and TOP_UP debt books on the
+  // supplier found by provider ('OMT App', parented under OMT by LIRA-187).
   ipcMain.handle(
     "recharge:top-up-from-supplier",
     (
       event: IpcMainInvokeEvent,
       data: {
-        provider: "iPick" | "Katsh";
+        provider: "iPick" | "Katsh" | "OMT_APP";
         amount: number;
         currency: "USD" | "LBP";
       },
@@ -174,6 +179,54 @@ export function registerRechargeHandlers(): void {
           provider: v.data.provider,
           amount: v.data.amount,
           currency: v.data.currency,
+        },
+      });
+      return result;
+    },
+  );
+
+  // Cash Out to OMT (LIRA-192, D10-D16) — the mirror of the supplier-credit
+  // top-up above: OMT_App drawer down, OMT account credited principal +
+  // commission, no physical cash moves. Admin only (unlike the top-up arms,
+  // which are admin+staff) because it stamps a commission and is the one
+  // wallet flow that can push the OMT account negative (plan §8.4).
+  ipcMain.handle(
+    "recharge:cashout-to-supplier",
+    (
+      event: IpcMainInvokeEvent,
+      data: {
+        provider: "OMT_APP";
+        amount: number;
+        currency: "USD" | "LBP";
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(RechargeCashoutSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      rechargeLogger.info(
+        {
+          provider: v.data.provider,
+          amount: v.data.amount,
+          currency: v.data.currency,
+        },
+        "Processing OMT App cash-out",
+      );
+      const result = rechargeService.cashoutToSupplier({
+        ...v.data,
+        userId: auth.userId,
+      });
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "recharge_cashout",
+        summary: `Cash Out to OMT ${v.data.provider}: ${v.data.amount} ${v.data.currency}`,
+        metadata: {
+          provider: v.data.provider,
+          amount: v.data.amount,
+          currency: v.data.currency,
+          commission: result.commission,
         },
       });
       return result;

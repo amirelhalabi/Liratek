@@ -5,7 +5,11 @@
 > **Last Restructured:** 2026-08-12 (see "How to keep this file honest" below)
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW` | `PARTIAL`
 
-> **⬆ HIGHEST PRIORITY (2026-09-11):** OMT open-credit account epic, LIRA-187 → LIRA-191 — plan in `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md`, board entry at the bottom of this file.
+> **⬆ HIGHEST PRIORITY (2026-09-11):** OMT open-credit account epic, LIRA-187 → LIRA-192
+> — **BUILT 2026-09-15, uncommitted, awaiting diff review.**
+>
+> **✓ LIRA-193 (below) — the live money bug in shipped code is now FIXED** (uncommitted, with this
+> epic). Three defects closed, not the two filed; the third was found by attacking the first fix — plan in `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md`, board entry at the bottom of this file.
 
 ---
 
@@ -3996,15 +4000,15 @@ a real router.
 
 ---
 
-## EPIC LIRA-187 → LIRA-191: OMT open-credit account — iPick + OMT App roll up under the OMT supplier — TODO — **HIGHEST PRIORITY**
+## EPIC LIRA-187 → LIRA-192: OMT open-credit account — iPick + OMT App roll up under the OMT supplier — **BUILT, UNCOMMITTED** — **HIGHEST PRIORITY**
 
 | Field        | Value                                                                                                     |
 | ------------ | --------------------------------------------------------------------------------------------------------- |
 | **Epic**     | Suppliers / OMT                                                                                           |
 | **Type**     | Money model change (rules 16, 17, 18, 20)                                                                 |
 | **Priority** | **HIGHEST** (owner, 2026-09-11)                                                                           |
-| **Status**   | **TODO** — planned 2026-09-10, all owner decisions answered, nothing built                                |
-| **Plan**     | `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` — decisions D1–D9, code facts, full ticket bodies |
+| **Status**   | **BUILT 2026-09-15, NOT COMMITTED** — awaiting the owner's diff review. 77 paths (+4,967/-135). Gates run by the orchestrator: build / typecheck / lint exit 0; full suite **639 suites, 5,941 tests, 0 failures**. **Desktop + web e2e specs written but NEVER RUN** (needs the owner's `yarn dev` → stop → e2e cycle). LIRA-191 deliberately NOT built (deferred, D9). |
+| **Plan**     | `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` — decisions D1–D16, code facts, full ticket bodies |
 
 OMT is ONE open-credit account: the counter (OMT SEND/RECEIVE), the OMT App wallet, and iPick credit
 all draw on it and are settled with one payment from the OMT Cash Drawer. Loading the wallet or iPick
@@ -4013,11 +4017,126 @@ moves no cash — the drawer goes up, the debt goes up. Design: read-time groupi
 
 | Ticket   | Title                                                                            | Priority     | Depends on |
 | -------- | -------------------------------------------------------------------------------- | ------------ | ---------- |
-| LIRA-187 | `suppliers.account_supplier_id` — the account link (schema only)                 | Medium       | —          |
-| LIRA-188 | OMT account rollup on the Suppliers page — balance, ledger, unsettled, sub-rows  | High         | 187        |
-| LIRA-189 | Account settlement — one payment, allocated per child, PCD legs, reversible      | High (money) | 187, 188   |
-| LIRA-190 | OMT App wallet loads on OMT credit by default                                    | High (money) | 187        |
-| LIRA-191 | Grouping configurable in Service Providers settings; Whish-base shops (deferred) | Low          | 187–190    |
+| LIRA-187 | `suppliers.account_supplier_id` — the account link (schema only) — **BUILT** (v176)  | Medium       | —          |
+| LIRA-188 | OMT account rollup on the Suppliers page — sub-rows + Type column — **BUILT**    | High         | 187        |
+| LIRA-189 | Account settlement — per-child allocation, PAY+COLLECT, reversible — **BUILT**   | High (money) | 187, 188   |
+| LIRA-190 | OMT App wallet loads on OMT credit by default — **BUILT**                        | High (money) | 187        |
+| LIRA-192 | OMT App **cashout** — account credited + 0.1% commission — **BUILT**            | High (money) | 187        |
+| LIRA-191 | Grouping configurable in Service Providers settings; Whish-base shops (deferred) | Low          | 187–192    |
 
-Build order: 187 + 188 → 190 → 189 → 191. Known gap until 190 ships: every OMT App wallet load
-today drains the OMT Cash Drawer (see plan §7).
+Built in that order. **Settlement (LIRA-189) was attacked four times and six real defects were found
+and fixed** — see plan §11 for the table and the durable lesson. The same bug class is LIVE in
+shipped code: see **LIRA-193** below.
+
+**Owner review 2026-09-15 — two questions CLOSED, no code change needed** (plan §10.4):
+the round-trip commission is **accepted** (D17 — OMT caps cashout volume on their side, so the
+exposure is bounded; do NOT add wash detection), and whole-row settlement is **confirmed as wanted**
+(D18 — tick rows, payment must equal them exactly, pay less by unticking; do NOT build partial
+coverage). **Still open:** a mistaken OMT App credit top-up cannot be voided, only corrected by an
+opposite manual entry; and **e2e has never run** — the owner deferred it, and it is the last real gap
+before this ships.
+
+---
+
+## LIRA-193: a supplier settlement can mark a debt paid while ZERO money moves — **FIXED 2026-09-15, uncommitted** — HIGH (money)
+
+| Field        | Value                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------ |
+| **Epic**     | Suppliers                                                                                              |
+| **Type**     | Money bug, pre-existing                                                                                |
+| **Priority** | **High** — silent, and it surfaces as an unexplained drawer shortfall at closing, not as an error       |
+| **Status**   | **FIXED 2026-09-15** (uncommitted, with the OMT epic). Found while hardening LIRA-189, then fixed on the owner's go. Gates: build/typecheck/lint exit 0, full suite **5,963 tests, 0 failures**. **Three defects closed, not one** — see the fix note below. |
+| **Found by** | Three independent adversarial agents, each reproducing it with an executed test against `settleAccount`'s identical pre-fix shape |
+
+### What is wrong
+
+Two shipped methods accept payment legs and move drawers **without ever comparing those legs to the
+amount they record as settled**, and both silently skip legs whose method moves no drawer.
+
+**`SupplierRepository.settleTransactions`** — the single-supplier settlement in the app today. On the
+normal cash-owed path it never reconciles `data.payments` against `amount_usd`/`amount_lbp`; it only
+checks that *at least one leg exists*. Its posting loop then does
+`if (!isDrawerAffectingMethod(p.method)) continue;`.
+
+Two consequences, both silent:
+
+1. **Overpay / underpay leaks.** Settle a $100 debt with a $150 leg: the ledger nets to 0 and the
+   drawer drops $150. $50 leaves with no ledger row, no profit stamp, no kept-change record.
+2. **A settlement can move no money at all.** A `payments` array made entirely of `CUSTOMER_ACCOUNT`
+   or `GIFT_CARD` legs passes the "at least one leg" check, every leg is skipped at posting, and the
+   batch is stamped **fully settled with zero dollars moving**.
+
+**`SupplierRepository.recordSupplierCashflow`** has the same silent skip with **no reconciliation
+guard at all**.
+
+**The single-supplier settle UI** (`Suppliers/index.tsx`, `settleHasActiveLegs` /
+`settleConfirmDisabled`) enforces only a lower bound — it checks that *some* leg amount is > 0, never
+that the entered amount matches the net owed, and never wires return/change legs. So consequence 1 is
+reachable by an ordinary typo, not only by a crafted payload.
+
+### Why it has never been noticed
+
+None of this throws. There is no error, no log line and no failing test. It surfaces weeks later as a
+drawer that will not reconcile at closing — by which time the settlement that caused it is buried.
+
+### The fix
+
+This is the bug class documented in plan §11 of `OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` and now guarded in
+`settleAccount`. **Port the same three fixes**, and take the shape of the fix, not just the patch:
+
+1. Reconcile legs against the settled amount, **per currency**, before any write, and reject a
+   mismatch. A supplier settlement has no customer to give change to.
+2. Make the guard and the posting loop derive "does this leg move a drawer" from **ONE** predicate
+   (`settleAccount` uses a local `assertLegMovesADrawer`) so they can never drift apart again — the
+   drift is the actual defect; the symptoms are downstream.
+3. Give the single-supplier settle UI the same two-sided bound the account sheet now has.
+
+Consider whether `settleTransactions` should reject OUT legs outright the way `settleAccount` now
+does. It has no `direction` field on its leg type today, so it cannot carry one — confirm that before
+assuming it is safe.
+
+### Acceptance
+
+Failing-first per rule 17 for each part: reintroduce the gap, watch the new test fail, restore.
+Prove, per currency, that the drawer delta equals the ledger movement for `settleTransactions` and
+`recordSupplierCashflow`, and that a settlement paid entirely in non-drawer-affecting legs is
+rejected rather than silently stamped settled. `settleAccount`'s own suite
+(`SupplierRepository.accountSettlement.test.ts`, the "leg reconciliation" and "non-drawer-affecting
+legs" describe blocks) is the template — copy its structure.
+
+### Do NOT
+
+Do not "fix" this by making the UI the only guard. The repository is this codebase's trust boundary,
+and the leak is reachable over raw IPC and REST.
+
+---
+
+### What actually shipped (2026-09-15)
+
+**Three defects, not the two originally filed.** Each was proved failing-first (rule 17) and each was
+found by running code, never by reading it.
+
+1. **The two filed above** — `settleTransactions` now reconciles legs against the settled amount per
+   currency and hard-rejects a mismatch (D18: whole rows, exact match, pay less by unticking). The
+   settle screen blocks it first with an inline message naming the exact difference, so the operator
+   never reaches the thrown error. `recordSupplierCashflow` needed a DIFFERENT fix and got one: it has
+   no separate target (its amount is derived FROM the legs), so a sum-vs-target check would check
+   nothing — instead every leg is validated before it can enter the sum.
+2. **A mutual-exclusion gap**, found while tracing: `owesCash` and `isOtherPaymentCommission` are
+   meant to be exclusive but were taken on trust from the caller. Claiming both skipped BOTH the
+   payment loop and the new guard. Now rejected.
+3. **A currency-bucketing leak**, found by the adversarial review AFTER the first fix landed — in the
+   one branch the fix had not reached. The Other-payment commission sum bucketed "is it LBP? else
+   USD", so a leg tagged `"usd"` (lowercase) or `"EUR"` was counted as USD and posted into a
+   `drawer_balances` row **no closing screen or report ever queries**, while `supplier_settlements`
+   and `profit_usd` recorded a real USD collection. Money and record permanently disagree, silently.
+   Closed by ONE shared currency helper now used by all five bucketing sites in the file (the
+   existing inline copies were replaced by it too — duplicated decisions are the root cause of this
+   whole class).
+
+**Over-tightening was checked, not assumed.** `settleTransactions` is the daily-use path, so refusing
+something legitimate would be worse than the leak. An adversarial reviewer ran 17 real scenarios plus
+a 211-test baseline — split payments, USD+LBP, bills-only with zero owed, commission-only, iPick,
+Katsh, a batch carrying both cash and an entered commission, and a deliberate `recordSupplierCashflow`
+overpayment pushing a supplier into credit (D18's stated purpose). All still work. No existing test
+was relying on the removed leniency.

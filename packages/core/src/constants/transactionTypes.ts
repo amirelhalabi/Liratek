@@ -83,6 +83,28 @@ export const TRANSACTION_TYPES = {
   RECHARGE_TOPUP: "RECHARGE_TOPUP",
   MTC_TOPUP: "MTC_TOPUP",
   ALFA_TOPUP: "ALFA_TOPUP",
+  /** LIRA-192 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §8): "Cash Out to OMT" — the
+   *  mirror of the OMT App wallet's credit top-up (RECHARGE_TOPUP via
+   *  `topUpFromSupplier`). `OMT_App` drawer −amount, the `'OMT App'`
+   *  supplier_ledger credited −(amount + commission) (OMT now owes the
+   *  shop), `OMT_System` untouched — no physical cash moves either way
+   *  (D2). Named `WALLET_CASHOUT`, not a bare `CASHOUT`: that word is
+   *  already `DRAWER_CASHOUT` (General-drawer physical withdrawal),
+   *  `cashoutMethod` (a RECEIVE payout method), and the session-basket
+   *  "cashout" item — three unrelated things (plan §8.5).
+   *
+   *  Deliberately kept OUT of `NON_REVERSIBLE_TRANSACTION_TYPES` (D14/rule
+   *  20): unlike `RECHARGE_TOPUP` — non-reversible because its provider-
+   *  drawer credit has no `payments` row — this flow writes the wallet leg
+   *  as a REAL `payments` row, so the generic, type-agnostic
+   *  `_reversePayments` can restore it, and the `'OMT App'` ledger sibling
+   *  is back-linked via `source_ref_table`/`source_ref_id` for the existing
+   *  supplier cascade-void to find. `profit_usd`/`profit_lbp` are stamped 0
+   *  at creation — the 0.1% commission is recognised at OMT account
+   *  settlement (LIRA-189, wave 2), like the OMT counter's own deferred
+   *  commission — so a generic negated-profit reversal is a correct 0 → 0
+   *  no-op until settlement lands. */
+  WALLET_CASHOUT: "WALLET_CASHOUT",
   CUSTOM_SERVICE: "CUSTOM_SERVICE",
   MAINTENANCE: "MAINTENANCE",
 

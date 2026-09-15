@@ -33,6 +33,7 @@ import {
   CryptoForm,
   ProviderTabs,
   OmtWhishAppTransferForm,
+  OmtAppCashoutModal,
 } from "../../components";
 import { TopUpModal, ServiceTypeTabs } from "@liratek/ui";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
@@ -227,6 +228,8 @@ export default function MobileRecharge() {
   >([]);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [topUpPartnerId, setTopUpPartnerId] = useState<number | null>(null);
+  // LIRA-192 (D12): "Cash Out to OMT" — OMT App only.
+  const [showCashoutModal, setShowCashoutModal] = useState(false);
   const [drawerBalances, setDrawerBalances] = useState<
     Array<{
       name: string;
@@ -842,17 +845,22 @@ export default function MobileRecharge() {
     [topUpData, activeConfig, loadFinancialData, loadDrawerBalances, api],
   );
 
-  // Katsh/iPick: supplier extends credit — no cash leaves any drawer
+  // Katsh/iPick/OMT App: supplier extends credit — no cash leaves any drawer.
+  // OMT App reaches this path only when the top-up modal's funding choice
+  // (D4, TopUpModal.tsx) is "On OMT credit" — the "Transfer from drawer"
+  // alternative still goes through handleTopUpConfirm/topUpApp above.
   const handleTopUpConfirmSupplier = useCallback(
     async (data: { amount: number; currency: "USD" | "LBP" }) => {
       if (
         !topUpData ||
-        (topUpData.provider !== "iPick" && topUpData.provider !== "Katsh")
+        (topUpData.provider !== "iPick" &&
+          topUpData.provider !== "Katsh" &&
+          topUpData.provider !== "OMT_APP")
       )
         return;
 
       const result = await api.topUpFromSupplier({
-        provider: topUpData.provider as "iPick" | "Katsh",
+        provider: topUpData.provider as "iPick" | "Katsh" | "OMT_APP",
         amount: data.amount,
         currency: data.currency,
       });
@@ -871,6 +879,34 @@ export default function MobileRecharge() {
       );
     },
     [topUpData, loadFinancialData, loadDrawerBalances, api],
+  );
+
+  // LIRA-192: "Cash Out to OMT" — OMT_App wallet balance goes DOWN, the OMT
+  // account is credited principal + commission (D10/D11). No cash moves
+  // either way (D2/§8.1); the repository stamps profit_* = 0 at creation,
+  // recognised at account settlement (D14, wave 2).
+  const handleCashoutConfirm = useCallback(
+    async (data: { amount: number; currency: "USD" | "LBP" }) => {
+      const result = await api.cashoutToSupplier({
+        provider: "OMT_APP",
+        amount: data.amount,
+        currency: data.currency,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || "Cash-out failed");
+      }
+
+      loadFinancialData();
+      loadDrawerBalances();
+
+      appEvents.emit(
+        "notification:show",
+        `Cashed out ${data.amount} ${data.currency} from OMT App to the OMT account`,
+        "success",
+      );
+    },
+    [loadFinancialData, loadDrawerBalances, api],
   );
 
   // Whish App: top up from a partner's credit line
@@ -1443,6 +1479,17 @@ export default function MobileRecharge() {
                   Top-Up
                 </button>
               )}
+
+              {/* LIRA-192 (D10/D12/D16): OMT App only, no iPick/Katsh symmetry. */}
+              {activeConfig.key === "OMT_APP" && (
+                <button
+                  data-testid="omt-app-cashout-button"
+                  onClick={() => setShowCashoutModal(true)}
+                  className="h-11 px-4 inline-flex items-center rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
+                >
+                  Cash Out to OMT
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1748,6 +1795,22 @@ export default function MobileRecharge() {
           defaultSourceDrawer={topUpData.defaultSourceDrawer}
         />
       )}
+
+      {/* Cash-Out Modal — OMT App only (LIRA-192, D16) */}
+      <OmtAppCashoutModal
+        isOpen={showCashoutModal}
+        onClose={() => setShowCashoutModal(false)}
+        onConfirm={handleCashoutConfirm}
+        walletBalance={
+          activeConfig?.key === "OMT_APP" && activeDrawerBalance
+            ? {
+                usdBalance: activeDrawerBalance.usdBalance,
+                lbpBalance: activeDrawerBalance.lbpBalance,
+              }
+            : undefined
+        }
+        formatAmount={formatAmount}
+      />
     </div>
   );
 }

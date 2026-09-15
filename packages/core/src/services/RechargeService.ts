@@ -92,11 +92,16 @@ export class RechargeService {
   }
 
   /**
-   * Top up a Katsh or iPick provider drawer via supplier credit.
+   * Top up a Katsh, iPick, or OMT App provider drawer via supplier credit.
    * No source drawer is deducted — the supplier extends credit.
+   *
+   * LIRA-190 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1 D2/D4): `"OMT_APP"` widened
+   * onto this existing pass-through — the repository resolves the `'OMT
+   * App'` supplier, which LIRA-187's migration parents under `'OMT'`, so the
+   * booking lands in the OMT open-credit account with no new logic here.
    */
   topUpFromSupplier(data: {
-    provider: "iPick" | "Katsh";
+    provider: "iPick" | "Katsh" | "OMT_APP";
     amount: number;
     currency: string;
     userId: number;
@@ -105,6 +110,22 @@ export class RechargeService {
       return { success: false, error: "Amount must be greater than 0" };
     }
     return this.rechargeRepo.topUpFromSupplier(data);
+  }
+
+  /**
+   * "Cash Out to OMT" (LIRA-192, OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §8) — thin
+   * pass-through to {@link RechargeRepository.cashoutToSupplier}, mirroring
+   * {@link topUpFromSupplier} above. All money movement, the balance guard
+   * (D15), and the commission computation live in the repository (rule 13);
+   * this method adds no SQL and no business logic.
+   */
+  cashoutToSupplier(data: {
+    provider: "OMT_APP";
+    amount: number;
+    currency: string;
+    userId: number;
+  }): { success: boolean; error?: string; commission?: number } {
+    return this.rechargeRepo.cashoutToSupplier(data);
   }
 
   /**

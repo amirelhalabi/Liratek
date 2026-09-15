@@ -161,9 +161,15 @@ export function calculateCommission(
   amount?: number,
 ): number {
   if (omtServiceType === "OMT_WALLET") {
-    // OMT Wallet: no fee to customer, shop earns 0.1% of transfer amount
+    // OMT Wallet: no fee to customer, shop earns a % of transfer amount —
+    // read from the table entry, not a second inline 0.001 (rule 14; this
+    // duplication was flagged by OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §8.3).
+    // NOTE: this rate is the OMT COUNTER's wallet-service commission, a
+    // DIFFERENT (if numerically coincidental) business rule from the OMT
+    // APP cashout's own `OMT_APP_CASHOUT_COMMISSION_RATE`
+    // (constants/omtAppCashout.ts) — the two are independently changeable.
     const transferAmount = amount ?? 0;
-    return Number((transferAmount * 0.001).toFixed(4));
+    return Number((transferAmount * OMT_COMMISSION_RATES.OMT_WALLET).toFixed(4));
   }
 
   if (omtServiceType === "ONLINE_BROKERAGE") {
@@ -221,6 +227,31 @@ export function requiresOmtFeeInput(omtServiceType: OmtServiceType): boolean {
  */
 export function hasZeroFees(omtServiceType: OmtServiceType): boolean {
   return omtServiceType === "OMT_WALLET";
+}
+
+/**
+ * Round a money amount to the smallest indivisible increment of its
+ * currency: 0.01 (a cent) for USD, 1 (whole units — LBP has no fractional
+ * currency) for LBP. Matches the `unit` convention `utils/largestRemainder
+ * .ts`'s `allocateProportional` already documents and uses for the same
+ * distinction, just packaged as a plain rounding function.
+ *
+ * This repo previously had no SHARED, currency-aware money-rounding helper
+ * (rule 14 gap, surfaced by OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §8.3's cashout
+ * commission): `CarrierLineRepository`, `ExchangeLotRepository`, and
+ * `ExchangeLotService` each carry their own PRIVATE, USD-cents-only
+ * `round2`/`roundMoney` copy (`Math.round(amount * 100) / 100`), none
+ * exported for reuse and none currency-aware. New money math that needs a
+ * currency-aware rounding decision (like `constants/omtAppCashout.ts`'s
+ * cashout commission) should reach for this instead of a fresh `.toFixed(n)`
+ * or another private copy.
+ */
+export function roundMoneyForCurrency(
+  amount: number,
+  currencyCode: string,
+): number {
+  const unit = currencyCode === "LBP" ? 1 : 0.01;
+  return Math.round(amount / unit) * unit;
 }
 
 /**

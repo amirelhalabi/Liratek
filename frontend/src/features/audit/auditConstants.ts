@@ -287,6 +287,9 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       },
       { label: "General Top-up", type: "DRAWER_TOPUP" },
       { label: "General Cash-Out", type: "DRAWER_CASHOUT" },
+      // LIRA-192: the OMT App wallet's own cash-out (mirror of the OMT App
+      // Top-up row above), grouped with the other drawer/top-up types.
+      { label: "OMT App Cash-Out", type: "WALLET_CASHOUT" },
     ],
   },
   {
@@ -436,6 +439,20 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // of the batch has been sold (StockBatchRepository.deleteBatchForVoid
   // returns false, not this set's visibility gate).
   "SUPPLIER_STOCK_INTAKE",
+  // LIRA-192 (OMT open-credit account, §8.7): the OMT App wallet cash-out.
+  // Unlike RECHARGE_TOPUP (its sibling top-up, permanently non-reversible —
+  // "the provider-drawer credit has no payments row either"), the cashout
+  // MUST be reversible: it stamps a commission that becomes profit at
+  // settlement, so an un-reversible mistake would leave phantom earnings on
+  // the books (rule 20). The wallet leg is written as a real `payments` row
+  // (so the generic `_reversePayments` restores the OMT_App drawer) and the
+  // supplier_ledger row is back-linked via source_ref_table/source_ref_id
+  // (so the existing cascade-void finds and negates it) — core's
+  // TransactionRepository owns proving that nets to 0 (see
+  // TransactionRepository.walletCashoutVoid.test.ts). Deliberately absent
+  // from core's NON_REVERSIBLE_TRANSACTION_TYPES. The actionGating.guard
+  // test enforces this entry stays in lockstep with that set.
+  "WALLET_CASHOUT",
 ]);
 
 /** Service transactions that can (re)print a detailed receipt (RCP-3). POS

@@ -75,6 +75,19 @@ export interface SupplierEntity {
    * to 'USD' in getColumns() for schemas older than v151.
    */
   commission_rate_currency: "USD" | "LBP";
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187, v176) — self-FK: when set,
+   * this supplier is an ACCOUNT CHILD whose `supplier_ledger` rows still live
+   * on ITS OWN id (ledger rows never move — see the plan's §2 design
+   * principle) but roll up read-time into the PARENT's account balance/
+   * ledger/unsettled-queue (`getAccountBalances`/`getAccountLedger`/
+   * `getAccountUnsettled` below). NULL for a standalone supplier and for the
+   * parent itself (the parent is found BY being pointed at, not by pointing
+   * anywhere). Selected only when `_suppliersHasAccountLinkColumn()` is true
+   * (getColumns()) — undefined on a connection older than v176, mirroring
+   * every other schema-drift guard in this file.
+   */
+  account_supplier_id?: number | null;
 }
 
 /**
@@ -200,6 +213,17 @@ export interface SupplierLedgerEntryEntity {
 const ledgerNotRefunded = (alias = ""): string =>
   `COALESCE(${alias}is_refunded, 0) = 0`;
 
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187/188), rule 14 — the ONE
+ * "is this supplier a member of account X" predicate: X itself (the
+ * parent), or any supplier pointing at X via `account_supplier_id` (a
+ * child). Shared by `getAccountBalances`, `getAccountLedger` and
+ * `getAccountUnsettled` — never re-typed as a second `s.id = ? OR
+ * s.account_supplier_id = ?` literal.
+ */
+const accountMemberOf = (alias = "s."): string =>
+  `(${alias}id = ? OR ${alias}account_supplier_id = ?)`;
+
 export interface SettleTransactionsData {
   supplier_id: number;
   /** IDs from financial_services to mark as settled */
@@ -319,8 +343,24 @@ export interface SettleTransactionsData {
    * alone offsets what's owed, or a bills-only batch whose principal never
    * touched the ledger — COMMISSION_AT_SETTLEMENT_PLAN.md's "bills
    * settlement note") needs no legs.
+   *
+   * LIRA-193 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §11.4) — `direction` was
+   * missing from this type even though the shared runtime schema
+   * (`supplierPaymentLegSchema`, reused by `supplierSettleSchema`) has
+   * always carried it: a caller CAN put `direction: "OUT"` on a leg here at
+   * runtime today, TypeScript's structural typing does not strip it, and
+   * this repository never read the field to reject it. Declared here so the
+   * reconciliation guard in `settleTransactions` below can see and reject it
+   * (no code in that method has ever interpreted a per-leg `direction` — a
+   * supplier settlement has no customer to hand change back to, same
+   * reasoning `settleAccount` (LIRA-189) already established).
    */
-  payments?: Array<{ method: string; currency_code: string; amount: number }>;
+  payments?: Array<{
+    method: string;
+    currency_code: string;
+    amount: number;
+    direction?: "IN" | "OUT";
+  }>;
 }
 
 /**
@@ -359,8 +399,22 @@ export interface SupplierCashflowData {
   /** PAY = shop pays the supplier (cash out, ledger −). RECEIVE = supplier pays
    *  the shop (cash in, ledger +). */
   direction: "PAY" | "RECEIVE";
-  /** Payment-method legs; each routes to its method's drawer. */
-  payments: Array<{ method: string; currency_code: string; amount: number }>;
+  /**
+   * Payment-method legs; each routes to its method's drawer.
+   *
+   * LIRA-193 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §11.4) — `direction` is on the
+   * shared runtime schema (`supplierPaymentLegSchema`, reused by
+   * `supplierCashflowSchema`) but was missing here, the same completeness
+   * gap `SettleTransactionsData.payments` had (see its doc comment).
+   * `recordSupplierCashflow` has never read a per-leg `direction` either —
+   * declared so the reject-outright guard below can see and reject it.
+   */
+  payments: Array<{
+    method: string;
+    currency_code: string;
+    amount: number;
+    direction?: "IN" | "OUT";
+  }>;
   note?: string;
   created_by: number;
   /** Exchange rate (1 USD = X LBP) used to convert LBP legs to USD when
@@ -429,6 +483,171 @@ export interface SupplierBalance {
   total_lbp: number;
 }
 
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187/188) — a rolled-up read of the
+ * OMT open-credit account: the parent supplier ('OMT') plus every child
+ * (`account_supplier_id` pointing at it — 'OMT App', 'iPick' today). Ledger
+ * rows never move (plan §2); this is a read-time aggregate only.
+ */
+export interface AccountBalance {
+  account_supplier_id: number;
+  account_name: string;
+  /** Parent + every child, summed. */
+  total_usd: number;
+  total_lbp: number;
+  children: AccountChildBalance[];
+}
+
+/** One member row (parent or child) inside an {@link AccountBalance}. */
+export interface AccountChildBalance {
+  supplier_id: number;
+  name: string;
+  provider: string | null;
+  /** From `service_providers.drawer_name` (joined on provider code) — null
+   *  when the row/table isn't available (schema drift or unknown provider),
+   *  never a hardcoded provider→drawer map. */
+  drawer_name: string | null;
+  total_usd: number;
+  total_lbp: number;
+  /** true for the account PARENT's own row (the OMT counter itself). */
+  is_parent: boolean;
+}
+
+/** One `supplier_ledger` row surfaced through the account's merged ledger
+ *  (`getAccountLedger`) — carries which member it actually belongs to
+ *  (ledger rows never move) so the UI can render a Type column. */
+export interface AccountLedgerEntry {
+  id: number;
+  supplier_id: number;
+  /** 'OMT' | 'OMT_APP' | 'iPick' — the owning member's `provider`. */
+  source_provider: string | null;
+  /** 'OMT' | 'OMT App' | 'iPick' — the owning member's `name`; the Type column. */
+  source_name: string;
+  entry_type: string;
+  amount_usd: number;
+  amount_lbp: number;
+  note: string | null;
+  created_at: string;
+  is_refunded: number;
+  settlement_id: number | null;
+}
+
+/**
+ * One row still awaiting settlement inside the account, from either of two
+ * structurally different sources (plan §9.3): a `financial_services` row
+ * (the OMT counter's own pending-settlement predicate) or a raw
+ * `supplier_ledger` row with no settlement batch yet (iPick / OMT App
+ * supplier-credit debt, which has no `financial_services` row at all).
+ */
+export interface AccountUnsettledRow {
+  kind: "FINANCIAL_SERVICE" | "LEDGER";
+  id: number;
+  supplier_id: number;
+  source_provider: string | null;
+  source_name: string;
+  created_at: string;
+  amount_usd: number;
+  amount_lbp: number;
+  /** LEDGER rows only. */
+  entry_type: string | null;
+  /** FINANCIAL_SERVICE rows only. */
+  service_type: string | null;
+  /**
+   * Deferred cashout commission this row will contribute to
+   * `settleAccount`'s recognised profit (D14, §8.3a) — the SAME figure
+   * `_sumCashoutCommission` sums server-side at settlement time, read here
+   * per-row so the settle sheet's preview can never disagree with the
+   * stamp (both go through `_cashoutCommissionByLedgerId`, rule 14). Always
+   * 0 for a FINANCIAL_SERVICE row, for a non-cashout LEDGER row, and for a
+   * cashout whose linked transaction is missing/VOIDED/unreadable — never
+   * `undefined`, so a caller never needs an `?? 0` guard.
+   */
+  commission_usd: number;
+  commission_lbp: number;
+}
+
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, wave 2, CONTRACT_W2.md §2.1) —
+ * settle the WHOLE OMT open-credit account (the counter + every account
+ * child — 'OMT App' / 'iPick' today) in ONE action, unlike
+ * {@link SettleTransactionsData} (single supplier, financial_services
+ * only). A selection here can mix FINANCIAL_SERVICE rows (a member's own
+ * pending-settlement queue) with raw LEDGER rows (a child's supplier-credit
+ * debt, or a WALLET_CASHOUT credit row — negative, LIRA-192). See
+ * {@link SupplierRepository.settleAccount}'s own doc comment for the full
+ * algorithm and the reversal-shape contract W2 (TransactionRepository)
+ * builds against.
+ */
+export interface SettleAccountData {
+  /** The account's PARENT supplier id (e.g. 'OMT') —
+   *  {@link SupplierRepository.getAccountUnsettled}'s own key. */
+  account_supplier_id: number;
+  /**
+   * PAY = the selected rows net POSITIVE (shop owes the account) — cash
+   * out. COLLECT = they net NEGATIVE (cashouts outweigh debt — §8.4) — cash
+   * in. Cross-checked server-side against the RE-COMPUTED net of
+   * `selections`, per currency; a caller passing the wrong direction for
+   * the actual net is rejected, never trusted.
+   */
+  direction: "PAY" | "COLLECT";
+  /**
+   * Explicit rows to settle, RE-VALIDATED against
+   * {@link SupplierRepository.getAccountUnsettled} — never trusted by id
+   * alone (a foreign, already-settled, or refunded id is rejected).
+   * `kind: "FINANCIAL_SERVICE"` ids are `financial_services.id`;
+   * `kind: "LEDGER"` ids are raw `supplier_ledger.id`.
+   */
+  selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
+  /** Net cash magnitude for `payments[]` — cross-checked against the
+   *  server-recomputed |net| of `selections`, per currency (same 0.005
+   *  USD / 1 LBP tolerance `settleTransactions` uses). */
+  amount_usd: number;
+  amount_lbp: number;
+  /**
+   * Operator-entered settlement-day commission (the existing LIRA-137
+   * mechanism, unchanged) — applies ONLY to whichever ONE account member's
+   * FINANCIAL_SERVICE selections resolve to `commission_model = 1` (in
+   * practice, today, the OMT counter; iPick defaults `commission_eligible
+   * = 0` so the UI never asks for one there). REJECTED — never silently
+   * dropped — when nonzero with no such member, or when MORE THAN ONE
+   * member has eligible rows in the same batch: one flat figure cannot be
+   * safely split across two members' commissions (plan §1 "do not
+   * aggregate"). This is separate from, and ADDED to, the D14 cashout
+   * commission below (summed automatically from `metadata_json`, never
+   * operator-entered).
+   */
+  commission_usd: number;
+  commission_lbp: number;
+  entry_mode?: "LUMP" | "RATE";
+  commission_rate?: number;
+  commission_unit_count?: number;
+  note?: string;
+  created_by: number;
+  /** Unused by `settleAccount` today — §8.3: "no exchange rate is involved
+   *  anywhere in this flow." Kept for type parity with the sibling
+   *  cashflow/settlement payloads (contract §2.1). */
+  exchange_rate?: number;
+  /**
+   * Payment-method legs for the net cash — required whenever
+   * `amount_usd`/`amount_lbp` is nonzero, forbidden otherwise (mirrors
+   * `settleTransactions`'s own reverse-hazard guard). Resolved through
+   * `resolveServiceCashDrawer` with the PARENT's provider context (D3) — a
+   * CASH leg always lands in the OMT Cash Drawer, regardless of which
+   * child the debt came from.
+   *
+   * `direction: "OUT"` is hard-rejected by `settleAccount` itself (Finding
+   * A, third hardening round) — kept on the shared leg shape only because
+   * `settleTransactions`/`recordSupplierCashflow` reuse the same type for
+   * their own legitimate change-return legs.
+   */
+  payments?: Array<{
+    method: string;
+    currency_code: string;
+    amount: number;
+    direction?: "IN" | "OUT";
+  }>;
+}
+
 export class SupplierRepository extends BaseRepository<SupplierEntity> {
   /** Memoized result of {@link _hasSupplierSettlementsTable} — the schema
    *  doesn't change mid-process, so unlike the per-call PRAGMA checks
@@ -436,6 +655,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *  is on the Suppliers page's hot path) to check once per repository
    *  instance. */
   private _hasSupplierSettlementsTableCache: boolean | null = null;
+
+  /** Memoized result of {@link _hasServiceProvidersTable}. */
+  private _hasServiceProvidersTableCache: boolean | null = null;
 
   constructor() {
     super("suppliers", { softDelete: false });
@@ -480,6 +702,58 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     );
   }
 
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187, v176) — same schema-drift-
+   * guard shape as `_suppliersHasCommissionEligibilityColumns()` above, for
+   * the self-FK `account_supplier_id` column that migration adds. Checked
+   * independently (not cached — PRAGMA is cheap, this is not a hot path,
+   * same tier as the other per-call `suppliers` guards) so a hand-rolled
+   * jest fixture that predates v176 keeps working: `getColumns()` and every
+   * account-rollup method below (`getAccountBalances`/`getSupplierBalances`'
+   * child-exclusion/`getAccountLedger`/`getAccountUnsettled`) degrade to
+   * their pre-v176 behavior instead of throwing `no such column`.
+   */
+  private _suppliersHasAccountLinkColumn(): boolean {
+    const cols = this.db.prepare(`PRAGMA table_info(suppliers)`).all() as {
+      name: string;
+    }[];
+    return cols.some((c) => c.name === "account_supplier_id");
+  }
+
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187, v176) — same schema-drift-
+   * guard shape as `_suppliersHasAccountLinkColumn()`, for the
+   * `supplier_ledger.settlement_id` column that migration ALSO adds (one
+   * migration, two columns — plan §9.3). Feeds `getAccountLedger` and
+   * `getAccountUnsettled`'s settled-batch check.
+   */
+  private _supplierLedgerHasSettlementIdColumn(): boolean {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(supplier_ledger)`)
+      .all() as { name: string }[];
+    return cols.some((c) => c.name === "settlement_id");
+  }
+
+  /**
+   * Schema-drift guard, same shape as `_hasSupplierSettlementsTable()`
+   * above: `service_providers` only exists from its own migration onward
+   * (`ServiceProviderRepository`), and many `packages/core` jest fixtures
+   * predate it. Feeds `getAccountBalances`' drawer_name enrichment — a
+   * fixture without the table gets `drawer_name: null` for every child
+   * instead of a `no such table` throw. Memoized like its sibling.
+   */
+  private _hasServiceProvidersTable(): boolean {
+    if (this._hasServiceProvidersTableCache === null) {
+      const row = this.db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'service_providers'`,
+        )
+        .get();
+      this._hasServiceProvidersTableCache = !!row;
+    }
+    return this._hasServiceProvidersTableCache;
+  }
+
   // Override getColumns() to use explicit columns instead of SELECT *
   //
   // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — reviewer finding #1 (FIX_FIRST):
@@ -503,7 +777,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const eligibilityCols = this._suppliersHasCommissionEligibilityColumns()
       ? ", COALESCE(commission_eligible, 1) AS commission_eligible, COALESCE(commission_rate_currency, 'USD') AS commission_rate_currency"
       : "";
-    return `${base}${prefCols}${eligibilityCols}`;
+    // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187, v176) — same gated-append
+    // pattern as the two blocks above.
+    const accountLinkCol = this._suppliersHasAccountLinkColumn()
+      ? ", account_supplier_id"
+      : "";
+    return `${base}${prefCols}${eligibilityCols}${accountLinkCol}`;
   }
 
   listSuppliers(search?: string, includeInactive?: boolean): SupplierEntity[] {
@@ -855,6 +1134,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           if (journalUsd) parts.push(`$${journalUsd.toLocaleString()}`);
           if (journalLbp) parts.push(`${journalLbp.toLocaleString()} LBP`);
           summary = `Supplier credit: ${parts.join(" + ") || "$0"}`;
+        } else if (data.entry_type === "PAYMENT" && data.is_auto) {
+          // Automatic cashless PAYMENT (e.g. RechargeRepository.cashoutToSupplier's
+          // OMT App cashout): the shop returns wallet balance to the provider,
+          // so the provider's obligation to the shop grows — no drawer moves
+          // and no cash is "paid to" anyone. The caller's own `note` already
+          // describes the real event correctly; reuse it instead of asserting
+          // a cash payment that didn't happen.
+          summary =
+            data.note ||
+            `Supplier ledger credit: $${journalUsd} + ${journalLbp} LBP — ${this._getSupplierName(data.supplier_id)}`;
         } else if (data.entry_type === "PAYMENT") {
           summary = `Supplier Payment: $${journalUsd} + ${journalLbp} LBP — paid to ${this._getSupplierName(data.supplier_id)}`;
         } else if (data.entry_type === "ADJUSTMENT") {
@@ -871,15 +1160,21 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           summary = `Supplier ${data.entry_type}: $${amountUsd} + ${amountLbp} LBP`;
         }
 
-        // CQ-8 counterparty contract flow: PAYMENT always pays cash OUT;
-        // SUPPLIER_PAYS_US is the supplier crediting the shop (IN), even
-        // when cashless; every other entry_type (TOP_UP/SALE_COST/
-        // ADJUSTMENT) is a non-cash accrual — direction follows the same
-        // sign the ledger itself uses ("+ = shop owes supplier" reads as the
-        // supplier extending value to the shop → IN; a negative correction
-        // reads the same direction as a PAYMENT → OUT).
+        // CQ-8 counterparty contract flow: a MANUAL PAYMENT always pays cash
+        // OUT — that one stays hardcoded because PAYMENT's ledger sign is a
+        // force-negated bookkeeping convention (see above), not a real
+        // direction signal, so sign-based derivation can't be trusted there.
+        // An AUTOMATIC cashless PAYMENT (e.g. OMT App cashout) is the
+        // exception: no drawer moves for this row (the wallet leg lives on
+        // the caller's own transaction), so it is treated as the non-cash
+        // accrual it actually is, same as every other entry_type
+        // (TOP_UP/SALE_COST/ADJUSTMENT). SUPPLIER_PAYS_US is the supplier
+        // crediting the shop (IN), even when cashless. Everything else
+        // follows the same sign the ledger itself uses ("+ = shop owes
+        // supplier" reads as the supplier extending value to the shop → IN;
+        // a negative amount reads the opposite direction → OUT).
         const counterpartyFlow: "IN" | "OUT" =
-          data.entry_type === "PAYMENT"
+          data.entry_type === "PAYMENT" && !data.is_auto
             ? "OUT"
             : isSupplierCredit
               ? "IN"
@@ -1183,12 +1478,412 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
                     AND s.provider <> COALESCE(
                       (SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = s.tenant_id),
                       'OMT'))`;
+      // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — an account CHILD
+      // (`account_supplier_id` set — 'OMT App' / 'iPick' under 'OMT') no
+      // longer appears as its own top-level balance card; it surfaces only
+      // inside its account's sub-rows (getAccountBalances below). The
+      // account PARENT keeps appearing here unchanged — it's still a real
+      // top-level supplier row whose balance also happens to get rolled up
+      // elsewhere. Gated on the same schema-drift guard as getColumns() so a
+      // connection/fixture that predates v176 keeps returning every
+      // supplier, unchanged (zero behaviour change per the plan's LIRA-187
+      // acceptance criterion).
+      const excludeAccountChildren = this._suppliersHasAccountLinkColumn()
+        ? " AND s.account_supplier_id IS NULL"
+        : "";
       return this.query<SupplierBalance>(
-        this._ledgerBalanceQuery(filter),
+        this._ledgerBalanceQuery(filter + excludeAccountChildren),
         tenantId,
       );
     } catch (e) {
       throw new DatabaseError("Failed to get supplier balances", { cause: e });
+    }
+  }
+
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187/188) — the OMT open-credit
+   * account, rolled up per parent: every supplier that either IS a parent
+   * (some other supplier points at it via `account_supplier_id`) or IS a
+   * child (points at one). Reuses `_ledgerBalanceQuery` (rule 14 — never
+   * paste its SUM/JOIN) for the per-member currency totals; the roll-up
+   * itself (grouping members under `COALESCE(account_supplier_id, id)`) and
+   * the `drawer_name` enrichment happen in a second, JS-side pass, because
+   * `_ledgerBalanceQuery` only ever returns `supplier_id`/totals, never
+   * name/provider metadata.
+   *
+   * `drawer_name` comes from `service_providers.drawer_name` (joined on
+   * provider code, LIRA-188) — never a hardcoded provider→drawer map.
+   */
+  getAccountBalances(): AccountBalance[] {
+    try {
+      if (!this._suppliersHasAccountLinkColumn()) return [];
+      const tenantId = getCurrentTenantId();
+
+      // Rule 14 — this exact WHERE is used for BOTH the balance projection
+      // (_ledgerBalanceQuery) and the metadata projection below; never typed
+      // twice.
+      const accountMemberWhere = `
+        s.tenant_id = ?
+        AND (s.account_supplier_id IS NOT NULL
+             OR EXISTS (
+               SELECT 1 FROM suppliers c
+               WHERE c.account_supplier_id = s.id AND c.tenant_id = s.tenant_id
+             ))
+      `;
+
+      // This DOES exclude refunded rows (via `_ledgerBalanceQuery`'s
+      // `ledgerNotRefunded`) — deliberately unlike `getAccountLedger`
+      // above: a balance must not count voided money, while the ledger
+      // LIST still shows voided history for the "Voided" badge. Don't
+      // unify the two predicates.
+      const balances = this.query<SupplierBalance>(
+        this._ledgerBalanceQuery(accountMemberWhere),
+        tenantId,
+      );
+      const balanceBySupplierId = new Map(
+        balances.map((b) => [b.supplier_id, b] as const),
+      );
+
+      const hasServiceProviders = this._hasServiceProvidersTable();
+      const metaSql = hasServiceProviders
+        ? `SELECT s.id AS id, s.name AS name, s.provider AS provider,
+                  s.account_supplier_id AS account_supplier_id, sp.drawer_name AS drawer_name
+             FROM suppliers s
+             LEFT JOIN service_providers sp ON sp.code = s.provider AND sp.tenant_id = s.tenant_id
+             WHERE ${accountMemberWhere}`
+        : `SELECT s.id AS id, s.name AS name, s.provider AS provider,
+                  s.account_supplier_id AS account_supplier_id, NULL AS drawer_name
+             FROM suppliers s
+             WHERE ${accountMemberWhere}`;
+      const members = this.db.prepare(metaSql).all(tenantId) as {
+        id: number;
+        name: string;
+        provider: string | null;
+        account_supplier_id: number | null;
+        drawer_name: string | null;
+      }[];
+
+      const accounts = new Map<number, AccountBalance>();
+      for (const member of members) {
+        const parentId = member.account_supplier_id ?? member.id;
+        const isParent = member.id === parentId;
+        let account = accounts.get(parentId);
+        if (!account) {
+          account = {
+            account_supplier_id: parentId,
+            account_name: "",
+            total_usd: 0,
+            total_lbp: 0,
+            children: [],
+          };
+          accounts.set(parentId, account);
+        }
+        if (isParent) account.account_name = member.name;
+
+        const bal = balanceBySupplierId.get(member.id);
+        const total_usd = bal?.total_usd ?? 0;
+        const total_lbp = bal?.total_lbp ?? 0;
+        account.total_usd += total_usd;
+        account.total_lbp += total_lbp;
+        account.children.push({
+          supplier_id: member.id,
+          name: member.name,
+          provider: member.provider,
+          drawer_name: member.drawer_name,
+          total_usd,
+          total_lbp,
+          is_parent: isParent,
+        });
+      }
+
+      // Parent sub-row first, then children alphabetically — deterministic,
+      // not incidental to whatever order SQLite happened to return.
+      for (const account of accounts.values()) {
+        account.children.sort((a, b) => {
+          if (a.is_parent !== b.is_parent) return a.is_parent ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+      }
+
+      return Array.from(accounts.values()).sort((a, b) =>
+        a.account_name.localeCompare(b.account_name),
+      );
+    } catch (e) {
+      throw new DatabaseError("Failed to get account balances", { cause: e });
+    }
+  }
+
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — the account's merged
+   * `supplier_ledger` history: the parent's rows UNIONed with every child's
+   * (ledger rows never move — plan §2), each carrying which member it
+   * actually belongs to (`source_provider`/`source_name`) for the Suppliers
+   * page's Type column. Newest first.
+   *
+   * Deliberately does NOT apply `ledgerNotRefunded` — matches
+   * `getSupplierLedger`'s precedent: the ledger is a HISTORY view, so a
+   * voided row stays in it (still carrying `is_refunded`) so the UI can
+   * render it greyed out with a "Voided" badge instead of silently
+   * disappearing. This is NOT the same predicate as `getAccountBalances`
+   * below, which DOES exclude refunded rows — a balance must not count
+   * voided money. See the comment there.
+   */
+  getAccountLedger(
+    accountSupplierId: number,
+    limit = 200,
+  ): AccountLedgerEntry[] {
+    try {
+      if (!this._suppliersHasAccountLinkColumn()) return [];
+      const tenantId = getCurrentTenantId();
+      const settlementCol = this._supplierLedgerHasSettlementIdColumn()
+        ? "l.settlement_id AS settlement_id"
+        : "NULL AS settlement_id";
+      return this.db
+        .prepare(
+          `SELECT
+             l.id AS id, l.supplier_id AS supplier_id,
+             s.provider AS source_provider, s.name AS source_name,
+             l.entry_type AS entry_type, l.amount_usd AS amount_usd, l.amount_lbp AS amount_lbp,
+             l.note AS note, l.created_at AS created_at, l.is_refunded AS is_refunded,
+             ${settlementCol}
+           FROM supplier_ledger l
+           JOIN suppliers s ON s.id = l.supplier_id AND s.tenant_id = l.tenant_id
+           WHERE ${accountMemberOf("s.")} AND s.tenant_id = ?
+           ORDER BY l.created_at DESC, l.id DESC
+           LIMIT ?`,
+        )
+        .all(
+          accountSupplierId,
+          accountSupplierId,
+          tenantId,
+          limit,
+        ) as AccountLedgerEntry[];
+    } catch (e) {
+      throw new DatabaseError("Failed to get account ledger", {
+        cause: e,
+        entityId: accountSupplierId,
+      });
+    }
+  }
+
+  /** Member suppliers (parent + children) of the account rooted at
+   *  `accountSupplierId` — shared by `getAccountUnsettled` to resolve which
+   *  provider(s) to ask `FinancialServiceRepository` about. */
+  private _getAccountMembers(
+    accountSupplierId: number,
+    tenantId: number,
+  ): { id: number; provider: string | null; name: string }[] {
+    return this.db
+      .prepare(
+        `SELECT id, provider, name FROM suppliers WHERE tenant_id = ? AND ${accountMemberOf(
+          "",
+        )}`,
+      )
+      .all(tenantId, accountSupplierId, accountSupplierId) as {
+      id: number;
+      provider: string | null;
+      name: string;
+    }[];
+  }
+
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188, plan §9.3) — the account's
+   * settlement queue, unioning TWO structurally different sources:
+   *
+   *  (a) `financial_services` rows still pending settlement, per member
+   *      provider — reuses `FinancialServiceRepository.getUnsettledBySupplier`
+   *      (rule 14: never re-paste its `pendingSettlementSql()`/
+   *      `SUPPLIER_OWED_EXPR` logic here). This is the OMT counter's own
+   *      queue today.
+   *  (b) raw `supplier_ledger` rows with no settlement batch yet
+   *      (`settlement_id IS NULL`, non-zero amount) — iPick/OMT App
+   *      supplier-credit debt, which has no `financial_services` row at
+   *      all. EXCLUDES rows already counted in (a): the OMT counter's own
+   *      auto ledger sibling is written with `source_ref_table =
+   *      'financial_services'` (LIRA-091) and is already represented by its
+   *      financial_services row above — without this exclusion the
+   *      counter's debt would be double-counted once its own ledger row is
+   *      unioned in too.
+   *
+   * Ordered oldest-first, matching `getUnsettledBySupplier`'s own
+   * convention (and D8's "oldest pre-selected" allocation, built in wave 2).
+   */
+  getAccountUnsettled(accountSupplierId: number): AccountUnsettledRow[] {
+    try {
+      const tenantId = getCurrentTenantId();
+      const members = this._getAccountMembers(accountSupplierId, tenantId);
+
+      const financialServiceRows: AccountUnsettledRow[] = [];
+      const financialServiceRepo = getFinancialServiceRepository();
+      for (const member of members) {
+        if (!member.provider) continue;
+        const rows = financialServiceRepo.getUnsettledBySupplier(
+          member.provider,
+        );
+        for (const row of rows) {
+          financialServiceRows.push({
+            kind: "FINANCIAL_SERVICE",
+            id: row.id,
+            supplier_id: member.id,
+            source_provider: member.provider,
+            source_name: member.name,
+            created_at: row.created_at,
+            amount_usd: row.currency === "USD" ? row.supplier_owed : 0,
+            amount_lbp: row.currency === "LBP" ? row.supplier_owed : 0,
+            entry_type: null,
+            service_type: row.service_type,
+            // A FINANCIAL_SERVICE row is never a WALLET_CASHOUT credit (D14
+            // only ever stamps cashout commission onto a raw LEDGER row —
+            // see `_cashoutCommissionByLedgerId`'s own doc comment).
+            commission_usd: 0,
+            commission_lbp: 0,
+          });
+        }
+      }
+
+      let ledgerRows: AccountUnsettledRow[] = [];
+      if (this._supplierLedgerHasSettlementIdColumn()) {
+        const excludeFsSiblings = this._supplierLedgerHasSourceRefColumns()
+          ? "AND COALESCE(l.source_ref_table, '') <> 'financial_services'"
+          : "";
+        const rows = this.db
+          .prepare(
+            `SELECT
+               l.id AS id, l.supplier_id AS supplier_id,
+               s.provider AS source_provider, s.name AS source_name,
+               l.created_at AS created_at, l.amount_usd AS amount_usd, l.amount_lbp AS amount_lbp,
+               l.entry_type AS entry_type
+             FROM supplier_ledger l
+             JOIN suppliers s ON s.id = l.supplier_id AND s.tenant_id = l.tenant_id
+             WHERE ${accountMemberOf("s.")} AND s.tenant_id = ?
+               AND l.settlement_id IS NULL
+               AND (l.amount_usd <> 0 OR l.amount_lbp <> 0)
+               AND ${ledgerNotRefunded("l.")}
+               ${excludeFsSiblings}`,
+          )
+          .all(accountSupplierId, accountSupplierId, tenantId) as {
+          id: number;
+          supplier_id: number;
+          source_provider: string | null;
+          source_name: string;
+          created_at: string;
+          amount_usd: number;
+          amount_lbp: number;
+          entry_type: string;
+        }[];
+        // D14 preview (the bug this method exists to fix) — reads the SAME
+        // per-row commission `_sumCashoutCommission` sums for `settleAccount`
+        // itself (rule 14: one shared helper, `_cashoutCommissionByLedgerId`,
+        // so the sheet's preview and the eventual profit stamp can never
+        // diverge). Computed in one batched lookup for every ledger row
+        // returned here, not once per row.
+        const commissionByLedgerId = this._cashoutCommissionByLedgerId(
+          rows.map((r) => r.id),
+          tenantId,
+        );
+        ledgerRows = rows.map((r) => {
+          const commission = commissionByLedgerId.get(r.id);
+          return {
+            kind: "LEDGER" as const,
+            id: r.id,
+            supplier_id: r.supplier_id,
+            source_provider: r.source_provider,
+            source_name: r.source_name,
+            created_at: r.created_at,
+            amount_usd: r.amount_usd,
+            amount_lbp: r.amount_lbp,
+            entry_type: r.entry_type,
+            service_type: null,
+            commission_usd: commission?.usd ?? 0,
+            commission_lbp: commission?.lbp ?? 0,
+          };
+        });
+      }
+
+      return [...financialServiceRows, ...ledgerRows].sort((a, b) =>
+        a.created_at.localeCompare(b.created_at),
+      );
+    } catch (e) {
+      throw new DatabaseError("Failed to get account unsettled transactions", {
+        cause: e,
+        entityId: accountSupplierId,
+      });
+    }
+  }
+
+  /**
+   * LIRA-193 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §11.4) — ONE predicate (rule
+   * 14) for "this leg can settle/pay a supplier", shared by
+   * `settleTransactions` and `recordSupplierCashflow` so their leg
+   * reconciliation and their posting loop can never again independently
+   * decide which legs count. That drift is the exact defect this ticket
+   * closes: on both shipped methods, the amount recorded as settled/paid
+   * counted EVERY leg while the posting loop silently `continue`d past any
+   * leg `isDrawerAffectingMethod` excludes (CUSTOMER_ACCOUNT, GIFT_CARD) —
+   * a $150 CASH leg could "settle" a $100 debt with the $50 difference
+   * leaving no ledger row, no profit stamp, no kept-change record; a batch
+   * made entirely of CUSTOMER_ACCOUNT legs could stamp fully settled/paid
+   * while zero dollars actually moved.
+   *
+   * Mirrors `settleAccount`'s own local `assertLegMovesADrawer` closure
+   * (LIRA-189 — that method is done and is deliberately NOT touched here);
+   * this is the identical fix ported to the two shipped methods that
+   * predate it. A supplier settlement/cashflow has no customer to charge via
+   * CUSTOMER_ACCOUNT and no gift card to redeem, so a non-drawer-affecting
+   * method here is meaningless — reject it outright, never silently drop
+   * the leg, so the caller learns exactly which method is the problem.
+   */
+  private _assertSupplierLegMovesADrawer(
+    method: string,
+    context: string,
+  ): void {
+    if (!isDrawerAffectingMethod(method)) {
+      throw new DatabaseError(
+        `${context}: payment method "${method}" does not move a real ` +
+          `drawer and cannot settle/pay a supplier (no customer to charge, ` +
+          `no gift card to redeem)`,
+      );
+    }
+  }
+
+  /**
+   * Same bug class as LIRA-193 above, one branch it didn't reach — a
+   * sibling to `_assertSupplierLegMovesADrawer` (kept separate rather than
+   * merged into it: the two are independent questions — "does this METHOD
+   * move a drawer" vs "is this CURRENCY one we track" — and the Other-
+   * payment reconciliation sum below has never called the method-check
+   * helper at all, since `_bookBillsCommissionViaPaymentLegs`'s own
+   * `isDrawerAffectingMethod` check already guards that further down; adding
+   * an unrelated method check to the sum loop here would be scope creep, not
+   * a fix). This currency check, by contrast, belongs at BOTH the sum and
+   * the posting step, exactly like the method check does for the cash-owed
+   * path, so it is pulled out once (rule 14) instead of re-typed at each.
+   *
+   * Before this helper: `settleTransactions`' Other-payment commission
+   * reconciliation sum bucketed ANY `currency_code` that wasn't literally
+   * `"LBP"` into the USD bucket — `"usd"` (lowercase), `"EUR"`, a typo, all
+   * silently counted as USD and let the sum "reconcile" against the entered
+   * commission. `_bookBillsCommissionViaPaymentLegs`'s posting loop then
+   * forwarded that same raw, unvalidated `currency_code` straight to
+   * `applyDrawerDelta`/`insertPaymentRow`, crediting a phantom
+   * `("<drawer>", "usd")` (or `"EUR"`) row that no closing screen or report
+   * ever queries — while `supplier_settlements.commission_usd` and the
+   * settlement transaction's `profit_usd` both still record the money as
+   * real USD collected. The record and the drawer then permanently
+   * disagree. Reject outright, exactly like the `owesCash` leg loop and
+   * `settleAccount` already do (never silently coerce or bucket an
+   * unrecognised code) — also reused there in place of each method's own
+   * hand-typed `!== "USD" && !== "LBP"` check, so this is the only place
+   * that decision is written.
+   */
+  private _assertSupplierLegCurrencyIsValid(
+    currencyCode: string,
+    context: string,
+  ): void {
+    if (currencyCode !== "USD" && currencyCode !== "LBP") {
+      throw new DatabaseError(
+        `${context}: payment leg currency "${currencyCode}" is not USD or LBP`,
+      );
     }
   }
 
@@ -1351,6 +2046,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       // commission was entered in).
       const legSum = data.payments.reduce(
         (acc, p) => {
+          // LIRA-193 follow-up — reject before bucketing (see
+          // `_assertSupplierLegCurrencyIsValid`'s own doc comment): without
+          // this, any currency_code that wasn't literally "LBP" (a
+          // lowercase "usd", "EUR", a typo) fell into the `else` and was
+          // silently counted as USD here, then posted verbatim by
+          // `_bookBillsCommissionViaPaymentLegs` below.
+          this._assertSupplierLegCurrencyIsValid(
+            p.currency_code,
+            "Other-payment commission leg",
+          );
           const amt = Math.abs(p.amount);
           if (p.currency_code === "LBP") acc.lbp += amt;
           else acc.usd += amt;
@@ -1366,6 +2071,88 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           `Other-payment commission legs must sum to the entered commission exactly ` +
             `(entered $${data.commission_usd.toFixed(2)} + ${data.commission_lbp} LBP, ` +
             `legs summed to $${legSum.usd.toFixed(2)} + ${legSum.lbp} LBP)`,
+        );
+      }
+    }
+
+    // ── LIRA-193 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §11.4) ───────────────────
+    // Before this guard, the ONLY check on the normal cash-owed path was "at
+    // least one leg exists" (above) — `data.payments` was never reconciled
+    // against `amount_usd`/`amount_lbp` at all, and the posting loop (step 4
+    // below) silently `continue`d past any leg `isDrawerAffectingMethod`
+    // excludes. A $100 debt paid with a $150 CASH leg reconciled clean (the
+    // drawer would drop the full $150 while the ledger only nets $100 — a
+    // $50 leak with no ledger row, no profit stamp, no kept-change record);
+    // a batch paid entirely in CUSTOMER_ACCOUNT/GIFT_CARD legs passed the
+    // "at least one leg" check and was stamped fully settled while the
+    // posting loop skipped every leg — zero dollars moving. Same bug class
+    // `settleAccount`'s step 4b/E closes (LIRA-189) — ported here, not
+    // reinvented (rule 14): the SAME shared predicate
+    // (`_assertSupplierLegMovesADrawer`) decides which legs count here AND
+    // in the posting loop below, so the two can never again independently
+    // drift.
+    //
+    // `owesCash` and `isOtherPaymentCommission` are contractually mutually
+    // exclusive in every shape the UI can produce (Other-payment mode only
+    // ever appears for a $0/0-LBP-owed bills-only batch — see the reverse-
+    // hazard guard above) — but unlike `settleAccount` (which recomputes the
+    // net owed from `selections` server-side), `amount_usd`/`amount_lbp` are
+    // trusted verbatim from the caller here, so nothing structurally stops a
+    // caller from claiming BOTH a nonzero net owed AND Other-payment
+    // commission collection in the same request. Left unguarded, that
+    // combination would reach the write transaction, skip BOTH the net-pay
+    // debit loop (gated `!isOtherPaymentCommission`, step 4 below) AND this
+    // reconciliation, and stamp a nonzero `amount_usd`/`amount_lbp` as
+    // settled while no leg ever paid it — the same "stamped settled, zero
+    // dollars moved" leak this ticket closes, reached from a different
+    // angle. Rejected outright: this repository is the trust boundary
+    // (reachable over raw IPC/REST), never something to leave to the UI
+    // alone to prevent.
+    if (owesCash && isOtherPaymentCommission) {
+      throw new DatabaseError(
+        "Settlement cannot combine a nonzero net amount owed with an " +
+          "Other-payment commission collection — the Other-payment legs are " +
+          "reserved for the commission and cannot also pay the settled amount",
+      );
+    }
+    if (owesCash) {
+      // No IN/OUT partition needed, by construction: a leg carrying
+      // `direction: "OUT"` is rejected outright immediately below, exactly
+      // like `settleAccount`'s own blanket ban (Finding A) — a supplier
+      // settlement has no customer to hand change back to. Verified before
+      // adding this: neither this method nor any of its existing callers
+      // (electron-app/handlers/supplierHandlers.ts, backend/src/api/
+      // suppliers.ts, the Suppliers settle UI) ever sends one — the field
+      // exists on the shared leg shape only because the runtime validator
+      // schema is shared with `settleAccount`/`recordSupplierCashflow` (see
+      // `SettleTransactionsData.payments`'s own doc comment) — so rejecting
+      // it here closes an untested capability gap with no legitimate sender
+      // to accommodate, the same conclusion LIRA-189 reached for
+      // `settleAccount`.
+      let legSumUsd = 0;
+      let legSumLbp = 0;
+      for (const leg of data.payments!) {
+        if (leg.direction === "OUT") {
+          throw new DatabaseError(
+            "Settlement does not accept OUT (change/return) legs — a " +
+              "supplier settlement has no customer to hand change back to; " +
+              "pay exactly the net amount owed",
+          );
+        }
+        this._assertSupplierLegMovesADrawer(leg.method, "Settlement");
+        this._assertSupplierLegCurrencyIsValid(leg.currency_code, "Settlement");
+        const amt = Math.abs(leg.amount);
+        if (leg.currency_code === "USD") legSumUsd += amt;
+        else legSumLbp += amt;
+      }
+      if (
+        Math.abs(legSumUsd - data.amount_usd) > 0.005 ||
+        Math.abs(legSumLbp - data.amount_lbp) > 0.005
+      ) {
+        throw new DatabaseError(
+          `Settlement payment legs do not reconcile to the net amount owed — ` +
+            `expected $${data.amount_usd.toFixed(2)} + ${data.amount_lbp} LBP, ` +
+            `got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP`,
         );
       }
     }
@@ -1408,25 +2195,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
         // ── 2. Mark financial_services rows as settled ─────────────────────
-        // Guard on settlement_id IS NULL (not is_settled = 0): OMT/WHISH commission
-        // rows are is_settled = 0 while pending, but cost/price-flow SALE_COST rows are
-        // is_settled = 1 at creation (profit realized immediately) yet still carry an
-        // outstanding supplier debt until settlement_id is stamped here. Both share
-        // settlement_id IS NULL as the "supplier debt outstanding" marker.
-        const placeholders = data.financial_service_ids
-          .map(() => "?")
-          .join(",");
-        this.db
-          .prepare(
-            `UPDATE financial_services
-             SET is_settled = 1,
-                 settled_at = datetime('now'),
-                 settlement_id = ?
-             WHERE id IN (${placeholders})
-               AND settlement_id IS NULL
-               AND tenant_id = ?`,
-          )
-          .run(ledgerEntryId, ...data.financial_service_ids, tenantId);
+        // Extracted to `_markFinancialServicesSettled` (rule 14) — LIRA-189's
+        // `settleAccount` calls the SAME helper once per account member
+        // instead of pasting this UPDATE a second time. Byte-identical SQL/
+        // params to the pre-extraction inline version.
+        this._markFinancialServicesSettled(
+          data.financial_service_ids,
+          ledgerEntryId,
+          tenantId,
+        );
 
         // ── 3. Create unified transaction for audit trail ──────────────────
         // CQ-7: funneled through the single createTransaction() gate instead
@@ -1654,7 +2431,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           !isOtherPaymentCommission
         ) {
           for (const p of data.payments) {
-            if (!isDrawerAffectingMethod(p.method)) continue;
+            // LIRA-193 — no `continue`-skip for a non-drawer-affecting
+            // method: the reconciliation guard above already rejected any
+            // such leg via the SAME `_assertSupplierLegMovesADrawer`
+            // predicate (rule 14) before this transaction ever opened, so
+            // every leg reaching this loop is guaranteed drawer-affecting.
+            // Asserted again here — not a second independent decision, the
+            // identical function — purely as defense-in-depth (mirrors
+            // `settleAccount`'s own step E) so this loop can never again
+            // silently bank a leg the reconciliation counted as paid, even
+            // if a future change altered the guard above.
+            this._assertSupplierLegMovesADrawer(p.method, "Settlement");
             // Primary Cash Drawer plan §1/§8.2 (decision #10): a CASH leg
             // paid to the shop's primary-system supplier resolves to the
             // PCD; every other supplier/method falls through unchanged.
@@ -2259,6 +3046,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           `Other-payment commission leg: "${p.method}" is not a valid drawer-affecting payment method`,
         );
       }
+      // LIRA-193 follow-up — defense-in-depth, not a second independent
+      // decision (identical helper the reconciliation sum above already
+      // called): guarantees this loop can never post a leg to a phantom
+      // ("<drawer>", "usd"/"EUR"/...) row even if a future change altered
+      // the sum-side guard.
+      this._assertSupplierLegCurrencyIsValid(
+        p.currency_code,
+        "Other-payment commission leg",
+      );
       const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
       applyDrawerDelta(this.db, {
         drawerName,
@@ -2304,6 +3100,1180 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
+   * Rule 14 — extracted out of `settleTransactions`' own step 2 (byte-
+   * identical SQL/params) so `settleAccount` (LIRA-189) can call the SAME
+   * marking logic once per account member instead of pasting the UPDATE a
+   * second time. No-ops on an empty id list (a member may have LEDGER
+   * selections only). Guard on `settlement_id IS NULL` (not `is_settled =
+   * 0`) — see the original call site's comment: cost/price-flow SALE_COST
+   * rows are already `is_settled = 1` at creation yet still carry
+   * outstanding supplier debt until `settlement_id` is stamped here; both
+   * shapes share `settlement_id IS NULL` as the "supplier debt
+   * outstanding" marker.
+   *
+   * Finding B (third hardening round) — the WHERE clause now also requires
+   * `ledgerNotRefunded()` (reused generically: same "is_refunded is falsy"
+   * predicate `getAccountUnsettled`'s LEDGER branch already applies to
+   * `supplier_ledger`, kept as one shared fragment per rule 14 rather than a
+   * second hand-typed `COALESCE(is_refunded, 0) = 0` literal) — a row voided
+   * between `settleAccount`'s step-0 read and this write must never be
+   * silently stamped settled just because `settlement_id` still reads NULL.
+   * Returns the actual `.run().changes` count (was `void`) so a caller that
+   * computed a member's balance assuming ALL of `financialServiceIds` would
+   * be stamped can detect a partial/zero write and abort instead of treating
+   * silence as success — `settleTransactions` (this method's other caller)
+   * ignores the return value, unchanged behavior there.
+   */
+  private _markFinancialServicesSettled(
+    financialServiceIds: number[],
+    settlementLedgerId: number,
+    tenantId: number,
+  ): number {
+    if (!financialServiceIds.length) return 0;
+    const placeholders = financialServiceIds.map(() => "?").join(",");
+    const result = this.db
+      .prepare(
+        `UPDATE financial_services
+         SET is_settled = 1,
+             settled_at = datetime('now'),
+             settlement_id = ?
+         WHERE id IN (${placeholders})
+           AND settlement_id IS NULL
+           AND ${ledgerNotRefunded()}
+           AND tenant_id = ?`,
+      )
+      .run(settlementLedgerId, ...financialServiceIds, tenantId);
+    return result.changes;
+  }
+
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, plan §9.3/§1.1) — the
+   * `supplier_ledger.settlement_id` sibling of
+   * `_markFinancialServicesSettled` above, for raw LEDGER selections (iPick/
+   * OMT App supplier-credit debt, or a WALLET_CASHOUT credit row) that have
+   * no `financial_services` row at all. Migration v176 added the column;
+   * this is its first writer (CONTRACT_W2.md §1.1) — gated on the same
+   * schema-drift guard `getAccountUnsettled`/`getAccountLedger` already use
+   * so a connection/fixture that predates v176 degrades to a no-op instead
+   * of throwing `no such column`.
+   *
+   * Finding B (third hardening round) — same `ledgerNotRefunded()` addition
+   * and `void` → `number` (`.run().changes`) return as
+   * `_markFinancialServicesSettled` above, so `settleAccount` can assert it
+   * actually stamped every row it expected to. The pre-existing schema-drift
+   * no-op (`!this._supplierLedgerHasSettlementIdColumn()`) returns
+   * `ledgerIds.length` rather than 0 — it is NOT a race, it's an expected
+   * degrade on a pre-v176 connection, and `getAccountUnsettled`'s LEDGER
+   * branch is gated on the SAME column check, so a caller can only ever
+   * select a LEDGER-kind row when the column exists — `ledgerIds` is always
+   * empty here on the branch this comment describes. Returning its own
+   * length keeps that a legitimate match for the caller's assertion instead
+   * of a false "row went missing" alarm.
+   */
+  private _markLedgerRowsSettled(
+    ledgerIds: number[],
+    settlementLedgerId: number,
+    tenantId: number,
+  ): number {
+    if (!ledgerIds.length) return 0;
+    if (!this._supplierLedgerHasSettlementIdColumn()) return ledgerIds.length;
+    const placeholders = ledgerIds.map(() => "?").join(",");
+    const result = this.db
+      .prepare(
+        `UPDATE supplier_ledger
+         SET settlement_id = ?
+         WHERE id IN (${placeholders})
+           AND settlement_id IS NULL
+           AND ${ledgerNotRefunded()}
+           AND tenant_id = ?`,
+      )
+      .run(settlementLedgerId, ...ledgerIds, tenantId);
+    return result.changes;
+  }
+
+  /**
+   * Finding B (third hardening round, rule 17) — live re-check of every
+   * selected row's eligibility, called from INSIDE `settleAccount`'s write
+   * transaction, immediately before any row is written there. Step 0's own
+   * validation (`getAccountUnsettled`) runs BEFORE that transaction opens; a
+   * row voided/refunded in the window between that read and this write would
+   * previously still be counted in its member's negation (computed from the
+   * now-stale `selectedRows`) and stamped settled — `_markFinancialServicesSettled`/
+   * `_markLedgerRowsSettled` used to guard only on `settlement_id IS NULL`,
+   * never `is_refunded`, and never inspected `.run().changes` — leaving that
+   * member's balance permanently wrong with no open row left to explain it.
+   *
+   * Re-runs the SAME "is this row still open" predicate live, right here,
+   * against every selected id and aborts the WHOLE transaction (nothing
+   * committed — this throw propagates straight out of `this.db.transaction()`)
+   * on any mismatch, rather than letting a stale member's write silently
+   * proceed. Deliberately redundant with the `ledgerNotRefunded()` guard now
+   * on both marking helpers (and their own affected-row assertion in
+   * `settleAccount` step D below) — two independent checks of the same fact,
+   * so neither one regressing alone reopens this hole.
+   *
+   * Finding 1 (fourth hardening round) — this used to re-verify ONLY "open,
+   * unsettled, not refunded", never the actual MEMBERSHIP predicate
+   * (`accountMemberOf`) `getAccountUnsettled` used, at step 0, to decide each
+   * row belongs to THIS account in the first place. A row's owning supplier
+   * (`memberSupplierIds`, one entry per distinct `byMember` key) could be
+   * re-parented — its `account_supplier_id` pointed at a different account,
+   * or cleared entirely — in the exact same race window Finding B closes for
+   * "is this row open", and the row would still sail through this check
+   * (nothing about is_settled/is_refunded changed) while actually belonging
+   * to a different account than the one this batch is settling. Re-runs
+   * `accountMemberOf` (rule 14 — the SAME predicate `_getAccountMembers`/
+   * `getAccountLedger`/`getAccountUnsettled` all share, never re-typed) live
+   * against every member supplier id this batch touches, and aborts the
+   * whole transaction on any mismatch, same as the row-eligibility checks
+   * above.
+   */
+  private _assertSelectionsStillEligible(
+    financialServiceIds: number[],
+    ledgerIds: number[],
+    memberSupplierIds: number[],
+    accountSupplierId: number,
+    tenantId: number,
+  ): void {
+    if (financialServiceIds.length) {
+      const placeholders = financialServiceIds.map(() => "?").join(",");
+      const stillOpen = this.db
+        .prepare(
+          `SELECT id FROM financial_services
+           WHERE id IN (${placeholders})
+             AND tenant_id = ?
+             AND is_settled = 0
+             AND settlement_id IS NULL
+             AND ${ledgerNotRefunded()}`,
+        )
+        .all(...financialServiceIds, tenantId) as { id: number }[];
+      if (stillOpen.length !== financialServiceIds.length) {
+        const openIds = new Set(stillOpen.map((r) => r.id));
+        const stale = financialServiceIds.filter((id) => !openIds.has(id));
+        throw new DatabaseError(
+          `Account settlement aborted: financial_service row(s) [${stale.join(", ")}] ` +
+            `were settled, refunded, or voided after this batch was validated — ` +
+            `re-open the settle sheet and try again`,
+        );
+      }
+    }
+    if (ledgerIds.length) {
+      const placeholders = ledgerIds.map(() => "?").join(",");
+      const stillOpen = this.db
+        .prepare(
+          `SELECT id FROM supplier_ledger
+           WHERE id IN (${placeholders})
+             AND tenant_id = ?
+             AND settlement_id IS NULL
+             AND ${ledgerNotRefunded()}`,
+        )
+        .all(...ledgerIds, tenantId) as { id: number }[];
+      if (stillOpen.length !== ledgerIds.length) {
+        const openIds = new Set(stillOpen.map((r) => r.id));
+        const stale = ledgerIds.filter((id) => !openIds.has(id));
+        throw new DatabaseError(
+          `Account settlement aborted: supplier_ledger row(s) [${stale.join(", ")}] ` +
+            `were settled, refunded, or voided after this batch was validated — ` +
+            `re-open the settle sheet and try again`,
+        );
+      }
+    }
+    // Finding 1 — membership re-check, live, against the SAME predicate step
+    // 0 used to admit each selected row's owning supplier onto this account.
+    if (memberSupplierIds.length) {
+      const placeholders = memberSupplierIds.map(() => "?").join(",");
+      const stillMembers = this.db
+        .prepare(
+          `SELECT id FROM suppliers
+           WHERE id IN (${placeholders})
+             AND tenant_id = ?
+             AND ${accountMemberOf("")}`,
+        )
+        .all(
+          ...memberSupplierIds,
+          tenantId,
+          accountSupplierId,
+          accountSupplierId,
+        ) as { id: number }[];
+      if (stillMembers.length !== memberSupplierIds.length) {
+        const stillIds = new Set(stillMembers.map((r) => r.id));
+        const stale = memberSupplierIds.filter((id) => !stillIds.has(id));
+        throw new DatabaseError(
+          `Account settlement aborted: supplier(s) [${stale.join(", ")}] are no ` +
+            `longer members of account ${accountSupplierId} — re-parented, ` +
+            `deleted, or the account changed after this batch was validated — ` +
+            `re-open the settle sheet and try again`,
+        );
+      }
+    }
+  }
+
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, D14/§8.3a) — the ONE place
+   * that reads back the commission `RechargeRepository.cashoutToSupplier`
+   * stamped into `transactions.metadata_json.commission` (there is no
+   * dedicated column — plan §10.2), per LEDGER row. Rule 14: shared by BOTH
+   * `_sumCashoutCommission` (settlement's real profit stamp) and
+   * `getAccountUnsettled` (the settle sheet's PREVIEW of that same figure,
+   * before this fix always 0 — the UX bug this helper closes) so the two can
+   * never disagree — one predicate, read twice. The figure is COMPUTED at
+   * cashout time and must never be re-derived from the rate constant here
+   * (that would silently diverge the moment the rate constant changes for
+   * future cashouts while old rows keep their stamped value).
+   *
+   * A ledger row reaches a cashout via `source_ref_table: "recharges"` /
+   * `source_ref_id: <recharges id>` (`RechargeRepository.cashoutToSupplier`
+   * step 6) — `getBySourceId` then finds that recharge's OWN unified
+   * transaction (`source_table: "recharges"`), filtered `status = 'ACTIVE'`
+   * so an already-voided cashout (which could not have stayed in the
+   * unsettled queue anyway — its ledger row would be `is_refunded = 1`) can
+   * never double-count. Anything else (a plain TOP_UP/PAYMENT row, a
+   * missing/malformed metadata blob) is simply ABSENT from the returned map
+   * (both callers treat a missing entry as 0) rather than throwing — a
+   * settlement/preview must never fail because ONE row's audit metadata is
+   * unreadable; the money itself (the ledger row being settled) is
+   * unaffected either way. Ids with nothing to report are omitted, not
+   * zero-filled, so callers can cheaply tell "no cashout" apart from "cashout
+   * with a stamped $0 commission" if they ever need to.
+   */
+  private _cashoutCommissionByLedgerId(
+    ledgerIds: number[],
+    tenantId: number,
+  ): Map<number, { usd: number; lbp: number }> {
+    const byId = new Map<number, { usd: number; lbp: number }>();
+    if (!ledgerIds.length || !this._supplierLedgerHasSourceRefColumns()) {
+      return byId;
+    }
+    const placeholders = ledgerIds.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(
+        `SELECT id, source_ref_table, source_ref_id
+         FROM supplier_ledger
+         WHERE id IN (${placeholders}) AND tenant_id = ?`,
+      )
+      .all(...ledgerIds, tenantId) as {
+      id: number;
+      source_ref_table: string | null;
+      source_ref_id: number | null;
+    }[];
+
+    const txnRepo = getTransactionRepository();
+    for (const row of rows) {
+      if (row.source_ref_table !== "recharges" || row.source_ref_id == null) {
+        continue;
+      }
+      const txn = txnRepo.getBySourceId("recharges", row.source_ref_id);
+      if (!txn || txn.type !== TRANSACTION_TYPES.WALLET_CASHOUT) continue;
+      let meta: Record<string, unknown> = {};
+      try {
+        meta = txn.metadata_json
+          ? (JSON.parse(txn.metadata_json) as Record<string, unknown>)
+          : {};
+      } catch {
+        continue;
+      }
+      const commission =
+        typeof meta.commission === "number" ? meta.commission : 0;
+      byId.set(row.id, {
+        usd: meta.currency === "LBP" ? 0 : commission,
+        lbp: meta.currency === "LBP" ? commission : 0,
+      });
+    }
+    return byId;
+  }
+
+  /**
+   * Sums {@link _cashoutCommissionByLedgerId} across every selected LEDGER
+   * row, per currency — `settleAccount`'s own read-only step 5. See that
+   * helper's doc comment for the shared predicate both it and
+   * `getAccountUnsettled`'s preview rely on.
+   */
+  private _sumCashoutCommission(
+    ledgerIds: number[],
+    tenantId: number,
+  ): { usd: number; lbp: number } {
+    const byId = this._cashoutCommissionByLedgerId(ledgerIds, tenantId);
+    let usd = 0;
+    let lbp = 0;
+    for (const v of byId.values()) {
+      usd += v.usd;
+      lbp += v.lbp;
+    }
+    return { usd, lbp };
+  }
+
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, CONTRACT_W2.md §1/§2.1) —
+   * settle the WHOLE OMT open-credit account (the parent + every account
+   * child) in ONE `SUPPLIER_SETTLEMENT` transaction, one `supplier_ledger`
+   * row PER MEMBER TOUCHED (§4's worked example — never one lump row on the
+   * parent, which would leave one member overpaid and another unpaid).
+   *
+   * Algorithm:
+   *
+   * 0. Re-validate EVERY `data.selections` entry against
+   *    `getAccountUnsettled(data.account_supplier_id)` — the SAME
+   *    membership + open/not-refunded predicate the settlement queue itself
+   *    uses (rule 14) — rather than trusting the caller's ids. A selection
+   *    that doesn't resolve (foreign, already settled, refunded, duplicate)
+   *    throws before any write.
+   * 1. Group the validated rows by the member supplier that actually OWNS
+   *    each one (`row.supplier_id` — a child's rows stay on the child, the
+   *    parent's stay on the parent; ledger rows never move, plan §2) and
+   *    sum each member's own subtotal, per currency. The ACCOUNT net is the
+   *    sum of every member's subtotal.
+   * 2. Cross-check `data.direction`/`data.amount_usd`/`data.amount_lbp`
+   *    against that server-recomputed net (never trust the client with a
+   *    money-moving direction) — §8.4: a cashout-heavy batch can flip the
+   *    net negative, which is exactly when COLLECT applies.
+   * 3. EVERY member with a nonzero subtotal gets its OWN new
+   *    `supplier_ledger` row valued at the EXACT NEGATION of its own
+   *    subtotal — so that member's balance always nets to precisely 0,
+   *    independent of which way the ACCOUNT's overall net moves (a member
+   *    can go the "wrong way" relative to the account's chosen direction,
+   *    e.g. a cashout-only child inside an overall PAY batch, and still
+   *    nets correctly: negating a negative subtotal yields a positive
+   *    `SUPPLIER_PAYS_US` row). One of these rows anchors the settlement
+   *    transaction (`source_table: 'supplier_ledger', source_id`) — the
+   *    member with the (unique) commission-eligible FINANCIAL_SERVICE group
+   *    when one exists, else the account parent when it has a row, else the
+   *    lowest supplier id — so a batch whose parent has no debt of its own
+   *    still has a real row to anchor to (CONTRACT_W2.md §1.1). Every OTHER
+   *    member's row is written LINK-MODE, sharing the SAME
+   *    `transaction_id` — the mechanism this ticket chose (§1.1) so every
+   *    row this settlement touched is findable from the settlement
+   *    transaction alone: `supplier_ledger WHERE transaction_id = ?`.
+   * 4. Each member's ORIGINAL selected rows are stamped settled AGAINST
+   *    that member's OWN new row id: `financial_services.settlement_id`/
+   *    `is_settled` (`_markFinancialServicesSettled`, unchanged mechanism)
+   *    and `supplier_ledger.settlement_id` (`_markLedgerRowsSettled`, v176's
+   *    first writer) — never a single shared id, so
+   *    `getAccountUnsettled`'s per-row exclusion keeps working per member.
+   * 5. The net cash — ONE set of `payments[]` legs, resolved through
+   *    `resolveServiceCashDrawer` with the PARENT's provider context (D3,
+   *    so a CASH leg always lands in the OMT Cash Drawer regardless of
+   *    which child the debt came from) — moves through the SAME
+   *    `applyDrawerDelta`/`insertPaymentRow` pair `settleTransactions`/
+   *    `recordSupplierCashflow` use, sign flipped for COLLECT (cash IN)
+   *    exactly like `recordSupplierCashflow`'s RECEIVE branch (reused
+   *    mechanics, not a second copy — §8.4).
+   * 6. Settlement-day commission (the ONE eligible member, resolved in step
+   *    3) books through the EXISTING, UNMODIFIED
+   *    `_resolveSettlementBatchModel`/`_bookCommissionAtSettlement` pair —
+   *    same audit trail (`supplier_settlements`/
+   *    `settlement_commission_allocations`), same bills-only-drawer-topup
+   *    vs cashless-`SUPPLIER_PAYS_US` branch as a standalone
+   *    `settleTransactions` call would take for that member alone (rule
+   *    14). Because that member is ALWAYS the settlement's anchor when one
+   *    exists (step 3), the credit row's existing `source_ref_table`/
+   *    `source_ref_id` cascade-void (LIRA-091) and the audit-record
+   *    reversal (`_reverseCommissionAtSettlementRecords`) both key off the
+   *    anchor's own id — i.e. `TransactionRepository._reverseSupplierSettlement`
+   *    reverses this piece TODAY, unmodified, with NO change needed in W2.
+   * 7. D14/§8.3a — the commission ALREADY stored (not re-derived) on every
+   *    selected WALLET_CASHOUT ledger row is summed (`_sumCashoutCommission`)
+   *    and ADDED to whatever step 6 stamped, per currency, as the
+   *    settlement transaction's OWN `profit_usd`/`profit_lbp` — the ONE
+   *    place this ticket recognises a cashout's deferred profit.
+   *
+   * Third hardening round (rule 17, two reviewer-reproduced leaks closed):
+   *   Finding A — OUT (change/return) legs are now rejected outright before
+   *     step 4a: this method has no customer to hand change back to, and an
+   *     IN/OUT pair used to pass the per-currency net-reconciliation guard
+   *     while `resolveServiceCashDrawer` (step E) could route each leg to a
+   *     DIFFERENT real drawer — a cross-drawer wash with no ledger fact.
+   *   Finding B — every selected row's eligibility (open, not settled, not
+   *     refunded) is re-checked LIVE inside this write transaction
+   *     (`_assertSelectionsStillEligible`, right below), and both marking
+   *     helpers (`_markFinancialServicesSettled`/`_markLedgerRowsSettled`)
+   *     now also guard on `is_refunded` and return their real
+   *     `.run().changes` count, which step D asserts against the expected
+   *     id-list length — a row voided in the window between step 0's read
+   *     and this write can no longer be silently stamped settled anyway.
+   *
+   * Fourth hardening round (rule 17, three narrower findings closed):
+   *   Finding 1 — `_assertSelectionsStillEligible` now ALSO re-checks
+   *     `accountMemberOf` (rule 14) live, for every member supplier this
+   *     batch touches — Finding B's re-check covered row-level eligibility
+   *     (open/settled/refunded) but never membership itself, so a row whose
+   *     owning supplier was re-parented off this account in the same race
+   *     window still sailed through. Separately, the account PARENT
+   *     (`freshParent`, whose `.provider` feeds `drawerCtx` and routes EVERY
+   *     cash leg) is now re-read live inside the transaction rather than
+   *     once, before this method's whole validation pipeline, so a provider
+   *     edit in that window can no longer silently misroute a leg.
+   *   Finding 2 — the two self-stamp
+   *     `UPDATE supplier_ledger SET transaction_id = …, settlement_id = …`
+   *     statements (the anchor row, and each non-anchor member's own row)
+   *     now inspect `.run().changes`, matching
+   *     `_markFinancialServicesSettled`/`_markLedgerRowsSettled` — a stamp
+   *     that silently affects zero rows aborts the transaction instead of
+   *     being treated as success.
+   *   Finding 3 (latent, not reachable through today's account membership —
+   *     see the guard's own comment) — a commission-eligible member whose
+   *     selected rows are ALL `service_type = 'BILL'` is rejected outright
+   *     before any write: such a member's gross owed is structurally 0, so
+   *     this method's generic per-member ledger-negation would otherwise
+   *     read the entered commission back as phantom cash owed and demand a
+   *     payment leg for it, double-booking the SAME commission this method's
+   *     step F separately credits via the provider-drawer top-up path.
+   *
+   * Reversal shape for W2 (TransactionRepository, CONTRACT_W2.md §1.1/§9.4):
+   * the anchor member's own row/FS-stamps/commission-credit/audit-records
+   * ALL already reverse via the existing, UNCHANGED
+   * `_reverseSupplierSettlement` (its `settlement_id = original.source_id`
+   * / `source_ref_id = original.source_id` keys resolve to the anchor by
+   * construction). The generic `_reversePayments` step already reverses
+   * EVERY payment row on the settlement transaction (any count) for free,
+   * and the transaction's own single `profit_usd`/`profit_lbp` field nets
+   * to 0 the same generic way every other transaction's profit does — no
+   * new code needed for either. The ONE genuinely new piece: for every
+   * NON-anchor member, iterate `supplier_ledger WHERE transaction_id =
+   * <this settlement's txn id>`, soft-void each such row
+   * (`is_refunded = 1`, `refunded_at`), and — for whichever ORIGINAL rows
+   * carry `settlement_id` = that non-anchor row's own id — un-stamp them
+   * exactly like the anchor branch already does (both
+   * `financial_services.settlement_id`/`is_settled` and
+   * `supplier_ledger.settlement_id`). This is §9.4's "single highest-risk
+   * piece of the epic," and it is scoped exactly to that one loop.
+   */
+  settleAccount(data: SettleAccountData): { id: number } {
+    if (!this._suppliersHasAccountLinkColumn()) {
+      throw new DatabaseError(
+        "Account settlement requires the account schema (migration v176)",
+      );
+    }
+    if (!data.selections?.length) {
+      throw new DatabaseError("No rows selected for account settlement");
+    }
+
+    const tenantId = getCurrentTenantId();
+    const parent = this.findById(data.account_supplier_id);
+    if (!parent) {
+      throw new DatabaseError(
+        `Supplier account ${data.account_supplier_id} not found`,
+      );
+    }
+
+    // ── 0. Re-validate every selection against the account's own queue ────
+    // Never trust the client's ids — reuses getAccountUnsettled (rule 14)
+    // rather than re-deriving membership/eligibility a second time.
+    const unsettled = this.getAccountUnsettled(data.account_supplier_id);
+    const unsettledByKey = new Map<string, AccountUnsettledRow>(
+      unsettled.map((r) => [`${r.kind}:${r.id}`, r]),
+    );
+    const seen = new Set<string>();
+    const selectedRows: AccountUnsettledRow[] = [];
+    for (const sel of data.selections) {
+      const key = `${sel.kind}:${sel.id}`;
+      if (seen.has(key)) {
+        throw new DatabaseError(`Duplicate selection: ${key}`);
+      }
+      seen.add(key);
+      const row = unsettledByKey.get(key);
+      if (!row) {
+        throw new DatabaseError(
+          `Selected ${sel.kind} row ${sel.id} is not an open row on account ` +
+            `${data.account_supplier_id} (already settled, refunded, voided, ` +
+            `or not a member of this account)`,
+        );
+      }
+      selectedRows.push(row);
+    }
+
+    // ── 1. Group by the member that actually OWNS each row (§4) ───────────
+    const byMember = new Map<number, AccountUnsettledRow[]>();
+    for (const row of selectedRows) {
+      const list = byMember.get(row.supplier_id);
+      if (list) list.push(row);
+      else byMember.set(row.supplier_id, [row]);
+    }
+
+    const EPS_USD = 0.005;
+    const EPS_LBP = 1;
+
+    const rawMemberNet = new Map<number, { usd: number; lbp: number }>();
+    for (const [supplierId, rows] of byMember) {
+      let usd = 0;
+      let lbp = 0;
+      for (const row of rows) {
+        usd += row.amount_usd;
+        lbp += row.amount_lbp;
+      }
+      rawMemberNet.set(supplierId, { usd, lbp });
+    }
+
+    // ── 2. Commission scope — at most ONE member's FS group (plan §1) ─────
+    // Resolved BEFORE the account net (below) because a new-model member's
+    // OWN neutralizing row must be NET of its commission — the SAME relation
+    // `settleTransactions` documents on `SettleTransactionsData.amount_usd`
+    // ("the caller is expected to compute this figure as gross owed −
+    // commission_usd/commission_lbp"): the commission is credited back via
+    // its OWN separate row (step F below), so the amount still needing a
+    // cash-paying neutralizing row is the gross MINUS that credit.
+    const fsSelectionsByMember = new Map<number, AccountUnsettledRow[]>();
+    for (const row of selectedRows) {
+      if (row.kind !== "FINANCIAL_SERVICE") continue;
+      const list = fsSelectionsByMember.get(row.supplier_id);
+      if (list) list.push(row);
+      else fsSelectionsByMember.set(row.supplier_id, [row]);
+    }
+    const fsMemberIds = Array.from(fsSelectionsByMember.keys());
+    const enteredCommission =
+      Math.abs(data.commission_usd) > EPS_USD ||
+      Math.abs(data.commission_lbp) > EPS_LBP;
+    if (enteredCommission && fsMemberIds.length > 1) {
+      throw new DatabaseError(
+        `Cannot enter one commission figure for a batch spanning multiple ` +
+          `financial_service-owning members [${fsMemberIds.join(", ")}] — ` +
+          `settle them in separate batches`,
+      );
+    }
+    const commissionSupplierId =
+      fsMemberIds.length === 1 ? fsMemberIds[0] : null;
+    let commissionModel: 0 | 1 = 0;
+    let commissionEligibleRows: EligibleSettlementRow[] = [];
+    let commissionFsIds: number[] = [];
+    if (commissionSupplierId != null) {
+      commissionFsIds = fsSelectionsByMember
+        .get(commissionSupplierId)!
+        .map((r) => r.id);
+      const resolved = this._resolveSettlementBatchModel(
+        commissionFsIds,
+        tenantId,
+      );
+      commissionModel = resolved.model;
+      commissionEligibleRows = resolved.rows;
+    }
+    if (enteredCommission && commissionModel !== 1) {
+      throw new DatabaseError(
+        "Entered commission has no commission_model=1 financial_service rows to apply to in this batch",
+      );
+    }
+    // Finding 3 (fourth hardening round, latent) — a BILLS-ONLY commission
+    // member has NO ledger-based gross to net against: `SUPPLIER_OWED_EXPR`
+    // is structurally 0 for a BILL row (its principal reaches the supplier
+    // via the provider-drawer cost leg, never the ledger — same "bills
+    // settlement note" `_bookCommissionAtSettlement`'s own doc comment
+    // documents). `settleTransactions` handles this by construction: a
+    // bills-only batch's `amount_usd`/`amount_lbp` are contractually $0/0
+    // and its commission is funded EITHER by a real provider-drawer top-up
+    // (`_bookBillsCommissionDrawerTopUp`) or by dedicated "Other payment"
+    // legs verified to sum to the commission exactly — never through the
+    // generic net-owed/payment-leg reconciliation.
+    //
+    // `settleAccount` has no such special case: step 3 below computes this
+    // member's net as `raw (= 0 for an all-BILL group) − commission`, so the
+    // account's generic per-member ledger-negation would read the entered
+    // commission back as if it were real cash OWED, and go on to demand a
+    // `payments[]` leg for it (step 4b) — a leg that would then ALSO get
+    // credited to a drawer, on top of whatever `_bookCommissionAtSettlement`
+    // separately books for the SAME commission in step F. That double-books
+    // one commission as two credits with no matching second obligation.
+    //
+    // Unreachable in production today: the only account members are OMT (no
+    // BILL rows — SEND/RECEIVE only) and its children OMT App (no BILL rows
+    // either) and iPick, whose BILL rows are born ALREADY settled
+    // (`FinancialServiceRepository`'s `isPendingSupplierSettlement` reads
+    // `commission_eligible = 0` for iPick and marks the row `is_settled = 1`
+    // at creation) — such a row never reaches `getAccountUnsettled`'s queue,
+    // so it can never be selected here. But `commission_eligible` is a
+    // runtime-mutable per-supplier setting (LIRA-112 D12), not a compile-time
+    // constant, and a future account child could submit BILL rows too — so
+    // this is guarded explicitly, live, rather than left to that fragile
+    // external invariant staying true forever.
+    if (enteredCommission && commissionModel === 1) {
+      const commissionMemberIsBillsOnly = commissionEligibleRows.every(
+        (r) => r.service_type === "BILL",
+      );
+      if (commissionMemberIsBillsOnly) {
+        throw new DatabaseError(
+          `Account settlement: supplier ${commissionSupplierId}'s selected ` +
+            `financial_service rows are ALL BILL type — a bills-only commission ` +
+            `has no ledger-based gross to net against here and cannot be booked ` +
+            `through settleAccount (it would demand a phantom cash payment leg ` +
+            `for the commission on top of its real provider-drawer top-up). ` +
+            `Settle this supplier's BILL rows directly via settleTransactions instead.`,
+        );
+      }
+    }
+
+    // ── 3. Member nets, ADJUSTED for the one commission-bearing member ────
+    // Every OTHER member's adjusted net is byte-identical to its raw net.
+    const memberNet = new Map<number, { usd: number; lbp: number }>();
+    let netUsd = 0;
+    let netLbp = 0;
+    for (const [supplierId, raw] of rawMemberNet) {
+      const net =
+        commissionModel === 1 && supplierId === commissionSupplierId
+          ? {
+              usd: raw.usd - data.commission_usd,
+              lbp: raw.lbp - data.commission_lbp,
+            }
+          : raw;
+      memberNet.set(supplierId, net);
+      netUsd += net.usd;
+      netLbp += net.lbp;
+    }
+
+    // ── 4. Direction / amount cross-check — never trust the client ────────
+    const wantsPay = data.direction === "PAY";
+    if (netUsd > EPS_USD && !wantsPay) {
+      throw new DatabaseError(
+        "Direction mismatch: the selected rows net to a POSITIVE USD balance (shop owes the account) — use PAY",
+      );
+    }
+    if (netUsd < -EPS_USD && wantsPay) {
+      throw new DatabaseError(
+        "Direction mismatch: the selected rows net to a NEGATIVE USD balance (the account owes the shop) — use COLLECT",
+      );
+    }
+    if (netLbp > EPS_LBP && !wantsPay) {
+      throw new DatabaseError(
+        "Direction mismatch: the selected rows net to a POSITIVE LBP balance (shop owes the account) — use PAY",
+      );
+    }
+    if (netLbp < -EPS_LBP && wantsPay) {
+      throw new DatabaseError(
+        "Direction mismatch: the selected rows net to a NEGATIVE LBP balance (the account owes the shop) — use COLLECT",
+      );
+    }
+    if (Math.abs(Math.abs(netUsd) - data.amount_usd) > EPS_USD) {
+      throw new DatabaseError(
+        `amount_usd ($${data.amount_usd.toFixed(2)}) does not match the selected rows' net, ` +
+          `commission applied ($${Math.abs(netUsd).toFixed(2)})`,
+      );
+    }
+    if (Math.abs(Math.abs(netLbp) - data.amount_lbp) > EPS_LBP) {
+      throw new DatabaseError(
+        `amount_lbp (${data.amount_lbp}) does not match the selected rows' net, ` +
+          `commission applied (${Math.abs(netLbp)})`,
+      );
+    }
+
+    const owesCash =
+      Math.abs(data.amount_usd) > EPS_USD ||
+      Math.abs(data.amount_lbp) > EPS_LBP;
+    if (owesCash && !data.payments?.length) {
+      throw new DatabaseError(
+        "Account settlement requires at least one payment-method leg to move the net amount owed",
+      );
+    }
+    if (!owesCash && data.payments?.length) {
+      throw new DatabaseError(
+        "Account settlement has no net cash to move — payment-method legs are not accepted",
+      );
+    }
+
+    // ── OUT legs are rejected outright (Finding A, third hardening round) ──
+    // Rule 16's OUT legs exist for a flow where a CUSTOMER overpaid and gets
+    // change back. A supplier settlement has no customer — the shop either
+    // pays exactly what it owes or collects exactly what it's owed.
+    // AccountSettleSheet.tsx's own `handleSubmit` comment documents why the
+    // UI deliberately never wires a return/kept-change leg here. Before this
+    // guard, step 4b's reconciliation checked only the per-currency NET of
+    // IN minus OUT against the settled amount, with no bound on gross volume
+    // and no requirement that the legs resolve to the same drawer — so a
+    // caller could append an equal-and-opposite IN/OUT pair (even in a
+    // currency the settled rows never touch), routing the IN leg to one real
+    // drawer and the OUT leg to another via `resolveServiceCashDrawer`
+    // (step E). The net still passed the guard; real money moved between two
+    // of the shop's drawers with no ledger fact and no audit trail — a wash
+    // that also desyncs the closing count. Verified before adding this: no
+    // caller sends an OUT leg here today — the IPC handler
+    // (`electron-app/handlers/supplierHandlers.ts`) and REST route
+    // (`backend/src/api/suppliers.ts`) both pass the validated payload
+    // through unmodified, and `AccountSettleSheet.tsx` never sets
+    // `direction` on a payment line it builds (see its comment above) — so
+    // rejecting OUT legs outright closes this completely with no legitimate
+    // sender to accommodate. `direction` stays in the shared schema/type
+    // (`supplierPaymentLegSchema`) — `settleTransactions`/
+    // `recordSupplierCashflow` still use it for their own real change-return
+    // legs.
+    //
+    // Because this check runs unconditionally and throws before either step
+    // 4b's leg reconciliation or step E's posting loop is reached, neither
+    // of those steps can ever see an OUT leg — their OUT-side branches
+    // (an `outLegs`/`outSum` computation in 4b, a second oppositely signed
+    // posting loop in E) were removed as dead code (fourth hardening
+    // round). Do not re-add OUT-leg handling downstream of this guard: it
+    // would be unreachable by construction. If a legitimate need for
+    // supplier-settlement change/return legs ever arises, it starts HERE,
+    // by relaxing this ban — not by resurrecting the removed branches.
+    if (data.payments?.some((p) => p.direction === "OUT")) {
+      throw new DatabaseError(
+        "Account settlement does not accept OUT (change/return) legs — a " +
+          "supplier settlement has no customer to hand change back to; pay " +
+          "or collect the exact net amount owed",
+      );
+    }
+
+    // ── 4a. ONE predicate for "this leg can settle a supplier account" ────
+    // Rule 14 — shared by the leg-reconciliation sum immediately below AND
+    // the posting loop (step E) so the two can never again independently
+    // decide which legs count. THIS is the second leak found in this
+    // method: the reconciliation summed EVERY leg (drawer-affecting or not)
+    // into its total while the posting loop silently `continue`d past any
+    // leg whose method `isDrawerAffectingMethod` excludes (CUSTOMER_ACCOUNT,
+    // GIFT_CARD, ...) — `payments = [{CASH, 70}, {CUSTOMER_ACCOUNT, 30}]`
+    // against a $100 debt reconciled clean at 70+30=100, stamped the
+    // supplier fully settled, and only $70 actually left the drawer. A
+    // supplier settlement pays or collects real money from a counterparty:
+    // there is no customer to charge via CUSTOMER_ACCOUNT and no gift card
+    // to redeem here, so a non-drawer-affecting method is meaningless in
+    // this flow — reject it outright, never silently drop the leg, so the
+    // caller learns exactly which method is the problem.
+    const assertLegMovesADrawer = (method: string): void => {
+      if (!isDrawerAffectingMethod(method)) {
+        throw new DatabaseError(
+          `Account settlement: payment method "${method}" does not move a ` +
+            `real drawer and cannot settle a supplier account (no customer ` +
+            `to charge, no gift card to redeem)`,
+        );
+      }
+    };
+
+    // ── 4b. Leg reconciliation (rule 16 + the leak this ticket fixes) ─────
+    // `data.amount_usd`/`amount_lbp` were already cross-checked above (step
+    // 4) against the RE-COMPUTED net of `selections` — but that says nothing
+    // about whether `data.payments` (the legs that actually move the
+    // drawer, step E below) agree with that figure. Before this check, the
+    // posting loop applied EVERY leg verbatim: a supplier owed $100 could be
+    // "settled" with a $150 CASH leg and the drawer would drop the full
+    // $150 while the ledger only nets $100 — a $50 leak with no ledger row,
+    // no profit stamp, and no kept-change record. Symmetric with the
+    // Other-payment commission check above (settleTransactions' own
+    // per-currency sum comparison), NOT `reconcileLegs`/`moneyPosting.ts`'s
+    // USD-equivalent conversion — this flow has no exchange rate to convert
+    // at (`SettleAccountData.exchange_rate`'s own doc: "no exchange rate is
+    // involved anywhere in this flow"), so legs are reconciled PER CURRENCY,
+    // same EPS_USD/EPS_LBP tolerance as every other check in this method.
+    //
+    // No IN/OUT partition needed: every leg reaching this point IS an IN
+    // leg — the ban just above already hard-rejects any leg carrying
+    // `direction: "OUT"`, so `data.payments` can never contain one here.
+    // Sum every leg verbatim as money actually paid/collected.
+    //
+    // A mismatch in EITHER direction (overpay or underpay) is a hard reject,
+    // never silently absorbed or auto-corrected: a supplier settlement has
+    // no customer to hand change to and no "the shop keeps the difference"
+    // concept like a sale's kept-change — the operator's legs must describe
+    // exactly the amount being settled, or the batch doesn't post. Money
+    // must never move without a matching ledger fact.
+    if (data.payments && data.payments.length > 0) {
+      let legSumUsd = 0;
+      let legSumLbp = 0;
+      for (const leg of data.payments) {
+        assertLegMovesADrawer(leg.method);
+        const amt = Math.abs(leg.amount);
+        if (leg.currency_code === "USD") legSumUsd += amt;
+        else if (leg.currency_code === "LBP") legSumLbp += amt;
+        else {
+          throw new DatabaseError(
+            `Account settlement: payment leg currency "${leg.currency_code}" is not USD or LBP`,
+          );
+        }
+      }
+      if (
+        Math.abs(legSumUsd - data.amount_usd) > EPS_USD ||
+        Math.abs(legSumLbp - data.amount_lbp) > EPS_LBP
+      ) {
+        throw new DatabaseError(
+          `Account settlement payment legs do not reconcile to the settled amount — ` +
+            `expected $${data.amount_usd.toFixed(2)} + ${data.amount_lbp} LBP, ` +
+            `got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP`,
+        );
+      }
+    }
+
+    // ── 6. Drawer context — PARENT's provider (D3) ─────────────────────────
+    // Finding 1 (fourth hardening round) — NOT built here. `parent` was read
+    // ONCE, before this whole validation pipeline ran; a provider edit
+    // landing in the window between that read and the write transaction
+    // would silently route every cash leg through the OLD provider's drawer
+    // context. Re-read live, inside the transaction, right below.
+
+    // ── 7. Anchor selection (§1.1 — "no parent row to anchor to") ─────────
+    const memberIds = Array.from(byMember.keys());
+    let anchorSupplierId: number;
+    if (commissionSupplierId != null && memberIds.includes(commissionSupplierId)) {
+      anchorSupplierId = commissionSupplierId;
+    } else if (memberIds.includes(data.account_supplier_id)) {
+      anchorSupplierId = data.account_supplier_id;
+    } else {
+      anchorSupplierId = Math.min(...memberIds);
+    }
+
+    // Pure — picks the entry_type/signed amounts that negate a member's own
+    // subtotal to exactly 0 (recordSupplierCashflow's PAY/RECEIVE sign
+    // convention, generalized to a POSITIVE-or-NEGATIVE starting subtotal).
+    const resolveEntry = (
+      supplierId: number,
+      net: { usd: number; lbp: number },
+    ): {
+      entryType: SupplierLedgerEntryType;
+      amountUsd: number;
+      amountLbp: number;
+    } => {
+      const amountUsd = -net.usd;
+      const amountLbp = -net.lbp;
+      const usdSign = amountUsd > EPS_USD ? 1 : amountUsd < -EPS_USD ? -1 : 0;
+      const lbpSign = amountLbp > EPS_LBP ? 1 : amountLbp < -EPS_LBP ? -1 : 0;
+      if (usdSign !== 0 && lbpSign !== 0 && usdSign !== lbpSign) {
+        throw new DatabaseError(
+          `Cannot settle account member ${supplierId}: its USD and LBP ` +
+            `balances net in opposite directions within this batch — settle ` +
+            `currencies separately`,
+        );
+      }
+      const overallSign = usdSign || lbpSign;
+      const entryType: SupplierLedgerEntryType =
+        overallSign < 0 ? "PAYMENT" : "SUPPLIER_PAYS_US";
+      return { entryType, amountUsd, amountLbp };
+    };
+
+    try {
+      const settle = this.db.transaction(() => {
+        // ── 0b. Live re-check INSIDE the write transaction (Finding B) ─────
+        // Step 0's `getAccountUnsettled` validation ran BEFORE this
+        // transaction opened — re-run the same "still open" predicate live,
+        // now, against every selected id and abort the WHOLE transaction
+        // (nothing committed) if anything changed underneath this batch.
+        const ledgerSelectionIds = selectedRows
+          .filter((r) => r.kind === "LEDGER")
+          .map((r) => r.id);
+        this._assertSelectionsStillEligible(
+          selectedRows
+            .filter((r) => r.kind === "FINANCIAL_SERVICE")
+            .map((r) => r.id),
+          ledgerSelectionIds,
+          memberIds,
+          data.account_supplier_id,
+          tenantId,
+        );
+
+        // Finding 1 (fourth hardening round) — re-read the account PARENT
+        // live, inside the transaction, rather than trusting the pre-
+        // validation `parent` read from before this method's whole
+        // selections/commission/direction pipeline ran. `freshParent.provider`
+        // is what `drawerCtx` (below) routes EVERY cash leg through
+        // (`resolveServiceCashDrawer`) — a provider edit landing in that
+        // window must never silently apply to this settlement's legs.
+        const freshParent = this.findById(data.account_supplier_id);
+        if (!freshParent) {
+          throw new DatabaseError(
+            `Account settlement aborted: supplier account ${data.account_supplier_id} ` +
+              `no longer exists — re-open the settle sheet and try again`,
+          );
+        }
+        const drawerCtx: ServiceCashDrawerContext = {
+          provider: freshParent.provider ?? "",
+          baseSystem: getSettingsService().getShopBaseSystem(),
+        };
+
+        // ── 5. D14 — sum the ALREADY-STAMPED cashout commission ────────────
+        // Fourth-hole hunt (third hardening round): this used to run BEFORE
+        // the transaction opened, from a `transactions`/`supplier_ledger`
+        // read (`_cashoutCommissionByLedgerId` → `getBySourceId(...).status
+        // === 'ACTIVE'`) that is a DIFFERENT row than the one
+        // `_assertSelectionsStillEligible` just re-checked above — a
+        // cashout's OWN `WALLET_CASHOUT` transaction could be voided in the
+        // very same window Finding B closed for the ledger/financial_service
+        // rows themselves, while the `supplier_ledger` row being settled
+        // here stays perfectly open the whole time (voiding a cashout does
+        // NOT touch its ledger row's `is_refunded`/`settlement_id` — see
+        // `_reverseSupplierCashflow`/the cashout's own reversal path). A
+        // stale pre-transaction read would then stamp this settlement's
+        // `profit_usd`/`profit_lbp` with a commission credit that no longer
+        // has an ACTIVE cashout behind it — phantom profit, not a drawer
+        // leak, but still a real ledger-integrity bug (rule 20 cares about
+        // exactly this class of figure). Moved here, live, inside the write
+        // transaction, right after the eligibility re-check above, so both
+        // reads land in the same narrow window.
+        const cashoutCommission = this._sumCashoutCommission(
+          ledgerSelectionIds,
+          tenantId,
+        );
+        const profitUsd =
+          (commissionModel === 1 ? data.commission_usd : 0) +
+          cashoutCommission.usd;
+        const profitLbp =
+          (commissionModel === 1 ? data.commission_lbp : 0) +
+          cashoutCommission.lbp;
+
+        const otherMemberIds = memberIds.filter(
+          (id) => id !== anchorSupplierId,
+        );
+        const memberLedgerRowId = new Map<number, number>();
+        const note =
+          data.note ?? `Account settlement: ${freshParent.name} (${data.direction})`;
+
+        // ── A. Anchor member's own row (transaction_id linked after create) ──
+        const anchorNet = memberNet.get(anchorSupplierId)!;
+        const anchorEntry = resolveEntry(anchorSupplierId, anchorNet);
+        const anchorRes = this.db
+          .prepare(
+            `INSERT INTO supplier_ledger
+               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+          )
+          .run(
+            anchorSupplierId,
+            anchorEntry.entryType,
+            anchorEntry.amountUsd,
+            anchorEntry.amountLbp,
+            note,
+            data.created_by,
+            tenantId,
+          );
+        const anchorLedgerId = Number(anchorRes.lastInsertRowid);
+        memberLedgerRowId.set(anchorSupplierId, anchorLedgerId);
+
+        // ── B. ONE SUPPLIER_SETTLEMENT transaction, anchored on row A ──────
+        const totalMembers = memberIds.length;
+        const settlementMethod =
+          data.payments && data.payments.length > 0
+            ? data.payments.length === 1
+              ? data.payments[0].method
+              : "SPLIT"
+            : "CASH";
+        const summary =
+          `Account Settlement: ${freshParent.name} — ${data.direction} ` +
+          `$${data.amount_usd.toFixed(2)}` +
+          `${data.amount_lbp ? ` + ${data.amount_lbp.toLocaleString()} LBP` : ""}` +
+          ` across ${totalMembers} member${totalMembers === 1 ? "" : "s"}`;
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
+          source_table: "supplier_ledger",
+          source_id: anchorLedgerId,
+          user_id: data.created_by,
+          amount_usd: data.amount_usd,
+          amount_lbp: data.amount_lbp,
+          profit_usd: profitUsd,
+          profit_lbp: profitLbp,
+          summary,
+          metadata_json: {
+            account_supplier_id: data.account_supplier_id,
+            direction: data.direction,
+            selections: data.selections,
+            commission_usd: data.commission_usd,
+            commission_lbp: data.commission_lbp,
+            entry_mode: data.entry_mode ?? "LUMP",
+            cashout_commission_usd: cashoutCommission.usd,
+            cashout_commission_lbp: cashoutCommission.lbp,
+            members: memberIds,
+            counterparty: buildCounterpartyMetadata({
+              kind: "supplier",
+              id: data.account_supplier_id,
+              name: freshParent.name,
+              flow: wantsPay ? "OUT" : "IN",
+              method: settlementMethod,
+              ledgerEntryId: anchorLedgerId,
+            }),
+          },
+        });
+        // Self-stamp settlement_id too (in the SAME statement as the
+        // transaction_id link) — a settlement's OWN neutralizing row must
+        // never re-enter `getAccountUnsettled`'s LEDGER-kind scan as a
+        // phantom open row (that scan's only exclusion is `settlement_id IS
+        // NULL`). Gated on the same v176 schema-drift guard as every other
+        // `supplier_ledger.settlement_id` write in this file.
+        const hasSettlementIdCol = this._supplierLedgerHasSettlementIdColumn();
+        // Finding 2 (fourth hardening round) — inspect `.changes` on this
+        // self-stamp exactly like `_markFinancialServicesSettled`/
+        // `_markLedgerRowsSettled` already do: a stamp that silently affects
+        // ZERO rows (the anchor row somehow gone, or `tenant_id` mismatched)
+        // must never be treated as success — the row it was just inserted as
+        // would be left un-linked to its own settlement transaction with no
+        // error raised.
+        const anchorStampRes = this.db
+          .prepare(
+            hasSettlementIdCol
+              ? `UPDATE supplier_ledger SET transaction_id = ?, settlement_id = ? WHERE id = ? AND tenant_id = ?`
+              : `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(
+            ...(hasSettlementIdCol
+              ? [txnId, anchorLedgerId, anchorLedgerId, tenantId]
+              : [txnId, anchorLedgerId, tenantId]),
+          );
+        if (anchorStampRes.changes !== 1) {
+          throw new DatabaseError(
+            `Account settlement aborted: failed to stamp the anchor ` +
+              `supplier_ledger row ${anchorLedgerId} with its transaction/settlement id`,
+          );
+        }
+
+        // ── C. Every OTHER member's own row — link-mode, same transaction ──
+        for (const supplierId of otherMemberIds) {
+          const net = memberNet.get(supplierId)!;
+          const entry = resolveEntry(supplierId, net);
+          const res = this.db
+            .prepare(
+              `INSERT INTO supplier_ledger
+                 (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, tenant_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+            )
+            .run(
+              supplierId,
+              entry.entryType,
+              entry.amountUsd,
+              entry.amountLbp,
+              note,
+              data.created_by,
+              txnId,
+              tenantId,
+            );
+          const memberLedgerId = Number(res.lastInsertRowid);
+          memberLedgerRowId.set(supplierId, memberLedgerId);
+          // Self-stamp — see the anchor row's identical comment above
+          // (Finding 2: same `.changes` check, never a silent no-op).
+          if (hasSettlementIdCol) {
+            const memberStampRes = this.db
+              .prepare(
+                `UPDATE supplier_ledger SET settlement_id = ? WHERE id = ? AND tenant_id = ?`,
+              )
+              .run(memberLedgerId, memberLedgerId, tenantId);
+            if (memberStampRes.changes !== 1) {
+              throw new DatabaseError(
+                `Account settlement aborted: failed to stamp member ${supplierId}'s ` +
+                  `own settlement row ${memberLedgerId} with its settlement id`,
+              );
+            }
+          }
+        }
+
+        // ── D. Stamp every ORIGINAL selected row settled, per member ───────
+        for (const [supplierId, rows] of byMember) {
+          const newRowId = memberLedgerRowId.get(supplierId)!;
+          const fsIds = rows
+            .filter((r) => r.kind === "FINANCIAL_SERVICE")
+            .map((r) => r.id);
+          const ledgerIds = rows
+            .filter((r) => r.kind === "LEDGER")
+            .map((r) => r.id);
+          // Finding B — a stamp that silently affects fewer rows than
+          // expected must never be treated as success (it means a selected
+          // row was settled/refunded/voided out from under this batch in the
+          // window since step 0, and slipped past the live re-check above
+          // too — e.g. a second concurrent settlement stamping the SAME row
+          // between that check and this exact UPDATE). Abort the WHOLE
+          // transaction rather than let this member's balance go wrong with
+          // no open row left to explain it.
+          const fsChanges = this._markFinancialServicesSettled(
+            fsIds,
+            newRowId,
+            tenantId,
+          );
+          if (fsChanges !== fsIds.length) {
+            throw new DatabaseError(
+              `Account settlement aborted: expected to stamp ${fsIds.length} ` +
+                `financial_service row(s) for supplier ${supplierId}, but ` +
+                `${fsChanges} were actually affected`,
+            );
+          }
+          const ledgerChanges = this._markLedgerRowsSettled(
+            ledgerIds,
+            newRowId,
+            tenantId,
+          );
+          if (ledgerChanges !== ledgerIds.length) {
+            throw new DatabaseError(
+              `Account settlement aborted: expected to stamp ${ledgerIds.length} ` +
+                `supplier_ledger row(s) for supplier ${supplierId}, but ` +
+                `${ledgerChanges} were actually affected`,
+            );
+          }
+        }
+
+        // ── E. The net cash leg(s) — sign per D3/§8.4 ──────────────────────
+        // Every leg here is an IN leg — OUT (change/return) legs are
+        // rejected outright before this transaction ever opens (the ban
+        // above), so there is no counterpart OUT-debiting loop to run: a
+        // supplier settlement has no customer to hand change back to. PAY
+        // (cashSign -1): cash leaves the drawer. COLLECT (cashSign +1): cash
+        // arrives. Contrast SalesRepository/DebtRepository, whose flows DO
+        // accept genuine change-return legs and need a second, oppositely
+        // signed loop for them.
+        //
+        // No `continue`-skip for a non-drawer-affecting method: step 4b
+        // already rejected any such leg via the SAME `assertLegMovesADrawer`
+        // (rule 14) before this transaction ever opened, so every leg
+        // reaching this loop is guaranteed drawer-affecting. Asserted again
+        // here — not a second independent decision, the identical function —
+        // purely as defense-in-depth so this loop can never again silently
+        // bank a leg the reconciliation counted as paid, even if a future
+        // change altered step 4b's gate.
+        const cashSign = wantsPay ? -1 : 1;
+        for (const p of data.payments ?? []) {
+          assertLegMovesADrawer(p.method);
+          const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
+          const delta = cashSign * Math.abs(p.amount);
+          applyDrawerDelta(this.db, {
+            drawerName,
+            currencyCode: p.currency_code,
+            delta,
+            tenantId,
+          });
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: p.method,
+            drawerName,
+            currencyCode: p.currency_code,
+            amount: delta,
+            note: data.note ?? summary,
+            createdBy: data.created_by,
+            tenantId,
+          });
+        }
+
+        // ── F. NEW-MODEL commission — unmodified settleTransactions machinery ──
+        if (
+          commissionSupplierId != null &&
+          commissionModel === 1 &&
+          commissionEligibleRows.length > 0
+        ) {
+          const commissionSupplier = this.findById(commissionSupplierId);
+          const isBillsOnlyBatch = commissionEligibleRows.every(
+            (r) => r.service_type === "BILL",
+          );
+          this._bookCommissionAtSettlement({
+            settlementLedgerId: memberLedgerRowId.get(commissionSupplierId)!,
+            settlementTxnId: txnId,
+            supplierId: commissionSupplierId,
+            supplierProvider: commissionSupplier?.provider ?? null,
+            isBillsOnlyBatch,
+            rows: commissionEligibleRows,
+            data: {
+              supplier_id: commissionSupplierId,
+              financial_service_ids: commissionFsIds,
+              amount_usd: data.amount_usd,
+              amount_lbp: data.amount_lbp,
+              commission_usd: data.commission_usd,
+              commission_lbp: data.commission_lbp,
+              entry_mode: data.entry_mode,
+              commission_rate: data.commission_rate,
+              commission_unit_count: data.commission_unit_count,
+              created_by: data.created_by,
+            },
+            tenantId,
+            drawerCtx,
+          });
+        }
+
+        // Return the ANCHOR ledger row id — same convention as
+        // `settleTransactions`'s own `{ id: ledgerEntryId }` (never the
+        // transaction id).
+        return { id: anchorLedgerId };
+      });
+
+      return settle();
+    } catch (e) {
+      throw new DatabaseError("Failed to settle account", { cause: e });
+    }
+  }
+
+  /**
    * Record a direct supplier cash flow that is NOT tied to settling specific
    * transactions — paying a supplier down, or a supplier paying us back.
    *
@@ -2331,6 +4301,46 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         `recordSupplierCashflow: discount is only valid on PAY-direction cashflow (got "${data.direction}")`,
       );
     }
+
+    // ── LIRA-193 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §11.4) ───────────────────
+    // `recordSupplierCashflow` has no separate "target" field the way
+    // `settleTransactions`/`settleAccount` do — the amount posted to
+    // `supplier_ledger` and the unified transaction below IS the sum of
+    // `data.payments` (see the sum loop inside the transaction), so there is
+    // no separate total to reconcile a leg sum AGAINST. The leak here is the
+    // same shape in a narrower form: that sum used to include EVERY leg
+    // (drawer-affecting or not), while the posting loop silently `continue`d
+    // past any leg `isDrawerAffectingMethod` excludes — a $100
+    // CUSTOMER_ACCOUNT leg would stamp `supplier_ledger`/the transaction
+    // with $100 paid/received while the posting loop skipped it and NO
+    // drawer moved at all. Rejecting a non-drawer-affecting leg outright,
+    // here, BEFORE the sum is ever computed, guarantees the two can never
+    // again diverge — every leg that reaches the sum loop below is
+    // guaranteed to also reach the posting loop. Same shared predicate
+    // `settleTransactions` uses (rule 14), and the same OUT-leg rejection
+    // `settleAccount` established (LIRA-189): no code in this method has
+    // ever read a per-leg `direction` (verified — grepped this method body),
+    // so there is no legitimate change-return sender to accommodate here
+    // either. Also validates currency here, for the identical reason: the
+    // sum loop below only buckets USD/LBP and silently drops any other
+    // currency code from the total while the posting loop would still post
+    // it to a real drawer — the same sum-vs-post divergence, just via an
+    // unrecognised currency instead of a non-drawer method.
+    for (const p of data.payments) {
+      if (p.direction === "OUT") {
+        throw new DatabaseError(
+          "Supplier cashflow does not accept OUT (change/return) legs — " +
+            "there is no customer to hand change back to; pay or collect " +
+            "the exact amount",
+        );
+      }
+      this._assertSupplierLegMovesADrawer(p.method, "Supplier cashflow");
+      this._assertSupplierLegCurrencyIsValid(
+        p.currency_code,
+        "Supplier cashflow",
+      );
+    }
+
     try {
       const tenantId = getCurrentTenantId();
       // Primary Cash Drawer plan §1/§8.2 (decision #10) — same resolution as
@@ -2431,7 +4441,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .run(txnId, ledgerEntryId, tenantId);
 
         for (const p of data.payments) {
-          if (!isDrawerAffectingMethod(p.method)) continue;
+          // LIRA-193 — defense-in-depth assertion (rule 14), mirroring
+          // settleTransactions/settleAccount: the guard above already
+          // rejected any non-drawer-affecting leg via the SAME predicate
+          // before this transaction ever opened, so this loop can never
+          // again silently skip a leg the sum above (usd/lbp) already
+          // counted toward the amount stamped on supplier_ledger.
+          this._assertSupplierLegMovesADrawer(p.method, "Supplier cashflow");
           // Primary Cash Drawer plan §1/§8.2 (decision #10): a CASH leg to
           // the shop's primary-system supplier resolves to the PCD.
           const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);

@@ -30,5 +30,9 @@ export type {
   OMTAnalytics,
   OMTCurrencyStats,
   OMTProviderStats,
+  AccountBalance,
+  AccountChildBalance,
+  AccountLedgerEntry,
+  AccountUnsettledRow,
 } from "./types";
 export { ApiProvider, useApi } from "./ApiProvider";

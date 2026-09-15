@@ -103,11 +103,18 @@ describe("migration v175 — backfill_expense_is_auto_metadata", () => {
     db.close();
   });
 
-  it("exists, is the newest migration, and has a down()", () => {
+  it("exists and has a down()", () => {
+    // Was "... is the newest migration" asserting v175 === max(MIGRATIONS
+    // version) — inherently a snapshot of the head at the moment this test
+    // was written, not a fact about v175 itself. It broke, correctly, the
+    // moment v176 (LIRA-187, OMT_OPEN_CREDIT_ACCOUNT_PLAN.md) was appended.
+    // CLAUDE.md's own warning about the migration-version number going
+    // stale applies here too: pin what this file is actually about (v175
+    // exists, is registered, and rolls back) rather than "nothing has been
+    // added since".
     expect(v175).toBeDefined();
     expect(typeof v175.down).toBe("function");
-    const maxVersion = Math.max(...MIGRATIONS.map((m) => m.version));
-    expect(v175.version).toBe(maxVersion);
+    expect(MIGRATIONS.filter((m) => m.version === 175)).toHaveLength(1);
   });
 
   it("stamps is_auto=true on an EXPENSE row linked to an expense with source_ref_table set", () => {

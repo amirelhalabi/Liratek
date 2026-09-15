@@ -282,6 +282,12 @@ CREATE TABLE IF NOT EXISTS suppliers (
   -- was specced in USD; Katsh's real rate is 20,000 LBP/bill, so this
   -- currency companion is required to interpret it correctly.
   commission_rate_currency TEXT CHECK(commission_rate_currency IN ('USD', 'LBP')) DEFAULT 'USD',
+  -- v176 (LIRA-187, OMT open-credit account wave 1): nullable self-FK. OMT is
+  -- ONE open-credit account; 'iPick' and 'OMT App' are CHILDREN of the 'OMT'
+  -- parent supplier row, linked here. Ledger rows never move — each child
+  -- keeps its own supplier_ledger rows; the account is a read-time rollup
+  -- (LIRA-188). Katsh, Whish and Whish App stay NULL (D7, D9 — deferred).
+  account_supplier_id INTEGER DEFAULT NULL REFERENCES suppliers(id),
   UNIQUE (tenant_id, name),
   FOREIGN KEY (tenant_id, module_key) REFERENCES modules(tenant_id, key) ON DELETE SET NULL
 );
@@ -547,6 +553,12 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   -- transactions.source_table/source_id, e.g. 'financial_services'/<fs id>).
   source_ref_table TEXT DEFAULT NULL,
   source_ref_id INTEGER DEFAULT NULL,
+  -- v176 (LIRA-187): which account settlement batch cleared this row, if
+  -- any. supplier_ledger has no per-row settled flag otherwise (unlike
+  -- financial_services' is_settled/settled_at/settlement_id) — without this,
+  -- LIRA-189's D8 selectable settlement queue cannot mark a single ledger
+  -- row as settled. NULL = open/unsettled.
+  settlement_id INTEGER DEFAULT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
   FOREIGN KEY (transaction_id) REFERENCES transactions(id),
@@ -1445,6 +1457,9 @@ CREATE INDEX IF NOT EXISTS idx_payments_session_id ON payments(session_id);
 CREATE INDEX IF NOT EXISTS idx_drawer_balances_drawer ON drawer_balances(drawer_name);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_source_ref ON supplier_ledger(source_ref_table, source_ref_id);
+-- v176 (LIRA-187): OMT open-credit account link + settlement-queue column.
+CREATE INDEX IF NOT EXISTS idx_suppliers_account_supplier_id ON suppliers(account_supplier_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_ledger_settlement_id ON supplier_ledger(settlement_id);
 
 -- Supplier Stock Intake (v164) — FIFO cost batches. A stock intake with a supplier writes ONE
 -- supplier_ledger 'STOCK_INTAKE' row and the balance becomes the ledger sum ONLY (sales/refunds/
@@ -1724,6 +1739,20 @@ INSERT OR IGNORE INTO suppliers (tenant_id, name, module_key, provider, is_syste
   (1, 'Whish',        'omt_whish',  'WHISH',        0, 1, 'LUMP', NULL,  'USD'),
   (1, 'OMT App',      'ipec_katch', 'OMT_APP',      1, 1, 'LUMP', NULL,  'USD'),
   (1, 'Whish App',    'ipec_katch', 'WHISH_APP',    1, 1, 'LUMP', NULL,  'USD');
+
+-- v176 (LIRA-187): OMT is ONE open-credit account. Link 'iPick' and 'OMT App'
+-- to 'OMT' as its children, per tenant. Correlated UPDATE, not a fixed id —
+-- matches migration v176's runtime seed exactly so a fresh install and a
+-- migrated install agree. Katsh, Whish and Whish App stay NULL (D7, D9).
+UPDATE suppliers
+   SET account_supplier_id = (
+         SELECT p.id FROM suppliers p
+          WHERE p.provider = 'OMT' AND p.tenant_id = suppliers.tenant_id
+          LIMIT 1)
+ WHERE provider IN ('iPick', 'OMT_APP')
+   AND account_supplier_id IS NULL
+   AND EXISTS (SELECT 1 FROM suppliers p
+                WHERE p.provider = 'OMT' AND p.tenant_id = suppliers.tenant_id);
 
 -- =============================================================================
 -- 9a. Vouchers (Gift Cards)

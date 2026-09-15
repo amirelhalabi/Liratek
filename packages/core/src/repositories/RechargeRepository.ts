@@ -51,6 +51,7 @@ import {
 import { getCarrierLineService } from "../services/CarrierLineService.js";
 import { isSameLebanesePhone } from "../utils/phoneNumber.js";
 import { getExpenseRepository } from "./ExpenseRepository.js";
+import { omtAppCashoutCommission } from "../constants/omtAppCashout.js";
 
 // =============================================================================
 // SMS transfer fee → expense constants (owner decision 2026-09-06) — rule 14:
@@ -1552,12 +1553,22 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
   }
 
   /**
-   * Top up a Katsh or iPick provider drawer via supplier credit.
+   * Top up a Katsh, iPick, or OMT App provider drawer via supplier credit.
    * The supplier extends credit — no source drawer is deducted.
    * Records a TOP_UP entry in supplier_ledger (we now owe the supplier).
+   *
+   * LIRA-190 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1 D2/D4, §5): `"OMT_APP"`
+   * widened onto this existing iPick/Katsh mechanism unchanged — the
+   * behaviour this method already had (no source drawer touched, dest
+   * drawer up, `TOP_UP` debt booked on the supplier found by
+   * `getByProvider(data.provider)`) is exactly D2's rule for the OMT App
+   * wallet too. `getByProvider("OMT_APP")` resolves the `'OMT App'`
+   * supplier row (`create_db.sql`'s system-supplier seed), which
+   * LIRA-187's migration parents under `'OMT'` — so this booking lands in
+   * the OMT open-credit account automatically, with zero new code here.
    */
   topUpFromSupplier(data: {
-    provider: "iPick" | "Katsh";
+    provider: "iPick" | "Katsh" | "OMT_APP";
     amount: number;
     currency: string;
     userId: number;
@@ -1648,6 +1659,230 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       return { success: true };
     } catch (error) {
       rechargeLogger.error({ error, data }, "Supplier top-up failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * "Cash Out to OMT" (LIRA-192, OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §8) — the
+   * mirror of {@link topUpFromSupplier}'s OMT App credit path, opposite
+   * sign: value leaves the `OMT_App` drawer and the OMT open-credit account
+   * is credited principal + a 0.1% commission
+   * (`constants/omtAppCashout.ts`). No physical cash moves either way (D2).
+   *
+   * D16: OMT App only, for now — the `provider` union is a single literal
+   * on purpose so a future iPick/Katsh cashout is a deliberate widening,
+   * not a silent fallthrough.
+   *
+   * Money movement, all inside ONE `db.transaction()`:
+   *   1. D15 — reject an over-draw of the `OMT_App` balance for this
+   *      currency BEFORE opening the transaction. This is the one place a
+   *      balance guard belongs (unlike the PCD, which may go negative —
+   *      FEATURE_GUIDE.md §7): the wallet is a prepaid balance OMT actually
+   *      holds.
+   *   2. `commission = omtAppCashoutCommission(amount, currency)` — the
+   *      shared helper, never a re-spelled rate at this call site.
+   *   3. Insert a `recharges` row exactly like `topUpFromSupplier`'s own
+   *      INSERT shape, so the existing `source_table: "recharges"`
+   *      soft-void path already covers it. `recharge_type` stays `'TOP_UP'`
+   *      — the column's CHECK enum (`create_db.sql`) has no cashout-shaped
+   *      value and widening it is a schema change outside this lane; the
+   *      row's `note` and the unified transaction's own `WALLET_CASHOUT`
+   *      type are what actually distinguish it.
+   *   4. Unified transaction, type `WALLET_CASHOUT`, `source_table:
+   *      "recharges"`. `profit_usd`/`profit_lbp` are stamped 0 — D14: the
+   *      commission is RECOGNISED at OMT account settlement (LIRA-189,
+   *      wave 2), not here. The computed commission is still stored (in
+   *      `metadata_json.commission` — `transactions`/`recharges` have no
+   *      dedicated commission COLUMN; see this repo's existing
+   *      `json_extract(metadata_json, ...)` precedent in
+   *      `TransactionRepository`/migrations) so LIRA-189's settlement stamp
+   *      can sum it later without re-deriving it.
+   *   5. The wallet leg is written as a REAL `payments` row (rule 20) — NOT
+   *      a bare drawer UPDATE — via `insertPaymentRow` +
+   *      `applyDrawerDelta`, the same pair `topUpFromSupplier` uses, so the
+   *      generic type-agnostic `_reversePayments` can restore it on void.
+   *   6. ONE `supplier_ledger` row on the `'OMT App'` supplier via
+   *      `addLedgerEntry`, `entry_type: "PAYMENT"` — NOT
+   *      `SUPPLIER_PAYS_US`, which is POSITIVE and would move the account
+   *      the WRONG way by the full amount (plan §9.2; `addLedgerEntry`
+   *      force-negates every PAYMENT row, `SupplierRepository.ts:691-697`).
+   *      `is_auto: true` with `source_ref_table: "recharges"` /
+   *      `source_ref_id: <recharges id>` (NOT link-mode / `transaction_id`
+   *      — the two are mutually exclusive, and this row is a sibling of the
+   *      WALLET_CASHOUT transaction, not sharing it) so the existing
+   *      source-ref cascade-void can find and negate it. No `drawer_name`
+   *      is passed: the wallet leg already lives on our own transaction
+   *      (step 5), and `addLedgerEntry` only ever consumes `drawer_name` on
+   *      its own PAYMENT+drawer branch — passing it here would move the
+   *      `OMT_App` drawer a SECOND time.
+   *
+   * Reversal (rule 20): create + void must net the `OMT_App` drawer, the
+   * `'OMT App'` ledger, the OMT account, and profit to exactly 0 per
+   * currency. This method only writes the rows; wiring/verifying the void
+   * cascade for `WALLET_CASHOUT` and the `recharges` source-ref sibling is
+   * `TransactionRepository`'s lane (L4) — see this ticket's
+   * CROSS_LANE_REQUESTS.
+   */
+  cashoutToSupplier(data: {
+    provider: "OMT_APP";
+    amount: number;
+    currency: string;
+    userId: number;
+  }): { success: boolean; error?: string; commission?: number } {
+    try {
+      if (data.provider !== "OMT_APP") {
+        return {
+          success: false,
+          error: `Unsupported cashout provider: ${String(data.provider)}`,
+        };
+      }
+
+      const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
+      const currency = data.currency;
+      const amount = Math.abs(data.amount);
+      if (!(amount > 0)) {
+        return { success: false, error: "Amount must be greater than 0" };
+      }
+      const amountLabel = formatMoneyAmount(amount, currency);
+      const tenantId = getCurrentTenantId();
+
+      // D15 — block an over-draw of the wallet balance, per currency.
+      // Checked BEFORE opening the db.transaction() so a rejected cashout
+      // writes nothing at all.
+      const walletBalanceRow = this.db
+        .prepare(
+          "SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?",
+        )
+        .get(destDrawer, currency, tenantId) as
+        | { balance: number | null }
+        | undefined;
+      const walletBalance = walletBalanceRow?.balance ?? 0;
+      if (walletBalance < amount) {
+        return {
+          success: false,
+          error: `Insufficient balance in ${destDrawer}. Available: ${walletBalance} ${currency}`,
+        };
+      }
+
+      const supplier = getSupplierRepository().getByProvider(data.provider);
+      const commission = omtAppCashoutCommission(amount, currency);
+      const creditedLabel = formatMoneyAmount(amount + commission, currency);
+
+      this.db.transaction(() => {
+        // Insert a TOP_UP-shaped recharges record (see doc comment §3) —
+        // no `paid_by` drawer in the sense of a customer payment; `paid_by`
+        // instead names the drawer this cashout actually debited, mirroring
+        // `topUpApp`'s convention of stamping the real source drawer there.
+        const rechargeResult = this.db
+          .prepare(
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            data.provider,
+            amount,
+            currency,
+            destDrawer,
+            `Cash Out to OMT: -${amountLabel} (OMT account credited ${creditedLabel}, incl. ${formatMoneyAmount(commission, currency)} commission)`,
+            data.userId,
+            tenantId,
+          );
+
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        // Unified transaction record. profit_* = 0 at creation (D14) — the
+        // commission is recognised at OMT account settlement (LIRA-189),
+        // not here; a future reader must not "fix" this to stamp profit
+        // immediately.
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.WALLET_CASHOUT,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: data.userId,
+          amount_usd: currency === "USD" ? amount : 0,
+          amount_lbp: currency === "LBP" ? amount : 0,
+          profit_usd: 0,
+          profit_lbp: 0,
+          summary: `Cash Out to OMT: ${destDrawer} -${amountLabel} → OMT account +${creditedLabel}`,
+          metadata_json: {
+            provider: data.provider,
+            amount,
+            commission,
+            currency,
+            destDrawer,
+          },
+        });
+
+        // Wallet leg: OMT_App -amount, as a REAL payments row (rule 20) —
+        // not a bare drawer UPDATE — so the generic void path can restore
+        // it later.
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: destDrawer,
+          drawerName: destDrawer,
+          currencyCode: currency,
+          amount: -amount,
+          note: `Cash Out to OMT: -${amountLabel}`,
+          createdBy: data.userId,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: destDrawer,
+          currencyCode: currency,
+          delta: -amount,
+          tenantId,
+        });
+
+        // Account ledger: 'OMT App' now owes the shop principal + commission
+        // (entry_type PAYMENT, force-negated by addLedgerEntry — see this
+        // method's doc comment on why NOT SUPPLIER_PAYS_US). source-ref
+        // (not link-mode) so the sibling row is a separate, auto-generated
+        // transaction the existing cascade-void can find via
+        // source_ref_table/source_ref_id when the WALLET_CASHOUT
+        // transaction above is voided.
+        if (supplier) {
+          getSupplierRepository().addLedgerEntry({
+            supplier_id: supplier.id,
+            entry_type: "PAYMENT",
+            amount_usd: currency === "USD" ? amount + commission : 0,
+            amount_lbp: currency === "LBP" ? amount + commission : 0,
+            note: `Cash Out to OMT: ${amountLabel} + ${formatMoneyAmount(commission, currency)} commission`,
+            created_by: data.userId,
+            is_auto: true,
+            source_ref_table: "recharges",
+            source_ref_id: rechargeId,
+          });
+        } else {
+          // Mirrors topUpFromSupplier's own established convention: a
+          // missing 'OMT App' supplier row (a minimal/pre-seed fixture)
+          // logs and skips the ledger side rather than failing the whole
+          // wallet movement.
+          rechargeLogger.warn(
+            { provider: data.provider },
+            "cashoutToSupplier: no 'OMT App' supplier found — account ledger entry skipped",
+          );
+        }
+      })();
+
+      rechargeLogger.info(
+        {
+          provider: data.provider,
+          amount,
+          currency,
+          commission,
+          destDrawer,
+          supplierId: supplier?.id ?? null,
+        },
+        `Cash Out to OMT: ${destDrawer} -${amountLabel} → OMT account +${creditedLabel}`,
+      );
+
+      return { success: true, commission };
+    } catch (error) {
+      rechargeLogger.error({ error, data }, "OMT App cash-out failed");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

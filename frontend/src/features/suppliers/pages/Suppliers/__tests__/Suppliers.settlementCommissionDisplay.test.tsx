@@ -58,6 +58,11 @@ jest.mock("@liratek/ui", () => {
     useApi: () => ({
       getSuppliers: mockGetSuppliers,
       getSupplierBalances: mockGetSupplierBalances,
+      // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — the page now always
+      // fetches this too; none of this file's cases exercise an account
+      // parent, so a static empty array (no account on this tenant) keeps
+      // every existing assertion byte-for-byte unaffected.
+      getSupplierAccountBalances: jest.fn().mockResolvedValue([]),
       getSupplierProductBalances: mockGetSupplierProductBalances,
       getSupplierLedger: mockGetSupplierLedger,
       getSupplierProductItems: mockGetSupplierProductItems,
