@@ -281,3 +281,107 @@ describe("Dashboard — Pending Settlement banner (LIRA-159 D2)", () => {
     expect(provider?.textContent).toContain("2 awaiting settlement");
   });
 });
+
+describe("Dashboard — Pending Settlement banner owed clause (owed-clause fix)", () => {
+  // Guards defect #1: a pending Katsh BILL row always has total_owed_usd = 0
+  // structurally (SUPPLIER_OWED_EXPR — a bill's principal never enters the
+  // supplier ledger), so the "on $X owed" clause used to render an
+  // unconditional, meaningless "on $0.00 owed". The owed clause must now be
+  // suppressed entirely when there is nothing owed in either currency.
+  it("suppresses the owed clause entirely for a bill-only row (owed is structurally 0 in both currencies)", async () => {
+    mockGetUnsettledSummary.mockResolvedValueOnce([
+      {
+        provider: "Katsh",
+        count: 1,
+        bill_count: 1,
+        pending_commission_usd: 0,
+        pending_commission_lbp: 0,
+        total_owed_usd: 0,
+        total_owed_lbp: 0,
+        awaiting_settlement_count: 1,
+      },
+    ]);
+
+    await renderDashboard();
+
+    const provider = screen.getByText(/Katsh:/).closest("span");
+    expect(provider?.textContent).toContain("1 awaiting settlement");
+    expect(provider?.textContent).not.toMatch(/owed/);
+  });
+
+  // Guards defect #2: total_owed_lbp was typed but never rendered, so an
+  // LBP-denominated pending row (e.g. OMT/WHISH) displayed as "$0.00 owed"
+  // even while carrying real LBP exposure. The LBP owed figure must now
+  // render (via formatAmount, per the mock above: "<value> LBP").
+  it("renders the LBP owed figure when total_owed_lbp is non-zero even though total_owed_usd is 0", async () => {
+    mockGetUnsettledSummary.mockResolvedValueOnce([
+      {
+        provider: "OMT",
+        count: 1,
+        bill_count: 0,
+        pending_commission_usd: 0,
+        pending_commission_lbp: 0,
+        total_owed_usd: 0,
+        total_owed_lbp: 5000000,
+        awaiting_settlement_count: 1,
+      },
+    ]);
+
+    await renderDashboard();
+
+    const provider = screen.getByText(/OMT:/).closest("span");
+    expect(provider?.textContent).toContain("5000000 LBP");
+    expect(provider?.textContent).toMatch(/owed/);
+  });
+});
+
+describe("Dashboard — Pending Settlement banner LBP commission (pending_commission_lbp gap)", () => {
+  // Guards defect #3: pending_commission_lbp was typed (UnsettledSummary,
+  // Dashboard.tsx:332) but never rendered anywhere in this banner — the LBP
+  // twin of the total_owed_lbp gap fixed just above. A LEGACY-model
+  // (commission_model = 0) OMT/WHISH row whose commission is entirely
+  // LBP-denominated therefore showed no commission figure at all, even
+  // though the identical field is rendered on the Profits page
+  // (Profits.tsx:838).
+  const legacyLbpOnlyRow = {
+    provider: "OMT",
+    count: 1,
+    bill_count: 0,
+    pending_commission_usd: 0,
+    pending_commission_lbp: 9500000,
+    total_owed_usd: 0,
+    total_owed_lbp: 12000000,
+    awaiting_settlement_count: 0,
+  };
+
+  it("renders the LBP commission figure and the word 'commission' for a legacy LBP-only provider", async () => {
+    mockGetUnsettledSummary.mockResolvedValueOnce([legacyLbpOnlyRow]);
+
+    await renderDashboard();
+
+    const provider = screen.getByText(/OMT:/).closest("span");
+    expect(provider?.textContent).toContain("9500000 LBP");
+    expect(provider?.textContent).toMatch(/commission/);
+  });
+
+  it("does not leave a dangling separator between the provider label and the LBP commission figure", async () => {
+    mockGetUnsettledSummary.mockResolvedValueOnce([legacyLbpOnlyRow]);
+
+    await renderDashboard();
+
+    const provider = screen.getByText(/OMT:/).closest("span");
+    // No stray "—" (or other separator) between "OMT:" and the commission
+    // figure — the commission clause is the FIRST thing after the label.
+    expect(provider?.textContent).toMatch(/^OMT:\s*9500000 LBP commission/);
+  });
+
+  it("renders the LBP commission total in the 'Total pending' aggregate line", async () => {
+    mockGetUnsettledSummary.mockResolvedValueOnce([legacyLbpOnlyRow]);
+
+    await renderDashboard();
+
+    expect(screen.getByText(/Total pending:/).textContent).toContain(
+      "9500000 LBP",
+    );
+  });
+});

@@ -1168,6 +1168,13 @@ export default function Dashboard() {
                 (s, r) => s + r.pending_commission_usd,
                 0,
               );
+              // LBP twin of totalPendingUsd — same narrowed field
+              // (pending_commission_lbp), same gap: typed, queried, never
+              // summed or rendered in this aggregate line.
+              const totalPendingLbp = unsettledSummary.reduce(
+                (s, r) => s + r.pending_commission_lbp,
+                0,
+              );
               const totalTxns = unsettledSummary.reduce(
                 (s, r) => s + r.count,
                 0,
@@ -1201,7 +1208,46 @@ export default function Dashboard() {
                         // awaiting_settlement_count is the only honest
                         // figure; never render a fabricated $0.0000.
                         const hasPendingUsd = r.pending_commission_usd > 0;
+                        // LBP twin of the total_owed_lbp gap fixed above:
+                        // pending_commission_lbp was typed on UnsettledSummary
+                        // (line 332) and returned by the query, but this
+                        // banner never rendered it — a LEGACY-model
+                        // (commission_model = 0) OMT/WHISH row whose
+                        // commission is entirely LBP-denominated showed no
+                        // commission figure at all, even though the same
+                        // field is rendered on the Profits page
+                        // (Profits.tsx:838). A row only reaches this summary
+                        // if pendingSettlementSql matches it
+                        // (FinancialServiceRepository.ts:915): either
+                        // commission_model = 1 (→ awaiting_settlement_count)
+                        // or commission_model = 0 AND provider IN
+                        // ('OMT','WHISH') AND commission > 0 (→
+                        // pending_commission_usd XOR pending_commission_lbp —
+                        // the query's CASE arms split on currency != 'LBP'
+                        // vs = 'LBP' and are exhaustive). So hasPendingUsd,
+                        // hasPendingLbp and hasAwaiting can never ALL be
+                        // false for a row in this list — at least one
+                        // leading clause always renders, so the label never
+                        // dangles into a bare " — ".
+                        const hasPendingLbp = r.pending_commission_lbp > 0;
                         const hasAwaiting = r.awaiting_settlement_count > 0;
+                        // Owed-clause fix: a pending Katsh BILL row always has
+                        // total_owed_usd = 0 structurally (SUPPLIER_OWED_EXPR
+                        // — a bill's principal never enters the supplier
+                        // ledger), so the "on $X owed" clause used to render
+                        // unconditionally as a meaningless "on $0.00 owed".
+                        // Separately, total_owed_lbp was returned by the
+                        // query but never rendered anywhere, so an
+                        // LBP-denominated pending row (OMT/WHISH) displayed
+                        // as "$0.00 owed" while carrying real LBP exposure.
+                        // Use !== 0, NOT > 0: SUPPLIER_OWED_EXPR returns
+                        // NEGATIVE values for OMT/WHISH RECEIVE rows (the
+                        // provider owes the shop) — a > 0 guard would hide
+                        // that row's owed figure entirely, which is exactly
+                        // the silent-swallow failure CLAUDE.md rule 26 bans
+                        // on a money surface.
+                        const hasOwedUsd = r.total_owed_usd !== 0;
+                        const hasOwedLbp = r.total_owed_lbp !== 0;
                         return (
                           <span
                             key={r.provider}
@@ -1213,23 +1259,44 @@ export default function Dashboard() {
                                 ${r.pending_commission_usd.toFixed(4)}
                               </span>
                             )}
-                            {hasPendingUsd && " commission"}
-                            {hasPendingUsd && hasAwaiting && " + "}
+                            {hasPendingUsd && hasPendingLbp && " + "}
+                            {hasPendingLbp && (
+                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                {formatAmount(r.pending_commission_lbp, "LBP")}
+                              </span>
+                            )}
+                            {(hasPendingUsd || hasPendingLbp) && " commission"}
+                            {(hasPendingUsd || hasPendingLbp) &&
+                              hasAwaiting &&
+                              " + "}
                             {hasAwaiting && (
                               <span className="text-amber-900 dark:text-amber-300 font-semibold">
                                 {r.awaiting_settlement_count} awaiting
                                 settlement
                               </span>
                             )}
-                            {(hasPendingUsd || hasAwaiting) && " "}
-                            on ${r.total_owed_usd.toFixed(2)} owed ({r.count}{" "}
+                            {(hasOwedUsd || hasOwedLbp) && " — "}
+                            {hasOwedUsd && (
+                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                {formatAmount(r.total_owed_usd, "USD")}
+                              </span>
+                            )}
+                            {hasOwedUsd && hasOwedLbp && " + "}
+                            {hasOwedLbp && (
+                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                {formatAmount(r.total_owed_lbp, "LBP")}
+                              </span>
+                            )}
+                            {(hasOwedUsd || hasOwedLbp) && " owed"} ({r.count}{" "}
                             txns)
                           </span>
                         );
                       })}
                     </div>
                     <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
-                      {(totalPendingUsd > 0 || totalAwaitingSettlement > 0) && (
+                      {(totalPendingUsd > 0 ||
+                        totalPendingLbp > 0 ||
+                        totalAwaitingSettlement > 0) && (
                         <>
                           Total pending:{" "}
                           {totalPendingUsd > 0 && (
@@ -1237,7 +1304,13 @@ export default function Dashboard() {
                               ${totalPendingUsd.toFixed(4)}
                             </span>
                           )}
-                          {totalPendingUsd > 0 &&
+                          {totalPendingUsd > 0 && totalPendingLbp > 0 && " + "}
+                          {totalPendingLbp > 0 && (
+                            <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
+                              {formatAmount(totalPendingLbp, "LBP")}
+                            </span>
+                          )}
+                          {(totalPendingUsd > 0 || totalPendingLbp > 0) &&
                             totalAwaitingSettlement > 0 &&
                             " + "}
                           {totalAwaitingSettlement > 0 && (
