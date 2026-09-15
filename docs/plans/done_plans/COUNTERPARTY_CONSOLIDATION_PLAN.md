@@ -1,5 +1,14 @@
 # Counterparty Consolidation — Accounts / Suppliers / Partners
 
+> # ✅ COMPLETE — archived 2026-09-16
+> **CQ-0 … CQ-11 all shipped.**
+>
+> Its own header said "CQ-2 … CQ-11 open" and its embedded 2026-08-04 self-audit named one remaining gap — CQ-1's second drift guard, "never written". That guard shipped as `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` in `e6e3747f` on **2026-08-08, four days after** the self-audit. `moneyPosting.ts` carries the full posting machinery (`applyDrawerDelta`, `insertPaymentRow`, `bookClientDebtCharge`, `buildCounterpartyDiscountPosting`); `docs/COUNTERPARTY_LEDGERS.md` and FEATURE_GUIDE's counterparty checklist exist; migrations v130/v131 are live.
+>
+> Verified by checking every artifact this document names against source, not by reading
+> its status line — which was wrong. Everything below is the original text, preserved as
+> the design record. **Do not trust its header; trust this block.**
+
 > **Created**: 2026-07-14 · **Extended**: 2026-07-18 (CQ-7 … CQ-11)
 > **Origin**: Owner observation — "accounts, suppliers, partners have a lot in
 > common; what do you suggest from a software-engineering perspective?"

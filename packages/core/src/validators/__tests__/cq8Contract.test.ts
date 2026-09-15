@@ -2,7 +2,7 @@
  * CQ-8 — validator-level coverage for the counterparty transaction contract
  * and validation parity (rule 14).
  *
- * docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
+ * docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
  * (2026-07-18)".
  */
 

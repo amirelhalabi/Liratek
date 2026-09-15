@@ -1,5 +1,14 @@
 # LIRA-158 — Profits & Closing report the commission ESTIMATE, not the settled figure
 
+> # ✅ COMPLETE — archived 2026-09-16
+> **All five phases shipped.**
+>
+> Header read "READY TO IMPLEMENT". In fact `8c453764` and `8a868fe3` (2026-08-31) landed the settled-commission reporting and the D17 defer-until-repaid rule; `backend/src/api/services.ts:69-74` cites "LIRA-158 Phase 5a / D16" directly. The separate legacy-`finProfitLegacy` residual was correctly filed as its own ticket (LIRA-160) and is documented as a KNOWN GAP in `profitRecognition.guard.test.ts` — out of this plan's scope.
+>
+> Verified by checking every artifact this document names against source, not by reading
+> its status line — which was wrong. Everything below is the original text, preserved as
+> the design record. **Do not trust its header; trust this block.**
+
 Detailed implementation plan for `COMMISSION_AT_SETTLEMENT_PLAN.md` §4 **Phase 3**.
 Written 2026-08-30 after a 20-agent map + adversarial verification pass over every read and write
 site. Every file:line below was opened and read; claims that were only inferred are marked.

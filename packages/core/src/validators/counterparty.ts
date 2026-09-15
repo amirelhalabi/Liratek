@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Counterparty transaction metadata contract (CQ-8,
- * docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md "Extension
+ * docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md "Extension
  * (2026-07-18)").
  *
  * Every counterparty money transaction — client repayment/credit cash-in-out,

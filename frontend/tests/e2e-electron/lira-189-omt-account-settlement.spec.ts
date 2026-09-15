@@ -1,6 +1,6 @@
 /**
  * E2E: LIRA-189 — OMT open-credit account settlement
- * (docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5 LIRA-189, §8.4;
+ * (docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5 LIRA-189, §8.4;
  * CONTRACT_W2.md §1/§2).
  *
  * One action settles the WHOLE OMT account — the counter (OMT SEND/RECEIVE),

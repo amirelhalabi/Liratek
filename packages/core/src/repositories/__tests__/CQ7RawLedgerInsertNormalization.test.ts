@@ -1,7 +1,7 @@
 /**
  * CQ-7 — normalized raw supplier_ledger / partner_ledger INSERTs.
  *
- * docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md — CQ-7 task 4.
+ * docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md — CQ-7 task 4.
  * Four call sites used to write a supplier_ledger/partner_ledger row with a
  * raw INSERT instead of going through the owning repository's
  * addLedgerEntry:

@@ -2,10 +2,13 @@
 
 Tickets **LIRA-187 → LIRA-192** in `current_sprint.md`. Planned 2026-09-10 from an owner interview
 (2026-09-09/10), extended 2026-09-13/14 with the OMT App cashout (§8); every file:line below was
-opened and read on `main` on the date given in its section heading. **Status: READY TO IMPLEMENT
-— all sixteen owner decisions answered (§1, §8.6). Nothing built yet.**
+opened and read on `main` on the date given in its section heading.
 
-**Priority: HIGHEST** (owner, 2026-09-11).
+> **STATUS: SHIPPED 2026-09-15/16 — everything except LIRA-191, which the owner deferred.**
+> All eighteen owner decisions answered (§1). See **§12** for what landed, where, and the two
+> things that genuinely remain. This header previously read "Nothing built yet" for a full day
+> after the work shipped — the exact staleness trap this repo keeps hitting. If you are reading
+> this to decide what to do next, trust §12 and the commit log, not any prose above it.
 
 ---
 
@@ -671,8 +674,9 @@ and the drawer-based path are untouched.
 1. **A mistaken OMT App credit top-up cannot be voided**, only corrected by an opposite manual entry
    on the Suppliers page. Unchanged from iPick, but newly reachable from a button (§5 LIRA-190). The
    owner has not ruled on whether that is acceptable.
-2. **e2e has not run.** Four desktop specs and four web specs are written and unexecuted — the owner
-   deferred this ("later"). It is the last real gap before this ships.
+2. **e2e — partially run, NOT yet green.** Superseded by §12.2; the short version is that the owner
+   ran the WEB suite on 2026-09-15, five of this epic's specs failed, all five were fixed, and the
+   suite has **not been re-run since**. The DESKTOP suite has never run at all.
 3. ~~**LIRA-193**~~ — **FIXED 2026-09-15** on the owner's go. Three defects closed, not the two filed:
    the reconciliation gap, a mutual-exclusion gap found while tracing, and a currency-bucketing leak
    the adversarial review found AFTER the first fix landed. Full suite 5,963 tests green, and 17
@@ -755,3 +759,58 @@ fix itself was adversarially attacked. The three originally found were:
 Defect 1 and defect 3 of the table above therefore exist in production right now. This work only
 found them because settlement was being rewritten beside them. **Recommend a dedicated ticket at
 high priority.**
+
+---
+
+## §12 What shipped, where, and what remains (2026-09-16)
+
+### §12.1 Commits
+
+| Commit | What |
+| ------ | ---- |
+| `40a184c8` | The epic: LIRA-187/188/189/190/192 + LIRA-193. 81 files, migration v176 |
+| `02d033a4` | The account settle sheet was unreachable on a laptop screen (no height cap, no internal scroll, so its top was pushed off the viewport). Plus three corrected web-spec assertions |
+| `6ea06edf` | The Transactions type filter ignored five of its own filters on web, and now takes several types at once. Not strictly this epic, but it was found while looking at OMT rows and the fix is what makes filtering by "Whish App Send" actually show only that |
+| `3dbb82b9` | Opening any dropdown dragged the whole page sideways. Shared `Select`, so it affected every screen, not just OMT |
+
+`LIRA-191` is **not** in any of them, deliberately.
+
+### §12.2 e2e — the honest status
+
+**This is the one real gap.** The specs exist; they are not proven.
+
+| Suite | State |
+| ----- | ----- |
+| Web | Run once by the owner on 2026-09-15. **Five of this epic's specs failed**, all five were fixed in `02d033a4`, and the suite has **NOT been re-run since**. So the fixes themselves are unverified. |
+| Desktop | **Never run.** Four specs, entirely unexecuted. |
+
+Six *other* web specs failed in that same run and are **not** this epic's fault — three carrier-line
+specs that have been broken since the Profits password shipped on 2026-09-07 (the spec predates the
+gate), two maintenance-parts specs, and one flaky debts timeout. Worth their own ticket; they have
+been red for over a week without anyone noticing.
+
+Before running desktop: do a `yarn dev` cycle. Several agents rebuilt the native module for Node
+during this work, so the desktop app and its e2e will fail at startup until the Electron build is
+restored. That is the documented ABI flip, not damage.
+
+### §12.3 What actually remains
+
+1. **LIRA-191** — grouping configurable in Service Providers settings, and the Whish-base question
+   (§5, D9). Deferred by the owner until the account has been used in anger. Unchanged.
+2. **Prove the e2e** (§12.2). The last thing standing between this and "done".
+3. **One unanswered owner question**: a mistaken OMT App credit top-up cannot be voided, only
+   corrected by an opposite manual entry. Unchanged from how iPick has always behaved, but now
+   reachable from a button, so more people will hit it. The owner has not ruled on whether that is
+   acceptable (§10.4).
+
+### §12.4 Things found along the way that outlived this epic
+
+- **LIRA-193** — the leg-reconciliation bug class was LIVE in shipped code (`settleTransactions`,
+  `recordSupplierCashflow`). Fixed (§11.4). Three defects, not the two filed.
+- **The shared `Select` pinned its panel by the right edge**, so a wide trigger pushed the panel past
+  the window, gave the document horizontal scroll it was never meant to have, and let focus drag the
+  whole app shell sideways. `MultiSelect` and `InventoryFiltersPopover` already pinned left; `Select`
+  was the odd one out. Fixed in `3dbb82b9`, and `MainLayout` now locks document overflow as a
+  backstop.
+- **`max-h-60` on that panel had never worked** — @headlessui writes `maxHeight` inline and an inline
+  style beats a class. Worth remembering before writing another Tailwind cap on a floating panel.

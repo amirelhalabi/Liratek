@@ -7,7 +7,7 @@
 > already carried later entries, which is how it misleads.
 >
 > **Earlier marker** — 2026-07-19 (validation sweep — see
-> `docs/plans/todo_plans/PARTIAL_TASKS_COMPLETION_PLAN.md`. Corrections:
+> `docs/plans/done_plans/PARTIAL_TASKS_COMPLETION_PLAN.md`. Corrections:
 > "Whish App SEND/RECEIVE" shipped long ago via `OmtWhishAppTransferForm`
 > (Send/Receive tabs); T-61 Loto shipped (v1.29 era, lira-091 guarded);
 > sell-price catalog now 137 zero-`sell` items (was 199); OMT/Whish **System

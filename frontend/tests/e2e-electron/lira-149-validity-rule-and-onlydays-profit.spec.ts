@@ -3,7 +3,7 @@
  *
  * Both fixes come from the owner's 2026-08-29 testing notes and both were
  * interviewed to a decision before being built
- * (`docs/plans/todo_plans/OWNER_NOTES_2026-08-29.md`, §6.4 and §2.5).
+ * (`docs/plans/done_plans/OWNER_NOTES_2026-08-29.md`, §6.4 and §2.5).
  *
  * ── LIRA-157, the validity rule ────────────────────────────────────────────
  * Owner: charging a line expired 22 days ago showed 30 days left, and a

@@ -1,7 +1,7 @@
 /**
  * Shared money-posting helpers.
  *
- * Seed of CQ-3 (docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md):
+ * Seed of CQ-3 (docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md):
  * this file is the home for `insertPaymentRow` and `applyDrawerDelta` — the
  * shared posting primitives every money repository used to hand-roll as
  * local prepared-statement wrappers (a 36-copy drawer-balance upsert and a
@@ -335,7 +335,7 @@ export function expectedTotalIn(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// CQ-3: shared posting helpers (docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md)
+// CQ-3: shared posting helpers (docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md)
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
@@ -446,7 +446,7 @@ export function insertPaymentRow(
 
 // ─────────────────────────────────────────────────────────────────────────
 // CQ-4: charge-routing guards + bookClientDebtCharge
-// (docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md)
+// (docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md)
 // ─────────────────────────────────────────────────────────────────────────
 //
 // Survey (docs/COUNTERPARTY_LEDGERS.md §2/§3): a "for partner" branch in
@@ -669,13 +669,13 @@ export function assertNoCustomerAccountLeg(
 
 // ─────────────────────────────────────────────────────────────────────────
 // CQ-5: counterparty discount posting
-// (docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md)
+// (docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md)
 // ─────────────────────────────────────────────────────────────────────────
 //
 // Survey (CQ-5): DebtRepository._postDebtDiscount, SupplierRepository.
 // _postSupplierDiscount, and PartnerRepository.recordDiscount were all
 // written in the CQ-10 wave and are near-identical in ONE specific place —
-// the D1 sign/flow decision (docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md
+// the D1 sign/flow decision (docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md
 // "Owner decisions" D1) and the `counterparty` metadata assembly. Everything
 // AROUND that (the ledger-row INSERT — 'Debt Discount'/'DISCOUNT' must stay a
 // literal at the Debt call site for `moduleDebtTypes.guard`; the `UPDATE …

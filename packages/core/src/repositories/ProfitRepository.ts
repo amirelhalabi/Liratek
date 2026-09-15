@@ -371,7 +371,7 @@ export function notPartnerPending(refTable: string, idExpr: string): string {
  * `ratio == 1` implies `notPartnerPending` would say "not pending" (a
  * pre-existing caller can keep using the binary gate unchanged; this
  * fragment only matters to a NEW caller that wants the fraction instead of
- * the yes/no). See `docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md`
+ * the yes/no). See `docs/plans/done_plans/PARTNER_PROPORTIONAL_RECOGNITION.md`
  * for the full call-site classification and lane split this fragment feeds.
  * NOT yet wired into any existing query — adding this fragment changes zero
  * behaviour by itself (proven by the unchanged jest baseline).
@@ -571,7 +571,7 @@ function salePaidOrPartnerSettled(alias: string): string {
 
 /**
  * Proportional counterpart of {@link salePaidOrPartnerSettled} (owner
- * decision 2026-09-05, docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md,
+ * decision 2026-09-05, docs/plans/done_plans/PARTNER_PROPORTIONAL_RECOGNITION.md,
  * Lane A). Returns a NUMERIC weight in [0, 1] — NOT a boolean:
  *
  *  - `1.0` when the customer paid the sale in full ({@link saleFullyPaid}).
@@ -996,7 +996,7 @@ export function maintenanceCostUsd(alias: string): string {
 
 /**
  * DBT-2 / PFT-6 (proportional recognition, 2026-09-05 — Step 2 of
- * docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md) — the
+ * docs/plans/done_plans/PARTNER_PROPORTIONAL_RECOGNITION.md) — the
  * transactions-alias counterpart of the (literal-`refTable`) fragment
  * `partnerCoverageRatio(refTable, idExpr)` documented in that plan (§1).
  * `partnerCoverageRatio` cannot be called from `getByUser`/`getByClient`/

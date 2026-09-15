@@ -1,7 +1,7 @@
 /**
  * `saleRecognitionWeight` — unit tests for the sales-path proportional-
  * recognition fragment (owner decision 2026-09-05; Lane A of
- * docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md).
+ * docs/plans/done_plans/PARTNER_PROPORTIONAL_RECOGNITION.md).
  *
  * Mirrors `ProfitRepository.partnerCoverageRatio.test.ts`'s own precedent:
  * this exercises the raw SQL expression directly against a minimal in-memory

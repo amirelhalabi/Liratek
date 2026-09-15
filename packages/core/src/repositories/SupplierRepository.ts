@@ -1981,7 +1981,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     // path and on the cashless SUPPLIER_PAYS_US path below. That split is
     // load-bearing twice over: it is the ONLY thing separating "real money
     // arrived" from "nothing arrived", and per LIRA-158 owner decision D17
-    // (docs/plans/todo_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §8) it is
+    // (docs/plans/done_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §8) it is
     // now also what decides immediate vs deferred commission recognition —
     // bills recognise immediately (real money in the drawer), OMT/WHISH
     // defers until the row's own client debt is covered. LIRA-138 still
@@ -2692,7 +2692,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *      `source_table`/`source_id`, which IS this ledger row) — so voiding/
    *      refunding the settlement finds and soft-voids this row for free.
    *      This row is also the anchor LIRA-158 owner decision D17
-   *      (docs/plans/todo_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §8)
+   *      (docs/plans/done_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §8)
    *      builds on: because no drawer is topped up here, the commission it
    *      credits is not yet real money, so downstream reporting DEFERS its
    *      recognition until this row's own client debt is covered — do not

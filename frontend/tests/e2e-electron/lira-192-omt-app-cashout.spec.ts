@@ -1,6 +1,6 @@
 /**
  * E2E: LIRA-192 — "Cash Out to OMT" (OMT App wallet cashout)
- * (docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §8, D10-D16).
+ * (docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §8, D10-D16).
  *
  * The mirror of LIRA-190's credit top-up: the `OMT_App` wallet balance goes
  * DOWN and the OMT open-credit account is credited principal PLUS a 0.1%

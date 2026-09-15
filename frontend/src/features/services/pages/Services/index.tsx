@@ -1152,7 +1152,7 @@ export default function Services() {
         // instead of same-system ones only), this hardcode becomes wrong
         // and partnerMode must become derived from
         // `provider === partner.system_association`. See
-        // docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md and the
+        // docs/plans/ongoing_plans/PARTNER_DISBURSEMENT_MATRIX.md and the
         // guard test Services.throughPartnerInvariant.test.tsx, which fails
         // the moment the filter is removed.
         ...(selectedPartnerId

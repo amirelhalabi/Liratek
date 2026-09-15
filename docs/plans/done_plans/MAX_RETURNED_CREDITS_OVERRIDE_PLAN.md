@@ -1,5 +1,14 @@
 # Max Returned Credits — per-card override
 
+> # ✅ COMPLETE — archived 2026-09-16
+> **Shipped in migration v160, corrected by v169.**
+>
+> Header read "planned, not started". `720e8029` shipped it; `a83d99d8` then fixed a real post-ship bug (v160's backfill silently no-op'd on a fresh install) as v169. `isValidMaxReturnedOverride` and `resolveMaxReturnedCredits` live in `utils/telecomCredit.ts`, with full dual-transport passthrough and the plan's own worked numbers (77.28 → 73.5) matching the migration description.
+>
+> Verified by checking every artifact this document names against source, not by reading
+> its status line — which was wrong. Everything below is the original text, preserved as
+> the design record. **Do not trust its header; trust this block.**
+
 **Status:** planned, not started · **Owner interview:** 2026-09-07 · **Migration:** v160 (v159 is the last shipped)
 
 ## 0. The problem in one paragraph

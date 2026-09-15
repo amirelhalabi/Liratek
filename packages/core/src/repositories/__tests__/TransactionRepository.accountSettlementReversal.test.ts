@@ -1,6 +1,6 @@
 /**
  * LIRA-189 — reversal owner for the OMT ACCOUNT settlement (rule 20, CLAUDE.md
- * rule 17). Contract: `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md`
+ * rule 17). Contract: `docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md`
  * §5/§9.4, `CONTRACT_W2.md` §1/§1.1/§3 (lane W2).
  *
  * `SupplierRepository.settleAccount` (lane W1) is being built in parallel and

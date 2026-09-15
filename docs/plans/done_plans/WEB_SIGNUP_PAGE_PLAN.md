@@ -1,5 +1,14 @@
 # Web sign-up page — plan
 
+> # ✅ COMPLETE — archived 2026-09-16
+> **Shipped as the invite-gated signup page.**
+>
+> Header read "not built". `80f4b4e2` shipped `frontend/src/features/auth/pages/Signup.tsx` as the single screen §3 designed, and `POST /api/auth/signup` (`backend/src/api/auth.ts:568-620`) exactly per §4 — public, `signupSchema`, delegating straight to `provisionTenant(...)`, with its own `signupLimiter`. **Opening the invite gate is a different plan** and stays live: `todo_plans/OPEN_PUBLIC_SIGNUP_PLAN.md`.
+>
+> Verified by checking every artifact this document names against source, not by reading
+> its status line — which was wrong. Everything below is the original text, preserved as
+> the design record. **Do not trust its header; trust this block.**
+
 **Goal:** a public sign-up page for the web app that does what the desktop setup
 wizard does — stand up a working shop from nothing — except it creates a
 **tenant** on the shared server instead of a local database file.

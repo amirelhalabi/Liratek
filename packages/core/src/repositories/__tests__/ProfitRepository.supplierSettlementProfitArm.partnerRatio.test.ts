@@ -1,7 +1,7 @@
 /**
  * `supplierSettlementProfitArm` — proportional partner recognition (owner
  * decision 2026-09-05; Lane A of
- * docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md).
+ * docs/plans/done_plans/PARTNER_PROPORTIONAL_RECOGNITION.md).
  *
  * Unlike {@link saleRecognitionWeight} (see its sibling test file), this
  * fragment owns its OWN `SELECT SUM(...)` — the partner gate and the

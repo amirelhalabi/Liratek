@@ -1,5 +1,14 @@
 # Partial-Tasks Completion Plan (LIRA-069 / 070 / 072 / 077)
 
+> # ✅ COMPLETE — archived 2026-09-16
+> **All workstreams complete (W1, W2, W4, W5, W6).**
+>
+> The embedded 2026-08-04 validation pass recorded one real gap — no reprint entry point inside the Loto module. That shipped as `frontend/src/features/loto/components/TicketHistoryModal.tsx` in `a3e24aff` (LIRA-100) on **2026-08-08, four days later**. The W1.d auto-print no-op is an explicit 2026-07-28 owner decision, not a gap; the excluded items (137 zero sell-prices, T6, T4) were out of scope by design.
+>
+> Verified by checking every artifact this document names against source, not by reading
+> its status line — which was wrong. Everything below is the original text, preserved as
+> the design record. **Do not trust its header; trust this block.**
+
 **Author:** Claude Fable 5 — 2026-07-19
 **Executors:** 4 parallel Sonnet subagents (W1, W2, W4, W5), one workstream each.
 **Verifier:** Fable 5 (integrated verification phase after all workstreams land).

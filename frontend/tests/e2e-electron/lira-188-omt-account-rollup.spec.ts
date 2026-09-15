@@ -1,6 +1,6 @@
 /**
  * E2E: LIRA-188 — OMT account rollup on the Suppliers page
- * (docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1 D6, §5, §9.3).
+ * (docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1 D6, §5, §9.3).
  *
  * OMT is ONE open-credit account (plan §1 D1). The OMT counter, the OMT App
  * wallet, and iPick credit all draw on it, but ledger rows NEVER move —

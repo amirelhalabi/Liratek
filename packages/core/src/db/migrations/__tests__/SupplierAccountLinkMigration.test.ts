@@ -1,6 +1,6 @@
 /**
  * Migration v176 — add_supplier_account_link
- * (LIRA-187, docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1/§5).
+ * (LIRA-187, docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1/§5).
  *
  * Proves:
  *  - Both nullable columns land: suppliers.account_supplier_id and

@@ -8,7 +8,7 @@ docs) as of 2026-07-14: `packages/core/src/repositories/DebtRepository.ts`,
 `constants/transactionTypes.ts`, and `db/migrations/index.ts` (current head:
 v129). Companion docs: [FEATURE_GUIDE.md](./FEATURE_GUIDE.md) §8/§9/§10 (the
 money-rules version of this material, kept short), the origin tickets
-[COUNTERPARTY_CONSOLIDATION_PLAN.md](./plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md)
+[COUNTERPARTY_CONSOLIDATION_PLAN.md](./plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md)
 (CQ-0…CQ-11) and [PARTNER_FOR_TRANSACTIONS_PLAN.md](./plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md)
 (PFT-1…PFT-7b, DBT-1, DBT-2).
 
@@ -54,7 +54,7 @@ accrue (a module transaction charges the counterparty)
 | Recognition gate          | `notDebtPending` (module services) / `saleFullyPaid` (sales, via `sales.paid_usd`, NOT the debt-ledger coverage columns)                                                                                                                   | `notPartnerPending` / `txnNotPartnerPending` / `salePaidOrPartnerSettled`                                                                                                                               | `financial_services.is_settled` (FS commission only — supplier ledger itself isn't profit-gating for anything but FS)                                                                                                                                    |
 | Reversal owner            | `TransactionRepository._cancelDebt` over `MODULE_DEBT_TRANSACTION_TYPES` (both currencies, ledger-only — no drawer touched)                                                                                                                | `TransactionRepository._reversePartnerLedger` — type-agnostic, keyed by `reference_table`/`reference_id` (no `transaction_id` FK on this table)                                                         | Generic void/refund (soft-void via `is_refunded`) + `_unapplySupplierPurchaseCoverage` (PAY-direction FIFO unwind only)                                                                                                                                  |
 
-Three storage schemas, one behavior family. `docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md`
+Three storage schemas, one behavior family. `docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md`
 (CQ-1…CQ-11) is the plan to consolidate the _behavior_ (shared FIFO allocator,
 posting helpers, charge-routing helper) without touching the schemas —
 **CQ-1 through CQ-11 have landed** (see the "Update (2026-07-19)" note above

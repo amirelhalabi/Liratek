@@ -1,7 +1,7 @@
 /**
  * CQ-11 (part A) — PartnerService.settle() split-leg settlement.
  *
- * docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
+ * docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
  * (2026-07-18)". Partner settlements accept an optional `payments[]` array
  * (e.g. settle $100 as $60 CASH + $40 OMT) so the shared MultiPaymentInput
  * settle modal can be offered on the Partners page. When `payments` is

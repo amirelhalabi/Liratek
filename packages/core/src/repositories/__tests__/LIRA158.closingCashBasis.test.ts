@@ -3,7 +3,7 @@
  * D10/D14).
  *
  * `ClosingRepository.getDailyStatsSnapshot`'s `finProfit` sub-query
- * (docs/plans/todo_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §1.3, §3
+ * (docs/plans/done_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §1.3, §3
  * Phase 4) had three independent defects:
  *
  *   1. No `commission_model` gate — summed the stale creation-time ESTIMATE

@@ -1,7 +1,7 @@
 /**
  * CQ-11 (part A) — partnerSettleSchema split-leg settlement contract.
  *
- * docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
+ * docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
  * (2026-07-18)" — partner settlements accept split payment legs (e.g. settle
  * $100 as $60 CASH + $40 OMT) so the shared MultiPaymentInput settle modal
  * can be offered on the Partners page. `payments` is optional and additive —

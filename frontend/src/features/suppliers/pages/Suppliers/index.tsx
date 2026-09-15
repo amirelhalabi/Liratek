@@ -1232,7 +1232,7 @@ export default function SuppliersPage() {
   // check is what tells the UI apart. That split now matters twice over:
   // it picks the drawer-top-up UI (bills) vs the cashless SUPPLIER_PAYS_US
   // UI (OMT/WHISH), and per LIRA-158 owner decision D17
-  // (docs/plans/todo_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §8) the
+  // (docs/plans/done_plans/LIRA-158_COMMISSION_REPORTING_PLAN.md §8) the
   // cashless side is where a settlement's commission now DEFERS recognition
   // until the client repays, instead of counting immediately the way a
   // bill's does.

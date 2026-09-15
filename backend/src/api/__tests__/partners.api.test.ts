@@ -1,7 +1,7 @@
 /**
  * Partners REST route tests — CQ-11 (part A): split-leg settlement.
  *
- * docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
+ * docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
  * (2026-07-18)". Scoped to POST /api/partners/settle's new optional
  * `payments[]` field — proving the REAL router + REAL partnerSettleSchema
  * (via validateRequest) accept/reject exactly what the schema-level tests in

@@ -1,5 +1,16 @@
 # Plans
 
+> **Start at [`ongoing_plans/PLAN_OVERVIEW.md`](ongoing_plans/PLAN_OVERVIEW.md)** — the whole board
+> in one page: every plan in `todo_plans/` and `ongoing_plans/`, its status **verified against
+> source** rather than against its own header, what genuinely remains, and how the plans depend on
+> each other. It is a living document; never archive it.
+>
+> It lists **only open work**. Finished plans are not in it — they are in `done_plans/`.
+>
+> Built by the 2026-09-16 sweep, which checked 26 plans against source and found **11 finished and
+> filed as unfinished**. Those were archived and 7 more moved out of `todo_plans`, leaving a real
+> board of **17**.
+
 Three folders, split by **how far the work has got**, not by how important it
 is:
 

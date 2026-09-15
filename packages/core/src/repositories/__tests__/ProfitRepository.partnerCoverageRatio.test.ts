@@ -1,7 +1,7 @@
 /**
  * `partnerCoverageRatio` — unit tests for the proportional-recognition
  * foundation fragment (2026-09-05 owner decision; see
- * `docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md`).
+ * `docs/plans/done_plans/PARTNER_PROPORTIONAL_RECOGNITION.md`).
  *
  * This exercises the raw SQL expression directly against a minimal in-memory
  * schema — it does NOT go through `ProfitRepository`'s tenant-scoped query

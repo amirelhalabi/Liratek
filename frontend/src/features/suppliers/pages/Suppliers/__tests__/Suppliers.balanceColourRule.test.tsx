@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 /**
- * Balance Pages colour audit (`docs/plans/todo_plans/BALANCE_PAGES_UX_AUDIT.md`),
+ * Balance Pages colour audit (`docs/plans/ongoing_plans/BALANCE_PAGES_UX_AUDIT.md`),
  * owner's rule verbatim (2026-08-10): "Positive account should be green,
  * means shop owes the second party."
  *

@@ -1,6 +1,6 @@
 /**
  * E2E: LIRA-190 — OMT App wallet loads on OMT credit by default
- * (docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1 D2/D4, §5).
+ * (docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1 D2/D4, §5).
  *
  * Before this ticket, `topUpApp` was the ONLY way to fund the OMT App
  * wallet, and its default source drawer was `OMT_System` — every wallet

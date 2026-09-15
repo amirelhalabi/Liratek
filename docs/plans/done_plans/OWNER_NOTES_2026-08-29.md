@@ -1,5 +1,14 @@
 # Owner Notes — 2026-08-29 · triage, diagnosis & task plan
 
+> # ✅ COMPLETE — archived 2026-09-16
+> **All six owner notes resolved.**
+>
+> The status table listed three as "designed only, NOT built" — all three have since shipped. LIRA-095: `FinancialServiceRepository.ts:821-827` now carries the `commission_model = 1` GROSS branch for OMT/WHISH. LIRA-154 + LIRA-155: `d7e9cb7f`, migration v158 adding `custom_services.partner_mode`/`fulfillment_status`/`fulfilled_at` with the exact CHECK constraint D4.2 specified. The other three (LIRA-157/153/156) were already marked shipped and were re-confirmed in source.
+>
+> Verified by checking every artifact this document names against source, not by reading
+> its status line — which was wrong. Everything below is the original text, preserved as
+> the design record. **Do not trust its header; trust this block.**
+
 **Source:** 6 freeform owner notes from a live testing session (WhatsApp, 3:52 AM 2026-08-29).
 **Method:** every note traced to source at HEAD `526eba3f`, read-only. Every claim below carries a
 `file:line`. Nothing has been changed — this is a design + triage document, not an implementation.

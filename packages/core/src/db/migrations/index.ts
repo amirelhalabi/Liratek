@@ -11395,7 +11395,7 @@ export const MIGRATIONS: Migration[] = [
     name: "add_supplier_account_link",
     description:
       "LIRA-187 (OMT open-credit account, wave 1 — " +
-      "docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1/§5). OMT is " +
+      "docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §1/§5). OMT is " +
       "ONE open-credit account; 'iPick' and 'OMT App' are CHILDREN of the " +
       "'OMT' parent supplier row, linked by a new nullable self-FK " +
       "suppliers.account_supplier_id. Ledger rows never move — each child " +

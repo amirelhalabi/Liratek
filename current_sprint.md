@@ -9,7 +9,7 @@
 > — **BUILT 2026-09-15, uncommitted, awaiting diff review.**
 >
 > **✓ LIRA-193 (below) — the live money bug in shipped code is now FIXED** (uncommitted, with this
-> epic). Three defects closed, not the two filed; the third was found by attacking the first fix — plan in `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md`, board entry at the bottom of this file.
+> epic). Three defects closed, not the two filed; the third was found by attacking the first fix — plan in `docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md`, board entry at the bottom of this file.
 
 ---
 
@@ -356,7 +356,7 @@ report a file count - an empty glob passed silently).
 | **Priority**         | **High** (latent today, realizes on first use)                                |
 | **Status**           | **DONE** (2e9e822)                                                            |
 | **Affected Modules** | omt_whish, partners                                                           |
-| **Source Plan**      | `docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md` (22be723), VIOLATES #1 |
+| **Source Plan**      | `docs/plans/ongoing_plans/PARTNER_DISBURSEMENT_MATRIX.md` (22be723), VIOLATES #1 |
 
 ### Summary
 
@@ -755,7 +755,7 @@ nothing else in the whitelist is affected.
 
 ---
 
-[LIRA-137 - docs/plans/todo_plans/BILL_COMMISSION_SETTLEMENT_PLAN.md - done]
+[LIRA-137 - docs/plans/done_plans/BILL_COMMISSION_SETTLEMENT_PLAN.md - done]
 
 ---
 
@@ -1300,7 +1300,7 @@ half.
 drawer-free by design) may already cover this if the owner meant the shop-SIM credits reading.
 If they meant the _resale_ provider-drawer balance, the decrement gap remains. Downgraded to
 NEEDS INTERVIEW — confirm which balance the owner meant before building
-(see `docs/plans/todo_plans/OWNER_NOTES_TASK_PLAN.md` §B).
+(see `docs/plans/ongoing_plans/OWNER_NOTES_TASK_PLAN.md` §B).
 
 ### Acceptance Criteria
 
@@ -4008,7 +4008,7 @@ a real router.
 | **Type**     | Money model change (rules 16, 17, 18, 20)                                                                 |
 | **Priority** | **HIGHEST** (owner, 2026-09-11)                                                                           |
 | **Status**   | **BUILT 2026-09-15, NOT COMMITTED** — awaiting the owner's diff review. 77 paths (+4,967/-135). Gates run by the orchestrator: build / typecheck / lint exit 0; full suite **639 suites, 5,941 tests, 0 failures**. **Desktop + web e2e specs written but NEVER RUN** (needs the owner's `yarn dev` → stop → e2e cycle). LIRA-191 deliberately NOT built (deferred, D9). |
-| **Plan**     | `docs/plans/todo_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` — decisions D1–D16, code facts, full ticket bodies |
+| **Plan**     | `docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` — decisions D1–D16, code facts, full ticket bodies |
 
 OMT is ONE open-credit account: the counter (OMT SEND/RECEIVE), the OMT App wallet, and iPick credit
 all draw on it and are settled with one payment from the OMT Cash Drawer. Loading the wallet or iPick

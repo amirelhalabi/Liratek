@@ -1,5 +1,14 @@
 # LIRA-176 — Maintenance Parts, Parts Profit, and Job Detail Panel
 
+> # ✅ COMPLETE — archived 2026-09-16
+> **Shipped in migrations v170 + v171.**
+>
+> Header read "PLANNED — awaiting owner approval". `396b0dfa` shipped it: `maintenance_parts_and_stock_link` (v170) and `maintenance_status_history` (v171), `MaintenanceRepository.syncParts`/`recordStatusChange`, `PartPicker.tsx`, and CheckoutModal's `extraTotals`. The flagged profit blocker was fixed properly — a shared `maintenanceCostUsd()` fragment (`ProfitRepository.ts:993`) now feeds both its own call sites and `ClosingRepository`, replacing the hand-rolled formula (rule 14).
+>
+> Verified by checking every artifact this document names against source, not by reading
+> its status line — which was wrong. Everything below is the original text, preserved as
+> the design record. **Do not trust its header; trust this block.**
+
 **Status:** PLANNED — not implemented. Awaiting owner approval of this document.
 **Author:** Fable 5.1 orchestrator, 2026-09-07.
 **Owner decisions:** captured in §1 (interview held 2026-09-06/07, all four rounds answered).

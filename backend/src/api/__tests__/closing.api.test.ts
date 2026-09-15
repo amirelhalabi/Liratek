@@ -2,7 +2,7 @@
  * Closing REST route tests — CQ-9 follow-up (rule 19): REST mirrors for the
  * three Dashboard.tsx reads that previously had no REST route and were
  * gated behind isElectron() (getLastCheckpointPerDrawer, hasInitialBalancesSet,
- * hasStartingCheckpoint — see docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md).
+ * hasStartingCheckpoint — see docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md).
  *
  * Hits the REAL router (../closing.js) through a minimal Express app; only
  * ../../server.js (logger) and ../../middleware/auth.js (x-test-role stand-in

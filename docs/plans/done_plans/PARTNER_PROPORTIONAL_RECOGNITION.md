@@ -1,5 +1,14 @@
 # Partner-Proportional Profit Recognition — Foundation (Step 1 of 3)
 
+> # ✅ COMPLETE — archived 2026-09-16
+> **All three steps shipped, not just the foundation.**
+>
+> The title still says "Foundation (Step 1 of 3)" and the body says "**No existing query was converted**". Both are false: `ProfitRepository.ts` today has **90 `partnerCoverageRatio` call sites and 24 `txnPartnerCoverageRatio` call sites** (counted 2026-09-16), including the `txnPartnerCoverageRatio` sibling §9 said was deliberately not built. Steps 2 and 3 shipped in `5d61f9a4` (#74) on 2026-09-06, one day after this document was written, and the commit resolved §8b's open count-column question explicitly.
+>
+> Verified by checking every artifact this document names against source, not by reading
+> its status line — which was wrong. Everything below is the original text, preserved as
+> the design record. **Do not trust its header; trust this block.**
+
 Owner decision 2026-09-05: partner obligations across `ProfitRepository`'s
 `FOR_%` modules are recognised **proportionally as the partner pays**,
 instead of all-or-nothing. Scope is the Profits page only. `ClosingRepository`

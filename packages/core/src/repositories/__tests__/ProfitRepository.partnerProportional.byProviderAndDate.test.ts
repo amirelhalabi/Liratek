@@ -2,7 +2,7 @@
  * ProfitRepository — partner-PROPORTIONAL recognition (Lane C of the
  * partner-proportional-recognition rollout; owner decision 2026-09-05).
  *
- * `docs/plans/todo_plans/PARTNER_PROPORTIONAL_RECOGNITION.md` classifies 19
+ * `docs/plans/done_plans/PARTNER_PROPORTIONAL_RECOGNITION.md` classifies 19
  * `notPartnerPending` call sites; this lane owns 10 of them (sites #10-#19 in
  * that doc): `getFinancialSettledByProvider`'s allocation + base arms,
  * `getRechargesByCarrier`, and six of `getByDate`'s per-day CTEs, plus

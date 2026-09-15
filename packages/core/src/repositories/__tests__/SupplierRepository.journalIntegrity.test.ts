@@ -1,7 +1,7 @@
 /**
  * SupplierRepository — CQ-7 journal integrity (funnel + dead-corner fixes)
  *
- * docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md — CQ-7. Four
+ * docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md — CQ-7. Four
  * fixes proven here; every one is constructed to FAIL on pre-fix code
  * (rule 17):
  *

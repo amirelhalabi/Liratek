@@ -1,7 +1,7 @@
 /**
  * CQ-8 — counterparty transaction metadata contract guard.
  *
- * docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
+ * docs/plans/done_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md, "Extension
  * (2026-07-18)". Every counterparty money transaction (the seven write sites
  * across DebtRepository/SupplierRepository/PartnerRepository) must stamp a
  * `counterparty` object into `transactions.metadata_json` that parses against

@@ -21,7 +21,7 @@
  * precondition directly: given a partner list containing BOTH a
  * matching-system partner and a mismatched one (system_association
  * `"SYRIA"`, an unrelated value that exists only to prove filtering, per
- * `docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md`'s "hwelet souria"
+ * `docs/plans/ongoing_plans/PARTNER_DISBURSEMENT_MATRIX.md`'s "hwelet souria"
  * case), the mismatched partner must never be OFFERED as a choice in the
  * THROUGH-mode selector while the matching partner(s) ARE offered.
  *

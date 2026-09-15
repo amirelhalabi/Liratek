@@ -1197,7 +1197,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // mismatched case here to catch by re-deriving the mode server-side.
       // This is a client-input-trust decision that holds only as long as
       // that selector stays filtered — see
-      // docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md and the
+      // docs/plans/ongoing_plans/PARTNER_DISBURSEMENT_MATRIX.md and the
       // frontend guard test Services.throughPartnerInvariant.test.tsx. No
       // logic change belongs here if that invariant ever breaks — the fix
       // is to derive `partnerMode` before it reaches this repository.

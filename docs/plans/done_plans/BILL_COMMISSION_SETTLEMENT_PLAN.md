@@ -1,5 +1,14 @@
 # Bill commission settlement — diagnosis + plan (Katsh, LIRA-131-ish)
 
+> # ✅ COMPLETE — archived 2026-09-16
+> **Shipped as LIRA-137.**
+>
+> The header said "DIAGNOSIS ONLY — nothing built" while the same file's §4 already described what shipped. `4fd0ad10` is on `main`: `SupplierRepository.isBillsOnlyBatch` (`:1993`) and `_bookBillsCommissionDrawerTopUp` (`:1949-2034`), `serviceType` enum carrying `BILL`, and `lira-web-021-bill-commission-settlement.spec.ts`. Generalising beyond Katsh bills was deliberately split out as LIRA-138.
+>
+> Verified by checking every artifact this document names against source, not by reading
+> its status line — which was wrong. Everything below is the original text, preserved as
+> the design record. **Do not trust its header; trust this block.**
+
 **Status: DIAGNOSIS ONLY — nothing built.** The owner asked to plan this before it is built. This
 doc: (1) the owner's report, (2) exactly why the modal behaves that way today (`file:line`), (3) a
 proposed design with the owner decisions it needs. **No production code, no migration.**
