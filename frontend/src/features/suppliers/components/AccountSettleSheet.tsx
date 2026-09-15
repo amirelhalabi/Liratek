@@ -266,7 +266,7 @@ export function AccountSettleSheet({
       data-testid="supplier-account-settle-sheet"
     >
       <div
-        className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-2xl shadow-2xl overflow-hidden"
+        className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl"
         role="presentation"
         onMouseDown={(e) => e.stopPropagation()}
       >

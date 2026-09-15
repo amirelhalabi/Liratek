@@ -223,15 +223,19 @@ function findUnsettled(
   return row!;
 }
 
-// ── The settlement transaction itself. ─────────────────────────────────────
+// ── The settlement transaction itself. `profit_usd`/`profit_lbp` are NOT
+// listed here: `/api/transactions/recent`'s SELECT deliberately omits them
+// (profit sits behind the Profits page's password gate, v163) — see
+// `fetchTransactionDetail`'s doc comment below for where profit IS read
+// from. `metadata_json` IS returned by `/recent` (getRecent's own SELECT
+// names it) — used to confirm which member suppliers a settlement touched.
 interface SettlementTxn {
   id: number;
   type: string;
   amount_usd: number;
   amount_lbp: number;
-  profit_usd: number;
-  profit_lbp: number;
   status: string;
+  metadata_json: string | null;
 }
 async function findSettlementTxns(
   page: Page,
@@ -248,6 +252,36 @@ async function findSettlementTxns(
   return (r.transactions as SettlementTxn[]).filter(
     (t) => Math.abs(t.amount_usd - amountUsd) < 0.01,
   );
+}
+
+/**
+ * `GET /api/transactions/recent` omits `profit_usd`/`profit_lbp` on purpose
+ * (see `SettlementTxn`'s doc comment). `GET /api/transactions/:id` goes
+ * through `TransactionService.getById` → `BaseRepository.findById`, which
+ * SELECTs every column (`getColumns()`) behind `requireAuth` only — no
+ * profits gate. That is a real, pre-existing, ungated route, so reading
+ * profit off it is not "adding profit to the recent endpoint"; it is the one
+ * REST surface that already exposes a single transaction's profit honestly.
+ * Mirrors lira-web-034's identical helper (kept local — these two spec files
+ * don't share a util module).
+ */
+interface TxnDetail {
+  id: number;
+  profit_usd: number;
+  profit_lbp: number;
+}
+async function fetchTransactionDetail(
+  page: Page,
+  headers: { Authorization: string },
+  id: number,
+): Promise<TxnDetail> {
+  const r = await (
+    await page.request.get(`${BACKEND_URL}/api/transactions/${id}`, {
+      headers,
+    })
+  ).json();
+  expect(r.success, JSON.stringify(r)).toBeTruthy();
+  return r.transaction as TxnDetail;
 }
 
 /** `packages/core/src/constants/omtAppCashout.ts` — D13's 0.1%, USD 2dp
@@ -355,8 +389,18 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     expect(settled.success, JSON.stringify(settled)).toBeTruthy();
     expect(settled.id, JSON.stringify(settled)).toBeTruthy();
 
-    // ── §1.1 mechanism: both rows are findable and stamped from the ONE
-    // settlement — same `settlement_id`, whatever value W1 chose for it. ───
+    // ── §1.1 mechanism: both rows are findable and stamped settled. NOT a
+    // shared `settlement_id` — read `SupplierRepository.settleAccount`'s own
+    // doc comment (step 3/4) before touching this again: each member gets
+    // its OWN new `supplier_ledger` negation row, and every one of that
+    // member's original selected rows is stamped `settlement_id = <that
+    // member's own new row id>` — deliberately never one id shared across
+    // members, so per-member un-stamping stays correct if a settlement is
+    // later reversed for just one member's rows. What IS shared across
+    // members is the new rows' `transaction_id` (not exposed by
+    // `/account-ledger`) — proven below instead via the settlement
+    // transaction's own `metadata_json.members`, which names every member
+    // supplier this exact batch touched. ───────────────────────────────────
     const ledgerAfter = await getAccountLedger(page, headers, omtId);
     const ipickLedgerAfter = ledgerAfter.find((l) => l.id === ipickRow.id);
     const omtAppLedgerAfter = ledgerAfter.find((l) => l.id === omtAppRow.id);
@@ -365,7 +409,9 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
       omtAppLedgerAfter?.settlement_id,
       "OMT App row not stamped settled",
     ).toBeTruthy();
-    expect(omtAppLedgerAfter?.settlement_id).toBe(
+    // The two members' own negation rows are distinct ledger rows, so they
+    // necessarily get distinct self-referencing settlement_id values.
+    expect(omtAppLedgerAfter?.settlement_id).not.toBe(
       ipickLedgerAfter?.settlement_id,
     );
     // Rows never move (plan §2) — the raw amounts are untouched by settling.
@@ -414,6 +460,21 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     const txns = await findSettlementTxns(page, headers, TOTAL);
     expect(txns, JSON.stringify(txns)).toHaveLength(1);
     expect(txns[0].status).toBe("ACTIVE");
+
+    // ── The two rows really DO "belong to the settlement" together: what's
+    // shared across members is the ONE settlement transaction (proven above)
+    // and its own `metadata_json.members` list — not a shared
+    // `settlement_id` (see the comment above disproving that). Both member
+    // suppliers this batch touched must be named on it. "They all reverse
+    // together" is W1's own jest proof (`SupplierRepository.
+    // accountSettlement.test.ts`), deliberately not re-proven here (file
+    // header, rule 14). ─────────────────────────────────────────────────────
+    const settlementMeta = JSON.parse(
+      txns[0].metadata_json ?? "{}",
+    ) as { members?: number[] };
+    expect(settlementMeta.members).toEqual(
+      expect.arrayContaining([ipickRow.supplier_id, omtAppRow.supplier_id]),
+    );
   });
 
   test("a cash-out-only selection is NET NEGATIVE and settles via COLLECT: cash flows INTO the OMT Cash Drawer, the row nets to 0, and the deferred cash-out commission is stamped as profit automatically (D14) — never operator-entered", async ({
@@ -527,10 +588,17 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     ).toBe(false);
 
     // ── D14: profit on the settlement is EXACTLY the cash-out's stored
-    // commission (0 operator commission entered) — computed, not typed. ───
+    // commission (0 operator commission entered) — computed, not typed.
+    // `/recent` doesn't carry profit_usd (see `SettlementTxn`'s doc
+    // comment) — read it off `/transactions/:id` instead. ──────────────────
     const txns = await findSettlementTxns(page, headers, COLLECT_TOTAL);
     expect(txns, JSON.stringify(txns)).toHaveLength(1);
-    expect(txns[0].profit_usd).toBeCloseTo(COMMISSION, 2);
+    const settlementDetail = await fetchTransactionDetail(
+      page,
+      headers,
+      txns[0].id,
+    );
+    expect(settlementDetail.profit_usd).toBeCloseTo(COMMISSION, 2);
   });
 
   test("selecting a ledger row from a supplier OUTSIDE the OMT account is REJECTED — the server re-validates membership, it never trusts the client's ids (D8)", async ({

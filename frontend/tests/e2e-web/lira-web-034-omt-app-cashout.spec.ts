@@ -132,8 +132,6 @@ interface Txn {
   type: string;
   amount_usd: number;
   amount_lbp: number;
-  profit_usd: number;
-  profit_lbp: number;
   status: string;
   metadata_json: string | null;
 }
@@ -161,6 +159,40 @@ async function findCashoutTxn(
     `WALLET_CASHOUT transaction not found for amount ${amount} ${currency}`,
   ).toBeTruthy();
   return txn!;
+}
+
+/**
+ * `GET /api/transactions/recent` deliberately omits `profit_usd`/`profit_lbp`
+ * from its SELECT list (`TransactionRepository.getRecent`) — profit sits
+ * behind the Profits page's password gate (v163), and the general
+ * transactions list is not gated, so those columns are left off on purpose.
+ * `GET /api/transactions/:id`, by contrast, goes through
+ * `TransactionService.getById` → `BaseRepository.findById`, which SELECTs
+ * every column (`getColumns()`) and carries no profits-gate middleware — it
+ * is `requireAuth` only, same as `/recent`. That is a real, pre-existing,
+ * ungated route (already relied on below for the post-void status check), so
+ * reading profit off IT is not "adding profit to the recent endpoint" —
+ * it's using the one REST surface that already exposes a single
+ * transaction's profit honestly, without touching any production code.
+ */
+interface TxnDetail {
+  id: number;
+  status: string;
+  profit_usd: number;
+  profit_lbp: number;
+}
+async function fetchTransactionDetail(
+  page: Page,
+  headers: { Authorization: string },
+  id: number,
+): Promise<TxnDetail> {
+  const r = await (
+    await page.request.get(`${BACKEND_URL}/api/transactions/${id}`, {
+      headers,
+    })
+  ).json();
+  expect(r.success, JSON.stringify(r)).toBeTruthy();
+  return r.transaction as TxnDetail;
 }
 
 test.describe("OMT App cash-out (LIRA-192)", () => {
@@ -234,9 +266,17 @@ test.describe("OMT App cash-out (LIRA-192)", () => {
 
       // Locate the created transaction by identity (run-unique amount) and
       // confirm D14: commission is STORED, but profit is 0 at creation.
+      // `metadata_json` IS present on `/recent` (getRecent's own SELECT
+      // names it); profit is checked separately via `/transactions/:id` —
+      // see `fetchTransactionDetail`'s doc comment for why that's honest.
       const txn = await findCashoutTxn(page, headers, amount, currency);
-      expect(txn.profit_usd).toBe(0);
-      expect(txn.profit_lbp).toBe(0);
+      const detailAtCreation = await fetchTransactionDetail(
+        page,
+        headers,
+        txn.id,
+      );
+      expect(detailAtCreation.profit_usd).toBe(0);
+      expect(detailAtCreation.profit_lbp).toBe(0);
       const meta = JSON.parse(txn.metadata_json ?? "{}") as {
         commission?: number;
       };
@@ -274,13 +314,12 @@ test.describe("OMT App cash-out (LIRA-192)", () => {
         digits,
       );
 
-      const detail = await (
-        await page.request.get(`${BACKEND_URL}/api/transactions/${txn.id}`, {
-          headers,
-        })
-      ).json();
-      expect(detail.success, JSON.stringify(detail)).toBeTruthy();
-      expect(detail.transaction.status).toBe("VOIDED");
+      const detailAfterVoid = await fetchTransactionDetail(
+        page,
+        headers,
+        txn.id,
+      );
+      expect(detailAfterVoid.status).toBe("VOIDED");
     });
   }
 
