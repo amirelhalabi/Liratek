@@ -6,8 +6,10 @@
  * `z-[60]`).
  *
  * Root cause (confirmed by reading @headlessui/react's source, not
- * guessed): `<ListboxOptions anchor="bottom end">` (Select.tsx) forces
- * `portal=true` internally the moment `anchor` is set
+ * guessed): `<ListboxOptions anchor="bottom start">` (Select.tsx — the
+ * anchor's exact direction changed later for an unrelated overhang bug, but
+ * any `anchor` value forces the same portaling) forces `portal=true`
+ * internally the moment `anchor` is set
  * (@headlessui/react/dist/components/listbox/listbox.js:
  * `let{...anchor:s,portal:a=!1,...}=b, o=Ze(s); o&&(a=!0)`). Every open
  * Select in the app is portaled into ONE shared

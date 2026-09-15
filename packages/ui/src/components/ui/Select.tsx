@@ -71,7 +71,7 @@ export default function Select({
         </ListboxButton>
 
         <ListboxOptions
-          anchor="bottom end"
+          anchor="bottom start"
           // LIRA-120: `anchor` forces @headlessui/react to portal this panel
           // into ONE shared <div id="headlessui-portal-root"> appended to
           // <body> (dist/components/portal/portal.js) — the SAME div every
@@ -103,8 +103,96 @@ export default function Select({
           // without ALSO risking outranking things that should stay on top
           // (toasts), so this is a deliberate, revisitable ceiling rather
           // than the CSS max.
+          //
+          // anchor="bottom start" is the PRIMARY fix for the layout bug
+          // (opening OMT/Whish's "OMT Service" dropdown dragged the whole
+          // document sideways, hiding the sidebar). This was shipped first
+          // as anchor="bottom end", which pins the panel's RIGHT edge to
+          // the trigger's right edge — floating-ui computes that edge from
+          // the panel's MEASURED width, and `ListboxOptions` renders with
+          // its real `min-w-[var(--button-width)]` width already applied
+          // by the time position is computed, so on a trigger spanning
+          // most of the page (~1500px) this offset math is done against a
+          // wide box relative to the trigger, and any small mismatch
+          // between the measured/used width and the trigger's own width
+          // pushes the box's LEFT edge past the trigger's left edge —
+          // there's no headroom to the right of "end" to absorb an
+          // oversized box, only to the left, straight into the sidebar's
+          // territory and beyond. `anchor="bottom start"` pins the LEFT
+          // edge to the trigger's left edge instead: any growth in the
+          // panel's own width (from `min-w` matching a wide trigger, or
+          // simply exceeding it) extends RIGHTWARD from that fixed left
+          // edge, and `shift` (@floating-ui/react-dom middleware,
+          // unconditionally included in this component's `useFloating`
+          // config — confirmed by reading
+          // @headlessui/react/dist/internal/floating.js) pulls the whole
+          // box back into the viewport if that rightward growth would
+          // overflow it, the same way it already protects every
+          // start-anchored dropdown elsewhere in this app (MultiSelect.tsx,
+          // InventoryFiltersPopover.tsx already use `anchor="bottom
+          // start"` with no reported overhang). No CSS clamp is airtight
+          // against every measurement-timing edge case an anchor choice
+          // can hit; picking the anchor whose growth direction `shift` can
+          // always correct for is what actually closes this off structurally.
+          //
+          // min-w-[min(var(--button-width),calc(100vw-1rem))] is the
+          // BACKSTOP, not the fix, for one specific pathological case the
+          // alignment change above does NOT cover: a trigger wider than
+          // the viewport itself (`--button-width > 100vw`), where even a
+          // correctly left-anchored, shift-corrected panel would still be
+          // wider than the window. `max-w` cannot do this job: per the CSS
+          // box-sizing algorithm, when `min-width` and `max-width`
+          // conflict, `min-width` wins (evaluated AFTER max-width is
+          // applied, so it always has the final say) — a
+          // `max-w-[calc(100vw-1rem)]` class would be silently overridden
+          // by a wider `min-w`, and it's doubly moot regardless:
+          // @floating-ui/dom's `size` middleware unconditionally sets its
+          // own INLINE `max-width` on this exact element too
+          // (`${availableWidth}px`, confirmed by reading
+          // @headlessui/react/dist/internal/floating.js) on every
+          // reposition, and an inline style always beats any class — so
+          // ANY `max-w-*` class here is DEAD for capping purposes; only
+          // the floor is actually reachable. `min()` inside the min-width
+          // itself is the only lever that works: it clamps `--button-width`
+          // against the viewport BEFORE min/max resolution ever runs, so
+          // the used min-width can never exceed `calc(100vw-1rem)` no
+          // matter how wide the trigger measures. Do not "simplify" this
+          // back to a plain `max-w-*` class — it looks sufficient and is
+          // not (see failing-first proof in
+          // Select.viewportBoundedWidth.test.tsx).
+          //
+          // max-w-[calc(100vw-1rem)] is kept anyway as a second, currently
+          // redundant bound — per the paragraph above it is superseded by
+          // floating-ui's own inline `max-width` on every real render.
+          // There is no `--anchor-max-width` CSS var to hook into the way
+          // `--anchor-max-height` works below: reading
+          // @headlessui/react/dist/internal/floating.js, the `size`
+          // middleware's `apply` sets `maxHeight` as
+          // `min(var(--anchor-max-height, 100vh), Npx)` (a `var()` we can
+          // feed) but sets `maxWidth` as a bare `${availableWidth}px` —
+          // no variable indirection at all. So unlike the height case,
+          // there is currently no lever that would make this class do
+          // real capping work; it stays only as documentation of intent /
+          // a fallback should that internal ever change, not as something
+          // this fix depends on — the anchor change and the min-width
+          // clamp above are what actually bound the panel.
+          //
+          // [--anchor-max-height:15rem]: the same `size` middleware
+          // unconditionally sets an INLINE `max-height` on this exact
+          // element — `min(var(--anchor-max-height, 100vh), <space below
+          // the trigger>px)` — every time it repositions. An inline style
+          // always wins over the `max-h-60` Tailwind class below, so
+          // without this CSS var the panel's real cap is however much
+          // room happens to be below the trigger, not 15rem — which is
+          // why a tall list could render 8 full rows instead of scrolling
+          // after ~6. Setting `--anchor-max-height` feeds INTO that same
+          // inline calc (headlessui reads it via `var()`), which is the
+          // only way to actually constrain it; `max-h-60` is kept as a
+          // documented fallback/no-op-if-unused.
           className={`
-            z-[500] min-w-[var(--button-width)] max-h-60 overflow-auto
+            z-[500] min-w-[min(var(--button-width),calc(100vw-1rem))]
+            max-w-[calc(100vw-1rem)]
+            max-h-60 [--anchor-max-height:15rem] overflow-auto
             rounded-lg bg-slate-900 border border-slate-700
             py-1 shadow-lg ring-1 ring-black ring-opacity-5
             focus:outline-none text-sm

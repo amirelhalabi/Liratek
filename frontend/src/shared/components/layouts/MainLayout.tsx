@@ -26,6 +26,39 @@ export default function MainLayout({ children }: MainLayoutProps) {
     }
   }, [location.pathname]);
 
+  // The shop app's layouts (LeftPanelLayout, HomeViewLayout) are both
+  // `h-screen overflow-hidden` wrapping a `<main overflow-auto>` — the
+  // document itself is never meant to scroll, only `<main>` is. Nothing
+  // enforced that: there are no `html`/`body` rules anywhere in the app's
+  // CSS. A portaled element outside this shell (e.g. the shared `Select`'s
+  // option panel, which @headlessui/react appends to <body>) can still make
+  // the DOCUMENT scrollable, and focusing it then drags the whole shell
+  // sideways — the sidebar and header scroll out of view. Locking
+  // `html`/`body` overflow while the shop app is mounted closes that off
+  // structurally, regardless of what any individual portaled element does.
+  //
+  // Scoped to MainLayout, not global: Signup and SuperAdminLayout are both
+  // `min-h-screen` with no overflow guard of their own and are mounted
+  // OUTSIDE MainLayout (see App.tsx — `/login`/`/signup` are standalone
+  // routes, SuperAdminRoute uses SuperAdminLayout, never MainLayout). A
+  // blanket html/body rule would make their content unreachable on a short
+  // window. Restoring the previous inline value on unmount matters too:
+  // logging out unmounts MainLayout and returns to `/login`, which must
+  // still be able to scroll.
+  useEffect(() => {
+    const { documentElement, body } = document;
+    const previousHtmlOverflow = documentElement.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+
+    documentElement.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+
+    return () => {
+      documentElement.style.overflow = previousHtmlOverflow;
+      body.style.overflow = previousBodyOverflow;
+    };
+  }, []);
+
   const [layoutMode, setLayoutMode] = useState(
     () => localStorage.getItem("layout_mode") || "left-panel",
   );
