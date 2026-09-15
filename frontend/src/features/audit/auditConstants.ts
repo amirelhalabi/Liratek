@@ -455,6 +455,15 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   "WALLET_CASHOUT",
 ]);
 
+/** Every FILTER_GROUPS option, flattened — the multi-select Type filter's
+ *  full option list, and what `useTransactionRows.ts` matches the operator's
+ *  selected labels against. Defined once here (rule 14) so the flat list
+ *  used by the UI and the lookup used by the fetch/filter hook can never
+ *  drift out of sync. */
+export const ALL_FILTER_OPTIONS: FilterOption[] = FILTER_GROUPS.flatMap(
+  (g) => g.options,
+);
+
 /** Service transactions that can (re)print a detailed receipt (RCP-3). POS
  *  sales reprint from Sale Detail; these are the service modules (T8). */
 export const RECEIPTABLE_TYPES: ReadonlySet<string> = new Set([

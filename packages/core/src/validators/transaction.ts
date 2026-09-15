@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRANSACTION_TYPES, type TransactionType } from "../constants/transactionTypes.js";
 
 /**
  * Transaction-level (unified journal) validation schemas.
@@ -77,3 +78,46 @@ export const refundUnitExtrasSchema = z.array(refundUnitExtraSchema).min(1);
 
 export type RefundUnitExtraInput = z.infer<typeof refundUnitExtraSchema>;
 export type RefundUnitExtrasInput = z.infer<typeof refundUnitExtrasSchema>;
+
+/**
+ * Transactions page multi-select Type filter (TransactionRepository.getRecent
+ * `typeFilters`). One (type, provider, service_type, has_item_key) tuple per
+ * selected FILTER_GROUPS option; the repository OR's the tuples together as
+ * one group, ANDed with every other filter (date range, search,
+ * excludeTypes, …) — see the long comment on `TransactionFilters.typeFilters`.
+ *
+ * Shared by BOTH transports: IPC passes the array straight through
+ * (structured-clone survives plain objects, so `electron.d.ts`/preload widen
+ * to `Record<string, unknown>` and no validation is needed there beyond the
+ * existing handler). REST can't — query strings are text — so the web
+ * adapter (`backendApi.ts`) JSON-encodes the array into one `typeFilters`
+ * query param, and this is what the route (`backend/src/api/transactions.ts`)
+ * parses it back into. `type` is restricted to the real transaction-type
+ * enum (values end up in `json_extract(...) = ?` placeholders either way, so
+ * this isn't for SQL-injection safety — it's to fail loudly on a garbled
+ * client payload rather than silently returning zero rows).
+ */
+const transactionTypeValues = Object.values(TRANSACTION_TYPES) as [
+  TransactionType,
+  ...TransactionType[],
+];
+
+export const transactionTypeFilterSchema = z.object({
+  type: z.enum(transactionTypeValues).optional(),
+  provider: z.string().min(1).optional(),
+  service_type: z.string().min(1).optional(),
+  has_item_key: z.boolean().optional(),
+});
+
+/** Capped well above FILTER_GROUPS' real option count — a defensive bound,
+ *  not a real-world limit. */
+export const transactionTypeFiltersSchema = z
+  .array(transactionTypeFilterSchema)
+  .max(50);
+
+export type TransactionTypeFilterInput = z.infer<
+  typeof transactionTypeFilterSchema
+>;
+export type TransactionTypeFiltersInput = z.infer<
+  typeof transactionTypeFiltersSchema
+>;

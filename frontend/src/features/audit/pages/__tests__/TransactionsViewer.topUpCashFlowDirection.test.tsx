@@ -109,7 +109,7 @@ async function renderWithRow(row: ReturnType<typeof baseRow>) {
   render(
     <TransactionsViewer
       limit="50"
-      selectedFilter="All"
+      selectedFilters={[]}
       search=""
       from=""
       to=""

@@ -14,6 +14,7 @@ import type {
   SafeSession,
   Client,
   CreateUserInput,
+  TransactionTypeFilterInput,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -3028,6 +3029,11 @@ export interface TransactionFiltersParam {
   has_item_key?: boolean;
   search?: string;
   excludeTypes?: string[];
+  /** Transactions page multi-select Type filter: a UNION of tuples, OR'd
+   *  together server-side (TransactionRepository.getRecent). Type derived
+   *  from the shared core schema (rule 21), not hand-written, so this can
+   *  never drift from what the REST route/repository actually accept. */
+  typeFilters?: TransactionTypeFilterInput[];
 }
 
 export async function getRecentTransactions(
@@ -3040,7 +3046,22 @@ export async function getRecentTransactions(
   const params = new URLSearchParams({ limit: String(limit) });
   if (filters) {
     Object.entries(filters).forEach(([k, v]) => {
-      if (v !== undefined) params.set(k, String(v));
+      if (v === undefined) return;
+      if (k === "typeFilters") {
+        // `String(v)` on an array of OBJECTS collapses to "[object Object]"
+        // (unlike `excludeTypes` above, whose plain strings survive a
+        // comma-join) — encode deliberately as JSON instead. The route
+        // (backend/src/api/transactions.ts) parses this back and validates
+        // it with the same core schema before it ever reaches
+        // `json_extract(...) = ?` placeholders (rule 23: never trust a
+        // client string without validating its shape first).
+        const typeFilters = v as TransactionTypeFilterInput[];
+        if (Array.isArray(typeFilters) && typeFilters.length > 0) {
+          params.set("typeFilters", JSON.stringify(typeFilters));
+        }
+        return;
+      }
+      params.set(k, String(v));
     });
   }
   const res = await requestJson<{ success: boolean; transactions: any[] }>(

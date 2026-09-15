@@ -4,12 +4,19 @@ import {
   type TransactionFiltersParam,
 } from "@/api/backendApi";
 import {
-  FILTER_GROUPS,
+  ALL_FILTER_OPTIONS,
+  parseMetaSafe,
   isExpenseVisible,
   isSupplierPaymentVisible,
+  type FilterOption,
 } from "../auditConstants";
 import { isCashTransaction, extraCurrencyLegs } from "../cashFlow";
 import type { TransactionPaymentLeg } from "../cashFlow";
+
+/** One element of `TransactionFiltersParam.typeFilters` — derived from the
+ *  adapter's own type rather than hand-written, so it can never drift from
+ *  what the REST route/repository actually accept (rule 21). */
+type TypeFilterTuple = NonNullable<TransactionFiltersParam["typeFilters"]>[number];
 
 /**
  * Loading, filtering and window-widening for the transactions table.
@@ -63,7 +70,72 @@ export type TransactionRow = {
   account_payments?: TransactionPaymentLeg[];
 };
 
-const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
+/**
+ * Whether ONE row's type/provider/service_type/item_key structurally
+ * matches ONE FILTER_GROUPS option's tuple. Mirrors the SQL predicate
+ * `TransactionRepository.getRecent`'s `buildTypeTupleConditions` builds — a
+ * client-side twin is needed because a MIXED multi-selection (a typed option
+ * alongside an untyped one, e.g. "Cash only (till)") disables the SQL-level
+ * type restriction entirely (see `typeTuples` in `load` below, and the
+ * comment on why), so the exact tuple has to be re-checked here per row
+ * instead of trusted straight from the fetch.
+ */
+function matchesTypeTuple(row: TransactionRow, option: FilterOption): boolean {
+  if (!option.type) return true;
+  if (option.type !== row.type) return false;
+  const meta = parseMetaSafe(row.metadata_json);
+  if (option.provider !== undefined && meta.provider !== option.provider) {
+    return false;
+  }
+  if (
+    option.service_type !== undefined &&
+    meta.service_type !== option.service_type
+  ) {
+    return false;
+  }
+  if (option.has_item_key === true && meta.item_key == null) return false;
+  if (option.has_item_key === false && meta.item_key != null) return false;
+  return true;
+}
+
+/**
+ * Whether ONE row should be visible under ONE selected filter option — every
+ * rule for that single option ANDed together (its type tuple, the D2
+ * SUPPLIER_PAYMENT/EXPENSE auto-row hide, the Cash Only leg check). The
+ * multi-select's union is `effectiveOptions.some(opt =>
+ * isRowVisibleForOption(row, opt))` in `load` below: "Whish App Send" +
+ * "Katsh Bills" shows a row that matches EITHER option's full rule set, not
+ * just a shared type.
+ */
+function isRowVisibleForOption(
+  row: TransactionRow,
+  option: FilterOption,
+): boolean {
+  if (!matchesTypeTuple(row, option)) return false;
+  if (
+    row.type === "SUPPLIER_PAYMENT" &&
+    !isSupplierPaymentVisible(row.metadata_json, option)
+  ) {
+    return false;
+  }
+  if (row.type === "EXPENSE" && !isExpenseVisible(row.metadata_json, option)) {
+    return false;
+  }
+  if (option.cash_only) {
+    const legs = [
+      ...(row.payments ?? []),
+      ...extraCurrencyLegs(row.type, row.metadata_json),
+    ];
+    if (!isCashTransaction(legs)) return false;
+  }
+  return true;
+}
+
+/** "All types" (nothing selected) is represented as one implicit option with
+ *  no constraints at all — reproduces exactly the historical `activeOption
+ *  === undefined` default-view behavior (D2 hides auto rows, nothing else
+ *  narrowed) via the SAME isRowVisibleForOption used for a real selection. */
+const ALL_TYPES_OPTION: FilterOption = { label: "" };
 
 // Transaction types blanket-hidden from the table regardless of any per-row
 // metadata: client-activity log noise (CLIENT_CREATED), not useful in the
@@ -87,8 +159,9 @@ const FETCH_CAP = 5000;
 export interface UseTransactionRowsParams {
   /** Row count the operator asked for, as the raw select value. */
   limit: string;
-  /** Label of the active FILTER_GROUPS option. */
-  selectedFilter: string;
+  /** Labels of the SELECTED FILTER_GROUPS options — a UNION (OR) of every
+   *  one's tuple. Empty array means "All types" (the cleared state). */
+  selectedFilters: string[];
   search: string;
   /** Inclusive yyyy-mm-dd date bounds, "" when unset. */
   from: string;
@@ -107,7 +180,7 @@ export interface UseTransactionRowsResult {
 
 export function useTransactionRows({
   limit,
-  selectedFilter,
+  selectedFilters,
   search,
   from,
   to,
@@ -115,17 +188,57 @@ export function useTransactionRows({
   const [rows, setRows] = useState<TransactionRow[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // A content-derived primitive key, not the array reference itself. Any
+  // caller that builds `selectedFilters` fresh per render (an inline `[]` in
+  // JSX, say) would otherwise recreate `load` — and refire the effect below
+  // — every render even though the actual selection hasn't changed
+  // (CLAUDE.md rule 25: an unstable *dependency*, not the array type itself,
+  // is the hazard). Order-independent, so reordering the same selection is a
+  // no-op re-fetch.
+  const filterKey = selectedFilters.slice().sort().join("|");
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const activeOption = ALL_OPTIONS.find((o) => o.label === selectedFilter);
+      const activeOptions = ALL_FILTER_OPTIONS.filter((o) =>
+        selectedFilters.includes(o.label),
+      );
       const filters: TransactionFiltersParam = {};
-      if (activeOption?.type) filters.type = activeOption.type;
-      if (activeOption?.provider) filters.provider = activeOption.provider;
-      if (activeOption?.service_type)
-        filters.service_type = activeOption.service_type;
-      if (activeOption?.has_item_key !== undefined)
-        filters.has_item_key = activeOption.has_item_key;
+
+      // One (type, provider, service_type, has_item_key) tuple per selected
+      // option that HAS a type — the multi-select's OR-group, sent to the
+      // repository as `typeFilters` (TransactionRepository.getRecent OR's
+      // them together at the SQL level, so LIMIT still applies to
+      // already-filtered rows). An UNTYPED option (today, only "Cash only
+      // (till)") can match a row of ANY type, so mixing it into the same
+      // selection means the union can no longer be expressed as a SQL type
+      // restriction at all — leave the fetch unrestricted by type in that
+      // case (typeFilters omitted) and let filterVisible's per-row union
+      // below (isRowVisibleForOption) do the real narrowing, exactly like
+      // today's single "Cash only" selection already does.
+      const typeTuples: TypeFilterTuple[] = activeOptions
+        .filter((o) => o.type)
+        .map(
+          (o) =>
+            ({
+              // FilterOption.type is a plain `string` — FILTER_GROUPS'
+              // values are curated to real transaction-type strings (they
+              // already drive this same repository's singular `type`
+              // filter), but nothing ties that literal-for-literal to the
+              // core schema's narrower enum at this frontend layer, hence
+              // the cast.
+              type: o.type,
+              provider: o.provider,
+              service_type: o.service_type,
+              has_item_key: o.has_item_key,
+            }) as TypeFilterTuple,
+        );
+      if (
+        activeOptions.length > 0 &&
+        typeTuples.length === activeOptions.length
+      ) {
+        filters.typeFilters = typeTuples;
+      }
       if (search) filters.search = search;
 
       // Exclude the always-hidden types at the SQL level so LIMIT is applied
@@ -139,49 +252,29 @@ export function useTransactionRows({
       filters.excludeTypes = Array.from(HIDDEN_TRANSACTION_TYPES);
 
       const requested = Number(limit) || 50;
-      const filterVisible = (fetched: TransactionRow[]) => {
-        let vis = fetched.filter((r) => {
-          if (HIDDEN_TRANSACTION_TYPES.has(r.type)) return false;
-          if (r.type === "SUPPLIER_PAYMENT") {
-            return isSupplierPaymentVisible(r.metadata_json, activeOption);
-          }
-          // Auto-generated EXPENSE rows (e.g. the recharge SMS transfer fee,
-          // ExpenseRepository.createExpense stamping metadata.is_auto when
-          // source_ref_table is set) stay hidden by default, same rule as
-          // SUPPLIER_PAYMENT above — a per-row JS check because is_auto lives
-          // in metadata_json, which the SQL-level excludeTypes can't see.
-          // Rule 17: prove this fails first — comment out this branch (fall
-          // through to `return true`) and confirm the "auto EXPENSE hidden
-          // under All types" test in useTransactionRows.test.ts fails, then
-          // restore it.
-          if (r.type === "EXPENSE") {
-            return isExpenseVisible(r.metadata_json, activeOption);
-          }
-          return true;
-        });
-        // B6: "Cash only (till)" — keep transactions with a CASH payment leg.
-        // A foreign-currency top-up/cash-out is till cash posted with the CASH
-        // method (its Method column says so); dropping it here purely because
-        // the leg can't survive the upstream USD/LBP filter would contradict
-        // the row's own displayed method.
-        if (activeOption?.cash_only) {
-          vis = vis.filter((r) =>
-            isCashTransaction([
-              ...(r.payments ?? []),
-              ...extraCurrencyLegs(r.type, r.metadata_json),
-            ]),
-          );
-        }
-        return vis;
-      };
+      // "All types" (nothing selected) reproduces the exact default-view
+      // rule every per-option helper below already implements for a
+      // type-less, cash_only-less option.
+      const effectiveOptions: FilterOption[] =
+        activeOptions.length > 0 ? activeOptions : [ALL_TYPES_OPTION];
 
-      // The SQL exclusion only covers CLIENT_CREATED now. The per-row
-      // JS-only filters above (SUPPLIER_PAYMENT's is_auto/is_credit checks,
-      // Cash Only's joined payment legs) can under-fill a window — a run of
-      // auto-generated supplier rows is the same "crowds out real rows"
-      // risk CLIENT_CREATED bulk-imports posed pre-D2 — so keep widening the
-      // fetch until it's satisfied or the table is exhausted (raw came back
-      // shorter than what we asked for).
+      const filterVisible = (fetched: TransactionRow[]) =>
+        fetched.filter((r) => {
+          if (HIDDEN_TRANSACTION_TYPES.has(r.type)) return false;
+          // The multi-select's union: visible if it matches ANY selected
+          // option's full rule set (rule 17 guard below proves this isn't
+          // accidentally an AND, or a match on the first option only).
+          return effectiveOptions.some((opt) => isRowVisibleForOption(r, opt));
+        });
+
+      // The SQL exclusion only covers CLIENT_CREATED (plus, when every
+      // selected option is typed, the typeFilters union above). The per-row
+      // JS-only filters (SUPPLIER_PAYMENT/EXPENSE auto-hide, Cash Only's
+      // joined payment legs, and any mixed cash_only+typed selection) can
+      // under-fill a window — a run of auto-generated supplier rows is the
+      // same "crowds out real rows" risk CLIENT_CREATED bulk-imports posed
+      // pre-D2 — so keep widening the fetch until it's satisfied or the
+      // table is exhausted (raw came back shorter than what we asked for).
       let fetchSize = requested * WIDEN_FACTOR;
       const cap = Math.max(fetchSize, FETCH_CAP);
       let visible: TransactionRow[] = [];
@@ -202,7 +295,10 @@ export function useTransactionRows({
     } finally {
       setLoading(false);
     }
-  }, [limit, selectedFilter, search]);
+    // `filterKey` (not `selectedFilters`) is the intentional dependency —
+    // see the comment on its declaration above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limit, filterKey, search]);
 
   useEffect(() => {
     load();

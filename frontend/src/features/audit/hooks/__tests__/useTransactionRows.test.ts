@@ -49,7 +49,7 @@ function makeRows(
 
 const BASE = {
   limit: "10",
-  selectedFilter: "All",
+  selectedFilters: [] as string[],
   search: "",
   from: "",
   to: "",
@@ -163,7 +163,7 @@ describe("useTransactionRows", () => {
     ] as never);
 
     const { result } = renderHook(() =>
-      useTransactionRows({ ...BASE, selectedFilter: "Cash only (till)" }),
+      useTransactionRows({ ...BASE, selectedFilters: ["Cash only (till)"] }),
     );
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -253,7 +253,7 @@ describe("useTransactionRows", () => {
     ] as never);
 
     const { result } = renderHook(() =>
-      useTransactionRows({ ...BASE, selectedFilter: "Expense" }),
+      useTransactionRows({ ...BASE, selectedFilters: ["Expense"] }),
     );
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -269,5 +269,135 @@ describe("useTransactionRows", () => {
 
     result.current.reload();
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+  });
+
+  // ---------------------------------------------------------------------
+  // Multi-select Type filter — the crux of this ticket: selecting two
+  // FILTER_GROUPS options that SHARE a type but differ by provider/
+  // service_type (e.g. "Whish App Send" vs "Katsh") must send BOTH tuples
+  // to the repository, OR'd — not just the first, and not degrade into
+  // "any row of that type".
+  // ---------------------------------------------------------------------
+
+  it("sends one typeFilters tuple per selected option when selecting two options", async () => {
+    mockFetch.mockResolvedValue([] as never);
+
+    renderHook(() =>
+      useTransactionRows({
+        ...BASE,
+        selectedFilters: ["Whish App Send", "Katsh"],
+      }),
+    );
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+
+    const filters = mockFetch.mock.calls[0][1] as {
+      typeFilters?: Array<Record<string, unknown>>;
+    };
+    expect(filters.typeFilters).toEqual([
+      {
+        type: "FINANCIAL_SERVICE",
+        provider: "WHISH_APP",
+        service_type: "SEND",
+        has_item_key: false,
+      },
+      {
+        type: "FINANCIAL_SERVICE",
+        provider: "Katsh",
+      },
+    ]);
+  });
+
+  it("returns the UNION of two selected options — rows matching EITHER, not just the first", async () => {
+    mockFetch.mockResolvedValue([
+      {
+        id: 1,
+        type: "FINANCIAL_SERVICE",
+        created_at: "2026-08-28 09:00:00",
+        metadata_json: JSON.stringify({
+          provider: "WHISH_APP",
+          service_type: "SEND",
+        }),
+      },
+      {
+        id: 2,
+        type: "FINANCIAL_SERVICE",
+        created_at: "2026-08-28 08:00:00",
+        metadata_json: JSON.stringify({ provider: "Katsh" }),
+      },
+      // Same TYPE as both selected options but a DIFFERENT provider — must
+      // be excluded from the union.
+      {
+        id: 3,
+        type: "FINANCIAL_SERVICE",
+        created_at: "2026-08-28 07:00:00",
+        metadata_json: JSON.stringify({ provider: "iPick" }),
+      },
+    ] as never);
+
+    const { result } = renderHook(() =>
+      useTransactionRows({
+        ...BASE,
+        selectedFilters: ["Whish App Send", "Katsh"],
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.rows.map((r) => r.id).sort()).toEqual([1, 2]);
+  });
+
+  it("mixing an untyped option (Cash only) with a typed option omits the SQL typeFilters restriction but still unions correctly client-side", async () => {
+    mockFetch.mockResolvedValue([
+      // Matches "MTC" by type+provider — no cash leg, but still visible via
+      // the type-tuple branch of the union.
+      {
+        id: 1,
+        type: "RECHARGE",
+        created_at: "2026-08-28 09:00:00",
+        payments: [],
+        metadata_json: JSON.stringify({ provider: "MTC" }),
+      },
+      // Doesn't match "MTC" (different provider) but HAS a cash leg — still
+      // visible via the cash_only branch of the union.
+      {
+        id: 2,
+        type: "SALE",
+        created_at: "2026-08-28 08:00:00",
+        payments: [
+          {
+            direction: "in",
+            amount: 10,
+            signed_amount: 10,
+            currency_code: "USD",
+            method: "CASH",
+          },
+        ],
+        metadata_json: null,
+      },
+      // Matches NEITHER — different type/provider, no cash leg.
+      {
+        id: 3,
+        type: "RECHARGE",
+        created_at: "2026-08-28 07:00:00",
+        payments: [],
+        metadata_json: JSON.stringify({ provider: "Alfa" }),
+      },
+    ] as never);
+
+    const { result } = renderHook(() =>
+      useTransactionRows({
+        ...BASE,
+        selectedFilters: ["Cash only (till)", "MTC"],
+      }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const filters = mockFetch.mock.calls[0][1] as {
+      typeFilters?: unknown;
+    };
+    // An untyped option (cash_only) can match a row of ANY type, so the
+    // union can't be expressed as a SQL type restriction — the fetch must
+    // stay unrestricted by type and rely on the client-side union filter.
+    expect(filters.typeFilters).toBeUndefined();
+    expect(result.current.rows.map((r) => r.id).sort()).toEqual([1, 2]);
   });
 });

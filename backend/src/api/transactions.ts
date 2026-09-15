@@ -16,6 +16,7 @@ import {
   voidCheckoutGroupSchema,
   refundLegsSchema,
   refundUnitExtrasSchema,
+  transactionTypeFiltersSchema,
 } from "@liratek/core";
 import { validateParams } from "../middleware/validation.js";
 import { logger } from "../server.js";
@@ -37,6 +38,63 @@ router.get("/recent", requireAuth, async (req, res) => {
     if (req.query.source_table) filters.source_table = req.query.source_table;
     if (req.query.from) filters.from = req.query.from;
     if (req.query.to) filters.to = req.query.to;
+    if (req.query.provider) filters.provider = req.query.provider;
+    if (req.query.service_type) filters.service_type = req.query.service_type;
+    // Query params arrive as strings — `Boolean("false")` is `true`, so this
+    // must compare against the literal string rather than coerce. A present
+    // "false" maps to the boolean filter `false`; an absent param leaves
+    // has_item_key unset (no filter at all), mirroring
+    // useTransactionRows.ts's `activeOption?.has_item_key !== undefined`
+    // check on the desktop/IPC side.
+    if (req.query.has_item_key !== undefined) {
+      filters.has_item_key = req.query.has_item_key === "true";
+    }
+    if (req.query.search) filters.search = req.query.search;
+    // backendApi.ts's web branch serializes `excludeTypes: string[]` via
+    // `String(v)`, which for an array is `Array.prototype.join(",")` — undo
+    // that same encoding here instead of guessing a different format.
+    if (req.query.excludeTypes) {
+      const excludeTypes = String(req.query.excludeTypes)
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      if (excludeTypes.length > 0) filters.excludeTypes = excludeTypes;
+    }
+    // Transactions page multi-select Type filter (rule 22: one payload
+    // shape, built once by useTransactionRows.ts regardless of transport).
+    // `String(v)` on an array of OBJECTS collapses to "[object Object]" —
+    // unlike excludeTypes above, a comma-join can't round-trip a tuple, so
+    // the web adapter JSON-encodes the array into this one query param
+    // instead. Never trust that string blind: it's about to feed
+    // `json_extract(...) = ?` placeholders, so validate its shape with the
+    // SAME schema the IPC side implicitly relies on (rule 23) before it
+    // reaches the repository.
+    if (req.query.typeFilters) {
+      let rawTypeFilters: unknown;
+      try {
+        rawTypeFilters = JSON.parse(String(req.query.typeFilters));
+      } catch {
+        res.status(400).json({
+          success: false,
+          error: "typeFilters must be valid JSON",
+        });
+        return;
+      }
+      const parsedTypeFilters =
+        transactionTypeFiltersSchema.safeParse(rawTypeFilters);
+      if (!parsedTypeFilters.success) {
+        res.status(400).json({
+          success: false,
+          error:
+            parsedTypeFilters.error.issues[0]?.message ??
+            "Invalid typeFilters",
+        });
+        return;
+      }
+      if (parsedTypeFilters.data.length > 0) {
+        filters.typeFilters = parsedTypeFilters.data;
+      }
+    }
 
     const txnService = getTransactionService();
     const transactions = txnService.getRecent(

@@ -73,7 +73,9 @@ import type {
 
 export interface TransactionsViewerProps {
   limit: string;
-  selectedFilter: string;
+  /** Labels of the selected Type-filter options — a UNION (OR); empty means
+   *  "All types". */
+  selectedFilters: string[];
   search: string;
   from: string;
   to: string;
@@ -81,7 +83,7 @@ export interface TransactionsViewerProps {
 
 export default function TransactionsViewer({
   limit,
-  selectedFilter,
+  selectedFilters,
   search,
   from,
   to,
@@ -93,7 +95,7 @@ export default function TransactionsViewer({
     reload: load,
   } = useTransactionRows({
     limit,
-    selectedFilter,
+    selectedFilters,
     search,
     from,
     to,

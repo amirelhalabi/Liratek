@@ -47,6 +47,7 @@ import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 import { getProductUnitRepository } from "./ProductUnitRepository.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { restoreMaintenanceJobParts } from "./maintenancePartsStock.js";
+import type { TransactionTypeFilterInput } from "../validators/transaction.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -323,6 +324,55 @@ export interface TransactionFilters {
   search?: string;
   /** Types to exclude from the result, applied before LIMIT (see getRecent). */
   excludeTypes?: TransactionType[];
+  /**
+   * Transactions page multi-select Type filter: a UNION of tuples, each one
+   * shaped like the singular type/provider/service_type/has_item_key fields
+   * above. getRecent() OR's the tuples together as ONE group and ANDs that
+   * group with every other condition here (date range, search,
+   * excludeTypes, status, …) — "Whish App Send" + "Katsh Bills" becomes
+   * `(type=FINANCIAL_SERVICE AND provider=WHISH_APP AND service_type=SEND
+   * AND item_key IS NULL) OR (type=FINANCIAL_SERVICE AND provider=Katsh AND
+   * item_key IS NOT NULL)`.
+   *
+   * Non-empty `typeFilters` takes precedence over the singular
+   * type/provider/service_type/has_item_key fields above — those keep
+   * working unchanged for every other caller that only ever needs one
+   * tuple (buildTypeTupleConditions is the single predicate shared by both
+   * paths, rule 14).
+   */
+  typeFilters?: TransactionTypeFilterInput[];
+}
+
+/**
+ * Builds the AND-ed SQL condition fragments for ONE type tuple
+ * (type/provider/service_type/has_item_key), pushing its bound params onto
+ * `params` in the same order. Shared by getRecent()'s singular filters AND
+ * its typeFilters OR-group so this predicate is defined exactly once (rule
+ * 14) — every value still lands in a `?` placeholder, never interpolated.
+ */
+function buildTypeTupleConditions(
+  tuple: TransactionTypeFilterInput,
+  params: unknown[],
+): string[] {
+  const conditions: string[] = [];
+  if (tuple.type) {
+    conditions.push("t.type = ?");
+    params.push(tuple.type);
+  }
+  if (tuple.provider) {
+    conditions.push("json_extract(t.metadata_json, '$.provider') = ?");
+    params.push(tuple.provider);
+  }
+  if (tuple.service_type) {
+    conditions.push("json_extract(t.metadata_json, '$.service_type') = ?");
+    params.push(tuple.service_type);
+  }
+  if (tuple.has_item_key === true) {
+    conditions.push("json_extract(t.metadata_json, '$.item_key') IS NOT NULL");
+  } else if (tuple.has_item_key === false) {
+    conditions.push("json_extract(t.metadata_json, '$.item_key') IS NULL");
+  }
+  return conditions;
 }
 
 export interface DailySummary {
@@ -596,10 +646,6 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const conditions: string[] = ["t.tenant_id = ?"];
     const params: unknown[] = [tenantId];
 
-    if (filters?.type) {
-      conditions.push("t.type = ?");
-      params.push(filters.type);
-    }
     if (filters?.status) {
       conditions.push("t.status = ?");
       params.push(filters.status);
@@ -624,21 +670,36 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       conditions.push("t.created_at <= ?");
       params.push(filters.to);
     }
-    if (filters?.provider) {
-      conditions.push("json_extract(t.metadata_json, '$.provider') = ?");
-      params.push(filters.provider);
-    }
-    if (filters?.service_type) {
-      conditions.push("json_extract(t.metadata_json, '$.service_type') = ?");
-      params.push(filters.service_type);
-    }
-    if (filters?.has_item_key === true) {
+
+    // Type/provider/service_type/has_item_key — either the classic single
+    // tuple (top-level fields, unchanged for every existing caller) or the
+    // Transactions page's multi-select `typeFilters` union. Both funnel
+    // through buildTypeTupleConditions() so the predicate is defined exactly
+    // once (rule 14). A non-empty typeFilters wins: its tuples are OR'd
+    // together as ONE group, which is then ANDed with every condition here
+    // (the group is dropped entirely if every tuple turns out empty).
+    if (filters?.typeFilters && filters.typeFilters.length > 0) {
+      const orGroups = filters.typeFilters
+        .map((tuple) => buildTypeTupleConditions(tuple, params))
+        .filter((tupleConditions) => tupleConditions.length > 0)
+        .map((tupleConditions) => `(${tupleConditions.join(" AND ")})`);
+      if (orGroups.length > 0) {
+        conditions.push(`(${orGroups.join(" OR ")})`);
+      }
+    } else {
       conditions.push(
-        "json_extract(t.metadata_json, '$.item_key') IS NOT NULL",
+        ...buildTypeTupleConditions(
+          {
+            type: filters?.type,
+            provider: filters?.provider,
+            service_type: filters?.service_type,
+            has_item_key: filters?.has_item_key,
+          },
+          params,
+        ),
       );
-    } else if (filters?.has_item_key === false) {
-      conditions.push("json_extract(t.metadata_json, '$.item_key') IS NULL");
     }
+
     if (filters?.search) {
       const term = `%${filters.search}%`;
       conditions.push(

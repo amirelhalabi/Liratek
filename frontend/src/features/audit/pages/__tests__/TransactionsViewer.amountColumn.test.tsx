@@ -210,7 +210,7 @@ describe("TransactionsViewer — CashFlowBadge for a bills-only settlement", () 
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -231,7 +231,7 @@ describe("TransactionsViewer — CashFlowBadge for a bills-only settlement", () 
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -251,7 +251,7 @@ describe("TransactionsViewer — CashFlowBadge for a bills-only settlement", () 
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -351,7 +351,7 @@ const otherPaymentRow140 = baseRow({
 
 // Legacy cashless SUPPLIER_PAYMENT receivable — `is_credit: true`, no
 // `is_auto` key. Per verified fact 7 (`isSupplierPaymentVisible`,
-// auditConstants.ts:111): with `selectedFilter="All"` the active filter
+// auditConstants.ts:111): with `selectedFilters={[]}` the active filter
 // option is undefined, so visibility is `!isAutoSupplierPayment(metaJson)` —
 // an `is_auto: true` row would be hidden and the assertion below would fail
 // for the wrong reason.
@@ -381,7 +381,7 @@ describe("TransactionsViewer — LIRA-140 provider-balance marker", () => {
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -406,7 +406,7 @@ describe("TransactionsViewer — LIRA-140 provider-balance marker", () => {
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -426,7 +426,7 @@ describe("TransactionsViewer — LIRA-140 provider-balance marker", () => {
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -448,7 +448,7 @@ describe("TransactionsViewer — LIRA-140 provider-balance marker", () => {
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -471,7 +471,7 @@ describe("TransactionsViewer — LIRA-140 provider-balance marker", () => {
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -497,7 +497,7 @@ describe("TransactionsViewer — Amount column for a bills-only settlement", () 
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -515,7 +515,7 @@ describe("TransactionsViewer — Amount column for a bills-only settlement", () 
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -535,7 +535,7 @@ describe("TransactionsViewer — Amount column for a bills-only settlement", () 
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -553,7 +553,7 @@ describe("TransactionsViewer — Amount column for a bills-only settlement", () 
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -582,7 +582,7 @@ describe("TransactionsViewer — Amount column for a bills-only settlement", () 
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""
@@ -745,7 +745,7 @@ describe("TransactionsViewer — LIRA-139 Amount column sort order", () => {
     render(
       <TransactionsViewer
         limit="50"
-        selectedFilter="All"
+        selectedFilters={[]}
         search=""
         from=""
         to=""

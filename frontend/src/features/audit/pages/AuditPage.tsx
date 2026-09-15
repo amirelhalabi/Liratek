@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Shield, ArrowLeftRight, Banknote } from "lucide-react";
-import { PageHeader, Select } from "@liratek/ui";
+import { PageHeader, Select, MultiSelect } from "@liratek/ui";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import AuditLogViewer from "./AuditLogViewer";
 import TransactionsViewer from "./TransactionsViewer";
@@ -8,7 +8,7 @@ import CashReportModal from "../components/CashReportModal";
 import {
   ACTION_OPTIONS,
   ENTITY_TYPE_OPTIONS,
-  FILTER_GROUPS,
+  ALL_FILTER_OPTIONS,
 } from "../auditConstants";
 
 type TabKey = "audit" | "transactions";
@@ -18,6 +18,11 @@ const selectClass =
 const inputClass =
   "bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600";
 
+// Flat label list for the Type MultiSelect — stable module-level reference
+// (FILTER_GROUPS never changes at runtime) so it's safe to hand straight to
+// MultiSelect's `options` prop without re-deriving it every render.
+const TYPE_FILTER_LABELS = ALL_FILTER_OPTIONS.map((o) => o.label);
+
 export default function AuditPage() {
   const [active, setActive] = useState<TabKey>("transactions");
 
@@ -26,7 +31,9 @@ export default function AuditPage() {
   const [rowsLimit, setRowsLimit] = useState<number | "">(50);
 
   // Transaction filters
-  const [txSelectedFilter, setTxSelectedFilter] = useState("");
+  // Multi-select Type filter: a UNION (OR) of every selected option's tuple.
+  // Empty array is the cleared "All types" state.
+  const [txSelectedFilters, setTxSelectedFilters] = useState<string[]>([]);
   const [txSearchInput, setTxSearchInput] = useState("");
   const [txSearch, setTxSearch] = useState("");
   const [txFrom, setTxFrom] = useState("");
@@ -86,16 +93,13 @@ export default function AuditPage() {
                 placeholder="Search summary, client, user… (Enter)"
                 className={`${inputClass} w-64`}
               />
-              <Select
-                value={txSelectedFilter}
-                onChange={setTxSelectedFilter}
-                options={[
-                  { value: "", label: "All types" },
-                  ...FILTER_GROUPS.flatMap(({ group, options }) => [
-                    { value: `__group_${group}`, label: group, disabled: true },
-                    ...options.map((o) => ({ value: o.label, label: o.label })),
-                  ]),
-                ]}
+              <MultiSelect
+                label="All types"
+                testId="transactions-type-filter"
+                className="w-56"
+                values={txSelectedFilters}
+                onChange={setTxSelectedFilters}
+                options={TYPE_FILTER_LABELS}
               />
               <DateRangeFilter
                 from={txFrom}
@@ -194,7 +198,7 @@ export default function AuditPage() {
         {active === "transactions" && (
           <TransactionsViewer
             limit={String(rowsLimit || 50)}
-            selectedFilter={txSelectedFilter}
+            selectedFilters={txSelectedFilters}
             search={txSearch}
             from={txFrom}
             to={txTo}
