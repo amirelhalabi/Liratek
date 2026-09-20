@@ -29,6 +29,7 @@ import {
   useSupplierAccountBalancesQuery,
   useSupplierAccountLedgerQuery,
   useSupplierAccountUnsettledQuery,
+  useRefreshSupplierAccountQueries,
   type UnsettledSupplierTransaction,
   type AccountBalance,
   type AccountLedgerEntry,
@@ -765,6 +766,12 @@ export default function SuppliersPage() {
   // balance, fetched unconditionally like the two reads above (cheap read,
   // empty array on a tenant with no account parent).
   const accountBalancesQuery = useSupplierAccountBalancesQuery();
+  // LIRA-188 follow-up (recurrence of the `unsettledQuery` trap below) — the
+  // Refresh button's onClick calls this to invalidate accountBalancesQuery/
+  // accountLedgerQuery here AND every mounted SupplierAccountCard's/
+  // AccountSettleSheet's own account-unsettled read, none of which this
+  // component can `.refetch()` directly.
+  const refreshAccountQueries = useRefreshSupplierAccountQueries();
 
   const selectedSupplier = useMemo(
     () =>
@@ -1833,6 +1840,17 @@ export default function SuppliersPage() {
                       if (isProductSupplier) {
                         stockValueQuery.refetch();
                       }
+                      // LIRA-188 follow-up: this button has now missed a
+                      // newly-added query TWICE — first `unsettledQuery`
+                      // above, then `accountBalancesQuery`/
+                      // `accountLedgerQuery`/the account-unsettled read every
+                      // `SupplierAccountCard`/`AccountSettleSheet` owns. Route
+                      // ANY future account-scoped read through
+                      // `useRefreshSupplierAccountQueries` (which itself
+                      // reuses the same `invalidateAccountQueries` every
+                      // write mutation already calls) instead of adding a
+                      // fifth one-off `.refetch()` call here.
+                      refreshAccountQueries();
                     }}
                     className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
                   >

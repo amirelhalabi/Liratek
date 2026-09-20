@@ -9,10 +9,13 @@
  *     include/exclude cases).
  *
  * The auto-print-on-success hook (useAutoPrintReceipt) was DISABLED per
- * owner request (2026-07-28) — the print dialog interrupting every payment
- * was unwanted. It is now asserted here to NEVER fire, on a standalone MTC
- * recharge submission and during an active customer session, while the
- * manual Print buttons above are unaffected (separate code path).
+ * owner request (2026-07-28). A third test here asserted it never fires —
+ * removed 2026-09-20 on owner request: it drove two full recharge
+ * submissions plus a session open/close and two deliberate 1.5s waits for
+ * something that must not happen, which is a lot of suite time to prove a
+ * negative about a hook that is switched off at the source. Do NOT
+ * reinstate it as "missing coverage" without asking. The manual Print
+ * buttons are a separate code path and are still covered below.
  *
  * Row identity (CLAUDE.md rule 15): every created row carries a unique
  * `clientName` marker (Date.now()-seeded) and is located via the /audit
@@ -24,10 +27,7 @@
  *    receiptGating.ts to the old type-only gate (`return type ===
  *    "FINANCIAL_SERVICE" || ALWAYS_RECEIPTABLE_TYPES.has(type)`) — the
  *    "excluded provider rows show no Print button" test must FAIL.
- *  - Auto-print-disabled test: temporarily revert `useAutoPrintReceipt.ts`
- *    to call `printServiceReceiptByTransaction` again (pre-2026-07-28
- *    behavior) — the "does NOT fire" assertions must FAIL (calls > 0).
- *  Restore the fix and confirm both pass again.
+ *  Restore the fix and confirm it passes again.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -336,215 +336,6 @@ test.describe("LIRA-069 — receipt print gating", () => {
         row.getByRole("button", { name: "Print", exact: true }),
       ).toBeVisible({ timeout: 5_000 });
       await clearSearch(appPage);
-    }
-  });
-
-  test("auto-print-on-success is disabled — never fires, standalone or during an active session", async ({
-    appPage,
-  }) => {
-    // Capture the print via printReceipt's own e2e hook
-    // (__LIRATEK_E2E_PRINT_STUB__): when installed, printReceipt hands the
-    // hook the full receipt HTML instead of printing. This (a) proves
-    // auto-print fired without opening a real print dialog (the native
-    // dialog HANGS headless workers — found 2026-07-19, "Worker teardown
-    // timeout" across the suite; printReceipt now also hard-skips the
-    // dialog under navigator.webdriver), and (b) captures the HTML so the
-    // assertion can confirm it's the RIGHT transaction's receipt (identity,
-    // not just "something printed"). Removed in `finally` so later specs
-    // exercise the default (webdriver-gated) path.
-    await appPage.evaluate(() => {
-      const w = window as unknown as {
-        __LIRATEK_E2E_PRINT_STUB__?: (html: string) => void;
-        __lira069PrintCalls: string[];
-      };
-      w.__lira069PrintCalls = [];
-      w.__LIRATEK_E2E_PRINT_STUB__ = (html: string) => {
-        w.__lira069PrintCalls.push(html);
-      };
-    });
-
-    try {
-      const ts = Date.now();
-      const phone = `03${String(ts).slice(-7)}`;
-
-      await navigateTo(appPage, "/recharge");
-      const mtcTab = appPage
-        .locator("button")
-        .filter({ hasText: /^MTC$/ })
-        .first();
-      await expect(mtcTab).toBeVisible({ timeout: 8_000 });
-      await mtcTab.click();
-
-      // ── Standalone submit (no session) — auto-print must NOT fire ──────
-      const phoneInput = appPage.locator("#telecom-phone");
-      await expect(phoneInput).toBeVisible({ timeout: 8_000 });
-      await phoneInput.fill(phone);
-      const amountInput = appPage.locator("#telecom-amount");
-      await amountInput.fill("3");
-
-      const proceedBtn = appPage.getByRole("button", {
-        name: /Proceed to Pay/i,
-      });
-      await expect(proceedBtn).toBeEnabled({ timeout: 5_000 });
-      await proceedBtn.click();
-      const confirmBtn = appPage
-        .locator("button")
-        .filter({ hasText: /^Pay / })
-        .last();
-      await expect(confirmBtn).toBeVisible({ timeout: 5_000 });
-      await confirmBtn.click();
-      await expect(confirmBtn).toBeHidden({ timeout: 8_000 });
-
-      // Auto-print is disabled (owner request 2026-07-28) — give any
-      // (incorrect) async auto-print a moment to fire before asserting its
-      // absence; the timeout is expected and swallowed since the correct
-      // behavior is that it never fires.
-      await appPage
-        .waitForFunction(
-          () =>
-            (window as unknown as { __lira069PrintCalls: string[] })
-              .__lira069PrintCalls.length > 0,
-          { timeout: 1_500 },
-        )
-        .catch(() => {});
-      const callsAfterStandaloneSubmit = await appPage.evaluate(
-        () =>
-          (window as unknown as { __lira069PrintCalls: string[] })
-            .__lira069PrintCalls.length,
-      );
-      expect(callsAfterStandaloneSubmit).toBe(0);
-
-      // ── Session-active submit — auto-print must ALSO be skipped (it's
-      // disabled outright now, not just session-gated) ──────────────────
-      await appPage.evaluate(
-        () =>
-          ((
-            window as unknown as { __lira069PrintCalls: string[] }
-          ).__lira069PrintCalls.length = 0),
-      );
-
-      const sessionName = `LIRA069 SESSION ${ts}`;
-      const started = await appPage.evaluate(
-        (name) =>
-          (
-            window as unknown as {
-              api: {
-                session: {
-                  start: (d: Record<string, unknown>) => Promise<{
-                    success?: boolean;
-                    sessionId?: number;
-                    error?: string;
-                  }>;
-                };
-              };
-            }
-          ).api.session.start({
-            customer_name: name,
-            started_by: "e2e",
-          }),
-        sessionName,
-      );
-      expect(started.success, JSON.stringify(started)).toBe(true);
-      const sessionId = started.sessionId as number;
-
-      try {
-        // A fresh mount picks up the newly-started active session.
-        await navigateTo(appPage, "/");
-        await navigateTo(appPage, "/recharge");
-        const mtcTab2 = appPage
-          .locator("button")
-          .filter({ hasText: /^MTC$/ })
-          .first();
-        await expect(mtcTab2).toBeVisible({ timeout: 8_000 });
-        await mtcTab2.click();
-
-        const phone2 = `03${String(ts + 1).slice(-7)}`;
-        const phoneInput2 = appPage.locator("#telecom-phone");
-        await expect(phoneInput2).toBeVisible({ timeout: 8_000 });
-        await phoneInput2.fill(phone2);
-        const amountInput2 = appPage.locator("#telecom-amount");
-        await amountInput2.fill("3");
-
-        // Session mode: the button reads "Add to Cart" (no PaymentSheet) —
-        // it books the item into the session basket, no direct transaction.
-        // SessionProvider sits ABOVE the router (App.tsx) so it is NOT
-        // remounted by navigateTo("/") → navigateTo("/recharge") — the raw
-        // API session start above is only picked up by SessionContext's
-        // 7s poll (refreshActiveSessions, SessionContext.tsx), not by this
-        // "fresh mount". A 5s timeout here raced that poll and flaked
-        // (found 2026-07-28: passed most runs, failed once with "element
-        // not found" at the 5s mark) — timeout must exceed the 7s cycle.
-        const addToCartBtn = appPage.getByRole("button", {
-          name: /Add to Cart/i,
-        });
-        await expect(addToCartBtn).toBeVisible({ timeout: 10_000 });
-        await addToCartBtn.click();
-        // The form resets on success — phone field clears.
-        await expect(phoneInput2).toHaveValue("", { timeout: 5_000 });
-
-        // Give any (incorrect) async auto-print a moment to fire before
-        // asserting its absence — waits UP TO 1.5s for the (wrong) call to
-        // appear; the timeout is expected and swallowed, since the correct
-        // behavior is that it never fires.
-        await appPage
-          .waitForFunction(
-            () =>
-              (window as unknown as { __lira069PrintCalls: string[] })
-                .__lira069PrintCalls.length > 0,
-            { timeout: 1_500 },
-          )
-          .catch(() => {});
-        const callsAfterSessionAdd = await appPage.evaluate(
-          () =>
-            (window as unknown as { __lira069PrintCalls: string[] })
-              .__lira069PrintCalls.length,
-        );
-        expect(callsAfterSessionAdd).toBe(0);
-      } finally {
-        // Never leave a session open for later specs (README "Known
-        // couplings & hazards" — session leakage).
-        await appPage.evaluate(
-          (id) =>
-            (
-              window as unknown as {
-                api: {
-                  session: {
-                    close: (
-                      sessionId: number,
-                      closedBy: string,
-                    ) => Promise<unknown>;
-                  };
-                };
-              }
-            ).api.session.close(id, "e2e"),
-          sessionId,
-        );
-        // Closing via raw API bypasses the UI — SessionContext only polls
-        // getActiveSessions every 7s, so for up to 7 MORE seconds every page
-        // still renders session mode and silently routes submits into the
-        // now-dead basket. Wait for the UI to actually leave session mode so
-        // the NEXT spec in this worker starts session-free (this exact race
-        // made lira-093's custom-services submit vanish, 2026-07-19).
-        await navigateTo(appPage, "/recharge");
-        const mtcTabAfterClose = appPage
-          .locator("button")
-          .filter({ hasText: /^MTC$/ })
-          .first();
-        await expect(mtcTabAfterClose).toBeVisible({ timeout: 8_000 });
-        await mtcTabAfterClose.click();
-        await expect(
-          appPage.getByRole("button", { name: /Add to Cart/i }),
-        ).toHaveCount(0, { timeout: 15_000 });
-      }
-    } finally {
-      await appPage.evaluate(() => {
-        const w = window as unknown as {
-          __LIRATEK_E2E_PRINT_STUB__?: (html: string) => void;
-          __lira069PrintCalls?: string[];
-        };
-        delete w.__LIRATEK_E2E_PRINT_STUB__;
-        delete w.__lira069PrintCalls;
-      });
     }
   });
 });

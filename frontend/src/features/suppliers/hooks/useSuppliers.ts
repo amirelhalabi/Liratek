@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
 
@@ -75,6 +76,38 @@ function invalidateAccountQueries(
   queryClient.invalidateQueries({ queryKey: ["supplier-account-unsettled"] });
 }
 
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) follow-up — exposes
+ * `invalidateAccountQueries` to callers OUTSIDE this file's own mutations.
+ *
+ * The Suppliers page's manual Refresh button predates LIRA-188 and, exactly
+ * like `unsettledQuery` before it (see the comment beside that button in
+ * `Suppliers/index.tsx`), was never taught about a query added later —
+ * `accountBalancesQuery`/`accountLedgerQuery` (page-level) and every
+ * `SupplierAccountCard`/`AccountSettleSheet` instance's own
+ * `useSupplierAccountUnsettledQuery` (component-level, not reachable from
+ * the page's Refresh handler at all) kept showing stale data after a click.
+ * Routing Refresh through this SAME helper the write-path mutations already
+ * use (rule 14 — one definition) means a future fourth account read is
+ * covered the moment it's added to `invalidateAccountQueries`, with nothing
+ * else to remember to wire up.
+ *
+ * This does not close the underlying gap by itself: anything that changes
+ * supplier/account data WITHOUT going through this file's mutations — a
+ * top-up made from Recharge, an OMT SEND from Services — still leaves the
+ * account card stale until the user clicks Refresh (or the 30s app-wide
+ * `staleTime` lapses and something remounts/refetches the query). Any such
+ * flow should call this hook too, rather than re-deriving the three account
+ * query keys a third time.
+ */
+export function useRefreshSupplierAccountQueries(): () => void {
+  const queryClient = useQueryClient();
+  return useCallback(
+    () => invalidateAccountQueries(queryClient),
+    [queryClient],
+  );
+}
+
 // ── Queries ───────────────────────────────────────────────────────────────────
 
 export function useSuppliersQuery() {
@@ -138,11 +171,30 @@ export function useSupplierAccountLedgerQuery(
 }
 
 /** @see useSupplierAccountBalancesQuery — the account's unioned unsettled
- *  queue, used only to derive a per-child unsettled COUNT on the account
- *  card's sub-rows (read-only in this wave; account settlement is
- *  LIRA-189). Disabled (no fetch) when there's no parent id. */
+ *  queue, used both to derive a per-child unsettled COUNT on the account
+ *  card's sub-rows (read-only) AND to feed `AccountSettleSheet`'s row list
+ *  (LIRA-189).
+ *
+ * `refetchOnMount` defaults to the TanStack default (`true` — serves the
+ * cached value if it's within `staleTime`, no network round trip) which is
+ * fine for the card's lightweight count display. `AccountSettleSheet`
+ * passes `"always"`: this hook's cache entry is SHARED with the account
+ * card (same query key), which typically stays mounted continuously while
+ * the Suppliers page is open, so ANYTHING that changes the account's
+ * unsettled rows through a channel other than this file's OWN mutations —
+ * a top-up from Recharge, an OMT SEND from Services, cross-tab activity —
+ * leaves the cache "fresh" (not stale, so no auto-refetch) for the rest of
+ * the 30s app-wide `staleTime`, even though the real queue changed
+ * moments ago (see `useRefreshSupplierAccountQueries`'s own doc comment
+ * for the general shape of this gap). A settle sheet deciding how much
+ * money changes hands must never silently work off that stale snapshot —
+ * unlike the count display, being one field briefly behind is a real
+ * money-safety risk here, not a cosmetic one — so it forces a fresh fetch
+ * every time it opens, regardless of `staleTime`. Disabled (no fetch) when
+ * there's no parent id. */
 export function useSupplierAccountUnsettledQuery(
   accountSupplierId: number | null,
+  options?: { refetchOnMount?: boolean | "always" },
 ) {
   const api = useApi();
   return useQuery({
@@ -152,6 +204,7 @@ export function useSupplierAccountUnsettledQuery(
         AccountUnsettledRow[]
       >,
     enabled: !!accountSupplierId,
+    refetchOnMount: options?.refetchOnMount ?? true,
   });
 }
 

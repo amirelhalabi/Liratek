@@ -949,6 +949,15 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
       appPage.getByRole("button", { name: "Send", exact: true }),
     );
     const modalC = await openTopUpModal(appPage, "OMT App");
+    // LIRA-190 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md D4) made "On OMT credit" the
+    // DEFAULT funding source for the OMT App top-up modal, so the button now
+    // opens on "Confirm Supplier Credit" -- this case specifically wants the
+    // pre-existing drawer-to-drawer transfer path (the thing Checkpoint 2 is
+    // testing: a real source-drawer debit maps to "both"), which is still a
+    // real, reachable operator choice via the "Transfer from drawer" toggle.
+    await modalC
+      .getByTestId("topup-funding-transfer")
+      .click();
     await fillPlainAmount(modalC, AMOUNT_C, "LBP");
     await modalC
       .getByRole("button", { name: "Confirm Top-Up", exact: true })

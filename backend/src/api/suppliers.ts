@@ -15,6 +15,7 @@ import {
   supplierSettleAccountSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
+  supplierAccountLinkSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
@@ -488,6 +489,52 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to record cashflow" });
+    }
+  },
+);
+
+// PUT /api/suppliers/:id/account-link — set/clear a supplier's account
+// parent (mirrors suppliers:update-account-link). `:id` is the CHILD
+// supplier's id, sourced from the URL exactly like `supplier_id` is for
+// `/:id/ledger` above; `account_supplier_id` (the new parent, or null to
+// detach) travels in the body. Same admin-only gate as every other write in
+// this section — the repository re-validates the whole request (self-parent,
+// chain depth, parent existence/tenant/active, orphaned unsettled rows)
+// against the DATABASE, never trusting the client beyond shape.
+router.put(
+  "/:id/account-link",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(supplierAccountLinkSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = supplierService.updateSupplierAccountLink(req.body);
+      if (result.success) {
+        // Mirrors supplierHandlers.ts's suppliers:update-account-link audit
+        // (update/supplier_account_link).
+        auditRest(req, {
+          action: "update",
+          entity_type: "supplier_account_link",
+          summary:
+            req.body.account_supplier_id === null
+              ? `Detached supplier #${req.body.supplier_id} from its account`
+              : `Parented supplier #${req.body.supplier_id} under account #${req.body.account_supplier_id}`,
+          metadata: {
+            supplier_id: req.body.supplier_id,
+            account_supplier_id: req.body.account_supplier_id,
+          },
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Update supplier account link error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to update account link" });
     }
   },
 );

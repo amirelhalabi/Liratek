@@ -110,8 +110,14 @@ export function AccountSettleSheet({
   const { methods } = usePaymentMethods();
   const { buyRate: exchangeRate } = useSellRate();
 
+  // `refetchOnMount: "always"` — this sheet decides how much money changes
+  // hands, so it must never work off a cached queue that predates a change
+  // made outside this file's own mutations (a top-up from Recharge, an OMT
+  // SEND, another tab) — see `useSupplierAccountUnsettledQuery`'s own doc
+  // comment for the full staleness gap this closes.
   const unsettledQuery = useSupplierAccountUnsettledQuery(
     account.account_supplier_id,
+    { refetchOnMount: "always" },
   );
   const rows = useMemo(
     () => sortOldestFirst((unsettledQuery.data ?? []) as AccountUnsettledRow[]),

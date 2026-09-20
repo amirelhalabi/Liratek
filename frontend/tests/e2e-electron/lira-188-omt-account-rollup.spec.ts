@@ -198,6 +198,30 @@ async function openCompaniesTab(page: Page) {
   });
 }
 
+/**
+ * Selects the OMT account (revealing the detail panel's Refresh button,
+ * which only renders once a supplier is selected — `Suppliers/index.tsx`'s
+ * `{!selectedSupplier ? ... : ...}` gate) and clicks it.
+ *
+ * This spec seeds through raw IPC (`omt.addTransaction` /
+ * `recharge.topUpFromSupplier`), which bypasses the mutation hooks
+ * (`useAddLedgerEntryMutation` etc.) that normally call
+ * `invalidateAccountQueries` on success — and the app-wide QueryClient
+ * default `staleTime` is 30s (`App.tsx`), so simply re-opening the
+ * Companies tab re-renders `accountBalancesQuery`/`accountLedgerQuery` from
+ * cache rather than refetching. The Refresh button is wired to
+ * `useRefreshSupplierAccountQueries` (`useSuppliers.ts`) for exactly this
+ * case, so clicking it — rather than reloading the page — both fixes the
+ * flake AND exercises that real wiring end to end.
+ */
+async function refreshAccountData(page: Page) {
+  const card = page.getByTestId("supplier-account-card-OMT");
+  await card.getByTestId("supplier-tile-OMT").click();
+  const refreshBtn = page.getByRole("button", { name: "Refresh", exact: true });
+  await expect(refreshBtn).toBeVisible({ timeout: 10_000 });
+  await refreshBtn.click();
+}
+
 test.describe("LIRA-188 — OMT account rollup on the Suppliers page", () => {
   test("OMT App and iPick no longer render as standalone top-level tiles; Katsh (D7, no account) is unaffected", async ({
     appPage,
@@ -206,9 +230,18 @@ test.describe("LIRA-188 — OMT account rollup on the Suppliers page", () => {
 
     await expect(appPage.getByTestId("supplier-tile-OMT_APP")).toHaveCount(0);
     await expect(appPage.getByTestId("supplier-tile-iPick")).toHaveCount(0);
-    // OMT itself also no longer shows as the OLD bare tile — it is now the
-    // account card.
-    await expect(appPage.getByTestId("supplier-tile-OMT")).toHaveCount(0);
+    // OMT no longer renders as a STANDALONE bare tile — but
+    // `SupplierAccountCard` (Suppliers/index.tsx, ~:366-370) deliberately
+    // keeps the `supplier-tile-OMT` testid, nested on the account card's own
+    // header button, so pre-existing specs (lira-158/lira-159) that select
+    // OMT via `supplier-tile-${provider}` keep working unchanged. So the
+    // testid still resolves to exactly one element — the assertion that
+    // actually distinguishes "old bare tile" from "the account card" is that
+    // it is a DESCENDANT of `supplier-account-card-OMT`, not a sibling tile
+    // sitting outside it.
+    const omtCard = appPage.getByTestId("supplier-account-card-OMT");
+    await expect(appPage.getByTestId("supplier-tile-OMT")).toHaveCount(1);
+    await expect(omtCard.getByTestId("supplier-tile-OMT")).toHaveCount(1);
 
     // Katsh has no account_supplier_id (D7) — untouched, still top-level.
     await expect(appPage.getByTestId("supplier-tile-Katsh")).toBeVisible();
@@ -285,17 +318,37 @@ test.describe("LIRA-188 — OMT account rollup on the Suppliers page", () => {
     );
 
     // Re-render the real page and confirm the SAME totals reach the DOM —
-    // this is the seam a backend-only rollup test can never cover.
+    // this is the seam a backend-only rollup test can never cover. Click
+    // the real Refresh button first (see `refreshAccountData`'s doc
+    // comment) — the seeds above went through raw IPC, which never
+    // invalidates the account queries a mutation would, and the app-wide
+    // 30s staleTime means the cache is still holding the pre-seed reading.
     await openCompaniesTab(appPage);
     const card = appPage.getByTestId("supplier-account-card-OMT");
-    const omtSubText = await card
-      .getByTestId("supplier-account-subrow-balance-OMT")
-      .innerText();
-    const ipickSubText = await card
-      .getByTestId("supplier-account-subrow-balance-iPick")
-      .innerText();
-    expect(parseMoneyText(omtSubText)).toBeCloseTo(afterOmt, 2);
-    expect(parseMoneyText(ipickSubText)).toBeCloseTo(afterIpick, 2);
+    await refreshAccountData(appPage);
+
+    await expect
+      .poll(
+        async () =>
+          parseMoneyText(
+            await card
+              .getByTestId("supplier-account-subrow-balance-OMT")
+              .innerText(),
+          ),
+        { timeout: 10_000 },
+      )
+      .toBeCloseTo(afterOmt, 2);
+    await expect
+      .poll(
+        async () =>
+          parseMoneyText(
+            await card
+              .getByTestId("supplier-account-subrow-balance-iPick")
+              .innerText(),
+          ),
+        { timeout: 10_000 },
+      )
+      .toBeCloseTo(afterIpick, 2);
   });
 
   test("Ledger Type column identifies each member, and the type filter narrows to one member", async ({
@@ -326,11 +379,21 @@ test.describe("LIRA-188 — OMT account rollup on the Suppliers page", () => {
     expect(ipickRow).toBeDefined();
 
     await openCompaniesTab(appPage);
-    const card = appPage.getByTestId("supplier-account-card-OMT");
-    await card.click();
+    await refreshAccountData(appPage);
 
+    // `AccountLedgerTable` (Suppliers/index.tsx ~:535-645) renders each row
+    // as a `<div class="grid grid-cols-12 ... border-t ...">`, never a real
+    // `<table>`/`<tr>` — matching on `"tr"` can never find anything here (it
+    // silently matches zero elements). Anchor on the row's OWN
+    // `supplier-ledger-type-cell` testid (unique to this table) and walk up
+    // to its row wrapper, then narrow by the row's own formatted USD amount
+    // text (e.g. "570.00") — precise identity matching per rule 15.
     const findRowByAmount = (amount: number): Locator =>
-      appPage.locator("tr", { hasText: String(amount) }).first();
+      appPage
+        .locator('[data-testid="supplier-ledger-type-cell"]')
+        .locator("xpath=ancestor::div[contains(@class,'border-t')][1]")
+        .filter({ hasText: amount.toFixed(2) })
+        .first();
 
     const omtRowEl = findRowByAmount(
       LEDGER_SEND_AMOUNT_USD + LEDGER_SEND_FEE_USD,

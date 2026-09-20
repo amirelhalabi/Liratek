@@ -31,6 +31,8 @@ import {
   supplierSettleAccountSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
+  // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — same cast-bridge pattern.
+  supplierAccountLinkSchema,
   receiveStockSchema,
   partnerRecordTransactionSchema,
   partnerSettleSchema,
@@ -111,6 +113,7 @@ import {
   type SupplierSettleAccountInput,
   type SupplierCashflowInput,
   type SupplierPurchaseCreateInput,
+  type SupplierAccountLinkInput,
   type ReceiveStockInput,
   type PartnerRecordTransactionInput,
   type PartnerSettleInput,
@@ -1154,6 +1157,10 @@ export const SupplierCashflowSchema =
   supplierCashflowSchema as unknown as z.ZodSchema<SupplierCashflowInput>;
 export const SupplierPurchaseCreateSchema =
   supplierPurchaseCreateSchema as unknown as z.ZodSchema<SupplierPurchaseCreateInput>;
+// LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — consumed by
+// supplierHandlers.ts's `suppliers:update-account-link` IPC channel.
+export const SupplierAccountLinkSchema =
+  supplierAccountLinkSchema as unknown as z.ZodSchema<SupplierAccountLinkInput>;
 
 // NOTE: the standalone supplier write-off (CQ-10) was REMOVED (owner decision
 // D8, SUPPLIER_STOCK_INTAKE_PLAN.md) — SupplierWriteOffSchema/

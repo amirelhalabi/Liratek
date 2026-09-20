@@ -15,6 +15,7 @@ import type {
   Client,
   CreateUserInput,
   TransactionTypeFilterInput,
+  SupplierAccountLinkInput,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -2548,6 +2549,26 @@ export async function createSupplier(data: {
           method: "POST",
           body: data,
         },
+      ),
+  );
+}
+
+// LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set/clear a supplier's
+// account parent. Payload typed as `SupplierAccountLinkInput` (rule 21 —
+// derived from `supplierAccountLinkSchema`, never hand-copied). `:id` in the
+// REST URL is the child supplier's id; `data.supplier_id` travels in the
+// body too (server-side middleware overwrites it from the URL either way —
+// same double-carry `settleTransactions` above already uses for its own
+// `:id`/`supplier_id` pair).
+export async function updateSupplierAccountLink(
+  data: SupplierAccountLinkInput,
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.updateAccountLink(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/suppliers/${data.supplier_id}/account-link`,
+        { method: "PUT", body: data },
       ),
   );
 }

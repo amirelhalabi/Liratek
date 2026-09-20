@@ -208,18 +208,23 @@ async function omtAccountId(page: Page): Promise<number> {
   return id;
 }
 
+// OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5 (LIRA-188): 'OMT App' and 'iPick' are
+// OMT-account CHILDREN (`account_supplier_id` -> OMT), so `getBalances`
+// deliberately excludes them from its top-level list — they surface only in
+// the account rollup's `children[]` (which ALSO includes the parent 'OMT'
+// itself, flagged `is_parent: true`). Reading every provider here through
+// `getAccountBalances()` uniformly handles OMT/iPick/OMT_APP alike, rather
+// than a two-path branch that special-cases the parent.
 async function supplierBalanceByProvider(
   page: Page,
   provider: string,
 ): Promise<number> {
   return page.evaluate(async (p) => {
     const w = window as unknown as Api;
-    const supplier = (await w.api.suppliers.list("", true)).find(
-      (s) => s.provider === p,
-    );
-    if (!supplier) return 0;
-    const balances = await w.api.suppliers.getBalances(true);
-    return balances.find((b) => b.supplier_id === supplier.id)?.total_usd ?? 0;
+    const child = (await w.api.suppliers.getAccountBalances())
+      .flatMap((a) => a.children)
+      .find((c) => c.provider === p);
+    return child?.total_usd ?? 0;
   }, provider);
 }
 
@@ -269,6 +274,28 @@ async function seedIpickTopup(page: Page, amount: number) {
   expect(res.success).toBe(true);
 }
 
+/** Fund the OMT_App wallet drawer on OMT credit (LIRA-190) so a subsequent
+ *  cashout of up to `amount` is never refused for insufficient balance (D15)
+ *  — the guard checks the real `OMT_App` DRAWER balance, which this shared,
+ *  alphabetically-ordered suite gives no guarantee about otherwise (this
+ *  file runs BEFORE lira-190/lira-192, the specs that would normally have
+ *  funded it). Mirrors lira-192's own `seedWallet` convention: fund well
+ *  above what will be drawn down, regardless of the DB's prior history. */
+async function seedOmtAppWallet(page: Page, atLeast: number) {
+  const res = await page.evaluate(
+    async (amount) => {
+      const w = window as unknown as Api;
+      return w.api.recharge.topUpFromSupplier({
+        provider: "OMT_APP",
+        amount,
+        currency: "USD",
+      });
+    },
+    atLeast * 2 + 1000,
+  );
+  expect(res.success).toBe(true);
+}
+
 /** Returns the actual, server-computed commission (D13's rate, independently
  *  re-derived above for the assertion, not for this seed step). */
 async function seedOmtAppCashout(
@@ -286,6 +313,7 @@ async function seedOmtAppCashout(
     },
     amount,
   );
+  expect(res.error ?? null).toBeNull();
   expect(res.success).toBe(true);
   const expectedCommission = roundForCurrency(
     amount * CASHOUT_COMMISSION_RATE,
@@ -332,11 +360,38 @@ async function openAccountSettleSheet(page: Page): Promise<Locator> {
  * checkbox) `.check()`/`.uncheck()` can drive — flagged as an assumption in
  * this lane's report since the frontend (W6) had not landed when this spec
  * was written.
+ *
+ * Waits for every WANTED row to actually be rendered before touching any
+ * checkbox, rather than taking a single `rows.count()` snapshot the instant
+ * the sheet's shell appears. `openAccountSettleSheet` only waits for the
+ * sheet DIV, not for its row query to resolve — and `AccountSettleSheet`'s
+ * unsettled-row query shares its cache entry with the (typically
+ * continuously-mounted) account card, so a row this test just seeded via a
+ * raw `window.api` call (which bypasses every app-level cache invalidation)
+ * can legitimately still be mid-refetch, or briefly served from a queue
+ * cached before the seed, when the sheet first paints. A one-shot
+ * `rows.count()` taken in that window silently sees the OLD row set, ticks
+ * nothing matching `wanted`, and every downstream total reads $0 — this
+ * exact race produced "Expected -337.34, Received 0" on the net readout
+ * with NOTHING wrong in `AccountSettleSheet`'s own arithmetic (proved by
+ * `AccountSettleSheet.test.tsx`'s "net-negative selection" case, which
+ * covers the identical single-credit-row shape against a fresh, uncached
+ * query and passes). `AccountSettleSheet` now asks for
+ * `refetchOnMount: "always"` precisely so this wait is bounded by one real
+ * IPC round trip, not by the 30s app-wide `staleTime`.
  */
 async function isolateSelection(
   sheet: Locator,
   wanted: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>,
 ) {
+  for (const w of wanted) {
+    await expect(
+      sheet.locator(
+        `[data-testid="supplier-account-settle-row"][data-kind="${w.kind}"][data-row-id="${w.id}"]`,
+      ),
+    ).toBeVisible({ timeout: 10_000 });
+  }
+
   const rows = sheet.locator('[data-testid="supplier-account-settle-row"]');
   const count = await rows.count();
   for (let i = 0; i < count; i++) {
@@ -394,15 +449,46 @@ test.describe("LIRA-189 — OMT account settlement, driven through the real sett
   }) => {
     const accountId = await omtAccountId(appPage);
 
+    // Fund the OMT_App wallet BEFORE any ledger baseline snapshot:
+    // `topUpFromSupplier` moves no drawer (D2), but it DOES book its own
+    // 'OMT App' debt row — capturing `beforeApp` only after this step keeps
+    // every OMT_APP delta below attributable to the cashout alone (the
+    // wallet-funding debt stays a constant, unselected, still-unsettled row
+    // throughout, exactly like the ~150 earlier specs' own backlog this
+    // file's docblock already designs around). The DRAWER baseline
+    // (`beforeDrawers`) is snapshotted separately, later — see its own
+    // comment below for why it must come AFTER seeding too, not just after
+    // the wallet funding.
+    await seedOmtAppWallet(appPage, CASHOUT_USD);
+
     const beforeOmt = await supplierBalanceByProvider(appPage, "OMT");
     const beforeIpick = await supplierBalanceByProvider(appPage, "iPick");
     const beforeApp = await supplierBalanceByProvider(appPage, "OMT_APP");
-    const beforeDrawers = await drawers(appPage);
 
     await seedOmtSend(appPage, SEND_AMOUNT_USD, SEND_FEE_USD);
     await seedIpickTopup(appPage, IPICK_TOPUP_USD);
     const cashoutCommission = await seedOmtAppCashout(appPage, CASHOUT_USD);
     const netPay = NET_PAY_USD - (CASHOUT_USD + cashoutCommission);
+
+    // Drawer baseline snapshotted HERE, after seeding, not before it (rule
+    // 15 — "snapshot immediately before the action"). `seedOmtSend` above
+    // pays for the SEND with a real CASH leg
+    // (`payments: [{ method: "CASH", amount: amount + fee }]`), and that
+    // leg is itself customer cash landing in the OMT Cash Drawer at
+    // CREATION time (Primary Cash Drawer plan §8.2 — a CASH leg on a
+    // primary-system SEND routes to the PCD via
+    // `resolveServiceCashDrawer`/`FinancialServiceRepository`, the same
+    // resolver `settleAccount` uses for the settlement leg below). A
+    // baseline taken before the seed would silently fold the SEND's own
+    // +676 cash-in into the settlement's own −728.84 cash-out and expect
+    // their SUM (a −52.84 delta) to equal the settlement leg ALONE
+    // (−728.84) — which is exactly the "spec expected -728.84, got -52.84,
+    // short by exactly 676 (= SEND_AMOUNT_USD + SEND_FEE_USD)" shape.
+    // `settleAccount`'s own leg-posting is unit-tested exactly against this
+    // scenario (`SupplierRepository.accountSettlement.test.ts`) and posts
+    // precisely the leg sum — the drawer math above was the bug, not the
+    // repository.
+    const beforeDrawers = await drawers(appPage);
 
     // Sanity: seeding alone moved each child by exactly its own contribution
     // (same discipline as lira-188) before we touch the settlement UI at all.
@@ -506,6 +592,11 @@ test.describe("LIRA-189 — OMT account settlement, driven through the real sett
     appPage,
   }) => {
     const accountId = await omtAccountId(appPage);
+
+    // Fund BEFORE the baseline snapshot — see the previous test's comment on
+    // why (topUpFromSupplier moves no drawer per D2, but does book its own
+    // constant, unselected 'OMT App' debt row).
+    await seedOmtAppWallet(appPage, COLLECT_CASHOUT_USD);
 
     const beforeApp = await supplierBalanceByProvider(appPage, "OMT_APP");
     const beforeDrawers = await drawers(appPage);

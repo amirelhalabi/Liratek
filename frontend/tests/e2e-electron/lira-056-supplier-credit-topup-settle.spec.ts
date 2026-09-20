@@ -54,6 +54,26 @@ type SupplierBalanceRow = {
   total_lbp: number;
 };
 
+// OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5 (LIRA-188): iPick and OMT App are now
+// account CHILDREN (`account_supplier_id` -> the OMT parent) and
+// `getSupplierBalances`/`getBalances` DELIBERATELY excludes them from its
+// top-level list — they only show up in the account rollup's `children[]`
+// (SupplierRepository.ts:1702-1714, "an account CHILD ... no longer appears
+// as its own top-level balance card"). A child's real balance is only
+// reachable via `getAccountBalances()`.
+type AccountChildBalance = {
+  supplier_id: number;
+  total_usd: number;
+  total_lbp: number;
+};
+type AccountBalance = {
+  account_supplier_id: number;
+  account_name: string;
+  total_usd: number;
+  total_lbp: number;
+  children: AccountChildBalance[];
+};
+
 type ProviderDrawerRow = {
   name: string;
   usdBalance: number;
@@ -84,8 +104,12 @@ type Api = {
         supplierId: number,
         limit?: number,
       ) => Promise<SupplierLedgerRow[]>;
-      // RAW array of per-supplier balances.
+      // RAW array of per-supplier balances. Top-level suppliers ONLY — see
+      // the AccountBalance note above for why iPick/OMT App are absent.
       getBalances: (includeInactive?: boolean) => Promise<SupplierBalanceRow[]>;
+      // RAW array — the OMT open-credit account rollup (LIRA-188). The only
+      // method that exposes an account CHILD's (iPick/OMT App) own balance.
+      getAccountBalances: () => Promise<AccountBalance[]>;
       // entry_type union + drawer_name (electron.d.ts omits drawer_name — the
       // handler/schema accept it and the repo debits that drawer for PAYMENT).
       addLedgerEntry: (data: {
@@ -301,11 +325,16 @@ test.describe("LIRA-056 — supplier-credit top-up + settle (no source-drawer de
 
         const drawerUsd = (rows: ProviderDrawerRow[], name: string): number =>
           rows.find((d) => d.name === name)?.usdBalance ?? 0;
-        const balUsd = (
-          rows: SupplierBalanceRow[],
+        // iPick is an OMT-account CHILD (LIRA-188) — `getBalances` no longer
+        // lists it at all (by design), so its real balance is only reachable
+        // via the account rollup's `children[]`.
+        const childBalUsd = (
+          accounts: AccountBalance[],
           supplierId: number,
         ): number =>
-          rows.find((b) => b.supplier_id === supplierId)?.total_usd ?? 0;
+          accounts
+            .flatMap((a) => a.children)
+            .find((c) => c.supplier_id === supplierId)?.total_usd ?? 0;
 
         const ipick = (await w.api.suppliers.list("", true)).find(
           (s) => s.provider === "iPick",
@@ -317,8 +346,8 @@ test.describe("LIRA-056 — supplier-credit top-up + settle (no source-drawer de
         const ipickDrawerBefore = drawerUsd(drawersBefore, "iPick");
         const generalBefore = drawerUsd(drawersBefore, "General");
 
-        const balancesBefore = await w.api.suppliers.getBalances(true);
-        const supplierBalBefore = balUsd(balancesBefore, ipick.id);
+        const accountsBefore = await w.api.suppliers.getAccountBalances();
+        const supplierBalBefore = childBalUsd(accountsBefore, ipick.id);
 
         const ledgerBefore = await w.api.suppliers.getLedger(ipick.id, 200);
         const topUpCountBefore = ledgerBefore.filter(
@@ -337,8 +366,8 @@ test.describe("LIRA-056 — supplier-credit top-up + settle (no source-drawer de
         const ipickDrawerAfter = drawerUsd(drawersAfter, "iPick");
         const generalAfter = drawerUsd(drawersAfter, "General");
 
-        const balancesAfter = await w.api.suppliers.getBalances(true);
-        const supplierBalAfter = balUsd(balancesAfter, ipick.id);
+        const accountsAfter = await w.api.suppliers.getAccountBalances();
+        const supplierBalAfter = childBalUsd(accountsAfter, ipick.id);
 
         const ledgerAfter = await w.api.suppliers.getLedger(ipick.id, 200);
         const topUpCountAfter = ledgerAfter.filter(

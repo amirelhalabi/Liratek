@@ -22,6 +22,11 @@ const mockGetServiceProviders = jest.fn();
 const mockCreateServiceProvider = jest.fn();
 const mockUpdateServiceProvider = jest.fn();
 const mockDeleteServiceProvider = jest.fn();
+// LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — the account-link control
+// additionally loads `suppliers` (to resolve the provider→supplier 1:1 join)
+// and writes through `updateSupplierAccountLink`.
+const mockGetSuppliers = jest.fn();
+const mockUpdateSupplierAccountLink = jest.fn();
 // A STABLE object reference — mirrors CarrierLinesManager.test.tsx's comment:
 // ServiceProvidersManager's load() is a useCallback depending on [api]; a
 // factory returning a fresh object literal per useApi() call would
@@ -31,6 +36,8 @@ const mockApi = {
   createServiceProvider: mockCreateServiceProvider,
   updateServiceProvider: mockUpdateServiceProvider,
   deleteServiceProvider: mockDeleteServiceProvider,
+  getSuppliers: mockGetSuppliers,
+  updateSupplierAccountLink: mockUpdateSupplierAccountLink,
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -73,6 +80,13 @@ describe("ServiceProvidersManager", () => {
     });
     mockUpdateServiceProvider.mockReset().mockResolvedValue({ success: true });
     mockDeleteServiceProvider.mockReset().mockResolvedValue({ success: true });
+    // Default: no suppliers linked at all — every existing test above
+    // predates LIRA-191 and asserts nothing about account grouping, so the
+    // account-link control must stay entirely absent under this default.
+    mockGetSuppliers.mockReset().mockResolvedValue([]);
+    mockUpdateSupplierAccountLink.mockReset().mockResolvedValue({
+      success: true,
+    });
   });
 
   it("lists existing service providers with their drawer", async () => {
@@ -268,5 +282,301 @@ describe("ServiceProvidersManager", () => {
         is_active: 0,
       }),
     );
+  });
+
+  // ── LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — account grouping ──────
+  describe("account grouping (suppliers.account_supplier_id)", () => {
+    const OMT_PROVIDER: ServiceProviderEntity = {
+      id: 1,
+      code: "OMT",
+      label: "OMT",
+      drawer_name: "OMT_System",
+      is_system_provider: 1,
+      sort_order: 0,
+      is_active: 1,
+      is_system: 1,
+      created_at: "2026-08-01T00:00:00Z",
+    };
+    const IPICK_PROVIDER: ServiceProviderEntity = {
+      id: 2,
+      code: "iPick",
+      label: "iPick",
+      drawer_name: "iPick",
+      is_system_provider: 0,
+      sort_order: 4,
+      is_active: 1,
+      is_system: 1,
+      created_at: "2026-08-01T00:00:00Z",
+    };
+    const KATSH_PROVIDER: ServiceProviderEntity = {
+      id: 3,
+      code: "Katsh",
+      label: "Katsh",
+      drawer_name: "Katsh",
+      is_system_provider: 0,
+      sort_order: 5,
+      is_active: 1,
+      is_system: 1,
+      created_at: "2026-08-01T00:00:00Z",
+    };
+
+    const OMT_SUPPLIER = {
+      id: 100,
+      name: "OMT",
+      provider: "OMT",
+      is_active: 1,
+      account_supplier_id: null,
+    };
+    const IPICK_SUPPLIER_STANDALONE = {
+      id: 101,
+      name: "iPick",
+      provider: "iPick",
+      is_active: 1,
+      account_supplier_id: null,
+    };
+    const IPICK_SUPPLIER_UNDER_OMT = {
+      ...IPICK_SUPPLIER_STANDALONE,
+      account_supplier_id: 100,
+    };
+    const KATSH_SUPPLIER = {
+      id: 102,
+      name: "Katsh",
+      provider: "Katsh",
+      is_active: 1,
+      account_supplier_id: null,
+    };
+
+    it("shows no account control for a provider with no linked supplier row", async () => {
+      mockGetServiceProviders.mockResolvedValue([NON_SYSTEM_PROVIDER]);
+      mockGetSuppliers.mockResolvedValue([]);
+      render(<ServiceProvidersManager />);
+      await screen.findByText("Syria");
+
+      fireEvent.click(screen.getByText("Edit"));
+
+      expect(
+        screen.getByText(
+          "No supplier ledger is linked to this provider — account grouping doesn't apply.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByLabelText("Part of account (optional)"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("offers eligible parents (active, not-already-a-child, not-itself) and writes the link on save", async () => {
+      mockGetServiceProviders.mockResolvedValue([
+        OMT_PROVIDER,
+        IPICK_PROVIDER,
+        KATSH_PROVIDER,
+      ]);
+      mockGetSuppliers.mockResolvedValue([
+        OMT_SUPPLIER,
+        IPICK_SUPPLIER_STANDALONE,
+        KATSH_SUPPLIER,
+      ]);
+      render(<ServiceProvidersManager />);
+      await screen.findByText("OMT_System");
+
+      const rows = screen.getAllByRole("row");
+      // "iPick" is both the seeded row's code AND label (matches the real
+      // seed data), so `queryByText` (single-match) would throw — same trap
+      // this file's first test documents for "OMT". Use queryAllByText.
+      const ipickRow = rows.find(
+        (r) => within(r).queryAllByText("iPick").length > 0,
+      )!;
+      fireEvent.click(within(ipickRow).getByText("Edit"));
+
+      const select = (await screen.findByLabelText(
+        "Part of account (optional)",
+      )) as HTMLSelectElement;
+      // Standalone + OMT + Katsh are all eligible (active, unparented,
+      // not itself) — iPick itself must not appear in its own picker.
+      const optionLabels = Array.from(select.options).map((o) => o.text);
+      expect(optionLabels).toEqual([
+        "Standalone (no account)",
+        "Katsh",
+        "OMT",
+      ]);
+
+      fireEvent.change(select, { target: { value: "100" } });
+      fireEvent.click(screen.getByText("Save Changes"));
+
+      await waitFor(() =>
+        expect(mockUpdateSupplierAccountLink).toHaveBeenCalledWith({
+          supplier_id: 101,
+          account_supplier_id: 100,
+        }),
+      );
+    });
+
+    it("pre-selects the supplier's CURRENT parent when opening edit", async () => {
+      mockGetServiceProviders.mockResolvedValue([OMT_PROVIDER, IPICK_PROVIDER]);
+      mockGetSuppliers.mockResolvedValue([
+        OMT_SUPPLIER,
+        IPICK_SUPPLIER_UNDER_OMT,
+      ]);
+      render(<ServiceProvidersManager />);
+      await screen.findByText("OMT_System");
+
+      const rows = screen.getAllByRole("row");
+      // "iPick" is both the seeded row's code AND label (matches the real
+      // seed data), so `queryByText` (single-match) would throw — same trap
+      // this file's first test documents for "OMT". Use queryAllByText.
+      const ipickRow = rows.find(
+        (r) => within(r).queryAllByText("iPick").length > 0,
+      )!;
+      fireEvent.click(within(ipickRow).getByText("Edit"));
+
+      const select = (await screen.findByLabelText(
+        "Part of account (optional)",
+      )) as HTMLSelectElement;
+      expect(select.value).toBe("100");
+    });
+
+    it("clearing the picker back to Standalone detaches the supplier (sends null)", async () => {
+      mockGetServiceProviders.mockResolvedValue([OMT_PROVIDER, IPICK_PROVIDER]);
+      mockGetSuppliers.mockResolvedValue([
+        OMT_SUPPLIER,
+        IPICK_SUPPLIER_UNDER_OMT,
+      ]);
+      render(<ServiceProvidersManager />);
+      await screen.findByText("OMT_System");
+
+      const rows = screen.getAllByRole("row");
+      // "iPick" is both the seeded row's code AND label (matches the real
+      // seed data), so `queryByText` (single-match) would throw — same trap
+      // this file's first test documents for "OMT". Use queryAllByText.
+      const ipickRow = rows.find(
+        (r) => within(r).queryAllByText("iPick").length > 0,
+      )!;
+      fireEvent.click(within(ipickRow).getByText("Edit"));
+
+      const select = await screen.findByLabelText(
+        "Part of account (optional)",
+      );
+      fireEvent.change(select, { target: { value: "" } });
+      fireEvent.click(screen.getByText("Save Changes"));
+
+      await waitFor(() =>
+        expect(mockUpdateSupplierAccountLink).toHaveBeenCalledWith({
+          supplier_id: 101,
+          account_supplier_id: null,
+        }),
+      );
+    });
+
+    it("does NOT write the account link when the picker was never touched (byte-identical value)", async () => {
+      mockGetServiceProviders.mockResolvedValue([OMT_PROVIDER, IPICK_PROVIDER]);
+      mockGetSuppliers.mockResolvedValue([
+        OMT_SUPPLIER,
+        IPICK_SUPPLIER_UNDER_OMT,
+      ]);
+      render(<ServiceProvidersManager />);
+      await screen.findByText("OMT_System");
+
+      const rows = screen.getAllByRole("row");
+      // "iPick" is both the seeded row's code AND label (matches the real
+      // seed data), so `queryByText` (single-match) would throw — same trap
+      // this file's first test documents for "OMT". Use queryAllByText.
+      const ipickRow = rows.find(
+        (r) => within(r).queryAllByText("iPick").length > 0,
+      )!;
+      fireEvent.click(within(ipickRow).getByText("Edit"));
+      await screen.findByLabelText("Part of account (optional)");
+
+      fireEvent.click(screen.getByText("Save Changes"));
+
+      await waitFor(() =>
+        expect(mockUpdateServiceProvider).toHaveBeenCalled(),
+      );
+      expect(mockUpdateSupplierAccountLink).not.toHaveBeenCalled();
+    });
+
+    it("disables the picker and explains why for a supplier that already has its own children (no chains)", async () => {
+      // OMT already has iPick as a child — OMT itself cannot become a child.
+      mockGetServiceProviders.mockResolvedValue([OMT_PROVIDER, IPICK_PROVIDER]);
+      mockGetSuppliers.mockResolvedValue([
+        OMT_SUPPLIER,
+        IPICK_SUPPLIER_UNDER_OMT,
+      ]);
+      render(<ServiceProvidersManager />);
+      await screen.findByText("OMT_System");
+
+      const rows = screen.getAllByRole("row");
+      const omtRow = rows.find((r) => within(r).queryByText("OMT_System"))!;
+      fireEvent.click(within(omtRow).getByText("Edit"));
+
+      expect(
+        await screen.findByText(
+          /already has its own children grouped under it/,
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByLabelText("Part of account (optional)"),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Save Changes"));
+      await waitFor(() =>
+        expect(mockUpdateServiceProvider).toHaveBeenCalled(),
+      );
+      expect(mockUpdateSupplierAccountLink).not.toHaveBeenCalled();
+    });
+
+    it("shows the current account grouping in the table's Account column", async () => {
+      mockGetServiceProviders.mockResolvedValue([OMT_PROVIDER, IPICK_PROVIDER]);
+      mockGetSuppliers.mockResolvedValue([
+        OMT_SUPPLIER,
+        IPICK_SUPPLIER_UNDER_OMT,
+      ]);
+      render(<ServiceProvidersManager />);
+      await screen.findByText("OMT_System");
+
+      const rows = screen.getAllByRole("row");
+      // "iPick" is both the seeded row's code AND label (matches the real
+      // seed data), so `queryByText` (single-match) would throw — same trap
+      // this file's first test documents for "OMT". Use queryAllByText.
+      const ipickRow = rows.find(
+        (r) => within(r).queryAllByText("iPick").length > 0,
+      )!;
+      expect(within(ipickRow).getByText("OMT")).toBeInTheDocument();
+
+      const omtRow = rows.find((r) => within(r).queryByText("OMT_System"))!;
+      expect(within(omtRow).getByText("Standalone")).toBeInTheDocument();
+    });
+
+    it("surfaces a rejected account-link write instead of silently closing the form", async () => {
+      mockGetServiceProviders.mockResolvedValue([OMT_PROVIDER, IPICK_PROVIDER]);
+      mockGetSuppliers.mockResolvedValue([
+        OMT_SUPPLIER,
+        IPICK_SUPPLIER_STANDALONE,
+      ]);
+      mockUpdateSupplierAccountLink.mockResolvedValue({
+        success: false,
+        error: "Cannot detach: unsettled rows",
+      });
+      render(<ServiceProvidersManager />);
+      await screen.findByText("OMT_System");
+
+      const rows = screen.getAllByRole("row");
+      // "iPick" is both the seeded row's code AND label (matches the real
+      // seed data), so `queryByText` (single-match) would throw — same trap
+      // this file's first test documents for "OMT". Use queryAllByText.
+      const ipickRow = rows.find(
+        (r) => within(r).queryAllByText("iPick").length > 0,
+      )!;
+      fireEvent.click(within(ipickRow).getByText("Edit"));
+
+      const select = await screen.findByLabelText(
+        "Part of account (optional)",
+      );
+      fireEvent.change(select, { target: { value: "100" } });
+      fireEvent.click(screen.getByText("Save Changes"));
+
+      expect(
+        await screen.findByText("Cannot detach: unsettled rows"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Edit Service Provider")).toBeInTheDocument();
+    });
   });
 });

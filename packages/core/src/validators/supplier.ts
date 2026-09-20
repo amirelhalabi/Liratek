@@ -163,6 +163,21 @@ export const supplierSettleAccountSchema = z.object({
   payments: z.array(supplierPaymentLegSchema).optional(),
 });
 
+// LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set or clear a supplier's
+// account parent (`suppliers.account_supplier_id`, migration v176). `null`
+// detaches the supplier back to standalone. Every data-dependent invariant
+// (self-parent, one-level-deep chains, parent existence/tenant/active,
+// orphaning open unsettled rows) is enforced server-side in
+// SupplierRepository.updateAccountLink, next to the rows it protects (rule
+// 13/14) — a schema can't see other suppliers' rows, so it only shapes the
+// wire payload. `created_by` is deliberately NOT part of this schema, same
+// as every sibling settle/cashflow schema above: the actor is injected by
+// the handler/route from the session (IPC) or the JWT (REST, rule 19c).
+export const supplierAccountLinkSchema = z.object({
+  supplier_id: z.number().int().positive(),
+  account_supplier_id: z.number().int().positive().nullable(),
+});
+
 /** Log a delivery batch for a product supplier (FIFO payment coverage). */
 export const supplierPurchaseCreateSchema = z.object({
   supplier_id: z.number().int().positive(),
@@ -187,6 +202,9 @@ export type SupplierSettleAccountInput = z.infer<
   typeof supplierSettleAccountSchema
 >;
 export type SupplierCashflowInput = z.infer<typeof supplierCashflowSchema>;
+export type SupplierAccountLinkInput = z.infer<
+  typeof supplierAccountLinkSchema
+>;
 export type SupplierPurchaseCreateInput = z.infer<
   typeof supplierPurchaseCreateSchema
 >;

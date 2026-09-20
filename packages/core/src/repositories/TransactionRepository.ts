@@ -648,6 +648,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
   }
 
+  /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, §8.4/§11) — `getRecent()` had
+   * its OWN hand-listed SELECT column set (rule 14 drift from
+   * `getColumns()`, needed here because of the `users`/`clients` JOINs and
+   * the computed `reversed_by_id` subquery) that never included
+   * `profit_usd`/`profit_lbp`, even though `TransactionWithUser` — via
+   * `TransactionEntity` — has always declared both as real, non-optional
+   * columns. Every caller reading `.profit_usd` off a `getRecent()` row
+   * therefore silently got `undefined` (falsy, reads as 0) regardless of
+   * the transaction's REAL stamped profit — not a money-posting bug (the
+   * column itself is written correctly by every writer), but a reporting
+   * gap: any feature auditing profit through the "recent transactions"
+   * journal (exactly what LIRA-189's deferred cashout-commission
+   * recognition, D14, needs to prove) silently saw $0. Found via
+   * `lira-189-omt-account-settlement.spec.ts` asserting a settlement's
+   * recognised profit through `transactions.getRecent()` — the DB row was
+   * correct; only this read path dropped it.
+   */
   getRecent(limit = 50, filters?: TransactionFilters): TransactionWithUser[] {
     const tenantId = getCurrentTenantId();
     const conditions: string[] = ["t.tenant_id = ?"];
@@ -727,7 +745,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     const rows = this.query<TransactionWithUser>(
       `SELECT t.id, t.type, t.status, t.source_table, t.source_id,
-              t.user_id, t.amount_usd, t.amount_lbp, t.exchange_rate,
+              t.user_id, t.amount_usd, t.amount_lbp, t.profit_usd, t.profit_lbp,
+              t.exchange_rate,
               t.client_id, t.client_phone,
               t.reverses_id, t.summary, t.metadata_json,
               t.device_id, t.created_at,

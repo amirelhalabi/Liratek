@@ -199,3 +199,85 @@ describe("TransactionRepository.getRecent — reversed_by_id (note 21d)", () => 
     expect(refund.reversed_by_id).toBeNull();
   });
 });
+
+/**
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189) — `getRecent()`'s hand-listed
+ * SELECT (needed for the `users`/`clients` JOINs and the computed
+ * `reversed_by_id` subquery above) never included `profit_usd`/
+ * `profit_lbp`, even though `TransactionEntity`/`TransactionWithUser` have
+ * always declared both as real, non-optional columns (every OTHER read
+ * path — `getById`, `getBySourceId` — uses the shared `getColumns()`,
+ * which does include them). Every caller reading `.profit_usd` off a
+ * `getRecent()` row therefore silently got `undefined` (falsy) regardless
+ * of the real stamped profit — found via `lira-189-omt-account-settlement
+ * .spec.ts` asserting a settlement's recognised deferred cashout commission
+ * (D14) through `transactions.getRecent()`: the DB row was correct
+ * (`SupplierRepository.accountSettlement.test.ts` proves `settleAccount`
+ * stamps it), only this read path dropped it.
+ *
+ * Failing-first (rule 17): drop `t.profit_usd, t.profit_lbp` back out of
+ * `getRecent()`'s SELECT and both assertions below fail (`undefined` is not
+ * `toBeCloseTo` any nonzero number) — verified by hand before this test was
+ * added, then the columns were restored and this test went green.
+ */
+describe("TransactionRepository.getRecent — profit_usd/profit_lbp (LIRA-189 fix)", () => {
+  let db: Database.Database;
+  let repo: TransactionRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
+    resetTransactionRepository();
+    repo = new TransactionRepository();
+  });
+
+  afterEach(() => {
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
+    db.close();
+    resetTransactionRepository();
+    resetTenantContext();
+  });
+
+  it("returns the real stamped profit_usd/profit_lbp, not undefined", () => {
+    db.prepare(`INSERT INTO recharges (id, carrier) VALUES (1, 'MTC')`).run();
+    const txnId = repo.createTransaction({
+      type: "SUPPLIER_SETTLEMENT",
+      source_table: "recharges",
+      source_id: 1,
+      user_id: 1,
+      amount_usd: 728.84,
+      amount_lbp: 0,
+      profit_usd: 0.16,
+      profit_lbp: 1_000,
+      summary: "Account settlement",
+      metadata_json: {},
+    });
+
+    const row = repo.getRecent(10).find((r) => r.id === txnId)!;
+    expect(row.profit_usd).toBeCloseTo(0.16, 2);
+    expect(row.profit_lbp).toBeCloseTo(1_000, 0);
+  });
+
+  it("returns exactly 0 (not undefined) for a transaction stamped with no profit", () => {
+    db.prepare(`INSERT INTO recharges (id, carrier) VALUES (1, 'MTC')`).run();
+    const txnId = repo.createTransaction({
+      type: "RECHARGE",
+      source_table: "recharges",
+      source_id: 1,
+      user_id: 1,
+      amount_usd: 10,
+      amount_lbp: 0,
+      summary: "Recharge: MTC",
+      metadata_json: { provider: "MTC" },
+    });
+
+    const row = repo.getRecent(10).find((r) => r.id === txnId)!;
+    expect(row.profit_usd).toBe(0);
+    expect(row.profit_lbp).toBe(0);
+  });
+});

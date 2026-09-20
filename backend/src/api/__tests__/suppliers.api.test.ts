@@ -377,4 +377,81 @@ describe("Suppliers REST routes", () => {
       );
     });
   });
+
+  // ── PUT /:id/account-link (LIRA-191) ─────────────────────────────────────
+  describe("PUT /api/suppliers/:id/account-link", () => {
+    it("rejects staff (admin-only, mirrors suppliers:update-account-link)", async () => {
+      const res = await request(app)
+        .put("/api/suppliers/1/account-link")
+        .set("x-test-role", "staff")
+        .send({ account_supplier_id: 2 });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects a non-numeric account_supplier_id (core supplierAccountLinkSchema) — rule 19c: 200 + string error", async () => {
+      const res = await request(app)
+        .put("/api/suppliers/1/account-link")
+        .set("x-test-role", "admin")
+        .send({ account_supplier_id: "not-a-number" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+    });
+
+    it("happy path: supplier_id comes from the URL, account_supplier_id from the body", async () => {
+      const spy = jest
+        .spyOn(supplierService, "updateSupplierAccountLink")
+        .mockReturnValue({ success: true, id: 3 });
+
+      const res = await request(app)
+        .put("/api/suppliers/3/account-link")
+        .set("x-test-role", "admin")
+        .send({ account_supplier_id: 2 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, id: 3 });
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ supplier_id: 3, account_supplier_id: 2 }),
+      );
+    });
+
+    it("accepts a null account_supplier_id (detach to standalone)", async () => {
+      const spy = jest
+        .spyOn(supplierService, "updateSupplierAccountLink")
+        .mockReturnValue({ success: true, id: 3 });
+
+      const res = await request(app)
+        .put("/api/suppliers/3/account-link")
+        .set("x-test-role", "admin")
+        .send({ account_supplier_id: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, id: 3 });
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ supplier_id: 3, account_supplier_id: null }),
+      );
+    });
+
+    it("surfaces a repository validation error verbatim (rule 19c: 200 + string error, never a 4xx/5xx)", async () => {
+      jest
+        .spyOn(supplierService, "updateSupplierAccountLink")
+        .mockReturnValue({
+          success: false,
+          error: 'Supplier "OMT" cannot be its own account parent',
+        });
+
+      const res = await request(app)
+        .put("/api/suppliers/1/account-link")
+        .set("x-test-role", "admin")
+        .send({ account_supplier_id: 1 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: false,
+        error: 'Supplier "OMT" cannot be its own account parent',
+      });
+    });
+  });
 });

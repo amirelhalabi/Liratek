@@ -618,6 +618,15 @@ contextBridge.exposeInMainWorld("api", {
       phone?: string;
       note?: string;
     }) => ipcRenderer.invoke("suppliers:create", data),
+    // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set (a positive id) or
+    // clear (null) a supplier's account parent. Admin-only (requireRole in
+    // the handler); the repository re-validates every invariant (self-parent,
+    // one-level chains, parent existence/tenant/active, orphaned unsettled
+    // rows) server-side — never trusted from the renderer beyond shape.
+    updateAccountLink: (data: {
+      supplier_id: number;
+      account_supplier_id: number | null;
+    }) => ipcRenderer.invoke("suppliers:update-account-link", data),
     addLedgerEntry: (data: {
       supplier_id: number;
       entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";

@@ -66,6 +66,24 @@ type RecentTxn = {
   metadata_json: string | null;
 };
 
+// OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5 (LIRA-188): 'OMT App' is now an
+// OMT-account CHILD (`account_supplier_id` -> OMT), so `getBalances`
+// deliberately excludes it from its top-level list (it surfaces only in the
+// account rollup's `children[]`). Its real balance is only reachable via
+// `getAccountBalances()`.
+type AccountChildBalance = {
+  supplier_id: number;
+  total_usd: number;
+  total_lbp: number;
+};
+type AccountBalance = {
+  account_supplier_id: number;
+  account_name: string;
+  total_usd: number;
+  total_lbp: number;
+  children: AccountChildBalance[];
+};
+
 type Api = {
   api: {
     recharge: {
@@ -87,6 +105,9 @@ type Api = {
         includeInactive: boolean,
       ) => Promise<Array<{ id: number; provider: string | null }>>;
       getBalances: (includeInactive?: boolean) => Promise<SupplierBalance[]>;
+      // RAW array — the OMT open-credit account rollup (LIRA-188). The only
+      // method that exposes an account CHILD's (iPick/OMT App) own balance.
+      getAccountBalances: () => Promise<AccountBalance[]>;
     };
     transactions: {
       getRecent: (limit: number) => Promise<RecentTxn[]>;
@@ -110,6 +131,9 @@ async function drawers(
   });
 }
 
+// 'OMT App' is an OMT-account CHILD (LIRA-188) — `getBalances` no longer
+// lists it at all (by design), so its real balance is only reachable via
+// the account rollup's `children[]`.
 async function omtAppSupplierBalance(
   page: Page,
   currency: "USD" | "LBP",
@@ -120,9 +144,9 @@ async function omtAppSupplierBalance(
       (s) => s.provider === "OMT_APP",
     );
     if (!supplier) return NaN;
-    const bal = (await w.api.suppliers.getBalances(true)).find(
-      (b) => b.supplier_id === supplier.id,
-    );
+    const bal = (await w.api.suppliers.getAccountBalances())
+      .flatMap((a) => a.children)
+      .find((c) => c.supplier_id === supplier.id);
     return cur === "USD" ? (bal?.total_usd ?? 0) : (bal?.total_lbp ?? 0);
   }, currency);
 }
@@ -284,6 +308,11 @@ test.describe("LIRA-192 — OMT App cash-out, driven through the real modal", ()
         const drawerUsd = (rows: DrawerBalance[], name: string) =>
           rows.find((d) => d.name === name)?.usdBalance ?? 0;
 
+        const childBalUsd = (accounts: AccountBalance[], supplierId: number) =>
+          accounts
+            .flatMap((a) => a.children)
+            .find((c) => c.supplier_id === supplierId)?.total_usd ?? 0;
+
         const supplier = (await w.api.suppliers.list("", true)).find(
           (s) => s.provider === "OMT_APP",
         );
@@ -291,10 +320,8 @@ test.describe("LIRA-192 — OMT App cash-out, driven through the real modal", ()
 
         const drawersBefore = await w.api.recharge.getDrawerBalances();
         const omtAppBefore = drawerUsd(drawersBefore, "OMT_App");
-        const balancesBefore = await w.api.suppliers.getBalances(true);
-        const ledgerBefore =
-          balancesBefore.find((b) => b.supplier_id === supplier.id)
-            ?.total_usd ?? 0;
+        const accountsBefore = await w.api.suppliers.getAccountBalances();
+        const ledgerBefore = childBalUsd(accountsBefore, supplier.id);
 
         const cashout = await w.api.recharge.cashoutToSupplier({
           provider: "OMT_APP",
@@ -322,10 +349,8 @@ test.describe("LIRA-192 — OMT App cash-out, driven through the real modal", ()
 
         const drawersAfter = await w.api.recharge.getDrawerBalances();
         const omtAppAfter = drawerUsd(drawersAfter, "OMT_App");
-        const balancesAfter = await w.api.suppliers.getBalances(true);
-        const ledgerAfter =
-          balancesAfter.find((b) => b.supplier_id === supplier.id)
-            ?.total_usd ?? 0;
+        const accountsAfter = await w.api.suppliers.getAccountBalances();
+        const ledgerAfter = childBalUsd(accountsAfter, supplier.id);
 
         return {
           found: true,

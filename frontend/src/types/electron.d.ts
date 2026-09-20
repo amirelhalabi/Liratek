@@ -310,6 +310,12 @@ export interface RecentTransaction {
   user_id: number;
   amount_usd: number;
   amount_lbp: number;
+  /** Real, always-populated journal columns (`TransactionEntity`) — the SQL
+   *  behind this endpoint used to silently drop both (LIRA-189 fix), which
+   *  masked a settlement's recognised profit (D14) from any reader of this
+   *  list. Typed now rather than left to "passed through". */
+  profit_usd: number;
+  profit_lbp: number;
   exchange_rate: number | null;
   client_id: number | null;
   client_phone: string | null;
@@ -1605,6 +1611,12 @@ export interface ElectronAPI {
         commission_eligible?: number;
         /** LIRA-112 (v151) — the currency `commission_rate` is denominated in. */
         commission_rate_currency?: "USD" | "LBP";
+        /** OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187/191, v176) — the
+         *  account-parent self-FK; null for a standalone supplier and for
+         *  an account parent itself (a parent is found by being pointed
+         *  AT, never by pointing anywhere). Undefined on a connection that
+         *  predates v176. */
+        account_supplier_id?: number | null;
       }>
     >;
     getBalances: (
@@ -1661,6 +1673,13 @@ export interface ElectronAPI {
       contact_name?: string;
       phone?: string;
       note?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set (a positive id) or
+     *  clear (null) a supplier's account parent. Mirrors
+     *  `supplierAccountLinkSchema` (rule 12). */
+    updateAccountLink: (data: {
+      supplier_id: number;
+      account_supplier_id: number | null;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     addLedgerEntry: (data: {
       supplier_id: number;

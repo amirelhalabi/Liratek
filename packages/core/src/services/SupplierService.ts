@@ -25,6 +25,7 @@ import type {
   AccountLedgerEntry,
   AccountUnsettledRow,
   SettleAccountData,
+  UpdateSupplierAccountLinkData,
 } from "../repositories/SupplierRepository.js";
 import { toErrorString } from "../utils/errors.js";
 
@@ -105,6 +106,27 @@ export class SupplierService {
       if (!data.name?.trim())
         return { success: false, error: "Supplier name is required" };
       const res = this.repo.createSupplier(data);
+      return { success: true, id: res.id };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
+
+  /**
+   * LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — thin pass-through (rule
+   * 13): every data-dependent invariant (self-parent, chain depth, parent
+   * existence/tenant/active, orphaned unsettled rows) lives in the
+   * repository, next to the SQL it protects. Only presence-checked here.
+   */
+  updateSupplierAccountLink(
+    data: UpdateSupplierAccountLinkData,
+  ): SupplierResult {
+    try {
+      if (!data.supplier_id)
+        return { success: false, error: "supplier_id is required" };
+      if (data.account_supplier_id === undefined)
+        return { success: false, error: "account_supplier_id is required" };
+      const res = this.repo.updateAccountLink(data);
       return { success: true, id: res.id };
     } catch (e) {
       return { success: false, error: toErrorString(e) };

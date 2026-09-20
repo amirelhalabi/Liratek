@@ -56,6 +56,24 @@ type RecentTxn = {
   summary: string | null;
 };
 
+// OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5 (LIRA-188): 'OMT App' is now an
+// OMT-account CHILD (`account_supplier_id` -> OMT), so `getBalances`
+// deliberately excludes it from its top-level list (it surfaces only in the
+// account rollup's `children[]`). Its real balance is only reachable via
+// `getAccountBalances()`.
+type AccountChildBalance = {
+  supplier_id: number;
+  total_usd: number;
+  total_lbp: number;
+};
+type AccountBalance = {
+  account_supplier_id: number;
+  account_name: string;
+  total_usd: number;
+  total_lbp: number;
+  children: AccountChildBalance[];
+};
+
 type Api = {
   api: {
     recharge: {
@@ -72,6 +90,9 @@ type Api = {
         includeInactive: boolean,
       ) => Promise<Array<{ id: number; provider: string | null }>>;
       getBalances: (includeInactive?: boolean) => Promise<SupplierBalance[]>;
+      // RAW array — the OMT open-credit account rollup (LIRA-188). The only
+      // method that exposes an account CHILD's (iPick/OMT App) own balance.
+      getAccountBalances: () => Promise<AccountBalance[]>;
     };
     transactions: {
       getRecent: (limit: number) => Promise<RecentTxn[]>;
@@ -97,7 +118,10 @@ async function drawers(
 }
 
 /** The 'OMT App' supplier's ledger balance for one currency (D2's proof that
- *  the credit path books the OMT account, not just the wallet drawer). */
+ *  the credit path books the OMT account, not just the wallet drawer).
+ *  'OMT App' is an OMT-account CHILD (LIRA-188) — `getBalances` no longer
+ *  lists it at all (by design), so its real balance is only reachable via
+ *  the account rollup's `children[]`. */
 async function omtAppSupplierBalance(
   page: Page,
   currency: "USD" | "LBP",
@@ -108,9 +132,9 @@ async function omtAppSupplierBalance(
       (s) => s.provider === "OMT_APP",
     );
     if (!supplier) return NaN;
-    const bal = (await w.api.suppliers.getBalances(true)).find(
-      (b) => b.supplier_id === supplier.id,
-    );
+    const bal = (await w.api.suppliers.getAccountBalances())
+      .flatMap((a) => a.children)
+      .find((c) => c.supplier_id === supplier.id);
     return cur === "USD" ? (bal?.total_usd ?? 0) : (bal?.total_lbp ?? 0);
   }, currency);
 }
@@ -275,17 +299,15 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
         const drawerUsd = (rows: DrawerBalance[], name: string) =>
           rows.find((d) => d.name === name)?.usdBalance ?? 0;
 
+        const childBalUsd = (accounts: AccountBalance[], supplierId: number) =>
+          accounts
+            .flatMap((a) => a.children)
+            .find((c) => c.supplier_id === supplierId)?.total_usd ?? 0;
+
         const supplier = (await w.api.suppliers.list("", true)).find(
           (s) => s.provider === "OMT_APP",
         );
         if (!supplier) return { found: false as const };
-
-        const drawersBefore = await w.api.recharge.getDrawerBalances();
-        const omtAppBefore = drawerUsd(drawersBefore, "OMT_App");
-        const balancesBefore = await w.api.suppliers.getBalances(true);
-        const ledgerBefore =
-          balancesBefore.find((b) => b.supplier_id === supplier.id)
-            ?.total_usd ?? 0;
 
         // Shape shared by every "found: true" branch below, so the caller
         // can narrow on `found` alone without a second union split.
@@ -318,15 +340,25 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
           return topUpFailed("topup txn not found");
         }
 
+        // Snapshot the baseline IMMEDIATELY BEFORE the void attempt (NOT
+        // before the top-up) — this test proves the REFUSED VOID moves
+        // nothing further, not that the whole round trip nets to zero. The
+        // top-up's own +amount rise is already proved by the "defaults to
+        // credit" test above; measuring from before the top-up would fold
+        // that legitimate, expected movement into "net delta" and wrongly
+        // expect it to cancel out against a void that never runs.
+        const drawersBefore = await w.api.recharge.getDrawerBalances();
+        const omtAppBefore = drawerUsd(drawersBefore, "OMT_App");
+        const accountsBefore = await w.api.suppliers.getAccountBalances();
+        const ledgerBefore = childBalUsd(accountsBefore, supplier.id);
+
         // The void attempt itself — expected to be REFUSED, not to succeed.
         const voidRes = await w.api.transactions.void(row.id);
 
         const drawersAfter = await w.api.recharge.getDrawerBalances();
         const omtAppAfter = drawerUsd(drawersAfter, "OMT_App");
-        const balancesAfter = await w.api.suppliers.getBalances(true);
-        const ledgerAfter =
-          balancesAfter.find((b) => b.supplier_id === supplier.id)
-            ?.total_usd ?? 0;
+        const accountsAfter = await w.api.suppliers.getAccountBalances();
+        const ledgerAfter = childBalUsd(accountsAfter, supplier.id);
 
         return {
           found: true as const,
@@ -334,12 +366,12 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
           voidSucceeded: voidRes.success === true,
           voidError: voidRes.error ?? null,
           error: null as string | null,
-          // Deltas measured across the void ATTEMPT, not a completed
-          // reversal: since the attempt is refused before any write, both
-          // must sit exactly where the top-up itself left them (the top-up's
-          // own full-amount rise is proved by the "defaults to credit" test
-          // above; this test only proves the refused void moves nothing
-          // further).
+          // Deltas measured across the void ATTEMPT ONLY (baseline snapshotted
+          // right before `void()`, after the top-up already landed) — since
+          // the attempt is refused before any write, both must be unchanged
+          // across that narrower window. The top-up's own full-amount rise is
+          // proved by the "defaults to credit" test above; this test only
+          // proves the refused void moves nothing further on top of it.
           omtAppNetDelta: Math.round((omtAppAfter - omtAppBefore) * 100) / 100,
           ledgerNetDelta:
             Math.round((ledgerAfter - ledgerBefore) * 100) / 100,

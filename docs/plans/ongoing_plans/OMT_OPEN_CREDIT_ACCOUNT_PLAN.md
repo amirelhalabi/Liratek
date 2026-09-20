@@ -4,7 +4,7 @@ Tickets **LIRA-187 → LIRA-192** in `current_sprint.md`. Planned 2026-09-10 fro
 (2026-09-09/10), extended 2026-09-13/14 with the OMT App cashout (§8); every file:line below was
 opened and read on `main` on the date given in its section heading.
 
-> **STATUS: SHIPPED 2026-09-15/16 — everything except LIRA-191, which the owner deferred.**
+> **STATUS: COMPLETE 2026-09-20 — all six tickets built, LIRA-191 included.**
 > All eighteen owner decisions answered (§1). See **§12** for what landed, where, and the two
 > things that genuinely remain. This header previously read "Nothing built yet" for a full day
 > after the work shipped — the exact staleness trap this repo keeps hitting. If you are reading
@@ -773,7 +773,7 @@ high priority.**
 | `6ea06edf` | The Transactions type filter ignored five of its own filters on web, and now takes several types at once. Not strictly this epic, but it was found while looking at OMT rows and the fix is what makes filtering by "Whish App Send" actually show only that |
 | `3dbb82b9` | Opening any dropdown dragged the whole page sideways. Shared `Select`, so it affected every screen, not just OMT |
 
-`LIRA-191` is **not** in any of them, deliberately.
+`LIRA-191` was added 2026-09-20 (§12.5) once the owner had used the account and asked for it.
 
 ### §12.2 e2e — the honest status
 
@@ -795,9 +795,8 @@ restored. That is the documented ABI flip, not damage.
 
 ### §12.3 What actually remains
 
-1. **LIRA-191** — grouping configurable in Service Providers settings, and the Whish-base question
-   (§5, D9). Deferred by the owner until the account has been used in anger. Unchanged.
-2. **Prove the e2e** (§12.2). The last thing standing between this and "done".
+1. ~~**LIRA-191**~~ — **BUILT 2026-09-20**, see §12.5.
+2. **Prove the e2e** (§12.2). **The only thing standing between this and "done".**
 3. **One unanswered owner question**: a mistaken OMT App credit top-up cannot be voided, only
    corrected by an opposite manual entry. Unchanged from how iPick has always behaved, but now
    reachable from a button, so more people will hit it. The owner has not ruled on whether that is
@@ -814,3 +813,36 @@ restored. That is the documented ABI flip, not damage.
   backstop.
 - **`max-h-60` on that panel had never worked** — @headlessui writes `maxHeight` inline and an inline
   style beats a class. Worth remembering before writing another Tailwind cap on a floating panel.
+
+
+### §12.5 LIRA-191 — built 2026-09-20
+
+The overview called this "Small". It was not: **no supplier write path existed at all**, so a full
+dual-transport feature had to be built before a single field could be edited — repository method,
+service pass-through, Zod schema, IPC handler, REST route, adapter, types, and the UI.
+
+**Where it went.** `ServiceProvidersManager.tsx`, per §5. That screen edits `service_providers` while
+this column lives on `suppliers`, so it now also loads suppliers to resolve the 1:1
+`provider = code` join. A provider with a matching supplier gets a "Part of account" picker and an
+"Account" column; one without (BOB, OTHER, BINANCE, custom) shows "doesn't apply".
+
+**Seven server-side validations**, all hard rejects with named messages, because this column decides
+what every balance and settlement query groups by: no self-parent; the new parent must not itself be
+a child, and the supplier being edited must not already be a parent (one level deep, enforced in both
+directions, because the rollup queries assume depth 1); parent must exist, same tenant, active;
+detaching a supplier that still has open unsettled rows is refused, while **re-parenting** with open
+rows is allowed — the debt moves rather than vanishing, which is the point of the ticket.
+
+**The Whish-base exemption, and a correction to §5.** An account parent with an active child is now
+exempt from the secondary-system hide predicate, so a Whish-base shop still sees its OMT account and
+the iPick / OMT App debt hanging off it. Hiding a card is cosmetic; hiding real debt is a money error.
+
+§5 said that predicate lives in `getSupplierBalances`. **That was wrong, and fixing only it would have
+changed nothing visible** — the Suppliers page builds its tile list from `listSuppliers()`, and
+`getSupplierBalances` only supplies the numbers. The predicate was duplicated across both (a
+pre-existing rule-14 violation) and is now ONE shared `_secondarySystemHideClause(tableRef)` with the
+exemption inside it. A childless secondary-system supplier, and one whose only child is inactive, both
+stay hidden as before.
+
+Gates: build, typecheck, lint clean; full suite **6,040 tests, 0 failures**. Rule 17 proven on the
+exemption, on a validation rule, and on the frontend write.

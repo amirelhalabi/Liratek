@@ -13,6 +13,7 @@ import type {
   SafeSession,
   AddRepaymentInput,
   CreateUserInput,
+  SupplierAccountLinkInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -24,6 +25,7 @@ export type {
   SafeSession,
   AddRepaymentInput,
   CreateUserInput,
+  SupplierAccountLinkInput,
 };
 
 export type ApiUser = {
@@ -1408,6 +1410,17 @@ export type ApiAdapter = {
     module_key?: string;
     provider?: string;
   }) => Promise<ApiResult & { id?: number }>;
+  /**
+   * LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set (`account_supplier_id`
+   * a positive id) or clear (`null`) a supplier's account parent. Payload
+   * typed as `SupplierAccountLinkInput` (rule 21 — derived from
+   * `supplierAccountLinkSchema`, never hand-copied). The repository
+   * re-validates every invariant (self-parent, one-level chains, parent
+   * existence/tenant/active, orphaned unsettled rows) server-side.
+   */
+  updateSupplierAccountLink: (
+    data: SupplierAccountLinkInput,
+  ) => Promise<ApiResult & { id?: number }>;
   addSupplierLedgerEntry: (
     supplierId: number,
     data: {

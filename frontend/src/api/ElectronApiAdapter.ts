@@ -7,7 +7,11 @@
  */
 
 import type { ApiAdapter } from "@liratek/ui";
-import type { ProductListFilters, CreateUserInput } from "@liratek/core";
+import type {
+  ProductListFilters,
+  CreateUserInput,
+  SupplierAccountLinkInput,
+} from "@liratek/core";
 import * as api from "./backendApi";
 
 export class ElectronApiAdapter implements ApiAdapter {
@@ -361,6 +365,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getSupplierAccountLedger(accountSupplierId, limit);
   getSupplierAccountUnsettled = (accountSupplierId: number) =>
     api.getSupplierAccountUnsettled(accountSupplierId);
+  updateSupplierAccountLink = (data: SupplierAccountLinkInput) =>
+    api.updateSupplierAccountLink(data);
   createSupplier = (data: {
     name: string;
     contact_name?: string;

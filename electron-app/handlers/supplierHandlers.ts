@@ -9,6 +9,7 @@ import {
   SupplierSettleAccountSchema,
   SupplierCashflowSchema,
   SupplierPurchaseCreateSchema,
+  SupplierAccountLinkSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -79,6 +80,35 @@ export function registerSupplierHandlers(): void {
         name: v.data.name,
         module_key: v.data.module_key,
         provider: v.data.provider,
+      },
+    });
+    return result;
+  });
+
+  // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set/clear a supplier's
+  // account parent. Admin-only: this column reshapes what every
+  // balance/settlement rollup groups by (getAccountBalances/
+  // getAccountLedger/getAccountUnsettled), so it gets the same role gate as
+  // every other supplier WRITE below, not the no-gate treatment the reads
+  // above get.
+  ipcMain.handle("suppliers:update-account-link", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(SupplierAccountLinkSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.updateSupplierAccountLink(v.data);
+    audit(e.sender.id, {
+      action: "update",
+      entity_type: "supplier_account_link",
+      summary:
+        v.data.account_supplier_id === null
+          ? `Detached supplier #${v.data.supplier_id} from its account`
+          : `Parented supplier #${v.data.supplier_id} under account #${v.data.account_supplier_id}`,
+      metadata: {
+        supplier_id: v.data.supplier_id,
+        account_supplier_id: v.data.account_supplier_id,
       },
     });
     return result;

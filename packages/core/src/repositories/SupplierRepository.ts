@@ -437,6 +437,17 @@ export interface CreateSupplierData {
   provider?: string;
 }
 
+/**
+ * LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set (`account_supplier_id`
+ * a positive id) or clear (`null`) a supplier's account parent. See
+ * {@link SupplierRepository.updateAccountLink}'s own doc comment for the
+ * full validation contract.
+ */
+export interface UpdateSupplierAccountLinkData {
+  supplier_id: number;
+  account_supplier_id: number | null;
+}
+
 export interface CreateSupplierLedgerEntryData {
   supplier_id: number;
   entry_type: SupplierLedgerEntryType;
@@ -721,6 +732,49 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
+   * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-191, §5) — the ONE "hide the
+   * SECONDARY OMT/WHISH system" predicate (rule 14): a supplier whose
+   * `provider` is 'OMT' or 'WHISH' and isn't the shop's `shop_base_system`
+   * has no direct relationship on this shop (its obligations live in
+   * partner_ledger), so it's hidden from both the tile list
+   * (`listSuppliers`) and the balance list (`getSupplierBalances`) — this
+   * predicate used to be typed out twice, byte-for-byte, in those two
+   * methods; now shared.
+   *
+   * LIRA-191's Whish-base exemption: an account PARENT (some other supplier
+   * points at it via `account_supplier_id`) with at least one ACTIVE child
+   * is exempted from the hide rule even when it IS the secondary system —
+   * e.g. 'OMT' on a Whish-base shop that still parents 'iPick'/'OMT App'.
+   * Hiding a card the operator didn't expect is cosmetic; hiding a rolled-up
+   * account's real debt is a money error (owner-confirmed: a Whish-base shop
+   * can still hold iPick/OMT App accounts). A CHILDLESS secondary-system
+   * supplier keeps the exact old (hidden) behaviour — this only widens
+   * visibility, never narrows it.
+   *
+   * Gated on `_suppliersHasAccountLinkColumn()` so a connection/fixture that
+   * predates v176 (no `account_supplier_id` column at all) gets the bare,
+   * unexempted rule — byte-identical to pre-LIRA-191 behaviour.
+   *
+   * `tableRef` is the bare table name or alias the caller's FROM clause
+   * uses for `suppliers` — `"suppliers"` (no alias, `listSuppliers`) or
+   * `"s"` (aliased, `getSupplierBalances` via `_ledgerBalanceQuery`).
+   */
+  private _secondarySystemHideClause(tableRef: string): string {
+    const hideRule = `NOT (COALESCE(${tableRef}.provider, '') IN ('OMT', 'WHISH')
+             AND ${tableRef}.provider <> COALESCE(
+               (SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = ${tableRef}.tenant_id),
+               'OMT'))`;
+    if (!this._suppliersHasAccountLinkColumn()) return hideRule;
+    return `(${hideRule}
+             OR EXISTS (
+               SELECT 1 FROM suppliers c
+                WHERE c.account_supplier_id = ${tableRef}.id
+                  AND c.tenant_id = ${tableRef}.tenant_id
+                  AND c.is_active = 1
+             ))`;
+  }
+
+  /**
    * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-187, v176) — same schema-drift-
    * guard shape as `_suppliersHasAccountLinkColumn()`, for the
    * `supplier_ledger.settlement_id` column that migration ALSO adds (one
@@ -791,13 +845,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       // Hide the SECONDARY OMT/WHISH system: it has no direct supplier relationship
       // (its obligations live in partner_ledger), so it shouldn't appear on the
       // suppliers page. The shop's base system is the only legacy system shown.
+      // LIRA-191: shared with getSupplierBalances (rule 14) via
+      // _secondarySystemHideClause — see that method's doc comment for the
+      // active-children exemption this predicate now also carries.
       let sql = includeInactive
         ? `SELECT ${this.getColumns()} FROM suppliers WHERE tenant_id = ?`
         : `SELECT ${this.getColumns()} FROM suppliers WHERE tenant_id = ? AND is_active = 1
-             AND NOT (COALESCE(provider, '') IN ('OMT', 'WHISH')
-                      AND provider <> COALESCE(
-                        (SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = suppliers.tenant_id),
-                        'OMT'))`;
+             AND ${this._secondarySystemHideClause("suppliers")}`;
       const params: (string | number)[] = [tenantId];
       if (search?.trim()) {
         sql += ` AND name LIKE ?`;
@@ -857,6 +911,174 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       return { id: Number(res.lastInsertRowid) };
     } catch (e) {
       throw new DatabaseError("Failed to create supplier", { cause: e });
+    }
+  }
+
+  /**
+   * LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — how many rows would be
+   * silently detached from an account's settlement queue if `supplierId`
+   * lost its parent right now: this supplier's OWN pending
+   * `financial_services` queue (only a provider-bearing supplier — e.g. the
+   * OMT counter — has one) plus its own un-settled `supplier_ledger` rows.
+   * Same three exclusions `getAccountUnsettled` applies per member
+   * (`settlement_id IS NULL`, non-zero, not refunded, not a
+   * financial_services auto-sibling), scoped to ONE supplier instead of an
+   * account-wide `accountMemberOf` OR — reuses `ledgerNotRefunded()` and the
+   * same schema-drift guards rather than re-typing them (rule 14). Returns 0
+   * for the ledger half on a connection that predates v176's
+   * `settlement_id` column, matching every other guard in this file.
+   */
+  private _countOpenUnsettledRows(supplierId: number, tenantId: number): number {
+    let count = 0;
+
+    const supplierRow = this.db
+      .prepare(`SELECT provider FROM suppliers WHERE id = ? AND tenant_id = ?`)
+      .get(supplierId, tenantId) as { provider: string | null } | undefined;
+    if (supplierRow?.provider) {
+      count += getFinancialServiceRepository().getUnsettledBySupplier(
+        supplierRow.provider,
+      ).length;
+    }
+
+    if (this._supplierLedgerHasSettlementIdColumn()) {
+      const excludeFsSiblings = this._supplierLedgerHasSourceRefColumns()
+        ? "AND COALESCE(source_ref_table, '') <> 'financial_services'"
+        : "";
+      const row = this.db
+        .prepare(
+          `SELECT COUNT(*) as cnt FROM supplier_ledger
+             WHERE supplier_id = ? AND tenant_id = ?
+               AND settlement_id IS NULL
+               AND (amount_usd <> 0 OR amount_lbp <> 0)
+               AND ${ledgerNotRefunded()}
+               ${excludeFsSiblings}`,
+        )
+        .get(supplierId, tenantId) as { cnt: number };
+      count += row.cnt;
+    }
+
+    return count;
+  }
+
+  /**
+   * LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set or clear a
+   * supplier's account parent (`suppliers.account_supplier_id`, the
+   * read-time rollup link migration v176 added — §2 design principle:
+   * ledger rows never move, only this link reshapes what
+   * `getAccountBalances`/`getAccountLedger`/`getAccountUnsettled` group
+   * together). Hard-validated here, server-side, because a bad link
+   * corrupts a ROLLUP silently rather than failing one row:
+   *
+   *  - a supplier cannot be its own parent;
+   *  - the account is exactly ONE level deep — the new parent must not
+   *    itself be a child (no A→B→C chains), and the supplier being updated
+   *    must not already be a parent of its own children (re-parenting an
+   *    existing account parent would create that same chain, one level
+   *    down);
+   *  - the parent must exist, be in the SAME tenant, and be active;
+   *  - detaching (`account_supplier_id: null`) a supplier that currently
+   *    HAS a parent and still carries open unsettled rows is refused, not
+   *    silently allowed — those rows would otherwise vanish from the
+   *    account's settlement queue with no warning. Re-parenting a child
+   *    from one valid parent straight to another is NOT subject to this
+   *    check: the debt doesn't disappear, it moves to the new account's
+   *    rollup, which is the entire point of this ticket.
+   *
+   * Every rejection throws `DatabaseError` with a message naming exactly
+   * which rule failed — never a silent no-op and never a generic "failed to
+   * update".
+   */
+  updateAccountLink(data: UpdateSupplierAccountLinkData): { id: number } {
+    if (!this._suppliersHasAccountLinkColumn()) {
+      throw new DatabaseError(
+        "Supplier account grouping requires migration v176 (suppliers.account_supplier_id), which this connection does not have",
+      );
+    }
+
+    const tenantId = getCurrentTenantId();
+    const supplierId = data.supplier_id;
+    const nextParentId = data.account_supplier_id;
+
+    const supplier = this.db
+      .prepare(
+        `SELECT id, name, account_supplier_id FROM suppliers WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(supplierId, tenantId) as
+      | { id: number; name: string; account_supplier_id: number | null }
+      | undefined;
+    if (!supplier) {
+      throw new DatabaseError(`Supplier #${supplierId} not found`);
+    }
+
+    if (nextParentId !== null) {
+      if (nextParentId === supplierId) {
+        throw new DatabaseError(
+          `Supplier "${supplier.name}" cannot be its own account parent`,
+        );
+      }
+
+      const parent = this.db
+        .prepare(
+          `SELECT id, name, is_active, account_supplier_id FROM suppliers WHERE id = ? AND tenant_id = ?`,
+        )
+        .get(nextParentId, tenantId) as
+        | {
+            id: number;
+            name: string;
+            is_active: number;
+            account_supplier_id: number | null;
+          }
+        | undefined;
+      if (!parent) {
+        throw new DatabaseError(
+          `Parent supplier #${nextParentId} not found in this tenant`,
+        );
+      }
+      if (!parent.is_active) {
+        throw new DatabaseError(
+          `"${parent.name}" is inactive and cannot be an account parent`,
+        );
+      }
+      if (parent.account_supplier_id !== null) {
+        throw new DatabaseError(
+          `"${parent.name}" is itself a child of another account — accounts are one level deep, no chains`,
+        );
+      }
+
+      const existingChildren = this.db
+        .prepare(
+          `SELECT COUNT(*) as cnt FROM suppliers WHERE account_supplier_id = ? AND tenant_id = ?`,
+        )
+        .get(supplierId, tenantId) as { cnt: number };
+      if (existingChildren.cnt > 0) {
+        throw new DatabaseError(
+          `"${supplier.name}" already has its own children — an account parent cannot become a child (no chains)`,
+        );
+      }
+    } else if (supplier.account_supplier_id !== null) {
+      // Detaching an ALREADY-linked child — only case the orphan check
+      // applies to (a no-op clear on an already-standalone supplier is
+      // harmless and skipped).
+      const openCount = this._countOpenUnsettledRows(supplierId, tenantId);
+      if (openCount > 0) {
+        throw new DatabaseError(
+          `Cannot detach "${supplier.name}" from its account — it still has ${openCount} unsettled row${openCount === 1 ? "" : "s"}; settle them first`,
+        );
+      }
+    }
+
+    try {
+      this.db
+        .prepare(
+          `UPDATE suppliers SET account_supplier_id = ? WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(nextParentId, supplierId, tenantId);
+      return { id: supplierId };
+    } catch (e) {
+      throw new DatabaseError("Failed to update supplier account link", {
+        cause: e,
+        entityId: supplierId,
+      });
     }
   }
 
@@ -1470,14 +1692,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       // COALESCE the NULL provider: `NULL IN (...)` is SQL NULL, and
       // `NOT (NULL AND …)` is NULL too — without it, every provider-less
       // supplier was silently dropped from the balances list (latent bug
-      // caught by lira-web-015).
+      // caught by lira-web-015). LIRA-191: shared with listSuppliers (rule
+      // 14) via _secondarySystemHideClause, which also carries the
+      // active-children exemption (see its own doc comment).
       const filter = includeInactive
         ? "s.tenant_id = ?"
         : `s.tenant_id = ? AND s.is_active = 1
-           AND NOT (COALESCE(s.provider, '') IN ('OMT', 'WHISH')
-                    AND s.provider <> COALESCE(
-                      (SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = s.tenant_id),
-                      'OMT'))`;
+           AND ${this._secondarySystemHideClause("s")}`;
       // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — an account CHILD
       // (`account_supplier_id` set — 'OMT App' / 'iPick' under 'OMT') no
       // longer appears as its own top-level balance card; it surfaces only

@@ -36,6 +36,24 @@ type SupplierBalanceRow = {
   total_lbp: number;
 };
 
+// OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5 (LIRA-188): iPick is now an OMT-account
+// CHILD (`account_supplier_id` -> OMT), so `getBalances`/`getSupplierBalances`
+// deliberately excludes it from its top-level list (it only shows up in the
+// account rollup's `children[]`). A child's real balance is only reachable
+// via `getAccountBalances()`.
+type AccountChildBalance = {
+  supplier_id: number;
+  total_usd: number;
+  total_lbp: number;
+};
+type AccountBalance = {
+  account_supplier_id: number;
+  account_name: string;
+  total_usd: number;
+  total_lbp: number;
+  children: AccountChildBalance[];
+};
+
 type ProviderDrawerRow = {
   name: string;
   usdBalance: number;
@@ -64,6 +82,9 @@ type SupplierApi = {
       ) => Promise<Array<{ id: number; provider: string | null }>>;
       getLedger: (supplierId: number, limit?: number) => Promise<LedgerRow[]>;
       getBalances: (includeInactive?: boolean) => Promise<SupplierBalanceRow[]>;
+      // RAW array — the OMT open-credit account rollup (LIRA-188). The only
+      // method that exposes an account CHILD's (iPick/OMT App) own balance.
+      getAccountBalances: () => Promise<AccountBalance[]>;
       getUnsettledTransactions: (
         provider: string,
       ) => Promise<Array<{ id: number }>>;
@@ -184,10 +205,13 @@ test.describe("C5 — cost/price SEND: drawer draw-down only, no per-sale suppli
         (s) => s.provider === "iPick",
       );
       if (!supplier) throw new Error("iPick supplier not found");
+      // iPick is an OMT-account CHILD (LIRA-188) — `getBalances` no longer
+      // lists it at all (by design; it surfaces only in the account
+      // rollup's `children[]`), so read its real balance from there.
       const balOf = async () =>
-        (await w.api.suppliers.getBalances(true)).find(
-          (b) => b.supplier_id === supplier.id,
-        )?.total_usd ?? 0;
+        (await w.api.suppliers.getAccountBalances())
+          .flatMap((a) => a.children)
+          .find((c) => c.supplier_id === supplier.id)?.total_usd ?? 0;
 
       const baseline = await balOf();
 
