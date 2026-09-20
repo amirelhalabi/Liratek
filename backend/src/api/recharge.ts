@@ -326,8 +326,11 @@ router.post(
 // `recharge:top-up-from-client` (requireRole(["admin", "staff"])).
 // `topUpFromClientSchema` is THE shared contract (rules 14 + 19b) — since
 // `validateRequest` REPLACES the body with the parse result, `{...req.body}`
-// below already forwards `payments`/`exchangeRate` and drops the retired
-// `cashPaid` automatically; nothing here needs to name those fields by hand.
+// below already forwards `payments`/`exchangeRate`/`fee` and drops the
+// retired `cashPaid` automatically; nothing here needs to name those fields
+// by hand. `fee` (the owner's declared shop profit, required, may be 0) is
+// REQUIRED by the schema with no default, so a body missing it is rejected
+// before the service is ever reached — same rule-22 reasoning as `payments`.
 router.post(
   "/top-up-from-client",
   requireRole(["admin", "staff"]),
@@ -344,7 +347,10 @@ router.post(
         // Mirrors rechargeHandlers.ts's recharge:top-up-from-client audit
         // (create/recharge_topup): `cashPaid` no longer exists on the wire,
         // so the entry logs the leg count and the summed payout instead so
-        // it stays legible.
+        // it stays legible. `fee` is the owner's declared profit on this
+        // transaction (LIRA-194 follow-on) — recorded here so "what did we
+        // make on that?" is answerable straight from the audit trail without
+        // re-deriving it from the legs.
         const payoutTotal = (req.body.payments as Array<{ amount: number }>)
           .reduce((sum, leg) => sum + leg.amount, 0);
         auditRest(req, {
@@ -354,6 +360,7 @@ router.post(
           metadata: {
             amount: req.body.amount,
             currency: req.body.currency,
+            fee: req.body.fee,
             legCount: req.body.payments.length,
             payoutTotal,
             clientName: req.body.clientName,

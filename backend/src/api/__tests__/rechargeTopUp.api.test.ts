@@ -385,10 +385,17 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
   // `TopUpFromClientInput` and run through the real `topUpFromClientSchema`
   // to derive the EXPECTED shape, so this test can never hand-drift from the
   // shared contract the way `Debts.tenderExchangeRate.test.tsx` once did.
+  //
+  // `fee` (a second LIRA-194 follow-on): the owner's rule is that profit on
+  // this transaction IS the fee (possibly zero) — REQUIRED, no default
+  // (rule 22: a defaulted field corrupts silently instead of erroring), so
+  // `payments[]` now must total EXACTLY `amount - fee`. The fixture below
+  // reflects that: 40 - 2 = 38, matching the single CASH leg.
   describe("POST /api/recharge/top-up-from-client", () => {
     const clientTopUpFixture: TopUpFromClientInput = {
       amount: 40,
       currency: "USD",
+      fee: 2,
       payments: [{ method: "CASH", currencyCode: "USD", amount: 38 }],
       clientName: "Walk-in",
     };
@@ -456,6 +463,82 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
       expect(res.body.success).toBe(false);
       expect(typeof res.body.error).toBe("string");
       expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a body missing fee — the shared schema fails loudly, service never reached", async () => {
+      const spy = jest.spyOn(rechargeService, "topUpFromClient");
+
+      const { fee: _omitted, ...withoutFee } = clientTopUpFixture as Record<
+        string,
+        unknown
+      >;
+
+      const res = await request(app)
+        .post("/api/recharge/top-up-from-client")
+        .set("x-test-role", "staff")
+        .send(withoutFee);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("accepts fee: 0 and forwards it as 0 — a falsy value, not an omitted one (rule 22's silent-corruption trap)", async () => {
+      const spy = jest
+        .spyOn(rechargeService, "topUpFromClient")
+        .mockReturnValue({ success: true });
+
+      const zeroFeeFixture: TopUpFromClientInput = {
+        ...clientTopUpFixture,
+        fee: 0,
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 40 }],
+      };
+      const parsedZeroFee = topUpFromClientSchema.parse(zeroFeeFixture);
+
+      const res = await request(app)
+        .post("/api/recharge/top-up-from-client")
+        .set("x-test-role", "staff")
+        .send(zeroFeeFixture);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true });
+      // The load-bearing assertion: `fee` is `0` (a number), never
+      // `undefined` — a `?? undefined` or truthiness check upstream would
+      // silently drop a real, owner-sanctioned zero fee.
+      expect(spy).toHaveBeenCalledWith({
+        ...parsedZeroFee,
+        userId: 42,
+      });
+      const calledWith = spy.mock.calls[0][0] as unknown as {
+        fee: number;
+      };
+      expect(calledWith.fee).toBe(0);
+    });
+
+    it("forwards the exact fee value sent to the service", async () => {
+      const spy = jest
+        .spyOn(rechargeService, "topUpFromClient")
+        .mockReturnValue({ success: true });
+
+      const feeFixture: TopUpFromClientInput = {
+        ...clientTopUpFixture,
+        fee: 5,
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 35 }],
+      };
+      const parsedFeeFixture = topUpFromClientSchema.parse(feeFixture);
+
+      const res = await request(app)
+        .post("/api/recharge/top-up-from-client")
+        .set("x-test-role", "staff")
+        .send(feeFixture);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true });
+      expect(spy).toHaveBeenCalledWith({
+        ...parsedFeeFixture,
+        userId: 42,
+      });
     });
 
     it("ignores a client-supplied userId — the actor always comes from the JWT, never the body", async () => {

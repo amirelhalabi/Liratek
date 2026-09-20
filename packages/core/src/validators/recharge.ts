@@ -262,10 +262,21 @@ export type TopUpFromClientLegInput = z.infer<typeof topUpFromClientLegSchema>;
  * `.default([])` — rule 22: a defaulted field corrupts silently instead of
  * erroring). An old caller sending `{amount, cashPaid}` now fails loudly
  * (missing `payments`) instead of silently booking a $0/0-leg payout.
+ *
+ * OWNER RULING (2026-09-21, same LIRA-194 follow-on): `fee` — the shop's cut
+ * on this exchange, in `currency` — is now ALSO required and undefaulted
+ * (rule 22 again: `.nonnegative()` with no `.default()`), because it IS the
+ * profit stamp verbatim (`RechargeRepository.topUpFromClient`'s doc header).
+ * The repository no longer infers profit from `amount − cashPaid`; the caller
+ * must say what its cut is, even when that cut is deliberately 0.
  */
 export const topUpFromClientSchema = z.object({
   amount: z.number().positive(),
   currency: z.enum(["USD", "LBP"]),
+  /** The shop's cut on this exchange — REQUIRED, no default (rule 22). IS
+   *  `transactions.profit_usd`/`profit_lbp` verbatim, native to `currency`.
+   *  May be 0 (owner: a top-up can legitimately carry no fee). */
+  fee: z.number().nonnegative(),
   payments: z.array(topUpFromClientLegSchema).min(1),
   /**
    * The USD/LBP rate to convert a payout leg whose `currencyCode` differs

@@ -580,6 +580,7 @@ contextBridge.exposeInMainWorld("api", {
     topUpFromClient: (data: {
       amount: number;
       currency: "USD" | "LBP";
+      fee: number;
       payments: Array<{
         method: string;
         currencyCode: string;

@@ -59,6 +59,25 @@ function getAmountInput(): HTMLElement {
   return screen.getAllByPlaceholderText("0.00")[0];
 }
 
+/** The main amount field when the modal is in LBP mode, where its
+ *  placeholder is "0" (not "0.00") and therefore doesn't collide with the
+ *  manual-fee input's placeholder at all — unlike the USD case above, no
+ *  index disambiguation is needed. */
+function getLbpAmountInput(): HTMLElement {
+  return screen.getAllByPlaceholderText("0")[0];
+}
+
+/** The manual "Fee Amount (USD)" input inside the Fee Breakdown card,
+ *  located via its label text rather than a hand-picked placeholder/index —
+ *  robust regardless of whether the auto-fee placeholder has kicked in. */
+function getFeeInput(): HTMLInputElement {
+  const label = screen.getByText("Fee Amount (USD)");
+  const container = label.closest("div");
+  const input = container?.querySelector("input");
+  if (!input) throw new Error("Fee input not found");
+  return input;
+}
+
 function switchToFromClient() {
   fireEvent.click(screen.getByRole("button", { name: /from client/i }));
 }
@@ -229,5 +248,116 @@ describe("TopUpModal — Whish App 'From Client' payout (LIRA-195)", () => {
       0,
     );
     expect(total).toBeCloseTo(99, 2);
+    // The same $1 auto fee this split payout target (99 = 100 - 1) was
+    // derived from must also travel on the wire (LIRA-195 fee follow-on).
+    expect(payload.fee).toBe(1);
+  });
+
+  // --- LIRA-195 fee follow-on -------------------------------------------
+  //
+  // `topUpFromClientSchema` gains a REQUIRED `fee: z.number().nonnegative()`
+  // field (packages/core/src/validators/recharge.ts) — the shop's cut, which
+  // the server now reconciles `payments[]` against with EXACT equality
+  // (`amount - fee`), replacing the old one-sided "at or under" tolerance.
+  // TopUpModal already computes this value as `whishProviderFee`; these
+  // tests prove it actually reaches the wire, including the `fee: 0` case a
+  // truthiness check or `?? undefined` would silently drop (rule 22 — the
+  // owner explicitly said the fee may be zero).
+  describe("fee propagation (LIRA-195 follow-on)", () => {
+    it("emits the auto-calculated 1% USD fee as `fee`, matching the schema", () => {
+      const onConfirmClient = jest.fn().mockResolvedValue(undefined);
+      render(
+        <TopUpModal
+          isOpen
+          onClose={jest.fn()}
+          onConfirm={jest.fn()}
+          onConfirmClient={onConfirmClient}
+          clientPaymentMethods={CLIENT_PAYMENT_METHODS}
+          provider="WHISH_APP"
+          allDrawers={ALL_DRAWERS}
+          destinationDrawer="Whish_App"
+          defaultSourceDrawer="General"
+        />,
+      );
+
+      switchToFromClient();
+      // 1% auto fee on $100 USD → fee = $1.00, payout target = $99.00
+      fireEvent.change(getAmountInput(), { target: { value: "100" } });
+      submit();
+
+      expect(onConfirmClient).toHaveBeenCalledTimes(1);
+      const payload = onConfirmClient.mock.calls[0][0];
+      const parsed = topUpFromClientSchema.parse(payload);
+      expect(parsed.fee).toBe(1);
+      const total = parsed.payments.reduce((sum, leg) => sum + leg.amount, 0);
+      expect(total).toBeCloseTo(parsed.amount - parsed.fee, 2);
+    });
+
+    it("emits a manually-entered fee, overriding the 1% auto calculation", () => {
+      const onConfirmClient = jest.fn().mockResolvedValue(undefined);
+      render(
+        <TopUpModal
+          isOpen
+          onClose={jest.fn()}
+          onConfirm={jest.fn()}
+          onConfirmClient={onConfirmClient}
+          clientPaymentMethods={CLIENT_PAYMENT_METHODS}
+          provider="WHISH_APP"
+          allDrawers={ALL_DRAWERS}
+          destinationDrawer="Whish_App"
+          defaultSourceDrawer="General"
+        />,
+      );
+
+      switchToFromClient();
+      fireEvent.change(getAmountInput(), { target: { value: "100" } });
+      fireEvent.change(getFeeInput(), { target: { value: "5" } });
+      submit();
+
+      expect(onConfirmClient).toHaveBeenCalledTimes(1);
+      const payload = onConfirmClient.mock.calls[0][0];
+      const parsed = topUpFromClientSchema.parse(payload);
+      expect(parsed.fee).toBe(5);
+      const total = parsed.payments.reduce((sum, leg) => sum + leg.amount, 0);
+      expect(total).toBeCloseTo(95, 2);
+    });
+
+    it("emits fee: 0 literally — not omitted — when there is no fee", () => {
+      const onConfirmClient = jest.fn().mockResolvedValue(undefined);
+      render(
+        <TopUpModal
+          isOpen
+          onClose={jest.fn()}
+          onConfirm={jest.fn()}
+          onConfirmClient={onConfirmClient}
+          clientPaymentMethods={CLIENT_PAYMENT_METHODS}
+          provider="WHISH_APP"
+          allDrawers={ALL_DRAWERS}
+          destinationDrawer="Whish_App"
+          defaultSourceDrawer="General"
+        />,
+      );
+
+      switchToFromClient();
+      // LBP: no 1% auto fee (that only applies to USD amounts) and no manual
+      // fee entered — the fee is genuinely, legitimately 0.
+      fireEvent.click(screen.getByRole("button", { name: /^lbp$/i }));
+      fireEvent.change(getLbpAmountInput(), { target: { value: "100000" } });
+      submit();
+
+      expect(onConfirmClient).toHaveBeenCalledTimes(1);
+      const payload = onConfirmClient.mock.calls[0][0];
+      // The literal-zero check itself (rule 22's exact concern): `fee` must
+      // be a present, numeric 0 — not stripped by a `?? undefined`/
+      // truthiness guard on the way to the wire.
+      expect(payload).toHaveProperty("fee");
+      expect(payload.fee).toBe(0);
+      expect(typeof payload.fee).toBe("number");
+
+      const parsed = topUpFromClientSchema.parse(payload);
+      expect(parsed.fee).toBe(0);
+      const total = parsed.payments.reduce((sum, leg) => sum + leg.amount, 0);
+      expect(total).toBeCloseTo(100000, 2);
+    });
   });
 });

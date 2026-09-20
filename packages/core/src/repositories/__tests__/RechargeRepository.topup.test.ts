@@ -283,6 +283,7 @@ describe("RechargeRepository.topUpFromClient()", () => {
     const result = repo.topUpFromClient({
       amount: 100,
       currency: "USD",
+      fee: 1,
       payments: [{ method: "CASH", currencyCode: "USD", amount: 99 }],
       clientName: "Walk-in",
       userId: 1,
@@ -318,6 +319,7 @@ describe("RechargeRepository.topUpFromClient()", () => {
     const result = repo.topUpFromClient({
       amount: 100,
       currency: "USD",
+      fee: 1,
       payments: [{ method: "CASH", currencyCode: "USD", amount: 99 }],
       userId: 1,
     });
@@ -343,6 +345,7 @@ describe("RechargeRepository.topUpFromClient()", () => {
     const result = repo.topUpFromClient({
       amount: 5_000_000,
       currency: "LBP",
+      fee: 100_000,
       payments: [
         { method: "CASH", currencyCode: "LBP", amount: 4_900_000 },
       ],
@@ -364,5 +367,129 @@ describe("RechargeRepository.topUpFromClient()", () => {
     expect(txn.amount_usd).toBeCloseTo(0, 2);
     expect(txn.profit_lbp).toBeCloseTo(100_000, 0); // 5,000,000 - 4,900,000
     expect(txn.profit_usd).toBeCloseTo(0, 2);
+  });
+});
+
+describe("RechargeRepository.topUpFromClient() — fee IS profit (owner ruling 2026-09-21)", () => {
+  let db: Database.Database;
+  let repo: RechargeRepository;
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    repo = new RechargeRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
+
+  it("fee = 0 is allowed — profit stamps as exactly 0 and cashPaid equals the full amount", () => {
+    db.prepare(
+      "UPDATE drawer_balances SET balance = 500 WHERE drawer_name = 'General' AND currency_code = 'USD'",
+    ).run();
+
+    const result = repo.topUpFromClient({
+      amount: 100,
+      currency: "USD",
+      fee: 0,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+      userId: 1,
+    });
+
+    expect(result.success).toBe(true);
+
+    expect(balance(db, "Whish_App", "USD")).toBeCloseTo(100, 2);
+    expect(balance(db, "General", "USD")).toBeCloseTo(400, 2); // 500 - 100
+
+    const txn = db
+      .prepare("SELECT * FROM transactions WHERE type = 'RECHARGE_TOPUP'")
+      .get() as any;
+    expect(txn.profit_usd).toBe(0);
+    expect(txn.profit_lbp).toBe(0);
+
+    const metadata = JSON.parse(txn.metadata_json);
+    expect(metadata.fee).toBe(0);
+    expect(metadata.cashPaid).toBe(100); // amount(100) - fee(0)
+  });
+
+  it("metadata_json.cashPaid always equals amount - fee, exactly, for a nonzero fee", () => {
+    db.prepare(
+      "UPDATE drawer_balances SET balance = 500 WHERE drawer_name = 'General' AND currency_code = 'USD'",
+    ).run();
+
+    const result = repo.topUpFromClient({
+      amount: 100,
+      currency: "USD",
+      fee: 12,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 88 }],
+      userId: 1,
+    });
+
+    expect(result.success).toBe(true);
+
+    const txn = db
+      .prepare("SELECT * FROM transactions WHERE type = 'RECHARGE_TOPUP'")
+      .get() as any;
+    expect(txn.profit_usd).toBe(12);
+
+    const metadata = JSON.parse(txn.metadata_json);
+    expect(metadata.cashPaid).toBe(88); // amount(100) - fee(12)
+    expect(metadata.fee).toBe(12);
+  });
+
+  it("rejects legs summing to LESS than amount - fee (the phantom-profit hole S2 closes)", () => {
+    db.prepare(
+      "UPDATE drawer_balances SET balance = 500 WHERE drawer_name = 'General' AND currency_code = 'USD'",
+    ).run();
+
+    // fee = 1 → payout target = 99, but the leg only pays out 80 — an
+    // operator underpaying the client by 19 must be rejected, not silently
+    // booked as $20 of phantom profit (pre-fix: profit was derived as
+    // amount - cashPaid, so an underpaid leg inflated "profit" instead of
+    // erroring).
+    const result = repo.topUpFromClient({
+      amount: 100,
+      currency: "USD",
+      fee: 1,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 80 }],
+      userId: 1,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/do not reconcile/i);
+    const rechargeCount = (
+      db.prepare("SELECT COUNT(*) as cnt FROM recharges").get() as any
+    ).cnt;
+    expect(rechargeCount).toBe(0);
+  });
+
+  it("rejects fee greater than the amount received", () => {
+    const result = repo.topUpFromClient({
+      amount: 100,
+      currency: "USD",
+      fee: 150,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+      userId: 1,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/cannot exceed/i);
+  });
+
+  it("rejects amount - fee <= 0 (fee equal to the amount received)", () => {
+    const result = repo.topUpFromClient({
+      amount: 100,
+      currency: "USD",
+      fee: 100,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 0.01 }],
+      userId: 1,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/greater than 0/i);
   });
 });

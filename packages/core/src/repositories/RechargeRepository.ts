@@ -27,10 +27,7 @@ import {
   assertNoCounterPayment,
   postPayoutLegs,
   usdEquivalent,
-  lbpEquivalent,
-  sumLegsByCurrency,
   resolveStampedExchangeRate,
-  LEG_RECONCILIATION_EPSILON_USD,
 } from "./moneyPosting.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getDebtService } from "../services/DebtService.js";
@@ -2079,9 +2076,39 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
    * `payments[]` legs (rule 16) — the hand-rolled `cashPaid` scalar + a
    * single hardcoded General-drawer UPDATE this method used before is gone.
    * `amount`/`currency` is what the client handed over; `data.payments` is
-   * what the shop pays back OUT. The shop's cut (credits received minus the
-   * payout, both expressed in `currency`) is booked as profit at
-   * acquisition time, exactly as before.
+   * what the shop pays back OUT.
+   *
+   * OWNER RULING (2026-09-21, follow-on to the same LIRA-194 session): the
+   * shop's profit on this transaction IS the fee it charges the client for
+   * the exchange — never an inference from the payout legs. `data.fee` is
+   * now a REQUIRED, undefaulted field (rule 22 — a defaulted field corrupts
+   * silently, a missing required one errors loudly) and IS `profit_usd`/
+   * `profit_lbp`, stamped NATIVE to `currency` with NO USD/LBP conversion —
+   * exactly how every other repository stamps profit (`CustomServiceRepository`:
+   * `price_lbp − cost_lbp`; `FinancialServiceRepository`: commission when
+   * `currency === "LBP"`; `MaintenanceRepository`: `profit` when `isLbp`;
+   * `LotoTicketRepository`). The PRE-FIX code derived profit as
+   * `amount − cashPaid` (`cashPaid` itself converted from the actual payout
+   * legs via `usdEquivalent`/`lbpEquivalent`), which is what produced a
+   * FRACTIONAL `profit_lbp`/`profit_usd` on any cross-currency payout — the
+   * defect this ruling fixes. Profit no longer depends on `exchangeRate` at
+   * all; the rate is used ONLY to reconcile a leg whose currency differs
+   * from `currency` (see `reconcileLegs` below) — do NOT reintroduce a
+   * conversion into the profit path.
+   *
+   * `cashPaid` (recharges.cost / metadata) is now simply `amount − fee`,
+   * exact, in `currency`, no conversion — it is the payout TARGET the legs
+   * must reconcile to exactly, not a figure re-derived from what the legs
+   * happened to sum to. It stays in `metadata_json` because
+   * `frontend/src/features/audit/cashFlow.ts`'s `RECHARGE_TOPUP` case
+   * branches on `m.cashPaid != null` / `> 0` for the cash-flow badge
+   * (guarded by `cashFlow.test.ts` / `TransactionsViewer
+   * .topUpCashFlowDirection.test.tsx` — outside this lane, contract only).
+   *
+   * `fee > amount` is rejected outright (the shop cannot keep more than it
+   * received) and so is `amount − fee <= 0` (a non-positive payout target,
+   * which would otherwise demand legs that cannot exist — each leg's
+   * `amount` is `.positive()`).
    *
    * Direction (CLAUDE.md rule 16): this is a money-OUT (payout) flow. Legs
    * carry NO `direction` — undirected is the IN/payout set `partitionLegs`
@@ -2102,20 +2129,35 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
    * silently accepted with an unchecked, meaningless "balance". If a future
    * owner decision wants a client to receive store credit instead of cash
    * here, that is a deliberate widening of this guard, not a silent gap.
+   *
+   * Reconciliation (2026-09-21 ruling, replacing the old one-sided upper
+   * bound): the payout legs must sum to EXACTLY `amount − fee` — reuses the
+   * shared `reconcileLegs` (moneyPosting.ts), the SAME exact-equality
+   * contract and epsilon every other money repository's leg reconciliation
+   * uses (rule 14 — no second hand-rolled tolerance or rate resolution).
+   * The pre-fix guard only rejected a payout that EXCEEDED the credits
+   * received — legs summing to LESS than intended silently passed, and the
+   * shortfall vanished into derived profit (an operator underpaying the
+   * client by $20 used to book $20 of phantom profit). Exact-equality
+   * closes that hole.
    */
   topUpFromClient(data: {
     amount: number;
     currency: string;
+    /** The shop's cut on this exchange, in `currency` — REQUIRED, IS the
+     *  profit stamp (native, no conversion). See this method's doc header. */
+    fee: number;
     payments: Array<{
       method: string;
       currencyCode: string;
       amount: number;
       direction?: "IN" | "OUT";
     }>;
-    /** Rate to convert a payout leg whose currency differs from `currency`
+    /** Rate to reconcile a payout leg whose currency differs from `currency`
      *  at, and to stamp on `transactions.exchange_rate`. Falls back to the
      *  server's USD/LBP sell rate when omitted or outside the band (see
-     *  `resolveStampedExchangeRate`). */
+     *  `resolveStampedExchangeRate`/`reconcileLegs`). Does NOT affect the
+     *  profit stamp — profit is `fee`, native, unconverted. */
     exchangeRate?: number;
     clientName?: string;
     clientId?: number;
@@ -2178,6 +2220,32 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         }
       };
 
+      // Fee is the shop's cut on this exchange — REQUIRED, IS the profit
+      // stamp (see this method's doc header). Rejected outright if it would
+      // let the shop keep more than it received, or leave nothing to pay
+      // out (each leg's `amount` is `.positive()`, so a non-positive payout
+      // target could never be satisfied by any leg set).
+      const fee = Math.abs(data.fee);
+      if (fee > amount) {
+        return {
+          success: false,
+          error:
+            `Client top-up fee (${formatMoneyAmount(fee, currency)}) cannot exceed ` +
+            `the amount received (${formatMoneyAmount(amount, currency)}) — the shop ` +
+            `cannot keep more than it received`,
+        };
+      }
+      const payoutTarget = amount - fee;
+      if (payoutTarget <= 0) {
+        return {
+          success: false,
+          error:
+            `Client top-up payout target must be greater than 0 — amount ` +
+            `(${formatMoneyAmount(amount, currency)}) minus fee (${formatMoneyAmount(fee, currency)}) ` +
+            `leaves nothing to pay out`,
+        };
+      }
+
       const sellRate = getUsdLbpSellRate(this.db);
       const recordExchangeRate = resolveStampedExchangeRate(
         sellRate,
@@ -2185,52 +2253,30 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       );
 
       // ── Reconcile BEFORE posting (FEATURE_GUIDE §13 item 15a) ───────────
-      // Unlike `reconcileLegs`'s exact-equality contract, this is a
-      // ONE-SIDED upper bound: paying out LESS than the credits received is
-      // fine (the shop just keeps more profit); paying out MORE is a real
-      // loss, not a top-up, and is rejected outright. Compared at
-      // USD-equivalent (`usdEquivalent`, moneyPosting.ts) so a cross-currency
-      // leg (needs `exchangeRate`) and same-currency legs compare on one
-      // scale. Tolerance: `LEG_RECONCILIATION_EPSILON_USD` ($0.05
-      // USD-equivalent) — moneyPosting.ts's own S2 cross-currency-rounding
-      // tolerance, reused rather than inventing a second one (rule 14).
+      // EXACT equality (2026-09-21 ruling): the payout legs must sum to
+      // exactly `payoutTarget` (amount − fee) — reuses the shared
+      // `reconcileLegs` (moneyPosting.ts), the SAME exact-equality contract,
+      // rate resolution (server rate + banded tender rate), and epsilon
+      // every other money repository's leg reconciliation uses (rule 14 —
+      // no second hand-rolled tolerance or rate resolution here). This
+      // replaces the old one-sided upper bound, which silently accepted a
+      // payout LESS than intended and let the shortfall vanish into derived
+      // profit — see this method's doc header for the exact defect this
+      // closes. `data.exchangeRate` plays the SAME role `tenderExchangeRate`
+      // plays everywhere else (the caller's own conversion rate, banded
+      // against the server rate) — it no longer feeds the profit stamp at
+      // all, only this reconciliation.
       for (const leg of payoutLegs) {
         assertLegMovesADrawer(leg.method);
       }
-      // Reuse moneyPosting's shared per-currency summing helper (rule 14)
-      // instead of a hand-rolled loop — it already rejects a non-USD/LBP
-      // currency (thrown, not returned; this method's own outer try/catch
-      // converts that into the same `{success:false, error}` envelope, with
-      // a message at least as informative as the one this replaces) AND
-      // skips zero-amount legs, which the posting loop below ALSO skips
-      // (`if (legAmount <= 0) continue`) — one shared predicate on both the
-      // guard and the posting side, closing the guard/posting-loop drift
-      // shape FEATURE_GUIDE §13 item 15b warns about (unreachable today only
-      // because the schema's `.positive()` already guarantees every leg is
-      // non-zero).
-      const { usd: payoutUsd, lbp: payoutLbp } = sumLegsByCurrency(
-        payoutLegs,
-        "Client top-up payout",
-      );
-      const payoutTotalUsd = usdEquivalent(
-        payoutUsd,
-        payoutLbp,
-        recordExchangeRate,
-      );
-      const amountUsd = usdEquivalent(
-        currency === "USD" ? amount : 0,
-        currency === "LBP" ? amount : 0,
-        recordExchangeRate,
-      );
-      if (payoutTotalUsd - amountUsd > LEG_RECONCILIATION_EPSILON_USD) {
-        return {
-          success: false,
-          error:
-            `Client top-up payout exceeds the credits received — paid out ` +
-            `$${payoutTotalUsd.toFixed(2)} USD-equivalent against $${amountUsd.toFixed(2)} ` +
-            `USD-equivalent received; a top-up cannot pay out more than it takes in`,
-        };
-      }
+      reconcileLegs({
+        inLegs: payoutLegs,
+        outLegs: [],
+        expectedTotals: expectedTotalIn(payoutTarget, currency),
+        exchangeRate: sellRate,
+        tenderExchangeRate: data.exchangeRate,
+        context: "Client top-up payout",
+      });
 
       // ── Per-leg, per-currency drawer balance guard ──────────────────────
       // BEFORE opening the db transaction (read-then-act inside a
@@ -2276,25 +2322,23 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         }
       }
 
-      // `cashPaid` — LOAD-BEARING metadata (rule 14, ONE writer): the summed
-      // payout, converted to `currency`. `frontend/src/features/audit/
-      // cashFlow.ts`'s RECHARGE_TOPUP case branches on
-      // `m.cashPaid != null` / `> 0` to pick the "both" vs "in" cash-flow
-      // badge (guarded by `cashFlow.test.ts` /
+      // `cashPaid` — LOAD-BEARING metadata (rule 14, ONE writer): simply
+      // `amount − fee` (== `payoutTarget`), exact, in `currency`, no
+      // conversion — the payout TARGET the legs above were just proven to
+      // reconcile to exactly, not a figure re-derived from what the legs
+      // happened to sum to (the pre-fix code's `usdEquivalent`/
+      // `lbpEquivalent` conversion is gone along with the fractional-profit
+      // defect it caused). `frontend/src/features/audit/cashFlow.ts`'s
+      // RECHARGE_TOPUP case branches on `m.cashPaid != null` / `> 0` to pick
+      // the "both" vs "in" cash-flow badge (guarded by `cashFlow.test.ts` /
       // `TransactionsViewer.topUpCashFlowDirection.test.tsx`) — derived HERE
       // at the one writer, never hand-maintained a second time downstream.
-      // Both branches reuse moneyPosting's shared converters (`usdEquivalent`
-      // / `lbpEquivalent`) rather than an inline expression — the USD branch
-      // is exactly `payoutTotalUsd`, already computed above for the
-      // over-payout guard; re-deriving it here inline would let the guard's
-      // notion of "the payout, in USD" and this metadata's notion of it
-      // silently diverge if `usdEquivalent` ever changes (rule 14).
-      const cashPaid =
-        currency === "USD"
-          ? payoutTotalUsd
-          : lbpEquivalent(payoutUsd, payoutLbp, recordExchangeRate);
+      const cashPaid = payoutTarget;
       const cashLabel = formatMoneyAmount(cashPaid, currency);
-      const profit = amount - cashPaid;
+      // Profit IS the fee — native to `currency`, no conversion (this
+      // method's doc header). Stamped below as
+      // `currency === "USD" ? fee : 0` / `currency === "LBP" ? fee : 0`,
+      // mirroring every other repository's profit stamp.
       // The REAL drawer(s) this payout actually debits — resolved the same
       // way the posting loop below resolves each leg's drawer
       // (`paymentMethodToDrawerName`), NOT the raw payment METHOD. Before
@@ -2354,14 +2398,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: data.userId,
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
-          profit_usd: currency === "USD" ? profit : 0,
-          profit_lbp: currency === "LBP" ? profit : 0,
+          profit_usd: currency === "USD" ? fee : 0,
+          profit_lbp: currency === "LBP" ? fee : 0,
           client_id: data.clientId ?? null,
           client_name: clientName,
           summary: `Whish App top-up from client: +${creditsLabel} credits, -${cashLabel} cash`,
           metadata_json: {
             provider: "WHISH_APP",
             amount,
+            fee,
             cashPaid,
             currency,
             clientId: data.clientId ?? null,

@@ -156,6 +156,9 @@ export class RechargeService {
   topUpFromClient(data: {
     amount: number;
     currency: string;
+    /** The shop's cut on this exchange — REQUIRED, IS the profit stamp
+     *  verbatim. See `RechargeRepository.topUpFromClient`'s doc header. */
+    fee: number;
     payments: Array<{
       method: string;
       currencyCode: string;

@@ -79,7 +79,10 @@ export interface TopUpModalProps {
    * derives `cashPaid` from it; the retired scalar is gone from the wire)
    * and any leg with `direction: "OUT"` is hard-rejected by
    * `RechargeRepository.topUpFromClient` — a payout has no customer tender
-   * to hand change back from.
+   * to hand change back from. `fee` is ALSO REQUIRED (may be 0 — the shop's
+   * profit on this transaction IS the fee) and the server now reconciles
+   * `payments[]` against `amount - fee` with EXACT equality, not the old
+   * one-sided "at or under" tolerance.
    */
   onConfirmClient?: (data: TopUpFromClientInput) => Promise<void>;
   /** Rendered inside the modal for the "Via Partner" sub-mode (the page passes a PartnerSelector). */
@@ -321,6 +324,12 @@ export default function TopUpModal({
         await onConfirmClient({
           amount: amountNum,
           currency,
+          // `fee` is REQUIRED by `topUpFromClientSchema` and may legitimately
+          // be 0 (owner: the shop's profit on this transaction IS the fee,
+          // which may be zero) — always sent as a literal field, never behind
+          // a truthiness/`?? undefined` guard, or a genuine $0 fee would be
+          // dropped from the wire (rule 22).
+          fee: whishProviderFee,
           payments: payoutLegs,
           ...(hasCrossCurrencyLeg && clientPayoutExchangeRate
             ? { exchangeRate: clientPayoutExchangeRate }

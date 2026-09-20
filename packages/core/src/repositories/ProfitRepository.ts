@@ -959,9 +959,21 @@ const INTERNAL_PAYMENT_METHODS =
  * this fix, refunding a bills-only settlement would have summed the REFUND's
  * negative profit alone (REFUND was already in this list) with no positive
  * counterpart to net against.
+ *
+ * `RECHARGE_TOPUP` (owner ruling, 2026-09-21): `RechargeRepository
+ * .topUpFromClient` stamps a real `profit_usd`/`profit_lbp` equal to the
+ * shop's fee on a client-funded Whish App top-up — exactly the same
+ * "genuine profit, needs a profit surface" reasoning as
+ * `TELECOM_CREDIT_BUYBACK` immediately above. Deliberately narrow: this is
+ * the ONLY change requested — `getRechargesByCurrency`/`getRechargesByCarrier`
+ * (below) are NOT touched. Those join `t.type = 'RECHARGE'` and derive
+ * revenue/cost from `recharges.price`/`cost`; a credit-buy top-up is not a
+ * RECHARGE sale, and folding it into that section's columns would distort
+ * them. `RECHARGE_TOPUP` profit surfaces via this constant only — By User, By
+ * Client, and deferred profit — never the recharge-specific breakdown.
  */
 const PROFIT_TXN_TYPES =
-  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT'";
+  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP'";
 
 /**
  * Maintenance jobs that count as completed revenue: the device was delivered.

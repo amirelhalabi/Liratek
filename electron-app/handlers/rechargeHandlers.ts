@@ -287,6 +287,7 @@ export function registerRechargeHandlers(): void {
       data: {
         amount: number;
         currency: "USD" | "LBP";
+        fee: number;
         payments: Array<{
           method: string;
           currencyCode: string;
@@ -308,7 +309,11 @@ export function registerRechargeHandlers(): void {
       // LIRA-194 session, not LIRA-195 — that ticket is a separate,
       // already-archived plan) — the payout is now a real leg-by-leg
       // `payments[]` array. Log the leg count and the summed payout instead
-      // so the entry stays legible.
+      // so the entry stays legible. `fee` is the shop's cut and now the
+      // profit figure the server reconciles against — logged/audited
+      // explicitly so "what did we make on that?" is answerable from the
+      // audit trail alone. It is REQUIRED (may legitimately be 0), so it is
+      // read straight off `v.data`, never defaulted/coalesced here.
       const payoutTotal = v.data.payments.reduce(
         (sum, leg) => sum + leg.amount,
         0,
@@ -317,6 +322,7 @@ export function registerRechargeHandlers(): void {
         {
           amount: v.data.amount,
           currency: v.data.currency,
+          fee: v.data.fee,
           legCount: v.data.payments.length,
           payoutTotal,
           clientId: v.data.clientId,
@@ -334,6 +340,7 @@ export function registerRechargeHandlers(): void {
         metadata: {
           amount: v.data.amount,
           currency: v.data.currency,
+          fee: v.data.fee,
           legCount: v.data.payments.length,
           payoutTotal,
           clientName: v.data.clientName,

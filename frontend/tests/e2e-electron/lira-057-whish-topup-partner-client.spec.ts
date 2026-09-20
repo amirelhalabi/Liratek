@@ -13,9 +13,14 @@
  *     is paid out of the shop's own drawers via a real, leg-by-leg
  *     `payments[]` array (breaking change, follow-on from the owner's
  *     LIRA-194 session: the old `cashPaid` scalar is retired from the wire —
- *     the repository derives the payout total from the legs). Whish_App
- *     goes UP by `amount`, General goes DOWN by the summed leg payout (the
- *     gap is shop profit), and NO partner_ledger row is created. The
+ *     the repository derives the payout total from the legs). A second
+ *     LIRA-194 follow-on made `fee` REQUIRED: the owner's rule is that
+ *     profit on this transaction IS the fee (possibly zero), stamped
+ *     natively instead of inferred from the legs — so `payments[]` must now
+ *     total EXACTLY `amount - fee` (previously any total AT OR UNDER
+ *     `amount` was silently accepted). Whish_App goes UP by `amount`,
+ *     General goes DOWN by the summed leg payout (== `amount - fee`, the
+ *     shop's declared profit), and NO partner_ledger row is created. The
  *     General balance is guarded.
  *
  * Driven entirely through real main-process IPC over the shared per-worker DB.
@@ -68,6 +73,7 @@ type Api = {
       topUpFromClient: (data: {
         amount: number;
         currency: "USD" | "LBP";
+        fee: number;
         payments: Array<{
           method: string;
           currencyCode: string;
@@ -287,9 +293,13 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
 
         // Action: client transfers 40 credits, paid 30 USD cash via one
         // real CASH leg (the retired `cashPaid` scalar no longer exists on
-        // the wire — the repository derives the payout total from `payments[]`).
+        // the wire — the repository derives the payout total from
+        // `payments[]`). `fee: 10` is the owner-declared shop profit —
+        // legs (30) must equal amount (40) minus fee (10) EXACTLY.
+        const FEE = 10;
         const topUp = await w.api.recharge.topUpFromClient({
           amount: 40,
+          fee: FEE,
           payments: [{ method: "CASH", currencyCode: "USD", amount: CASH_PAID }],
           currency: "USD",
           clientName: `E2E-057 Client ${Date.now()}`,
@@ -323,8 +333,9 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
 
     // Whish_App rose by the credits received…
     expect(result.whishDelta).toBeCloseTo(40, 2);
-    // …General fell by the cash paid out. The gap (40 − 30) = 10 is the shop's
-    // profit, proven via the drawer deltas (profit is never on a txn row).
+    // …General fell by the cash paid out (amount 40 − fee 10 = 30, the
+    // declared shop profit), proven via the drawer deltas (profit is never
+    // read off a txn row).
     expect(result.generalDelta).toBeCloseTo(-30, 2);
 
     // The From-Client path must NOT touch partner_ledger.
@@ -350,13 +361,20 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
         // it atomically (no drawer touched). `amount` (credits received) is
         // kept comfortably above the leg so this exercises the BALANCE guard
         // specifically, not the "payout exceeds credits received" guard.
+        // Reconciliation now runs BEFORE the balance guard and requires
+        // EXACT equality (legs == amount − fee), so `fee` is chosen to make
+        // that hold — otherwise this would fail on the reconciliation
+        // message instead of the balance-guard one this test asserts.
+        const AMOUNT = generalBefore + 5_000_000;
+        const LEG_AMOUNT = generalBefore + 1_000_000;
         const topUp = await w.api.recharge.topUpFromClient({
-          amount: generalBefore + 5_000_000,
+          amount: AMOUNT,
+          fee: AMOUNT - LEG_AMOUNT,
           payments: [
             {
               method: "CASH",
               currencyCode: "USD",
-              amount: generalBefore + 1_000_000,
+              amount: LEG_AMOUNT,
             },
           ],
           currency: "USD",

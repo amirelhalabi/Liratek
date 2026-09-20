@@ -529,14 +529,26 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
   // Follow-on from the owner's LIRA-194 session (not LIRA-195 — that ticket
   // is a separate, already-archived plan): `cashPaid` (a hand-rolled scalar)
   // is gone — the payout now travels as real `payments[]` legs, posted
-  // per-leg to each leg's own drawer. This block covers, per rule-17/28
-  // discipline: a single-leg
-  // payout (still nets General + dest drawer + profit to 0 on void, proving
-  // the LIRA-194 voidability guarantee survived the rework), a SPLIT payout
-  // across two real drawers, a cross-currency payout needing `exchangeRate`,
-  // an over-payout rejection, an OUT-leg rejection, an insufficient-balance
-  // rejection on a NON-General drawer, and `client_id` reaching the
-  // transactions row.
+  // per-leg to each leg's own drawer.
+  //
+  // 2026-09-21 ruling (same LIRA-194 follow-on): `fee` is now a REQUIRED
+  // field on every call in this block — it IS the profit stamp verbatim
+  // (native to `currency`, no conversion), replacing the old derived
+  // `amount − cashPaid` arithmetic. Every leg-based test below is
+  // constructed so its legs sum to EXACTLY `amount − fee` (the new
+  // exact-equality `reconcileLegs` contract, replacing the old one-sided
+  // "must not exceed" upper bound).
+  //
+  // This block covers, per rule-17/28 discipline: a single-leg payout (still
+  // nets General + dest drawer + profit to 0 on void, proving the LIRA-194
+  // voidability guarantee survived the rework), a SPLIT payout across two
+  // real drawers, a cross-currency payout needing `exchangeRate` (profit
+  // stamps as the fee EXACTLY, not a fractional conversion — the bug this
+  // ruling fixes), legs summing to MORE than `amount − fee` (rejected) AND
+  // to LESS (also rejected — the phantom-profit hole S2 closes), a
+  // `fee > amount` rejection, an `amount − fee <= 0` rejection, an OUT-leg
+  // rejection, an insufficient-balance rejection on a NON-General drawer,
+  // and `client_id` reaching the transactions row.
 
   describe("topUpFromClient", () => {
     it.each([
@@ -548,10 +560,12 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
         const generalBefore = balance(db, "General", currency);
         const destBefore = balance(db, "Whish_App", currency);
         const profitBefore = activeProfitSum(db);
+        const fee = amount - cashPaid;
 
         const result = repo.topUpFromClient({
           amount,
           currency,
+          fee,
           payments: [
             { method: "CASH", currencyCode: currency, amount: cashPaid },
           ],
@@ -623,6 +637,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       const result = repo.topUpFromClient({
         amount: 1000,
         currency,
+        fee: 200,
         payments: [
           { method: "CASH", currencyCode: currency, amount: 500 },
           { method: "BINANCE", currencyCode: currency, amount: 300 },
@@ -680,6 +695,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       const result = repo.topUpFromClient({
         amount: 100,
         currency: "USD",
+        fee: 10,
         payments: [{ method: "CASH", currencyCode: "USD", amount: 90 }],
         userId: 1,
       });
@@ -704,6 +720,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       const result = repo.topUpFromClient({
         amount: 1000,
         currency: "USD",
+        fee: 200,
         payments: [
           { method: "CASH", currencyCode: "USD", amount: 500 },
           { method: "BINANCE", currencyCode: "USD", amount: 300 },
@@ -728,27 +745,46 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       expect(metadata.sourceDrawers).toHaveLength(2);
     });
 
-    it("cross-currency payout (needs exchangeRate) converts the payout leg before reconciling and computing profit", () => {
+    it("cross-currency payout (needs exchangeRate) reconciles the payout leg against the fee-derived target, and profit stamps as a CLEAN, EXACT integer (not a fractional conversion artifact)", () => {
       // Credits received in USD, payout leg tendered in LBP at an explicit
-      // exchangeRate — profit/cashPaid must be computed at THAT rate, not
+      // exchangeRate — reconciliation must convert the leg at THAT rate, not
       // the (absent, in this fixture) server sell rate.
+      //
+      // `fee` is a clean, whole-dollar figure (111) the operator entered —
+      // completely decoupled from the LBP leg's own arithmetic. The payout
+      // target (889) is converted to the LBP leg via MULTIPLICATION
+      // (889 * 90,000 = 80,010,000, exact — multiplication of two integers
+      // never produces a repeating decimal), so the leg itself is also a
+      // clean number. This is the key behavioural difference from the
+      // PRE-FIX code: there, profit was DERIVED as `amount - cashPaid`,
+      // where `cashPaid` was whatever the leg's cross-currency conversion
+      // happened to produce — a leg of 80,000,000 LBP at this same rate
+      // would have produced the repeating decimal `80_000_000 / 90_000 =
+      // 888.888...9`, stamping a fractional `profit_usd` of
+      // `1000 - 888.888...9 = 111.111...1` with NO way for the operator to
+      // instead specify a clean $111. Now the fee IS the input, stamped
+      // native and unconverted, and reconciliation only checks the leg
+      // matches the resulting target — it never feeds the profit stamp.
       const generalBefore = balance(db, "General", "LBP");
       const destBefore = balance(db, "Whish_App", "USD");
       const profitBefore = activeProfitSum(db);
 
+      const fee = 111; // clean, operator-entered
+      const payoutTargetUsd = 1000 - fee; // 889
+      const legLbp = payoutTargetUsd * 90_000; // 80,010,000 — exact
+
       const result = repo.topUpFromClient({
         amount: 1000,
         currency: "USD",
-        payments: [
-          { method: "CASH", currencyCode: "LBP", amount: 80_000_000 },
-        ],
+        fee,
+        payments: [{ method: "CASH", currencyCode: "LBP", amount: legLbp }],
         exchangeRate: 90_000,
         userId: 1,
       });
       expect(result.success).toBe(true);
 
       expect(balance(db, "General", "LBP") - generalBefore).toBeCloseTo(
-        -80_000_000,
+        -legLbp,
         2,
       );
       expect(balance(db, "Whish_App", "USD") - destBefore).toBeCloseTo(
@@ -756,14 +792,10 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
         2,
       );
 
-      // cashPaid (USD-denominated, currency === "USD") = 80,000,000 / 90,000
-      const expectedCashPaidUsd = 80_000_000 / 90_000;
-      const expectedProfit = 1000 - expectedCashPaidUsd;
+      // Profit is `fee` verbatim — a CLEAN INTEGER (`toBe`, not
+      // `toBeCloseTo`) — NOT re-derived from the leg's own conversion.
       const profitAfterCreate = activeProfitSum(db);
-      expect(profitAfterCreate.usd - profitBefore.usd).toBeCloseTo(
-        expectedProfit,
-        2,
-      );
+      expect(profitAfterCreate.usd - profitBefore.usd).toBe(fee);
 
       const txnId = latestTopUpTxnId(db);
       const txn = db
@@ -772,21 +804,27 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       expect(txn.exchange_rate).toBeCloseTo(90_000, 2);
     });
 
-    // F1 (adversarial review): the LBP branch of `cashPaid` must reuse the
-    // SAME shared converter (`lbpEquivalent`, moneyPosting.ts) the USD branch
-    // uses (`usdEquivalent`/`payoutTotalUsd`) rather than a second inline
-    // expression — this is the one existing scenario shape
-    // (currency === "USD" + a cross-currency LBP leg) inverted so the
-    // currency === "LBP" branch with a cross-currency USD leg gets the same
-    // coverage.
-    it("cross-currency payout INTO an LBP-denominated top-up converts the USD leg via the SAME shared converter", () => {
+    // F1 (adversarial review, pre-2026-09-21): originally guarded that the
+    // LBP branch of `cashPaid` reused the SAME shared converter as the USD
+    // branch. Post-ruling, `cashPaid` is `amount - fee` with NO conversion at
+    // all in either branch — this test now guards that reconciliation still
+    // converts the cross-currency USD leg correctly (via `exchangeRate`) and
+    // that profit stamps as `fee` verbatim, currency === "LBP" this time
+    // (the USD-side twin is the "needs exchangeRate" test above).
+    it("cross-currency payout INTO an LBP-denominated top-up reconciles the USD leg against the fee-derived target, and profit stamps as the fee", () => {
       const generalUsdBefore = balance(db, "General", "USD");
       const destBefore = balance(db, "Whish_App", "LBP");
       const profitBefore = activeProfitSum(db);
 
+      // 50 USD * 90,000 = 4,500,000 LBP-equivalent (exact — multiplication,
+      // not division, so no repeating decimal here); fee is the round
+      // remainder.
+      const fee = 5_000_000 - 50 * 90_000;
+
       const result = repo.topUpFromClient({
         amount: 5_000_000,
         currency: "LBP",
+        fee,
         payments: [{ method: "CASH", currencyCode: "USD", amount: 50 }],
         exchangeRate: 90_000,
         userId: 1,
@@ -802,14 +840,9 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
         2,
       );
 
-      // cashPaid (LBP-denominated, currency === "LBP") = 0 + 50 * 90,000
-      const expectedCashPaidLbp = 50 * 90_000;
-      const expectedProfit = 5_000_000 - expectedCashPaidLbp;
+      // Profit is `fee` verbatim — NOT re-derived from the leg conversion.
       const profitAfterCreate = activeProfitSum(db);
-      expect(profitAfterCreate.lbp - profitBefore.lbp).toBeCloseTo(
-        expectedProfit,
-        2,
-      );
+      expect(profitAfterCreate.lbp - profitBefore.lbp).toBeCloseTo(fee, 2);
 
       const txnId = latestTopUpTxnId(db);
       const txn = db
@@ -818,7 +851,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       expect(txn.exchange_rate).toBeCloseTo(90_000, 2);
     });
 
-    it("rejects an over-payout — paying out more than the credits received", () => {
+    it("rejects an over-payout — legs summing to MORE than amount - fee", () => {
       const generalBefore = balance(db, "General", "USD");
       const rechargeCountBefore = (
         db.prepare(`SELECT COUNT(*) as cnt FROM recharges`).get() as {
@@ -829,13 +862,48 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       const result = repo.topUpFromClient({
         amount: 500,
         currency: "USD",
+        fee: 0,
         payments: [{ method: "CASH", currencyCode: "USD", amount: 600 }],
         userId: 1,
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toMatch(/exceeds the credits received/i);
+      // reconcileLegs (moneyPosting.ts) throws "... payment legs do not
+      // reconcile ..." — the exact-equality contract replacing the old
+      // one-sided "exceeds the credits received" upper bound.
+      expect(result.error).toMatch(/do not reconcile/i);
       // Nothing mutated — the guard runs before the db.transaction() opens.
+      expect(balance(db, "General", "USD")).toBeCloseTo(generalBefore, 2);
+      const rechargeCountAfter = (
+        db.prepare(`SELECT COUNT(*) as cnt FROM recharges`).get() as {
+          cnt: number;
+        }
+      ).cnt;
+      expect(rechargeCountAfter).toBe(rechargeCountBefore);
+    });
+
+    it("rejects legs summing to LESS than amount - fee (the phantom-profit hole S2 closes)", () => {
+      // Before the exact-equality fix, paying out 400 against a 500-fee=450
+      // target would have silently passed (the old guard only rejected an
+      // OVER-payout) and the 50 shortfall would have vanished into derived
+      // profit. It must now be rejected outright.
+      const generalBefore = balance(db, "General", "USD");
+      const rechargeCountBefore = (
+        db.prepare(`SELECT COUNT(*) as cnt FROM recharges`).get() as {
+          cnt: number;
+        }
+      ).cnt;
+
+      const result = repo.topUpFromClient({
+        amount: 500,
+        currency: "USD",
+        fee: 50, // payout target = 450
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 400 }],
+        userId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/do not reconcile/i);
       expect(balance(db, "General", "USD")).toBeCloseTo(generalBefore, 2);
       const rechargeCountAfter = (
         db.prepare(`SELECT COUNT(*) as cnt FROM recharges`).get() as {
@@ -851,6 +919,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       const result = repo.topUpFromClient({
         amount: 500,
         currency: "USD",
+        fee: 90,
         payments: [
           { method: "CASH", currencyCode: "USD", amount: 400 },
           {
@@ -874,6 +943,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       const result = repo.topUpFromClient({
         amount: 500,
         currency: "USD",
+        fee: 50, // payout target = 450, matching the legs below exactly
         payments: [
           { method: "CASH", currencyCode: "USD", amount: 400 },
           { method: "OMT", currencyCode: "USD", amount: 50 },
@@ -889,11 +959,38 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       expect(balance(db, "OMT_App", "USD")).toBeCloseTo(0, 2);
     });
 
+    it("rejects fee greater than the amount received", () => {
+      const result = repo.topUpFromClient({
+        amount: 100,
+        currency: "USD",
+        fee: 150,
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 0 }],
+        userId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/cannot exceed/i);
+    });
+
+    it("rejects amount - fee <= 0 (fee equal to the amount received)", () => {
+      const result = repo.topUpFromClient({
+        amount: 100,
+        currency: "USD",
+        fee: 100,
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 0 }],
+        userId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/greater than 0/i);
+    });
+
     it("propagates client_id onto the transactions row (rule 11)", () => {
       const clientId = 42;
       const result = repo.topUpFromClient({
         amount: 200,
         currency: "USD",
+        fee: 50,
         payments: [{ method: "CASH", currencyCode: "USD", amount: 150 }],
         clientId,
         userId: 1,

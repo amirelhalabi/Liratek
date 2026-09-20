@@ -287,6 +287,7 @@ describe("RechargeRepository top-up summary/note amount formatting", () => {
     const result = repo.topUpFromClient({
       amount: 700_579,
       currency: "LBP",
+      fee: 50_258,
       payments: [
         { method: "CASH", currencyCode: "LBP", amount: 650_321 },
       ],
