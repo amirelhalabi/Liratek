@@ -579,8 +579,14 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("recharge:top-up-from-partner", data),
     topUpFromClient: (data: {
       amount: number;
-      cashPaid: number;
       currency: "USD" | "LBP";
+      payments: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      exchangeRate?: number;
       clientName?: string;
       clientId?: number;
     }) => ipcRenderer.invoke("recharge:top-up-from-client", data),

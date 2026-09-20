@@ -286,8 +286,10 @@ describe("RechargeRepository top-up summary/note amount formatting", () => {
   it("topUpFromClient: no raw comma-less amount in recharges.note or transactions.summary (credits AND cash sides)", () => {
     const result = repo.topUpFromClient({
       amount: 700_579,
-      cashPaid: 650_321,
       currency: "LBP",
+      payments: [
+        { method: "CASH", currencyCode: "LBP", amount: 650_321 },
+      ],
       userId: 1,
     });
     expect(result.success).toBe(true);

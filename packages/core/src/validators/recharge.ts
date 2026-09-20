@@ -216,10 +216,66 @@ export const topUpFromPartnerSchema = z.object({
   currency: z.enum(["USD", "LBP"]),
 });
 
+/**
+ * Follow-on from the owner's LIRA-194 session (not LIRA-195 — that ticket is
+ * a separate, already-archived plan; see docs/plans/done_plans/) — payout
+ * leg for `topUpFromClientSchema`. Modeled on
+ * `supplierPaymentLegSchema` (validators/supplier.ts, `SupplierRepository
+ * .settleAccount`'s own leg shape) for the DIRECTION semantics and
+ * hard-reject-OUT philosophy — a client top-up payout, like a supplier
+ * settlement, has no customer tender to hand change back from (see the
+ * rejection comment on `RechargeRepository.topUpFromClient`). Field NAMING
+ * deliberately follows this REPOSITORY's own established `payments[]` shape
+ * instead (`createRechargeSchema.payments` above, also used by
+ * `processCreditBuyback`) — camelCase `currencyCode`, not `supplierPaymentLegSchema`'s
+ * snake_case `currency_code` — because this leg feeds the SAME
+ * `ReconciliationLeg`/`partitionLegs`/`isDrawerAffectingMethod` machinery
+ * (utils/payments.ts, moneyPosting.ts) every other RechargeRepository payload
+ * already uses; matching that shape byte-for-byte avoids a translation layer
+ * at the one call site that actually consumes it.
+ */
+const topUpFromClientLegSchema = z.object({
+  method: z.string().min(1),
+  currencyCode: z.string().min(1),
+  amount: z.number().positive(),
+  /**
+   * Accepted at the schema boundary (every other leg schema in this file
+   * carries it) but HARD-REJECTED by `RechargeRepository.topUpFromClient`
+   * itself for any leg with `direction: "OUT"` — a client top-up payout has
+   * no customer tender, so there is no change to return. Same reasoning
+   * `SupplierRepository.settleAccount` already established for supplier
+   * settlement (FEATURE_GUIDE §13 item 15).
+   */
+  direction: z.enum(["IN", "OUT"]).optional(),
+});
+export type TopUpFromClientLegInput = z.infer<typeof topUpFromClientLegSchema>;
+
+/**
+ * Follow-on from the owner's LIRA-194 session (not LIRA-195 — that ticket is
+ * a separate, already-archived plan; see docs/plans/done_plans/) — the client
+ * hands the shop Whish credits (`amount`, in `currency`); the shop pays the
+ * client out of its OWN drawers via `payments[]`, real leg-by-leg, instead of
+ * the retired `cashPaid` scalar.
+ *
+ * BREAKING CHANGE, deliberately: `cashPaid` is REMOVED from the wire (derived
+ * server-side from `payments[]`) and `payments` is REQUIRED (`.min(1)`, no
+ * `.default([])` — rule 22: a defaulted field corrupts silently instead of
+ * erroring). An old caller sending `{amount, cashPaid}` now fails loudly
+ * (missing `payments`) instead of silently booking a $0/0-leg payout.
+ */
 export const topUpFromClientSchema = z.object({
   amount: z.number().positive(),
-  cashPaid: z.number().nonnegative(),
   currency: z.enum(["USD", "LBP"]),
+  payments: z.array(topUpFromClientLegSchema).min(1),
+  /**
+   * The USD/LBP rate to convert a payout leg whose `currencyCode` differs
+   * from `currency` at. Also stamped on `transactions.exchange_rate` (via
+   * `resolveStampedExchangeRate`, same band-checked fallback-to-server-rate
+   * convention every other RechargeRepository flow's `tender_exchange_rate`
+   * already uses). Optional; falls back to the server's own USD/LBP sell
+   * rate when omitted or implausible.
+   */
+  exchangeRate: z.number().positive().optional(),
   clientName: z.string().optional(),
   clientId: z.number().int().positive().optional(),
 });

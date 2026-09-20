@@ -147,12 +147,22 @@ export class RechargeService {
 
   /**
    * Top up the Whish App drawer with credits transferred by a client
-   * (credits in, cash out of the General drawer — both in the same currency).
+   * (credits in, cash paid out of the shop's own drawers via real payout
+   * legs — a follow-on from the owner's LIRA-194 session, not LIRA-195 —
+   * that ticket is a separate, already-archived plan; see
+   * `RechargeRepository.topUpFromClient`'s doc comment for the full money
+   * model and the OUT-leg/drawer-affecting guards).
    */
   topUpFromClient(data: {
     amount: number;
-    cashPaid: number;
     currency: string;
+    payments: Array<{
+      method: string;
+      currencyCode: string;
+      amount: number;
+      direction?: "IN" | "OUT";
+    }>;
+    exchangeRate?: number;
     clientName?: string;
     clientId?: number;
     userId: number;
@@ -160,8 +170,11 @@ export class RechargeService {
     if (!(data.amount > 0)) {
       return { success: false, error: "Amount must be greater than 0" };
     }
-    if (data.cashPaid < 0) {
-      return { success: false, error: "Cash paid cannot be negative" };
+    if (!data.payments || data.payments.length === 0) {
+      return {
+        success: false,
+        error: "Payment legs are required for a client top-up payout",
+      };
     }
     return this.rechargeRepo.topUpFromClient(data);
   }

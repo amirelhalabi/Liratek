@@ -1563,13 +1563,14 @@ export interface ElectronAPI {
       amount: number;
       currency: "USD" | "LBP";
     }) => Promise<{ success: boolean; error?: string }>;
-    topUpFromClient: (data: {
-      amount: number;
-      cashPaid: number;
-      currency: "USD" | "LBP";
-      clientName?: string;
-      clientId?: number;
-    }) => Promise<{ success: boolean; error?: string }>;
+    /** Payload type is `TopUpFromClientInput` (packages/core/src/validators/
+     *  recharge.ts), not hand-copied (rule 21) — `payments[]` is required
+     *  (the retired `cashPaid` scalar is gone from the wire) and every field
+     *  the frontend sends (including `clientId`) must be declared here (rule
+     *  12) or it is silently dropped by the IPC boundary. */
+    topUpFromClient: (
+      data: import("@liratek/core").TopUpFromClientInput,
+    ) => Promise<{ success: boolean; error?: string }>;
     getDrawerBalances: () => Promise<
       Array<{
         name: string;

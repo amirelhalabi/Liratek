@@ -14,6 +14,7 @@ import type {
   AddRepaymentInput,
   CreateUserInput,
   SupplierAccountLinkInput,
+  TopUpFromClientInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -26,6 +27,7 @@ export type {
   AddRepaymentInput,
   CreateUserInput,
   SupplierAccountLinkInput,
+  TopUpFromClientInput,
 };
 
 export type ApiUser = {
@@ -1219,14 +1221,15 @@ export type ApiAdapter = {
     amount: number;
     currency: "USD" | "LBP";
   }) => Promise<ApiResult>;
-  /** Whish App: a client transfers credits, paid cash out of General. */
-  topUpFromClient: (payload: {
-    amount: number;
-    cashPaid: number;
-    currency: "USD" | "LBP";
-    clientName?: string;
-    clientId?: number;
-  }) => Promise<ApiResult>;
+  /**
+   * Whish App: a client transfers credits, the shop pays out via
+   * `payments[]` legs. Payload type is `TopUpFromClientInput`, derived from
+   * `topUpFromClientSchema` (packages/core/src/validators/recharge.ts), not
+   * hand-copied (rule 21) — `cashPaid` is retired from the wire, `payments`
+   * is required, and `clientId` must be declared here for rule 11
+   * propagation to typecheck end to end.
+   */
+  topUpFromClient: (payload: TopUpFromClientInput) => Promise<ApiResult>;
   /** Edit non-financial metadata (phone number / client name / note) on a
    *  recharge row — the History modal's inline edit (LIRA-109; IPC:
    *  recharge.updateMetadata). Was the last raw `window.api.recharge.*` call

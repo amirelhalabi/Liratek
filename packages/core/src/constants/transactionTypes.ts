@@ -80,6 +80,47 @@ export const TRANSACTION_TYPES = {
    *  same pattern as WALLET_EXCHANGE. */
   DRAWER_TRANSFER: "DRAWER_TRANSFER",
   RECHARGE: "RECHARGE",
+  /** LIRA-194 (2026-09-20) — top up a provider drawer/wallet (OMT App, Whish
+   *  App, MTC, Alfa, iPick, Katsh) from one of four sources, each its own
+   *  `RechargeRepository` method. Used to sit in
+   *  `NON_REVERSIBLE_TRANSACTION_TYPES` ("the provider-drawer credit has no
+   *  payments row either") — LIRA-192's `cashoutToSupplier` proved the fix (a
+   *  real `payments` row instead of a bare `applyDrawerDelta`), and this
+   *  ticket applied it to all four writers so the SHARED type could move OUT
+   *  of that set uniformly (partial coverage would have made the unfixed
+   *  writers LOOK voidable from the UI while silently leaving their ledger
+   *  row behind — worse than the old flat refusal). Reversal owner per
+   *  writer:
+   *   - `topUpApp` (drawer-to-drawer): BOTH legs are now real `payments`
+   *     rows (source leg keeps its CQ-3 plain non-creating UPDATE, dest leg
+   *     keeps `applyDrawerDelta` — only the missing `payments` rows were
+   *     added) — the generic, type-agnostic `_reversePayments` restores both
+   *     drawers.
+   *   - `topUpFromSupplier` (iPick/Katsh/OMT_APP credit): the dest-drawer
+   *     leg is now a real `payments` row (`_reversePayments`); its
+   *     `supplier_ledger` TOP_UP row is written in LINK MODE
+   *     (`transaction_id`, not an `is_auto`/`source_ref_*` sibling —
+   *     invisible to `_cascadeSupplierSiblingVoid`), reversed by the
+   *     dedicated `TransactionRepository._reverseSupplierLedgerByTransactionLink`
+   *     (gated to THIS type so it can never re-touch LOTO's own link-mode
+   *     TOP_UP row, which `_reverseLotoSupplierLedger` already owns).
+   *   - `topUpFromPartner` (Whish App via partner): the dest-drawer leg is
+   *     now a real `payments` row (`_reversePayments`); its `partner_ledger`
+   *     WHISH_TOPUP row already carried `reference_table: "recharges"` /
+   *     `reference_id`, which the existing type-agnostic
+   *     `_reversePartnerLedger` already matches — no partner-ledger change
+   *     needed, only the missing `payments` row.
+   *   - `topUpFromClient` (Whish App, client-funded): BOTH legs are now real
+   *     `payments` rows (General `-cashPaid`, skipped when `cashPaid === 0`;
+   *     Whish_App `+amount`) — `_reversePayments` restores both. Its
+   *     stamped `profit_usd`/`profit_lbp` need no dedicated reversal: the
+   *     generic void/refund marks the ORIGINAL row VOIDED (excluded from
+   *     every profit report's `status = 'ACTIVE'` filter) and the reversal
+   *     row's own INSERT never copies profit columns (defaults to 0), so
+   *     the net profit contribution across a create+void nets to 0 by
+   *     construction — verified in
+   *     `RechargeRepository.topUpVoidable.test.ts`.
+   */
   RECHARGE_TOPUP: "RECHARGE_TOPUP",
   MTC_TOPUP: "MTC_TOPUP",
   ALFA_TOPUP: "ALFA_TOPUP",
@@ -246,7 +287,11 @@ export type TransactionType =
  *   drawer legs directly from the transaction's own stamped metadata and
  *   un-stamps financial_services.settlement_id/is_settled precisely, see its
  *   doc comment.)
- * - RECHARGE_TOPUP: the provider-drawer credit has no payments row either.
+ * - RECHARGE_TOPUP used to be here ("the provider-drawer credit has no
+ *   payments row either"). LIRA-194 (2026-09-20) fixed all four writers and
+ *   moved it OUT of this set — see its own doc comment on
+ *   TRANSACTION_TYPES.RECHARGE_TOPUP above for which reversal owner covers
+ *   each writer's ledger row.
  * - REFUND: reversing a reversal double-moves the drawers.
  * - CREDIT_CASH_OUT: the generic reversal does not restore the CREDIT_USED
  *   debt_ledger row, so voiding would return the cash without restoring the
@@ -261,7 +306,6 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
   new Set<TransactionType>([
     TRANSACTION_TYPES.LOTO_CASH_PRIZE,
     TRANSACTION_TYPES.LOTO_SETTLEMENT,
-    TRANSACTION_TYPES.RECHARGE_TOPUP,
     TRANSACTION_TYPES.REFUND,
     TRANSACTION_TYPES.CREDIT_CASH_OUT,
     TRANSACTION_TYPES.CREDIT_CASH_IN,

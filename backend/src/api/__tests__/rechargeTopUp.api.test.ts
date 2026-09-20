@@ -75,7 +75,11 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getRechargeService } from "@liratek/core";
+import {
+  getRechargeService,
+  topUpFromClientSchema,
+  type TopUpFromClientInput,
+} from "@liratek/core";
 import rechargeRouter from "../recharge.js";
 
 function buildApp(): Express {
@@ -373,7 +377,27 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
   });
 
   // ── POST /top-up-from-client ─────────────────────────────────────────────
+  // Breaking contract change (follow-on from the owner's LIRA-194 session,
+  // not LIRA-195 — see packages/core/src/validators/recharge.ts's own doc
+  // comment correction): `cashPaid` is retired from the wire; the shop's
+  // payout is now a real, leg-by-leg `payments[]` array (`.min(1)`,
+  // REQUIRED). Rule 24: the fixture is typed as the schema's own
+  // `TopUpFromClientInput` and run through the real `topUpFromClientSchema`
+  // to derive the EXPECTED shape, so this test can never hand-drift from the
+  // shared contract the way `Debts.tenderExchangeRate.test.tsx` once did.
   describe("POST /api/recharge/top-up-from-client", () => {
+    const clientTopUpFixture: TopUpFromClientInput = {
+      amount: 40,
+      currency: "USD",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 38 }],
+      clientName: "Walk-in",
+    };
+    // The schema strips nothing here (every fixture field is declared), but
+    // parsing through it — rather than hand-copying the object above — is
+    // what makes this assertion track the schema if it ever adds a
+    // `.default(...)` field (rule 22's silent-corruption trap).
+    const parsedClientTopUp = topUpFromClientSchema.parse(clientTopUpFixture);
+
     it("reaches RechargeService.topUpFromClient with the body + JWT-derived userId (role parity: staff)", async () => {
       const spy = jest
         .spyOn(rechargeService, "topUpFromClient")
@@ -382,20 +406,12 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
       const res = await request(app)
         .post("/api/recharge/top-up-from-client")
         .set("x-test-role", "staff")
-        .send({
-          amount: 40,
-          cashPaid: 38,
-          currency: "USD",
-          clientName: "Walk-in",
-        });
+        .send(clientTopUpFixture);
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true });
       expect(spy).toHaveBeenCalledWith({
-        amount: 40,
-        cashPaid: 38,
-        currency: "USD",
-        clientName: "Walk-in",
+        ...parsedClientTopUp,
         userId: 42,
       });
     });
@@ -405,10 +421,63 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
 
       const res = await request(app)
         .post("/api/recharge/top-up-from-client")
-        .send({ amount: 40, cashPaid: 38, currency: "USD" });
+        .send(clientTopUpFixture);
 
       expect(res.status).toBe(401);
       expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects the retired pre-change shape ({amount, cashPaid, currency} with no payments) — rule 19c: 200 + string error, never a 4xx, and the service is never reached", async () => {
+      const spy = jest.spyOn(rechargeService, "topUpFromClient");
+
+      // The OLD wire shape this ticket retires — no `payments` at all. Proves
+      // the breaking change is loud: an old caller now fails validation
+      // instead of silently booking a $0/0-leg payout.
+      const res = await request(app)
+        .post("/api/recharge/top-up-from-client")
+        .set("x-test-role", "staff")
+        .send({ amount: 40, cashPaid: 38, currency: "USD" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects an empty payments array (schema .min(1)) — rule 19c: 200 + string error, service never reached", async () => {
+      const spy = jest.spyOn(rechargeService, "topUpFromClient");
+
+      const res = await request(app)
+        .post("/api/recharge/top-up-from-client")
+        .set("x-test-role", "staff")
+        .send({ ...clientTopUpFixture, payments: [] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("ignores a client-supplied userId — the actor always comes from the JWT, never the body", async () => {
+      const spy = jest
+        .spyOn(rechargeService, "topUpFromClient")
+        .mockReturnValue({ success: true });
+
+      const res = await request(app)
+        .post("/api/recharge/top-up-from-client")
+        .set("x-test-role", "admin")
+        // `userId` is not a field topUpFromClientSchema declares, so Zod
+        // strips it before the service is ever called — smuggling one in
+        // must never override the JWT-derived actor (42, from the auth.js
+        // mock above).
+        .send({ ...clientTopUpFixture, userId: 999 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true });
+      expect(spy).toHaveBeenCalledWith({
+        ...parsedClientTopUp,
+        userId: 42,
+      });
     });
   });
 

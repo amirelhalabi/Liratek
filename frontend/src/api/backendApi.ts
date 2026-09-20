@@ -16,6 +16,7 @@ import type {
   CreateUserInput,
   TransactionTypeFilterInput,
   SupplierAccountLinkInput,
+  TopUpFromClientInput,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -2004,13 +2005,15 @@ export async function topUpFromPartner(payload: {
   );
 }
 
-export async function topUpFromClient(payload: {
-  amount: number;
-  cashPaid: number;
-  currency: "USD" | "LBP";
-  clientName?: string;
-  clientId?: number;
-}) {
+/**
+ * Payload type is DERIVED from `topUpFromClientSchema`
+ * (packages/core/src/validators/recharge.ts), not hand-copied (rule 21):
+ * `payments[]` is REQUIRED (the retired `cashPaid` scalar is gone from the
+ * wire) and `clientId` must reach here for rule 11 propagation to hold. The
+ * SAME payload object is forwarded to whichever transport `isElectron()`
+ * picks — never a second, per-transport literal (rule 22).
+ */
+export async function topUpFromClient(payload: TopUpFromClientInput) {
   if (isElectron()) {
     return (window as any).api.recharge.topUpFromClient(payload);
   }

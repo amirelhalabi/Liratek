@@ -286,8 +286,14 @@ export function registerRechargeHandlers(): void {
       event: IpcMainInvokeEvent,
       data: {
         amount: number;
-        cashPaid: number;
         currency: "USD" | "LBP";
+        payments: Array<{
+          method: string;
+          currencyCode: string;
+          amount: number;
+          direction?: "IN" | "OUT";
+        }>;
+        exchangeRate?: number;
         clientName?: string;
         clientId?: number;
       },
@@ -298,11 +304,21 @@ export function registerRechargeHandlers(): void {
       const v = validatePayload(TopUpFromClientSchema, data);
       if (!v.ok) return { success: false, error: v.error };
 
+      // `cashPaid` no longer exists on the wire (follow-on from the owner's
+      // LIRA-194 session, not LIRA-195 — that ticket is a separate,
+      // already-archived plan) — the payout is now a real leg-by-leg
+      // `payments[]` array. Log the leg count and the summed payout instead
+      // so the entry stays legible.
+      const payoutTotal = v.data.payments.reduce(
+        (sum, leg) => sum + leg.amount,
+        0,
+      );
       rechargeLogger.info(
         {
           amount: v.data.amount,
-          cashPaid: v.data.cashPaid,
           currency: v.data.currency,
+          legCount: v.data.payments.length,
+          payoutTotal,
           clientId: v.data.clientId,
         },
         "Processing client top-up",
@@ -317,8 +333,9 @@ export function registerRechargeHandlers(): void {
         summary: `Client top-up: ${v.data.amount} ${v.data.currency}`,
         metadata: {
           amount: v.data.amount,
-          cashPaid: v.data.cashPaid,
           currency: v.data.currency,
+          legCount: v.data.payments.length,
+          payoutTotal,
           clientName: v.data.clientName,
           clientId: v.data.clientId,
         },

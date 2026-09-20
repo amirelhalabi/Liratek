@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import { Wallet, X, AlertTriangle, Info, UserRound, Users } from "lucide-react";
+import type { TopUpFromClientInput } from "@liratek/core";
+import MultiPaymentInput from "./MultiPaymentInput";
+import type { PaymentLine } from "./MultiPaymentInput";
 
 function fmtCommas(value: string): string {
   if (!value) return value;
@@ -12,6 +15,13 @@ function fmtCommas(value: string): string {
 function isPartialDecimal(value: string): boolean {
   return /^[0-9]*\.?[0-9]*$/.test(value);
 }
+
+/** Fallback payment method list for the "From Client" payout when the page
+ *  doesn't pass `clientPaymentMethods` — a bare CASH leg, always drawer-
+ *  affecting and always valid against `RechargeRepository.topUpFromClient`. */
+const DEFAULT_CLIENT_PAYOUT_METHODS: Array<{ code: string; label: string }> = [
+  { code: "CASH", label: "Cash" },
+];
 
 export type TopUpProvider =
   | "MTC"
@@ -61,19 +71,48 @@ export interface TopUpModalProps {
   }) => Promise<void>;
   /**
    * When provided for WHISH_APP, enables the "From Client" sub-mode: a client
-   * transfers credits to the shop line, the shop keeps an optional fee and pays
-   * out the remainder as cash.
+   * transfers credits to the shop line, the shop keeps an optional fee and
+   * pays out the remainder through `MultiPaymentInput` payout legs.
+   *
+   * Payload type is `TopUpFromClientInput`, imported from `@liratek/core`
+   * (rule 21) — never hand-copied. `payments[]` is REQUIRED (the server
+   * derives `cashPaid` from it; the retired scalar is gone from the wire)
+   * and any leg with `direction: "OUT"` is hard-rejected by
+   * `RechargeRepository.topUpFromClient` — a payout has no customer tender
+   * to hand change back from.
    */
-  onConfirmClient?: (data: {
-    amount: number;
-    cashPaid: number;
-    currency: TopUpCurrency;
-    clientName?: string;
-  }) => Promise<void>;
+  onConfirmClient?: (data: TopUpFromClientInput) => Promise<void>;
   /** Rendered inside the modal for the "Via Partner" sub-mode (the page passes a PartnerSelector). */
   partnerSelector?: ReactNode;
   /** The partner id currently selected in `partnerSelector` (the page owns this state). */
   selectedPartnerId?: number | null;
+  /**
+   * Payment methods offered by the "From Client" payout's
+   * `MultiPaymentInput` (WHISH_APP only). MUST be drawer-affecting methods
+   * (CASH/OMT/WHISH/BINANCE — never CUSTOMER_ACCOUNT/GIFT_CARD):
+   * `RechargeRepository.topUpFromClient` hard-rejects any leg whose method
+   * doesn't move a real drawer, since a client top-up payout has no
+   * debt/voucher concept. The page owns payment-method loading (mirrors
+   * `partnerSelector` above) — pass `usePaymentMethods().drawerAffectingMethods`.
+   * Defaults to a CASH-only method when omitted.
+   */
+  clientPaymentMethods?: Array<{ code: string; label: string }>;
+  /**
+   * Rendered inside the modal for the "From Client" sub-mode, in place of a
+   * free-text name field — the page passes a real client picker (e.g.
+   * `ClientAutocompleteInput`) bound to its own name/phone/clientId state.
+   * Mirrors `partnerSelector`. Client-linking is optional here — OMT/Whish
+   * App transfers allow a fully null client (FEATURE_GUIDE §6).
+   */
+  clientSelector?: ReactNode;
+  /** The client id currently selected alongside `clientSelector` (the page
+   *  owns this state) — propagated end-to-end (rule 11) as
+   *  `TopUpFromClientInput.clientId`. */
+  selectedClientId?: number | null;
+  /** The client name currently typed/selected alongside `clientSelector` —
+   *  sent as `TopUpFromClientInput.clientName` (a display-only fallback; the
+   *  repository re-resolves the name from `clientId` when one is present). */
+  selectedClientName?: string;
   provider: TopUpProvider;
   allDrawers: DrawerBalanceWithBalance[];
   destinationDrawer: string;
@@ -89,6 +128,10 @@ export default function TopUpModal({
   onConfirmClient,
   partnerSelector,
   selectedPartnerId,
+  clientPaymentMethods,
+  clientSelector,
+  selectedClientId,
+  selectedClientName,
   provider,
   allDrawers,
   destinationDrawer,
@@ -138,10 +181,21 @@ export default function TopUpModal({
   const [sourceDrawer, setSourceDrawer] = useState<string>(defaultSourceDrawer);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Whish "From Client" fee + optional client name (mirrors OmtWhishAppTransferForm)
+  // Whish "From Client" fee (mirrors OmtWhishAppTransferForm)
   const [manualFee, setManualFee] = useState<string>("");
   const [includingFees, setIncludingFees] = useState<boolean>(false);
-  const [clientName, setClientName] = useState<string>("");
+  // The payout legs (shop → client) collected by MultiPaymentInput, and the
+  // exchange rate it is actually using for any cross-currency leg — the
+  // LIRA-194 follow-on (not LIRA-195 — that ticket is a separate, already-
+  // archived plan; see docs/plans/done_plans/): `cashPaid` is retired from
+  // the wire, replaced by these
+  // structured legs (CLAUDE.md rule 16 — undirected, never OUT).
+  const [clientPayoutLines, setClientPayoutLines] = useState<PaymentLine[]>(
+    [],
+  );
+  const [clientPayoutExchangeRate, setClientPayoutExchangeRate] = useState<
+    number | undefined
+  >(undefined);
 
   const providerLabels: Record<TopUpProvider, string> = {
     MTC: "MTC",
@@ -180,6 +234,18 @@ export default function TopUpModal({
   const whishManualFee = parseFloat(manualFee) || 0;
   const whishProviderFee = whishManualFee > 0 ? whishManualFee : whishAutoFee;
   const whishCashPaid = Math.max(0, whishParsedAmount - whishProviderFee);
+  // Nothing left to pay out once the fee consumes the whole amount — offering
+  // MultiPaymentInput (which requires a positive leg amount) would just
+  // reject with a confusing schema error at submit; surface it up front.
+  const clientPayoutTargetInvalid =
+    whishMode === "client" && whishParsedAmount > 0 && whishCashPaid <= 0;
+  const clientPayoutMethods =
+    clientPaymentMethods && clientPaymentMethods.length > 0
+      ? clientPaymentMethods
+      : DEFAULT_CLIENT_PAYOUT_METHODS;
+  const clientPayoutPositiveLegs = clientPayoutLines.filter(
+    (l) => l.amount > 0,
+  );
 
   // Reset state when modal opens/closes
   useEffect(() => {
@@ -191,7 +257,8 @@ export default function TopUpModal({
       setWhishMode("partner");
       setManualFee("");
       setIncludingFees(false);
-      setClientName("");
+      setClientPayoutLines([]);
+      setClientPayoutExchangeRate(undefined);
       // D4: OMT credit is the default every time the modal (re)opens.
       setOmtAppFundingMode("credit");
     }
@@ -229,13 +296,36 @@ export default function TopUpModal({
 
       // whishMode === "client"
       if (!onConfirmClient) return;
+      if (clientPayoutTargetInvalid) {
+        alert("The fee exceeds the amount received — nothing left to pay out");
+        return;
+      }
+      const payoutLegs = clientPayoutPositiveLegs.map((l) => ({
+        method: l.method,
+        currencyCode: l.currencyCode,
+        amount: l.amount,
+      }));
+      if (payoutLegs.length === 0) {
+        alert("Enter at least one payout amount");
+        return;
+      }
+      // Only a leg whose currency differs from the credits' currency needs a
+      // rate to convert at — the component's own rate callback, never a
+      // hand-rolled value (LIRA-194 follow-on).
+      const hasCrossCurrencyLeg = clientPayoutPositiveLegs.some(
+        (l) => l.currencyCode !== currency,
+      );
       setIsSubmitting(true);
       try {
-        const trimmedClientName = clientName.trim();
+        const trimmedClientName = selectedClientName?.trim();
         await onConfirmClient({
           amount: amountNum,
-          cashPaid: whishCashPaid,
           currency,
+          payments: payoutLegs,
+          ...(hasCrossCurrencyLeg && clientPayoutExchangeRate
+            ? { exchangeRate: clientPayoutExchangeRate }
+            : {}),
+          ...(selectedClientId ? { clientId: selectedClientId } : {}),
           ...(trimmedClientName ? { clientName: trimmedClientName } : {}),
         });
         onClose();
@@ -516,20 +606,52 @@ export default function TopUpModal({
                     </div>
                   </div>
 
-                  {/* Optional client name */}
+                  {/* Optional client link (rule 11) — a real client picker,
+                      owned by the page (mirrors partnerSelector), replaces
+                      the old free-text-only name field so clientId actually
+                      reaches the wire. */}
                   <div>
                     <label className="block text-sm font-medium text-slate-400 mb-2">
-                      Client Name (optional)
+                      Client (optional)
                     </label>
-                    <input
-                      type="text"
-                      autoComplete="off"
-                      value={clientName}
-                      onChange={(e) => setClientName(e.target.value)}
-                      disabled={isSubmitting}
-                      placeholder="Client name"
-                      className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
-                    />
+                    {clientSelector}
+                  </div>
+
+                  {/* Payout — MultiPaymentInput composes the payout target
+                      (amount − fee, computed above) across the shop's own
+                      drawers/currencies. This is a money-OUT flow: no
+                      autoDebtRemainder, no change/return legs (a payout has
+                      no customer tender to return change from — the
+                      repository hard-rejects any OUT leg). */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">
+                      Pay Out
+                    </label>
+                    {clientPayoutTargetInvalid ? (
+                      <p className="text-xs text-red-400">
+                        The fee exceeds the amount received — nothing left to
+                        pay out.
+                      </p>
+                    ) : (
+                      <MultiPaymentInput
+                        key={currency}
+                        label="Payout"
+                        currency={currency}
+                        totalAmountCurrency={currency}
+                        totals={[{ amount: whishCashPaid, currency }]}
+                        currencies={[
+                          { code: "USD", symbol: "$" },
+                          { code: "LBP", symbol: "LBP" },
+                        ]}
+                        paymentMethods={clientPayoutMethods}
+                        onChange={setClientPayoutLines}
+                        onExchangeRateChange={setClientPayoutExchangeRate}
+                        showDiscount={false}
+                        requiresClientForDebt={false}
+                        hasClient={!!selectedClientId}
+                        autoDebtRemainder={false}
+                      />
+                    )}
                   </div>
                 </>
               )}
@@ -723,7 +845,10 @@ export default function TopUpModal({
                 !amount ||
                 parseFloat(amount) <= 0 ||
                 (isWhishTopUp
-                  ? whishMode === "partner" && !selectedPartnerId
+                  ? whishMode === "partner"
+                    ? !selectedPartnerId
+                    : clientPayoutTargetInvalid ||
+                      clientPayoutPositiveLegs.length === 0
                   : !isSupplierCredit && parseFloat(amount) > sourceBalance)
               }
               className={`flex-1 px-4 py-2.5 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg ${

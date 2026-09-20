@@ -320,8 +320,14 @@ router.post(
 );
 
 // POST /api/recharge/top-up-from-client - Top up Whish App with credits a
-// client transfers, cash paid out in exchange (Phase 8.4). Role-parity with
+// client transfers, cash paid out of the shop's own drawers via real,
+// leg-by-leg `payments[]` (breaking change: `cashPaid` is retired from the
+// wire — the repository derives it from the legs). Role-parity with
 // `recharge:top-up-from-client` (requireRole(["admin", "staff"])).
+// `topUpFromClientSchema` is THE shared contract (rules 14 + 19b) — since
+// `validateRequest` REPLACES the body with the parse result, `{...req.body}`
+// below already forwards `payments`/`exchangeRate` and drops the retired
+// `cashPaid` automatically; nothing here needs to name those fields by hand.
 router.post(
   "/top-up-from-client",
   requireRole(["admin", "staff"]),
@@ -336,15 +342,20 @@ router.post(
       });
       if (result.success) {
         // Mirrors rechargeHandlers.ts's recharge:top-up-from-client audit
-        // (create/recharge_topup).
+        // (create/recharge_topup): `cashPaid` no longer exists on the wire,
+        // so the entry logs the leg count and the summed payout instead so
+        // it stays legible.
+        const payoutTotal = (req.body.payments as Array<{ amount: number }>)
+          .reduce((sum, leg) => sum + leg.amount, 0);
         auditRest(req, {
           action: "create",
           entity_type: "recharge_topup",
           summary: `Client top-up: ${req.body.amount} ${req.body.currency}`,
           metadata: {
             amount: req.body.amount,
-            cashPaid: req.body.cashPaid,
             currency: req.body.currency,
+            legCount: req.body.payments.length,
+            payoutTotal,
             clientName: req.body.clientName,
             clientId: req.body.clientId,
           },

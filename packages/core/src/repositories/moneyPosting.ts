@@ -238,7 +238,33 @@ export function usdEquivalent(
   return usd + (exchangeRate > 0 ? lbp / exchangeRate : 0);
 }
 
-function sumLegsByCurrency(
+/**
+ * LBP-denominated sibling of `usdEquivalent` — converts a USD+LBP split into
+ * a single LBP-equivalent figure at `exchangeRate` (LBP per USD). Exported
+ * for the same reason as `usdEquivalent` (rule 14): a caller that needs an
+ * LBP-side total from a cross-currency split (e.g. a client top-up payout
+ * tendered partly/wholly in USD, recorded in LBP) must use this SAME
+ * formula rather than re-deriving an equivalent inline expression that could
+ * silently disagree at the margins.
+ */
+export function lbpEquivalent(
+  usd: number,
+  lbp: number,
+  exchangeRate: number,
+): number {
+  return lbp + usd * exchangeRate;
+}
+
+/**
+ * Sums a leg array by currency, rejecting any currency that is not USD/LBP
+ * and skipping zero-amount legs. Exported (rule 14) so a caller needing a
+ * plain per-currency total from a leg array — without the rest of
+ * `reconcileLegs`'s IN/OUT/kept-change machinery — reuses this SAME
+ * accumulation instead of hand-rolling an equivalent loop that could drift
+ * from this one (e.g. by forgetting to skip a zero-amount leg, or silently
+ * accepting a third currency).
+ */
+export function sumLegsByCurrency(
   legs: ReconciliationLeg[],
   context: string,
 ): { usd: number; lbp: number } {

@@ -10,9 +10,13 @@
  *     now owe the partner → partner balance goes negative by the amount).
  *
  *   • From Client (`recharge.topUpFromClient`): a client transfers credits and
- *     is paid cash from the General drawer. Whish_App goes UP by `amount`,
- *     General goes DOWN by `cashPaid` (the gap is shop profit), and NO
- *     partner_ledger row is created. The General balance is guarded.
+ *     is paid out of the shop's own drawers via a real, leg-by-leg
+ *     `payments[]` array (breaking change, follow-on from the owner's
+ *     LIRA-194 session: the old `cashPaid` scalar is retired from the wire —
+ *     the repository derives the payout total from the legs). Whish_App
+ *     goes UP by `amount`, General goes DOWN by the summed leg payout (the
+ *     gap is shop profit), and NO partner_ledger row is created. The
+ *     General balance is guarded.
  *
  * Driven entirely through real main-process IPC over the shared per-worker DB.
  * Every assertion is a DELTA captured immediately before each action (the DB is
@@ -25,7 +29,7 @@
  *   - Provider spelling is uniformly WHISH_APP; the raw drawer name is Whish_App.
  *   - topUpFromPartner / topUpFromClient / drawerTopUp.create return {success,...};
  *     partners.getLedger returns a raw statement object (no success envelope).
- *   - Profit is proven indirectly via the Whish_App(+amount) / General(-cashPaid)
+ *   - Profit is proven indirectly via the Whish_App(+amount) / General(-payout)
  *     drawer deltas, never read off a txn row.
  */
 
@@ -63,8 +67,14 @@ type Api = {
       }) => Promise<{ success: boolean; error?: string }>;
       topUpFromClient: (data: {
         amount: number;
-        cashPaid: number;
         currency: "USD" | "LBP";
+        payments: Array<{
+          method: string;
+          currencyCode: string;
+          amount: number;
+          direction?: "IN" | "OUT";
+        }>;
+        exchangeRate?: number;
         clientName?: string;
         clientId?: number;
       }) => Promise<{ success: boolean; error?: string }>;
@@ -275,10 +285,12 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
           ? ((await w.api.partners.getLedger(probeId, {})).entries?.length ?? 0)
           : 0;
 
-        // Action: client transfers 40 credits, paid 30 USD cash.
+        // Action: client transfers 40 credits, paid 30 USD cash via one
+        // real CASH leg (the retired `cashPaid` scalar no longer exists on
+        // the wire — the repository derives the payout total from `payments[]`).
         const topUp = await w.api.recharge.topUpFromClient({
           amount: 40,
-          cashPaid: CASH_PAID,
+          payments: [{ method: "CASH", currencyCode: "USD", amount: CASH_PAID }],
           currency: "USD",
           clientName: `E2E-057 Client ${Date.now()}`,
         });
@@ -320,7 +332,7 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
   });
 
   // ── Scenario 4 — From Client guard (insufficient General) ────────────────
-  test("From Client guard: cashPaid > General balance → {success:false, /Insufficient balance in General drawer/}, drawers unchanged", async ({
+  test("From Client guard: payout leg > General balance → {success:false, /Insufficient balance in General/}, drawers unchanged", async ({
     appPage,
   }) => {
     const result = await appPage.evaluate(
@@ -333,11 +345,20 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
         const whishBefore = usd(beforeDrawers, whishDrawer);
         const generalBefore = usd(beforeDrawers, generalDrawer);
 
-        // Request cash strictly greater than the current General balance so the
-        // repo's guard rejects it atomically (no drawer touched).
+        // Request a CASH payout leg strictly greater than the current
+        // General balance so the repo's per-leg drawer-balance guard rejects
+        // it atomically (no drawer touched). `amount` (credits received) is
+        // kept comfortably above the leg so this exercises the BALANCE guard
+        // specifically, not the "payout exceeds credits received" guard.
         const topUp = await w.api.recharge.topUpFromClient({
           amount: generalBefore + 5_000_000,
-          cashPaid: generalBefore + 1_000_000,
+          payments: [
+            {
+              method: "CASH",
+              currencyCode: "USD",
+              amount: generalBefore + 1_000_000,
+            },
+          ],
           currency: "USD",
           clientName: `E2E-057 Overdraw Client ${Date.now()}`,
         });
@@ -357,9 +378,10 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
     );
 
     expect(result.topUpOk).toBe(false);
-    expect(result.topUpError).toMatch(
-      /Insufficient balance in General drawer/i,
-    );
+    // RechargeRepository.topUpFromClient's per-leg guard message is
+    // "Insufficient balance in <drawer>. Available: <balance> <currency>" —
+    // no trailing "drawer" word after the drawer name.
+    expect(result.topUpError).toMatch(/Insufficient balance in General/i);
     // Atomic rejection: neither drawer moved.
     expect(result.whishDelta).toBeCloseTo(0, 2);
     expect(result.generalDelta).toBeCloseTo(0, 2);

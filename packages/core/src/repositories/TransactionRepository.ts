@@ -1551,6 +1551,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // opened.
       this._reverseLotoSupplierLedger(original);
 
+      // 5f2. LIRA-194, rule 20 — if this transaction IS a RECHARGE_TOPUP
+      // (topUpFromSupplier), soft-void its link-mode supplier_ledger TOP_UP
+      // row. No-op for every other type, and for the other three
+      // RECHARGE_TOPUP writers (topUpApp/topUpFromPartner/topUpFromClient),
+      // which never write one.
+      this._reverseSupplierLedgerByTransactionLink(original);
+
       // 5g. LIRA-090 §8, rule 20 — reverse every carrier_line_movements row
       // tied to this transaction (Only Days credit-return, self-charge).
       // Type-agnostic, keyed by transaction_id; no-op when none match.
@@ -1806,6 +1813,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4f. Rule 20 — LOTO ticket TOP_UP soft-void + checkpoint delta-adjust.
       // See voidTransaction's identical step.
       this._reverseLotoSupplierLedger(original);
+
+      // 4f2. LIRA-194, rule 20 — RECHARGE_TOPUP (topUpFromSupplier) link-mode
+      // supplier_ledger soft-void. See voidTransaction's identical step.
+      this._reverseSupplierLedgerByTransactionLink(original);
 
       // 4g. LIRA-090 §8, rule 20 — carrier_line_movements reversal. See
       // voidTransaction's identical step.
@@ -4316,6 +4327,66 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         tenantId,
       );
     }
+  }
+
+  /**
+   * LIRA-194, rule 20 — reversal owner for `RechargeRepository
+   * .topUpFromSupplier`'s `supplier_ledger` TOP_UP row. That row is written
+   * in LINK MODE (`addLedgerEntry({ transaction_id: txnId })`), not as an
+   * `is_auto`/`source_ref_*` sibling, so it is invisible to both
+   * `_cascadeSupplierSiblingVoid` and `_assertSupplierSiblingsVoidable`
+   * (they only ever scan `is_auto = 1` rows) — the exact gap
+   * `_reverseLotoSupplierLedger` above already closes for a LOTO ticket
+   * sale's own link-mode TOP_UP row.
+   *
+   * Deliberately GATED to RECHARGE_TOPUP, unlike `_reversePartnerLedger`/
+   * `_cascadeSupplierSiblingVoid` (both fully type-agnostic): survey of
+   * every `addLedgerEntry` call site with a `transaction_id` (link mode)
+   * found `LotoTicketRepository.createTicket` writes its OWN link-mode
+   * `entry_type: 'TOP_UP'` row the same shape, on a LOTO transaction —
+   * already owned by `_reverseLotoSupplierLedger`, which also delta-adjusts
+   * the ticket's checkpoint (a bare soft-void here would be insufficient for
+   * it). Keying this method on `entry_type = 'TOP_UP' AND transaction_id = ?`
+   * alone, with no type gate, would re-match that SAME row on every LOTO
+   * void/refund too; `_reverseLotoSupplierLedger`'s own
+   * `COALESCE(is_refunded, 0) = 0` guard means a second UPDATE here would
+   * simply match zero rows today — but that's accidental safety from call
+   * ORDER, not a contract either method's doc guarantees. The type gate
+   * makes the two methods' scopes disjoint by construction instead.
+   * (`LotoCashPrizeRepository`'s own link-mode row uses `entry_type:
+   * 'CASH_PRIZE'`, not `'TOP_UP'`, and LOTO_CASH_PRIZE stays permanently
+   * non-reversible anyway — never reaches either method.)
+   *
+   * Only `topUpFromSupplier` (iPick/Katsh/OMT_APP) writes a `supplier_ledger`
+   * row at all; `topUpApp`, `topUpFromPartner`, and `topUpFromClient` — the
+   * other three RECHARGE_TOPUP writers this ticket makes voidable — never
+   * touch `supplier_ledger`, so this is a clean no-op for them (the UPDATE
+   * simply matches no row).
+   *
+   * `hasTable` guard is load-bearing here, unlike `_reverseLotoSupplierLedger`
+   * (only ever reached from a LOTO fixture, which always declares
+   * `supplier_ledger`): RECHARGE_TOPUP is now reversible for ALL FOUR
+   * writers, and several of their existing test fixtures never needed a
+   * `supplier_ledger` table before this ticket. Mirrors
+   * `_reversePartnerLedger`'s identical `sqlite_master` existence check.
+   */
+  private _reverseSupplierLedgerByTransactionLink(
+    original: TransactionEntity,
+  ): void {
+    if (original.type !== "RECHARGE_TOPUP") return;
+    const hasTable = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supplier_ledger'`,
+      )
+      .get();
+    if (!hasTable) return;
+    const tenantId = getCurrentTenantId();
+    this.execute(
+      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+        WHERE transaction_id = ? AND entry_type = 'TOP_UP' AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
+      original.id,
+      tenantId,
+    );
   }
 
   /**

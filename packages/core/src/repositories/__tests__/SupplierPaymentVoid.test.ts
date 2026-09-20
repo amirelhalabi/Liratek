@@ -9,8 +9,12 @@
  * supplier_ledger; _markSourceRefunded soft-voids the ledger row; every
  * balance/pool aggregate excludes flagged rows; recordSupplierCashflow PAY's
  * FIFO purchase coverage is un-applied. Types whose side effects the generic
- * reversal cannot undo (LOTO*, SUPPLIER_SETTLEMENT, RECHARGE_TOPUP, REFUND)
- * are gated at the repository. Every case here FAILS on pre-fix code (rule 17).
+ * reversal cannot undo (LOTO_CASH_PRIZE, REFUND) are gated at the
+ * repository. Every case here FAILS on pre-fix code (rule 17).
+ *
+ * SUPPLIER_SETTLEMENT and RECHARGE_TOPUP used to be gated here too — both
+ * later grew dedicated reversal owners and moved OUT of
+ * NON_REVERSIBLE_TRANSACTION_TYPES (LIRA-085, LIRA-194).
  */
 
 import Database from "better-sqlite3";
@@ -302,7 +306,7 @@ describe("supplier-payment void/refund reversal", () => {
     expect(row.is_refunded).toBe(1);
   });
 
-  it("gates non-reversible types: LOTO_CASH_PRIZE / RECHARGE_TOPUP / REFUND throw", () => {
+  it("gates non-reversible types: LOTO_CASH_PRIZE / REFUND throw", () => {
     const insertTxn = (type: string): number =>
       Number(
         db
@@ -327,7 +331,17 @@ describe("supplier-payment void/refund reversal", () => {
     // it's dropped rather than kept, to avoid asserting a false negative).
     // LOTO_CASH_PRIZE has no reversal owner and stays non-reversible, so it
     // keeps this loop's "still-gated Loto type" coverage.
-    for (const type of ["LOTO_CASH_PRIZE", "RECHARGE_TOPUP", "REFUND"]) {
+    //
+    // LIRA-194 (2026-09-20): RECHARGE_TOPUP moved OUT of this set too — all
+    // four top-up writers now post real `payments` rows, and the one
+    // link-mode `supplier_ledger` row (topUpFromSupplier) has a dedicated
+    // reversal owner (`_reverseSupplierLedgerByTransactionLink`). Dropped
+    // from this loop for the same reason LOTO was: this fixture's
+    // `insertTxn` uses a bare "x" source_table, so a RECHARGE_TOPUP row here
+    // would no longer throw — see
+    // RechargeRepository.topUpVoidable.test.ts for the real create+void
+    // nets-to-0 coverage, per writer, per currency.
+    for (const type of ["LOTO_CASH_PRIZE", "REFUND"]) {
       const id = insertTxn(type);
       // Pre-fix: both calls happily reversed the drawers.
       expect(() => txns.voidTransaction(id, 1)).toThrow(/cannot be voided/);

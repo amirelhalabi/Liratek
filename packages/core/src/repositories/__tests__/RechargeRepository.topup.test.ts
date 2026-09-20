@@ -282,8 +282,8 @@ describe("RechargeRepository.topUpFromClient()", () => {
 
     const result = repo.topUpFromClient({
       amount: 100,
-      cashPaid: 99,
       currency: "USD",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 99 }],
       clientName: "Walk-in",
       userId: 1,
     });
@@ -317,8 +317,8 @@ describe("RechargeRepository.topUpFromClient()", () => {
 
     const result = repo.topUpFromClient({
       amount: 100,
-      cashPaid: 99,
       currency: "USD",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 99 }],
       userId: 1,
     });
 
@@ -342,8 +342,10 @@ describe("RechargeRepository.topUpFromClient()", () => {
 
     const result = repo.topUpFromClient({
       amount: 5_000_000,
-      cashPaid: 4_900_000,
       currency: "LBP",
+      payments: [
+        { method: "CASH", currencyCode: "LBP", amount: 4_900_000 },
+      ],
       userId: 1,
     });
 

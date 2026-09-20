@@ -10,6 +10,7 @@ import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
 import { appEvents, useApi } from "@liratek/ui";
 import { costOfValidityDaysUsd } from "@liratek/core";
+import type { TopUpFromClientInput } from "@liratek/core";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -25,6 +26,7 @@ import {
   type ProviderKey,
 } from "../../hooks/useMobileServiceItems";
 import { ensureRechargeClient } from "../../utils/ensureClient";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import {
   CompactStats,
   FinancialForm,
@@ -228,6 +230,11 @@ export default function MobileRecharge() {
   >([]);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [topUpPartnerId, setTopUpPartnerId] = useState<number | null>(null);
+  // Whish App "From Client" top-up — client link (rule 11): a real client
+  // picker (ClientAutocompleteInput) replaces the old free-text-only name
+  // field, so clientId actually reaches TopUpFromClientInput.
+  const [topUpClientName, setTopUpClientName] = useState("");
+  const [topUpClientId, setTopUpClientId] = useState<number | null>(null);
   // LIRA-192 (D12): "Cash Out to OMT" — OMT App only.
   const [showCashoutModal, setShowCashoutModal] = useState(false);
   const [drawerBalances, setDrawerBalances] = useState<
@@ -936,14 +943,12 @@ export default function MobileRecharge() {
     [loadFinancialData, loadDrawerBalances, api],
   );
 
-  // Whish App: buy credits from a client (client transfers credits, shop pays cash)
+  // Whish App: buy credits from a client (client transfers credits, shop pays
+  // out via payment legs). Payload type is `TopUpFromClientInput`, imported
+  // from `@liratek/core` (rule 21) — the same object TopUpModal builds is
+  // forwarded verbatim to the adapter, never rebuilt per transport (rule 22).
   const handleTopUpConfirmClient = useCallback(
-    async (data: {
-      amount: number;
-      cashPaid: number;
-      currency: "USD" | "LBP";
-      clientName?: string;
-    }) => {
+    async (data: TopUpFromClientInput) => {
       const result = await api.topUpFromClient(data);
       if (!result.success) {
         throw new Error(result.error || "Top-up failed");
@@ -1772,6 +1777,8 @@ export default function MobileRecharge() {
             setShowTopUpModal(false);
             setTopUpData(null);
             setTopUpPartnerId(null);
+            setTopUpClientName("");
+            setTopUpClientId(null);
           }}
           onConfirm={handleTopUpConfirm}
           onConfirmSupplier={handleTopUpConfirmSupplier}
@@ -1785,6 +1792,26 @@ export default function MobileRecharge() {
                     selectedPartnerId={topUpPartnerId}
                     onSelect={setTopUpPartnerId}
                     autoSelectSingle
+                  />
+                ),
+                clientPaymentMethods: drawerAffectingMethods,
+                selectedClientId: topUpClientId,
+                selectedClientName: topUpClientName,
+                clientSelector: (
+                  <ClientAutocompleteInput
+                    id="topup-client-name"
+                    type="text"
+                    value={topUpClientName}
+                    onChange={(v) => {
+                      setTopUpClientName(v);
+                      setTopUpClientId(null);
+                    }}
+                    onClientSelect={(c) => {
+                      setTopUpClientName(c.full_name);
+                      setTopUpClientId(c.id);
+                    }}
+                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
+                    placeholder="Client name"
                   />
                 ),
               }

@@ -11,6 +11,7 @@ import type {
   ProductListFilters,
   CreateUserInput,
   SupplierAccountLinkInput,
+  TopUpFromClientInput,
 } from "@liratek/core";
 import * as api from "./backendApi";
 
@@ -245,13 +246,10 @@ export class ElectronApiAdapter implements ApiAdapter {
     amount: number;
     currency: "USD" | "LBP";
   }) => api.topUpFromPartner(payload);
-  topUpFromClient = (payload: {
-    amount: number;
-    cashPaid: number;
-    currency: "USD" | "LBP";
-    clientName?: string;
-    clientId?: number;
-  }) => api.topUpFromClient(payload);
+  /** Payload type is `TopUpFromClientInput`, derived from
+   *  `topUpFromClientSchema` (rule 21) — never hand-copied. */
+  topUpFromClient = (payload: TopUpFromClientInput) =>
+    api.topUpFromClient(payload);
 
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)

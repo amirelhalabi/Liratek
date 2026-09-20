@@ -26,14 +26,13 @@
  * Rule 15 (accumulating, single-worker suite): every assertion is a DELTA
  * around a snapshot taken immediately before the action — never an absolute
  * balance or "newest row". `topUpFromSupplier`'s `RECHARGE_TOPUP` transaction
- * is NOT void-tested here: `transactionTypes.ts`'s
- * `NON_REVERSIBLE_TRANSACTION_TYPES` still lists `RECHARGE_TOPUP` ("the
- * provider-drawer credit has no payments row either") and neither this
- * ticket's CONTRACT.md lane (L3/L4) nor any other lane in this wave changes
- * that classification — only `WALLET_CASHOUT` (LIRA-192) is made reversible
- * this wave. Asserting a void here would test behaviour nothing in this
- * batch builds; see this lane's CONTRACT_CONTRADICTIONS note in the
- * implementation report. Void coverage lives in lira-web-034 instead.
+ * is NOT void-tested here. NOTE (LIRA-194, 2026-09-21): the original reason
+ * given here — that `NON_REVERSIBLE_TRANSACTION_TYPES` lists `RECHARGE_TOPUP`
+ * ("the provider-drawer credit has no payments row either") — is NO LONGER
+ * TRUE. Every top-up writer now posts real `payments` rows and `RECHARGE_TOPUP`
+ * was removed from that set, so a void here would be meaningful. This spec
+ * simply does not cover it yet; void coverage lives in lira-web-034. Treat
+ * the gap as untested, not as by-design non-reversibility.
  */
 import type { Page } from "@playwright/test";
 import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";

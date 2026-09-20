@@ -27,7 +27,10 @@ import {
   assertNoCounterPayment,
   postPayoutLegs,
   usdEquivalent,
+  lbpEquivalent,
+  sumLegsByCurrency,
   resolveStampedExchangeRate,
+  LEG_RECONCILIATION_EPSILON_USD,
 } from "./moneyPosting.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getDebtService } from "../services/DebtService.js";
@@ -525,7 +528,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
         // Create unified transaction record
-        getTransactionRepository().createTransaction({
+        const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE_TOPUP,
           source_table: "recharges",
           source_id: rechargeId,
@@ -545,15 +548,45 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Deduct from source drawer. CQ-3 survey note: intentionally NOT
         // `applyDrawerDelta` — a plain UPDATE that must NOT create a row for
         // a missing source drawer (a typo'd/missing source must no-op, not
-        // silently create a phantom negative-balance drawer).
+        // silently create a phantom negative-balance drawer). LIRA-194: this
+        // is still safe to pair with a REAL `payments` row below — a void
+        // could only "create" a phantom source drawer if a missing/short
+        // source drawer had been allowed to reach this transaction at all,
+        // and the balance check above (`sourceBalance < amount`) already
+        // rejects that for any `amount > 0` BEFORE this transaction opens.
+        // Do NOT switch this to `applyDrawerDelta` — that would silently
+        // change the missing-drawer semantics this note protects.
         this.db
           .prepare(
             `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
              WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?`,
           )
           .run(amount, data.sourceDrawer, currency, tenantId);
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: data.sourceDrawer,
+          drawerName: data.sourceDrawer,
+          currencyCode: currency,
+          amount: -amount,
+          note: `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: -${amountLabel}`,
+          createdBy: data.userId,
+          tenantId,
+        });
 
-        // Add to destination drawer
+        // Add to destination drawer — a REAL `payments` row (rule 20), not a
+        // bare `applyDrawerDelta`, so the generic void path (`_reversePayments`)
+        // can restore it later — same pair `topUpFromSupplier`/
+        // `cashoutToSupplier` already use for their own dest-drawer leg.
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: destDrawer,
+          drawerName: destDrawer,
+          currencyCode: currency,
+          amount,
+          note: `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: +${amountLabel}`,
+          createdBy: data.userId,
+          tenantId,
+        });
         applyDrawerDelta(this.db, {
           drawerName: destDrawer,
           currencyCode: currency,
@@ -1636,7 +1669,23 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           });
         }
 
-        // Increase the provider drawer balance
+        // Increase the provider drawer balance — a REAL `payments` row
+        // (rule 20/LIRA-194), not a bare `applyDrawerDelta`, so the generic
+        // void path (`_reversePayments`) can restore it later. The
+        // `supplier_ledger` TOP_UP row above is link-mode (`transaction_id`),
+        // not an `is_auto`/`source_ref_*` sibling, so it needs its OWN
+        // reversal owner — see `TransactionRepository
+        // ._reverseSupplierLedgerByTransactionLink`.
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: destDrawer,
+          drawerName: destDrawer,
+          currencyCode: currency,
+          amount,
+          note: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amountLabel}`,
+          createdBy: data.userId,
+          tenantId,
+        });
         applyDrawerDelta(this.db, {
           drawerName: destDrawer,
           currencyCode: currency,
@@ -1957,7 +2006,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         });
 
         // Create unified transaction record
-        getTransactionRepository().createTransaction({
+        const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE_TOPUP,
           source_table: "recharges",
           source_id: rechargeId,
@@ -1974,7 +2023,23 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           },
         });
 
-        // Increase the Whish App drawer balance
+        // Increase the Whish App drawer balance — a REAL `payments` row
+        // (rule 20/LIRA-194), not a bare `applyDrawerDelta`, so the generic
+        // void path (`_reversePayments`) can restore it later. The
+        // `partner_ledger` WHISH_TOPUP row above already carries
+        // `reference_table: "recharges"` / `reference_id: rechargeId`, which
+        // the existing type-agnostic `_reversePartnerLedger` already matches
+        // — no partner-ledger change needed here.
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: destDrawer,
+          drawerName: destDrawer,
+          currencyCode: currency,
+          amount,
+          note: `Whish App top-up via partner: +${amountLabel}`,
+          createdBy: data.userId,
+          tenantId,
+        });
         applyDrawerDelta(this.db, {
           drawerName: destDrawer,
           currencyCode: currency,
@@ -2006,14 +2071,52 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
   /**
    * Top up the Whish App drawer with credits transferred by a client.
-   * The client transfers Whish credits to the shop and is paid cash out of
-   * the General drawer. Both legs share the same currency. The shop's cut
-   * (credits received − cash paid) is booked as profit at acquisition time.
+   *
+   * Follow-on from the owner's LIRA-194 session (not LIRA-195 — that ticket
+   * is a separate, already-archived plan; see docs/plans/done_plans/): the
+   * client transfers Whish credits to the shop and is paid out of the
+   * shop's OWN drawers via REAL, possibly-split
+   * `payments[]` legs (rule 16) — the hand-rolled `cashPaid` scalar + a
+   * single hardcoded General-drawer UPDATE this method used before is gone.
+   * `amount`/`currency` is what the client handed over; `data.payments` is
+   * what the shop pays back OUT. The shop's cut (credits received minus the
+   * payout, both expressed in `currency`) is booked as profit at
+   * acquisition time, exactly as before.
+   *
+   * Direction (CLAUDE.md rule 16): this is a money-OUT (payout) flow. Legs
+   * carry NO `direction` — undirected is the IN/payout set `partitionLegs`
+   * already establishes app-wide. `direction: "OUT"` legs are HARD-REJECTED
+   * below: a client top-up payout has no customer tender, so there is no
+   * change to hand back — the exact reasoning
+   * `SupplierRepository.settleAccount` (LIRA-189) already established for a
+   * supplier settlement (FEATURE_GUIDE §13 item 15): the shop either pays
+   * out exactly what it owes the client for the credits received, or it
+   * doesn't; there is no "customer overpaid, hand back change" concept on a
+   * payout with no counter-tender at all.
+   *
+   * Every payout leg must move a REAL drawer (`isDrawerAffectingMethod`,
+   * utils/payments.ts — the SAME predicate `settleAccount`'s own
+   * `assertLegMovesADrawer` wraps) — this method's own model text is "the
+   * shop pays the client out of its drawers", so a CUSTOMER_ACCOUNT/
+   * GIFT_CARD leg (no drawer at all) is rejected outright rather than
+   * silently accepted with an unchecked, meaningless "balance". If a future
+   * owner decision wants a client to receive store credit instead of cash
+   * here, that is a deliberate widening of this guard, not a silent gap.
    */
   topUpFromClient(data: {
     amount: number;
-    cashPaid: number;
     currency: string;
+    payments: Array<{
+      method: string;
+      currencyCode: string;
+      amount: number;
+      direction?: "IN" | "OUT";
+    }>;
+    /** Rate to convert a payout leg whose currency differs from `currency`
+     *  at, and to stamp on `transactions.exchange_rate`. Falls back to the
+     *  server's USD/LBP sell rate when omitted or outside the band (see
+     *  `resolveStampedExchangeRate`). */
+    exchangeRate?: number;
     clientName?: string;
     clientId?: number;
     userId: number;
@@ -2022,37 +2125,209 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS.WHISH_APP;
       const currency = data.currency;
       const amount = Math.abs(data.amount);
-      const cashPaid = Math.abs(data.cashPaid);
       // `amount` is a credits quantity (no currency label — "credits" already
-      // conveys the unit), `cashPaid` is real cash in `currency` — formatted
-      // to match the cash-flow badge (rule 14: reuse the shared formatter,
-      // don't hand-roll a second raw `${cashPaid} ${currency}` interpolation).
+      // conveys the unit).
       const creditsLabel = amount.toLocaleString();
-      const cashLabel = formatMoneyAmount(cashPaid, currency);
       const tenantId = getCurrentTenantId();
 
       if (amount <= 0) {
         return { success: false, error: "Amount must be greater than 0" };
       }
 
-      // Validate the General drawer can cover the cash paid to the client
-      const generalRow = this.db
-        .prepare(
-          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = ? AND tenant_id = ?",
-        )
-        .get(currency, tenantId) as { balance: number | null } | undefined;
-
-      const generalBalance = generalRow?.balance ?? 0;
-      if (generalBalance < cashPaid) {
+      if (!data.payments || data.payments.length === 0) {
         return {
           success: false,
-          error: `Insufficient balance in General drawer. Available: ${generalBalance} ${currency}`,
+          error: "Payment legs are required for a client top-up payout",
         };
       }
 
-      const profit = amount - cashPaid;
+      // OUT (change/return) legs are rejected outright — see this method's
+      // doc comment for the full reasoning (mirrors settleAccount's own
+      // blanket ban). `partitionLegs` (utils/payments.ts, rule 16) is the
+      // ONE place "which legs are IN vs OUT" is decided.
+      const { inLegs: payoutLegs, outLegs } = partitionLegs(data.payments);
+      if (outLegs.length > 0) {
+        return {
+          success: false,
+          error:
+            "Client top-up payout does not accept OUT (change/return) legs — the client hands over credits and is paid from the shop's drawers; there is no customer tender here to hand change back from",
+        };
+      }
+      if (payoutLegs.length === 0) {
+        return {
+          success: false,
+          error: "Payment legs are required for a client top-up payout",
+        };
+      }
 
-      this.db.transaction(() => {
+      // ── ONE predicate for "this leg can pay out a client top-up" ────────
+      // Reused by BOTH the reconciliation/balance guard below AND the
+      // posting loop inside the transaction (FEATURE_GUIDE §13 item 15b —
+      // the exact drift between a guard and a posting loop that has leaked
+      // money four times in this codebase). The underlying predicate is
+      // `isDrawerAffectingMethod` (utils/payments.ts) — already the shared
+      // answer to "does this method move a real drawer" everywhere else
+      // (settleAccount, recordSupplierCashflow, postPayoutLegs) — wrapped
+      // only for a clearer error message, same shape as settleAccount's own
+      // `assertLegMovesADrawer` closure.
+      const assertLegMovesADrawer = (method: string): void => {
+        if (!isDrawerAffectingMethod(method)) {
+          throw new Error(
+            `Client top-up payout: payment method "${method}" does not move a real drawer — a client top-up can only be paid out of the shop's own drawers`,
+          );
+        }
+      };
+
+      const sellRate = getUsdLbpSellRate(this.db);
+      const recordExchangeRate = resolveStampedExchangeRate(
+        sellRate,
+        data.exchangeRate,
+      );
+
+      // ── Reconcile BEFORE posting (FEATURE_GUIDE §13 item 15a) ───────────
+      // Unlike `reconcileLegs`'s exact-equality contract, this is a
+      // ONE-SIDED upper bound: paying out LESS than the credits received is
+      // fine (the shop just keeps more profit); paying out MORE is a real
+      // loss, not a top-up, and is rejected outright. Compared at
+      // USD-equivalent (`usdEquivalent`, moneyPosting.ts) so a cross-currency
+      // leg (needs `exchangeRate`) and same-currency legs compare on one
+      // scale. Tolerance: `LEG_RECONCILIATION_EPSILON_USD` ($0.05
+      // USD-equivalent) — moneyPosting.ts's own S2 cross-currency-rounding
+      // tolerance, reused rather than inventing a second one (rule 14).
+      for (const leg of payoutLegs) {
+        assertLegMovesADrawer(leg.method);
+      }
+      // Reuse moneyPosting's shared per-currency summing helper (rule 14)
+      // instead of a hand-rolled loop — it already rejects a non-USD/LBP
+      // currency (thrown, not returned; this method's own outer try/catch
+      // converts that into the same `{success:false, error}` envelope, with
+      // a message at least as informative as the one this replaces) AND
+      // skips zero-amount legs, which the posting loop below ALSO skips
+      // (`if (legAmount <= 0) continue`) — one shared predicate on both the
+      // guard and the posting side, closing the guard/posting-loop drift
+      // shape FEATURE_GUIDE §13 item 15b warns about (unreachable today only
+      // because the schema's `.positive()` already guarantees every leg is
+      // non-zero).
+      const { usd: payoutUsd, lbp: payoutLbp } = sumLegsByCurrency(
+        payoutLegs,
+        "Client top-up payout",
+      );
+      const payoutTotalUsd = usdEquivalent(
+        payoutUsd,
+        payoutLbp,
+        recordExchangeRate,
+      );
+      const amountUsd = usdEquivalent(
+        currency === "USD" ? amount : 0,
+        currency === "LBP" ? amount : 0,
+        recordExchangeRate,
+      );
+      if (payoutTotalUsd - amountUsd > LEG_RECONCILIATION_EPSILON_USD) {
+        return {
+          success: false,
+          error:
+            `Client top-up payout exceeds the credits received — paid out ` +
+            `$${payoutTotalUsd.toFixed(2)} USD-equivalent against $${amountUsd.toFixed(2)} ` +
+            `USD-equivalent received; a top-up cannot pay out more than it takes in`,
+        };
+      }
+
+      // ── Per-leg, per-currency drawer balance guard ──────────────────────
+      // BEFORE opening the db transaction (read-then-act inside a
+      // transaction is a race, FEATURE_GUIDE §13 item 15) — a rejected
+      // top-up writes nothing. Aggregated by (drawer, currency): two legs
+      // that resolve to the SAME drawer+currency (e.g. two CASH legs) must
+      // be checked against their COMBINED draw, not independently.
+      const neededByDrawer = new Map<
+        string,
+        { drawer: string; currencyCode: string; amount: number }
+      >();
+      for (const leg of payoutLegs) {
+        const drawer = paymentMethodToDrawerName(leg.method);
+        const key = `${drawer}::${leg.currencyCode}`;
+        const legAmount = Math.abs(leg.amount);
+        const existing = neededByDrawer.get(key);
+        if (existing) existing.amount += legAmount;
+        else
+          neededByDrawer.set(key, {
+            drawer,
+            currencyCode: leg.currencyCode,
+            amount: legAmount,
+          });
+      }
+      for (const {
+        drawer,
+        currencyCode,
+        amount: needed,
+      } of neededByDrawer.values()) {
+        const row = this.db
+          .prepare(
+            "SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?",
+          )
+          .get(drawer, currencyCode, tenantId) as
+          | { balance: number | null }
+          | undefined;
+        const balance = row?.balance ?? 0;
+        if (balance < needed) {
+          return {
+            success: false,
+            error: `Insufficient balance in ${drawer}. Available: ${balance} ${currencyCode}`,
+          };
+        }
+      }
+
+      // `cashPaid` — LOAD-BEARING metadata (rule 14, ONE writer): the summed
+      // payout, converted to `currency`. `frontend/src/features/audit/
+      // cashFlow.ts`'s RECHARGE_TOPUP case branches on
+      // `m.cashPaid != null` / `> 0` to pick the "both" vs "in" cash-flow
+      // badge (guarded by `cashFlow.test.ts` /
+      // `TransactionsViewer.topUpCashFlowDirection.test.tsx`) — derived HERE
+      // at the one writer, never hand-maintained a second time downstream.
+      // Both branches reuse moneyPosting's shared converters (`usdEquivalent`
+      // / `lbpEquivalent`) rather than an inline expression — the USD branch
+      // is exactly `payoutTotalUsd`, already computed above for the
+      // over-payout guard; re-deriving it here inline would let the guard's
+      // notion of "the payout, in USD" and this metadata's notion of it
+      // silently diverge if `usdEquivalent` ever changes (rule 14).
+      const cashPaid =
+        currency === "USD"
+          ? payoutTotalUsd
+          : lbpEquivalent(payoutUsd, payoutLbp, recordExchangeRate);
+      const cashLabel = formatMoneyAmount(cashPaid, currency);
+      const profit = amount - cashPaid;
+      // The REAL drawer(s) this payout actually debits — resolved the same
+      // way the posting loop below resolves each leg's drawer
+      // (`paymentMethodToDrawerName`), NOT the raw payment METHOD. Before
+      // this fix, `sourceDrawer` held a method name (e.g. "CASH") or the
+      // literal "MULTI", which `isCashEquivalentDrawer` (cashFlow.ts) would
+      // silently misjudge if it were ever read on this branch — it isn't
+      // today only because `cashFlow.ts`'s RECHARGE_TOPUP case checks
+      // `m.cashPaid != null` FIRST and returns before reaching `sourceDrawer`
+      // for this writer. `sourceDrawer` stays a single value ("MULTI" when
+      // more than one distinct drawer was debited, matching every other
+      // RECHARGE_TOPUP writer's sentinel) and the full resolved list is
+      // carried separately under `sourceDrawers` so no information is lost.
+      const payoutDrawers = Array.from(
+        new Set(payoutLegs.map((leg) => paymentMethodToDrawerName(leg.method))),
+      );
+      const sourceDrawerMeta =
+        payoutDrawers.length > 1 ? "MULTI" : payoutDrawers[0];
+
+      const result = this.db.transaction(() => {
+        const clientName = data.clientId
+          ? ((
+              this.db
+                .prepare(
+                  "SELECT full_name FROM clients WHERE id = ? AND tenant_id = ?",
+                )
+                .get(data.clientId, tenantId) as
+                | { full_name: string }
+                | undefined
+            )?.full_name ??
+            data.clientName ??
+            null)
+          : (data.clientName ?? null);
+
         // Record the top-up in recharges table
         const rechargeResult = this.db
           .prepare(
@@ -2072,7 +2347,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
         // Create unified transaction record
-        getTransactionRepository().createTransaction({
+        const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE_TOPUP,
           source_table: "recharges",
           source_id: rechargeId,
@@ -2082,7 +2357,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           profit_usd: currency === "USD" ? profit : 0,
           profit_lbp: currency === "LBP" ? profit : 0,
           client_id: data.clientId ?? null,
-          client_name: data.clientName ?? null,
+          client_name: clientName,
           summary: `Whish App top-up from client: +${creditsLabel} credits, -${cashLabel} cash`,
           metadata_json: {
             provider: "WHISH_APP",
@@ -2091,34 +2366,67 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             currency,
             clientId: data.clientId ?? null,
             clientName: data.clientName ?? null,
-            sourceDrawer: "General",
+            sourceDrawer: sourceDrawerMeta,
+            sourceDrawers: payoutDrawers,
             destDrawer,
           },
+          exchange_rate: recordExchangeRate,
         });
 
-        // Pay the client from the General drawer (same currency). CQ-3
-        // survey note: intentionally NOT `applyDrawerDelta` — a plain UPDATE
-        // that must NOT create a row for a missing General drawer.
-        if (cashPaid > 0) {
-          this.db
-            .prepare(
-              `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
-               WHERE drawer_name = 'General' AND currency_code = ? AND tenant_id = ?`,
-            )
-            .run(cashPaid, currency, tenantId);
+        // Pay the client from each leg's own drawer, in that leg's own
+        // currency (rule 16) — a REAL `payments` row per leg + a matching
+        // `applyDrawerDelta`, so the generic void path (`_reversePayments`)
+        // can restore every leg later, split or not.
+        for (const leg of payoutLegs) {
+          assertLegMovesADrawer(leg.method);
+          const legAmount = Math.abs(leg.amount);
+          if (legAmount <= 0) continue;
+          const drawer = paymentMethodToDrawerName(leg.method);
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: leg.method,
+            drawerName: drawer,
+            currencyCode: leg.currencyCode,
+            amount: -legAmount,
+            note: `Whish App top-up from client: -${formatMoneyAmount(legAmount, leg.currencyCode)} cash`,
+            createdBy: data.userId,
+            tenantId,
+          });
+          applyDrawerDelta(this.db, {
+            drawerName: drawer,
+            currencyCode: leg.currencyCode,
+            delta: -legAmount,
+            tenantId,
+          });
         }
 
-        // Add the received credits to the Whish App drawer
+        // Add the received credits to the Whish App drawer — a REAL
+        // `payments` row (rule 20/LIRA-194), not a bare `applyDrawerDelta`,
+        // so the generic void path (`_reversePayments`) can restore both
+        // legs later.
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: destDrawer,
+          drawerName: destDrawer,
+          currencyCode: currency,
+          amount,
+          note: `Whish App top-up from client: +${creditsLabel} credits`,
+          createdBy: data.userId,
+          tenantId,
+        });
         applyDrawerDelta(this.db, {
           drawerName: destDrawer,
           currencyCode: currency,
           delta: amount,
           tenantId,
         });
+
+        return rechargeId;
       })();
 
       rechargeLogger.info(
         {
+          id: result,
           amount,
           cashPaid,
           currency,
