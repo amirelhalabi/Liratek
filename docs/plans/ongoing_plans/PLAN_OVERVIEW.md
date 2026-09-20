@@ -20,7 +20,9 @@ The 2026-09-16 sweep checked 26 plans and found **11 of them finished and filed 
 out of `todo_plans` (which means "nothing built yet") into `ongoing_plans`.
 
 **The sweep left a real board of 17 plans** — much smaller than the folders used to suggest.
-**Now 20** — counted from the folders, not from this line's history: **14 ongoing + 6 todo**.
+**Now 19** — counted from the folders, not from this line's history: **13 ongoing + 6 todo**.
+`OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` was archived 2026-09-21 when its confirming web run came back
+green — the last thing it was waiting on.
 `SYRIA_REMITTANCE_PLAN.md` was added 2026-09-17; `LIRA-194` was opened by the owner on
 2026-09-20; `LIRA-196` was split out of the `lira-web-027` investigation on 2026-09-21 so the
 narrow fix could ship without waiting on an owner decision about tenant timezones.
@@ -48,13 +50,12 @@ the eleven archived plans were completed by a commit landing *days after* that p
 **Size** is the remaining work only, not the original plan. **Money** means the remaining work
 writes transactions, payments, drawers, ledgers or profit.
 
-### `ongoing_plans/` — started, unfinished (14)
+### `ongoing_plans/` — started, unfinished (13)
 
 | Plan | What's actually left | Size | Money |
 | --- | --- | --- | --- |
 | `PRIMARY_CASH_DRAWER_PLAN.md` | Cosmetic tail only. Dead `getBalance()` closure (`DrawerTopUpRepository.ts:617`), unused `primaryCashDrawerName` import (`FinancialServiceRepository.ts:23`), ~3 JSDoc blocks still describing the withdrawn `InsufficientDrawerFundsError` as live. **Header still says "PLANNED" — it shipped long ago** | Small | no |
 | `COMMISSION_AT_SETTLEMENT_PLAN.md` | One doc edit. Phases 2-3 shipped (`43948a35`, `8c453764`, `8a868fe3`); Phase 4 required rewriting `docs/COUNTERPARTY_LEDGERS.md` for the gross/at-settlement model and that never happened. **Header still claims "Phases 2-4 NOT started"** | Small | no |
-| `OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` | **Re-run the suite to confirm — nothing else.** All six tickets built incl. LIRA-191. Desktop ran 2026-09-20: 17 failures, the **13 this epic caused are fixed** (lira-056/061/141/188/189/190/192 verified passing individually); the other 4 pre-dated it and are **now fixed and green too** (`done_plans/REMAINING_DESKTOP_E2E_FAILURES.md`). **Web is now green too**: every failure across the owner's two runs (106/4 → 109/1) was chased to a named cause and fixed — two of them **real product bugs**, not spec bugs (see §12.2). One clean full web run remains as confirmation, then archive | Small | no |
 | `MULTI_TENANT_IMPLEMENTATION_PLAN.md` | **WP9 only** — a browser e2e covering super-admin → provision → impersonate → tenant isolation. Everything else is live: `tenantContext.ts`, admin routes, impersonation banner, CI scoping linter | Small | yes |
 | `TOPUP_CASHFLOW_DIRECTION_AUDIT.md` | 1 finding. Primary scope fixed (`7b076724`); the self-declared "bonus finding" is open — `EXCHANGE` is hardcoded `direction: "both"` (`transactionPresentation.ts:80`), ignoring the for-partner variant | Small | no (badges) |
 | `BALANCE_PAGES_UX_AUDIT.md` | 3 of 7 convergence items, all cosmetic. Critical colour bugs fixed (`d40fd6e5`, shared `balanceColor.ts`). Open: unify money formatters, Partners reversal-row marker, "Refunded" vs "VOIDED" wording | Small | no |
@@ -91,7 +92,7 @@ writes transactions, payments, drawers, ledgers or profit.
 
 ### 2b. Small and well-specified — closes 2 more
 
-- ~~LIRA-191~~ built 2026-09-20. `OMT_OPEN_CREDIT_ACCOUNT` now needs only a green e2e run (§12.2 of that plan).
+- ~~LIRA-191~~ built 2026-09-20; ~~`OMT_OPEN_CREDIT_ACCOUNT`'s confirming e2e run~~ green 2026-09-21 (desktop 312 + a clean full web run) — **plan archived to `done_plans/`**.
 - ~~The 4 remaining desktop e2e failures~~ done 2026-09-20 — all four were stale SPECS, not product bugs; fixed and verified green (archived to `done_plans/`).
 - **WP9** (`MULTI_TENANT`) — the super-admin/impersonation e2e.
 
@@ -153,7 +154,7 @@ plans both look Large for the same reason and the board over-counts the work.
 1. **Answer the four questions in §2d.** Minutes of your time; unblocks four plans.
 2. **Do the §2a tidy-ups** — one commit, clears four plans off the board entirely.
 3. **Re-run the profit-audit verify phase** (§3). The only unknown that touches money.
-4. **LIRA-191 + WP9** (§2b) — two small items that fully close two more plans.
+4. **WP9** (§2b) — the one small item left there now that `OMT_OPEN_CREDIT_ACCOUNT` has closed.
 5. **Then pick one large track from §2c** and finish it rather than starting several.
 
 Do 1-4 and the board drops from 18 plans to 12, with only one genuinely large item per track left.
@@ -176,7 +177,7 @@ walked end to end — only a docs edit, some dead code and one deferred ticket r
 graph TD
   PCD["🔶 PRIMARY_CASH_DRAWER<br/>dead code only"]
   CAS["🔶 COMMISSION_AT_SETTLEMENT<br/>one docs edit"]
-  OMT["🔶 OMT_OPEN_CREDIT_ACCOUNT<br/>built; e2e not green"]
+  OMT["✅ OMT_OPEN_CREDIT_ACCOUNT<br/>archived 2026-09-21"]
   PDM["🔶 PARTNER_DISBURSEMENT_MATRIX<br/>one open question"]
   SYR["⬜ SYRIA_REMITTANCE<br/>payout by capability, not identity"]
 
@@ -263,7 +264,7 @@ satisfied.
 | --- | --- | --- |
 | `PRIMARY_CASH_DRAWER_PLAN` | – | `COMMISSION_AT_SETTLEMENT` ✅, `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
 | `COMMISSION_AT_SETTLEMENT_PLAN` | `PRIMARY_CASH_DRAWER` ✅ | `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
-| `OMT_OPEN_CREDIT_ACCOUNT_PLAN` | `PRIMARY_CASH_DRAWER` ✅, `COMMISSION_AT_SETTLEMENT` ✅ | – |
+| ~~`OMT_OPEN_CREDIT_ACCOUNT_PLAN`~~ *(archived 2026-09-21)* | `PRIMARY_CASH_DRAWER` ✅, `COMMISSION_AT_SETTLEMENT` ✅ | – |
 | `PARTNER_DISBURSEMENT_MATRIX` | – | – |
 | `SYRIA_REMITTANCE_PLAN` | – *(5 owner decisions, not a code dependency)* | – |
 | `MULTI_TENANT_IMPLEMENTATION_PLAN` | – | `PRODUCTION_DATABASE`, `SUBSCRIPTION_MANAGEMENT`, `WEB_PARITY_ROADMAP` |

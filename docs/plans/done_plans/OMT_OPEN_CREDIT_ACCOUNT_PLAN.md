@@ -4,7 +4,8 @@ Tickets **LIRA-187 → LIRA-192** in `current_sprint.md`. Planned 2026-09-10 fro
 (2026-09-09/10), extended 2026-09-13/14 with the OMT App cashout (§8); every file:line below was
 opened and read on `main` on the date given in its section heading.
 
-> **STATUS: COMPLETE 2026-09-20 — all six tickets built, LIRA-191 included.**
+> **STATUS: COMPLETE AND CONFIRMED — all six tickets built, both e2e suites green.**
+> Desktop 312 passed 2026-09-20; the confirming full web run passed 2026-09-21. Archived.
 > All eighteen owner decisions answered (§1). See **§12** for what landed, where, and the two
 > things that genuinely remain. This header previously read "Nothing built yet" for a full day
 > after the work shipped — the exact staleness trap this repo keeps hitting. If you are reading
@@ -783,7 +784,7 @@ cause.
 | Suite | State |
 | ----- | ----- |
 | Desktop | ✅ **312 passed (7.6m)**, full suite, 2026-09-20. Proves this epic's specs pass *in sequence* against the accumulating DB, not just individually — which is the run that matters (rule 15). |
-| Web | ✅ Every previously-failing spec now passes. The owner's runs went 106 passed / 4 failed → 109 / 1 → the last one fixed and proven individually. **A full clean web run is the one thing still outstanding** and is the owner's next step. |
+| Web | ✅ **Full clean run passed, 2026-09-21** — the confirming run this plan was waiting on. The owner's earlier runs went 106 passed / 4 failed → 109 / 1; every failure was chased to a named cause and fixed, and the full suite now passes in sequence. |
 
 **None of the web failures were this epic's fault**, and only one was even a test problem:
 
@@ -798,9 +799,14 @@ cause.
 Two of those five were genuine product defects that no amount of spec-fixing would have hidden, and
 both had been shipped for months. The suite earned its keep here.
 
-Before running desktop: do a `yarn dev` cycle. Several agents rebuilt the native module for Node
-during this work, so the desktop app and its e2e will fail at startup until the Electron build is
-restored. That is the documented ABI flip, not damage.
+**What the 2026-09-21 confirming run was executed against, stated plainly:** a working tree that
+also carried uncommitted LIRA-194 (top-up voidability) and the top-up payment-form rework, plus a
+parallel session's `optionalPhoneNumberSchema` fix. That does not weaken it as confirmation for
+THIS epic — no `e2e-web` spec references `topUpFromClient`, `/top-up-from-client`, or the modal's
+"From Client" mode (verified by grep before the run), and the only web spec mentioning
+`RECHARGE_TOPUP`'s reversibility (`lira-web-033`) does so in a doc comment with no assertion
+behind it. Recorded here because "green" without naming the tree it was green on is the kind of
+claim this repo has been burned by.
 
 Before running desktop: do a `yarn dev` cycle. Several agents rebuilt the native module for Node
 during this work, so the desktop app and its e2e will fail at startup until the Electron build is
@@ -810,12 +816,12 @@ restored. That is the documented ABI flip, not damage.
 
 1. ~~**LIRA-191**~~ — **BUILT 2026-09-20**, see §12.5.
 2. ~~**Prove the e2e**~~ — **DONE 2026-09-20/21** (§12.2). Desktop 312 passed in sequence; every web
-   failure chased to a named cause and fixed. One clean full web run remains as confirmation.
+   failure chased to a named cause and fixed; the confirming full web run passed 2026-09-21.
 3. ~~**One unanswered owner question**~~ — **ANSWERED 2026-09-20.** The owner ruled that it is not
    acceptable, and it became **`LIRA-194` — every top-up must be voidable** (`todo_plans/`), which
    is in progress. This plan no longer owns it.
 
-**Nothing else remains. Archive this plan once the confirming web run is green.**
+**Nothing remains. The confirming web run is green (2026-09-21) and this plan is archived.**
 
 ### §12.4 Things found along the way that outlived this epic
 
