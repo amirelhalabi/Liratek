@@ -737,6 +737,32 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     await expect(uiRow).toBeVisible();
     await expect(uiRow).toHaveAttribute("data-kind", "LEDGER");
 
+    // The sheet pre-selects EVERY open row on the account, oldest-first
+    // (D8) — fine in isolation, but this suite's DB accumulates across
+    // specs (rule 15), so whatever 032/033 left unsettled on this same
+    // OMT account gets pre-selected too. That mixes other amounts (and
+    // possibly a second currency) into "selected total", which breaks
+    // parseMoneyText's first-number-only parsing and would make this spec
+    // pay less than the real selection. Deselect every row except this
+    // spec's own BEFORE reading any totals, so the selection — and the
+    // totals below — are always exactly this one known USD row,
+    // regardless of what earlier specs left behind (rule 15: assert by
+    // identity, never by inherited global state).
+    const allRows = sheet.locator('[data-testid="supplier-account-settle-row"]');
+    const otherRowCount = await allRows.count();
+    for (let i = 0; i < otherRowCount; i++) {
+      const candidate = allRows.nth(i);
+      if ((await candidate.getAttribute("data-row-id")) === String(row.id)) {
+        continue;
+      }
+      const candidateToggle = candidate.getByTestId(
+        "supplier-account-settle-row-toggle",
+      );
+      if (await candidateToggle.isChecked()) {
+        await candidateToggle.uncheck();
+      }
+    }
+
     const totalBefore = parseMoneyText(
       await sheet.getByTestId("supplier-account-settle-selected-total").innerText(),
     );

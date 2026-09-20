@@ -20,9 +20,10 @@ The 2026-09-16 sweep checked 26 plans and found **11 of them finished and filed 
 out of `todo_plans` (which means "nothing built yet") into `ongoing_plans`.
 
 **The sweep left a real board of 17 plans** — much smaller than the folders used to suggest.
-**Now 19** — counted from the folders, not from this line's history: **14 ongoing + 5 todo**.
+**Now 20** — counted from the folders, not from this line's history: **14 ongoing + 6 todo**.
 `SYRIA_REMITTANCE_PLAN.md` was added 2026-09-17; `LIRA-194` was opened by the owner on
-2026-09-20 and had been missing from the table below until this edit.
+2026-09-20; `LIRA-196` was split out of the `lira-web-027` investigation on 2026-09-21 so the
+narrow fix could ship without waiting on an owner decision about tenant timezones.
 
 Two plans were opened **and** closed on 2026-09-20 without ever outliving a day on this board:
 `REMAINING_DESKTOP_E2E_FAILURES.md` (4 desktop specs) and `LIRA-195` (4 web specs). Both were
@@ -53,7 +54,7 @@ writes transactions, payments, drawers, ledgers or profit.
 | --- | --- | --- | --- |
 | `PRIMARY_CASH_DRAWER_PLAN.md` | Cosmetic tail only. Dead `getBalance()` closure (`DrawerTopUpRepository.ts:617`), unused `primaryCashDrawerName` import (`FinancialServiceRepository.ts:23`), ~3 JSDoc blocks still describing the withdrawn `InsufficientDrawerFundsError` as live. **Header still says "PLANNED" — it shipped long ago** | Small | no |
 | `COMMISSION_AT_SETTLEMENT_PLAN.md` | One doc edit. Phases 2-3 shipped (`43948a35`, `8c453764`, `8a868fe3`); Phase 4 required rewriting `docs/COUNTERPARTY_LEDGERS.md` for the gross/at-settlement model and that never happened. **Header still claims "Phases 2-4 NOT started"** | Small | no |
-| `OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` | **Re-run the suite to confirm — nothing else.** All six tickets built incl. LIRA-191. Desktop ran 2026-09-20: 17 failures, the **13 this epic caused are fixed** (lira-056/061/141/188/189/190/192 verified passing individually); the other 4 pre-dated it and are **now fixed and green too** (`done_plans/REMAINING_DESKTOP_E2E_FAILURES.md`). Web ran once, 5 failed, all 5 fixed, never re-run | Small | no |
+| `OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` | **Re-run the suite to confirm — nothing else.** All six tickets built incl. LIRA-191. Desktop ran 2026-09-20: 17 failures, the **13 this epic caused are fixed** (lira-056/061/141/188/189/190/192 verified passing individually); the other 4 pre-dated it and are **now fixed and green too** (`done_plans/REMAINING_DESKTOP_E2E_FAILURES.md`). **Web is now green too**: every failure across the owner's two runs (106/4 → 109/1) was chased to a named cause and fixed — two of them **real product bugs**, not spec bugs (see §12.2). One clean full web run remains as confirmation, then archive | Small | no |
 | `MULTI_TENANT_IMPLEMENTATION_PLAN.md` | **WP9 only** — a browser e2e covering super-admin → provision → impersonate → tenant isolation. Everything else is live: `tenantContext.ts`, admin routes, impersonation banner, CI scoping linter | Small | yes |
 | `TOPUP_CASHFLOW_DIRECTION_AUDIT.md` | 1 finding. Primary scope fixed (`7b076724`); the self-declared "bonus finding" is open — `EXCHANGE` is hardcoded `direction: "both"` (`transactionPresentation.ts:80`), ignoring the for-partner variant | Small | no (badges) |
 | `BALANCE_PAGES_UX_AUDIT.md` | 3 of 7 convergence items, all cosmetic. Critical colour bugs fixed (`d40fd6e5`, shared `balanceColor.ts`). Open: unify money formatters, Partners reversal-row marker, "Refunded" vs "VOIDED" wording | Small | no |
@@ -66,11 +67,12 @@ writes transactions, payments, drawers, ledgers or profit.
 | `NEXT_STEPS_AFTER_FLY_MIGRATION.md` | `DATABASE_KEY` log line still lies (no canary in `sqlcipher.ts:39`); signup URL-code prefill; **plus the per-tenant split, which is the same work as the row above** — see §4 | Large | yes |
 | `WEB_PARITY_ROADMAP.md` 📖 | **Living tracker — never archive.** Phase 3 count is badly stale: it says "7 of 87 specs, ~43 remain"; today there are **117 desktop specs against the same 7-spec allowlist, so ~110 remain**. Two §9 items are already fixed but still listed | Large | yes |
 
-### `todo_plans/` — genuinely not started (5)
+### `todo_plans/` — genuinely not started (6)
 
 | Plan | What's there | Size | Money |
 | --- | --- | --- | --- |
 | `LIRA-194_TOPUPS_MUST_BE_VOIDABLE.md` 🔴 | **HIGH (owner, 2026-09-20).** A top-up cannot be undone — `RECHARGE_TOPUP` sits in `NON_REVERSIBLE_TRANSACTION_TYPES`, so the only remedy is an opposite manual entry. Four writers (`topUpApp`/`topUpFromSupplier`/`topUpFromPartner`/`topUpFromClient`) must each post a real `payments` row and gain a named reversal owner. LIRA-192's `cashoutToSupplier` is the working template. **Partial fixes are worse than none** — the type is shared | Medium | yes |
+| `LIRA-196_TENANT_DAY_BOUNDARY.md` 🆕 | **`'localtime'` is the SERVER's timezone, not the shop's.** ~43 date queries across 10 repositories say "today" and mean the server's day. On desktop that is Beirut and correct; on Fly (UTC) a Beirut shop's day rolls over at **03:00 local**, so midnight-to-3am money is attributed to the previous day — silently, never zero, never throwing. Rule 27, 4th+ instance. **Blocked on one owner decision: where does a tenant's timezone live?** | Medium | yes (reporting) |
 | `SYRIA_REMITTANCE_PLAN.md` 🆕 | Everything. A custom transfer provider that can **pay OUT** — today `useSystemDrawerFlow = isOMT \|\| isWHISH` (`FinancialServiceRepository.ts:2878`) means any other provider's RECEIVE **credits** the drawer instead of debiting it. Mostly reuse: the `ExchangeRepository` FOR-partner posting shape + the existing provider taxonomy. **6 owner decisions first** — D6 asks whether to reverse the recorded "Syria belongs in Custom Services" position | Medium | yes |
 | `OPEN_PUBLIC_SIGNUP_PLAN.md` | Everything: Turnstile (zero matches repo-wide), `pending` tenant status (CHECK still `active/suspended/archived`), verified contact email, URL invite-code prefill. The signup page it gates already shipped. **The only plan whose header is honest about being untouched** | Large | no |
 | `profit-audit-2026-09/` ⚠️ | **19 confirmed profit divergences, unfixed — and 50 more that were never actually checked.** See §3 | Large | yes |

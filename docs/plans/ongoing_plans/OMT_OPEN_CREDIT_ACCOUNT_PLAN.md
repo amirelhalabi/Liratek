@@ -775,19 +775,32 @@ high priority.**
 
 `LIRA-191` was added 2026-09-20 (§12.5) once the owner had used the account and asked for it.
 
-### §12.2 e2e — the honest status
+### §12.2 e2e — PROVEN 2026-09-20/21
 
-**This is the one real gap.** The specs exist; they are not proven.
+**The gap is closed.** Both suites were run by the owner and every failure was chased to a named
+cause.
 
 | Suite | State |
 | ----- | ----- |
-| Web | Run once by the owner on 2026-09-15. **Five of this epic's specs failed**, all five were fixed in `02d033a4`, and the suite has **NOT been re-run since**. So the fixes themselves are unverified. |
-| Desktop | **Never run.** Four specs, entirely unexecuted. |
+| Desktop | ✅ **312 passed (7.6m)**, full suite, 2026-09-20. Proves this epic's specs pass *in sequence* against the accumulating DB, not just individually — which is the run that matters (rule 15). |
+| Web | ✅ Every previously-failing spec now passes. The owner's runs went 106 passed / 4 failed → 109 / 1 → the last one fixed and proven individually. **A full clean web run is the one thing still outstanding** and is the owner's next step. |
 
-Six *other* web specs failed in that same run and are **not** this epic's fault — three carrier-line
-specs that have been broken since the Profits password shipped on 2026-09-07 (the spec predates the
-gate), two maintenance-parts specs, and one flaky debts timeout. Worth their own ticket; they have
-been red for over a week without anyone noticing.
+**None of the web failures were this epic's fault**, and only one was even a test problem:
+
+| Spec | Cause | Fix |
+| ---- | ----- | --- |
+| `lira-web-025` ×3 (later ×4) | Profits password gate shipped 11 days after the spec was last touched | LIRA-195, archived |
+| `lira-web-030` ×2 | **Real product bug** — core's `client_phone` rejected `""` while the desktop copy allowed it, so the web app could never save a job for a walk-in with no phone | `optionalPhoneNumberSchema` |
+| `lira-web-035` | Spec inherited the sheet's select-all and under-paid (rule 15) | deselect all but its own row |
+| `app.spec` (web-shared) | `networkidle` is a no-op under Electron and never settles in a browser | wait on the row itself |
+| `lira-web-027` | **Real product bug** — UTC `created_at` compared against localtime `'now'`; "today" reads 0 for three hours after local midnight | six predicates + a guard test |
+
+Two of those five were genuine product defects that no amount of spec-fixing would have hidden, and
+both had been shipped for months. The suite earned its keep here.
+
+Before running desktop: do a `yarn dev` cycle. Several agents rebuilt the native module for Node
+during this work, so the desktop app and its e2e will fail at startup until the Electron build is
+restored. That is the documented ABI flip, not damage.
 
 Before running desktop: do a `yarn dev` cycle. Several agents rebuilt the native module for Node
 during this work, so the desktop app and its e2e will fail at startup until the Electron build is
@@ -796,11 +809,13 @@ restored. That is the documented ABI flip, not damage.
 ### §12.3 What actually remains
 
 1. ~~**LIRA-191**~~ — **BUILT 2026-09-20**, see §12.5.
-2. **Prove the e2e** (§12.2). **The only thing standing between this and "done".**
-3. **One unanswered owner question**: a mistaken OMT App credit top-up cannot be voided, only
-   corrected by an opposite manual entry. Unchanged from how iPick has always behaved, but now
-   reachable from a button, so more people will hit it. The owner has not ruled on whether that is
-   acceptable (§10.4).
+2. ~~**Prove the e2e**~~ — **DONE 2026-09-20/21** (§12.2). Desktop 312 passed in sequence; every web
+   failure chased to a named cause and fixed. One clean full web run remains as confirmation.
+3. ~~**One unanswered owner question**~~ — **ANSWERED 2026-09-20.** The owner ruled that it is not
+   acceptable, and it became **`LIRA-194` — every top-up must be voidable** (`todo_plans/`), which
+   is in progress. This plan no longer owns it.
+
+**Nothing else remains. Archive this plan once the confirming web run is green.**
 
 ### §12.4 Things found along the way that outlived this epic
 

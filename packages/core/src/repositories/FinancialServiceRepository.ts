@@ -4741,7 +4741,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as today_count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as today_awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}`,
+        WHERE tenant_id = ? AND DATE(created_at, 'localtime') = DATE('now', 'localtime')${providerFilter}`,
       )
       .get(tenantId, ...providerParams) as {
       today_commission: number;
@@ -4759,7 +4759,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}
+        WHERE tenant_id = ? AND DATE(created_at, 'localtime') = DATE('now', 'localtime')${providerFilter}
         GROUP BY currency`,
       )
       .all(tenantId, ...providerParams) as CurrencyStats[];
@@ -4773,7 +4773,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as month_count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as month_awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}`,
+        WHERE tenant_id = ? AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')${providerFilter}`,
       )
       .get(tenantId, ...providerParams) as {
       month_commission: number;
@@ -4791,7 +4791,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}
+        WHERE tenant_id = ? AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')${providerFilter}
         GROUP BY currency`,
       )
       .all(tenantId, ...providerParams) as CurrencyStats[];
@@ -4806,7 +4806,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}
+        WHERE tenant_id = ? AND DATE(created_at, 'localtime') = DATE('now', 'localtime')${providerFilter}
         GROUP BY provider, currency`,
       )
       .all(tenantId, ...providerParams) as ProviderStats[];

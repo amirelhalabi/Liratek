@@ -800,7 +800,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
            COALESCE(SUM(profit_usd), 0) as totalProfitUsd,
            COALESCE(SUM(profit_lbp), 0) as totalProfitLbp
          FROM custom_services
-         WHERE DATE(created_at) = DATE('now', 'localtime') AND tenant_id = ?`,
+         WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND tenant_id = ?`,
       )
       .get(getCurrentTenantId()) as CustomServiceSummary;
 

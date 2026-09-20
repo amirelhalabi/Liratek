@@ -381,14 +381,22 @@ test.describe("Debts (self-seeded)", () => {
 
     // Navigate to Debts and settle
     await navigateTo(appPage, "/debts");
-    // Wait for the debtor list to finish loading before clicking — avoids
-    // detach-on-click when the list re-renders during the initial data fetch.
-    await appPage.waitForLoadState("networkidle", { timeout: 10_000 });
 
     const clientRow = appPage
       .locator("button")
       .filter({ hasText: debtClientName })
       .first();
+    // `networkidle` used to stand in here as "wait for the debtor list to
+    // finish loading before clicking, to avoid detach-on-click when the
+    // list re-renders during the initial data fetch" — but it's a
+    // network-traffic proxy for that condition, not the condition itself:
+    // under Electron there's no HTTP (data goes over IPC), so it resolves
+    // instantly and is a no-op; in a real browser (this file's web-shared
+    // project run) there's always some in-flight request, so it never goes
+    // idle and just times out. Wait on the real condition instead — the
+    // row itself becoming visible — and rely on the locator-based click
+    // below to re-resolve and retry if the list re-renders again after
+    // this point.
     await expect(clientRow).toBeVisible({ timeout: 10_000 });
     await clientRow.click();
 

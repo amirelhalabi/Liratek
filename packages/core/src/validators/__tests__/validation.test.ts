@@ -306,6 +306,38 @@ describe("Validation Schemas", () => {
 
       expect(() => saveMaintenanceJobSchema.parse(job)).not.toThrow();
     });
+
+    // Web-only bug (dual-transport divergence, CLAUDE.md rule 14): the
+    // maintenance form (frontend/src/features/maintenance/pages/Maintenance/
+    // index.tsx) always sends `client_phone: ""` — never omits the key —
+    // when no phone was entered for a walk-in. `phoneNumberSchema.optional()`
+    // permits `undefined` but NOT `""`, so this parse used to throw
+    // "Invalid phone number format" and the web app could never save a
+    // maintenance job for a client without a phone number, even though the
+    // desktop IPC copy (`electron-app/schemas/index.ts`'s
+    // `client_phone: z.string().optional().nullable()`) has always allowed
+    // it. See `optionalPhoneNumberSchema` in `common.ts`.
+    it("accepts a blank client_phone (walk-in with no phone, matches desktop)", () => {
+      const job = {
+        device_name: "iPhone 14",
+        price_usd: 150,
+        client_phone: "",
+      };
+
+      expect(() => saveMaintenanceJobSchema.parse(job)).not.toThrow();
+    });
+
+    it("still rejects a malformed non-empty client_phone", () => {
+      const job = {
+        device_name: "iPhone 14",
+        price_usd: 150,
+        client_phone: "abc",
+      };
+
+      expect(() => saveMaintenanceJobSchema.parse(job)).toThrow(
+        "Invalid phone number format",
+      );
+    });
   });
 
   describe("createFinancialServiceSchema", () => {

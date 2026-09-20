@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   positiveDecimalSchema,
   positiveIntegerSchema,
-  phoneNumberSchema,
+  optionalPhoneNumberSchema,
   transactionTimeSchema,
 } from "./common.js";
 
@@ -28,7 +28,10 @@ export const saveMaintenanceJobSchema = z.object({
   device_name: z.string().min(1).max(255),
   client_id: positiveIntegerSchema.optional(),
   client_name: z.string().max(255).optional(),
-  client_phone: phoneNumberSchema.optional(),
+  // Blank is a valid "no phone left" state — the maintenance form always
+  // sends `""` (never omits the key) when the field is empty. See
+  // `optionalPhoneNumberSchema`'s doc comment / recharge.ts's identical note.
+  client_phone: optionalPhoneNumberSchema,
   issue_description: z.string().max(1000).optional(),
   cost_usd: z.number().min(0).optional(),
   price_usd: positiveDecimalSchema,
