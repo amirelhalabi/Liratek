@@ -117,6 +117,50 @@ async function adminHeaders(page: Page): Promise<Headers> {
 }
 
 // ---------------------------------------------------------------------------
+// Profits password gate (LIRA-195) — this spec (2026-08-27) predates the
+// gate (12c3dd72, 2026-09-07) and has never run against it; unlocked inside
+// snapshot() itself, on every call, because the grant's 15-minute TTL is
+// fixed from the moment of unlock and never refreshes on use.
+// ---------------------------------------------------------------------------
+
+const E2E_PROFITS_PASSWORD = "Profits1!";
+
+async function ensureProfitsUnlocked(
+  page: Page,
+  headers: Headers,
+): Promise<void> {
+  const status = await (
+    await page.request.get(`${BACKEND_URL}/api/profits/password-status`, {
+      headers,
+    })
+  ).json();
+  expect(status.success, JSON.stringify(status)).toBeTruthy();
+  if (!status.data.isSet) {
+    const set = await (
+      await page.request.put(`${BACKEND_URL}/api/profits/password`, {
+        headers,
+        data: { password: E2E_PROFITS_PASSWORD },
+      })
+    ).json();
+    expect(set.success, JSON.stringify(set)).toBeTruthy();
+  }
+  const unlocked = await (
+    await page.request.post(`${BACKEND_URL}/api/profits/unlock`, {
+      headers,
+      data: { password: E2E_PROFITS_PASSWORD },
+    })
+  ).json();
+  if (!unlocked.success) {
+    throw new Error(
+      `ensureProfitsUnlocked: /api/profits/unlock failed unexpectedly — ${
+        unlocked.error ?? "no error message"
+      }. A silent failure here would otherwise resurface as a baffling ` +
+        `"Profits locked" deep inside snapshot()'s profits GET.`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot — mirrors the desktop spec's MoneySnapshot, read over REST
 // ---------------------------------------------------------------------------
 
@@ -165,6 +209,7 @@ async function snapshot(
     return cur === "usd" ? (row?.usdBalance ?? 0) : (row?.lbpBalance ?? 0);
   };
 
+  await ensureProfitsUnlocked(page, headers);
   const profitRes = await (
     await page.request.get(
       `${BACKEND_URL}/api/profits/summary?from=${FROM}&to=${TO}`,

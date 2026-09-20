@@ -19,7 +19,15 @@ The 2026-09-16 sweep checked 26 plans and found **11 of them finished and filed 
 42% of the board. Those 11 have been archived, and 7 more that had genuinely started were moved
 out of `todo_plans` (which means "nothing built yet") into `ongoing_plans`.
 
-**What is left is the real board: 17 plans.** It is much smaller than the folders used to suggest.
+**The sweep left a real board of 17 plans** — much smaller than the folders used to suggest.
+**Now 19** — counted from the folders, not from this line's history: **14 ongoing + 5 todo**.
+`SYRIA_REMITTANCE_PLAN.md` was added 2026-09-17; `LIRA-194` was opened by the owner on
+2026-09-20 and had been missing from the table below until this edit.
+
+Two plans were opened **and** closed on 2026-09-20 without ever outliving a day on this board:
+`REMAINING_DESKTOP_E2E_FAILURES.md` (4 desktop specs) and `LIRA-195` (4 web specs). Both were
+stale-spec fixes, both are archived in `done_plans/`, and both moved in the same change as
+their code — which is the habit described below actually being followed rather than described.
 
 **Why the rot happened, in one line:** a status line is written once, when the plan is written,
 and whoever later ships the work updates the code and the sprint file but not the plan. Six of
@@ -45,7 +53,7 @@ writes transactions, payments, drawers, ledgers or profit.
 | --- | --- | --- | --- |
 | `PRIMARY_CASH_DRAWER_PLAN.md` | Cosmetic tail only. Dead `getBalance()` closure (`DrawerTopUpRepository.ts:617`), unused `primaryCashDrawerName` import (`FinancialServiceRepository.ts:23`), ~3 JSDoc blocks still describing the withdrawn `InsufficientDrawerFundsError` as live. **Header still says "PLANNED" — it shipped long ago** | Small | no |
 | `COMMISSION_AT_SETTLEMENT_PLAN.md` | One doc edit. Phases 2-3 shipped (`43948a35`, `8c453764`, `8a868fe3`); Phase 4 required rewriting `docs/COUNTERPARTY_LEDGERS.md` for the gross/at-settlement model and that never happened. **Header still claims "Phases 2-4 NOT started"** | Small | no |
-| `OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` | **LIRA-191 + prove the e2e.** LIRA-187/188/189/190/192 and LIRA-193 shipped 2026-09-15/16 (`40a184c8`, `02d033a4`, `6ea06edf`, `3dbb82b9`; migration v176). **The 8 specs are NOT green**: web ran once, 5 of them failed, all 5 were fixed and the suite has not been re-run; desktop has never run at all (§12.2). 191 you deferred deliberately: "only after the owner has used 187-190" | Small | yes |
+| `OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` | **Re-run the suite to confirm — nothing else.** All six tickets built incl. LIRA-191. Desktop ran 2026-09-20: 17 failures, the **13 this epic caused are fixed** (lira-056/061/141/188/189/190/192 verified passing individually); the other 4 pre-dated it and are **now fixed and green too** (`done_plans/REMAINING_DESKTOP_E2E_FAILURES.md`). Web ran once, 5 failed, all 5 fixed, never re-run | Small | no |
 | `MULTI_TENANT_IMPLEMENTATION_PLAN.md` | **WP9 only** — a browser e2e covering super-admin → provision → impersonate → tenant isolation. Everything else is live: `tenantContext.ts`, admin routes, impersonation banner, CI scoping linter | Small | yes |
 | `TOPUP_CASHFLOW_DIRECTION_AUDIT.md` | 1 finding. Primary scope fixed (`7b076724`); the self-declared "bonus finding" is open — `EXCHANGE` is hardcoded `direction: "both"` (`transactionPresentation.ts:80`), ignoring the for-partner variant | Small | no (badges) |
 | `BALANCE_PAGES_UX_AUDIT.md` | 3 of 7 convergence items, all cosmetic. Critical colour bugs fixed (`d40fd6e5`, shared `balanceColor.ts`). Open: unify money formatters, Partners reversal-row marker, "Refunded" vs "VOIDED" wording | Small | no |
@@ -58,10 +66,12 @@ writes transactions, payments, drawers, ledgers or profit.
 | `NEXT_STEPS_AFTER_FLY_MIGRATION.md` | `DATABASE_KEY` log line still lies (no canary in `sqlcipher.ts:39`); signup URL-code prefill; **plus the per-tenant split, which is the same work as the row above** — see §4 | Large | yes |
 | `WEB_PARITY_ROADMAP.md` 📖 | **Living tracker — never archive.** Phase 3 count is badly stale: it says "7 of 87 specs, ~43 remain"; today there are **117 desktop specs against the same 7-spec allowlist, so ~110 remain**. Two §9 items are already fixed but still listed | Large | yes |
 
-### `todo_plans/` — genuinely not started (3)
+### `todo_plans/` — genuinely not started (5)
 
 | Plan | What's there | Size | Money |
 | --- | --- | --- | --- |
+| `LIRA-194_TOPUPS_MUST_BE_VOIDABLE.md` 🔴 | **HIGH (owner, 2026-09-20).** A top-up cannot be undone — `RECHARGE_TOPUP` sits in `NON_REVERSIBLE_TRANSACTION_TYPES`, so the only remedy is an opposite manual entry. Four writers (`topUpApp`/`topUpFromSupplier`/`topUpFromPartner`/`topUpFromClient`) must each post a real `payments` row and gain a named reversal owner. LIRA-192's `cashoutToSupplier` is the working template. **Partial fixes are worse than none** — the type is shared | Medium | yes |
+| `SYRIA_REMITTANCE_PLAN.md` 🆕 | Everything. A custom transfer provider that can **pay OUT** — today `useSystemDrawerFlow = isOMT \|\| isWHISH` (`FinancialServiceRepository.ts:2878`) means any other provider's RECEIVE **credits** the drawer instead of debiting it. Mostly reuse: the `ExchangeRepository` FOR-partner posting shape + the existing provider taxonomy. **6 owner decisions first** — D6 asks whether to reverse the recorded "Syria belongs in Custom Services" position | Medium | yes |
 | `OPEN_PUBLIC_SIGNUP_PLAN.md` | Everything: Turnstile (zero matches repo-wide), `pending` tenant status (CHECK still `active/suspended/archived`), verified contact email, URL invite-code prefill. The signup page it gates already shipped. **The only plan whose header is honest about being untouched** | Large | no |
 | `profit-audit-2026-09/` ⚠️ | **19 confirmed profit divergences, unfixed — and 50 more that were never actually checked.** See §3 | Large | yes |
 | `SPRINT_INVENTORY_2026-08-12.md` 🗑️ | A stale snapshot, not a build plan. Its counts are no longer trustworthy and a **second** ticket file now exists that it never knew about (`docs/tickets/CURRENT_SPRINT.md`). Re-run it or drop it | Re-run | no |
@@ -79,7 +89,8 @@ writes transactions, payments, drawers, ledgers or profit.
 
 ### 2b. Small and well-specified — closes 2 more
 
-- **LIRA-191** (`OMT_OPEN_CREDIT_ACCOUNT`) — account grouping in settings. Its 8 e2e specs also still need a green run (§12.2 of that plan).
+- ~~LIRA-191~~ built 2026-09-20. `OMT_OPEN_CREDIT_ACCOUNT` now needs only a green e2e run (§12.2 of that plan).
+- ~~The 4 remaining desktop e2e failures~~ done 2026-09-20 — all four were stale SPECS, not product bugs; fixed and verified green (archived to `done_plans/`).
 - **WP9** (`MULTI_TENANT`) — the super-admin/impersonation e2e.
 
 ### 2c. The four large tracks — pick ONE and finish it
@@ -91,14 +102,15 @@ writes transactions, payments, drawers, ledgers or profit.
 | **Commercial** | `SUBSCRIPTION_MANAGEMENT` → `DESKTOP_LICENSING` → `OPEN_PUBLIC_SIGNUP` | The only chain with real sequencing; needs an email capability nothing has built |
 | **Infrastructure** | `PRODUCTION_DATABASE_AND_HOSTING` | Per-tenant DB split; resolve the duplicate in §4 first |
 
-### 2d. Blocked on you — four questions, no code possible until answered
+### 2d. Blocked on you — five entries, no code possible until answered
 
 | Question | Plan |
 | --- | --- |
+| **D1-D6**: is the Syria counterparty always a partner; where does the commission sit; is profit deferred to settlement; own drawer or General; one corridor or many; **and does Syria move out of Custom Services at all?** | `SYRIA_REMITTANCE` |
 | Should "we always pay" extend to **FOR-mode RECEIVE**? | `PARTNER_DISBURSEMENT_MATRIX` |
 | LIRA-088: which balance did you mean — shop-SIM credits, or resale provider-drawer balance? | `OWNER_NOTES_TASK_PLAN` |
 | D1: subscription pricing — per shop, per machine, or per seat? | `SUBSCRIPTION_MANAGEMENT` + `DESKTOP_LICENSING` |
-| Have you used the OMT account enough to start LIRA-191? | `OMT_OPEN_CREDIT_ACCOUNT` |
+| ~~Used the OMT account enough to start LIRA-191?~~ Answered yes 2026-09-20; built. | `OMT_OPEN_CREDIT_ACCOUNT` |
 
 ---
 
@@ -142,7 +154,7 @@ plans both look Large for the same reason and the board over-counts the work.
 4. **LIRA-191 + WP9** (§2b) — two small items that fully close two more plans.
 5. **Then pick one large track from §2c** and finish it rather than starting several.
 
-Do 1-4 and the board drops from 17 plans to 11, with only one genuinely large item per track left.
+Do 1-4 and the board drops from 18 plans to 12, with only one genuinely large item per track left.
 
 ---
 
@@ -162,19 +174,24 @@ walked end to end — only a docs edit, some dead code and one deferred ticket r
 graph TD
   PCD["🔶 PRIMARY_CASH_DRAWER<br/>dead code only"]
   CAS["🔶 COMMISSION_AT_SETTLEMENT<br/>one docs edit"]
-  OMT["🔶 OMT_OPEN_CREDIT_ACCOUNT<br/>LIRA-191 deferred"]
+  OMT["🔶 OMT_OPEN_CREDIT_ACCOUNT<br/>built; e2e not green"]
   PDM["🔶 PARTNER_DISBURSEMENT_MATRIX<br/>one open question"]
+  SYR["⬜ SYRIA_REMITTANCE<br/>payout by capability, not identity"]
 
   PCD -->|"grossOwedDelta<br/>unlocked the gross flip"| CAS
   PCD -->|"PCD + drawer model"| OMT
   CAS -->|"commission model"| OMT
   PDM -.->|"same partner ledger"| OMT
+  PDM -.->|"named '7welet souria'<br/>as an open gap"| SYR
+  SYR -.->|"reuses the FOR_EXCHANGE<br/>payout + DEBIT shape"| PDM
 ```
 
 **Reading it:** `PRIMARY_CASH_DRAWER` was the keystone — its `grossOwedDelta`/`resolveServiceCashDrawer`
 made the commission gross-flip possible, which made the OMT open-credit account possible. Nothing
-here blocks anything now. Total remaining across all four: one doc rewrite, two dead symbols, one
-deferred ticket, one question for you.
+here blocks anything now. Total remaining across the first four: one doc rewrite, two dead symbols,
+one deferred ticket, one question for you. **`SYRIA_REMITTANCE` is the one piece of real build work
+left in this cluster** — and the cluster is why it is cheap: the partner ledger, the settlement UI
+and the payout posting shape all already exist.
 
 ### 6b. Tenancy, hosting & commercialisation
 
@@ -246,6 +263,7 @@ satisfied.
 | `COMMISSION_AT_SETTLEMENT_PLAN` | `PRIMARY_CASH_DRAWER` ✅ | `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
 | `OMT_OPEN_CREDIT_ACCOUNT_PLAN` | `PRIMARY_CASH_DRAWER` ✅, `COMMISSION_AT_SETTLEMENT` ✅ | – |
 | `PARTNER_DISBURSEMENT_MATRIX` | – | – |
+| `SYRIA_REMITTANCE_PLAN` | – *(5 owner decisions, not a code dependency)* | – |
 | `MULTI_TENANT_IMPLEMENTATION_PLAN` | – | `PRODUCTION_DATABASE`, `SUBSCRIPTION_MANAGEMENT`, `WEB_PARITY_ROADMAP` |
 | `PRODUCTION_DATABASE_AND_HOSTING_PLAN` | `MULTI_TENANT` ✅ | – *(duplicated by `NEXT_STEPS_AFTER_FLY_MIGRATION`)* |
 | `NEXT_STEPS_AFTER_FLY_MIGRATION` | – | – *(duplicates `PRODUCTION_DATABASE_AND_HOSTING`)* |
