@@ -127,9 +127,11 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
     await confirmBtn.click();
     await expect(confirmBtn).toBeHidden({ timeout: 8_000 });
 
-    // ── Backend assertion: structured payments array on the newest txn ───────
+    // ── Backend assertion: structured payments array on the recharge txn ─────
     await expect
-      .poll(() => readNewestPaymentLegsShape(appPage), { timeout: 10_000 })
+      .poll(() => readRechargePaymentLegsShape(appPage, TRANSFER_PHONE), {
+        timeout: 10_000,
+      })
       .toBe("ok");
 
     // ── Frontend assertion: legs rendered, appended, with currency ───────────
@@ -448,15 +450,34 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
 });
 
 /**
- * Reads the newest transaction via IPC and asserts the structured `payments`
- * field is present and well-shaped (LIRA-064). Returns "ok" on success, or a
- * short diagnostic string otherwise so `expect.poll` surfaces the reason.
+ * Reads the recharge transaction created by this test via IPC and asserts
+ * the structured `payments` field is present and well-shaped (LIRA-064).
+ * Returns "ok" on success, or a short diagnostic string otherwise so
+ * `expect.poll` surfaces the reason.
+ *
+ * Identity-matched, NOT position-matched (CLAUDE.md rule 15 — the same
+ * discipline the frontend half of this test already documents via its own
+ * comment above; this backend helper never got it). Since cff444ea
+ * (2026-09-07) a CREDIT_TRANSFER also books an auto `SMS_Transfer_Fee`
+ * EXPENSE transaction AFTER the recharge, which then has the higher id and
+ * wins `getRecent`'s `ORDER BY created_at DESC, id DESC` — so `list[0]` is
+ * that expense, not the recharge. Its single payment leg is correctly
+ * filtered out of `payments` by `isInternalLegJs` (drawer `MTC` is a
+ * provider-stock drawer, method `SMS_COST` is an internal-leg method),
+ * so taking index 0 saw an empty array and misreported "payments-empty".
+ *
+ * Instead, find the recharge row by identity: `type === "RECHARGE"` and
+ * `metadata_json.phone === phone` (the recharge summary does NOT contain the
+ * phone number, so it can't be matched on).
  *
  * Crucially also checks that the stored `summary` text does NOT contain the
  * client-side "in:"/"out:" formatting — proving the legs are not persisted.
  */
-async function readNewestPaymentLegsShape(appPage: Page): Promise<string> {
-  return appPage.evaluate(async () => {
+async function readRechargePaymentLegsShape(
+  appPage: Page,
+  phone: string,
+): Promise<string> {
+  return appPage.evaluate(async (targetPhone) => {
     const res = await (
       window as unknown as {
         api: {
@@ -468,14 +489,16 @@ async function readNewestPaymentLegsShape(appPage: Page): Promise<string> {
           };
         };
       }
-    ).api.transactions.getRecent(5, {});
+    ).api.transactions.getRecent(20, {});
 
     const list = (
       Array.isArray(res)
         ? res
         : ((res as { transactions?: unknown[] })?.transactions ?? [])
     ) as Array<{
+      type?: string;
       summary?: string | null;
+      metadata_json?: string | null;
       payments?: Array<{
         direction?: string;
         amount?: number;
@@ -485,12 +508,22 @@ async function readNewestPaymentLegsShape(appPage: Page): Promise<string> {
       }>;
     }>;
 
-    const newest = list[0];
-    if (!newest) return "no-rows";
-    if (!Array.isArray(newest.payments)) return "payments-not-array";
-    if (newest.payments.length === 0) return "payments-empty";
+    const target = list.find((row) => {
+      if (row.type !== "RECHARGE") return false;
+      try {
+        const meta = JSON.parse(row.metadata_json ?? "{}") as {
+          phone?: string;
+        };
+        return meta.phone === targetPhone;
+      } catch {
+        return false;
+      }
+    });
+    if (!target) return "target-row-not-found";
+    if (!Array.isArray(target.payments)) return "payments-not-array";
+    if (target.payments.length === 0) return "payments-empty";
 
-    const leg = newest.payments[0];
+    const leg = target.payments[0];
     if (leg.direction !== "in" && leg.direction !== "out") {
       return `bad-direction:${String(leg.direction)}`;
     }
@@ -502,12 +535,12 @@ async function readNewestPaymentLegsShape(appPage: Page): Promise<string> {
 
     // The structured legs must NOT be baked into the stored summary text.
     if (
-      typeof newest.summary === "string" &&
-      /\bin:|\bout:/.test(newest.summary)
+      typeof target.summary === "string" &&
+      /\bin:|\bout:/.test(target.summary)
     ) {
       return "summary-contains-legs";
     }
 
     return "ok";
-  });
+  }, phone);
 }

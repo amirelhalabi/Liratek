@@ -276,6 +276,14 @@ test.describe("LIRA-077 — stock adjustment UI + audit trail", () => {
     await expect(appPage.getByText(reasonMarker)).toBeVisible({
       timeout: 10_000,
     });
-    await expect(appPage.getByText("+5 (15 → 20)")).toBeVisible();
+    // Since 289d9348 (2026-09-07, FIFO cost batches at intake) a positive
+    // adjustment routes through receiveStock with unit_cost_usd defaulting to
+    // the product's cost price, and the history row renderer appends
+    // " @ $<cost>" whenever unit_cost_usd != null (AdjustStockModal.tsx).
+    // The cost segment is optional here so the match doesn't re-break the
+    // next time the row format gains a field.
+    await expect(
+      appPage.getByText(/\+5( @ \$[\d.]+)? \(15 → 20\)/),
+    ).toBeVisible();
   });
 });

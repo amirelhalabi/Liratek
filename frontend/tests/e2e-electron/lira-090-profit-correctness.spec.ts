@@ -9,7 +9,7 @@
  * Covered:
  *   Fix 1  refund reverses profit                → recharge in, then refund out, net 0
  *   Fix 2  POS discount reduces profit           → discounted sale stamps margin − discount
- *   Fix 3  recharge LBP SMS cost is converted    → LBP transfer profit deducts a real (large) sum
+ *   Fix 3  recharge LBP transfer books gross     → full LBP profit; SMS cost is a separate USD expense
  *   Fix 4  LBP maintenance profit is counted     → maintenance.profit_lbp delta
  *   Fix 5  loto commission reaches profits       → loto.profit_lbp delta
  *   review per-item refund of a discounted sale  → nets to zero (no phantom discount loss)
@@ -69,6 +69,9 @@ type Api = {
         limit: number,
       ) => Promise<Array<{ id: number; type: string; summary: string | null }>>;
       refund: (id: number) => Promise<{ success: boolean; error?: string }>;
+    };
+    expenses: {
+      getToday: () => Promise<Array<{ category: string; amount_usd: number }>>;
     };
   };
 };
@@ -237,17 +240,25 @@ test.describe("LIRA-090 — profit correctness", () => {
     expect(result.netDelta).toBeCloseTo(0, 2);
   });
 
-  test("Fix 3: an LBP credit transfer deducts a converted (large) SMS cost", async ({
+  test("Fix 3: an LBP credit transfer books full LBP gross profit; the SMS cost lands as a separate USD expense", async ({
     appPage,
   }) => {
     const result = await appPage.evaluate(
       async ({ FROM, TO }) => {
         const w = window as unknown as Api;
         const s = () => w.api.profits.summary(FROM, TO);
+        const smsExpenseTotal = async () =>
+          (await w.api.expenses.getToday())
+            .filter((e) => e.category === "SMS_Transfer_Fee")
+            .reduce((sum, e) => sum + e.amount_usd, 0);
 
         const before = (await s()).recharges.profit_lbp;
+        const smsBefore = await smsExpenseTotal();
         // 6 USD-equiv credits, priced 600,000 LBP, cost 540,000 LBP → gross 60,000.
-        // 2 SMS × $0.16 = $0.32, CONVERTED to LBP (tens of thousands), not $0.32.
+        // Since commit cff444ea (2026-09-07) the SMS cost is no longer netted
+        // out of recharge profit at all, in either currency — it books as its
+        // own SMS_Transfer_Fee expense, ALWAYS in USD (2 SMS × $0.16 = $0.32,
+        // ceil(6/3) = 2), even though this recharge itself is priced in LBP.
         const res = await w.api.recharge.process({
           provider: "MTC",
           type: "CREDIT_TRANSFER",
@@ -259,10 +270,12 @@ test.describe("LIRA-090 — profit correctness", () => {
           paid_by_method: "CASH",
         });
         const after = (await s()).recharges.profit_lbp;
+        const smsAfter = await smsExpenseTotal();
         return {
           ok: res.success,
           error: res.error ?? null,
           delta: after - before,
+          smsExpenseDelta: smsAfter - smsBefore,
         };
       },
       { FROM, TO },
@@ -270,13 +283,10 @@ test.describe("LIRA-090 — profit correctness", () => {
 
     expect(result.error).toBeNull();
     expect(result.ok).toBe(true);
-    // Gross commission is 60,000 LBP. Post-fix the SMS cost is converted to LBP,
-    // so a large chunk (tens of thousands) is deducted. Pre-fix only $0.32 was
-    // subtracted, leaving ~59,999.68. Assert the deduction is real & bounded.
-    const deducted = 60000 - result.delta;
-    expect(deducted).toBeGreaterThan(5000); // pre-fix ≈ 0.32 → fails
-    expect(deducted).toBeLessThan(60000); // profit stays positive
-    expect(result.delta).toBeGreaterThan(0);
+    // Gross commission — the full 60,000 LBP reaches recharge profit undeducted.
+    expect(result.delta).toBeCloseTo(60000, 2);
+    // The SMS cost went to its own USD expense row, not an LBP profit deduction.
+    expect(result.smsExpenseDelta).toBeCloseTo(0.32, 2);
   });
 
   test("Fix 4: an LBP maintenance job counts LBP profit", async ({

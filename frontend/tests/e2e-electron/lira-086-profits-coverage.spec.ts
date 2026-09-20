@@ -38,6 +38,9 @@ type Api = {
         error?: string;
       }>;
     };
+    expenses: {
+      getToday: () => Promise<Array<{ category: string; amount_usd: number }>>;
+    };
   };
 };
 
@@ -92,17 +95,25 @@ test.describe("LIRA-086 (B5) — profits coverage", () => {
     expect(result.delta).toBeCloseTo(35, 2);
   });
 
-  test("a recharge teshriji (CREDIT_TRANSFER) increases recharge profit by its net commission", async ({
+  test("a recharge teshriji (CREDIT_TRANSFER) increases recharge profit by its gross commission and books the SMS cost as its own expense", async ({
     appPage,
   }) => {
     const result = await appPage.evaluate(
       async ({ FROM, TO }) => {
         const w = window as unknown as Api;
         const summaryOf = async () => w.api.profits.summary(FROM, TO);
+        const smsExpenseTotal = async () =>
+          (await w.api.expenses.getToday())
+            .filter((e) => e.category === "SMS_Transfer_Fee")
+            .reduce((sum, e) => sum + e.amount_usd, 0);
 
         const before = await summaryOf();
+        const smsBefore = await smsExpenseTotal();
 
-        // $3 MTC transfer sold at $3.50: (3.50 − 3.00) − 1 SMS × $0.16 = $0.34
+        // $3 MTC transfer sold at $3.50: gross margin = 3.50 − 3.00 = $0.50.
+        // Since commit cff444ea (2026-09-07) the SMS cost is no longer netted
+        // out of recharge profit — it books as its own SMS_Transfer_Fee
+        // expense (1 SMS × $0.16, ceil(3/3) = 1), asserted separately below.
         const res = await w.api.recharge.process({
           provider: "MTC",
           type: "CREDIT_TRANSFER",
@@ -115,10 +126,12 @@ test.describe("LIRA-086 (B5) — profits coverage", () => {
         });
 
         const after = await summaryOf();
+        const smsAfter = await smsExpenseTotal();
         return {
           ok: res.success === true,
           error: res.error ?? null,
           delta: after.recharges.profit_usd - before.recharges.profit_usd,
+          smsExpenseDelta: smsAfter - smsBefore,
         };
       },
       { FROM, TO },
@@ -126,7 +139,9 @@ test.describe("LIRA-086 (B5) — profits coverage", () => {
 
     expect(result.error).toBeNull();
     expect(result.ok).toBe(true);
-    // Net commission after SMS cost — teshriji profit reaches the recharge tab.
-    expect(result.delta).toBeCloseTo(0.34, 2);
+    // Gross commission — teshriji profit reaches the recharge tab undeducted.
+    expect(result.delta).toBeCloseTo(0.5, 2);
+    // The SMS cost went to its own expense row, not a profit deduction.
+    expect(result.smsExpenseDelta).toBeCloseTo(0.16, 2);
   });
 });
