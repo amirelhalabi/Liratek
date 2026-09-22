@@ -68,6 +68,18 @@ export type TransactionRow = {
   // why). Kept separate so the cash-only Summary in:/out: line is unaffected;
   // only the Method column should read this.
   account_payments?: TransactionPaymentLeg[];
+  /**
+   * LIRA-205 — net telecom credit returned to the shop on this transaction
+   * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), in USD.
+   * Mirrors `TransactionWithUser.returned_credits_usd`
+   * (packages/core/src/repositories/TransactionRepository.ts) and
+   * `RecentTransaction.returned_credits_usd` (electron.d.ts) end to end.
+   *
+   * ABSENT (never 0) on every transaction that posted no CREDIT_RETURN leg: a
+   * zero on a money column is a claim that credit was returned and it was
+   * nothing. Read by `ReturnedCreditsCell` (../components/TransactionCells).
+   */
+  returned_credits_usd?: number;
 };
 
 /**

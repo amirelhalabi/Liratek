@@ -127,6 +127,23 @@ export interface TransactionPaymentLeg {
   drawer_name?: string;
 }
 
+/** The ONE `payments.method` marking telecom credit returned to the shop on an
+ *  Only-Days sale (LIRA-090 §5.1 — written solely by
+ *  `FinancialServiceRepository.processTelecomCreditReturn`, and mirrored
+ *  negated onto the reversal row by `_reversePayments`). Already a member of
+ *  INTERNAL_LEG_METHODS below: it is NOT customer cash, so it stays out of the
+ *  in/out summary — LIRA-205 surfaces it separately as its own read-only
+ *  figure (`returned_credits_usd`) instead. Reused by the Set below and by
+ *  `_attachPaymentLegs`'s accumulator, so those two can never drift from EACH
+ *  OTHER (rule 14). It is NOT yet the single global source the name implies,
+ *  though: `FinancialServiceRepository.processTelecomCreditReturn` (the sole
+ *  writer) still hardcodes the literal "CREDIT_RETURN" rather than importing
+ *  this constant — that file sits outside this change's ownership boundary,
+ *  so pointing it at this export is a follow-up, not done here. Exported
+ *  (rather than left module-private) so that follow-up is a one-line import
+ *  away instead of also needing to add the export first. */
+export const CREDIT_RETURN_LEG_METHOD = "CREDIT_RETURN";
+
 /**
  * The `payments` table is an internal multi-leg ledger: alongside real customer
  * payments and change/returns it also stores provider/system drawer movements
@@ -152,7 +169,7 @@ const INTERNAL_LEG_METHODS = new Set([
   "RESERVE", // cash reserved out of General/wallet for provider settlement (SEND / debt repayment)
   "OMT_APP", // shop-wallet side of an app transfer (customer cash side stays visible)
   "WHISH_APP", // shop-wallet side of an app transfer (customer cash side stays visible)
-  "CREDIT_RETURN", // returned telecom credits to a provider drawer
+  CREDIT_RETURN_LEG_METHOD, // returned telecom credits to a provider drawer
   "CREDIT_USED", // on-account charge (also lives in debt_ledger)
   "SMS_COST", // telecom SMS cost consumed from the provider stock drawer
   "LINE_CREDIT", // carrier-line usage expense (LIRA-145): internal credit-stock consumption, no customer cash
@@ -440,6 +457,22 @@ export interface TransactionWithUser extends TransactionEntity {
    * should read this field. Same session-wide attachment as basket legs.
    */
   account_payments?: TransactionPaymentLeg[];
+  /**
+   * LIRA-205 — net telecom credit returned to the shop on this transaction
+   * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), in USD. Only
+   * USD-denominated CREDIT_RETURN legs are accumulated into this figure (see
+   * `_attachPaymentLegs`'s doc comment on `returnedCreditsByTxn`) — the UI
+   * renders it with a hard "$" prefix, so a non-USD leg must never reach it.
+   *
+   * ABSENT (never 0) on every transaction that posted no CREDIT_RETURN leg:
+   * a zero on a money column is a claim that credit was returned and it was
+   * nothing. Presence-keyed, not sum-keyed, so a hypothetical net-zero pair
+   * still renders a figure rather than vanishing.
+   *
+   * Signed: the void/refund row carries the negated mirror `_reversePayments`
+   * writes, so the original keeps its history and the reversal shows -N.
+   */
+  returned_credits_usd?: number;
 }
 
 export interface DebtAgingBuckets {
@@ -860,8 +893,28 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       return legs;
     };
 
+    // LIRA-205 — net returned-credits figure per transaction, accumulated
+    // from the SAME batch query above (no new SQL, no new round-trip).
+    //
+    // Restricted to USD legs: the field is named (and rendered by the UI,
+    // TransactionCells.tsx's ReturnedCreditsCell) as a hard-"$" USD amount,
+    // and the sole writer (FinancialServiceRepository.processTelecomCreditReturn)
+    // always posts the leg in "USD" — so today this filter changes nothing in
+    // practice. It exists so a future non-USD CREDIT_RETURN leg does not get
+    // silently summed into a column that presents itself as dollars (a wrong
+    // number wearing a currency symbol is worse than a leg this column simply
+    // doesn't cover yet); adding real multi-currency display is out of scope
+    // for this fix.
+    const returnedCreditsByTxn = new Map<number, number>();
+
     const byTxn = new Map<number, TransactionPaymentLeg[]>();
     for (const p of legRows) {
+      if (p.method === CREDIT_RETURN_LEG_METHOD && p.currency_code === "USD") {
+        returnedCreditsByTxn.set(
+          p.transaction_id,
+          (returnedCreditsByTxn.get(p.transaction_id) ?? 0) + p.amount,
+        );
+      }
       const leg = toLeg(p);
       if (!leg) continue;
       const legs = byTxn.get(p.transaction_id) ?? [];
@@ -976,6 +1029,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           : accountLegsByTxn.get(row.id);
       if (accountLegs && accountLegs.length > 0) {
         row.account_payments = accountLegs;
+      }
+      // LIRA-205 — conditional assignment only: never `= undefined`, so a
+      // row with no CREDIT_RETURN leg has no key at all (absent, not 0).
+      const returnedCredits = returnedCreditsByTxn.get(row.id);
+      if (returnedCredits !== undefined) {
+        row.returned_credits_usd = returnedCredits;
       }
     }
 

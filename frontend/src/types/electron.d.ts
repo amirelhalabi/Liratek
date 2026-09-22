@@ -335,6 +335,14 @@ export interface RecentTransaction {
    * record). Only present on session rows with an on-account portion.
    */
   account_payments?: TransactionPaymentLeg[];
+  /**
+   * LIRA-205 — net telecom credit returned to the shop on this transaction
+   * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), in USD.
+   * Absent (never 0) when no CREDIT_RETURN leg was posted — a zero here
+   * would claim a return happened and came to nothing. Signed: a
+   * void/refund row carries the negated mirror.
+   */
+  returned_credits_usd?: number;
 }
 
 /** A mobile service catalog item stored in the database */

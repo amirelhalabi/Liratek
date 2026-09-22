@@ -18,12 +18,54 @@
  * compared (ALTER TABLE ADD COLUMN always appends at the end, so a migrated
  * DB's column order legitimately differs from a fresh CREATE TABLE's).
  *
- * schema_migrations' CONTENTS are ignored (both DBs naturally end up with
- * different applied_at timestamps and, potentially, different exact rows
- * depending on how history was replayed) — only its shape (columns/PK) is
- * compared, like every other table.
+ * schema_migrations' SHAPE (columns/PK) is compared like every other table,
+ * via the same mechanism as above.
  *
- * Exit code 0 = no diffs. Exit code 1 = at least one diff (printed).
+ * schema_migrations' CONTENTS are ALSO compared (this is the specific check
+ * that would have caught the v66-69/v78-79 name drift below): every
+ * {version, name} pair in the live `MIGRATIONS` array must be seeded in the
+ * CURRENT create_db.sql (DB B) under the SAME name, and every row
+ * create_db.sql seeds must correspond to a real MIGRATIONS entry — a
+ * mismatched name or an orphaned/missing seed row is reported as a diff.
+ * `applied_at` timestamps are still ignored (never compared) since they are
+ * never meant to agree.
+ *
+ * This intentionally checks DB (B) only, not DB (A): DB (A) starts from
+ * git-HEAD's create_db.sql, which may ALREADY have (pre-existing, committed)
+ * wrong names for versions runMigrations() then sees as "already applied"
+ * (it keys on version, not name) and therefore never touches — so DB (A)'s
+ * schema_migrations would just as happily reproduce a historical mistake.
+ * DB (B) is the one place a wrong seed name is actually decidable: it is
+ * built from nothing but the CURRENT create_db.sql in the working tree.
+ *
+ * Dist-vs-src note: this script reads the BUILT dist
+ * (packages/core/dist/db/migrations/index.js), not the TypeScript source,
+ * because it needs to actually EXECUTE runMigrations() to build DB (A) — a
+ * text parse can't do that. The new content check reuses that same loaded
+ * module's real `MIGRATIONS` export (not a second, hand-rolled regex parse
+ * of index.ts) specifically so version 46 (`addSenderReceiverFieldsMigration`,
+ * imported from a separate file and spread into the array at index.ts:1863)
+ * is included automatically with no special-casing: it is a perfectly
+ * ordinary element of the runtime array, even though it has no `version:`
+ * literal inside index.ts itself for a text scan to find.
+ *
+ * The cost of reading dist is staleness: if packages/core hasn't been
+ * rebuilt since the last source edit, this script would silently check
+ * against yesterday's migration names — precisely the failure mode it
+ * exists to catch, one layer up. `checkDistFreshness()` below guards that by
+ * refusing to run (exit 1) when any file under packages/core/src (not just
+ * db/migrations/ — index.ts also imports ../../utils/telecomCredit.ts) is
+ * newer than the built dist's migrations output. In CI this never fires:
+ * the "TypeScript check" step earlier in the same job already
+ * rebuilds core's dist as a side effect (packages/core's `typecheck` script
+ * IS `tsc -p tsconfig.json`, identical to `build`, with emit — see
+ * package.json), and this script's own "Build core" step (see
+ * .github/workflows/ci.yml) rebuilds it again immediately before this runs.
+ * Locally, a developer who edits a migration and runs this script without
+ * rebuilding gets a clear error instead of a silent false pass.
+ *
+ * Exit code 0 = no diffs. Exit code 1 = at least one diff (printed), or dist
+ * is missing/stale.
  */
 
 import Database from "better-sqlite3";
@@ -36,6 +78,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 const CREATE_DB_SQL_PATH = path.join(repoRoot, "electron-app/create_db.sql");
+const CORE_SRC_DIR = path.join(repoRoot, "packages/core/src");
 const CORE_MIGRATIONS_DIST = path.join(
   repoRoot,
   "packages/core/dist/db/migrations/index.js",
@@ -52,7 +95,44 @@ function loadNewCreateDbSql() {
   return fs.readFileSync(CREATE_DB_SQL_PATH, "utf8");
 }
 
-async function loadRunMigrations() {
+// Newest mtime of any file under `dir` (recursive, skips node_modules/dist
+// if ever nested inside — not expected under src, but cheap to guard). Used
+// to detect a dist that predates the source it's supposed to be compiled
+// from. Scoped to the WHOLE of packages/core/src (not just db/migrations/)
+// because index.ts imports from outside that directory too (e.g.
+// ../../utils/telecomCredit.ts) — tsc compiles the whole project in one
+// pass, so "is dist fresh" is really a whole-src-tree question.
+function newestMtimeMs(dir) {
+  let newest = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === "dist") continue;
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      newest = Math.max(newest, newestMtimeMs(p));
+    } else {
+      newest = Math.max(newest, fs.statSync(p).mtimeMs);
+    }
+  }
+  return newest;
+}
+
+function checkDistFreshness() {
+  const srcNewest = newestMtimeMs(CORE_SRC_DIR);
+  const distMtime = fs.statSync(CORE_MIGRATIONS_DIST).mtimeMs;
+  if (srcNewest > distMtime) {
+    console.error(
+      `Built core migrations (${CORE_MIGRATIONS_DIST}) are OLDER than the ` +
+        `newest file under ${CORE_SRC_DIR}. Running this check now would ` +
+        `compare create_db.sql against a stale build and could silently ` +
+        `miss real drift (or report false ones).\n` +
+        `Rebuild first: cd packages/core && npm run build (or "yarn build:core" ` +
+        `from the repo root), then re-run this check.`,
+    );
+    process.exit(1);
+  }
+}
+
+async function loadMigrationsModule() {
   if (!fs.existsSync(CORE_MIGRATIONS_DIST)) {
     console.error(
       `Built core migrations not found at ${CORE_MIGRATIONS_DIST}.\n` +
@@ -60,6 +140,7 @@ async function loadRunMigrations() {
     );
     process.exit(1);
   }
+  checkDistFreshness();
   const mod = await import(pathToFileURL(CORE_MIGRATIONS_DIST).href);
   if (typeof mod.runMigrations !== "function") {
     console.error(
@@ -67,7 +148,11 @@ async function loadRunMigrations() {
     );
     process.exit(1);
   }
-  return mod.runMigrations;
+  if (!Array.isArray(mod.MIGRATIONS)) {
+    console.error(`MIGRATIONS is not exported from ${CORE_MIGRATIONS_DIST}.`);
+    process.exit(1);
+  }
+  return { runMigrations: mod.runMigrations, MIGRATIONS: mod.MIGRATIONS };
 }
 
 // ---------------------------------------------------------------------------
@@ -282,11 +367,49 @@ function diffTableSchemas(a, b) {
 }
 
 // ---------------------------------------------------------------------------
+// schema_migrations CONTENTS diff (fresh DB (B) only — see file header for
+// why DB (A) is not a useful oracle for this specific check).
+// ---------------------------------------------------------------------------
+
+function diffMigrationSeedContents(dbB, migrations) {
+  const seedRows = dbB
+    .prepare(`SELECT version, name FROM schema_migrations ORDER BY version`)
+    .all();
+  const seedByVersion = new Map(seedRows.map((r) => [r.version, r.name]));
+  const migByVersion = new Map(migrations.map((m) => [m.version, m.name]));
+
+  const diffs = [];
+
+  for (const [version, name] of migByVersion) {
+    const seededName = seedByVersion.get(version);
+    if (seededName === undefined) {
+      diffs.push(
+        `version ${version} ('${name}') exists in MIGRATIONS but has NO seed row in create_db.sql`,
+      );
+    } else if (seededName !== name) {
+      diffs.push(
+        `version ${version} name mismatch: MIGRATIONS="${name}" create_db.sql="${seededName}"`,
+      );
+    }
+  }
+
+  for (const [version, seededName] of seedByVersion) {
+    if (!migByVersion.has(version)) {
+      diffs.push(
+        `version ${version} ('${seededName}') is seeded in create_db.sql but has NO matching entry in MIGRATIONS (stale/orphaned seed row)`,
+      );
+    }
+  }
+
+  return diffs;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const runMigrations = await loadRunMigrations();
+  const { runMigrations, MIGRATIONS } = await loadMigrationsModule();
 
   console.log("Building DB (A): old create_db.sql (HEAD) + runMigrations()...");
   const dbA = new Database(":memory:");
@@ -307,10 +430,9 @@ async function main() {
   const report = [];
 
   for (const table of allTables) {
-    if (table === "schema_migrations") {
-      // Shape only (per spec) — still goes through the normal diff, which
-      // only compares columns/PK/FK/indexes, never row contents.
-    }
+    // schema_migrations goes through this same shape diff (columns/PK/FK/
+    // indexes) like every other table; its CONTENTS are compared separately
+    // below via diffMigrationSeedContents, not here.
     if (!tablesA.includes(table)) {
       report.push(`TABLE "${table}": missing in migrated DB (A)`);
       totalDiffs++;
@@ -331,10 +453,19 @@ async function main() {
     }
   }
 
+  const seedDiffs = diffMigrationSeedContents(dbB, MIGRATIONS);
+  if (seedDiffs.length > 0) {
+    report.push(`schema_migrations CONTENTS (create_db.sql vs MIGRATIONS):`);
+    for (const d of seedDiffs) report.push(`  - ${d}`);
+    totalDiffs += seedDiffs.length;
+  }
+
   console.log("");
   if (totalDiffs === 0) {
     console.log(
-      `OK: schema equivalence verified across ${allTables.length} tables. Zero diffs.`,
+      `OK: schema equivalence verified across ${allTables.length} tables ` +
+        `(including schema_migrations seed contents, ${MIGRATIONS.length} ` +
+        `migrations). Zero diffs.`,
     );
     process.exit(0);
   } else {

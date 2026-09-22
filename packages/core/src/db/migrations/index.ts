@@ -11957,6 +11957,86 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 178,
+    name: "audit_module_visible_to_all_roles",
+    description:
+      "LIRA-198 (owner note #2, 2026-09-21). The 'Audit & Transactions' page was hidden " +
+      "from staff by ONE column: modules.admin_only = 1. Sidebar.tsx:118 " +
+      "(.filter((m) => !m.admin_only || isAdmin)) and HomeGrid.tsx:251 both read it, and " +
+      "'/audit' has no other entry point anywhere in the frontend — so that flag is the " +
+      "only way in. The page's default tab is Transactions (AuditPage.tsx:27), which is " +
+      "what the owner asked to see. " +
+      "" +
+      "This flips the NAV FLAG ONLY, and the flag is a curtain, not a gate: '/audit' is " +
+      "already a plain ProtectedRoute (frontend/src/app/App.tsx:358-362), so a staff " +
+      "member who typed the URL could always reach the page. What each tab can actually " +
+      "LOAD is governed independently, by TWO SEPARATE gates that must not be " +
+      "conflated: (1) the Transactions tab (the default) loads via " +
+      "useTransactionRows -> getRecentTransactions (frontend/src/api/backendApi.ts:3063) " +
+      "-> IPC transactions:get-recent, which carries NO requireRole at all " +
+      "(electron-app/handlers/transactionHandlers.ts:23-28), or REST GET " +
+      "/api/transactions/recent (backend/src/api/transactions.ts:28), which is " +
+      "requireAuth only — neither transport ever excluded staff, with or without this " +
+      "migration. (2) the Audit Log tab loads via the audit:get-recent / audit:search / " +
+      "audit:get-by-entity IPC channels (electron-app/handlers/auditHandlers.ts) and " +
+      "their REST twins (backend/src/api/audit.ts) — those DO carry a role check, and " +
+      "THIS MIGRATION LANDS IN THE SAME COMMIT as widening audit:get-recent and " +
+      "audit:search from ['admin'] to ['admin', 'staff'] (audit:get-by-entity was " +
+      "already ['admin', 'staff'] before this commit). Once both land together, both " +
+      "tabs work for staff — but the Transactions tab was never gated by the audit:* " +
+      "channels in the first place; that was always a separate, ungated path. " +
+      "" +
+      "Exact shape of v163, which made the same flip for 'profits': idempotent, keyed on " +
+      "`key = 'audit'` (identity, not the old admin_only value, so a re-run reads the " +
+      "same), and deliberately UNSCOPED by tenant_id — module visibility is a " +
+      "compiled-once rule, not a per-tenant setting, so every tenant's row must move at " +
+      "once (v162/v163 precedent). Guarded by tableExists because migration-runner test " +
+      "harnesses replay every migration over minimal fixture schemas that may have no " +
+      "'modules' table. electron-app/create_db.sql carries the post-migration value " +
+      "(admin_only = 0) directly on its 'audit' seed row, so a fresh DB needs no UPDATE. " +
+      "" +
+      "NOT covered here: TenantRepository.ts's per-tenant module seed (run when a NEW web " +
+      "tenant signs up) still seeds 'audit' with admin_only = 1 — a pre-existing gap in a " +
+      "file this migration does not own (the same gap already applies to 'profits' since " +
+      "v163, independently of this change).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // v163 inlined this sqlite_master probe; the shared helper at the top of
+      // this file is the documented form for NEW migrations (and rule 14: one
+      // definition of the predicate, not a sixth copy).
+      if (!tableExists(db, "modules")) {
+        console.log("Migration v178 skipped: 'modules' table not present");
+        return;
+      }
+
+      const result = db
+        .prepare(`UPDATE modules SET admin_only = 0 WHERE key = ?`)
+        .run("audit");
+
+      console.log(
+        `Migration v178: 'audit' module admin_only cleared (Audit & Transactions now visible to staff) on ${result.changes} row(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "modules")) {
+        console.log(
+          "Migration v178 rollback skipped: 'modules' table not present",
+        );
+        return;
+      }
+
+      // Exact reverse of up() — same deliberate cross-tenant scope, same
+      // identity-keyed predicate.
+      const result = db
+        .prepare(`UPDATE modules SET admin_only = 1 WHERE key = ?`)
+        .run("audit");
+
+      console.log(
+        `Migration v178 rolled back: 'audit' module admin_only restored to 1 (admin-only again) on ${result.changes} row(s)`,
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

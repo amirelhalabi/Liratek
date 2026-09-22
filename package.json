@@ -50,6 +50,7 @@
     "ops:prune": "node scripts/prune-orphan-domains.mjs",
     "check:tenant-scoping": "node scripts/check-tenant-scoping.mjs",
     "check:bind-arity": "node scripts/check-bind-arity.mjs",
+    "check:schema-equivalence": "node scripts/check-schema-equivalence.mjs",
     "omniroute": "node scripts/omniroute.mjs",
     "omniroute:status": "node scripts/omniroute.mjs status",
     "omniroute:stop": "node scripts/omniroute.mjs stop",

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import logger from "@/utils/logger";
-import { X, Save, Printer, Minus, Sparkles } from "lucide-react";
+import { X, Save, Printer, Minus, Sparkles, PackagePlus } from "lucide-react";
 import { useApi, appEvents, DecimalInput } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
 import JsBarcode from "jsbarcode";
@@ -38,6 +38,15 @@ interface ProductFormProps {
     stock_quantity: number;
     supplier: string;
   } | null;
+  /** LIRA-208 — opens the product list's existing AdjustStockModal for this
+   *  product. OPTIONAL by design: only the Inventory list supplies it. POS
+   *  renders this form create-only (`frontend/src/features/sales/pages/POS/index.tsx`,
+   *  no `product` prop), and that file is NOT owned by this ticket.
+   *  `exactOptionalPropertyTypes` is on (`frontend/tsconfig.app.json`), so
+   *  the caller passes this with a conditional spread, never as
+   *  `onAdjustStock={undefined}`. The form does not own the adjust flow — it
+   *  hands off, so there is one AdjustStockModal and one refresh path. */
+  onAdjustStock?: () => void;
 }
 
 export default function ProductForm({
@@ -48,6 +57,7 @@ export default function ProductForm({
   prefillBarcode,
   onMinimize,
   initialFormData,
+  onAdjustStock,
 }: ProductFormProps) {
   useModalFocusFix(true);
   const api = useApi();
@@ -81,7 +91,17 @@ export default function ProductForm({
   // product marked "old" once would silently skip booking supplier debt on
   // every later restock. Only meaningful on CREATE — an update no longer
   // touches stock_quantity at all (D13), so there is nothing to (not) book.
+  // LIRA-208: `handleSubmit`'s update branch never forwards `isOldStock` at
+  // all (only the create branch does), so leaving the checkbox enabled on an
+  // existing product was the exact silent no-op D13 exists to prevent — the
+  // operator ticks it, nothing is sent, nothing happens. It is now disabled
+  // whenever `product` is set (mirrors the Quantity field's treatment below).
   const [isOldStock, setIsOldStock] = useState(false);
+  // LIRA-208 — set when the operator asks for Adjust Stock while the form has
+  // unsaved edits. Handing off closes this form, so the discard is confirmed
+  // explicitly rather than happening silently.
+  const [confirmDiscardForAdjust, setConfirmDiscardForAdjust] =
+    useState(false);
   const [formData, setFormData] = useState(() => {
     if (initialFormData) {
       return initialFormData;
@@ -108,7 +128,7 @@ export default function ProductForm({
         retail_price: product.retail_price,
         min_stock_level: product.min_stock_level,
         stock_quantity: product.stock_quantity,
-        supplier: (product as any).supplier ?? "",
+        supplier: product.supplier ?? "",
       });
       setWarrantyMonths(
         product.warranty_months != null ? String(product.warranty_months) : "",
@@ -479,6 +499,37 @@ ${labels}
     }
   };
 
+  // LIRA-208 — the Adjust Stock hand-off closes this form, so compare the
+  // live form against the row we opened with. The same field-by-field
+  // comparison also gives the right answer for a RESTORED minimized form:
+  // `onMinimize({formData, editingProduct: product})` snapshots BOTH sides at
+  // the same instant, so `product` here is the pre-minimize baseline and
+  // `formData` is whatever was in the fields at that moment — this reads
+  // dirty only if those two actually differed when minimized, not "by
+  // construction" (a minimize with no unsaved edits restores as clean).
+  const isDirty =
+    product != null &&
+    (formData.name !== product.name ||
+      formData.barcode !== product.barcode ||
+      formData.category !== product.category ||
+      formData.cost_price !== product.cost_price ||
+      formData.retail_price !== product.retail_price ||
+      formData.min_stock_level !== product.min_stock_level ||
+      formData.supplier !== (product.supplier ?? "") ||
+      warrantyMonths !==
+        (product.warranty_months != null
+          ? String(product.warranty_months)
+          : ""));
+
+  function handleAdjustStockClick() {
+    if (!onAdjustStock) return;
+    if (isDirty) {
+      setConfirmDiscardForAdjust(true);
+      return;
+    }
+    onAdjustStock();
+  }
+
   // LIRA-143 Phase 6b — the Units/IMEIs section's visibility follows the
   // CURRENTLY selected/typed category name, not `product.tracks_imei_units`
   // (which reflects the category the product was saved under, potentially
@@ -693,9 +744,23 @@ ${labels}
                       type="checkbox"
                       checked={isOldStock}
                       onChange={(e) => setIsOldStock(e.target.checked)}
-                      title="Old stock — don't add to supplier debt"
-                      aria-label="Old stock — don't add to supplier debt"
-                      className="w-4 h-4 mt-[11px] rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
+                      // LIRA-208 / D13: only CREATE ever sends this flag
+                      // (`handleSubmit`'s update branch doesn't include it in
+                      // `updatePayload`), so on an existing product it would
+                      // silently do nothing — disabled here for the same
+                      // reason Quantity is disabled below.
+                      disabled={!!product}
+                      title={
+                        product
+                          ? "Old stock only applies when adding a new product — editing never books supplier debt"
+                          : "Old stock — don't add to supplier debt"
+                      }
+                      aria-label={
+                        product
+                          ? "Old stock only applies when adding a new product"
+                          : "Old stock — don't add to supplier debt"
+                      }
+                      className="w-4 h-4 mt-[11px] rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -739,7 +804,7 @@ ${labels}
                 />
               </div>
 
-              {/* Row 5: Min Stock Alert (half width) */}
+              {/* Row 5: Quantity (half width) */}
               <div>
                 <label
                   htmlFor="product-stock"
@@ -747,27 +812,78 @@ ${labels}
                 >
                   Quantity
                 </label>
-                <input
-                  id="product-stock"
-                  name="stock_quantity"
-                  type="number"
-                  value={formData.stock_quantity}
-                  onChange={handleChange}
-                  // D13: InventoryService.updateProduct silently ignores
-                  // stock_quantity on an edit — quantity changes now only
-                  // happen through a real intake/adjustment event (batches,
-                  // supplier ledger, FIFO cost). Editing this field on an
-                  // existing product would quietly do nothing, so it's
-                  // disabled here rather than left as a silent no-op. CREATE
-                  // keeps it editable: a brand-new product's first entry IS
-                  // its opening intake.
-                  disabled={!!product}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                />
+                <div className="flex items-stretch gap-2">
+                  <input
+                    id="product-stock"
+                    name="stock_quantity"
+                    type="number"
+                    value={formData.stock_quantity}
+                    onChange={handleChange}
+                    // D13: InventoryService.updateProduct silently ignores
+                    // stock_quantity on an edit — quantity changes now only
+                    // happen through a real intake/adjustment event (batches,
+                    // supplier ledger, FIFO cost). Editing this field on an
+                    // existing product would quietly do nothing, so it's
+                    // disabled here rather than left as a silent no-op. CREATE
+                    // keeps it editable: a brand-new product's first entry IS
+                    // its opening intake.
+                    //
+                    // LIRA-208: still `disabled`, NOT `readOnly` — a field the
+                    // operator can focus and type into looks editable, which
+                    // is the confusion this ticket exists to remove. The
+                    // affordance that REPLACES typing is the focusable button
+                    // beside it, so nothing hangs off a non-focusable control.
+                    disabled={!!product}
+                    aria-describedby={
+                      product ? "product-stock-help" : undefined
+                    }
+                    className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                  {product && onAdjustStock && (
+                    <button
+                      type="button"
+                      onClick={handleAdjustStockClick}
+                      data-testid="product-form-adjust-stock"
+                      className="shrink-0 flex items-center gap-1.5 px-3 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-violet-400"
+                    >
+                      <PackagePlus size={16} />
+                      Adjust Stock
+                    </button>
+                  )}
+                </div>
                 {product && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    Use "Adjust Stock" from the product list to change quantity.
+                  <p id="product-stock-help" className="text-xs text-slate-500 mt-1">
+                    {onAdjustStock
+                      ? "Quantity changes are booked as a stock adjustment — use Adjust Stock."
+                      : 'Use "Adjust Stock" from the product list to change quantity.'}
                   </p>
+                )}
+                {confirmDiscardForAdjust && onAdjustStock && (
+                  <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 space-y-2">
+                    <p className="text-xs text-amber-200">
+                      This product has unsaved changes. Opening Adjust Stock
+                      closes this form and discards them.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmDiscardForAdjust(false);
+                          onAdjustStock();
+                        }}
+                        className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium"
+                      >
+                        Discard &amp; adjust
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDiscardForAdjust(false)}
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs"
+                      >
+                        Keep editing
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
 

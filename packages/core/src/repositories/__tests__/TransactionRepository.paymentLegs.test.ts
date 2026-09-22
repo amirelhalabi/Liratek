@@ -436,6 +436,9 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
     ).toBe(false);
     expect(row.payments.some((p) => p.method === "TRANSFER")).toBe(false);
     expect(row.payments.some((p) => p.method === "CREDIT_RETURN")).toBe(false);
+    // LIRA-205: the CREDIT_RETURN leg is hidden from `payments` (it's not
+    // customer cash) but still surfaces as its own read-only figure.
+    expect(row.returned_credits_usd).toBe(3);
   });
 
   it("OMT SEND: hides the RESERVE settlement leg but now SURFACES the OMT_System debt leg — both are $37 IN under the primary-cash-drawer model (C2, re-derived)", () => {
@@ -961,5 +964,92 @@ describe("TransactionRepository.getCashFlowByDate — D1 currency in/out report"
     insertPayment(db, 1, "CASH", "USD", 500);
 
     expect(repo.getCashFlowByDate("2024-03-01", "2024-03-31")).toHaveLength(0);
+  });
+});
+
+// LIRA-205 — `returned_credits_usd`: net telecom credit returned to the shop
+// on an Only-Days MTC/Alfa card sale, surfaced as its own read-only figure
+// (separate from `payments`, since CREDIT_RETURN is an internal, non-customer
+// leg — see the "filters out cost-flow..." test above, which now also
+// asserts the $3 figure this leg produces).
+//
+// Provenance (rule 17 / rule 24 — stating only what was actually done, no
+// fabricated claim): these tests were written in this same change, alongside
+// the `p.currency_code === "USD"` fix in `_attachPaymentLegs`, and were NOT
+// run — this batch's process rules forbid running tests mid-batch (the
+// orchestrator runs the full suite once at the end). They have therefore not
+// been observed failing against the pre-fix (currency-unrestricted)
+// accumulator; that failing-first run, if wanted, is for whoever runs the
+// gate at the end of this batch to do by reverting the currency guard above
+// and confirming the "excludes a non-USD CREDIT_RETURN leg" test below fails.
+describe("TransactionRepository.getRecent — returned_credits_usd (LIRA-205)", () => {
+  let db: Database.Database;
+  let repo: TransactionRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
+    resetTransactionRepository();
+    repo = new TransactionRepository();
+  });
+
+  afterEach(() => {
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
+    db.close();
+    resetTransactionRepository();
+    resetTenantContext();
+  });
+
+  it("is ABSENT (not 0) on a row that posted no CREDIT_RETURN leg", () => {
+    insertTxn(db, { id: 1, summary: "Plain sale, no credit return" });
+    insertPayment(db, 1, "CASH", "USD", 20);
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(row.returned_credits_usd).toBeUndefined();
+    expect("returned_credits_usd" in row).toBe(false);
+  });
+
+  it("sums multiple USD CREDIT_RETURN legs on the same transaction", () => {
+    insertTxn(db, { id: 1, summary: "Two Only-Days returns" });
+    insertLeg(db, 1, {
+      method: "CREDIT_RETURN",
+      currency: "USD",
+      amount: 3,
+      drawer: "MTC",
+      note: "Returned credits: 3 USD",
+    });
+    insertLeg(db, 1, {
+      method: "CREDIT_RETURN",
+      currency: "USD",
+      amount: 2,
+      drawer: "Alfa",
+      note: "Returned credits: 2 USD",
+    });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(row.returned_credits_usd).toBe(5);
+  });
+
+  it("excludes a non-USD CREDIT_RETURN leg from the USD figure instead of mislabeling it with a $ prefix", () => {
+    // Money-display bug (LIRA-205 MAJOR): pre-fix, `_attachPaymentLegs` summed
+    // `p.amount` across every currency into `returned_credits_usd`, which the
+    // UI renders with a hard "$" prefix — an LBP leg would have rendered as
+    // dollars. Post-fix, only USD CREDIT_RETURN legs are accumulated.
+    insertTxn(db, { id: 1, summary: "LBP-denominated credit return" });
+    insertLeg(db, 1, {
+      method: "CREDIT_RETURN",
+      currency: "LBP",
+      amount: 270_000,
+      drawer: "MTC",
+      note: "Returned credits: 270000 LBP",
+    });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(row.returned_credits_usd).toBeUndefined();
   });
 });

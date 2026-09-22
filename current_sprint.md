@@ -5,11 +5,18 @@
 > **Last Restructured:** 2026-08-12 (see "How to keep this file honest" below)
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW` | `PARTIAL`
 
-> **⬆ HIGHEST PRIORITY (2026-09-11):** OMT open-credit account epic, LIRA-187 → LIRA-192
-> — **BUILT 2026-09-15, uncommitted, awaiting diff review.**
+> **⬆ HIGHEST PRIORITY (2026-09-23): `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md`** — 29 notes
+> from the customer actually running the shop on the web app. **22 needed new tickets; LIRA-198,
+> LIRA-205 and LIRA-208 shipped 2026-09-23, so 19 remain**, four of them money bugs nobody has
+> reproduced yet (LIRA-204, LIRA-206, LIRA-215, LIRA-217) and two of them *reversals* of decisions
+> the owner confirmed within the last six weeks (D18, D1) that cannot be built until he says so.
+> That document outranks `PLAN_OVERVIEW.md` §5 and says so in its own header.
 >
-> **✓ LIRA-193 (below) — the live money bug in shipped code is now FIXED** (uncommitted, with this
-> epic). Three defects closed, not the two filed; the third was found by attacking the first fix — plan in `docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md`, board entry at the bottom of this file.
+> **Superseded banner, kept for the record:** *"HIGHEST PRIORITY (2026-09-11): OMT open-credit
+> account epic, LIRA-187 → LIRA-192 — BUILT 2026-09-15, uncommitted, awaiting diff review. ✓
+> LIRA-193 — the live money bug in shipped code is now FIXED."* That epic **shipped and its plan
+> was archived to `done_plans/` on 2026-09-21** once its confirming web run came back green; the
+> "uncommitted, awaiting diff review" wording had been stale for over a week.
 
 ---
 
@@ -924,7 +931,8 @@ drawer moved" impression.
 | `custom_services` | **"Services"** | `/custom-services` |
 | `omt_whish`       | "OMT/Whish"    | **`/services`**    |
 
-(`electron-app/create_db.sql:1218,1222`.) When the owner said "it's in the **Services** module",
+(`electron-app/create_db.sql:1219,1223` — re-resolved 2026-09-23; `:1218,1222` before this
+batch inserted a `system_settings` seed row above them.) When the owner said "it's in the **Services** module",
 they meant the tile labeled _Services_ — which is **`custom_services`** — not the `/services`
 route. A prior investigation "refuted" this ticket on the reasoning _"Services/index.tsx never sets
 cost/price, so cost 1008 / price 1010 cannot originate there"_. That reasoning was **correct about
@@ -1415,7 +1423,7 @@ attention:
 | **Epic**             | Closing / Profits                                                        |
 | **Type**             | Bug (candidate — same class as LIRA-108)                                 |
 | **Priority**         | Medium                                                                   |
-| **Status**           | **SUPERSEDED** — split into LIRA-158 (DONE) + LIRA-160 (TODO), see below |
+| **Status**           | **SUPERSEDED** — split into LIRA-158 (DONE) + LIRA-160 (**DONE** 2026-09-04, see the `## LIRA-160:` ticket below) |
 | **Affected Modules** | Closing                                                                  |
 | **Assigned To**      | —                                                                        |
 | **Depends On**       | —                                                                        |
@@ -1429,7 +1437,7 @@ third, fully ungated `SUM(commission)` — missing not just the LIRA-108 counter
 the closing screen's daily commission number. Also rule-14 debt: a third hand-rolled copy of the
 "realized commission" concept instead of reusing one definition.
 
-### Resolution (verified against source 2026-09-04) — split into LIRA-158 (DONE) + LIRA-160 (TODO)
+### Resolution (verified against source 2026-09-04) — split into LIRA-158 (DONE) + LIRA-160 (DONE, see the `## LIRA-160:` ticket below)
 
 `ClosingRepository.ts` now has exactly ONE `SUM(...commission...)` query left — `finProfitLegacy`
 (~:815-822) — and it already carries both `embeddedCommission(...)` and `notRefunded(...)`. That
@@ -1445,6 +1453,12 @@ KNOWN GAP in `packages/core/src/constants/__tests__/profitRecognition.guard.test
 So this ticket closes as **superseded**, not simply "done": the zero-gates complaint split into a
 DONE half (LIRA-158) and a still-open half (LIRA-160). Do not mark either resolved by proxy of the
 other.
+
+> **Update 2026-09-22:** LIRA-160 closed the same day it was written — `notDebtPending` is exported
+> (`ProfitRepository.ts:404`) and wired at **eight** `ClosingRepository.ts` call sites
+> (`:997`, `:1012`, `:1120`, `:1132`, `:1183`, `:1195`, `:1284`, `:1321` — the last is the loto
+> arm, omitted from the first count). Both halves are
+> now DONE.
 
 ### Acceptance Criteria (historical — superseded by the Resolution above)
 
@@ -1891,7 +1905,8 @@ scanning the IMEI barcode off a phone box finds nothing. Barcode and IMEI are se
 
 9. **Which products get units — flag on the CATEGORY**: `product_categories` gains a
    "tracks IMEI units" boolean, seeded ON for the seeded "Phones" category (verified seeded:
-   create_db.sql:275-281). Replaces the cart's fragile `category.includes("phone")` heuristic
+   create_db.sql:276-282, re-resolved 2026-09-23). Replaces the cart's fragile
+   `category.includes("phone")` heuristic
    (Cart.tsx:101 — a category named "Headphones" matches it today; renames kill it silently).
    Products inherit from their category; flag editable in Settings so Tablets/Smartwatches can
    join later without code.
@@ -2822,7 +2837,8 @@ site). Fix is `.nonnegative()` on both, plus a validator test.
 
 **Priority:** Low · **Epic:** Suppliers · **Status:** TODO
 
-`LIRA-138` (`current_sprint.md:1215-1259`, still genuinely open — no implementing commit exists) says
+`LIRA-138` (the `## LIRA-138:` ticket in this file — still genuinely open, no implementing commit
+exists; the `:1215-1259` this line used to cite pointed at LIRA-084's block, re-checked 2026-09-23) says
 it depends on "COMMISSION_AT_SETTLEMENT_PLAN.md Phase 2 (OMT/WHISH gross flip, **not shipped**)".
 Phase 2 shipped in `43948a35`, so that blocker is gone.
 
@@ -3467,7 +3483,14 @@ confirm or rule out this exact mechanism.
 
 ---
 
-## LIRA-176: LBP-denominated profit is dropped from BOTH closing totals, not deferred — MEDIUM
+## LIRA-219: LBP-denominated profit is dropped from BOTH closing totals, not deferred — MEDIUM
+
+> **⚠ Renumbered 2026-09-22 — was LIRA-176.** That number collided with
+> `docs/plans/done_plans/LIRA-176_MAINTENANCE_PARTS_PLAN.md` (Maintenance Parts / Parts Profit /
+> Job Detail Panel, DONE, shipped `396b0dfa`). The maintenance ticket keeps LIRA-176 because
+> commits and an archived plan filename already reference it; this one moved to the next free ID.
+> Same failure mode as the LIRA-070/094 collision recorded in
+> `docs/plans/ongoing_plans/OWNER_NOTES_TASK_PLAN.md:20-24`.
 
 **Priority:** Medium · **Epic:** Closing · **Status:** TODO · **Found:** 2026-09-04, while building LIRA-174
 
@@ -3928,7 +3951,8 @@ fragment) instead.
 
 **Note (not a ticket) — v163 migration missing from `create_db.sql`'s `schema_migrations` seed.**
 Confirmed against current `main`: the seed list jumps `(162, 'rename_omt_whish_route_to_omt_whish')`
-→ `(164, 'add_product_stock_batches_and_intake_ledger_type')` (`electron-app/create_db.sql:2060-2061`).
+→ `(164, 'add_product_stock_batches_and_intake_ledger_type')` (`electron-app/create_db.sql:2066-2067`,
+re-resolved 2026-09-23 — the seed block grew by 6 lines above it in this batch).
 `profits_module_visible_to_all_roles` is migration v163 in `packages/core/src/db/migrations/index.ts`
 (line 9886) but is never seeded into `create_db.sql`. Consequence: on a **fresh install** v163 will
 actually RUN (clearing `admin_only` on the `profits` module) rather than being recorded as already
@@ -4140,3 +4164,588 @@ a 211-test baseline — split payments, USD+LBP, bills-only with zero owed, comm
 Katsh, a batch carrying both cash and an entered commission, and a deliberate `recordSupplierCashflow`
 overpayment pushing a supplier into credit (D18's stated purpose). All still work. No existing test
 was relying on the removed leniency.
+
+---
+
+## LIRA-216: a shipped code comment says a guard test is stale; the test was fixed in the same commit — LOW
+
+| Field                | Value                                                   |
+| -------------------- | ------------------------------------------------------- |
+| **Epic**             | Commission / Suppliers                                  |
+| **Type**             | Doc defect in source + an unexecuted re-derivation      |
+| **Priority**         | Low (no money at risk; costs an agent a wrong hunt)     |
+| **Affected Modules** | omt_whish                                               |
+| **Source Plan**      | COMMISSION_AT_SETTLEMENT_PLAN.md Phase 2; OWNER_NOTES_2026-09-21.md §0.3 |
+
+### Summary
+
+`FinancialServiceRepository.ts:1541-1544` still tells the reader:
+
+> *"see `FinancialServiceRepository.omtCommissionModelGate.test.ts` for the guard (that file's
+> expectations describe the PRE-Phase-2 shape and are stale after this change — a Phase 2
+> follow-up must re-derive them to the new invariant, rule 17)."*
+
+**That follow-up already happened, in the same commit (`43948a35`).** The test's own header
+(`…omtCommissionModelGate.test.ts:19-43`) reads *"UPDATED 2026-08-29 … re-derived to the
+POST-Phase-2 invariant"*, and its assertions are the new shape: `commission_model` → 1
+(`:395`), `supplier_owed` → 110 gross (`:405`), ledger nets to 0 after settlement (`:440`).
+The comment is the only thing that is stale.
+
+### Two things to do
+
+1. **Delete or correct the comment** at `FinancialServiceRepository.ts:1541-1544`. A comment that
+   points at a guard and calls it untrustworthy is worse than none: it invites the next agent to
+   "fix" a test that is already correct — which is rule 24 running in reverse.
+2. **Confirm the re-derivation actually executes.** The test header admits it is *"a STATIC
+   re-derivation from the shipped production code (read, not executed)"*. Run
+   `yarn test` and confirm this suite's assertions run and pass — rule 28(a): a green that was
+   never observed is not a green. If any number is off, the arithmetic to re-derive is in the
+   header (TOP_UP 110 + SETTLEMENT −109 + SUPPLIER_PAYS_US −1 = 0).
+
+**Not a rule-17 case.** Nothing here needs a failing-first test; the guard exists and the
+invariant it pins is the correct one.
+
+---
+
+# 2026-09-23 batch — LIRA-198 / LIRA-205 / LIRA-208 shipped, LIRA-220 … LIRA-228 opened
+
+> These tickets were filed from `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` (the customer's
+> 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
+> those three** and are new. Next free ID after this block: **LIRA-229**.
+>
+> **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
+>
+> 1. **Audit scope = BROAD, as built.** Staff keep BOTH tabs — the Transactions tab and the Audit
+>    Log tab. Do **not** revert `audit:search` / `POST /api/audit/search` to admin-only.
+> 2. **Row actions = leave visible.** Staff continue to see Void / Refund / Void-entire-checkout on
+>    the transactions table. Do **not** hide them behind a role check; they stay
+>    `requireRole(["admin"])` server-side and the FAILURE MESSAGE is identical and explanatory on
+>    both transports instead.
+
+---
+
+## LIRA-198: the audit page is invisible to staff, and the nav flag is a curtain not a gate — MEDIUM — DONE
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Audit / Permissions                                               |
+| **Type**             | Feature (owner note #2)                                           |
+| **Priority**         | Medium                                                            |
+| **Status**           | **DONE** 2026-09-23                                               |
+| **Affected Modules** | audit, (all — `modules` table)                                    |
+| **Source Plan**      | `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` §0.5, note #2    |
+
+### What shipped
+
+Three pieces, because the nav flag alone would have produced a menu item leading to a 403.
+
+1. **Migration v178** `audit_module_visible_to_all_roles` — `UPDATE modules SET admin_only = 0
+   WHERE key = 'audit'`, mirroring v163's `profits` shape exactly. Rule 10 satisfied:
+   `electron-app/create_db.sql`'s tenant-1 seed carries the post-migration value directly
+   (`:1584`) and a `(178, 'audit_module_visible_to_all_roles')` `schema_migrations` seed row
+   (`:2253`).
+2. **The role sweep.** `audit:get-recent` and `audit:search` were `requireRole(["admin"])` on BOTH
+   transports and are now `["admin", "staff"]` — `electron-app/handlers/auditHandlers.ts` and
+   `backend/src/api/audit.ts`. (`audit:get-by-entity` / `GET /by-entity` already allowed staff.)
+   The Transactions tab was never role-gated at all: `transactions:get-recent` carries no
+   `requireRole`, and `GET /api/transactions/recent` is `requireAuth` only — so that tab worked for
+   staff before this ticket and is not what v178 fixed.
+3. **The per-tenant seed**, which the triage had missed. `TenantRepository.seedModules` provisions a
+   NEW web tenant's `modules` rows independently of both files above, and it still seeded `audit`
+   with `admin_only = 1` — and `profits` with `1`, wrong since v163, so every web tenant
+   provisioned since then got an admin-only Profits page with no way for its own admin to fix it
+   (`admin_only` is not writable on either transport for an `is_system = 1` row). The row list is
+   now the exported `MODULE_SEED_ROWS` constant with both at `adminOnly: 0`.
+
+### Why staff reading the audit log is safe
+
+Every operation staff can now reach on this surface is a **read**, by enumeration:
+`auditHandlers.ts` registers exactly three `ipcMain.handle` channels and `backend/src/api/audit.ts`
+exposes exactly three routes, all landing on `AuditService.getRecent` / `search` / `getByEntity`.
+There is no write channel on either file. `AuditRepository`'s three queries all carry
+`tenant_id = ?` and are fully parameterised, so the widening cannot cross a tenant boundary. The
+transaction write gates (`transactions:void` / `refund` / `void-checkout-group`, and their REST
+twins) all remain `requireRole(["admin"])` and were not touched.
+
+### Guards added
+
+- `backend/src/api/__tests__/auditRoleGate.api.test.ts` — staff accepted on the two widened routes;
+  staff still refused on every transaction write route.
+- `electron-app/handlers/__tests__/auditHandlers.roleGate.test.ts` — the desktop half. Asserts
+  `requireRole(1, ["admin", "staff"])` on both widened channels, so reverting either to `["admin"]`
+  fails the test.
+- `backend/src/__tests__/wp5_wp6_admin_tenant.api.test.ts` — a value-level parity test: every module
+  row a new tenant is seeded with must match tenant 1's `admin_only` / `is_enabled` / `is_system`,
+  key for key, with **both sides read from the database** rather than hand-typed (rule 24). The
+  pre-existing check compared only row COUNTS, which is why this drift shipped unnoticed.
+
+⚠ **Rule 17 is not discharged.** None of those three guards has been shown to fail against the
+pre-fix code — see **LIRA-223**.
+
+### Follow-up this opened
+
+**LIRA-220** — widening audit reads to staff made `dbHandlers.ts`'s unredacted settings audit rows
+staff-readable.
+
+---
+
+## LIRA-205: show the returned credits on an MTC/Alfa card sale in the transactions table — MEDIUM — DONE
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Audit / Recharge                                                  |
+| **Type**             | Feature (owner note #9)                                           |
+| **Priority**         | Medium                                                            |
+| **Status**           | **DONE** 2026-09-23                                               |
+| **Affected Modules** | audit, recharge, omt_whish                                        |
+| **Source Plan**      | `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` note #9          |
+| **Depends On**       | LIRA-180 (the number itself — already shipped)                    |
+
+### What shipped
+
+- `TransactionWithUser.returned_credits_usd` (`packages/core/src/repositories/TransactionRepository.ts:475`),
+  accumulated in `_attachPaymentLegs` (`:1037`) from the transaction's `CREDIT_RETURN` payment legs.
+- An 11th column, **Ret. Credits**, rendered by `ReturnedCreditsCell` in
+  `frontend/src/features/audit/components/TransactionCells.tsx`.
+- `returned_credits_usd?: number` declared directly on `TransactionRow`
+  (`frontend/src/features/audit/hooks/useTransactionRows.ts:82`) — the first pass read it through a
+  hand-written intersection cast, which meant a repository-side rename would have rendered "—"
+  everywhere with typecheck, lint and e2e all still green. The cast is gone.
+- The field reaches both transports unmapped: the IPC handler returns `getRecent(...)` raw, and
+  `GET /api/transactions/recent` does `res.json({ success: true, transactions })` raw.
+
+### One decision worth recording
+
+The accumulator sums **USD legs only** (`p.method === CREDIT_RETURN_LEG_METHOD && p.currency_code
+=== "USD"`). The field's name and the cell's hard `$` prefix are both already committed to USD, and
+the sole real writer (`FinancialServiceRepository.processTelecomCreditReturn`) hardcodes `"USD"`, so
+an LBP leg would have rendered as dollars. Restricting the accumulator is the minimal correct fix;
+building per-currency rendering for a leg type that never varies would be speculative. A future
+non-USD CREDIT_RETURN leg is now a **documented** gap, not a silent one.
+
+### Owner decision 2, implemented here
+
+Staff keep the Void / Refund / Void-entire-checkout buttons. What changed is the message: a new
+`describeActionFailure(raw, verb)` in `TransactionsViewer.tsx` turns a `Forbidden` rejection into
+*"Failed: &lt;verb&gt; is restricted to admins — ask an admin to do this."* — identically on both
+transports. It needed doing on both because the shapes differ: desktop returns
+`{ success: false, error: "Forbidden" }`, while web **throws a plain object**
+`{ status, message, details }` that is not an `Error` (so `instanceof Error` swallows it). The
+existing `messageFrom` helper in `frontend/src/api/apiError.ts` handles both; non-`Forbidden`
+errors now surface their real reason, which the old `catch` branch did not do at all.
+
+⚠ **Rule 17 is not discharged** for the new core/frontend tests — see **LIRA-223**.
+
+---
+
+## LIRA-208: "Adjust stock" is undiscoverable from the product edit form — LOW (UX) — DONE
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Inventory                                                         |
+| **Type**             | UX (owner note #18) — and one real silent no-op found while doing it |
+| **Priority**         | Low → the second half is Medium (a control that did nothing)       |
+| **Status**           | **DONE** 2026-09-23                                               |
+| **Affected Modules** | inventory                                                         |
+| **Source Plan**      | `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` §0.7, note #18   |
+
+### What shipped
+
+- An **Adjust Stock** button on the edit form itself (`ProductForm.tsx`, testid
+  `product-form-adjust-stock`), rendered only when `product && onAdjustStock`. With unsaved edits it
+  shows a confirm strip: *Discard & adjust* / *Keep editing*.
+- The hand-off resolves the row **fresh** from `ProductList`'s own `products` state at click time
+  (`handleAdjustFromForm(productId)`, `ProductList.tsx:738-779`) instead of from the `editingProduct`
+  snapshot captured when the form opened. That snapshot was stale-prone **and it moves money**:
+  `AdjustStockModal` computes `parsedQuantity - currentStock` and routes an increase through
+  `receiveStock`, which books a FIFO batch and a supplier debit — a stale baseline books the wrong
+  supplier debt.
+- `initialFormData` is now cleared on all four paths that close the form, not one.
+
+### The second D13 instance — the part that was a real defect
+
+The **"Old stock"** checkbox rendered editable on an existing product, but
+`InventoryService.updateProduct`'s type has no `is_old_stock` field at all and `ProductForm`'s
+`handleSubmit` only sends it on CREATE. Ticking it on an edit was a pure silent no-op — precisely
+the shape decision D13 exists to prevent, and the same class D13 already fixed for Quantity. It is
+now `disabled={!!product}` with an explanatory title.
+
+A sweep of every other control on the edit form found no third instance: barcode, name, category,
+cost price, retail price, min stock level, supplier and warranty months are all forwarded through
+`updateProductFull`. `stock_quantity` and `is_old_stock` were the only two the service drops, and
+both are now disabled on edit.
+
+### Follow-ups this opened
+
+**LIRA-224** (a *Save & adjust* option — owner answer needed), **LIRA-225** (the hand-off searches a
+*filtered* client-side list, so a filtered-out product dead-ends), **LIRA-228** (`warrantyMonths` is
+lost on minimize/restore) and **LIRA-222** (`updateProductFull` NULLs `image_url` on every edit —
+found while tracing D13, not caused by this ticket).
+
+---
+
+## LIRA-220: settings audit rows leak sensitive values to staff, and are written for writes that never happened — HIGH
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Audit / Settings / Security                                       |
+| **Type**             | Bug (security + rule-19c transport divergence)                    |
+| **Priority**         | **High** — a live data exposure created by LIRA-198               |
+| **Status**           | TODO                                                              |
+| **Affected Modules** | settings, audit                                                   |
+| **Source Plan**      | Found while building LIRA-198 (`OWNER_NOTES_2026-09-21.md` §0.5)  |
+| **Depends On**       | LIRA-198 (DONE) — which is what made this reachable               |
+
+### Summary
+
+`electron-app/handlers/dbHandlers.ts`'s `db:update-setting` and `settings:update` call `audit(...)`
+with `new_values: { value }` **unconditionally**, with two consequences:
+
+1. **No redaction.** A `SENSITIVE_SETTING_KEYS` value is written to `audit_log` in plaintext. Before
+   LIRA-198 that row was admin-only; `audit:search` / `POST /api/audit/search` are now staff-readable
+   and `AuditRepository.search` is `SELECT *`, so those values are staff-visible through the Audit
+   Log tab.
+2. **An audit row for a write that was rejected.** `SettingsService.updateSetting`
+   (`packages/core/src/services/SettingsService.ts:152-162`) refuses a `SENSITIVE_SETTING_KEYS`
+   write by **returning `{ success: false }`** rather than throwing — so the handler carries on and
+   audits it anyway. Desktop therefore persists a plaintext value for a change that never happened.
+
+**The REST twin already gets this right**: `backend/src/api/settings.ts:99-104` returns early on
+`!result.success`, before `auditRest`, with a comment saying *"no audit row for a write that was
+rejected, not performed"*. So this is a **desktop-only leak AND a rule-19c divergence**.
+
+### Fix
+
+1. Move the `audit(...)` call inside an `if (result.success)` guard in **both** `dbHandlers.ts`
+   channels, matching `settings.ts`'s early return.
+2. Redact `new_values` for `SENSITIVE_SETTING_KEYS` on both transports — store the key and the fact
+   of the change, never the value.
+3. Correct `profitHandlers.ts:96`'s comment, which currently points at `dbHandlers` as the
+   *good* example of a secret-omitting audit shape. It is not.
+
+### Acceptance Criteria
+
+- [ ] A rejected sensitive-setting write produces **no** `audit_log` row on either transport.
+- [ ] An accepted sensitive-setting write produces a row whose `new_values` contains no value.
+- [ ] Rule 17: reintroduce the unconditional `audit(...)` and watch the new test fail first.
+- [ ] A staff-role search of the audit log returns no plaintext sensitive value.
+
+---
+
+## LIRA-221: `MODULE_SEED_ROWS` is not yet the single source of the module seed — MEDIUM
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Multi-tenant / Schema                                             |
+| **Type**             | Tech debt (rule 14) — the drift that caused LIRA-198's third piece |
+| **Priority**         | Medium                                                            |
+| **Status**           | TODO                                                              |
+| **Affected Modules** | all (`modules` table)                                             |
+| **Source Plan**      | Found while building LIRA-198                                     |
+
+### Summary
+
+The module seed list has **three** independent definitions that nothing forces to agree:
+`electron-app/create_db.sql`'s tenant-1 `INSERT`s, `TenantRepository.MODULE_SEED_ROWS`, and ~10
+historical `INSERT OR IGNORE INTO modules` sites in `migrations/index.ts`. That is exactly how
+`audit` and `profits` ended up with `admin_only = 1` for every web tenant provisioned after v163 /
+v178 while tenant 1 had `0`.
+
+LIRA-198 extracted `MODULE_SEED_ROWS` as a single source **within** `TenantRepository.ts`, which is
+as far as one file's ownership reaches. Two things remain:
+
+1. **Export it.** `MODULE_SEED_ROWS` / `ModuleSeedRow` are not in
+   `packages/core/src/repositories/index.ts`'s `TenantRepository` export block, so nothing outside
+   that one file can import them. Also declare it `readonly` — as a seed catalogue it should not be
+   mutable by an importer.
+2. **Guard it.** Add a jest test that parses `create_db.sql`'s two `INSERT OR IGNORE INTO modules`
+   blocks (`tenant_id = 1`) and asserts they produce the exact same
+   `{key, label, icon, route, sort_order, is_enabled, admin_only, is_system}` rows as
+   `MODULE_SEED_ROWS`. As of 2026-09-23 all 22 rows agree on all 7 columns, so it passes today.
+
+**Do NOT pull the ~10 historical migration `INSERT` sites into that guard.** Each is a frozen
+point-in-time snapshot of what that migration version shipped (some predate columns the current
+schema has); re-deriving them from "current" would itself be a bug.
+
+**Open question for the owner:** where should that guard live — `packages/core/src/__tests__/`, or a
+backend-side test (which is where `wp5_wp6_admin_tenant.api.test.ts` already reads `create_db.sql`
+off disk)?
+
+### Acceptance Criteria
+
+- [ ] `MODULE_SEED_ROWS` is exported from `packages/core/src/repositories/index.ts` and typed
+      `readonly`.
+- [ ] A drift guard fails when `create_db.sql`'s tenant-1 module rows and `MODULE_SEED_ROWS`
+      disagree on any of the 7 columns, in either direction.
+- [ ] Rule 17: prove it by flipping one column in one of the two sources.
+
+---
+
+## LIRA-222: every product edit silently NULLs the product's image — MEDIUM
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Inventory                                                         |
+| **Type**             | Bug — silent data loss                                            |
+| **Priority**         | Medium                                                            |
+| **Status**           | TODO — **unverified by execution**; found by reading, not running |
+| **Affected Modules** | inventory                                                         |
+| **Source Plan**      | Found while tracing D13 for LIRA-208; pre-existing, not caused by it |
+
+### Summary
+
+`ProductRepository.updateProductFull` (`packages/core/src/repositories/ProductRepository.ts:1036`)
+writes `image_url = ?` **unconditionally** with `data.image_url ?? null`, while
+`InventoryService.updateProduct` only forwards `image_url` when it is non-null. The edit form never
+sends one. So every product edit appears to NULL an existing `image_url`.
+
+It is the mirror image of the D13 class LIRA-208 closed: not a control that does nothing, but a
+stored value destroyed by an unrelated save.
+
+**Assumption (unverified):** this was found by reading the two functions, not by executing the
+path — per rule 28, reproduce it before fixing it. It is cheap to check: set an `image_url`, edit
+any other field, re-read the row.
+
+### Fix
+
+Make the write conditional the way `category` / `category_id` already are —
+`COALESCE(?, image_url)`, or omit the column from the `SET` list when the key is absent.
+
+### Acceptance Criteria
+
+- [ ] Reproduce first (rule 17): a test that sets `image_url`, calls the ordinary edit path, and
+      asserts the value survives — failing against today's code.
+- [ ] Sweep `updateProductFull`'s other columns for the same unconditional-write shape.
+
+---
+
+## LIRA-223: the guards this batch added have never been shown to fail — MEDIUM
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Testing / process                                                 |
+| **Type**             | Rule-17 debt                                                      |
+| **Priority**         | Medium — a guard that has never failed proves nothing             |
+| **Status**           | TODO                                                              |
+| **Affected Modules** | audit, inventory, recharge, multi-tenant                          |
+| **Source Plan**      | Batch process note, 2026-09-23                                    |
+
+### Summary
+
+Every test added in the 2026-09-23 batch was written **and never run against the pre-fix code**,
+because this batch's process forbade running tests mid-batch. Each file says so honestly in its own
+docblock rather than claiming a proof it did not have — which is the correct state to leave it in,
+but it means none of these has earned trust yet. **A passing run at the gate does not discharge
+rule 17**; only watching them go red does.
+
+### The revert/run/revert cycle, per file
+
+| File | Revert this | Expect |
+| --- | --- | --- |
+| `backend/src/api/__tests__/auditRoleGate.api.test.ts` | `audit.ts`'s two role arrays → `["admin"]` | cases 1-2 return 403, service spy at 0 calls |
+| `electron-app/handlers/__tests__/auditHandlers.roleGate.test.ts` | same, in `auditHandlers.ts` | the `toHaveBeenCalledWith(1, ["admin","staff"])` assertions fail |
+| `backend/src/__tests__/wp5_wp6_admin_tenant.api.test.ts` (module parity) | `MODULE_SEED_ROWS`' `audit` + `profits` → `adminOnly: 1` | fails on BOTH keys |
+| `TransactionRepository.paymentLegs.test.ts` (non-USD exclusion) | drop `&& p.currency_code === "USD"` | the non-USD exclusion case fails |
+| `TransactionsViewer.extraCurrencyDrawerMove.test.tsx` | `METHOD_COL_INDEX` → 5 | the four `"Cash"` assertions fail |
+| `ProductForm.adjustStock.test.tsx` | remove the form's Adjust Stock button | the 3 presence/click cases fail |
+
+Then restore, confirm green, and **replace each docblock's TODO paragraph with what was actually
+observed** — not with a prediction.
+
+### Three comment corrections to make in the same pass
+
+1. `TransactionsViewer.extraCurrencyDrawerMove.test.tsx` — the docblock predicts that removing the
+   column makes the two new assertions read `"Cash"` / `undefined`. Wrong in both halves: the `$3`
+   case would read `"—"`, and the `"—"` case would still **pass**, because index 5 would then be
+   Method, which also renders `"—"` on a legless row.
+2. Same file — the `"—"` test cannot distinguish "column present and empty" from "column deleted".
+   Anchor it: also assert `screen.getByText("Ret. Credits")`, or that the row has 11 `<td>`s.
+3. `auditHandlers.roleGate.test.ts` — the docblock says a cashier-only session "is refused on every
+   read channel". `requireRole` is **mocked** in that file, so what it actually proves is that the
+   handler honours `requireRole`'s verdict and never reaches the service. Lead with that.
+
+### Two small guards worth adding while here
+
+- A unit test for `describeActionFailure` covering both real shapes (desktop `"Forbidden"` string,
+  web `{status: 403, message: "Forbidden"}`) and asserting they produce the **identical** sentence —
+  that cross-transport identity is owner decision 2 and nothing currently pins it.
+- The `"Forbidden"` literal is now spelled independently in three places (`electron-app/session.ts`,
+  `backend/src/middleware/auth.ts` ×2, and `TransactionsViewer.tsx`) with nothing forcing agreement —
+  rule 14. Export it once, or key the UI off HTTP 403 rather than off prose.
+
+---
+
+## LIRA-224: should the product form offer "Save & adjust"? — LOW — NEEDS INTERVIEW
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Inventory                                                         |
+| **Type**             | Owner decision                                                    |
+| **Priority**         | Low                                                               |
+| **Status**           | **NEEDS INTERVIEW**                                               |
+| **Affected Modules** | inventory                                                         |
+| **Source Plan**      | Raised while building LIRA-208                                    |
+
+### The question
+
+LIRA-208's confirm strip offers only **Discard & adjust** / **Keep editing**. An operator who opened
+Edit Product to change the price *and* wants to adjust quantity in the same visit must therefore lose
+one of the two.
+
+Do you want a **Save & adjust** option — save the form first, then hand off to `AdjustStockModal` on
+success? It was not built with LIRA-208 because it does not fall out of that change (it touches
+`handleSubmit`'s flow) and because the answer might reasonably be "no": adjusting stock is a
+money-moving intake event, and forcing a clean save before it is arguably the safer shape.
+
+---
+
+## LIRA-225: the adjust-stock hand-off searches a filtered list, and has no regression test — MEDIUM
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Inventory                                                         |
+| **Type**             | Bug (reachable dead-end) + missing coverage                       |
+| **Priority**         | Medium                                                            |
+| **Status**           | TODO                                                              |
+| **Affected Modules** | inventory                                                         |
+| **Source Plan**      | Found reviewing LIRA-208                                          |
+
+### Summary
+
+`handleAdjustFromForm` resolves the row from `ProductList`'s `products` state, which is the
+**filtered/searched** result set, not the whole catalogue. Sequence: open Edit on a product found via
+search → minimize the form (the list stays interactive, and `minimizedProducts` is persisted to
+`localStorage`, so this survives a restart) → change the search box or a filter so that product no
+longer matches → restore the form → click Adjust Stock. `products.find()` returns `undefined`, the
+operator is told *"This product is no longer in the list — refreshing."* — which is **false**, the
+product exists — and the fallback `loadProducts()` re-runs the same filters, so it never appears.
+Dead end, with a misleading message.
+
+Not silent (it does show an error), which is why this is Medium and not High.
+
+### Fix
+
+The real fix is a **single-row read**: wire `getProductById` through `useApi()` /
+`backendApi.ts` / `ElectronApiAdapter.ts` / `ApiAdapter` (`packages/ui/src/api/types.ts`) so the
+hand-off fetches the row instead of searching a filtered client-side list. A raw IPC type exists in
+`electron.d.ts` but nothing dual-mode does. Derive the payload type from the schema (rule 21).
+
+Interim, if that is too wide: say "not visible under the current filters" and clear the
+search/filters before reloading.
+
+### Also in scope — the missing guard
+
+The staleness fix LIRA-208 made has **no automated test**. Add a case to
+`frontend/src/features/inventory/pages/Inventory/__tests__/ProductList.deleteConfirm.test.tsx` (which
+already mounts `ProductList` with a stable `mockApi`), or a new `ProductList.adjustHandoff.test.tsx`:
+render the list, open Edit, resolve `getProducts` a second time with a changed `stock_quantity`, click
+the form's Adjust Stock button, and assert `AdjustStockModal` receives the **new** quantity. Prove it
+fails against the pre-fix `setAdjustingProduct(target)` line first (rule 17).
+
+---
+
+## LIRA-226: `check-schema-equivalence`'s shape half is vacuous in CI, and duplicate versions go unreported — MEDIUM
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | CI / Schema                                                       |
+| **Type**             | Bug in a guard (a check that cannot fail)                         |
+| **Priority**         | Medium                                                            |
+| **Status**           | TODO                                                              |
+| **Affected Modules** | — (tooling)                                                       |
+| **Source Plan**      | Found while wiring the check up, 2026-09-23                       |
+
+### Summary — two independent gaps
+
+**(a) The A-vs-B *shape* comparison has no signal in CI.** DB (A) is built from
+`git show HEAD:electron-app/create_db.sql`. On `push: [main]`, `HEAD` **is** the pushed commit; on
+`pull_request`, `actions/checkout` uses the merge ref. Either way A's source file equals the working
+tree's. Once every version is seeded — which the new contents check now enforces — `runMigrations`
+applies nothing, so A and B are byte-identical **by construction**. Proven, not reasoned: adding a
+column to a copy of `create_db.sql` is caught when old ≠ new, and **not** caught when old = new.
+
+So the classic rule-10 miss of *"added the seed row, forgot the column"* escapes CI. The **new
+seed-contents half is unaffected** and does have signal in CI (both the drifted-name and
+missing-row cases still exit 1 with old = new), so the step is a real net gain — and the
+missing-seed-row form of a rule-10 miss, by far the common one, IS caught.
+
+Fix: either narrow the step's name and comment to say CI enforces the `schema_migrations` seed
+contents, or make DB (A) load from the PR base
+(`git show ${{ github.event.pull_request.base.sha }}:electron-app/create_db.sql`, falling back to
+`HEAD~1` on push).
+
+**(b) A duplicated `version:` in `MIGRATIONS` is silently swallowed.**
+`diffMigrationSeedContents` builds `new Map(migrations.map(m => [m.version, m.name]))`, which keeps
+only the last of a duplicate pair. That is the exact accident the LIRA-176 v167/v168 renumber note in
+`create_db.sql` describes recovering from. The seed side cannot duplicate (`version` is the primary
+key), so this is one-directional.
+
+Fix: assert `migrations.length === new Set(migrations.map(m => m.version)).size` before building the
+Map, and report any duplicated version as a diff.
+
+### Acceptance Criteria
+
+- [ ] A column added to `create_db.sql` without a matching migration fails CI — or the step no
+      longer claims to check that.
+- [ ] Two migrations sharing a `version:` fail the check, naming the version.
+- [ ] Both proven by introducing the fault and watching the script exit 1 (it is cheap — the whole
+      check runs locally in seconds).
+
+---
+
+## LIRA-227: an upgraded tenant 1 and a fresh install disagree on sidebar module order — LOW
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Schema                                                            |
+| **Type**             | Bug — presentation only                                           |
+| **Priority**         | Low                                                               |
+| **Status**           | TODO                                                              |
+| **Affected Modules** | all (`modules` table)                                             |
+| **Source Plan**      | Surfaced while proving fresh-vs-upgraded equivalence for LIRA-198 |
+
+### Summary
+
+Migration **v49**'s `up()` sets `sort_order` to `loto = 13`, `custom_services = 14`,
+`profits = 15` (`migrations/index.ts:2029-2035`). Both fresh-seed definitions — `create_db.sql` and
+`MODULE_SEED_ROWS` — use `custom_services = 12`, `profits = 13`, `loto = 16`, and no later migration
+re-sets them (`grep "UPDATE modules SET sort_order"` returns only v49's `up`/`down`).
+
+So a genuinely **upgraded** production tenant 1 and a **freshly installed** one disagree on sidebar
+order for three modules. It affects presentation only — no visibility, permission or money column —
+and it means the module-parity test's tenant-1 baseline is the fresh seed, not a migration-replayed
+one.
+
+### Fix
+
+A new migration re-asserting the three `sort_order` values to the `create_db.sql` numbers, with
+`create_db.sql` updated in the same change (rule 10).
+
+---
+
+## LIRA-228: the product form loses a warranty edit on minimize/restore — LOW
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Inventory                                                         |
+| **Type**             | Bug — silent data loss                                            |
+| **Priority**         | Low                                                               |
+| **Status**           | TODO                                                              |
+| **Affected Modules** | inventory                                                         |
+| **Source Plan**      | Found reviewing LIRA-208; pre-existing                            |
+
+### Summary
+
+`ProductForm`'s minimize snapshot is `onMinimize({ formData, editingProduct })`, and
+`ProductFormProps.onMinimize`'s `formData` shape has **no `warrantyMonths` field** — but
+`warrantyMonths` is the 8th term in the `isDirty` comparison. A restored form therefore re-seeds it
+from `product.warranty_months`.
+
+Consequence: an operator who edits **only** the warranty, minimizes, and restores silently loses the
+edit, and the form restores reading *clean* — so nothing warns them.
+
+### Fix
+
+Add `warrantyMonths` to the minimize snapshot type and to both the save and restore paths, or state
+in the UI that warranty is not preserved across a minimize. Prove it with a failing test first
+(rule 17).

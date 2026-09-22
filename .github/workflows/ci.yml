@@ -86,6 +86,25 @@ jobs:
       - name: Bind-arity check (prepared statements' ? count == bound args)
         run: yarn check:bind-arity
 
+      # check:schema-equivalence executes real migrations against a real
+      # SQLite DB (it can't work off source text alone), so it needs
+      # packages/core actually built. The "TypeScript check" step above
+      # already rebuilds it as a side effect (core's `typecheck` script IS
+      # `tsc -p tsconfig.json`, identical to `build`), but this step is
+      # explicit rather than relying on that staying true.
+      - name: Build core (schema-equivalence check needs compiled migrations)
+        run: yarn build:core
+
+      # Same reasoning as backend-tests/core-tests below: the root
+      # `postinstall` builds better-sqlite3 for the ELECTRON ABI, but this
+      # check opens a REAL in-memory database via better-sqlite3 under plain
+      # Node, so without this it dies with a NODE_MODULE_VERSION mismatch.
+      - name: Ensure better-sqlite3 is built for Node (not Electron)
+        run: yarn rebuild:node
+
+      - name: Schema equivalence check (create_db.sql <-> migrations/index.ts drift, incl. seed contents)
+        run: yarn check:schema-equivalence
+
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest

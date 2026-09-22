@@ -1,17 +1,19 @@
 /**
- * The ten cells of one transaction row, one component each.
+ * The eleven cells of one transaction row, one component each.
  *
  * `buildTr` in `pages/TransactionsViewer.tsx` was a single 256-line function
- * rendering all ten, with ternaries nested four deep in the actions cell —
- * you could not read the Status logic without scrolling past the Summary
- * logic. Each cell is now independently readable and independently
- * renderable in a test.
+ * rendering all ten (this file's original count), with ternaries nested four
+ * deep in the actions cell — you could not read the Status logic without
+ * scrolling past the Summary logic. Each cell is now independently readable
+ * and independently renderable in a test. `ReturnedCreditsCell` (LIRA-205)
+ * was added later, bringing the row to eleven.
  *
  * DOM contract: every component here renders exactly ONE `<td>`, in the
- * declared column order (Time, Summary, Type, Client, Amount, Method, User,
- * Status, Reverses, Actions). The page's specs address cells by index, and
- * `DataTable`'s column headers are declared separately — so a cell that
- * renders zero or two `<td>`s would silently misalign the whole table.
+ * declared column order (Time, Summary, Type, Client, Amount, Ret. Credits,
+ * Method, User, Status, Reverses, Actions — eleven total). The page's specs
+ * address cells by index, and `DataTable`'s column headers are declared
+ * separately — so a cell that renders zero or two `<td>`s would silently
+ * misalign the whole table.
  *
  * Per-row derivations that more than one cell needs (`deriveRow`) are
  * computed ONCE by the caller and passed in, rather than each cell
@@ -194,6 +196,31 @@ export function AmountCell({
               row.type,
             )}
       </span>
+    </td>
+  );
+}
+
+/**
+ * LIRA-205 — net telecom credit returned to the shop on this transaction
+ * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), sourced from
+ * `TransactionRow.returned_credits_usd` (`TransactionRepository.getRecent`,
+ * USD-only — see that repository's `_attachPaymentLegs` doc comment).
+ *
+ * Blank (em dash) when the row posted no CREDIT_RETURN leg: `v === undefined`
+ * is the ONLY blank condition — a `0` here would claim a return happened and
+ * came to nothing, which is why the field is presence-keyed rather than
+ * defaulted to 0 upstream. Signed — a VOID/REFUND row shows the negated
+ * mirror `_reversePayments` writes. Deliberately not `formatAmount`
+ * (../transactionDisplay.ts): it renders a negative as `$-73` via bare
+ * `toLocaleString()`.
+ */
+export function ReturnedCreditsCell({ row }: { row: TransactionRow }) {
+  const v = row.returned_credits_usd;
+  return (
+    <td className={`p-2 truncate ${voidedText(row)}`} style={{ width: 120 }}>
+      {v === undefined
+        ? "—"
+        : `${v < 0 ? "−" : ""}$${Math.abs(v).toLocaleString()}`}
     </td>
   );
 }

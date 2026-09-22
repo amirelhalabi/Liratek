@@ -94,8 +94,9 @@ INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value) VALUES
   (1, 'telecom_credit_cost_rate_lbp', '85000');
 
 -- Users
--- NOTE: username stays GLOBALLY unique (committed decision — login has no
--- tenant hint yet). tenant_id is NULL for the platform/super_admin realm.
+-- NOTE: username is unique PER TENANT, not globally (see migration v172 and
+-- the column comment below). tenant_id is NULL for the platform/super_admin
+-- realm, which has its own separate uniqueness (idx_users_platform_username).
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER REFERENCES tenants(id),
@@ -1575,7 +1576,12 @@ CREATE TABLE IF NOT EXISTS modules (
 INSERT OR IGNORE INTO modules (tenant_id, key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
   (1, 'dashboard',  'Dashboard',  'LayoutDashboard', '/',          0,  1, 0, 1),
   (1, 'closing',    'Closing',    'SquareActivity',  '',          99,  1, 1, 1),
-  (1, 'audit',      'Audit & Transactions', 'Shield', '/audit',   97,  1, 1, 1),
+  -- v178 (LIRA-198, owner note #2): admin_only flipped 1 -> 0 so staff see
+  -- the Audit & Transactions nav entry. '/audit' is already a plain
+  -- ProtectedRoute and has no other entry point in the frontend, so this row
+  -- IS the way in. The per-channel role checks in auditHandlers.ts /
+  -- backend/src/api/audit.ts are a separate, independent gate.
+  (1, 'audit',      'Audit & Transactions', 'Shield', '/audit',   97,  1, 0, 1),
   (1, 'settings',   'Settings',   'Settings',        '/settings', 100, 1, 1, 1);
 
 -- Toggleable modules (can be enabled/disabled from Settings > Modules)
@@ -2082,10 +2088,10 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (63, 'add_user_id_to_sessions_and_cart'),
     (64, 'add_customer_sessions_module'),
     (65, 'session_checkout_currency_split_and_profit'),
-    (66, 'add_voucher_images_table'),
-    (67, 'add_item_costs_table'),
-    (68, 'add_edit_history_table'),
-    (69, 'add_note_to_recharges'),
+    (66, 'add_drawer_topups_table'),
+    (67, 'add_source_drawer_to_drawer_topups'),
+    (68, 'add_is_refunded_to_source_tables'),
+    (69, 'add_edited_by_edited_at_to_source_tables'),
     (70, 'add_note_to_expenses'),
     (71, 'add_profit_columns_to_transactions_and_session_transactions'),
     (72, 'add_default_price_to_client_to_recharges'),
@@ -2094,8 +2100,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (75, 'seed_customer_account_payment_method'),
     (76, 'rename_debt_to_customer_account'),
     (77, 'create_partners_system'),
-    (78, 'add_partner_system_association'),
-    (79, 'add_loto_prizes_and_fees'),
+    (78, 'deactivate_whish_supplier'),
+    (79, 'add_partner_system_association'),
     (80, 'add_shop_base_system_setting'),
     (81, 'add_expenses_created_at_updated_at'),
     (82, 'add_partners_and_audit_modules'),
@@ -2192,6 +2198,11 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- value directly, so a fresh DB needs no separate UPDATE — verified
     -- against the 'omt_whish' row's route column.
     (162, 'rename_omt_whish_route_to_omt_whish'),
+    -- v163 flips the 'profits' module row to admin_only = 0. The modules seed
+    -- above already inserts that post-migration value directly (see its own
+    -- v163 note at the 'profits' row), so a fresh DB needs no separate
+    -- UPDATE — same shape as v162's marker note above.
+    (163, 'profits_module_visible_to_all_roles'),
     (164, 'add_product_stock_batches_and_intake_ledger_type'),
     -- v165 adds stock_adjustments.unit_cost_usd (nullable) — already declared
     -- on the table above, so a fresh DB needs no separate ALTER.
@@ -2206,4 +2217,37 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- still uncommitted -- see migrations/index.ts v170/v171 for the full
     -- recovery context.
     (170, 'maintenance_parts_and_stock_link'),
-    (171, 'maintenance_status_history');
+    (171, 'maintenance_status_history'),
+    -- v172 drops users.username's GLOBAL UNIQUE and replaces it with
+    -- UNIQUE(tenant_id, username) plus a PARTIAL UNIQUE(username) WHERE
+    -- tenant_id IS NULL. The users table above is already declared WITHOUT
+    -- the global constraint (see its note) and both indexes already exist,
+    -- so a fresh DB needs no 12-step rebuild.
+    (172, 'per_tenant_usernames'),
+    -- v173 creates tenant_subscriptions + its two unique indexes and
+    -- grandfathers existing tenants as active with no expiry — all three are
+    -- already declared at the top of this file, tenant-1 seed row included.
+    (173, 'tenant_subscriptions'),
+    -- v174 re-creates those two username indexes with COLLATE NOCASE and
+    -- renames pre-existing case-duplicate accounts. Both indexes above are
+    -- already declared NOCASE, and a fresh DB has no duplicates to rename.
+    (174, 'username_case_insensitive'),
+    -- v175 is a data-only backfill (stamps metadata_json.is_auto on
+    -- historical auto-generated EXPENSE transactions) — nothing to do on a
+    -- fresh DB, and ExpenseRepository.createExpense derives the flag at
+    -- write time from now on. Same shape as v143/v161's marker notes above.
+    (175, 'backfill_expense_is_auto_metadata'),
+    -- v176 adds suppliers.account_supplier_id + supplier_ledger.settlement_id,
+    -- their two indexes, and the per-tenant OMT account-link seed UPDATE —
+    -- all four already declared above (suppliers table, supplier_ledger
+    -- table, the index block, and the UPDATE after the supplier seed
+    -- INSERT).
+    (176, 'add_supplier_account_link'),
+    -- v177 is a data-only correction of v174's rename choices using
+    -- audit_log login evidence — a fresh DB has no renamed accounts, nothing
+    -- to do.
+    (177, 'correct_v174_duplicate_rename'),
+    -- v178 flips the 'audit' module row to admin_only = 0; the system-modules
+    -- seed above already carries that post-migration value, so a fresh DB
+    -- needs no separate UPDATE — same shape as v163's marker note above.
+    (178, 'audit_module_visible_to_all_roles');

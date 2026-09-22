@@ -29,6 +29,7 @@ import {
   AmountCell,
   ClientCell,
   MethodCell,
+  ReturnedCreditsCell,
   ReversesCell,
   StatusCell,
   SummaryCell,
@@ -58,6 +59,7 @@ import type {
   RefundLegOverride,
   RefundUnitExtraOverride,
 } from "../refundLegOverride";
+import { messageFrom } from "@/api/apiError";
 
 // This file is now the COMPONENT only. Its former contents live in:
 //   ../hooks/useTransactionRows  — the query, the client-side filters and the
@@ -65,6 +67,38 @@ import type {
 //   ../transactionDisplay        — every pure row-rendering helper + CashFlowBadge
 //   ../transactionPresentation   — the one per-type label/colour/direction registry
 //   ../cashFlow                  — payment-leg formatting and badge direction
+
+/**
+ * LIRA-205 (owner decision 2) — Void / Refund / Void-entire-checkout stay
+ * VISIBLE to every staff role; the admin-only gate lives entirely
+ * server-side (`electron-app/session.ts`'s `requireRole` on desktop,
+ * `requireRole(["admin"])` in `backend/src/api/transactions.ts` on web). A
+ * non-admin therefore WILL click these buttons and WILL hit that gate — and
+ * pre-fix, the two transports surfaced the rejection through two different
+ * code paths with two different, unexplained messages:
+ *   - desktop: the IPC handler still resolves `{ success: false, error }`,
+ *     so it lands in the `else` branch with `res.error === "Forbidden"`.
+ *   - web: `requireRole` answers with an actual HTTP 403 (not the
+ *     200-envelope other routes use per rule 19c), so `requestJson` REJECTS
+ *     with a plain `{ status, message, details }` object — NOT an `Error` —
+ *     landing in the `catch`, not the `else`, and showing a generic
+ *     "Failed to void/refund transaction" that discards the real reason.
+ * Both raw reasons are the identical literal string "Forbidden" (both
+ * `requireRole` implementations use it), so recognizing that one string here
+ * is enough to give both transports the SAME explanatory sentence.
+ * `messageFrom` (frontend/src/api/apiError.ts) safely extracts a message
+ * from either shape — the envelope's `error` (a plain string) or the thrown
+ * ApiError object — without an `instanceof Error` check, which would treat
+ * the plain-object throw as unreadable and fall through to a fallback that
+ * silently discards the real reason.
+ */
+function describeActionFailure(raw: unknown, verb: string): string {
+  const reason = messageFrom(raw, "Unknown error");
+  if (reason === "Forbidden") {
+    return `Failed: ${verb} is restricted to admins — ask an admin to do this.`;
+  }
+  return `Failed: ${reason}`;
+}
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -163,9 +197,9 @@ export default function TransactionsViewer({
       try {
         const res = await voidTransaction(id);
         if (res.success) load();
-        else alert("Failed: " + (res.error || "Unknown error"));
-      } catch {
-        alert("Failed to void transaction");
+        else alert(describeActionFailure(res.error, "Voiding a transaction"));
+      } catch (err) {
+        alert(describeActionFailure(err, "Voiding a transaction"));
       }
     },
     [load],
@@ -180,9 +214,10 @@ export default function TransactionsViewer({
       try {
         const res = await refundTransaction(id, refundLegs, unitExtras);
         if (res.success) load();
-        else alert("Failed: " + (res.error || "Unknown error"));
-      } catch {
-        alert("Failed to refund transaction");
+        else
+          alert(describeActionFailure(res.error, "Refunding a transaction"));
+      } catch (err) {
+        alert(describeActionFailure(err, "Refunding a transaction"));
       }
     },
     [load],
@@ -308,9 +343,9 @@ export default function TransactionsViewer({
       try {
         const res = await voidCheckoutGroup(groupId);
         if (res.success) load();
-        else alert("Failed: " + (res.error || "Unknown error"));
-      } catch {
-        alert("Failed to void checkout group");
+        else alert(describeActionFailure(res.error, "Voiding a checkout"));
+      } catch (err) {
+        alert(describeActionFailure(err, "Voiding a checkout"));
       }
     },
     [load],
@@ -363,7 +398,8 @@ export default function TransactionsViewer({
         className="border-t border-slate-800/30 text-[11px] bg-slate-900/20"
       >
         <td className="p-2" />
-        <td className="p-2 pl-5 text-slate-400 font-mono" colSpan={9}>
+        {/* LIRA-205: 1 (indent) + 10 (remaining columns, after ReturnedCreditsCell) = 11 total. */}
+        <td className="p-2 pl-5 text-slate-400 font-mono" colSpan={10}>
           <div className="flex flex-col gap-0.5">
             {modeLine && (
               <div data-testid={`commission-mode-${row.id}`}>{modeLine}</div>
@@ -384,12 +420,13 @@ export default function TransactionsViewer({
   // the session accent (data-session + --session-hue); pass null for plain rows.
   // isSystem=true applies muted styling for collapsed system sub-rows.
   /**
-   * One transaction row. Every cell is its own component (see
-   * `../components/TransactionCells`) so the ten of them stay independently
-   * readable; this function's only job is the `<tr>` itself — the session
-   * accent, the voided/refunded row tint — and passing each cell what it
-   * needs. `deriveRow` parses the row's metadata ONCE for the cells that
-   * share those facts.
+   * One transaction row. All eleven cells are their own component (see
+   * `../components/TransactionCells`, including `ReturnedCreditsCell` —
+   * LIRA-205) so they stay independently readable; each renders exactly one
+   * `<td>` in the same declared column order. This function's only job is
+   * the `<tr>` itself — the session accent, the voided/refunded row tint —
+   * and passing each cell what it needs. `deriveRow` parses the row's
+   * metadata ONCE for the cells that share those facts.
    */
   function buildTr(row: TransactionRow, sessionId: number | null) {
     const derived = deriveRow(row);
@@ -410,6 +447,7 @@ export default function TransactionsViewer({
         <TypeCell row={row} />
         <ClientCell row={row} />
         <AmountCell row={row} derived={derived} />
+        <ReturnedCreditsCell row={row} />
         <MethodCell row={row} methodLabelByCode={methodLabelByCode} />
         <UserCell row={row} />
         <StatusCell row={row} />
@@ -474,6 +512,14 @@ export default function TransactionsViewer({
             className: "p-2 text-xs font-semibold uppercase text-slate-400",
           },
           {
+            // LIRA-205: net telecom credit returned to the shop on an
+            // Only-Days MTC/Alfa card sale (blank when none — ReturnedCreditsCell).
+            header: "Ret. Credits",
+            sortKey: "returned_credits_usd",
+            width: "120px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
             header: "Method",
             sortKey: "payment_method",
             width: "120px",
@@ -520,6 +566,10 @@ export default function TransactionsViewer({
           if (key === "created_at")
             return row.created_at ? parseDbDate(row.created_at).getTime() : 0;
           if (key === "amount_usd") return amountSortValue(row, fallbackRate);
+          if (key === "returned_credits_usd")
+            // LIRA-205: numeric sort — the generic String(...) fallback below
+            // would sort "-73" next to "-7" (lexicographic, not numeric).
+            return row.returned_credits_usd ?? 0;
           if (key === "reverses_id") return row.reverses_id ?? 0;
           if (key === "payment_method")
             return formatPaymentMethods(methodLegsFor(row), methodLabelByCode);

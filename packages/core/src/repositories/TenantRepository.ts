@@ -63,6 +63,277 @@ export interface UpdateTenantData {
 }
 
 // =============================================================================
+// Module seed
+// =============================================================================
+
+export interface ModuleSeedRow {
+  key: string;
+  label: string;
+  icon: string;
+  route: string;
+  sortOrder: number;
+  isEnabled: 0 | 1;
+  adminOnly: 0 | 1;
+  isSystem: 0 | 1;
+}
+
+/**
+ * The `modules` catalog for a freshly-provisioned (web) tenant.
+ *
+ * This is the single source `seedModules()` below derives its rows from —
+ * that much CLAUDE.md rule 14 buys within this file. It does NOT reach the
+ * other two definitions of the same catalog, because neither is a TS module
+ * this file can import into:
+ *
+ *   - `electron-app/create_db.sql` is raw SQL executed directly by
+ *     better-sqlite3 at fresh-install time; there is no runtime import path
+ *     from a `.sql` seed file to a TS constant.
+ *   - The ~10 `INSERT OR IGNORE INTO modules` sites in
+ *     `packages/core/src/db/migrations/index.ts` are historical snapshots —
+ *     each one is what a given migration version shipped at the time (some
+ *     with fewer columns than the current schema) and MUST stay frozen, not
+ *     re-derived from "current". Only the *latest* migration touching a row
+ *     needs to agree with this constant's value for that row; earlier ones
+ *     are deliberately not candidates for unification.
+ *
+ * Real unification would need a generator (e.g. a script that emits the
+ * `create_db.sql` block from this constant, checked by CI) — that is a
+ * cross-file build-tooling change outside this repository's scope; see the
+ * task notes for where it should land.
+ */
+export const MODULE_SEED_ROWS: ModuleSeedRow[] = [
+  // System modules (always visible, not toggleable)
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    icon: "LayoutDashboard",
+    route: "/",
+    sortOrder: 0,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 1,
+  },
+  {
+    key: "closing",
+    label: "Closing",
+    icon: "SquareActivity",
+    route: "",
+    sortOrder: 99,
+    isEnabled: 1,
+    adminOnly: 1,
+    isSystem: 1,
+  },
+  // v178 (LIRA-198): admin_only = 0 so staff see the Audit & Transactions
+  // nav entry — matches create_db.sql's tenant-1 seed and the target state
+  // migration v178 leaves existing tenants in. The per-channel role checks
+  // in auditHandlers.ts / backend/src/api/audit.ts are a separate gate.
+  {
+    key: "audit",
+    label: "Audit & Transactions",
+    icon: "Shield",
+    route: "/audit",
+    sortOrder: 97,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 1,
+  },
+  {
+    key: "settings",
+    label: "Settings",
+    icon: "Settings",
+    route: "/settings",
+    sortOrder: 100,
+    isEnabled: 1,
+    adminOnly: 1,
+    isSystem: 1,
+  },
+  // Toggleable modules
+  {
+    key: "pos",
+    label: "Point of Sale",
+    icon: "ShoppingCart",
+    route: "/pos",
+    sortOrder: 1,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "debts",
+    label: "Accounts",
+    icon: "BookOpen",
+    route: "/debts",
+    sortOrder: 2,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "inventory",
+    label: "Inventory",
+    icon: "Package",
+    route: "/products",
+    sortOrder: 3,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "clients",
+    label: "Clients",
+    icon: "Users",
+    route: "/clients",
+    sortOrder: 4,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "exchange",
+    label: "Exchange",
+    icon: "RefreshCw",
+    route: "/exchange",
+    sortOrder: 5,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "omt_whish",
+    label: "OMT/Whish",
+    icon: "Send",
+    route: "/omt-whish",
+    sortOrder: 6,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "recharge",
+    label: "MTC/Alfa",
+    icon: "Smartphone",
+    route: "/recharge",
+    sortOrder: 7,
+    isEnabled: 0,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "expenses",
+    label: "Expenses",
+    icon: "Banknote",
+    route: "/expenses",
+    sortOrder: 8,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "maintenance",
+    label: "Maintenance",
+    icon: "Wrench",
+    route: "/maintenance",
+    sortOrder: 9,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "binance",
+    label: "Binance",
+    icon: "Bitcoin",
+    route: "/recharge",
+    sortOrder: 10,
+    isEnabled: 0,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "ipec_katch",
+    label: "iPick/Katsh",
+    icon: "Zap",
+    route: "/recharge",
+    sortOrder: 11,
+    isEnabled: 0,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "custom_services",
+    label: "Services",
+    icon: "Briefcase",
+    route: "/custom-services",
+    sortOrder: 12,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  // v163 (PROFITS_GATE frozen contract): admin_only = 0. The page is visible
+  // to both roles and gated by a per-page password (ProfitsAccessService)
+  // instead of by role — matches create_db.sql's tenant-1 seed.
+  {
+    key: "profits",
+    label: "Profits",
+    icon: "TrendingUp",
+    route: "/profits",
+    sortOrder: 13,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "customer_sessions",
+    label: "Sessions",
+    icon: "UserCheck",
+    route: "/customer-sessions",
+    sortOrder: 14,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "partners",
+    label: "Partners",
+    icon: "Handshake",
+    route: "/partners",
+    sortOrder: 15,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "loto",
+    label: "Loto",
+    icon: "Ticket",
+    route: "/loto",
+    sortOrder: 16,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "suppliers",
+    label: "Suppliers",
+    icon: "Truck",
+    route: "/suppliers",
+    sortOrder: 17,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+  {
+    key: "vouchers",
+    label: "Vouchers",
+    icon: "Gift",
+    route: "/vouchers",
+    sortOrder: 18,
+    isEnabled: 1,
+    adminOnly: 0,
+    isSystem: 0,
+  },
+];
+
+// =============================================================================
 // Repository
 // =============================================================================
 
@@ -523,79 +794,17 @@ export class TenantRepository {
       INSERT OR IGNORE INTO modules (tenant_id, key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const rows: [
-      string,
-      string,
-      string,
-      string,
-      number,
-      number,
-      number,
-      number,
-    ][] = [
-      // System modules (always visible, not toggleable)
-      ["dashboard", "Dashboard", "LayoutDashboard", "/", 0, 1, 0, 1],
-      ["closing", "Closing", "SquareActivity", "", 99, 1, 1, 1],
-      ["audit", "Audit & Transactions", "Shield", "/audit", 97, 1, 1, 1],
-      ["settings", "Settings", "Settings", "/settings", 100, 1, 1, 1],
-      // Toggleable modules
-      ["pos", "Point of Sale", "ShoppingCart", "/pos", 1, 1, 0, 0],
-      ["debts", "Accounts", "BookOpen", "/debts", 2, 1, 0, 0],
-      ["inventory", "Inventory", "Package", "/products", 3, 1, 0, 0],
-      ["clients", "Clients", "Users", "/clients", 4, 1, 0, 0],
-      ["exchange", "Exchange", "RefreshCw", "/exchange", 5, 1, 0, 0],
-      ["omt_whish", "OMT/Whish", "Send", "/omt-whish", 6, 1, 0, 0],
-      ["recharge", "MTC/Alfa", "Smartphone", "/recharge", 7, 0, 0, 0],
-      ["expenses", "Expenses", "Banknote", "/expenses", 8, 1, 0, 0],
-      ["maintenance", "Maintenance", "Wrench", "/maintenance", 9, 1, 0, 0],
-      ["binance", "Binance", "Bitcoin", "/recharge", 10, 0, 0, 0],
-      ["ipec_katch", "iPick/Katsh", "Zap", "/recharge", 11, 0, 0, 0],
-      [
-        "custom_services",
-        "Services",
-        "Briefcase",
-        "/custom-services",
-        12,
-        1,
-        0,
-        0,
-      ],
-      ["profits", "Profits", "TrendingUp", "/profits", 13, 1, 1, 0],
-      [
-        "customer_sessions",
-        "Sessions",
-        "UserCheck",
-        "/customer-sessions",
-        14,
-        1,
-        0,
-        0,
-      ],
-      ["partners", "Partners", "Handshake", "/partners", 15, 1, 0, 0],
-      ["loto", "Loto", "Ticket", "/loto", 16, 1, 0, 0],
-      ["suppliers", "Suppliers", "Truck", "/suppliers", 17, 1, 0, 0],
-      ["vouchers", "Vouchers", "Gift", "/vouchers", 18, 1, 0, 0],
-    ];
-    for (const [
-      key,
-      label,
-      icon,
-      route,
-      sortOrder,
-      isEnabled,
-      adminOnly,
-      isSystem,
-    ] of rows) {
+    for (const row of MODULE_SEED_ROWS) {
       stmt.run(
         tenantId,
-        key,
-        label,
-        icon,
-        route,
-        sortOrder,
-        isEnabled,
-        adminOnly,
-        isSystem,
+        row.key,
+        row.label,
+        row.icon,
+        row.route,
+        row.sortOrder,
+        row.isEnabled,
+        row.adminOnly,
+        row.isSystem,
       );
     }
   }

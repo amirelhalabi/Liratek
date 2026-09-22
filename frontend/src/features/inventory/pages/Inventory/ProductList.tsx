@@ -663,6 +663,9 @@ export default function ProductList() {
   const handleSave = () => {
     setIsFormOpen(false);
     setEditingProduct(null);
+    // A restored-minimized snapshot belongs to the form that just closed —
+    // leaving it set would re-apply it to the NEXT form opened.
+    setInitialFormData(null);
     loadProducts();
     loadFilterOptions();
     appEvents.emit(
@@ -681,6 +684,9 @@ export default function ProductList() {
   const handleClose = () => {
     setIsFormOpen(false);
     setEditingProduct(null);
+    // A restored-minimized snapshot belongs to the form that just closed —
+    // leaving it set would re-apply it to the NEXT form opened.
+    setInitialFormData(null);
     // Desktop-only: Windows focus-fix workaround (electron-app main
     // process). No web equivalent exists — optional chaining makes this
     // a safe no-op in the browser.
@@ -700,6 +706,11 @@ export default function ProductList() {
     setMinimizedProducts((prev) => [...prev, minimizedProduct]);
     setIsFormOpen(false);
     setEditingProduct(null);
+    // This minimize's own snapshot now lives in `minimizedProducts` above —
+    // whatever `initialFormData` was rendering (e.g. this was itself a
+    // just-restored form) belongs to the form that just closed. Leaving it
+    // set would re-apply it to the NEXT form opened.
+    setInitialFormData(null);
   };
 
   const handleRestoreProduct = (productId: string) => {
@@ -723,6 +734,47 @@ export default function ProductList() {
   const [initialFormData, setInitialFormData] = useState<
     MinimizedProduct["formData"] | null
   >(null);
+
+  /** LIRA-208 — the "Adjust Stock" button inside the edit form. D13 keeps the
+   *  Quantity field non-editable there, so the form HANDS OFF to the single
+   *  AdjustStockModal this page already owns (rule 14: one adjust flow, one
+   *  refresh path) instead of re-implementing or stacking a second copy.
+   *  Closing the form first keeps exactly one modal on screen and leaves the
+   *  modal's existing `onSuccess -> loadProducts()` as the only thing that
+   *  refreshes the list.
+   *
+   *  Takes an ID, NOT the `editingProduct` object: `editingProduct` is the
+   *  row captured when the form was OPENED (`handleEdit`) and can go stale
+   *  while the form sits open (e.g. `loadProducts()` re-fetches after some
+   *  other mutation elsewhere on this page, updating `products` but not the
+   *  standalone `editingProduct` snapshot). AdjustStockModal computes its
+   *  delta against `product.stock_quantity` and books a real stock movement,
+   *  so handing it a stale row would compute that delta against the wrong
+   *  baseline. `products` is this page's own live list — refreshed by
+   *  `loadProducts()` after every mutation — so looking the row up there by
+   *  id is the freshest read available without a dedicated single-product
+   *  fetch (none is wired through `useApi()` yet). */
+  const handleAdjustFromForm = (productId: number) => {
+    setIsFormOpen(false);
+    setEditingProduct(null);
+    // The restore snapshot goes with the form the operator just discarded;
+    // leaving it set would re-apply it to the NEXT form opened.
+    setInitialFormData(null);
+    const fresh = products.find((p) => p.id === productId) ?? null;
+    if (fresh) {
+      setAdjustingProduct(fresh);
+    } else {
+      // The row is no longer in the current list (e.g. deleted elsewhere
+      // while this form was open) — surface that instead of opening a stale
+      // snapshot against a product that may no longer exist.
+      appEvents.emit(
+        "notification:show",
+        "This product is no longer in the list — refreshing.",
+        "error",
+      );
+      loadProducts();
+    }
+  };
 
   // Persist minimized products to localStorage
   useEffect(() => {
@@ -1106,7 +1158,7 @@ export default function ProductList() {
             lastShiftRangeRef.current = new Set();
           }}
           getSortValue={(product, key) => {
-            if (key === "supplier") return (product as any).supplier ?? "";
+            if (key === "supplier") return product.supplier ?? "";
             if (key === "created_at")
               return product.created_at
                 ? parseDbDate(product.created_at).getTime()
@@ -1116,7 +1168,11 @@ export default function ProductList() {
               const rp = product.retail_price || 0;
               return cp > 0 ? ((rp - cp) / cp) * 100 : rp > 0 ? 999999 : 0;
             }
-            return (product as any)[key] ?? "";
+            // Every other sortable column (name, category, cost_price,
+            // retail_price, stock_quantity) maps 1:1 onto a `ProductRow`
+            // field — `product` is already typed, so the remaining lookup
+            // only needs `key` narrowed to a real key, never `any`.
+            return product[key as keyof ProductRow] ?? "";
           }}
           paginate
           pageSize={20}
@@ -1173,9 +1229,9 @@ export default function ProductList() {
                   </span>
                 </td>
                 <td className="p-4 text-slate-400 text-xs">
-                  {(product as any).supplier ? (
+                  {product.supplier ? (
                     <span className="text-slate-300">
-                      {(product as any).supplier}
+                      {product.supplier}
                     </span>
                   ) : (
                     <span className="text-slate-600">—</span>
@@ -1221,6 +1277,8 @@ export default function ProductList() {
                       }}
                       className="p-2 text-slate-400 hover:text-violet-400 hover:bg-violet-400/10 rounded transition-colors"
                       title="Adjust stock"
+                      data-testid={`inventory-adjust-stock-${product.id}`}
+                      aria-label={`Adjust stock for ${product.name}`}
                     >
                       <PackagePlus size={16} />
                     </button>
@@ -1383,6 +1441,9 @@ export default function ProductList() {
           product={editingProduct}
           onMinimize={handleMinimizeProduct}
           initialFormData={initialFormData}
+          {...(editingProduct
+            ? { onAdjustStock: () => handleAdjustFromForm(editingProduct.id) }
+            : {})}
         />
       )}
 

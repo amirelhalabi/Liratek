@@ -56,10 +56,12 @@ const mockGetRecentTransactions = getRecentTransactions as jest.MockedFunction<
   typeof getRecentTransactions
 >;
 
-// Column order in buildTr: Time(0) Summary(1) Type(2) Client(3) Amount(4)
-// Method(5) User(6) Status(7) Reverses(8) Actions(9).
+// Column order in buildTr (TransactionCells.tsx, LIRA-205): Time(0)
+// Summary(1) Type(2) Client(3) Amount(4) Ret. Credits(5) Method(6) User(7)
+// Status(8) Reverses(9) Actions(10). ReturnedCreditsCell was inserted at
+// index 5, shifting every column from Method onward up by one.
 const AMOUNT_COL_INDEX = 4;
-const METHOD_COL_INDEX = 5;
+const METHOD_COL_INDEX = 6;
 
 function rowFor(summaryText: string): HTMLTableRowElement {
   const summarySpan = screen.getByText(summaryText, { exact: false });
@@ -268,5 +270,71 @@ describe("TransactionsViewer — extra-currency drawer top-up / cash-out", () =>
 
     expect(cellFor(MALFORMED_SUMMARY, AMOUNT_COL_INDEX)).toBe("—");
     expect(cellFor(MALFORMED_SUMMARY, METHOD_COL_INDEX)).toBe("—");
+  });
+});
+
+// LIRA-205 — the Ret. Credits column (index 5, see METHOD_COL_INDEX's
+// comment above). Reuses this file's baseRow/renderViewer/cellFor harness
+// rather than a new file, since this is the one frontend test file this
+// change owns.
+//
+// Provenance (rule 17 / rule 24): written in this same change, alongside the
+// `TransactionRow.returned_credits_usd` field declaration and the
+// `ReturnedCreditsCell` move into TransactionCells.tsx — not run (this
+// batch's process rules forbid running tests mid-batch; the orchestrator
+// runs the full suite once at the end), so not observed failing against
+// pre-fix code. `RET_CREDITS_COL_INDEX` does directly guard the same
+// off-by-one this file's `METHOD_COL_INDEX` fix guards: reverting that fix
+// (leaving `ReturnedCreditsCell` out of the row, or reading the old index)
+// would make these two assertions read the WRONG cell's text ("Cash" /
+// undefined) instead of "$3" / "—".
+const RET_CREDITS_COL_INDEX = 5;
+
+const CREDIT_RETURN_SUMMARY = "Only-Days: MTC card return";
+const creditReturnRow = baseRow({
+  id: 501,
+  type: "FINANCIAL_SERVICE",
+  source_table: "financial_services",
+  amount_usd: 25,
+  summary: CREDIT_RETURN_SUMMARY,
+  returned_credits_usd: 3,
+});
+
+const NO_CREDIT_RETURN_SUMMARY = "Only-Days: no credit returned";
+const noCreditReturnRow = baseRow({
+  id: 502,
+  type: "FINANCIAL_SERVICE",
+  source_table: "financial_services",
+  amount_usd: 25,
+  summary: NO_CREDIT_RETURN_SUMMARY,
+  // returned_credits_usd deliberately omitted — absent, not 0 (see
+  // TransactionRepository._attachPaymentLegs' presence-keyed accumulator).
+});
+
+describe("TransactionsViewer — Ret. Credits column (LIRA-205)", () => {
+  beforeEach(() => {
+    mockGetRecentTransactions.mockReset();
+  });
+
+  it("renders the returned-credit figure with a $ prefix when the row carries one", async () => {
+    mockGetRecentTransactions.mockResolvedValue([creditReturnRow]);
+    renderViewer();
+    await waitFor(() =>
+      screen.getByText(CREDIT_RETURN_SUMMARY, { exact: false }),
+    );
+
+    expect(cellFor(CREDIT_RETURN_SUMMARY, RET_CREDITS_COL_INDEX)).toBe("$3");
+  });
+
+  it("renders — (never 0) when the row posted no CREDIT_RETURN leg", async () => {
+    mockGetRecentTransactions.mockResolvedValue([noCreditReturnRow]);
+    renderViewer();
+    await waitFor(() =>
+      screen.getByText(NO_CREDIT_RETURN_SUMMARY, { exact: false }),
+    );
+
+    expect(cellFor(NO_CREDIT_RETURN_SUMMARY, RET_CREDITS_COL_INDEX)).toBe(
+      "—",
+    );
   });
 });

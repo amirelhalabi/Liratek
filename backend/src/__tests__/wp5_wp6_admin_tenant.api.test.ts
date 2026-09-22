@@ -411,6 +411,76 @@ describe("POST /api/admin/tenants (provisioning)", () => {
     expect(audit!.entity_id).toBe(String(tenant.id));
   });
 
+  // Row-COUNT parity (asserted above, CONFIG_TABLES including "modules")
+  // cannot catch a wrong VALUE inside an agreeing count. That is exactly how
+  // this shipped: TenantRepository.seedModules seeded 'audit' and 'profits'
+  // with admin_only=1 while create_db.sql's tenant-1 seed (and the target
+  // state migrations v163/v178 leave existing tenants in) already held
+  // admin_only=0 for both — 22 rows either side, so the count-only check
+  // stayed green while every tenant provisioned after those migrations had
+  // its own admin unable to make Audit/Profits visible to staff (admin_only
+  // is writable on neither transport for an is_system=1 or non-toggleable
+  // row — see ModuleRepository.setEnabled/bulkSetEnabled's `is_system = 0`
+  // guard). Rule 17: on the pre-fix TenantRepository.ts (seedModules'
+  // 'audit'/'profits' rows carrying admin_only=1), this test fails —
+  // newRow.admin_only (1) !== t1Row.admin_only (0) — for both keys; it only
+  // passes once seedModules agrees with create_db.sql's tenant-1 seed.
+  it("seeds every module row's admin_only / is_enabled / is_system identical to tenant 1's, key for key", async () => {
+    const token = await loginToken("root");
+    const res = await request(app)
+      .post("/api/admin/tenants")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Modules Parity Co",
+        slug: "modules-parity-co",
+        adminUsername: "modparity_admin",
+        adminPassword: "ModParity123!",
+      });
+    expect(res.status).toBe(201);
+    const tenant = (res.body as ApiBody).data!.tenant as { id: number };
+
+    interface ModuleRow {
+      key: string;
+      admin_only: number;
+      is_enabled: number;
+      is_system: number;
+    }
+    // Expectations are read from tenant 1's ACTUAL seeded rows (create_db.sql
+    // executed verbatim in seedDatabase()), never hand-typed — a hand-typed
+    // expectation would just be a second, driftable copy of the same claim
+    // (rule 24).
+    const tenant1Modules = db
+      .prepare(
+        `SELECT key, admin_only, is_enabled, is_system FROM modules WHERE tenant_id = 1`,
+      )
+      .all() as ModuleRow[];
+    const newTenantModules = db
+      .prepare(
+        `SELECT key, admin_only, is_enabled, is_system FROM modules WHERE tenant_id = ?`,
+      )
+      .all(tenant.id) as ModuleRow[];
+
+    expect(tenant1Modules.length).toBeGreaterThan(0);
+    expect(newTenantModules.length).toBe(tenant1Modules.length);
+
+    const byKey = new Map(newTenantModules.map((m) => [m.key, m]));
+    for (const t1Row of tenant1Modules) {
+      const newRow = byKey.get(t1Row.key);
+      expect(newRow).toBeDefined();
+      expect({
+        key: t1Row.key,
+        admin_only: newRow!.admin_only,
+        is_enabled: newRow!.is_enabled,
+        is_system: newRow!.is_system,
+      }).toEqual({
+        key: t1Row.key,
+        admin_only: t1Row.admin_only,
+        is_enabled: t1Row.is_enabled,
+        is_system: t1Row.is_system,
+      });
+    }
+  });
+
   it("rejects a duplicate slug with 409 and records NO audit entry", async () => {
     const token = await loginToken("root");
     const before = countAudit("create", "tenant");

@@ -1,10 +1,36 @@
 # COMMISSION AT SETTLEMENT — unified redesign (LIRA-095 + LIRA-089)
 
-**Status:** **Phase 0+1 SHIPPED 2026-08-08 (`1d498ff`)** — migration v150, shared machinery, bills
-slice, dual-transport, green on every gate (full `yarn test` exit 0; desktop e2e 252/252; web e2e
-61/61). **Phases 2-4 NOT started.**
+**Status:** **Phases 0-2 SHIPPED · Phase 3 SHIPPED except its LIRA-108-residual bullet · Phase 4
+open.** Phase 0+1 2026-08-08 (`1d498ff`) — migration v150, shared machinery, bills slice,
+dual-transport. Phase 2 (D1 gross flip + the OMT/WHISH `commission_model` stamp, in lockstep as the
+box below demanded) shipped in `43948a35`. Phase 3 (profits/closing repoint) shipped across
+LIRA-158/159/160-163 in **four** commits — `8c453764`, `8a868fe3`, `7d595c24`, `b5619433`.
 
-> ### ⚠ Read this before starting Phase 2
+> **⚠ Correction, 2026-09-23 — Phase 3 is NOT fully shipped, and the 2026-09-22 header overstated
+> it.** That pass flipped the header to "Phases 0-3 SHIPPED" on evidence that proves Phase 3's
+> *first* bullet (the UNION repoint) and its third (the closing screen). Its **fourth bullet** —
+> *"Resolve the LIRA-108 residuals here: provider set of the Commission row; fs.commission vs
+> stamped t.profit source split; USDT bucketing"* — is **not** shown closed, and for the
+> provider-set half the code says outright that it is still open:
+>
+> ```
+> ProfitRepository.ts:2605-2608  (doc comment on getRealizedCommissionTotals)
+>   "The `provider IN (COMMISSION_PROVIDERS)` filter is still deliberately NOT adopted
+>    from the sibling — narrowing by provider remains a separate owner-facing semantics
+>    question, not part of either the LIRA-108 gate closure or this fix."
+> ```
+>
+> So the residual bullet is carried into **§4 remaining work** below rather than marked done. The
+> other two halves of that bullet (the `fs.commission`-vs-stamped-`t.profit` source split and USDT
+> bucketing) were **not independently re-verified** in this pass — treat them as *unverified*, not
+> as closed.
+
+**What remains:** (a) **Phase 3's LIRA-108 residual bullet** — at minimum the provider-set question,
+which needs an owner answer before code, and a re-check of the other two halves; (b) **Phase 4** —
+the `docs/COUNTERPARTY_LEDGERS.md` rewrite for the gross / at-settlement model, which was never done.
+Verified against source 2026-09-22, re-verified and corrected 2026-09-23; see §4.
+
+> ### ⚠ Phase 2's landing condition — SHIPPED `43948a35`, kept as the design record
 >
 > Phase 0 shipped with `commission_model = 1` scoped to **BILL rows only**. OMT/WHISH SEND/RECEIVE
 > are deliberately still born `commission_model = 0` (legacy embedded), because their payable is
@@ -21,7 +47,10 @@ slice, dual-transport, green on every gate (full `yarn test` exit 0; desktop e2e
 > embedded/per-bill model, no restatement.
 > **Grounding:** every file:line below was verified against HEAD `ba03976` by a 3-agent deep-read
 > (bills flow / payable math / storage) on 2026-08-08. Re-verify before building a later phase —
-> this repo's plan docs go stale fast.
+> this repo's plan docs go stale fast. **They already have:** spot-checks on 2026-09-23 found the
+> `TransactionRepository.ts` line numbers in §1/§2 no longer resolve (that file has moved by
+> hundreds of lines since). Treat every bare `:NNN` in §1-§4 as a 2026-08-08 coordinate and grep
+> for the symbol instead.
 
 ---
 
@@ -53,7 +82,9 @@ transaction time, never supplier-settled):
    dashboard summary `:3628`).
 2. **`commission > 0` is secretly the pending-settlement marker** in FOUR copies: born-settled
    predicate (`:923-928`), settle-tab population (`:3561`), pending summary (`:3643`), reversal
-   `wasPendingSettlement` (`TransactionRepository.ts:2661-2663`). New-model rows (commission=0 at
+   `wasPendingSettlement` (`TransactionRepository.ts`, in `_reverseSupplierSettlement`'s caller —
+   `:3903`/`:3907` in the 2026-09-23 working tree; the `:2661-2663` this plan was written against is
+   long stale, cite the symbol). New-model rows (commission=0 at
    creation) would be born settled, invisible to settlement, and unreversible — **this is why
    Phase 0 exists**.
 3. **Bills**: fs.commission = 0 (cost==price), so bills are born settled, excluded from every
@@ -66,7 +97,8 @@ transaction time, never supplier-settled):
    carries informational commission pair, `SupplierRepository.ts:889-895`) + payment legs
    (`:791-954`).
 5. **Reversal owners** (rule 20): `_reversePayments`, `_markSourceRefunded('supplier_ledger')`,
-   `_reverseSupplierSettlement` (`TransactionRepository.ts:2637-2680`) — the last resets
+   `_reverseSupplierSettlement` (`TransactionRepository.ts` — line numbers in this section are
+   as of HEAD `ba03976`, 2026-08-08, and no longer resolve; cite the symbol) — the last resets
    is_settled only WHERE `commission > 0` (copy #4 of the marker).
 6. **Profit reads two sources**: `getRealizedCommissionTotals` sums fs.commission;
    `getFinancialSettledByCurrency` sums stamped t.profit\_\* — LIRA-108 aligned their gates; any
@@ -117,7 +149,8 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 - v150 migration (§3).
 - The ONE pending-settlement predicate (D2) — extracted, then swapped into: creation
   (`FSR:923-928`), settle-tab query (`:3561`), pending summary (`:3643`), reversal
-  (`TransactionRepository.ts:2661-2678` — branch on `commission_model`).
+  (`TransactionRepository`'s `wasPendingSettlement` — branch on `commission_model`; the
+  `:2661-2678` here is the 2026-08-08 line range and no longer resolves).
 - `settleTransactions` (`SupplierRepository.ts:791-954`): accepts `entry_mode/rate/unit_count` +
   money-bearing commission pair; writes `supplier_settlements` + allocations (largest-remainder);
   books the commission credit as a `SUPPLIER_PAYS_US` supplier_ledger row **linked to the
@@ -150,7 +183,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 - e2e (desktop + web): bill → appears in settle tab with count → settle with RATE mode → ledger
   nets correctly → void settlement → everything returns, net 0.
 
-### Phase 2 — OMT/WHISH transfers (LIRA-095 core)
+### Phase 2 — OMT/WHISH transfers (LIRA-095 core) ✅ SHIPPED `43948a35`
 
 - D1 gross flip: `grossOwedDelta` + `SUPPLIER_OWED_EXPR` in lockstep; the ~10 pinning tests flip
   in the same change, each failing-first both directions (`OmtSystemFeeCharacterization`,
@@ -165,7 +198,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 - FOR-partner allocated shares still gate on `notPartnerPending` per row (two independent gates:
   supplier settled ≠ partner settled) — the allocations table makes this possible (D6).
 
-### Phase 3 — Profits/reporting repoint
+### Phase 3 — Profits/reporting repoint 🟡 SHIPPED **except the LIRA-108 residual bullet** (LIRA-158/159/160-163)
 
 - UNION old-model (fs.commission WHERE commission_model=0) + new-model (allocations) in ONE named
   fragment each for: `getRealizedCommissionTotals`, `getPendingCommissionTotals` (+ByProvider),
@@ -175,8 +208,15 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
   show — commission unknown until entered).
 - Closing screen (LIRA-110 folds in here): daily commission becomes settlement-day cash-basis for
   new-model rows — **document the semantics change; owner sign-off** (§6).
-- Resolve the LIRA-108 residuals here: provider set of the Commission row; fs.commission vs
-  stamped t.profit source split; USDT bucketing.
+- ⚠ **STILL OPEN — resolve the LIRA-108 residuals here:** provider set of the Commission row;
+  `fs.commission` vs stamped `t.profit` source split; USDT bucketing. **The provider-set half is
+  confirmed open in source** — `ProfitRepository.getRealizedCommissionTotals`'s doc comment
+  (`ProfitRepository.ts:2605-2608`) states that `provider IN (COMMISSION_PROVIDERS)` is
+  *"deliberately NOT adopted from the sibling — narrowing by provider remains a separate
+  owner-facing semantics question"*. That makes it an **owner decision first, code second**: should
+  the Profits Commission row count every provider, or only the `COMMISSION_PROVIDERS` set its
+  sibling query uses? The other two halves were **not re-verified** on 2026-09-23 — unverified, not
+  closed.
 - Extend the profit-recognition guard to the new allocation queries + ClosingRepository.
 
 ### Phase 4 — proof + docs
@@ -247,5 +287,7 @@ double-debited. Phase 2 designs this against the existing plan rather than from 
 Tests pinning ±c math: see Phase 2 list. Settlement contract tests:
 `backend/src/api/__tests__/suppliers.api.test.ts:242-243`, `SupplierRepository.settlement.test.ts`,
 `CounterpartyMetadataContract.test.ts`, `validators/__tests__/supplier.paymentLegAmount.test.ts`,
-`cq8Contract.test.ts`, `omtHandlers.test.ts`. Type surfaces: `electron.d.ts:997-1008,1222-1234`,
+`cq8Contract.test.ts`, `omtHandlers.test.ts`. Type surfaces: `electron.d.ts` (the `suppliers`
+settlement block — the `:997-1008,1222-1234` written here does not resolve and did not resolve at
+HEAD either; grep for `settleTransactions`),
 `packages/ui/src/api/types.ts` (settleTransactions), `backendApi.ts:1652-1676`, `preload.ts:545-552`.

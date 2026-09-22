@@ -1,6 +1,32 @@
 # LIRA-194 — every top-up must be voidable
 
-**Priority: HIGH** (owner, 2026-09-20) · **Status: TODO, not started** · **Type: money / reversal symmetry**
+**Priority: HIGH** (owner, 2026-09-20) · **Status: SHIPPED 2026-09-21 (`9c0194cd`)** · **Type: money / reversal symmetry**
+
+> **DONE.** All four writers post real `payments` rows; `RECHARGE_TOPUP` is out of
+> `NON_REVERSIBLE_TRANSACTION_TYPES` and in `ACTIONABLE_TYPES`. Reversal owner per writer:
+> `topUpApp` both legs and `topUpFromClient` all legs via the generic `_reversePayments`;
+> `topUpFromSupplier`'s link-mode `supplier_ledger` row via a new
+> `_reverseSupplierLedgerByTransactionLink`; `topUpFromPartner`'s `partner_ledger` row via the
+> **existing** `_reversePartnerLedger`, which already matched it on
+> `reference_table`/`reference_id` — confirmed by test rather than assumed.
+>
+> The new link-mode reversal is deliberately scoped to `RECHARGE_TOPUP`: `LotoTicketRepository`
+> writes an identical link-mode `TOP_UP` row that `_reverseLotoSupplierLedger` already owns, so a
+> type-agnostic version would double-reverse loto tickets. Decision recorded here because the
+> ticket left it open ("decide per writer and write down which").
+>
+> The ticket's "do NOT partially fix" warning was honoured — all four writers landed together.
+> Create-then-void proven to net to 0 per writer per currency, each test shown failing on the
+> pre-fix code first (rule 17). Gate green: core 3415 / backend 897 / electron-app 155 /
+> frontend 1605, typecheck and lint clean.
+>
+> Shipped alongside it in the same commit (same code path, could not be split without a broken
+> intermediate): the client top-up payout moved to shared `MultiPaymentInput` payment legs, and a
+> live rule-11 bug — the modal never sent `clientId`, so every client top-up ever recorded has a
+> null `client_id`.
+>
+> **Not done, deliberately:** e2e has NOT been run against this. `lira-057` was updated to the new
+> payload shape but not executed; `lira-141` needs no change (it drives the UI, not the wire).
 
 ## The problem
 

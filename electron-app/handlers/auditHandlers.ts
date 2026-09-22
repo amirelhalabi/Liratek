@@ -2,7 +2,11 @@
  * Audit Log IPC Handlers
  *
  * Provides read-only access to the audit log for the frontend.
- * All endpoints require admin role.
+ * Read paths are open to admin AND staff (LIRA-198): the /audit page is no
+ * longer admin_only, so its viewer must load for staff too. There are no
+ * write channels here — audit rows are written server-side by
+ * auditHelper.ts, never by the renderer. REST twins in
+ * backend/src/api/audit.ts carry the IDENTICAL role sets (rule 19c).
  */
 
 import { ipcMain } from "electron";
@@ -13,9 +17,15 @@ import { requireRole } from "../session.js";
 export function registerAuditHandlers(): void {
   auditLogger.info("Registering Audit IPC handlers");
 
+  // No current consumer: the preload binding exists (audit.getRecent) but
+  // nothing in frontend/src calls it — the Audit Log tab (AuditLogViewer.tsx)
+  // drives entirely off audit:search. Widened to staff anyway per the
+  // owner's BROAD-scope decision; this note is so a future reader does not
+  // mistake this for a live path. Its REST twin GET /api/audit/recent
+  // (backend/src/api/audit.ts) carries the identical note.
   ipcMain.handle("audit:get-recent", (e, limit?: number) => {
     try {
-      const auth = requireRole(e.sender.id, ["admin"]);
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
       const service = getAuditService();
@@ -33,7 +43,7 @@ export function registerAuditHandlers(): void {
 
   ipcMain.handle("audit:search", (e, filters: AuditFilters) => {
     try {
-      const auth = requireRole(e.sender.id, ["admin"]);
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
       const service = getAuditService();

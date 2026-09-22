@@ -187,23 +187,29 @@ describe("LIRA-116 module→route static guard", () => {
   it("TenantRepository per-tenant seed declares omt_whish with route /omt-whish", () => {
     const file = "packages/core/src/repositories/TenantRepository.ts";
     const source = readSource(file);
-    // Anchored on "omt_whish" being the FIRST element of its array tuple
-    // (immediately after '['), so it can't match the bare "omt_whish"
-    // entries inside the unrelated currency_modules seed arrays further
-    // down in the same file.
-    const pattern =
-      /\[\s*"omt_whish"\s*,\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"([^"]*)"/;
+    // MODULE_SEED_ROWS entries are ModuleSeedRow OBJECT LITERALS (`{ key:
+    // "omt_whish", label: ..., icon: ..., route: "/omt-whish", ... }`), not
+    // positional tuples — anchored on the "key" FIELD NAME equal to
+    // "omt_whish", then scanning forward for the "route" FIELD NAME (never
+    // crossing the object's closing '}', so it can't leak into the NEXT
+    // module's route). Matching by field name, not by which fields sit
+    // between key and route or in what order, means reordering/inserting a
+    // field (sortOrder, isEnabled, ...) can't blind this pattern the way a
+    // positional match just did. It also can't match the bare "omt_whish"
+    // strings inside the unrelated currency_modules seed arrays further
+    // down in the same file, since those aren't preceded by "key:".
+    const pattern = /key:\s*"omt_whish"[^}]*?route:\s*"([^"]*)"/;
     const match = mustMatch(
       source,
       pattern,
       file,
-      'the per-tenant module seed tuple starting with "omt_whish" (key, label, icon, route)',
+      'a MODULE_SEED_ROWS object with key: "omt_whish" (matched on its route: field, by name)',
     );
     expectRoute(
       match[1],
       "/omt-whish",
       file,
-      "per-tenant module seed tuple for omt_whish",
+      "per-tenant module seed object for omt_whish",
     );
   });
 
@@ -371,27 +377,30 @@ describe("LIRA-116 module→route static guard", () => {
     );
 
     // -- TenantRepository.ts --
+    // Same object-literal shape and same field-name anchoring as the
+    // omt_whish site above (MODULE_SEED_ROWS holds ModuleSeedRow objects,
+    // not positional tuples) — see the comment there for why this is
+    // anchored on "key:"/"route:" by NAME rather than by field position.
     const trFile = "packages/core/src/repositories/TenantRepository.ts";
     const trSource = readSource(trFile);
-    const trPattern =
-      /\[\s*"custom_services"\s*,\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"([^"]*)"/;
+    const trPattern = /key:\s*"custom_services"[^}]*?route:\s*"([^"]*)"/;
     const trMatch = mustMatch(
       trSource,
       trPattern,
       trFile,
-      'the per-tenant module seed tuple starting with "custom_services" (key, label, icon, route)',
+      'a MODULE_SEED_ROWS object with key: "custom_services" (matched on its route: field, by name)',
     );
     expectRoute(
       trMatch[1],
       "/custom-services",
       trFile,
-      "per-tenant module seed tuple for custom_services",
+      "per-tenant module seed object for custom_services",
     );
     mustNotMatch(
       trSource,
-      /\[\s*"custom_services"\s*,\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"\/services"/,
+      /key:\s*"custom_services"[^}]*?route:\s*"\/services"/,
       trFile,
-      'custom_services seed tuple with route "/services"',
+      'custom_services module object with route "/services"',
     );
 
     // -- ActiveModuleContext.tsx --

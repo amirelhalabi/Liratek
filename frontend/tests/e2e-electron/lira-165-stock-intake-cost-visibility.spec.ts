@@ -38,12 +38,22 @@
  * `page.locator("div").filter({hasText: "Adjust Stock"}).first()` trick would
  * actually resolve to the outermost app-shell div, not the modal, and could
  * silently widen every "inside the modal" query to the whole page. Instead:
- *   - Every button/placeholder/heading targeted below (`Adjust Stock`,
- *     `Cost Batches`, `Apply Adjustment`, `Add / remove (+/-)`, the
- *     `+10 or -5` / reason placeholders) is grepped-unique to
+ *   - `Cost Batches`, `Apply Adjustment`, `Add / remove (+/-)`, and the
+ *     `+10 or -5` / reason placeholders are grepped-unique to
  *     AdjustStockModal.tsx across all of frontend/src — safe to query
  *     unscoped, and only one product's modal is ever open at a time (only
  *     one `adjustingProduct` in ProductList's state).
+ *   - `Adjust Stock` itself is NOT text-unique any more (LIRA-208 added a
+ *     same-named "Adjust Stock" button inside the product edit form,
+ *     `ProductForm.tsx`'s `data-testid="product-form-adjust-stock"`, with no
+ *     `title` attribute). This file stays safe anyway: `openAdjustModal`
+ *     opens the modal via `getByTitle("Adjust stock")` (the product-list row
+ *     action, lower-case "stock" — the new form button carries no `title` at
+ *     all, so this still resolves to exactly one element), and every
+ *     assertion that the modal is open/closed below queries
+ *     `getByRole("heading", { name: "Adjust Stock" })` — a heading role,
+ *     which the form's `<button>` can never match. If either selector is
+ *     ever changed to a plain text query, re-verify uniqueness first.
  *   - The unit cost field has neither a placeholder nor a `for`/`id`-linked
  *     label, so it's targeted via its own visible label text through XPath
  *     (`//label[contains(., "Unit cost")]/following-sibling::div//input`) —
