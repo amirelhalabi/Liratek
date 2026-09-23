@@ -2250,4 +2250,11 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v178 flips the 'audit' module row to admin_only = 0; the system-modules
     -- seed above already carries that post-migration value, so a fresh DB
     -- needs no separate UPDATE — same shape as v163's marker note above.
-    (178, 'audit_module_visible_to_all_roles');
+    (178, 'audit_module_visible_to_all_roles'),
+    -- v179 is a production backfill for a per-tenant seeding bug
+    -- (TenantRepository.seedModules() hardcoded 'profits' admin_only = 1,
+    -- out of sync with v163): it re-flips any tenant's 'profits' row back to
+    -- admin_only = 0. The 'profits' seed row above already carries that
+    -- value (see its own v163 note), so a fresh DB needs no separate
+    -- UPDATE — same shape as v163/v178's marker notes above.
+    (179, 'profits_module_visible_to_all_roles_backfill');

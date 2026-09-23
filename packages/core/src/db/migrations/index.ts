@@ -12037,6 +12037,69 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 179,
+    name: "profits_module_visible_to_all_roles_backfill",
+    description:
+      "Backfill for a seeding bug, verified against production today. Migration v163 " +
+      "(profits_module_visible_to_all_roles) flipped the 'profits' module row to " +
+      "admin_only = 0 and electron-app/create_db.sql has seeded fresh installs with " +
+      "admin_only = 0 ever since — but TenantRepository.seedModules() (the per-tenant " +
+      "module seed that runs when a NEW web tenant signs up) still hardcoded 'profits' " +
+      "with admin_only = 1, the same pre-existing gap v178's description already noted " +
+      "and left unfixed for 'profits'. Any tenant provisioned on web AFTER v163 landed " +
+      "therefore got a 'profits' row stuck at admin_only = 1, and it could not self-heal: " +
+      "ModuleRepository exposes only setEnabled/bulkSetEnabled, both gated " +
+      "WHERE is_system = 0, and no API on either transport (IPC or REST) can write " +
+      "admin_only. Verified by a read-only query against production (liratek-api, " +
+      "/data/liratek.db) on 2026-09-23: tenant 1 (CornerTech) already reads " +
+      "profits.admin_only = 0, but tenant 5 (Test) reads profits.admin_only = 1 — the " +
+      "stuck row this migration exists to repair. The seedModules hardcode itself is " +
+      "fixed separately in the same change (TenantRepository.ts now seeds admin_only = 0 " +
+      "for both 'audit' and 'profits' off a shared MODULE_SEED_ROWS constant); this " +
+      "migration is purely the backfill for tenants provisioned before that fix landed. " +
+      "Exact shape of v178/v163: idempotent, keyed on `key = 'profits'` (identity, not " +
+      "the old admin_only value, so a re-run reads the same), and deliberately UNSCOPED " +
+      "by tenant_id — module visibility is a compiled-once rule, not a per-tenant " +
+      "setting, so every tenant's row must move at once. Guarded by tableExists because " +
+      "migration-runner test harnesses replay every migration over minimal fixture " +
+      "schemas that may have no 'modules' table. electron-app/create_db.sql already " +
+      "carries the post-migration value (admin_only = 0) directly on its 'profits' seed " +
+      "row (since v163), so a fresh DB needs no UPDATE.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "modules")) {
+        console.log("Migration v179 skipped: 'modules' table not present");
+        return;
+      }
+
+      const result = db
+        .prepare(`UPDATE modules SET admin_only = 0 WHERE key = ?`)
+        .run("profits");
+
+      console.log(
+        `Migration v179: 'profits' module admin_only cleared (Profits now visible to staff, gated by ProfitsAccessService instead) on ${result.changes} row(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "modules")) {
+        console.log(
+          "Migration v179 rollback skipped: 'modules' table not present",
+        );
+        return;
+      }
+
+      // Exact reverse of up() — same deliberate cross-tenant scope, same
+      // identity-keyed predicate.
+      const result = db
+        .prepare(`UPDATE modules SET admin_only = 1 WHERE key = ?`)
+        .run("profits");
+
+      console.log(
+        `Migration v179 rolled back: 'profits' module admin_only restored to 1 (admin-only again) on ${result.changes} row(s)`,
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
