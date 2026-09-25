@@ -92,6 +92,13 @@ export const lotoCashPrizeSchema = z.object({
   prize_date: z.string().optional(),
   customer_name: z.string().optional(),
   note: z.string().optional(),
+  // LIRA-201c (rule 11) — a session-basket prize carries the session's
+  // resolved client id (injected by SessionCheckoutService, which calls
+  // LotoService.recordCashPrize directly and never goes through this schema
+  // — see that service's own comment); accepted here too so a future
+  // standalone/admin cash-prize form can set it through the validated IPC
+  // path without a second schema.
+  clientId: z.number().int().positive().optional(),
 });
 
 /**

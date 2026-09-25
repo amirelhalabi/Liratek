@@ -37,6 +37,8 @@
  * take the guard's word for it.
  */
 
+export {}; // module scope: keeps helpers like okJson file-local (TS2393)
+
 // Named distinctly from the identical helper in backendApi.sessions.dualmode.test.ts
 // and backendApi.serviceProviders*.dualmode.test.ts: none of these test files
 // have a top-level import/export, so TypeScript treats each as a global

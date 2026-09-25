@@ -2,21 +2,38 @@
  * E2E: LIRA-101 — App-wallet RECEIVE fee handling, driven through the real UI
  * (Whish App vs OMT App)
  *
- * Both providers now share the SAME fee/profit contract — the shop keeps the
- * FULL fee as profit (`LEFT_TO_DO.md` §"C4/C5 app-transfer fee split",
- * decided 2026-07-04: "the fee is fully the shop's, OMT App + Whish App").
- * Whish App RECEIVE was fixed first (lira-100 —
- * `docs/plans/done_plans/WHISH_APP_RECEIVE_FEE_FIX_PLAN.md`); OMT App RECEIVE was fixed
- * in this cluster by extending `calculateOmtWhishAppFees`'s
- * `isAppWalletReceive` gate to both providers. OMT App has no auto-fee and no
- * "fee included in amount" toggle (that checkbox is Whish-App-only), so its
- * only reachable RECEIVE state is "fee charged on top of the entered amount"
- * — `includingFees` is always false in practice for OMT App.
+ * RE-DERIVED 2026-09-23 for owner decision D1 (`docs/plans/todo_plans/
+ * OWNER_NOTES_2026-09-21.md` §2b, case matrix row 5, migration v180):
+ * "OMT App RECEIVE — no fee, for now." OMT App used to share the SAME
+ * fee/profit contract as Whish App — the shop keeps the FULL fee as profit
+ * (`LEFT_TO_DO.md` §"C4/C5 app-transfer fee split", decided 2026-07-04) — via
+ * a manual fee typed on top of the entered amount (OMT App has no auto-fee
+ * and no "fee included in amount" toggle, unlike Whish App). D1 removes that
+ * manual-fee path entirely: `OmtWhishAppTransferForm.tsx`'s whole "Fee
+ * Breakdown" block (the fee input AND every fee-mode radio) is now HIDDEN for
+ * `(OMT_APP, RECEIVE)` — see that component's own D1 comment just above the
+ * block's render gate — and `FinancialServiceRepository.createTransaction`
+ * backs it with a hard-reject: an OMT_APP RECEIVE carrying a non-zero
+ * `commission`, `includingFees: true`, or a non-empty `feePayments` is
+ * refused outright, with the SAME `OMT_RECEIVE_NO_FEE_MESSAGE` OMT-system
+ * RECEIVE throws (owner decision 2026-09-25 — one shared constant, not a
+ * bespoke OMT_APP string). Whish App is UNTOUCHED by D1 — its three RECEIVE
+ * fee modes (no fee / fee excluded / fee included) are unchanged and kept
+ * verbatim below.
  *
- * The last test proves "OMT App receive, fee included" is still not a
- * reachable UI state (no checkbox, and Whish App's checkbox state does not
- * leak across the provider-tab remount) — that part of the contract is
- * unchanged by this fix.
+ * OLD rule this spec used to guard for OMT App RECEIVE (now removed): a
+ * manual fee typed into `#transfer-fee`, charged on top of the entered
+ * amount, kept in full as shop profit — the "OMT App RECEIVE, manual $5 fee"
+ * test below used to prove exactly that. It is rewritten (rule 24) to prove
+ * the OPPOSITE: the fee input is now ABSENT from the DOM for this provider/
+ * direction combination, and a plain submit carries no fee regardless. The
+ * former "no leaked state" test (Whish App's "deducted" radio must not leak
+ * into OMT App) is kept, but its final assertion — submitting OMT App RECEIVE
+ * WITH a manual fee — is no longer reachable through the UI, so it is
+ * rewritten the same way: prove the fee UI stays absent even after the
+ * cross-provider interaction, and that a plain (fee-less) submit still books
+ * zero fee/commission, closing the same "no leak" loop without a fee input
+ * that no longer exists.
  *
  * Every scenario is driven through the real form (amount/fee inputs, the
  * checkbox, Proceed to Pay → PaymentSheet confirm) rather than the IPC
@@ -357,45 +374,56 @@ test.describe("LIRA-101 — App wallet RECEIVE fee handling", () => {
     await expect(trow.getByTestId("payment-legs")).toContainText("out: $100");
   });
 
-  test("OMT App RECEIVE, manual $5 fee: wallet +105, payout −100, shop keeps the FULL fee as profit", async ({
+  test("OMT App RECEIVE: the fee UI is ABSENT (D1, 2026-09-23) — wallet +100, payout −100, $0 profit regardless of provider history", async ({
     appPage,
   }) => {
     const ts = Date.now();
-    const receiverName = `OMT RECV FEE5 ${ts}`;
+    const receiverName = `OMT RECV NOFEEUI ${ts}`;
 
     await providerTab(appPage, "OMT App");
     await selectReceive(appPage);
 
-    // No "fee included in amount" toggle exists for OMT App at all — confirm
-    // it before relying on that fact for the rest of this test.
+    // D1: the entire "Fee Breakdown" block — heading, manual fee input, and
+    // every fee-mode radio — is gone for (OMT_APP, RECEIVE)
+    // (OmtWhishAppTransferForm.tsx's D1 comment just above its render gate).
+    // No "fee included in amount" toggle either (pre-existing, never
+    // reachable for OMT App at all).
+    await expect(appPage.getByText("Fee Breakdown")).toHaveCount(0);
+    await expect(appPage.locator("#transfer-fee")).toHaveCount(0);
+    await expect(appPage.getByTestId("fee-mode-sender")).toHaveCount(0);
+    await expect(appPage.getByTestId("fee-mode-deducted")).toHaveCount(0);
+    await expect(appPage.getByTestId("fee-mode-separate")).toHaveCount(0);
     await expect(appPage.getByLabel("Fee included in amount")).toHaveCount(0);
 
+    // With no fee input to fill, the only payload this form can send is
+    // fee-less — same numbers the "no fee" test above proves, re-derived
+    // here specifically to show the ABSENCE of the fee UI is what produces
+    // them, not an operator choosing "0".
     const before = await drawers(appPage);
     await submitReceive(appPage, {
       amount: "100",
-      fee: "5", // manual fee — the only fee mechanism OMT App has
       receiverName,
     });
     const after = await drawers(appPage);
 
-    // Fixed behavior (was: identical to the no-fee case above — the $5 the
-    // cashier typed never reached the money engine). Now mirrors Whish App's
-    // "fee not included" case: the fee is charged on top of the entered
-    // amount, grossing up the wallet inflow, and is kept in full as profit.
-    expect(after.omtApp - before.omtApp).toBeCloseTo(105, 2);
+    expect(after.omtApp - before.omtApp).toBeCloseTo(100, 2);
     expect(after.general - before.general).toBeCloseTo(-100, 2);
 
     const row = await findRow(appPage, "OMT_APP", receiverName);
-    expect(row.amount).toBeCloseTo(105, 2); // fee folded into the wallet amount
-    expect(row.commission).toBeCloseTo(5, 2); // FULL fee counted as profit
-    expect(row.omt_fee).toBeCloseTo(5, 2);
+    expect(row.amount).toBeCloseTo(100, 2);
+    expect(row.commission).toBeCloseTo(0, 2);
+    expect(row.omt_fee ?? 0).toBeCloseTo(0, 2);
 
     const trow = await auditRow(appPage, receiverName);
-    await expect(trow).toContainText("$105");
+    await expect(trow.getByTestId("cash-flow-badge")).toHaveAttribute(
+      "data-direction",
+      "out",
+    );
+    await expect(trow).toContainText("$100");
     await expect(trow.getByTestId("payment-legs")).toContainText("out: $100");
   });
 
-  test("OMT App RECEIVE: 'fee deducted from payout' is not a reachable UI state (no radio, no leaked state from Whish App)", async ({
+  test("OMT App RECEIVE: 'fee deducted from payout' stays unreachable after D1 — no radio, no fee input, no leaked state from Whish App", async ({
     appPage,
   }) => {
     const ts = Date.now();
@@ -405,7 +433,8 @@ test.describe("LIRA-101 — App wallet RECEIVE fee handling", () => {
     // prove its state does NOT leak into OMT App when switching tabs
     // (feeMode resets to SENDER whenever activeProvider !== "WHISH_APP" —
     // OmtWhishAppTransferForm.tsx:180-183 — the same remount-safety property
-    // the old checkbox test guarded).
+    // the old checkbox test guarded). Whish App RECEIVE fee UI is UNCHANGED
+    // by D1.
     await providerTab(appPage, "Whish App");
     await selectReceive(appPage);
     await appPage.locator("#transfer-amount").fill("50");
@@ -416,31 +445,32 @@ test.describe("LIRA-101 — App wallet RECEIVE fee handling", () => {
     await providerTab(appPage, "OMT App");
     await selectReceive(appPage);
 
-    // No "Deducted from payout" radio at all for OMT App — the scenario
-    // "OMT App receive, fee deducted from payout" has no UI expression,
-    // regardless of prior Whish App state.
+    // D1: no fee UI at all for OMT App RECEIVE — not just the "deducted"
+    // radio (the pre-D1 target of this test), but the whole Fee Breakdown
+    // block, regardless of what was just selected on the Whish App tab.
     await expect(appPage.getByTestId("fee-mode-deducted")).toHaveCount(0);
+    await expect(appPage.getByTestId("fee-mode-sender")).toHaveCount(0);
+    await expect(appPage.locator("#transfer-fee")).toHaveCount(0);
 
-    // Prove the non-leak isn't just cosmetic: submit an OMT App RECEIVE with
-    // a manual fee and confirm it still books the ordinary "fee charged on
-    // top" numbers already proven by the "manual $5 fee" case above (wallet
-    // +105, payout −100, $5 profit — mode A/SENDER math) — NOT the
-    // Whish-App "deducted" math (which would read wallet +100, payout −95)
-    // that a leaked feeMode would have produced.
+    // Prove the non-leak isn't just cosmetic: submit a plain OMT App RECEIVE
+    // (no fee input exists to fill) and confirm it books the SAME zero-fee
+    // numbers the "fee UI is ABSENT" test above proves — NOT the Whish-App
+    // "deducted" math (wallet +100, payout −95) a leaked feeMode would have
+    // produced, and NOT the pre-D1 "fee on top" math (wallet +105, payout
+    // −100) a leaked manual fee would have produced either.
     const before = await drawers(appPage);
     await submitReceive(appPage, {
       amount: "100",
-      fee: "5",
       receiverName,
     });
     const after = await drawers(appPage);
 
-    expect(after.omtApp - before.omtApp).toBeCloseTo(105, 2);
+    expect(after.omtApp - before.omtApp).toBeCloseTo(100, 2);
     expect(after.general - before.general).toBeCloseTo(-100, 2);
 
     const row = await findRow(appPage, "OMT_APP", receiverName);
-    expect(row.amount).toBeCloseTo(105, 2);
-    expect(row.commission).toBeCloseTo(5, 2);
-    expect(row.omt_fee).toBeCloseTo(5, 2);
+    expect(row.amount).toBeCloseTo(100, 2);
+    expect(row.commission).toBeCloseTo(0, 2);
+    expect(row.omt_fee ?? 0).toBeCloseTo(0, 2);
   });
 });

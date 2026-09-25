@@ -665,13 +665,17 @@ function OmtWhishAppTransferFormInner({
         </div>
       </div>
 
-      {/* Fee Breakdown — hidden for Whish App SEND (no fees, no profit) and Whish App LBP RECEIVE (no fees) */}
+      {/* Fee Breakdown — hidden for Whish App SEND (no fees, no profit),
+          Whish App LBP RECEIVE (no fees), and OMT App RECEIVE (D1, owner
+          decision 2026-09-23: no fee at all, for now — see omtWhishAppFees.ts
+          for where providerFee/shopProfit are forced to 0). */}
       {!(activeProvider === "WHISH_APP" && serviceType === "SEND") &&
         !(
           activeProvider === "WHISH_APP" &&
           serviceType === "RECEIVE" &&
           currency === "LBP"
-        ) && (
+        ) &&
+        !(activeProvider === "OMT_APP" && serviceType === "RECEIVE") && (
           <div className="rounded-xl bg-slate-900/50 border border-slate-700/50 p-4 space-y-2">
             <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">
               Fee Breakdown

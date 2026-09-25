@@ -30,6 +30,7 @@ import { PositionsPanel } from "./components/PositionsPanel";
 import type { ExchangeRate } from "@/utils/currencyUtils";
 import {
   calculateExchange,
+  calculateAmountInForTarget,
   computeOverrideLegProfitUsd,
   convertFromUSD,
   TAKE_USD,
@@ -156,6 +157,28 @@ function legRateUnit(
 function formatAmount(amount: number, currency: string, decimals = 2): string {
   const d = currency === "LBP" ? 0 : decimals;
   return `${amount.toLocaleString(undefined, { maximumFractionDigits: d })} ${currency}`;
+}
+
+/**
+ * LIRA-213 #20 FIX ROUND 1 (override-mapping-second-definition, rule 14) —
+ * the ONE definition of "which currency does leg i's rate override apply
+ * to": leg 0 is the direct pair's non-USD side, or (for a cross pair) the
+ * X→USD leg's fromCurrency; leg 1 only exists for a cross pair and is its
+ * USD→Y leg's toCurrency. `applyCustomRates` (forward direction) and
+ * `overrideAdjustedRates` (reverse direction, LIRA-213 #20) both call this
+ * — previously each restated the same mapping its own way (one off the
+ * already-computed leg objects, one off the page's selected from/to
+ * currencies before any calc ran); they happened to agree but nothing
+ * forced them to stay that way.
+ */
+function legOverrideCurrency(
+  legIndex: number,
+  isCross: boolean,
+  fromCurrency: string,
+  toCurrency: string,
+): string {
+  if (isCross) return legIndex === 0 ? fromCurrency : toCurrency;
+  return fromCurrency === "USD" ? toCurrency : fromCurrency;
 }
 
 // ─── Currency Selector ────────────────────────────────────────────────────────
@@ -299,6 +322,15 @@ export default function Exchange() {
   const [toCurrency, setToCurrency] = useState<string>("");
   const [amountIn, setAmountIn] = useState<number>(0);
   const [amountOut, setAmountOut] = useState<string>("");
+  // LIRA-213 #20 FIX ROUND 1 (override-after-target-drift) — which box the
+  // cashier last typed into. `amountIn` stays the page's single source of
+  // truth (unchanged), but a rate override edited AFTER a target was typed
+  // needs to re-derive amountIn from the ORIGINAL typed target, not from
+  // whatever amountOut has drifted to — so the exact typed figure survives
+  // a rate edit. `lastTypedTarget` holds that original typed value; it is
+  // only meaningful while `lastEditedSide === "out"`.
+  const [lastEditedSide, setLastEditedSide] = useState<"in" | "out">("in");
+  const [lastTypedTarget, setLastTypedTarget] = useState<number | null>(null);
   const [rates, setRates] = useState<CurrencyRate[]>([]);
   // Raw `exchange_rates` rows — kept alongside `rates` because
   // toCurrencyRates() narrows to CurrencyRate and drops `updated_at`, which
@@ -440,6 +472,11 @@ export default function Exchange() {
   useEffect(() => {
     setCustomRates({});
     setRateOverridden({});
+    // A typed target from the previous currency pair has no meaning for the
+    // new one — fall back to forward mode (rule 25 family: never let a
+    // stale value from a prior selection silently keep driving state).
+    setLastEditedSide("in");
+    setLastTypedTarget(null);
   }, [fromCurrency, toCurrency]);
 
   /**
@@ -462,7 +499,7 @@ export default function Exchange() {
         const cr = effectiveRates.find(
           (r) =>
             r.to_code ===
-            (leg.fromCurrency === "USD" ? leg.toCurrency : leg.fromCurrency),
+            legOverrideCurrency(i, isCross, fromCurrency, toCurrency),
         );
         if (!cr) return leg;
 
@@ -514,8 +551,7 @@ export default function Exchange() {
         const leg2 = legs[1];
         const cr = effectiveRates.find(
           (r) =>
-            r.to_code ===
-            (leg2.fromCurrency === "USD" ? leg2.toCurrency : leg2.fromCurrency),
+            r.to_code === legOverrideCurrency(1, isCross, fromCurrency, toCurrency),
         );
         const rate2 = rateOverridden[1]
           ? parseFloat(customRates[1] ?? "") || leg2.rate
@@ -552,7 +588,11 @@ export default function Exchange() {
       const totalProfitUsd = legs.reduce((s, l) => s + l.profitUsd, 0);
       return { ...base, legs, totalAmountOut, totalProfitUsd };
     },
-    [customRates, rateOverridden, effectiveRates],
+    // fromCurrency/toCurrency were added when the per-leg override-currency
+    // lookup moved onto the shared `legOverrideCurrency` helper (rule 14,
+    // FIX ROUND 1) — it now closes over the page's selected currencies
+    // rather than only over the already-computed leg objects.
+    [customRates, rateOverridden, effectiveRates, fromCurrency, toCurrency],
   );
 
   // Effective result (base calc + any custom rate overrides)
@@ -914,6 +954,47 @@ export default function Exchange() {
     setFromCurrency(toCurrency);
     setToCurrency(prev);
     setAmountIn(parseFloat(amountOut) || 0);
+    // LIRA-213 #20 FIX ROUND — reset in the SAME batch as the currency
+    // swap, not just via the [fromCurrency, toCurrency] effect below. That
+    // effect's reset lands a render later; on the render that lands FIRST,
+    // the override-recalc effect (deps include fromCurrency/toCurrency)
+    // would otherwise still see the stale lastEditedSide === "out" /
+    // lastTypedTarget from before the swap and overwrite the amountIn set
+    // above using the NEW (post-swap) currencies against the OLD typed
+    // target — a mismatched-currency recalculation. Setting these here,
+    // batched with the rest, means every effect this commit already sees
+    // lastEditedSide === "in".
+    setLastEditedSide("in");
+    setLastTypedTarget(null);
+  };
+
+  // LIRA-213 #20 FIX ROUND 2 (selector-change-race) — same reasoning as
+  // handleSwap just above: a currency picked from either CurrencySelector
+  // must reset the reverse-mode driver in the SAME batch as the currency
+  // change, not rely on the separate `[fromCurrency, toCurrency]` reset
+  // effect a render later. Passive effects for a single commit all run
+  // with the closure captured at render time — the reset effect below
+  // firing first does NOT make the override re-derive effect (which also
+  // depends on fromCurrency/toCurrency) see the new lastEditedSide/
+  // lastTypedTarget, because that effect's closure was already created
+  // before the reset effect's setState calls are processed. Concretely:
+  // typing an LBP target, then changing "To" from LBP to EUR via the
+  // selector, let the override re-derive effect run with the STALE
+  // lastEditedSide === "out" and the OLD (LBP-denominated) lastTypedTarget
+  // against the NEW EUR rates — reinterpreting an LBP figure as EUR and
+  // overwriting `amountIn` with garbage. Resetting here, batched with the
+  // currency change itself, means every effect in the commit that follows
+  // already observes lastEditedSide === "in".
+  const handleFromCurrencySelect = (code: string) => {
+    setFromCurrency(code);
+    setLastEditedSide("in");
+    setLastTypedTarget(null);
+  };
+
+  const handleToCurrencySelect = (code: string) => {
+    setToCurrency(code);
+    setLastEditedSide("in");
+    setLastTypedTarget(null);
   };
 
   const handleProcess = async (lines?: PaymentLine[]) => {
@@ -1008,6 +1089,8 @@ export default function Exchange() {
         );
         setAmountIn(0);
         setAmountOut("");
+        setLastEditedSide("in");
+        setLastTypedTarget(null);
         setClientName("");
         setCalcResult(null);
         setLotPreview(null);
@@ -1045,6 +1128,128 @@ export default function Exchange() {
   const usdIsPayout = toCurrency === "USD";
   const lbpIsPayout = toCurrency === "LBP";
   const exoticIsPayout = !!toCurrency && !usdIsPayout && !lbpIsPayout;
+
+  // LIRA-213 #20 — rates with any active per-leg override substituted in,
+  // fed to the reverse helper below. Building this array is data plumbing
+  // only (rule 14): the actual rate math stays entirely inside
+  // @liratek/core (computeRate / convertToUSD / convertFromUSD, via
+  // calculateAmountInForTarget). This mirrors, for the reverse direction,
+  // the exact same leg→currency mapping applyCustomRates already uses for
+  // the forward direction above: leg 0 is the direct pair's non-USD
+  // currency (or the cross pair's fromCurrency), leg 1 is the cross pair's
+  // toCurrency.
+  const overrideAdjustedRates = useMemo<CurrencyRate[]>(() => {
+    const hasOverride = Object.keys(rateOverridden).some(
+      (k) => rateOverridden[Number(k)],
+    );
+    if (!hasOverride || !fromCurrency || !toCurrency) return effectiveRates;
+
+    const isCross = !!isCrossCurrency;
+    const legIndices = isCross ? [0, 1] : [0];
+    const legCurrency: { [i: number]: string } = {};
+    for (const i of legIndices) {
+      legCurrency[i] = legOverrideCurrency(i, isCross, fromCurrency, toCurrency);
+    }
+
+    return effectiveRates.map((r) => {
+      const legIdx = Object.entries(legCurrency).find(
+        ([, code]) => code === r.to_code,
+      )?.[0];
+      if (legIdx === undefined || !rateOverridden[Number(legIdx)]) return r;
+      const customRate = parseFloat(customRates[Number(legIdx)] ?? "");
+      if (isNaN(customRate) || customRate <= 0) return r;
+      return { ...r, buy_rate: customRate, sell_rate: customRate };
+    });
+  }, [
+    effectiveRates,
+    rateOverridden,
+    customRates,
+    isCrossCurrency,
+    fromCurrency,
+    toCurrency,
+  ]);
+
+  // Typing directly into the "Customer Gets" box for the SELECTED target
+  // currency (owner answer, LIRA-213 #20, Part A only): compute the exact
+  // amount the customer must hand over via the one core reverse helper, and
+  // write it into `amountIn` — the page's single source of truth. The
+  // existing forward pipeline (recalculate() + applyCustomRates(), both
+  // unchanged) then derives every downstream value — amountOut, legs,
+  // profit, the payout sheet, the lot preview, the submit payload — exactly
+  // as it already does for a forward-typed amount. Rule 22: ONE payload is
+  // ever built; this only changes what value feeds `amountIn` before that
+  // single pipeline runs. No rounding (owner answer): the exact float goes
+  // into `amountIn`, with no leftover to book into profit.
+  const handleTargetAmountChange = useCallback(
+    (typed: number) => {
+      if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) return;
+      setLastEditedSide("out");
+      if (!typed || typed <= 0) {
+        setLastTypedTarget(null);
+        setAmountIn(0);
+        return;
+      }
+      setLastTypedTarget(typed);
+      try {
+        const nextAmountIn = calculateAmountInForTarget(
+          fromCurrency,
+          toCurrency,
+          typed,
+          overrideAdjustedRates,
+        );
+        setAmountIn(nextAmountIn);
+        setCalcError(null);
+      } catch (err) {
+        logger.error("Reverse exchange calculation failed", err);
+        setCalcError(
+          err instanceof Error ? err.message : "Calculation error",
+        );
+      }
+    },
+    [fromCurrency, toCurrency, overrideAdjustedRates],
+  );
+
+  // Typing into "You Receive" is forward mode — it always wins over
+  // whatever the target box was last driving (rule 25 family: no stale
+  // driver silently persists past an explicit new input on the other side).
+  const handleAmountInChange = useCallback((value: number) => {
+    setLastEditedSide("in");
+    setLastTypedTarget(null);
+    setAmountIn(value);
+  }, []);
+
+  // LIRA-213 #20 FIX ROUND 1 (override-after-target-drift) — `amountIn` is
+  // the single source of truth, so editing a leg's rate override AFTER
+  // typing a target does nothing to `amountIn` on its own: `recalculate()`
+  // only reacts to amountIn/fromCurrency/toCurrency/effectiveRates, and the
+  // override is applied ON TOP of that by `applyCustomRates` — so without
+  // this effect, "Customer Gets" would silently drift off the cashier's
+  // typed target the instant they adjust a rate while a reverse-typed
+  // target is still active (e.g. 50 EUR → 49.6 EUR, LIRA-213 #20 fix-round
+  // finding). Re-run the SAME reverse helper against the ORIGINAL typed
+  // target whenever the override-adjusted rates change, for as long as the
+  // target box (not "You Receive") is still the one driving —
+  // `handleAmountInChange` flips `lastEditedSide` back to "in" and this
+  // effect stops firing until the cashier types a target again.
+  useEffect(() => {
+    if (lastEditedSide !== "out" || lastTypedTarget === null) return;
+    if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) return;
+    try {
+      const nextAmountIn = calculateAmountInForTarget(
+        fromCurrency,
+        toCurrency,
+        lastTypedTarget,
+        overrideAdjustedRates,
+      );
+      setAmountIn(nextAmountIn);
+      setCalcError(null);
+    } catch (err) {
+      logger.error(
+        "Reverse exchange recalculation on rate override failed",
+        err,
+      );
+    }
+  }, [overrideAdjustedRates, lastEditedSide, lastTypedTarget, fromCurrency, toCurrency]);
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
@@ -1088,7 +1293,7 @@ export default function Exchange() {
                   </span>
                   <CurrencySelector
                     selected={fromCurrency}
-                    onSelect={setFromCurrency}
+                    onSelect={handleFromCurrencySelect}
                     options={currencyOptions}
                   />
                 </div>
@@ -1107,7 +1312,7 @@ export default function Exchange() {
                   </span>
                   <CurrencySelector
                     selected={toCurrency}
-                    onSelect={setToCurrency}
+                    onSelect={handleToCurrencySelect}
                     options={currencyOptions}
                   />
                 </div>
@@ -1421,7 +1626,7 @@ export default function Exchange() {
                     </span>
                     <DecimalInput
                       value={amountIn}
-                      onChange={setAmountIn}
+                      onChange={handleAmountInChange}
                       decimals={getDecimals(fromCurrency)}
                       className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-14 pr-4 py-4 text-xl font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors"
                       placeholder="0.00"
@@ -1458,24 +1663,17 @@ export default function Exchange() {
                       data-testid="exchange-exotic-payout"
                       className="relative mb-2"
                     >
-                      <input
-                        type="text"
-                        value={
-                          effectiveResult
-                            ? effectiveResult.totalAmountOut.toLocaleString(
-                                undefined,
-                                {
-                                  minimumFractionDigits:
-                                    getDecimals(toCurrency),
-                                  maximumFractionDigits:
-                                    getDecimals(toCurrency),
-                                },
-                              )
-                            : ""
-                        }
-                        readOnly
-                        className="w-full rounded-lg pl-4 pr-16 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/80 border border-violet-500/50 text-white"
+                      {/* LIRA-213 #20 (owner answer, Part A only) — the
+                      payout box for the SELECTED target currency is
+                      typeable; exact figure, no rounding. */}
+                      <DecimalInput
+                        value={parseFloat(amountOut) || 0}
+                        onChange={handleTargetAmountChange}
+                        decimals={getDecimals(toCurrency)}
+                        zeroAsEmpty
+                        className="w-full rounded-lg pl-4 pr-16 py-4 text-xl font-bold bg-slate-800/80 border border-violet-500/50 text-white focus:outline-none focus:border-violet-400 transition-colors"
                         placeholder="0.00"
+                        data-testid="exchange-target-exotic-input"
                       />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-violet-300">
                         {toCurrency}
@@ -1499,27 +1697,36 @@ export default function Exchange() {
                       >
                         $
                       </span>
-                      <input
-                        type="text"
-                        value={
-                          outputDual
-                            ? `${usdIsPayout ? "" : "≈ "}${outputDual.usd.toLocaleString(
-                                undefined,
-                                {
+                      {usdIsPayout ? (
+                        // LIRA-213 #20 (owner answer, Part A only) — typeable
+                        // only for the currency actually handed over; the
+                        // dimmed "≈" box below stays display-only.
+                        <DecimalInput
+                          value={parseFloat(amountOut) || 0}
+                          onChange={handleTargetAmountChange}
+                          decimals={getDecimals("USD")}
+                          zeroAsEmpty
+                          className="w-full rounded-lg pl-9 pr-12 py-4 text-xl font-bold bg-slate-800/80 border border-violet-500/50 text-white focus:outline-none focus:border-violet-400 transition-colors"
+                          placeholder="0.00"
+                          data-testid="exchange-target-usd-input"
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={
+                            outputDual
+                              ? `≈ ${outputDual.usd.toLocaleString(undefined, {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
-                                },
-                              )}`
-                            : ""
-                        }
-                        readOnly
-                        className={`w-full rounded-lg pl-9 pr-12 py-4 text-xl font-bold cursor-not-allowed ${
-                          usdIsPayout
-                            ? "bg-slate-800/80 border border-violet-500/50 text-white"
-                            : "bg-slate-800/40 border border-slate-700/60 text-slate-500"
-                        }`}
-                        placeholder="0.00"
-                      />
+                                })}`
+                              : ""
+                          }
+                          readOnly
+                          className="w-full rounded-lg pl-9 pr-12 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/40 border border-slate-700/60 text-slate-500"
+                          placeholder="0.00"
+                          data-testid="exchange-dimmed-usd-input"
+                        />
+                      )}
                       <span
                         className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
                           usdIsPayout ? "text-violet-300" : "text-slate-600"
@@ -1535,21 +1742,33 @@ export default function Exchange() {
 
                     {/* LBP output */}
                     <div className="relative flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={
-                          outputDual
-                            ? `${lbpIsPayout ? "" : "≈ "}${Math.round(outputDual.lbp).toLocaleString()}`
-                            : ""
-                        }
-                        readOnly
-                        className={`w-full rounded-lg pl-4 pr-12 py-4 text-xl font-bold cursor-not-allowed ${
-                          lbpIsPayout
-                            ? "bg-slate-800/80 border border-violet-500/50 text-white"
-                            : "bg-slate-800/40 border border-slate-700/60 text-slate-500"
-                        }`}
-                        placeholder="0"
-                      />
+                      {lbpIsPayout ? (
+                        // LIRA-213 #20 (owner answer, Part A only) — typeable
+                        // only for the currency actually handed over; the
+                        // dimmed "≈" box above stays display-only.
+                        <DecimalInput
+                          value={parseFloat(amountOut) || 0}
+                          onChange={handleTargetAmountChange}
+                          decimals={getDecimals("LBP")}
+                          zeroAsEmpty
+                          className="w-full rounded-lg pl-4 pr-12 py-4 text-xl font-bold bg-slate-800/80 border border-violet-500/50 text-white focus:outline-none focus:border-violet-400 transition-colors"
+                          placeholder="0"
+                          data-testid="exchange-target-lbp-input"
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={
+                            outputDual
+                              ? `≈ ${Math.round(outputDual.lbp).toLocaleString()}`
+                              : ""
+                          }
+                          readOnly
+                          className="w-full rounded-lg pl-4 pr-12 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/40 border border-slate-700/60 text-slate-500"
+                          placeholder="0"
+                          data-testid="exchange-dimmed-lbp-input"
+                        />
+                      )}
                       <span
                         className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
                           lbpIsPayout ? "text-violet-300" : "text-slate-600"

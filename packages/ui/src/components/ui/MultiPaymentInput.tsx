@@ -77,7 +77,24 @@ export interface MultiPaymentInputProps {
    *  deactivated (or no longer overpaid). While active, onReturnChange
    *  emits [] — no OUT legs; the caller stamps the kept amounts as profit
    *  (profit_usd/profit_lbp) on the transaction it creates. */
-  onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
+  onKeptChange?: (
+    kept: {
+      usd: number;
+      lbp: number;
+      /** Unrounded excess `allocatePayments` actually computed (rate
+       *  0.056179775280899236, not the $0.06 `usd` above rounds to). A
+       *  consumer that does further cross-currency ARITHMETIC with the
+       *  kept amount — e.g. debt-reduction netting — MUST use this, not
+       *  the currency-rounded `usd`/`lbp` display figures: rounding kept
+       *  change to USD cents before converting the LBP remainder at the
+       *  day's rate manufactures a several-hundred-LBP residual (owner
+       *  note #8, 2026-09-23). A consumer that only DISPLAYS or forwards
+       *  the kept amount to the backend as a profit stamp should keep
+       *  using `usd`/`lbp` — that rounding is correct there. */
+      exactUsd: number;
+      exactLbp: number;
+    } | null,
+  ) => void;
   requiresClientForDebt?: boolean;
   hasClient?: boolean;
   onExchangeRateChange?: (rate: number) => void;
@@ -1004,35 +1021,33 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOverpaid, overpaidTarget, totalAmountCurrency, smartSplitOverpay]);
 
-  // CASH return handlers: entering one currency auto-fills the other with the remainder.
+  // CASH return handlers. Each field holds exactly what the operator typed
+  // into IT — editing one never rewrites the other (owner note, 2026-09-24:
+  // "the two change-return fields must stop overwriting each other, so
+  // '40$ + 10,000 LBP' can be entered"). Before this fix, each handler
+  // recomputed the OTHER field from the remaining overpay, so typing "40" in
+  // USD then "10000" in LBP would silently rewrite USD back down to whatever
+  // was left over — the operator's own second keystroke undid the first.
+  // The auto-init effect above still seeds a sensible starting split the
+  // moment an overpay appears (and re-seeds if the overpay amount changes).
+  //
+  // Fix-round finding #4 (2026-09-24): dropping the recompute also dropped
+  // the only mechanism that kept sum(return legs) == the overpaid amount.
+  // Rather than resurrect a same-keystroke auto-fill (which would silently
+  // overwrite a field the operator seeded a moment earlier — exactly the
+  // bug this fix removes, and exactly what the "independent" tests below
+  // pin), the invariant is restored as a visible check instead:
+  // `hasReturnMismatch`/`returnMismatch` (computed below, next to
+  // `parsedReturnUSD`/`parsedReturnLBP`) compares the two fields' sum
+  // against `overpaidTarget` and renders a warning — over or under — the
+  // moment they disagree, so a bad combination is flagged rather than
+  // silently accepted.
   const handleReturnUSDChange = (raw: string) => {
     setReturnAmountUSD(raw);
-    const parsed = parseNum(raw);
-    const overpaidUSD =
-      totalAmountCurrency === "USD"
-        ? overpaidTarget
-        : overpaidTarget / effectiveRate;
-    const remaining = overpaidUSD - parsed;
-    if (remaining > 0.005) {
-      setReturnAmountLBP(String(Math.round(remaining * effectiveRate)));
-    } else {
-      setReturnAmountLBP("");
-    }
   };
 
   const handleReturnLBPChange = (raw: string) => {
     setReturnAmountLBP(raw);
-    const parsed = parseNum(raw);
-    const overpaidUSD =
-      totalAmountCurrency === "USD"
-        ? overpaidTarget
-        : overpaidTarget / effectiveRate;
-    const remaining = overpaidUSD - parsed / effectiveRate;
-    if (remaining > 0.005) {
-      setReturnAmountUSD(remaining.toFixed(2));
-    } else {
-      setReturnAmountUSD("");
-    }
   };
 
   /** Convert a value from totalAmountCurrency into an arbitrary currency. */
@@ -1051,6 +1066,23 @@ export default function MultiPaymentInput({
 
   const parsedReturnUSD = parseNum(returnAmountUSD);
   const parsedReturnLBP = parseNum(returnAmountLBP);
+
+  // Fix-round finding #4 (2026-09-24): the two return fields are fully
+  // independent (handlers above never rewrite one from the other), so
+  // nothing upstream guarantees sum(return legs) == overpaidTarget once the
+  // operator edits either field away from its auto-seeded value. Flag —
+  // rather than silently allow — a return that doesn't add up, converting
+  // both fields into totalAmountCurrency so an LBP-denominated job (e.g.
+  // Whish/iPick) is compared correctly too.
+  const returnTotalInTargetCurrency = isOverpaid
+    ? convertSafe(parsedReturnUSD, "USD", totalAmountCurrency) +
+      convertSafe(parsedReturnLBP, "LBP", totalAmountCurrency)
+    : 0;
+  const returnMismatch =
+    effectiveReturnMethod === "CASH" && isOverpaid && !keepChange
+      ? returnTotalInTargetCurrency - overpaidTarget
+      : 0;
+  const hasReturnMismatch = Math.abs(returnMismatch) > matchTolerance;
 
   // Array of shop→customer change legs (up to 2 for CASH, 0-1 for non-CASH).
   const suggestedReturnLegs: PaymentLine[] = (() => {
@@ -1113,9 +1145,10 @@ export default function MultiPaymentInput({
   // amounts corrupt per-currency netting downstream (caught by lira-107's
   // failing-first run: a kept 100,000 LBP reported as $1.12 became a phantom
   // client credit).
-  const { keptUsd, keptLbp } = (() => {
-    if (!keepChange) return { keptUsd: 0, keptLbp: 0 };
-    const { change } = allocatePayments({
+  const { keptUsd, keptLbp, keptUsdExact, keptLbpExact } = (() => {
+    if (!keepChange)
+      return { keptUsd: 0, keptLbp: 0, keptUsdExact: 0, keptLbpExact: 0 };
+    const allocationInput = {
       totals: effectiveTotals,
       payments: paymentLines.map((l) => ({
         amount: Math.max(0, l.amount || 0),
@@ -1123,15 +1156,41 @@ export default function MultiPaymentInput({
       })),
       rates: internalRates,
       side,
+    };
+    const { change } = allocatePayments(allocationInput);
+    // Exact (unrounded) companion — a consumer doing further cross-currency
+    // ARITHMETIC with the kept amount (e.g. debt-reduction netting) must
+    // use this, never the currency-rounded `keptUsd`/`keptLbp` below:
+    // rounding kept change to USD cents before converting the LBP
+    // remainder at the day's rate manufactures a several-hundred-LBP
+    // residual (owner note #8, 2026-09-23). See the `onKeptChange` prop
+    // doc above for which consumers want which.
+    const { change: exactChange } = allocatePayments(allocationInput, {
+      round: false,
     });
     return {
       keptUsd: change.find((m) => m.currency === "USD")?.amount ?? 0,
       keptLbp: change.find((m) => m.currency === "LBP")?.amount ?? 0,
+      keptUsdExact:
+        exactChange.find((m) => m.currency === "USD")?.amount ?? 0,
+      keptLbpExact:
+        exactChange.find((m) => m.currency === "LBP")?.amount ?? 0,
     };
   })();
-  const keptKey = keepChange ? `${keptUsd}:${keptLbp}` : "off";
+  const keptKey = keepChange
+    ? `${keptUsd}:${keptLbp}:${keptUsdExact}:${keptLbpExact}`
+    : "off";
   useEffect(() => {
-    onKeptChange?.(keepChange ? { usd: keptUsd, lbp: keptLbp } : null);
+    onKeptChange?.(
+      keepChange
+        ? {
+            usd: keptUsd,
+            lbp: keptLbp,
+            exactUsd: keptUsdExact,
+            exactLbp: keptLbpExact,
+          }
+        : null,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keptKey]);
 
@@ -1993,7 +2052,22 @@ export default function MultiPaymentInput({
                   </span>
                 </div>
               </div>
-            ) : (
+            ) : null}
+            {/* Fix-round finding #4 (2026-09-24): the two return fields
+            never rewrite each other, so nothing else guarantees they still
+            add up to the overpaid amount once the operator edits either one
+            — flag it instead of silently over- or under-returning. */}
+            {effectiveReturnMethod === "CASH" && hasReturnMismatch && (
+              <p
+                data-testid="return-mismatch-warning"
+                className="text-[11px] text-red-400 mt-1"
+              >
+                {returnMismatch > 0
+                  ? `Returning ${convertSafe(returnMismatch, totalAmountCurrency, "USD").toFixed(2)}$ more than the customer overpaid.`
+                  : `${convertSafe(-returnMismatch, totalAmountCurrency, "USD").toFixed(2)}$ of the change is not covered by these fields yet.`}
+              </p>
+            )}
+            {effectiveReturnMethod !== "CASH" && (
               /* Non-CASH: currency dropdown + derived read-only amount */
               <div className="flex items-center gap-1.5 justify-end">
                 {currencies.length > 1 && (

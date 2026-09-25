@@ -19,6 +19,7 @@
 import {
   MODULE_DEBT_TRANSACTION_TYPES,
   NON_REVERSIBLE_TRANSACTION_TYPES,
+  SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES,
   type TransactionStatus,
   type TransactionType,
 } from "../constants/transactionTypes.js";
@@ -60,7 +61,11 @@ const ACCOUNT_CHARGE_PREDICATE = "transaction_type <> 'Refund Reversal'";
 // reversal (`_reverseSessionPooledPayments`) — reused (rule 14) both to write
 // the row and to detect "this basket's pooled cash was already reversed"
 // (`_assertSessionBasketReversible`), so the two never drift out of sync.
-const SESSION_BASKET_REVERSAL_NOTE = "Basket reversal";
+// Exported (LPAY-V1, OWNER_NOTES_2026-09-21.md §6.5 PA-3.5 review round 3) so
+// ProfitRepository.getPaymentMethodRows can build the SAME "has this session
+// basket already been voided/refunded" predicate `_assertSessionBasketReversible`
+// uses, instead of hand-copying the literal note string a second time (rule 14).
+export const SESSION_BASKET_REVERSAL_NOTE = "Basket reversal";
 
 // =============================================================================
 // Types
@@ -156,7 +161,13 @@ export const CREDIT_RETURN_LEG_METHOD = "CREDIT_RETURN";
  * provider-side float, so their legs ARE customer cash and must stay visible.
  */
 // Marker methods used for internal (non-customer) ledger rows.
-const INTERNAL_LEG_METHODS = new Set([
+// Exported (LIRA — PA-3.5, OWNER_NOTES_2026-09-21.md §6.3) so
+// ProfitRepository.getPaymentMethodRows can build its own exclusion set from
+// this SAME canonical list instead of hand-copying a second one that silently
+// drifts out of sync with it (rule 14) — that drift is exactly what let a
+// voided expense's mirrored TRANSFER/CREDIT_RETURN/CREDIT_USED/SMS_COST/
+// PM_FEE leg re-surface as a bogus "payment method" row on the Profits page.
+export const INTERNAL_LEG_METHODS = new Set([
   "COMMISSION", // reporting-only fee row (zero delta)
   "PM_FEE", // payment-method fee audit row
   "TRANSFER", // shop→system drawer transfer leg
@@ -173,6 +184,23 @@ const INTERNAL_LEG_METHODS = new Set([
   "CREDIT_USED", // on-account charge (also lives in debt_ledger)
   "SMS_COST", // telecom SMS cost consumed from the provider stock drawer
   "LINE_CREDIT", // carrier-line usage expense (LIRA-145): internal credit-stock consumption, no customer cash
+  // LPAY-V3 (OWNER_NOTES_2026-09-21.md §6.5 PA-3.5 review, round 3): a
+  // WalletExchangeRepository conversion (OMT_App/Whish_App wallet, never a
+  // customer) posts method "WALLET_EXCHANGE" on both its legs — the shop
+  // converting its own wallet currency, same "never customer tender" shape
+  // as DRAWER_TRANSFER above. It does NOT belong in this SHARED set, though:
+  // `isInternalLegJs` (built from this Set) also feeds `isOverridableLeg`
+  // (via `!isInternalLegJs(p) && isDrawerAffectingMethod(p.method)`), which
+  // gates the LIRA-078 refund-tender-override money path
+  // (`_validateRefundLegOverride`/`_reversePayments`) — a reporting-only fix
+  // has no business changing what a refund override treats as
+  // customer-facing. The Profits "By Payment" report's own exclusion now
+  // lives in `ProfitRepository.ts`'s `PAYMENT_REPORT_ONLY_EXCLUSIONS`
+  // instead — see that file's comment, and
+  // `TransactionRepository.walletExchangeRefundOverride.test.ts` for the
+  // verified (not assumed) proof that removing it from here leaves the
+  // refund-override path byte-identical either way in the shape the running
+  // app actually uses.
 ]);
 // Provider stock / reserve drawers — value the SHOP holds with a provider
 // (telecom credit stock, app balance), never customer cash. Customer WALLET
@@ -181,7 +209,52 @@ const INTERNAL_LEG_METHODS = new Set([
 // OMT_System / Whish_System are ALSO intentionally NOT here (Primary Cash
 // Drawer plan §2#4) — they are the primary cash drawer (PCD), real
 // customer-facing cash, not a provider stock/reserve drawer.
-const PROVIDER_STOCK_DRAWERS = new Set(["MTC", "Alfa", "Katsh", "iPick"]);
+// Exported (LPAY-V2, OWNER_NOTES_2026-09-21.md §6.5 PA-3.5 review round 3) so
+// ProfitRepository.getPaymentMethodRows can exclude a provider-stock leg (the
+// TELECOM_CREDIT_BUYBACK/TELECOM_SELF_CHARGE credit legs, a bills-only
+// settlement's commission drawer top-up, ...) by DRAWER rather than by
+// method — those legs' `method` value is often the provider code itself
+// (e.g. "MTC", "Alfa", "SELF_CHARGE"), which the report's own method-only
+// exclusion list can never enumerate exhaustively (rule 14: reuse this ONE
+// drawer set instead of guessing at every method literal that might target
+// it).
+export const PROVIDER_STOCK_DRAWERS = new Set([
+  "MTC",
+  "Alfa",
+  "Katsh",
+  "iPick",
+]);
+
+/**
+ * SQL mirror of `_assertSessionBasketReversible`'s two existence checks
+ * (rule 14 — same predicate, reused instead of re-derived): TRUE when the
+ * session basket referenced by `${sessionIdCol}` (on tenant
+ * `${tenantIdCol}`) has NOT already been voided/refunded — i.e. neither its
+ * pooled-leg reversal (`SESSION_BASKET_REVERSAL_NOTE`) nor its debt
+ * 'Refund Reversal' row exists yet. `_assertSessionBasketReversible` itself
+ * stays untouched (two separate throws, each with its own message) — this
+ * is a NEW, additive consumer of the SAME note constant and the SAME two
+ * conditions, not a refactor of that method, so the void/refund money path
+ * it guards is provably unchanged (LPAY-V1's report-only invariant).
+ */
+export function sessionBasketNotReversedSql(
+  sessionIdCol: string,
+  tenantIdCol: string,
+): string {
+  return `NOT EXISTS (
+      SELECT 1 FROM payments rp
+      WHERE rp.session_id = ${sessionIdCol}
+        AND rp.transaction_id IS NULL
+        AND rp.note = '${SESSION_BASKET_REVERSAL_NOTE}'
+        AND rp.tenant_id = ${tenantIdCol}
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM debt_ledger rd
+      WHERE rd.session_id = ${sessionIdCol}
+        AND rd.transaction_type = 'Refund Reversal'
+        AND rd.tenant_id = ${tenantIdCol}
+    )`;
+}
 // Customer cash is always denominated in one of these; USDT/crypto legs are internal.
 const CUSTOMER_CASH_CURRENCIES = new Set(["USD", "LBP"]);
 
@@ -443,20 +516,45 @@ export interface TransactionWithUser extends TransactionEntity {
   /**
    * Structured in/out payment legs joined from the `payments` table (LIRA-064).
    * Computed read-only; never persisted into the stored `summary` text.
-   * For session rows with no own customer-cash legs, the session's basket legs
-   * are attached instead (same legs on every row in that session).
+   * ALWAYS this row's OWN legs only — empty when it has none (LIRA-201b).
+   * Before LIRA-201b a session member with no own legs inherited the WHOLE
+   * basket's legs here, which printed the same pooled in/out on every row of
+   * a session (owner-reported duplicate summary). The pooled legs are now
+   * exposed separately, see `session_payments` below.
    */
   payments: TransactionPaymentLeg[];
   /**
-   * CUSTOMER_ACCOUNT (on-account) legs of a session basket, sourced from
-   * `debt_ledger` rather than `payments` — a CUSTOMER_ACCOUNT settlement never
-   * touches a drawer, so `SessionPaymentService.recordBasketPayment` deliberately
-   * skips writing a `payments` row for it (see that file's non-drawer branch).
+   * CUSTOMER_ACCOUNT (on-account) legs charged directly against THIS
+   * transaction (not a session basket), sourced from `debt_ledger` rather
+   * than `payments` — a CUSTOMER_ACCOUNT settlement never touches a drawer,
+   * so `SessionPaymentService.recordBasketPayment` deliberately skips
+   * writing a `payments` row for it (see that file's non-drawer branch).
    * Kept SEPARATE from `payments` (rather than merged in) so the cash-only
    * `in:/out:` summary keeps its existing meaning; only method-display code
-   * should read this field. Same session-wide attachment as basket legs.
+   * should read this field. Always absent for a session-basket row — its
+   * on-account charge, if any, is pooled into `session_account_payments`
+   * instead (LIRA-201b), never duplicated here.
    */
   account_payments?: TransactionPaymentLeg[];
+  /**
+   * LIRA-201b — the WHOLE session basket's pooled cash legs (the same
+   * `payments` rows `basketLegsBySession` joins below), present on EVERY
+   * row belonging to a session that has any (member rows AND the row that
+   * happens to hold its own legs alike). Distinct from `payments`, which is
+   * always this one row's own legs — the two used to be conflated (see that
+   * field's doc). The Transactions viewer reads this field to render the
+   * pooled in/out and payment detail ONCE, on a single session-group header
+   * row, while every member's own `payments`/Amount column stays row-scoped.
+   * Never fed into a void/refund/money computation — display only.
+   */
+  session_payments?: TransactionPaymentLeg[];
+  /**
+   * LIRA-201b — the session-basket analogue of `session_payments`, for the
+   * pooled CUSTOMER_ACCOUNT settlement of the basket (same source query as
+   * the old per-row `account_payments` inheritance). See `session_payments`'
+   * doc for why this is separate from the per-row `account_payments` field.
+   */
+  session_account_payments?: TransactionPaymentLeg[];
   /**
    * LIRA-205 — net telecom credit returned to the shop on this transaction
    * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), in USD. Only
@@ -922,14 +1020,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       byTxn.set(p.transaction_id, legs);
     }
 
-    // Session-basket fallback: rows that belong to a session but carry no own
-    // customer-cash legs inherit the session's basket legs (the ONE basket
-    // payment posted with session_id set, transaction_id NULL). One IN(...)
-    // query batch-loads every distinct session, keeping this O(1) round-trips.
+    // Session-basket pooled legs: EVERY row belonging to a session gets the
+    // session's basket legs attached as `session_payments`/
+    // `session_account_payments` (below), regardless of whether that row also
+    // carries its own customer-cash legs in `payments` — a session member with
+    // an own leg (e.g. a linked exchange) still needs the pooled total so the
+    // UI can render it once, on whichever row it picks as the group header
+    // (TransactionsViewer.tsx). One IN(...) query batch-loads every distinct
+    // session, keeping this O(1) round-trips.
     const sessionIds = Array.from(
       new Set(
         rows
-          .filter((r) => r.session_id != null && !byTxn.has(r.id))
+          .filter((r) => r.session_id != null)
           .map((r) => r.session_id as number),
       ),
     );
@@ -1015,20 +1117,30 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
 
     for (const row of rows) {
+      // LIRA-201b: `payments` is always this row's OWN legs only — never the
+      // basket's pooled legs (that duplicated the same in/out on every
+      // session member; see the field's doc comment). Pooled legs go on
+      // `session_payments`/`session_account_payments` below instead, on
+      // every row of the session so the viewer can pick whichever member is
+      // currently visible to carry the group header (survives sorting/
+      // filtering — TransactionsViewer.tsx).
       const own = byTxn.get(row.id);
-      if (own && own.length > 0) {
-        row.payments = own;
-      } else if (row.session_id != null) {
-        row.payments = basketLegsBySession.get(row.session_id) ?? [];
+      row.payments = own && own.length > 0 ? own : [];
+
+      if (row.session_id != null) {
+        const basketLegs = basketLegsBySession.get(row.session_id);
+        if (basketLegs && basketLegs.length > 0) {
+          row.session_payments = basketLegs;
+        }
+        const basketAccountLegs = accountLegsBySession.get(row.session_id);
+        if (basketAccountLegs && basketAccountLegs.length > 0) {
+          row.session_account_payments = basketAccountLegs;
+        }
       } else {
-        row.payments = [];
-      }
-      const accountLegs =
-        row.session_id != null
-          ? accountLegsBySession.get(row.session_id)
-          : accountLegsByTxn.get(row.id);
-      if (accountLegs && accountLegs.length > 0) {
-        row.account_payments = accountLegs;
+        const accountLegs = accountLegsByTxn.get(row.id);
+        if (accountLegs && accountLegs.length > 0) {
+          row.account_payments = accountLegs;
+        }
       }
       // LIRA-205 — conditional assignment only: never `= undefined`, so a
       // row with no CREDIT_RETURN leg has no key at all (absent, not 0).
@@ -1422,15 +1534,30 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   }
 
   /**
-   * Reverse the ONE pooled `debt_ledger` 'Session Debt' row a basket's
-   * CUSTOMER_ACCOUNT (+ GIFT_CARD) portion was booked as
-   * (`SessionPaymentRepository.insertBasketDebt`, `session_id` set,
-   * `transaction_id` NULL) — closes the gap the constant's own doc comment
-   * (`transactionTypes.ts`) named but never implemented: "'Session Debt' ...
-   * is reversed by the session flow, not the generic path." No drawer is
-   * touched here — an on-account charge took no cash, so its reversal is
-   * ledger-only, exactly like `_cancelDebt`'s generic pattern for every other
-   * module-charge debt type (rule 14 — same 'Refund Reversal' insert shape).
+   * Reverse the pooled `debt_ledger` rows a basket's non-cash portions were
+   * booked as, each `session_id` set / `transaction_id` NULL (no single item
+   * owns pooled money, mirroring `_reverseSessionPooledPayments`):
+   *
+   * - 'Session Debt': the CUSTOMER_ACCOUNT (+ GIFT_CARD) CHARGE side
+   *   (`SessionPaymentRepository.insertBasketDebt`) — closes the gap the
+   *   constant's own doc comment (`transactionTypes.ts`) named but never
+   *   implemented: "'Session Debt' ... is reversed by the session flow, not
+   *   the generic path."
+   * - 'CREDIT_DEPOSIT': the PAYOUT/change-to-account side (LIRA-201c,
+   *   `SessionPaymentService`'s "OUT on account" branch → `DebtService
+   *   .addCredit({ sessionId })` → `DebtRepository.addCredit`, no
+   *   `transactionId`) — the rule-20 gap the owner named directly: without
+   *   this, a basket that sent a payout/change to the customer's account
+   *   left the credit behind on refund. `_cancelDebt` (the generic,
+   *   transaction_id-keyed reversal) structurally cannot see either shape —
+   *   both are pooled, not linked to any one item's transaction_id.
+   *
+   * No drawer is touched here — neither shape moved cash of its own (a
+   * CREDIT_DEPOSIT's cash, if any, went through the basket's pooled
+   * `payments` leg, reversed separately by
+   * `_reverseSessionPooledPayments`) — so both reversals are ledger-only,
+   * the SAME 'Refund Reversal' insert shape `_cancelDebt` uses for every
+   * other module-charge debt type (rule 14).
    */
   private _cancelSessionDebt(sessionId: number, userId: number): void {
     const tenantId = getCurrentTenantId();
@@ -1441,7 +1568,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       amount_lbp: number;
     }>(
       `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger
-       WHERE session_id = ? AND transaction_type = 'Session Debt' AND tenant_id = ?`,
+       WHERE session_id = ? AND transaction_id IS NULL
+         AND transaction_type IN ('Session Debt', 'CREDIT_DEPOSIT')
+         AND tenant_id = ?`,
       sessionId,
       tenantId,
     );
@@ -1491,6 +1620,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // This ticket's own guard — refuse up-front if its checkpoint has already
     // settled (see the method doc). No-op for every non-LOTO type.
     this._assertLotoTicketVoidable(original);
+    // LIRA-201c — same up-front refusal for a LOTO_CASH_PRIZE basket member
+    // whose prize was already reimbursed or its checkpoint settled. No-op
+    // for every other type (including a solo LOTO_CASH_PRIZE, which never
+    // reaches here — _assertReversible already threw above).
+    this._assertLotoCashPrizeVoidable(original);
     const tenantId = getCurrentTenantId();
     // A transaction that already has an ACTIVE REFUND reverser had its cash
     // reversed once — voiding it too would double-reverse the drawers.
@@ -1609,6 +1743,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // already refused by _assertLotoTicketVoidable before this transaction
       // opened.
       this._reverseLotoSupplierLedger(original);
+
+      // 5f1. LIRA-201c, rule 20 — if this transaction IS a LOTO_CASH_PRIZE
+      // basket member, soft-void its supplier_ledger CASH_PRIZE row, mark
+      // the prize voided, and delta-adjust its checkpoint (if still open).
+      // No-op for every other type (a solo LOTO_CASH_PRIZE never reaches
+      // this transaction() block — _assertReversible already threw).
+      this._reverseLotoCashPrize(original);
 
       // 5f2. LIRA-194, rule 20 — if this transaction IS a RECHARGE_TOPUP
       // (topUpFromSupplier), soft-void its link-mode supplier_ledger TOP_UP
@@ -1757,6 +1898,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // Same up-front settled-checkpoint guard as voidTransaction — see
     // _assertLotoTicketVoidable's doc. No-op for every non-LOTO type.
     this._assertLotoTicketVoidable(original);
+    // LIRA-201c — same up-front refusal as voidTransaction's identical step.
+    // No-op for every non-LOTO_CASH_PRIZE type.
+    this._assertLotoCashPrizeVoidable(original);
     const tenantId = getCurrentTenantId();
 
     // Guard: prevent double-refund
@@ -1873,6 +2017,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // See voidTransaction's identical step.
       this._reverseLotoSupplierLedger(original);
 
+      // 4f1. LIRA-201c, rule 20 — LOTO_CASH_PRIZE basket member: supplier
+      // CASH_PRIZE soft-void + voided flag + checkpoint delta-adjust. See
+      // voidTransaction's identical step.
+      this._reverseLotoCashPrize(original);
+
       // 4f2. LIRA-194, rule 20 — RECHARGE_TOPUP (topUpFromSupplier) link-mode
       // supplier_ledger soft-void. See voidTransaction's identical step.
       this._reverseSupplierLedgerByTransactionLink(original);
@@ -1937,10 +2086,23 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     } = {},
   ): void {
     if (NON_REVERSIBLE_TRANSACTION_TYPES.has(original.type)) {
-      throw new DatabaseError(
-        `${original.type} transactions cannot be voided or refunded — reverse them from their own module`,
-        { entityId: original.id },
-      );
+      // LIRA-201c: LOTO_CASH_PRIZE and KEPT_CHANGE stay blocked for a
+      // standalone void/refund (the throw below still fires for those), but
+      // a basket member gets a real reversal owner — see
+      // SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES' doc comment. Every
+      // OTHER NON_REVERSIBLE type (REFUND, CREDIT_CASH_IN/OUT, …) stays
+      // blocked even inside a basket — this bypass is scoped to exactly the
+      // two types with a dedicated basket-only owner, not to session
+      // membership in general.
+      const bypassable =
+        opts.allowSessionMember &&
+        SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES.has(original.type);
+      if (!bypassable) {
+        throw new DatabaseError(
+          `${original.type} transactions cannot be voided or refunded — reverse them from their own module`,
+          { entityId: original.id },
+        );
+      }
     }
     if (original.reverses_id != null) {
       throw new DatabaseError("Cannot void or refund a reversal transaction", {
@@ -4383,6 +4545,138 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         ticket.commission_amount,
         ticket.is_winner ? ticket.prize_amount : 0,
         ticket.checkpoint_id,
+        tenantId,
+      );
+    }
+  }
+
+  /**
+   * LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C), rule 20 — refuse a
+   * LOTO_CASH_PRIZE basket-member void/refund up-front (before any write) if
+   * the prize was already reimbursed by LOTO, or its checkpoint has already
+   * settled — mirroring `_assertLotoTicketVoidable`'s identical rationale
+   * (a settled checkpoint's frozen `total_cash_prizes` cannot be safely
+   * adjusted after the fact) plus the owner's own extra case for a prize:
+   * `LotoCashPrizeRepository.markCashPrizeReimbursed` can stamp
+   * `is_reimbursed = 1` independently of any checkpoint (a supplier
+   * settlement can mark specific prizes reimbursed directly), so BOTH gates
+   * are checked, with the SAME owner-worded message either way: "This prize
+   * was already settled with Loto on <date>. Fix it from the Loto page."
+   * Only ever reached via `allowSessionMember: true` — a solo
+   * LOTO_CASH_PRIZE never gets this far (`_assertReversible` still throws
+   * its generic NON_REVERSIBLE message first).
+   */
+  private _assertLotoCashPrizeVoidable(original: TransactionEntity): void {
+    if (
+      original.type !== "LOTO_CASH_PRIZE" ||
+      original.source_table !== "loto_cash_prizes" ||
+      original.source_id == null
+    ) {
+      return;
+    }
+    const tenantId = getCurrentTenantId();
+    const prize = this.queryOne<{
+      is_reimbursed: number;
+      reimbursed_date: string | null;
+      checkpoint_id: number | null;
+      is_settled: number | null;
+      checkpoint_date: string | null;
+    }>(
+      `SELECT p.is_reimbursed AS is_reimbursed, p.reimbursed_date AS reimbursed_date,
+              lc.id AS checkpoint_id, lc.is_settled AS is_settled, lc.checkpoint_date AS checkpoint_date
+         FROM loto_cash_prizes p
+         LEFT JOIN loto_checkpoints lc ON lc.id = p.checkpoint_id AND lc.tenant_id = p.tenant_id
+        WHERE p.id = ? AND p.tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    if (!prize) return;
+    if (prize.is_reimbursed) {
+      const when = prize.reimbursed_date ? ` on ${prize.reimbursed_date}` : "";
+      throw new DatabaseError(
+        `This prize was already settled with Loto${when}. Fix it from the Loto page.`,
+        { entityId: original.id },
+      );
+    }
+    if (prize.checkpoint_id != null && prize.is_settled) {
+      const when = prize.checkpoint_date ? ` on ${prize.checkpoint_date}` : "";
+      throw new DatabaseError(
+        `This prize was already settled with Loto${when}. Fix it from the Loto page.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /**
+   * LIRA-201c, rule 20 — reversal owner for a LOTO_CASH_PRIZE basket member
+   * (the "solo type can stay NON_REVERSIBLE" bypass — see
+   * `SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES`). Everything else a
+   * prize writes is handled generically once the NON_REVERSIBLE bypass
+   * applies: the `payments`/drawer leg (when the prize wasn't created under
+   * `deferPayment`) by `_reversePayments`. Two things have no generic owner:
+   *
+   * 1. Soft-void the `supplier_ledger` CASH_PRIZE row this prize created
+   *    (`LotoCashPrizeRepository.createCashPrize` writes it in LINK mode,
+   *    `transaction_id: txnId` — same convention `_reverseLotoSupplierLedger`
+   *    closes for a LOTO ticket's TOP_UP row, invisible to
+   *    `_cascadeSupplierSiblingVoid`/`_assertSupplierSiblingsVoidable`, which
+   *    only ever scan `is_auto = 1` rows).
+   * 2. Mark `loto_cash_prizes.voided = 1` (migration v181) so prize
+   *    totals/checkpoint gathering (`LotoCashPrizeRepository`'s
+   *    `NOT_VOIDED_CASH_PRIZE_SQL`-gated queries) stop counting it — the
+   *    owner's "Prize totals and checkpoints must exclude voided prizes".
+   *
+   * By the time this runs, `_assertLotoCashPrizeVoidable` has already
+   * refused an already-reimbursed prize or a settled checkpoint before
+   * `this.transaction()` even opened, so an unsettled checkpoint's totals
+   * are still safe to delta-adjust here — same shape as
+   * `_reverseLotoSupplierLedger`'s ticket-checkpoint delta-adjust.
+   */
+  private _reverseLotoCashPrize(original: TransactionEntity): void {
+    if (
+      original.type !== "LOTO_CASH_PRIZE" ||
+      original.source_table !== "loto_cash_prizes" ||
+      original.source_id == null
+    ) {
+      return;
+    }
+    const tenantId = getCurrentTenantId();
+
+    // 1. Soft-void the link-mode CASH_PRIZE row this prize created.
+    this.execute(
+      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+        WHERE transaction_id = ? AND entry_type = 'CASH_PRIZE' AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
+      original.id,
+      tenantId,
+    );
+
+    // 2. Mark the prize voided, and delta-adjust an unsettled checkpoint (a
+    // settled one was already blocked by _assertLotoCashPrizeVoidable
+    // before this transaction opened).
+    const prize = this.queryOne<{
+      checkpoint_id: number | null;
+      prize_amount: number;
+    }>(
+      `SELECT checkpoint_id, prize_amount FROM loto_cash_prizes WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    this.execute(
+      `UPDATE loto_cash_prizes
+          SET voided = 1, voided_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    if (prize?.checkpoint_id != null) {
+      this.execute(
+        `UPDATE loto_checkpoints
+            SET total_cash_prizes = total_cash_prizes - ?,
+                total_cash_prizes_count = total_cash_prizes_count - 1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND is_settled = 0 AND tenant_id = ?`,
+        prize.prize_amount,
+        prize.checkpoint_id,
         tenantId,
       );
     }

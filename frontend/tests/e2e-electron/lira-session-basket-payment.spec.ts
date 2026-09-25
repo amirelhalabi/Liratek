@@ -28,6 +28,16 @@ type TxnRow = {
     amount: number;
     currency_code: string;
   }>;
+  // LIRA-201b (owner note #11-B): the basket's ONE shared payment now lives
+  // here — on EVERY row of the session, identically — rather than being
+  // copied into each row's own `payments` (that was the owner-reported
+  // duplicate-summary bug; `payments` is always a row's OWN legs only, and
+  // both items here are deferred/no-own-leg, so it's empty on both).
+  session_payments?: Array<{
+    direction: "in" | "out";
+    amount: number;
+    currency_code: string;
+  }>;
 };
 
 type Api = {
@@ -114,10 +124,17 @@ test.describe("Session basket payment — one payment, posted once", () => {
       // Inspect the session's transaction rows + their (shared) basket legs.
       const recent = await w.api.transactions.getRecent(50);
       const sessionRows = recent.filter((t) => t.session_id === sessionId);
-      const inTotals = sessionRows.map((t) =>
-        (t.payments ?? [])
+      // LIRA-201b: the pooled basket total lives on `session_payments`
+      // (present, identically, on every row of the session) — `payments`
+      // itself is each row's OWN legs, empty here since both items are
+      // deferred/no-own-leg.
+      const pooledInTotals = sessionRows.map((t) =>
+        (t.session_payments ?? [])
           .filter((p) => p.direction === "in")
           .reduce((s, p) => s + p.amount, 0),
+      );
+      const ownPaymentsEmpty = sessionRows.every(
+        (t) => (t.payments ?? []).length === 0,
       );
 
       return {
@@ -125,7 +142,8 @@ test.describe("Session basket payment — one payment, posted once", () => {
         checkoutError: checkout.error ?? null,
         generalDelta: Math.round((afterGeneral - beforeGeneral) * 100) / 100,
         sessionRowCount: sessionRows.length,
-        inTotals,
+        pooledInTotals,
+        ownPaymentsEmpty,
       };
     });
 
@@ -138,8 +156,12 @@ test.describe("Session basket payment — one payment, posted once", () => {
 
     // Both items became their own session transaction…
     expect(result.sessionRowCount).toBe(2);
-    // …and every session row carries the SAME basket payment (in: $50).
-    for (const total of result.inTotals) {
+    // …neither item wrote its own leg (both deferred)…
+    expect(result.ownPaymentsEmpty).toBe(true);
+    // …and every session row carries the SAME pooled basket payment
+    // (session_payments in: $50), identically, regardless of which row a
+    // UI would pick as the one to display it on (sessionGroupHeaders.ts).
+    for (const total of result.pooledInTotals) {
       expect(total).toBeCloseTo(50, 2);
     }
   });

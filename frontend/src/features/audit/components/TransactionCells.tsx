@@ -21,8 +21,9 @@
  */
 import { isReceiptableRow } from "../receiptGating";
 import { isReversibleRow } from "../actionGating";
-import { formatPaymentLegs, extraCurrencyLegs } from "../cashFlow";
+import { formatPaymentLegs } from "../cashFlow";
 import {
+  cashLegsFor,
   checkpointPhysicalTotals,
   formatAmount,
   formatCheckpointAmounts,
@@ -30,6 +31,8 @@ import {
   getTypeColor,
   getTypeLabel,
   methodLegsFor,
+  sessionPooledCashLegsFor,
+  sessionPooledMethodLegsFor,
 } from "../transactionDisplay";
 import { CashFlowBadge } from "./CashFlowBadge";
 import type { RowDerived } from "../rowDerived";
@@ -72,10 +75,22 @@ export function SummaryCell({
   isLegDetailExpanded: boolean;
   onToggleLegDetail: (rowId: number) => void;
 }) {
-  const { tender, commissionAmount } = derived;
+  const { tender, commissionAmount, isGroupHeader } = derived;
   return (
     <td className="p-2">
       <div className="flex flex-col gap-0.5">
+        {/* LIRA-201b (owner note #11-B): the ONE row chosen to carry its
+            session's pooled in/out + payment detail gets a small marker so
+            the operator understands why this row's summary covers the
+            whole basket, not just this line item. */}
+        {isGroupHeader && (
+          <span
+            data-testid={`session-group-header-${row.session_id}`}
+            className="self-start text-[10px] font-medium text-sky-400"
+          >
+            Session #{row.session_id} — pooled basket total
+          </span>
+        )}
         <CashFlowBadge
           type={row.type}
           amountUsd={commissionAmount?.usd ?? tender?.usd ?? row.amount_usd}
@@ -101,15 +116,10 @@ export function SummaryCell({
           })()}
         {row.type !== "CHECKPOINT" &&
           (() => {
-            // Same merge as methodLegsFor's `payments` half, minus the
-            // on-account legs: this line is the CASH in/out summary, and
-            // a foreign top-up/cash-out leg is cash (see
-            // `extraCurrencyLegs`) — it just can't survive the upstream
-            // USD/LBP-only filter to arrive in `row.payments`.
-            const legs = formatPaymentLegs([
-              ...(row.payments ?? []),
-              ...extraCurrencyLegs(row.type, row.metadata_json),
-            ]);
+            // LIRA-201b fix round (M3): always THIS row's own legs only —
+            // never merged with the session's pooled basket legs, even on
+            // the chosen group-header row. See cashLegsFor's doc.
+            const legs = formatPaymentLegs(cashLegsFor(row));
             const rate = row.exchange_rate
               ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
               : null;
@@ -124,7 +134,25 @@ export function SummaryCell({
               </span>
             );
           })()}
-        {(methodLegsFor(row).length > 0 || commissionAmount !== null) && (
+        {row.type !== "CHECKPOINT" &&
+          isGroupHeader &&
+          (() => {
+            // LIRA-201b fix round (M3): the session basket's pooled total,
+            // on its OWN labelled line — never mixed with the line above.
+            const legs = formatPaymentLegs(sessionPooledCashLegsFor(row));
+            if (!legs) return null;
+            return (
+              <span
+                data-testid="session-payment-legs"
+                className="text-[11px] font-mono text-sky-500/70 truncate max-w-[480px]"
+              >
+                Session: {legs}
+              </span>
+            );
+          })()}
+        {(methodLegsFor(row).length > 0 ||
+          (isGroupHeader && sessionPooledMethodLegsFor(row).length > 0) ||
+          commissionAmount !== null) && (
           <button
             onClick={() => onToggleLegDetail(row.id)}
             data-testid={`toggle-legs-${row.id}`}
@@ -236,7 +264,15 @@ export function MethodCell({
     <td className="p-2 truncate" style={{ width: 120 }}>
       {row.type === "CHECKPOINT"
         ? "—"
-        : formatPaymentMethods(methodLegsFor(row), methodLabelByCode)}
+        : formatPaymentMethods(
+            // LIRA-201b fix round (M3): always THIS row's own legs only,
+            // including on the session group-header row — the pooled
+            // basket method(s) render on their own labelled line/detail
+            // section instead (SummaryCell's "Session:" line,
+            // buildLegDetailTr's "Session:" block), never merged in here.
+            methodLegsFor(row),
+            methodLabelByCode,
+          )}
     </td>
   );
 }
@@ -292,6 +328,11 @@ export interface RowActionHandlers {
   onVoid: (id: number) => void;
   onRefund: (row: TransactionRow) => void;
   onVoidCheckoutGroup: (groupId: string, units: number | null) => void;
+  /** LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — whole-basket
+   *  void/refund, replacing the "Basket item — see admin to reverse" dead
+   *  end below. */
+  onVoidSessionBasket: (sessionId: number) => void;
+  onRefundSessionBasket: (sessionId: number) => void;
 }
 
 export function ActionsCell({
@@ -348,24 +389,32 @@ export function ActionsCell({
               {splitGroup.units ? ` (${splitGroup.units} units)` : ""}
             </button>
           ) : sessionId != null ? (
-            // LIRA-115: this row's customer-cash leg (and/or its
+            // LIRA-115 → LIRA-201c: this row's customer-cash leg (and/or its
             // CUSTOMER_ACCOUNT charge) is POOLED across every item in the
             // session basket — a lone void/refund can only ever reverse
-            // this item's OWN legs (e.g. a cost outflow), never the
-            // pooled customer money, so the repository now hard-refuses
-            // it (`TransactionRepository._assertReversible`). Tell the
-            // operator why up front instead of offering a button that
-            // would just surface that guard's error after the fact —
-            // mirrors the split_group treatment above, but there is no
-            // basket-level reversal action wired up here yet (follow-up;
-            // the repository method exists — `voidSessionBasket`/
-            // `refundSessionBasket` — it is not yet exposed via IPC/REST).
-            <span
-              title="This transaction is part of a session-basket payment — the customer's cash/on-account charge is pooled across every item in the basket, not tied to this one row. Voiding or refunding it alone would lose track of that money, so it's blocked. Ask an admin to reverse it directly until a whole-basket action ships here."
-              className="px-1.5 py-0.5 text-[10px] rounded bg-amber-900/40 text-amber-300"
-            >
-              Basket item — see admin to reverse
-            </span>
+            // this item's OWN legs (e.g. a cost outflow), never the pooled
+            // customer money, so the repository hard-refuses it
+            // (`TransactionRepository._assertReversible`). Offer the
+            // whole-basket action instead, mirroring the split_group
+            // treatment above — `voidSessionBasket`/`refundSessionBasket`
+            // reverse every item plus the pooled leg(s) and pooled debt in
+            // ONE transaction.
+            <>
+              <button
+                onClick={() => handlers.onVoidSessionBasket(sessionId)}
+                title="Void the entire session basket — every item's money, cost, and profit is reversed together."
+                className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
+              >
+                Void basket
+              </button>
+              <button
+                onClick={() => handlers.onRefundSessionBasket(sessionId)}
+                title="Refund the entire session basket — every item's money, cost, and profit is reversed together."
+                className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
+              >
+                Refund basket
+              </button>
+            </>
           ) : (
             <>
               <button

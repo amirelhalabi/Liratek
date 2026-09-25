@@ -1,3 +1,13 @@
+// LIRA-219 (C.2/C.4) — the closing checkpoint's daily-stats-snapshot
+// contract, imported directly from `@liratek/core` rather than hand-copied
+// (rule 21). `browser.ts` re-exports `DailyStatsSnapshot` as a type-only
+// export (rule 29), which is all a `.d.ts` needs.
+import type {
+  DailyStatsSnapshot,
+  DailyStatsSnapshotQuery,
+  NetProfitWindowResult,
+} from "@liratek/core";
+
 /**
  * LIRA-143 Phase 5 — one `product_units` row (per-IMEI phone unit
  * tracking). Mirrors `@liratek/core`'s `ProductUnitEntity`
@@ -330,11 +340,26 @@ export interface RecentTransaction {
   session_id: number | null;
   payments: TransactionPaymentLeg[];
   /**
-   * CUSTOMER_ACCOUNT settlement of a session basket, sourced from debt_ledger
-   * (never written to `payments` — a non-drawer method has no drawer leg to
-   * record). Only present on session rows with an on-account portion.
+   * CUSTOMER_ACCOUNT settlement charged directly against THIS transaction
+   * (not a session basket). Always absent on a session-basket row — see
+   * `session_account_payments` below.
    */
   account_payments?: TransactionPaymentLeg[];
+  /**
+   * LIRA-201b — the session basket's pooled cash legs, present on EVERY row
+   * belonging to a session that has any (not just the row that happens to
+   * hold its own legs). Distinct from `payments` (always this row's own
+   * legs only, empty when it has none). The Transactions viewer reads this
+   * to render the pooled in/out and payment detail ONCE, on a single
+   * session-group header row, while member rows show only their own amount
+   * and legs. Display only.
+   */
+  session_payments?: TransactionPaymentLeg[];
+  /**
+   * LIRA-201b — the session-basket analogue of `session_payments`, for the
+   * pooled CUSTOMER_ACCOUNT settlement of the basket.
+   */
+  session_account_payments?: TransactionPaymentLeg[];
   /**
    * LIRA-205 — net telecom credit returned to the shop on this transaction
    * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), in USD.
@@ -383,6 +408,10 @@ export interface CarrierLine {
   label: string | null;
   credits: number;
   validity_expires_at: string | null;
+  /** v184 (#28) — sold-ahead balance: days a DAYS sale promised the customer
+   *  that the line's real remaining days couldn't cover at sale time. Paid
+   *  off 1:1 by the next charge before it stacks onto the real expiry. */
+  days_owed: number;
   notes: string | null;
   is_active: number;
   /** LIRA-090 (v140): 1 if this is the primary line for its carrier (receives
@@ -390,6 +419,21 @@ export interface CarrierLine {
    *  one primary per carrier per tenant — enforced by a partial unique index.
    *  Set via `window.api.carrierLines.setPrimary(id)`. */
   is_primary: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** v184 (#28, LIRA-218) — one "days still to send" list entry. */
+export interface CarrierLineOwedDelivery {
+  id: number;
+  carrier_line_id: number;
+  transaction_id: number | null;
+  client_id: number | null;
+  client_name: string | null;
+  days_owed: number;
+  status: "PENDING" | "SENT";
+  sent_at: string | null;
+  sent_by: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -740,7 +784,11 @@ export interface ElectronAPI {
     ) => Promise<{
       success: boolean;
       error?: string;
-      code?: "DUPLICATE_BARCODE";
+      /** `INVALID_NUMBER` (N13-R2-4): a lines-category number that
+       *  normalizes to '' (e.g. an isolated "+961" fragment) is rejected
+       *  rather than silently stored as an empty barcode — update has no
+       *  create-side "fall through to auto-generate" escape hatch. */
+      code?: "DUPLICATE_BARCODE" | "INVALID_NUMBER";
       suggested_barcode?: string;
     }>;
     deleteProduct: (
@@ -998,9 +1046,14 @@ export interface ElectronAPI {
     }>;
     getProfitSalesChart: (
       type: "Sales" | "Profit",
+      clientDay?: string,
     ) => Promise<
       Array<{ date: string; usd?: number; lbp?: number; profit?: number }>
     >;
+    /** DC-11 — "Net Profit — last 30 days" tile. */
+    getNetProfitLast30Days: (
+      clientDay?: string,
+    ) => Promise<NetProfitWindowResult>;
   };
 
   // Debt
@@ -1161,17 +1214,6 @@ export interface ElectronAPI {
 
   // Financial
   financial: {
-    getMonthlyPL: (month: string) => Promise<{
-      month: string;
-      salesProfitUSD: number;
-      serviceCommissionsUSD: number;
-      serviceCommissionsLBP: number;
-      serviceCommissionsByCurrency: Record<string, number>;
-      expensesUSD: number;
-      expensesLBP: number;
-      netProfitUSD: number;
-      netProfitLBP: number;
-    }>;
     getDrawerNames: () => Promise<string[]>;
     // NOTE: field name must match what "financial:update-metadata" (omtHandlers.ts)
     // actually reads (client_name) — a prior mismatch (customer_name) type-checked
@@ -1500,7 +1542,8 @@ export interface ElectronAPI {
         | "VOUCHER"
         | "DAYS"
         | "ALFA_GIFT"
-        | "CREDIT_BUYBACK";
+        | "CREDIT_BUYBACK"
+        | "SHOP_LINE_USE";
       amount: number;
       cost: number;
       price: number;
@@ -1771,6 +1814,10 @@ export interface ElectronAPI {
         amount: number;
         direction?: "IN" | "OUT";
       }>;
+      /** LIRA-203 — pay MORE than `selections` net to; the difference is
+       *  booked as a standalone account credit (direction: "PAY" only). */
+      surplus_usd?: number;
+      surplus_lbp?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     recordCashflow: (data: {
       supplier_id: number;
@@ -2239,23 +2286,9 @@ export interface ElectronAPI {
     getSystemExpectedBalancesDynamic: () => Promise<
       Record<string, Record<string, number>>
     >;
-    getDailyStatsSnapshot: () => Promise<{
-      salesCount: number;
-      totalSalesUSD: number;
-      totalSalesLBP: number;
-      debtPaymentsUSD: number;
-      debtPaymentsLBP: number;
-      totalExpensesUSD: number;
-      totalExpensesLBP: number;
-      totalProfitUSD: number;
-      /**
-       * LIRA-174: loto's commission only (booked entirely in LBP) — see
-       * `packages/core/src/repositories/ClosingRepository.ts:104-122` and
-       * `frontend/src/features/closing/utils/rateStampedProfit.ts`. NOT a
-       * complete LBP-profit figure across every module.
-       */
-      totalProfitLBP?: number;
-    }>;
+    getDailyStatsSnapshot: (
+      data?: DailyStatsSnapshotQuery,
+    ) => Promise<DailyStatsSnapshot>;
     recalculateDrawerBalances: () => Promise<{
       success: boolean;
       error?: string;
@@ -2727,6 +2760,11 @@ export interface ElectronAPI {
         currency_code: string;
         amount: number;
         direction?: "IN" | "OUT";
+        kind?: "PAYOUT" | "CHANGE";
+        /** Owner decision #11-A (netted session checkout, 2026-09-24) —
+         *  meaningful only on a `kind: "PAYOUT"` leg. See
+         *  SessionPaymentService's `payoutOrigin` doc for the full contract. */
+        payoutOrigin?: "SYSTEM" | "GENERAL";
         voucher_code?: string;
       }>;
       /** Operator-edited Money-IN exchange rate (1 USD = X LBP). */
@@ -2954,22 +2992,42 @@ export interface ElectronAPI {
       reversalIds?: number[];
       error?: string;
     }>;
+    /** LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C): void/refund every
+     *  item in a customer-session basket, plus its pooled cash leg(s) and
+     *  pooled debt (Session Debt / CREDIT_DEPOSIT), in ONE transaction.
+     *  Replaces the "Basket item — see admin to reverse" dead end. */
+    voidSessionBasket: (sessionId: number) => Promise<{
+      success: boolean;
+      sessionId?: number;
+      itemCount?: number;
+      reversedTransactionIds?: number[];
+      reversalIds?: number[];
+      error?: string;
+    }>;
+    refundSessionBasket: (sessionId: number) => Promise<{
+      success: boolean;
+      sessionId?: number;
+      itemCount?: number;
+      reversedTransactionIds?: number[];
+      reversalIds?: number[];
+      error?: string;
+    }>;
   };
 
   // Profits
   profits: {
+    // PFU-types-1 (verifier round-1 fix) — was a stale hand-typed shape
+    // (`totalRevenueUsd`/...) that hasn't matched the real
+    // ProfitService.getSummary return in a long time; now the core type
+    // itself (rule 21), imported directly instead of hand-copied.
     summary: (
       startDate: string,
       endDate: string,
-    ) => Promise<{
-      totalRevenueUsd: number;
-      totalRevenueLbp: number;
-      totalCostUsd: number;
-      totalCostLbp: number;
-      totalProfitUsd: number;
-      totalProfitLbp: number;
-    }>;
-    byModule: (startDate: string, endDate: string) => Promise<any[]>;
+    ) => Promise<import("@liratek/core").ProfitSummary>;
+    byModule: (
+      startDate: string,
+      endDate: string,
+    ) => Promise<import("@liratek/core").ProfitByModule[]>;
     byDate: (startDate: string, endDate: string) => Promise<any[]>;
     byPaymentMethod: (startDate: string, endDate: string) => Promise<any[]>;
     byUser: (startDate: string, endDate: string) => Promise<any[]>;
@@ -2979,6 +3037,20 @@ export interface ElectronAPI {
       clientId?: number,
     ) => Promise<any[]>;
     pending: (startDate: string, endDate: string) => Promise<any[]>;
+    // By Module drill-down "Show transactions" list (2026-09-24,
+    // OWNER_NOTES_REMAINING_BUILD.md #14 slice 2).
+    moduleDetail: (
+      moduleKey: string,
+      startDate: string,
+      endDate: string,
+    ) => Promise<import("@liratek/core").ProfitModuleDetail>;
+    // Commissions tab (OWNER_NOTES_2026-09-21.md §6, lane LC) — Profits-gated,
+    // separate from the pre-existing `getOMTAnalytics`/supplier
+    // unsettled-summary channels the Services/Recharge pages use.
+    commissions: (
+      startDate: string,
+      endDate: string,
+    ) => Promise<import("@liratek/core").CommissionsReport>;
     // Profits password gate (frozen contract). passwordStatus returns the
     // RAW shape (reads are raw); the other three return the write envelope.
     passwordStatus: () => Promise<{ isSet: boolean }>;
@@ -3406,6 +3478,21 @@ export interface ElectronAPI {
     setPrimary: (
       id: number,
     ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
+    /** v184 (#28, LIRA-218) — the "days still to send" list: every PENDING
+     *  delivery, across every line. Read-only; no role gate. */
+    getOwedDeliveriesPending: () => Promise<{
+      success: boolean;
+      data?: CarrierLineOwedDelivery[];
+      error?: string;
+    }>;
+    /** v184 (#28) — mark a pending delivery as physically sent (admin +
+     *  staff). Pure checklist bookkeeping: no second sale, no second charge,
+     *  no `days_owed` write. */
+    markOwedDeliverySent: (data: { deliveryId: number }) => Promise<{
+      success: boolean;
+      data?: CarrierLineOwedDelivery;
+      error?: string;
+    }>;
   };
 
   // Display / Zoom
@@ -3527,6 +3614,11 @@ export interface ElectronAPI {
       /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
        *  service and we owe them the cost instead. */
       partnerMode?: "FOR" | "VIA";
+      /** OWNER_NOTES_REMAINING_BUILD.md #16 (rule 12: preload type
+       *  completeness) — "OUT" is a payout (Via-Partner only): cash leaves
+       *  the General drawer to a local recipient instead of a customer
+       *  paying the shop. Omitted/"IN" is the existing flow. */
+      direction?: "IN" | "OUT";
       /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 (rule 12: preload type
        *  completeness) — set only when the operator picked a product from
        *  the inventory SearchBar; decrements 1 unit of stock. */
@@ -3559,6 +3651,7 @@ export interface ElectronAPI {
         id: number;
         client_name: string;
         phone_number: string | null;
+        client_id: number | null;
         usd_amount: number;
         lbp_amount: number;
         status: "held" | "collected";
@@ -3568,6 +3661,8 @@ export interface ElectronAPI {
         collected_at: string | null;
         created_at: string;
         updated_at: string;
+        remaining_usd: number;
+        remaining_lbp: number;
       }>;
       error?: string;
     }>;
@@ -3577,6 +3672,7 @@ export interface ElectronAPI {
         id: number;
         client_name: string;
         phone_number: string | null;
+        client_id: number | null;
         usd_amount: number;
         lbp_amount: number;
         status: "held" | "collected";
@@ -3586,18 +3682,60 @@ export interface ElectronAPI {
         collected_at: string | null;
         created_at: string;
         updated_at: string;
+        remaining_usd: number;
+        remaining_lbp: number;
       }>;
       error?: string;
     }>;
     create: (data: {
       client_name: string;
       phone_number?: string;
+      client_id?: number | null;
       usd_amount?: number;
       lbp_amount?: number;
       notes?: string;
       transaction_time?: string;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      exchange_rate?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    collect: (id: number) => Promise<{ success: boolean; error?: string }>;
+    pickups: (holdMoneyId: number) => Promise<{
+      success: boolean;
+      data?: Array<{
+        id: number;
+        hold_money_id: number;
+        transaction_id: number | null;
+        usd_amount: number;
+        lbp_amount: number;
+        is_voided: number;
+        voided_by: number | null;
+        voided_at: string | null;
+        created_by: number | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      error?: string;
+    }>;
+    collect: (data: {
+      id: number;
+      usd_amount?: number;
+      lbp_amount?: number;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      exchange_rate?: number;
+      transaction_time?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    voidPickup: (
+      pickupId: number,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
   // Service Presets

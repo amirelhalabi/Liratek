@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { appEvents, useApi, type UINotification } from "@liratek/ui";
 import { subscribeToInvalidation } from "@/api/realtime";
 import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
@@ -105,20 +105,44 @@ export default function TopBar({
   } | null>(null);
   const [clients, setClients] = useState<any[]>([]);
 
-  // Load clients once
+  // Read `api` through a ref so the effects below keep a STABLE identity
+  // (rule 25). `ApiProvider` happens to pass a module-level singleton in
+  // production, which hides the hazard — but that is an implicit contract
+  // the provider does not enforce, and a churned `api` identity feeding a
+  // dependency array can loop. This is also LIRA-212 Tier A's actual web bug:
+  // the balance fetch below used to call raw `window.api.debt.getClientBalance`
+  // directly, which is `undefined` in the browser, throws, and left the
+  // badge permanently blank on web (rule 19).
+  const apiRef = useRef(api);
   useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
+
+  // Load clients on mount, and again whenever the active session's phone
+  // changes — a client auto-created at session start otherwise never
+  // matches until the page reloads.
+  useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       try {
-        const result = await api.getClients();
-        setClients(result);
+        const result = await apiRef.current.getClients();
+        if (!cancelled) setClients(result);
       } catch {
         // ignore
       }
     };
     load();
-  }, [api]);
+    return () => {
+      cancelled = true;
+    };
+    // `apiRef.current` is read at call time, not captured, so `api` itself
+    // is correctly excluded from the dependency array (rule 25).
+  }, [activeSession?.customer_phone]);
 
-  // Derive matched client ID
+  // Derive matched client ID — the session carries no client_id column
+  // (Tier B/C, not built here), so the client is resolved through the
+  // session's phone number, same as SessionCheckoutModal and
+  // SessionPaymentService already do.
   const matchedClientId = (() => {
     if (!activeSession?.customer_phone || clients.length === 0) return null;
     const match = clients.find((c: any) =>
@@ -127,16 +151,21 @@ export default function TopBar({
     return match?.id ?? null;
   })();
 
-  // Fetch balance when matched client changes
+  // Fetch balance when the matched client changes, and refresh it LIVE on
+  // every account write ("debt:changed" — emitted by every Debts-page write
+  // and by session checkout) plus any pushed invalidation from another
+  // client/tab. Replaces the dead "debt:repayment" listener, which had no
+  // emitter anywhere in frontend/src.
   useEffect(() => {
     if (!matchedClientId) {
       setClientBalance(null);
       return;
     }
+    let cancelled = false;
     const fetchBalance = async () => {
       try {
-        const result = await window.api.debt.getClientBalance(matchedClientId);
-        if (result.success) {
+        const result = await apiRef.current.getClientBalance(matchedClientId);
+        if (!cancelled && result.success) {
           setClientBalance(result.data ?? null);
         }
       } catch (err) {
@@ -145,12 +174,16 @@ export default function TopBar({
     };
     fetchBalance();
 
-    const handler = () => fetchBalance();
-    const offSale = appEvents.on("sale:completed", handler);
-    const offDebt = appEvents.on("debt:repayment", handler);
+    const offSale = appEvents.on("sale:completed", fetchBalance);
+    const offDebt = appEvents.on("debt:changed", fetchBalance);
+    const offInvalidate = subscribeToInvalidation("*", () => {
+      if (isTabVisible()) fetchBalance();
+    });
     return () => {
+      cancelled = true;
       offSale();
       offDebt();
+      offInvalidate();
     };
   }, [matchedClientId]);
 
@@ -218,7 +251,13 @@ export default function TopBar({
       }
     };
     const offSale = appEvents.on("sale:completed", refresh);
-    const offDebt = appEvents.on("debt:repayment", refresh);
+    // "debt:repayment" never had an emitter (dead listener) — removed, not
+    // replaced here. "debt:changed" now exists (fired by every account write
+    // and session checkout, wired to the balance-badge effect above), but
+    // note #19 only asks for the badge to refresh live; wiring it into THIS
+    // effect too would surface a low-stock/drawer-limit toast after every
+    // debt write, which is new noise the note never asked for (reviewer
+    // finding — minor #2).
     const offInv = appEvents.on("inventory:updated", refresh);
     refresh();
     // Safety net only: local actions arrive via appEvents above, other
@@ -232,7 +271,6 @@ export default function TopBar({
     return () => {
       mounted = false;
       offSale();
-      offDebt();
       offInv();
       offInvalidate();
       clearInterval(t);

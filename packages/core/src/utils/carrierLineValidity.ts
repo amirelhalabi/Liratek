@@ -19,6 +19,9 @@
  * | lapsed by <= 5 days (GRACE)    | **today**                  | the carrier revives it from today     |
  * | lapsed by > 5 days (BURNED)    | — **charge is refused**    | the number is dead; buy a new line    |
  *
+ * (#28/M4 exception: a BURNED line that still carries a `daysOwed` balance —
+ * see below — is never refused; it revives from today like GRACE instead.)
+ *
  * ...then the result is clipped to at most {@link MAX_LINE_VALIDITY_DAYS} days
  * from today. A line can never hold more than a year of validity, so a 365-day
  * card bought on a line with 30 days left yields 365, not 395.
@@ -28,6 +31,63 @@
  * grace window nor the burned check applies to it. (Before LIRA-157 this path
  * rebased a lapsed line onto today, which reported a lapsed line as *less*
  * expired than it really was after selling days off it.)
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SOLD-AHEAD DAYS (owner interview 2026-09-24, LIRA-218/#28)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * A sale can ask for more days than the line actually has left. The shop
+ * still sells the FULL period in one transaction — "seamless to the
+ * customer" — but the line can only physically transfer what it holds
+ * TODAY; the rest is a promise, fulfilled later once the line is recharged
+ * and the shop separately delivers those days (the "days still to send"
+ * list, `CarrierLineOwedDeliveryRepository`; `Mark sent` records delivery
+ * without ever creating a second sale/charge).
+ *
+ * `daysOwed` on the line is that promise's running balance, and it ONLY
+ * engages when the line is currently VALID (real, non-negative days left)
+ * and the sale outruns them — the owner's actual scenario ("shop line has 5
+ * months, sell 12"):
+ *
+ * | Line state at sale time | Real days available | Real expiry                     | daysOwed              |
+ * | ------------------------ | -------------------- | -------------------------------- | ---------------------- |
+ * | VALID, sold <= days left | days remaining        | `expiry - sold` (unchanged rule) | unchanged              |
+ * | VALID, sold > days left  | days remaining        | pinned to `today` (0 real days)  | `+= sold − days left`  |
+ * | GRACE (lapsed <= 5d)     | 0                     | **unchanged — left exactly where it is** | `+= sold` (the whole sale) |
+ *
+ * A GRACE line has already run out — the fix in the table above (2026-09-24
+ * adversarial review, M3) treats it exactly like a VALID line with 0 real
+ * days left: the entire sale is sold ahead, and the stored expiry is NOT
+ * touched. Before this fix a GRACE-state sale fell through to the pre-#28
+ * arithmetic (`expiry + daysDelta`), which subtracts the sale straight off
+ * an already-lapsed date and pins the line to BURNED immediately — exactly
+ * the "never burned because of days sold ahead" case the owner described,
+ * and the one the pre-fix code got wrong (a line 2 days into grace, sold 30
+ * days, landed at `today - 32`, freshly BURNED, banking nothing).
+ *
+ * A line that is ALREADY NO_EXPIRY or BURNED before this sale still keeps
+ * the pre-#28 arithmetic (subtract off `expiry ?? today`, no owed banking) —
+ * a BURNED line's next sale pushing it further into the past is a
+ * pre-existing, separately-proven invariant (LIRA-157) that #28 does not
+ * touch, and NO_EXPIRY is an explicit open question (see the fix-round
+ * report) rather than a silent policy call. Only VALID and GRACE lines are
+ * ever pinned by an oversized sale; #28 never "revives" an already-dead one.
+ *
+ * Charging (`daysDelta > 0`) pays off `daysOwed` FIRST, at 1:1, before any
+ * of the card's days reach the stacking rule above — and this portion is
+ * **never refused**, regardless of the line's real state. This used to rest
+ * on an invariant ("a line carrying daysOwed is never really burned") that
+ * the GRACE-sale pinning alone guaranteed; it no longer does, because a
+ * days-owed line's OWN pinned expiry (or an untouched GRACE expiry) can
+ * still age past the grace window while nobody recharges it (M4, 2026-09-24
+ * adversarial review) — so the burned-refusal branch below explicitly
+ * exempts any line still carrying a `daysOwed` balance, rather than relying
+ * on that balance implying non-burned. Only the REMAINDER left after paying
+ * off the debt is subject to the ordinary VALID/GRACE/BURNED stacking and
+ * the {@link MAX_LINE_VALIDITY_DAYS} ceiling — matching the owner's own
+ * example: a line owing 210 days, charged a 365-day card, pays off the 210
+ * and lands the remaining 155 on the real expiry (`today + 155`), starting
+ * from `today` (not the dead expiry) exactly like the GRACE/NO_EXPIRY case.
  *
  * WHAT THIS SUPERSEDES. LIRA-090 §5.2 rebased **every** lapsed line onto today
  * ("10 more days on a line that lapsed three months ago lands 10 days from
@@ -156,6 +216,18 @@ export interface ValidityProjection {
   lapseDays: number;
   /** Days that were clipped away by the ceiling. 0 when `capped` is false. */
   daysLostToCap: number;
+  /** The line's `days_owed` balance AFTER this movement (#28). Unchanged
+   *  from the input `daysOwed` for a zero-delta no-op. */
+  daysOwed: number;
+  /** Sell only: the portion of THIS sale that could not be covered by the
+   *  line's real remaining days and was banked into {@link daysOwed}
+   *  instead. 0 for a charge, and 0 for a sell that stayed within what the
+   *  line had available. */
+  soldAhead: number;
+  /** Charge only: the portion of THIS charge's days that paid down an
+   *  existing {@link daysOwed} balance rather than stacking onto the real
+   *  expiry. 0 for a sell. */
+  owedApplied: number;
 }
 
 /**
@@ -174,8 +246,13 @@ export function projectValidityExpiry(
   expiry: string | null | undefined,
   daysDelta: number,
   today: string = localDay(),
+  /** The line's CURRENT sold-ahead balance (#28). Defaults to 0 for every
+   *  pre-#28 caller, which reproduces the pre-#28 behaviour exactly (no
+   *  owed days in, no owed days out). */
+  daysOwed: number = 0,
 ): ValidityProjection {
-  const { state, lapseDays } = classifyLineValidity(expiry, today);
+  const classification = classifyLineValidity(expiry, today);
+  const { state, lapseDays } = classification;
   const unchanged: ValidityProjection = {
     expiry: expiry ?? null,
     capped: false,
@@ -183,27 +260,99 @@ export function projectValidityExpiry(
     state,
     lapseDays,
     daysLostToCap: 0,
+    daysOwed,
+    soldAhead: 0,
+    owedApplied: 0,
   };
 
   if (daysDelta === 0) return unchanged;
 
   // Selling days is a consumption record: it subtracts from whatever the line
   // actually holds and is never refused. No grace, no burned check — see the
-  // header. A line with no expiry at all has nothing to consume from, so it
-  // anchors on today (preserving the pre-LIRA-157 behaviour for that case).
+  // header.
+  //
+  // #28's sold-ahead banking ONLY engages when the line is currently VALID
+  // (real, positive days remaining) and the sale outruns them — the owner's
+  // actual scenario ("shop line has 5 months, sell 12"). A line that is
+  // ALREADY NO_EXPIRY/GRACE/BURNED before this sale keeps the exact
+  // pre-#28 arithmetic (subtract off `expiry ?? today`, no owed banking):
+  // those are pre-existing, separately-proven invariants (LIRA-157 — "a
+  // burned line is NOT refused, consumption is a record" pushes it FURTHER
+  // negative, truthfully) that #28 does not touch. This keeps the two rules
+  // from fighting over what an already-degraded line's next sale means.
   if (daysDelta < 0) {
+    const magnitude = -daysDelta;
+
+    if (state === "VALID") {
+      const available = classification.daysRemaining;
+      if (magnitude <= available) {
+        const base = expiry as string;
+        return { ...unchanged, expiry: addDaysToDateString(base, daysDelta) };
+      }
+
+      const soldAhead = magnitude - available;
+      return {
+        ...unchanged,
+        expiry: today,
+        state: "VALID",
+        lapseDays: 0,
+        daysOwed: daysOwed + soldAhead,
+        soldAhead,
+      };
+    }
+
+    // M3 fix (2026-09-24 adversarial review): a GRACE line has 0 REAL days
+    // left — treat it exactly like the VALID branch above with `available =
+    // 0`, so the whole sale banks into daysOwed and the expiry is left
+    // exactly where it is (never subtracted further into the past). See the
+    // header comment for the pre-fix bug this replaces.
+    if (state === "GRACE") {
+      return { ...unchanged, daysOwed: daysOwed + magnitude, soldAhead: magnitude };
+    }
+
+    // NO_EXPIRY and BURNED keep the exact pre-#28 arithmetic: a burned line's
+    // next sale pushes it further into the past (LIRA-157, a truthful
+    // record), and NO_EXPIRY needs an owner decision before #28's banking
+    // applies to it — open question, see the #28 fix-round report.
     const base = expiry ?? today;
     return { ...unchanged, expiry: addDaysToDateString(base, daysDelta) };
   }
 
-  if (state === "BURNED") {
-    return { ...unchanged, expiry: null, burned: true };
+  // Charging: pay off any sold-ahead balance FIRST, at 1:1 — this portion is
+  // never refused (#28: "never burned because of days sold ahead"), because
+  // a line carrying daysOwed was pinned VALID/today by the sell branch above
+  // the moment the debt was created. Only the REMAINDER after the payoff is
+  // subject to the ordinary grace/stacking/ceiling rule below.
+  const owedBefore = Math.max(daysOwed, 0);
+  const owedApplied = Math.min(daysDelta, owedBefore);
+  const remainingDelta = daysDelta - owedApplied;
+  const owedAfter = owedBefore - owedApplied;
+
+  if (remainingDelta === 0) {
+    // The whole charge paid down the debt; the real expiry is untouched —
+    // there is nothing left to stack, and nothing to check for burn.
+    return { ...unchanged, daysOwed: owedAfter, owedApplied };
   }
 
-  // VALID stacks onto the line's own expiry; NO_EXPIRY and GRACE both start
-  // from today (the owner's "if charged 30 days it would start from today").
+  if (state === "BURNED" && owedBefore === 0) {
+    // A genuine burn with NO owed balance in play still refuses the whole
+    // charge, unchanged from pre-#28 behaviour.
+    return { ...unchanged, expiry: null, burned: true, daysOwed: owedBefore };
+  }
+
+  // M4 fix (2026-09-24 adversarial review): a BURNED line that still carries
+  // a daysOwed balance is NEVER refused — the owed portion already cleared
+  // above, and the owner's rule ("never burned because of days sold ahead")
+  // extends to the remainder too: a debt-carrying line can age past the
+  // grace window purely by the calendar (nobody recharged it in time), which
+  // does not mean the debt itself, or reviving the line to deliver it, is
+  // refused. It revives from `today`, exactly like GRACE/NO_EXPIRY.
+  //
+  // VALID stacks onto the line's own expiry; NO_EXPIRY, GRACE, and a
+  // daysOwed-carrying BURNED line all start from today (the owner's "if
+  // charged 30 days it would start from today").
   const base = state === "VALID" ? (expiry as string) : today;
-  const extended = addDaysToDateString(base, daysDelta);
+  const extended = addDaysToDateString(base, remainingDelta);
   const ceiling = addDaysToDateString(today, MAX_LINE_VALIDITY_DAYS);
 
   if (extended > ceiling) {
@@ -212,9 +361,11 @@ export function projectValidityExpiry(
       expiry: ceiling,
       capped: true,
       daysLostToCap: daysBetweenDateStrings(ceiling, extended),
+      daysOwed: owedAfter,
+      owedApplied,
     };
   }
-  return { ...unchanged, expiry: extended };
+  return { ...unchanged, expiry: extended, daysOwed: owedAfter, owedApplied };
 }
 
 /**

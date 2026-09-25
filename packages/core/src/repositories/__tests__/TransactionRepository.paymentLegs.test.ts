@@ -4,6 +4,15 @@
  * Verifies that getRecent() attaches a structured `payments` array (in/out
  * legs joined from the payments table) to each row, WITHOUT modifying the
  * stored `summary` text. This is the data contract future LIRA-067 consumes.
+ *
+ * The two `account_payments`-on-a-session-row assertions below are UPDATED
+ * for LIRA-201b (NOT RUN — proven at the end-of-batch gate, owner process
+ * rule, 2026-09-24 batch): a session member no longer inherits the basket's
+ * pooled CUSTOMER_ACCOUNT leg into its own `account_payments` (that was the
+ * same "duplicate summary on every row" bug `payments` had — owner note
+ * #11-B). The pooled leg now lives on `session_payments`/
+ * `session_account_payments` instead — see TransactionRepository.ts's
+ * `_attachPaymentLegs` and TransactionWithUser's field docs.
  */
 
 import Database from "better-sqlite3";
@@ -735,10 +744,6 @@ describe("TransactionRepository.getRecent — CUSTOMER_ACCOUNT method leg", () =
     resetTenantContext();
   });
 
-  const accountMethods = (
-    row: ReturnType<TransactionRepository["getRecent"]>[number],
-  ) => (row.account_payments ?? []).map((l) => l.method);
-
   it("surfaces a CUSTOMER_ACCOUNT leg for a NON-session on-account charge (the bug)", () => {
     // A plain on-account sale: debt row keyed by transaction_id, session_id NULL,
     // and NO payments row (no drawer movement). Pre-fix this rendered blank.
@@ -756,9 +761,12 @@ describe("TransactionRepository.getRecent — CUSTOMER_ACCOUNT method leg", () =
     });
   });
 
-  it("still surfaces the CUSTOMER_ACCOUNT leg for a session-basket charge", () => {
+  it("surfaces the CUSTOMER_ACCOUNT leg for a session-basket charge on session_account_payments, NOT the per-row account_payments (LIRA-201b)", () => {
     // Session row: debt carries BOTH session_id and transaction_id; the row is
     // matched via session_id. Basket payment row carries session_id only.
+    // Pre-LIRA-201b this leg landed on `row.account_payments` — duplicated on
+    // every member of the session basket. It now lives on the session-wide
+    // field instead, once per session, read by the group-header row only.
     insertTxn(db, { id: 1, summary: "Session basket", sessionId: 7 });
     insertDebt(db, {
       txnId: 1,
@@ -768,21 +776,25 @@ describe("TransactionRepository.getRecent — CUSTOMER_ACCOUNT method leg", () =
     });
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
-    expect(accountMethods(row)).toEqual(["CUSTOMER_ACCOUNT"]);
-    expect(row.account_payments![0]).toMatchObject({
+    expect(row.account_payments ?? []).toHaveLength(0);
+    expect(
+      (row.session_account_payments ?? []).map((l) => l.method),
+    ).toEqual(["CUSTOMER_ACCOUNT"]);
+    expect(row.session_account_payments![0]).toMatchObject({
       amount: 900_000,
       currency_code: "LBP",
       method: "CUSTOMER_ACCOUNT",
     });
   });
 
-  it("does NOT double-attach when a session debt also carries a transaction_id", () => {
+  it("does NOT double-attach when a session debt also carries a transaction_id (session_account_payments)", () => {
     // The session-keyed and transaction_id-keyed queries must stay disjoint.
     insertTxn(db, { id: 1, summary: "Session basket", sessionId: 7 });
     insertDebt(db, { txnId: 1, sessionId: 7, type: "Session Debt", usd: 25 });
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
-    expect(row.account_payments).toHaveLength(1);
+    expect(row.account_payments ?? []).toHaveLength(0);
+    expect(row.session_account_payments).toHaveLength(1);
   });
 
   it("does NOT surface a CUSTOMER_ACCOUNT leg for a Refund Reversal row", () => {

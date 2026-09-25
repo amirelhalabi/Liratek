@@ -391,6 +391,115 @@ describe("MultiPaymentInput", () => {
     });
   });
 
+  describe("CASH return fields — independent (owner note, 2026-09-24)", () => {
+    // NOT RUN — proven at the end-of-batch gate (owner process rule,
+    // 2026-09-24 batch: build first, verify once at the end).
+    //
+    // Rule 17 (failing-first): before this fix, `handleReturnUSDChange` /
+    // `handleReturnLBPChange` each recomputed the OTHER field from the
+    // remaining overpay. Reverting to that pre-fix pair (temporarily
+    // restoring the removed remainder-recompute logic in
+    // packages/ui/src/components/ui/MultiPaymentInput.tsx) makes the second
+    // assertion below fail: typing "10000" into LBP after "45" into USD
+    // rewrote USD to "49.89" (50 - 10000/90000, rounded) — the operator's
+    // own second keystroke silently undid the first, exactly the "40$ +
+    // 10,000 LBP cannot be entered" bug the owner reported.
+    it("typing into one CASH return field never rewrites the other", () => {
+      renderMpi({ totalAmount: 100 });
+
+      fireEvent.click(screen.getByTestId("split-toggle"));
+      const firstAmount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="payment-amount-"]',
+      )!;
+      // Overpay $150 on $100 -> $50 suggested change.
+      fireEvent.change(firstAmount, { target: { value: "150" } });
+      expect(screen.getByTestId("return-usd")).toHaveValue("50.00");
+
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "45" },
+      });
+      expect(screen.getByTestId("return-usd")).toHaveValue("45");
+      // The LBP field is untouched by editing USD — it stays whatever it
+      // already was (the auto-init effect leaves it empty for a USD total).
+      expect(screen.getByTestId("return-lbp")).toHaveValue("");
+
+      fireEvent.change(screen.getByTestId("return-lbp"), {
+        target: { value: "10000" },
+      });
+      expect(screen.getByTestId("return-lbp")).toHaveValue("10000");
+      // The operator's "45" in USD survives — editing LBP never rewrites it.
+      expect(screen.getByTestId("return-usd")).toHaveValue("45");
+    });
+
+    it("both fields can be set to an arbitrary combination — '40 + 10,000 LBP' is enterable", () => {
+      renderMpi({ totalAmount: 100 });
+
+      fireEvent.click(screen.getByTestId("split-toggle"));
+      const firstAmount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="payment-amount-"]',
+      )!;
+      fireEvent.change(firstAmount, { target: { value: "150" } });
+
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "40" },
+      });
+      fireEvent.change(screen.getByTestId("return-lbp"), {
+        target: { value: "10000" },
+      });
+
+      expect(screen.getByTestId("return-usd")).toHaveValue("40");
+      expect(screen.getByTestId("return-lbp")).toHaveValue("10000");
+    });
+
+    // Fix-round finding #4: field independence (above) drops the only
+    // mechanism that kept sum(return legs) == overpaid — this is the
+    // restored invariant check, as a visible flag instead of a silent
+    // auto-fill (which the two tests above prove is gone for good).
+    it("flags a return that under-covers the overpaid amount", () => {
+      renderMpi({ totalAmount: 100 });
+
+      fireEvent.click(screen.getByTestId("split-toggle"));
+      const firstAmount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="payment-amount-"]',
+      )!;
+      // Overpay $150 on $100 -> $50 suggested change, auto-seeded to USD.
+      fireEvent.change(firstAmount, { target: { value: "150" } });
+      expect(
+        screen.queryByTestId("return-mismatch-warning"),
+      ).not.toBeInTheDocument();
+
+      // Edit USD down to $45 — LBP stays at its auto-seeded "" (0), so only
+      // $45 of the $50 owed is covered.
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "45" },
+      });
+      expect(screen.getByTestId("return-mismatch-warning")).toHaveTextContent(
+        "5.00$",
+      );
+    });
+
+    it("shows no mismatch warning once both fields correctly sum to the overpaid amount", () => {
+      renderMpi({ totalAmount: 100 });
+
+      fireEvent.click(screen.getByTestId("split-toggle"));
+      const firstAmount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="payment-amount-"]',
+      )!;
+      // Overpay $150 on $100 -> $50 owed. $45 + 450,000 LBP (@ 90,000) == $50.
+      fireEvent.change(firstAmount, { target: { value: "150" } });
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "45" },
+      });
+      fireEvent.change(screen.getByTestId("return-lbp"), {
+        target: { value: "450000" },
+      });
+
+      expect(
+        screen.queryByTestId("return-mismatch-warning"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   describe("waive-remaining button (opt-in)", () => {
     it("does not render a Waive button when onWaiveRemaining is not provided", () => {
       renderMpi({ totalAmount: 100 });
@@ -746,7 +855,12 @@ describe("MultiPaymentInput", () => {
           }
           onKeptChange={
             opts.onKeptChange as unknown as (
-              kept: { usd: number; lbp: number } | null,
+              kept: {
+                usd: number;
+                lbp: number;
+                exactUsd: number;
+                exactLbp: number;
+              } | null,
             ) => void
           }
           cashOnlyReturn={true}
@@ -789,8 +903,17 @@ describe("MultiPaymentInput", () => {
       // No OUT legs — the drawer keeps the full tender…
       const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
       expect(lastLegs).toEqual([]);
-      // …and the kept split is reported for the profit stamp.
-      expect(onKeptChange).toHaveBeenLastCalledWith({ usd: 50, lbp: 0 });
+      // …and the kept split is reported for the profit stamp: `usd`/`lbp`
+      // are the rounded DISPLAY figure, `exactUsd`/`exactLbp` the unrounded
+      // accounting figure a cross-currency consumer (e.g. debt reduction)
+      // must use instead (owner note #8, 2026-09-23). $150 - $100 is exact
+      // in both forms here — no float dust to speak of.
+      expect(onKeptChange).toHaveBeenLastCalledWith({
+        usd: 50,
+        lbp: 0,
+        exactUsd: 50,
+        exactLbp: 0,
+      });
 
       // Toggle off: suggested change comes back as OUT legs, kept cleared.
       fireEvent.click(screen.getByTestId("keep-change"));
@@ -817,7 +940,20 @@ describe("MultiPaymentInput", () => {
       // …but KEEPING is physical: the drawer holds the excess tender itself —
       // $4.73 USD (what the customer overpaid in), no LBP involved. A
       // cross-denominated kept split corrupts per-currency netting (lira-107).
-      expect(onKeptChange).toHaveBeenLastCalledWith({ usd: 4.73, lbp: 0 });
+      const lastKept = onKeptChange.mock.calls.at(-1)?.[0] as {
+        usd: number;
+        lbp: number;
+        exactUsd: number;
+        exactLbp: number;
+      };
+      expect(lastKept.usd).toBe(4.73);
+      expect(lastKept.lbp).toBe(0);
+      // Exact (unrounded) companion — float subtraction dust (104.73 - 100)
+      // included, deliberately NOT snapped to 4.73: this is exactly the
+      // figure a cross-currency accounting consumer must use instead of the
+      // rounded `usd` above (owner note #8).
+      expect(lastKept.exactUsd).toBeCloseTo(4.73, 9);
+      expect(lastKept.exactLbp).toBe(0);
       expect(onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[]).toEqual(
         [],
       );

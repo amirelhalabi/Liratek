@@ -84,6 +84,11 @@ describe("LotoService Checkpoint Functionality", () => {
         reimbursed_in_settlement_id INTEGER,
         checkpoint_id INTEGER,
         note TEXT,
+        -- v181 adds voided/voided_at (soft-void marker for a prize reversed
+        -- as part of a session-basket void/refund); NOT_VOIDED_CASH_PRIZE_SQL
+        -- filters on this column in prize totals / checkpoint queries.
+        voided INTEGER NOT NULL DEFAULT 0,
+        voided_at TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       );

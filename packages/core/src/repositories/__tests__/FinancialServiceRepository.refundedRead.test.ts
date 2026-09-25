@@ -76,7 +76,8 @@ function createTestDb(): Database.Database {
       partner_id               INTEGER,
       partner_mode             TEXT,
       supplier_debt_booked     INTEGER NOT NULL DEFAULT 0,
-      commission_model         INTEGER NOT NULL DEFAULT 0
+      commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0
     );
   `);
   return db;

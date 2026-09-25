@@ -16,6 +16,9 @@ export type {
   CarrierLineWriteResult,
   CarrierLineUsagePayload,
   CarrierLineUsageResult,
+  CarrierLineOwedDeliveryEntity,
+  CarrierLineOwedDeliveryListResult,
+  MarkCarrierLineOwedDeliverySentResult,
   MobileServiceItemEntity,
   DashboardStats,
   ChartDataPoint,
@@ -24,9 +27,9 @@ export type {
   DrawerBalances,
   StockStats,
   VirtualStock,
-  MonthlyPL,
   UnsettledSummary,
   DailyStatsSnapshot,
+  DailyStatsSnapshotQuery,
   OMTAnalytics,
   OMTCurrencyStats,
   OMTProviderStats,
@@ -34,5 +37,7 @@ export type {
   AccountChildBalance,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  CommissionsReport,
+  CommissionProviderRow,
 } from "./types";
 export { ApiProvider, useApi } from "./ApiProvider";

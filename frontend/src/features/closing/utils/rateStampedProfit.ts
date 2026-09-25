@@ -15,8 +15,9 @@ import {
  * same-day — do not resurrect it.
  *
  * Produces four lines from the two profit figures already on
- * `ClosingRepository.getDailyStatsSnapshot()`'s return
- * (`totalProfitUSD`/`totalProfitLBP`):
+ * `ClosingService.getDailyStatsSnapshot()`'s return
+ * (`totalProfitUSD`/`totalProfitLBP`) — see "What 'LBP amount' actually is"
+ * below for where those two fields now come from (LIRA-219):
  *
  *   USD amount        <- native, no conversion, no rate
  *   LBP amount        <- native, no conversion, no rate
@@ -32,24 +33,21 @@ import {
  * `formatRateStampedProfitBlock`) if the owner would rather keep the
  * document USD-total-only.
  *
- * ── What "LBP amount" actually is (verify before trusting the label) ──────
- * `totalProfitLBP` (ClosingRepository.ts:1360) is `lotoProfit.profit_lbp` —
- * LOTO'S commission ONLY. Loto books its commission entirely in LBP, so it
- * cannot reach `totalProfitUSD` at all (that total would just add exactly
- * $0 for it), which is why LIRA-161 gave it its own field. But the
- * repository's own doc comment (ClosingRepository.ts:104-120) is explicit
- * that every OTHER module folded into `totalProfitUSD` (sales, financial
- * services, recharge, custom services, maintenance, exchange) ALREADY
- * EXCLUDES its own LBP-denominated slice at the SQL layer — there is no
- * established currency-conversion convention in that method to fold LBP
- * profit into the USD total, so if any of those modules ever produces a
- * genuine LBP profit slice, it is dropped from BOTH totals today, not
- * merely deferred. "LBP amount" on this document is therefore loto's
- * number, not "all LBP-denominated profit" — `formatRateStampedProfitBlock`
- * labels the line "(Loto only)" rather than presenting it as complete
- * coverage. Building a proper cross-module LBP aggregate is a
- * `packages/core` change (ClosingRepository), out of this ticket's
- * frontend-only scope.
+ * ── What "LBP amount" actually is (LIRA-219 — updated, was loto-only) ─────
+ * As of LIRA-219, `totalProfitUSD`/`totalProfitLBP` are
+ * `ClosingService.getDailyStatsSnapshot()`'s own fields, and that service
+ * no longer computes them itself: it delegates to
+ * `ProfitService.getSummary(day, day).totals.gross_profit_usd/_lbp` — the
+ * SAME gross-profit figure the Profits page's Overview tab and By Date
+ * chart show for the day (`docs/plans/ongoing_plans/
+ * LIRA-219_CLOSING_PROFIT_PARITY.md`). "LBP amount" is therefore every
+ * module's LBP-denominated gross profit for the day (sales, financial
+ * services, recharge, custom services, maintenance, exchange, loto, debt
+ * repayments, counterparty discounts, top-ups) — not loto's commission
+ * alone, which is why the old "(Loto only)" qualifier is gone from
+ * `formatRateStampedProfitBlock`'s labels (`GROSS_PROFIT_LBP_LABEL`). Both
+ * figures are gross (before expenses) — see `buildNetProfitLines` below for
+ * the separate net figure.
  *
  * ── Why sell_rate here, when the app-wide LBP→USD convention is buy ───────
  * Owner decision (2026-09-04): convert at `sell_rate`, not the buy-rate
@@ -76,16 +74,17 @@ import {
  * ── Why sell_rate substitutes here at all (the "stamped rate" clause) ─────
  * The owner's original spec said an amount with no rate already stamped on
  * it should fall back to "the rate from system configuration". Verified:
- * `getDailyStatsSnapshot` returns currency-BUCKETED SUMs (one number per
+ * `ProfitService.getSummary` (what `getDailyStatsSnapshot` now delegates to,
+ * per the module doc above) returns currency-BUCKETED SUMs (one number per
  * module per currency), not individual rows, so there is no per-amount
  * stamped rate available at this layer to honour — every row that fed each
  * bucket may have been written at a different historical rate, and that
  * information does not survive the SUM. Converting the two aggregate
  * figures at today's `sell_rate` (this module) is the faithful
  * implementation for THIS view; a true per-row stamped-rate conversion
- * would require pushing conversion inside each of the ~7 module
- * sub-queries `getDailyStatsSnapshot` composes — a much larger
- * `packages/core` change, out of scope here.
+ * would require pushing conversion inside each of the ~20 queries
+ * `getSummary` composes — a much larger `packages/core` change, out of scope
+ * here.
  */
 
 const LBP_CODE = "LBP";
@@ -100,8 +99,9 @@ const RATE_SIDE: RateSide = "sell";
 export interface RateStampedProfitLines {
   /** Native USD profit (`totalProfitUSD`) — no conversion, no rate. */
   usdAmount: number;
-  /** Native LBP profit (`totalProfitLBP`) — LOTO ONLY, see module doc above.
-   *  No conversion, no rate. */
+  /** Native LBP profit (`totalProfitLBP`) — every module's LBP gross profit
+   *  for the day (LIRA-219), not loto-only; see module doc above. No
+   *  conversion, no rate. */
   lbpAmount: number;
   /** `usdAmount` + (`lbpAmount` converted to USD @ `rate`). Carries `rate`. */
   totalUsd: number;
@@ -194,6 +194,15 @@ const formatUsd = (n: number): string => `$${n.toFixed(2)}`;
 const formatLbp = (n: number): string =>
   `${Math.round(n).toLocaleString()} LBP`;
 
+// LIRA-219 C.6 — exported so the test suite (and closingReportGenerator.ts)
+// take the label text from ONE place (rule 24) rather than hand-typing it a
+// second time. All four use the Profits page's word "Gross profit" (E-Q5:
+// these lines stay gross, never net — see `buildNetProfitLines` for net).
+export const GROSS_PROFIT_USD_LABEL = "Gross profit - USD amount";
+export const GROSS_PROFIT_LBP_LABEL = "Gross profit - LBP amount";
+export const GROSS_PROFIT_TOTAL_USD_LABEL = "Gross profit - Total (USD)";
+export const GROSS_PROFIT_TOTAL_LBP_LABEL = "Gross profit - Total (LBP)";
+
 /** Renders `RateStampedProfitLines` as plain text lines for the closing
  *  report (embedded verbatim in the PDF's `<pre>` block by
  *  `Checkpoint/index.tsx`). The rate is printed on every converted line —
@@ -206,9 +215,89 @@ export function formatRateStampedProfitBlock(
     : "(rate unavailable)";
 
   return [
-    `  Profit - USD amount: ${formatUsd(lines.usdAmount)}`,
-    `  Profit - LBP amount (Loto only): ${formatLbp(lines.lbpAmount)}`,
-    `  Profit - Total (USD) ${rateLabel}: ${formatUsd(lines.totalUsd)}`,
-    `  Profit - Total (LBP) ${rateLabel}: ${formatLbp(lines.totalLbp)}`,
+    `  ${GROSS_PROFIT_USD_LABEL}: ${formatUsd(lines.usdAmount)}`,
+    `  ${GROSS_PROFIT_LBP_LABEL}: ${formatLbp(lines.lbpAmount)}`,
+    `  ${GROSS_PROFIT_TOTAL_USD_LABEL} ${rateLabel}: ${formatUsd(lines.totalUsd)}`,
+    `  ${GROSS_PROFIT_TOTAL_LBP_LABEL} ${rateLabel}: ${formatLbp(lines.totalLbp)}`,
   ].join("\n");
 }
+
+/**
+ * LIRA-219 E-Q1 (owner answers table, overrides design section (E)) — the
+ * PDF prints `Net profit = gross − expenses` PER CURRENCY, matching the
+ * Profits headline card (`Profits.tsx` "Total Net Profit" / "Net Profit
+ * (USD)"/"Net Profit (LBP)" cards). No converted/combined net total — that
+ * combined figure was explicitly removed from the Profits page itself
+ * (PA-4.22 note #3, 2026-09-24), so closing must not reintroduce it. Plain
+ * per-currency subtraction; no rate involved.
+ */
+export interface NetProfitLines {
+  /** `totalProfitUSD` − `totalExpensesUSD`. May be negative (a loss day). */
+  netUsd: number;
+  /** `totalProfitLBP` − `totalExpensesLBP`. May be negative. */
+  netLbp: number;
+}
+
+export function buildNetProfitLines(
+  grossUsd: number,
+  grossLbp: number,
+  expensesUsd: number,
+  expensesLbp: number,
+): NetProfitLines {
+  const gUsd = Number.isFinite(grossUsd) ? grossUsd : 0;
+  const gLbp = Number.isFinite(grossLbp) ? grossLbp : 0;
+  const eUsd = Number.isFinite(expensesUsd) ? expensesUsd : 0;
+  const eLbp = Number.isFinite(expensesLbp) ? expensesLbp : 0;
+  return { netUsd: gUsd - eUsd, netLbp: gLbp - eLbp };
+}
+
+export const NET_PROFIT_USD_LABEL = "Net profit - USD amount";
+export const NET_PROFIT_LBP_LABEL = "Net profit - LBP amount";
+
+export function formatNetProfitBlock(lines: NetProfitLines): string {
+  return [
+    `  ${NET_PROFIT_USD_LABEL}: ${formatUsd(lines.netUsd)}`,
+    `  ${NET_PROFIT_LBP_LABEL}: ${formatLbp(lines.netLbp)}`,
+  ].join("\n");
+}
+
+/**
+ * LIRA-219 E-Q3 (owner answers table, verbatim) — "Profit as of HH:MM —
+ * later repayments/refunds update this day on the Profits page" (a debt
+ * repaid tomorrow, a partner covering later, or a refund of an older sale
+ * all change that origin day on the Profits page, and never appear in any
+ * closing — this line makes the point-in-time nature visible on the
+ * document instead of silently implying the figure is final).
+ *
+ * `now` is an injected clock (DIP), never read from inside this module —
+ * the caller (`Checkpoint/index.tsx`) passes the device's own clock at
+ * print time, exactly like `sellRate` above is injected rather than read
+ * from a hook here. This keeps the module pure/unit-testable.
+ */
+const pad2 = (n: number): string => n.toString().padStart(2, "0");
+
+export function formatProfitAsOfLine(now: Date): string {
+  const hh = pad2(now.getHours());
+  const mm = pad2(now.getMinutes());
+  return `  Profit as of ${hh}:${mm} — later repayments/refunds update this day on the Profits page`;
+}
+
+/**
+ * LIRA-219 E-Q6/E-Q7 (owner answers table) — exact strings for the two
+ * cases where no profit figure can be printed at all. Exported as constants
+ * (rule 24) so `closingReportGenerator.ts` and its tests never hand-type a
+ * second copy that can drift from this one.
+ */
+// E-Q6: the caller failed the admin-or-Profits-unlocked gate. Server-enforced
+// on both transports — `canIncludeProfit` (`packages/core/src/constants/
+// profitsAccess.ts`) is the shared policy predicate, and each transport
+// supplies its own `hasProfitsUnlock` unlock check (IPC:
+// `electron-app/session.ts`; REST: `backend/src/middleware/
+// profitsUnlock.ts`) — this module only renders the label once
+// ClosingService has already set `profitHidden: true` on the snapshot; it
+// never decides access itself.
+export const PROFIT_HIDDEN_LABEL =
+  "Profit: hidden — unlock the Profits page to include it";
+// E-Q7: `ProfitService.getSummary` threw. Never a fabricated "$0.00" on a
+// money report — print "unavailable" instead.
+export const PROFIT_UNAVAILABLE_LABEL = "Gross profit: unavailable";

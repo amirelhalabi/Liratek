@@ -14,8 +14,11 @@ import {
   createDailyClosingSchema,
   createCheckpointSchema,
   hasOpeningBalanceTodayQuerySchema,
+  dailyStatsSnapshotQuerySchema,
+  canIncludeProfit,
   type CheckpointFilters,
 } from "@liratek/core";
+import { hasProfitsUnlock } from "../middleware/profitsUnlock.js";
 import { logger } from "../server.js";
 
 const router = Router();
@@ -112,18 +115,40 @@ router.get("/has-starting-checkpoint", requireAuth, async (_req, res) => {
   }
 });
 
-// GET /api/closing/daily-stats-snapshot
-router.get("/daily-stats-snapshot", requireAuth, async (_req, res) => {
-  try {
-    const stats = closingService.getDailyStatsSnapshot();
-    res.json({ success: true, stats });
-  } catch (error) {
-    logger.error({ error }, "Get daily stats snapshot error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to get daily stats" });
-  }
-});
+// GET /api/closing/daily-stats-snapshot?day=YYYY-MM-DD — `day` is the CLIENT's
+// own local calendar day (rule 27, same contract as has-opening-balance-today
+// above); the service falls back to `clientDay()` when omitted. E-Q6: the
+// profit block is included only for an admin OR a live Profits unlock —
+// `canIncludeProfit` (the ONE shared predicate, rule 14) is fed this
+// request's own role + `hasProfitsUnlock` read, never re-derived here.
+// Rule 19c: HTTP 200 on failure too, matching the IPC envelope — this route
+// used to answer 500 on failure, which the IPC side never does.
+router.get(
+  "/daily-stats-snapshot",
+  requireAuth,
+  validateQuery(dailyStatsSnapshotQuerySchema),
+  async (req: AuthRequest, res) => {
+    try {
+      const { day } = req.query as unknown as { day?: string };
+      const includeProfit = canIncludeProfit(
+        req.user?.role,
+        req.user
+          ? hasProfitsUnlock(req.user.tenantId, req.user.userId)
+          : false,
+      );
+      const stats = closingService.getDailyStatsSnapshot(
+        { day },
+        { includeProfit },
+      );
+      res.json({ success: true, stats });
+    } catch (error) {
+      logger.error({ error }, "Get daily stats snapshot error");
+      res
+        .status(200)
+        .json({ success: false, error: "Failed to get daily stats" });
+    }
+  },
+);
 
 // POST /api/closing/opening-balances
 router.post(

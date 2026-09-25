@@ -1,4 +1,8 @@
 /**
+ * NOT RUN — proven at the end-of-batch gate (the #28 describe block below;
+ * everything above it was already green before this batch and is
+ * untouched).
+ *
  * LIRA-157 — the carrier-line validity rule, unit-tested as pure logic.
  *
  * These tests pin the OWNER-STATED rule (interview 2026-08-29), not the
@@ -239,6 +243,135 @@ describe("calendar correctness", () => {
     expect(projectValidityExpiry("2028-02-28", 2, "2028-02-01").expiry).toBe(
       "2028-03-01",
     );
+  });
+});
+
+describe("projectValidityExpiry — sold-ahead days (#28, LIRA-218)", () => {
+  it("OWNER CASE: a 150-day line sold 360 pins expiry at today and banks 210 as sold-ahead", () => {
+    const p = projectValidityExpiry(addDays(TODAY, 150), -360, TODAY, 0);
+    expect(p.expiry).toBe(TODAY);
+    expect(p.state).toBe("VALID");
+    expect(p.daysOwed).toBe(210);
+    expect(p.soldAhead).toBe(210);
+    expect(p.burned).toBe(false);
+  });
+
+  it("a sale within the line's own remaining days is unaffected (no owed banking)", () => {
+    const p = projectValidityExpiry(addDays(TODAY, 30), -10, TODAY, 0);
+    expect(p.expiry).toBe(addDays(TODAY, 20));
+    expect(p.daysOwed).toBe(0);
+    expect(p.soldAhead).toBe(0);
+  });
+
+  it("selling exactly the line's remaining days lands on today with no owed balance (boundary)", () => {
+    const p = projectValidityExpiry(addDays(TODAY, 30), -30, TODAY, 0);
+    expect(p.expiry).toBe(TODAY);
+    expect(p.daysOwed).toBe(0);
+    expect(p.soldAhead).toBe(0);
+  });
+
+  it("a line already NO_EXPIRY/BURNED before the sale keeps the pre-#28 arithmetic — #28 does not touch it (open question for NO_EXPIRY, see fix-round report)", () => {
+    expect(projectValidityExpiry(null, -10, TODAY, 0).expiry).toBe(
+      addDays(TODAY, -10),
+    );
+    expect(projectValidityExpiry(null, -10, TODAY, 0).daysOwed).toBe(0);
+
+    const burned = projectValidityExpiry(addDays(TODAY, -22), -10, TODAY, 0);
+    expect(burned.expiry).toBe(addDays(TODAY, -32));
+    expect(burned.daysOwed).toBe(0);
+  });
+
+  // M3 fix (2026-09-24 adversarial review): pre-fix, a GRACE-state sale fell
+  // through to the SAME arithmetic as NO_EXPIRY/BURNED above (subtract off
+  // the already-lapsed expiry), which pinned a sold-ahead line straight to
+  // BURNED and banked nothing — directly contradicting the owner's "never
+  // burned because of days sold ahead". A GRACE line has 0 REAL days left,
+  // so it must behave like the VALID branch's `available = 0` case: the
+  // WHOLE sale banks into daysOwed and the expiry is left exactly where it
+  // is (proven failing on the pre-fix code: pre-fix this asserted
+  // `expiry === addDays(TODAY, -8)`, burning the line).
+  it("#28/M3: a GRACE line's oversized sale banks the whole sale into daysOwed and leaves the expiry untouched — never burned by the sale", () => {
+    const graceExpiry = addDays(TODAY, -3); // lapsed 3 days — inside the 5-day grace window
+    const p = projectValidityExpiry(graceExpiry, -5, TODAY, 0);
+    expect(p.expiry).toBe(graceExpiry); // unchanged — NOT addDays(TODAY, -8)
+    expect(p.state).toBe("GRACE");
+    expect(p.daysOwed).toBe(5);
+    expect(p.soldAhead).toBe(5);
+    expect(p.burned).toBe(false);
+  });
+
+  it("#28/M3: a GRACE-line sale adds onto any daysOwed the line already carried", () => {
+    const graceExpiry = addDays(TODAY, -1);
+    const p = projectValidityExpiry(graceExpiry, -20, TODAY, 100);
+    expect(p.expiry).toBe(graceExpiry);
+    expect(p.daysOwed).toBe(120);
+    expect(p.soldAhead).toBe(20);
+  });
+
+  it("OWNER CASE: a line owing 210 days, charged a 365-day card, pays off the 210 and lands the remaining 155 on the real expiry", () => {
+    const p = projectValidityExpiry(TODAY, 365, TODAY, 210);
+    expect(p.expiry).toBe(addDays(TODAY, 155));
+    expect(p.daysOwed).toBe(0);
+    expect(p.owedApplied).toBe(210);
+    expect(p.burned).toBe(false);
+  });
+
+  it("a charge smaller than the owed balance pays down owed only — real expiry untouched, never burned", () => {
+    const p = projectValidityExpiry(TODAY, 50, TODAY, 210);
+    expect(p.daysOwed).toBe(160);
+    expect(p.owedApplied).toBe(50);
+    expect(p.expiry).toBe(TODAY);
+    expect(p.burned).toBe(false);
+  });
+
+  it("a genuinely burned line with NO owed balance is still refused, unchanged from pre-#28", () => {
+    const p = projectValidityExpiry(addDays(TODAY, -22), 30, TODAY, 0);
+    expect(p.burned).toBe(true);
+    expect(p.daysOwed).toBe(0);
+  });
+
+  // M4 fix (2026-09-24 adversarial review): a line pinned by #28's sold-ahead
+  // rule can age past the 5-day grace window purely from the calendar if the
+  // operator doesn't recharge in time — BURNED, but still carrying a real
+  // daysOwed balance. Pre-fix, `computeAppliedState` threw `burnedLineMessage`
+  // for ANY remainder-bearing charge on that line, refusing the owed payoff
+  // itself — directly contradicting "never refused" and FEATURE_GUIDE §12.1.
+  // Proven failing on the pre-fix code: pre-fix this asserted `burned ===
+  // true` and `owedApplied === 0`.
+  it("#28/M4: a BURNED line that still carries daysOwed is NEVER refused — the payoff always clears, the remainder revives from today", () => {
+    const deadExpiry = addDays(TODAY, -22); // 22 days lapsed — genuinely BURNED
+    const p = projectValidityExpiry(deadExpiry, 365, TODAY, 210);
+    expect(p.burned).toBe(false);
+    expect(p.owedApplied).toBe(210);
+    expect(p.daysOwed).toBe(0);
+    expect(p.expiry).toBe(addDays(TODAY, 155)); // remainder (155) stacks from TODAY, not the dead expiry
+  });
+
+  it("#28/M4: a BURNED, daysOwed-carrying line whose charge exactly clears the debt leaves the (still-dead) expiry untouched", () => {
+    const deadExpiry = addDays(TODAY, -22);
+    const p = projectValidityExpiry(deadExpiry, 100, TODAY, 100);
+    expect(p.burned).toBe(false);
+    expect(p.owedApplied).toBe(100);
+    expect(p.daysOwed).toBe(0);
+    expect(p.expiry).toBe(deadExpiry); // whole charge paid the debt — nothing left to stack
+  });
+
+  it("the 365-day ceiling still applies AFTER the owed payoff, not to the whole card", () => {
+    // owed 300, +365 card: payoff consumes 300, remainder 65 stacks on a
+    // line already at 100 days -> 165, well under the cap (sanity that the
+    // ceiling check uses the REMAINING delta, not the full 365).
+    const p = projectValidityExpiry(addDays(TODAY, 100), 365, TODAY, 300);
+    expect(p.owedApplied).toBe(300);
+    expect(p.daysOwed).toBe(0);
+    expect(p.expiry).toBe(addDays(TODAY, 165));
+    expect(p.capped).toBe(false);
+  });
+
+  it("a zero-delta no-op reports the current daysOwed unchanged", () => {
+    const p = projectValidityExpiry(TODAY, 0, TODAY, 42);
+    expect(p.daysOwed).toBe(42);
+    expect(p.soldAhead).toBe(0);
+    expect(p.owedApplied).toBe(0);
   });
 });
 

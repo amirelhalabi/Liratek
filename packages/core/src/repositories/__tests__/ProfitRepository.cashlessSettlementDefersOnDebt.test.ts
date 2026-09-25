@@ -118,6 +118,7 @@ function createSchema(db: Database.Database): void {
       is_refunded INTEGER DEFAULT 0,
       payment_method_fee REAL DEFAULT 0,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       settlement_id INTEGER,
       created_at TEXT,
       refunded_at TEXT DEFAULT NULL
@@ -283,19 +284,27 @@ function seedFs(
 }
 
 /** Phase 1's zeroed FINANCIAL_SERVICE stamp — every model-1 row's own
- *  transaction contributes 0 profit; the real figure lives at settlement. */
+ *  transaction contributes 0 profit; the real figure lives at settlement.
+ *  `userId`/`clientId` (Item 1 fix): {@link reattributedSettlementCommission}
+ *  re-attributes a cashless allocation's commission to THIS transaction's own
+ *  `user_id`/`client_id` — omitted (NULL) is the legitimate "no client on
+ *  this transfer" / legacy-row case (see the getByClient "Walk-in" fixture
+ *  below, which relies on that NULL staying NULL), not a stand-in for
+ *  "whoever settled it". A getByUser fixture asserting reattribution to a
+ *  SPECIFIC cashier must set that SAME cashier here. */
 function seedFsTransaction(
   db: Database.Database,
   fsId: number,
   createdAt: string,
+  actor?: { userId?: number; clientId?: number },
 ): number {
   const res = db
     .prepare(
       `INSERT INTO transactions
-         (tenant_id, type, status, source_table, source_id, amount_usd, profit_usd, profit_lbp, created_at)
-       VALUES (1, 'FINANCIAL_SERVICE', 'ACTIVE', 'financial_services', ?, 100, 0, 0, ?)`,
+         (tenant_id, type, status, source_table, source_id, user_id, client_id, amount_usd, profit_usd, profit_lbp, created_at)
+       VALUES (1, 'FINANCIAL_SERVICE', 'ACTIVE', 'financial_services', ?, ?, ?, 100, 0, 0, ?)`,
     )
-    .run(fsId, createdAt);
+    .run(fsId, actor?.userId ?? null, actor?.clientId ?? null, createdAt);
   return Number(res.lastInsertRowid);
 }
 
@@ -787,7 +796,12 @@ describe("LIRA-158 D17 Item 1 — getByUser/getByClient supplier-settlement arm"
       settlementId: settlementLedgerId,
       createdAt: TXN_DAY,
     });
-    const fsTxnId = seedFsTransaction(db, fsId, TXN_DAY);
+    // The SAME cashier both processed the original OMT transfer AND later
+    // settled it — realistic for a small shop, and required for the
+    // reattribution to land on `userId`'s own group (reattributedSettlementCommission
+    // matches on the ORIGINATING FS transaction's own user_id, not on
+    // whoever clicked "settle" — see that function's own doc comment).
+    const fsTxnId = seedFsTransaction(db, fsId, TXN_DAY, { userId });
     seedDebt(db, {
       fsTxnId,
       amountUsd: 100,

@@ -3,6 +3,8 @@
 // - In Electron (window.api present), backendApi must NOT call fetch.
 // - In Web (no window.api), backendApi may call fetch.
 
+export {}; // module scope: keeps helpers like okJson file-local (TS2393)
+
 function okJson(data: unknown) {
   return {
     ok: true,
@@ -138,7 +140,6 @@ describe("backendApi dual-mode routing", () => {
 
       // Financial
       financial: {
-        getMonthlyPL: jest.fn(async () => ({ month: "2026-01" })),
         getDrawerNames: jest.fn(async () => []),
       },
 
@@ -254,7 +255,6 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.getDrawerBalances();
     await apiMod.getDebtSummary();
     await apiMod.getInventoryStockStats();
-    await apiMod.getMonthlyPL("2026-01");
 
     await apiMod.getAllSettings();
     await apiMod.getSetting("x");

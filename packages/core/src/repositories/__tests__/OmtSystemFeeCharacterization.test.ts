@@ -214,7 +214,8 @@ function createTestDb(): Database.Database {
       paid_currency TEXT DEFAULT NULL,
       partner_id INTEGER REFERENCES partners(id),
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
-      commission_model INTEGER NOT NULL DEFAULT 0
+      commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE partner_ledger (
@@ -486,7 +487,8 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 1 — RECEIVE, fee ON TOP, single CASH leg (x=100, f=5, c=1)
+  // CASE 1 — RECEIVE, omtFee shown (informational only), single CASH leg
+  // (x=100, f=5, c=1).
   //
   // [historical, pre-PR#66] Pre-RESERVE-model-fix: General -105.10
   // (=-(x+commission)), OMT_System +105.10 — the "decreasing x+fees from
@@ -494,15 +496,22 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
   // (RECEIVE had no fee field then). Unrelated to the PCD re-derivation
   // below; kept for the record.
   //
-  // rule 17: proven failing-first 2026-07-31 (see the file header for the
-  // three sabotages and their observed wrong values) — the PCD-model numbers below are re-derived
-  // from PRIMARY_CASH_DRAWER_PLAN.md §1/§8.3 against the already-landed
-  // repository (confirmed by an actual `npx jest` run showing the
-  // float-model expectations fail with General "Received: 0" — cash no
-  // longer lands there). A separate serialized pass will do the
-  // revert-production-and-confirm-red exercise for these exact numbers.
+  // RE-DERIVED AGAIN 2026-09-23 — OWNER_NOTES_2026-09-21.md §2b (D1 cutover,
+  // RECEIVE_FEE_MODEL_CUTOVER). This case used to model the fee as paid by
+  // the RECEIVING customer (a +5 fee leg into the PCD, on top of the -100
+  // payout, netting -95; the supplier ledger read the same -95, netting the
+  // fee out of what OMT owes). The owner's rule: OMT system RECEIVE NEVER
+  // takes a fee from the customer — omtFee=5 still drives the commission
+  // (`c`, unaffected below) but posts no leg and does not reduce OMT's debt.
+  //
+  // RULE 17 — PROVEN FAILING-FIRST 2026-09-23: ran this suite BEFORE this
+  // change with `RECEIVE_FEE_MODEL_CUTOVER` reverted to `RECEIVE_FEE_MODEL_
+  // LEGACY` in the repository's stamp — this case failed with `OMT_System_
+  // USD` and `supplierUsd` both -95 instead of -100 (the stale pre-cutover
+  // numbers this comment used to assert), confirming the fixture actually
+  // exercises the new formula. Reverted after confirming red.
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 1 — RECEIVE fee-on-top, single leg (x=100, f=5, c=1)", () => {
+  it("CASE 1 — RECEIVE omtFee shown but never collected/netted (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
 
     repo.createTransaction({
@@ -518,65 +527,63 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
 
     const after = snapshot(db);
 
-    // All cash now lands in the PCD (OMT_System) — provider "OMT" ===
-    // baseSystem "OMT", so both the fee leg and the payout route through
-    // resolveServiceCashDrawer to the PCD instead of General.
+    // All cash lands in the PCD (OMT_System) — no fee leg exists at all (D1:
+    // OMT never takes one), only the full payout.
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General anymore
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // PCD: +5 (fee) - 100 (payout) = -95 (unchanged by Phase 2 — cash flow, not payable, moved)
-    // Phase 2 (D1): gross supplier ledger (grossOwedDelta, RECEIVE) no longer
-    // nets commission: -(x - f) = -(100 - 5) = -95. OLD (pre-Phase-2): -(x-f+c) = -96.
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
-    // PCDΣ(-95) - Δowed(-95) = 0 (was: 1 = c(1), pre-Phase-2 — the shop no
-    // longer keeps its commission at transaction time; it settles later)
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5); // PCD: -100 (payout only, no fee leg — D1)
+    // D1: gross supplier ledger owes the FULL principal, undiminished by the
+    // fee — OMT owes exactly 100, not 95. commission (`c`) still plays no
+    // part (Phase 2 behavior, unchanged by D1).
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-100, 5);
+    // PCDΣ(-100) - Δowed(-100) = 0 — the shop neither keeps nor owes
+    // anything extra for a fee it never collected.
     assertInvariant(before, after, { commission: 0 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 2 — RECEIVE, fee INCLUDED (x=100, f=5, c=1).
+  // CASE 2 — RECEIVE, `includingFees: true` — D1 HARD-REJECT (x=100, f=5,
+  // c=1).
   //
   // [historical] `includingFees` was never read for RECEIVE at all before
   // the fee-included RECEIVE mode existed — unrelated to the PCD
   // re-derivation.
   //
-  // Carries an explicit payout LEG (95 = x−f), so `reconcileLegs` actually
-  // runs. Without legs it no-ops, and this case would pass while the real
-  // leg-vs-total contract went unchecked. Unlike SEND, RECEIVE's `amount` is
-  // the GROSS received (the frontend does NOT pre-net it), and the branch
-  // reconciles against `payoutAmount` (x−f) — this leg pins that.
+  // RE-DERIVED AGAIN 2026-09-23 — OWNER_NOTES_2026-09-21.md §2b (D1). This
+  // case used to net the fee out of the payout (pay only x−f=95) and out of
+  // what OMT owes (-95). Under the new rule OMT never takes a fee at all, so
+  // "fee included" has no meaning for an OMT system RECEIVE — the repository
+  // hard-rejects rather than silently reinterpreting a stale client's intent
+  // (a client that still shows "payout x−f" on screen must not have the
+  // full x booked behind the operator's back).
   //
-  // rule 17: proven failing-first 2026-07-31 (see the file header for the
-  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note.
-  // The PCD (OMT_System) starts this test seeded at $500 (createTestDb),
-  // comfortably above the $95 payout — no fixture funding change needed.
+  // RULE 17 — PROVEN FAILING-FIRST 2026-09-23: ran this suite with the
+  // hard-reject guard commented out — this case then RAN (instead of
+  // throwing) and booked the stale -95/-95 numbers CASE 1 used to assert,
+  // confirming the guard is what makes this case behave correctly. Guard
+  // restored after confirming red.
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 2 — RECEIVE fee-included, explicit $95 payout leg (x=100, f=5, c=1)", () => {
+  it("CASE 2 — RECEIVE includingFees:true is rejected outright for OMT system (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
 
-    repo.createTransaction({
-      provider: "OMT",
-      serviceType: "RECEIVE",
-      amount: 100,
-      currency: "USD",
-      commission: 1,
-      omtFee: 5,
-      includingFees: true,
-      cashoutMethod: "CASH",
-      // Customer collects the NET: x − f = 95.
-      payments: [{ method: "CASH", currencyCode: "USD", amount: 95 }],
-      exchangeRate: 90000,
-    });
+    expect(() =>
+      repo.createTransaction({
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 1,
+        omtFee: 5,
+        includingFees: true,
+        cashoutMethod: "CASH",
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 95 }],
+        exchangeRate: 90000,
+      }),
+    ).toThrow(/never takes a fee/i);
 
     const after = snapshot(db);
-
-    // No separate fee leg (fee-included nets it out of the payout instead).
-    // The single payout leg routes to the PCD, not General.
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // PCD: -(x-f) = -95 (unchanged by Phase 2)
-    // Gross supplier ledger is unaffected by fee mode — same -(x-f) as CASE 1.
-    // Phase 2 (D1): -(100-5) = -95. OLD (pre-Phase-2): -(100-5+1) = -96.
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
-    // PCDΣ(-95) - Δowed(-95) = 0 (was: 1 = c(1), pre-Phase-2)
-    assertInvariant(before, after, { commission: 0 });
+    // Nothing written — the whole transaction rolls back.
+    expect(after.drawers).toEqual(before.drawers);
+    expect(after.supplierUsd).toBeCloseTo(before.supplierUsd, 5);
   });
 
   // ═══════════════════════════════════════════════════════════════════════

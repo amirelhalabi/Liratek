@@ -206,6 +206,9 @@ export function registerSupplierHandlers(): void {
         account_supplier_id: v.data.account_supplier_id,
         direction: v.data.direction,
         count: v.data.selections.length,
+        // LIRA-203 — 0/0 when no overpayment was declared.
+        surplus_usd: v.data.surplus_usd ?? 0,
+        surplus_lbp: v.data.surplus_lbp ?? 0,
       },
     });
     return result;

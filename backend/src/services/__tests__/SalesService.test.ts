@@ -20,6 +20,7 @@ import {
   SalesService,
   resetSalesService,
   SalesRepository,
+  type ProfitService,
 } from "@liratek/core";
 
 describe("SalesService", () => {
@@ -262,23 +263,73 @@ describe("SalesService", () => {
       ];
       mockRepo.getChartData.mockReturnValue(mockChartData as any);
 
-      const result = service.getChartData("Sales");
+      // DAY-1 (rule 27): the Sales series window is resolved ONCE in
+      // SalesService.getChartData (endDay ?? clientDay()) and passed through
+      // to the repository, so both series share one day source. Pass an
+      // explicit endDay here so the assertion doesn't depend on the
+      // machine's own clock.
+      const endDay = "2026-09-24";
+      const result = service.getChartData("Sales", endDay);
 
-      expect(mockRepo.getChartData).toHaveBeenCalledWith("Sales");
+      expect(mockRepo.getChartData).toHaveBeenCalledWith("Sales", endDay);
       expect(result).toEqual(mockChartData);
     });
 
-    it("returns profit chart data", () => {
-      const mockChartData = [
-        { label: "Mon", value: 50 },
-        { label: "Tue", value: 75 },
-      ];
-      mockRepo.getChartData.mockReturnValue(mockChartData as any);
+    // DC-10 (OWNER_NOTES_2026-09-21.md §7.2): "Profit" no longer delegates to
+    // SalesRepository.getChartData (that per-unit query was deleted). It is
+    // composed HERE from ProfitService.getByDate over the rolling 30-day
+    // window ending on the caller's `endDay` — the exact same gross-profit
+    // figures the Profits page's By Date tab reads (rule 13/14). This test
+    // replaces the pre-DC-10 "delegates to the repo" case (CHART-V2-M1):
+    // that assertion now fails deterministically since the repo is never
+    // called for "Profit" any more.
+    it("composes profit chart data from ProfitService.getByDate over the rolling 30-day window", () => {
+      const mockProfitService = {
+        getByDate: jest.fn(),
+      } as unknown as jest.Mocked<ProfitService>;
 
-      const result = service.getChartData("Profit");
+      // endDay = 2026-09-24 → 30-day window starts 2026-08-26 (29 days back,
+      // inclusive both ends = 30 days total).
+      const endDay = "2026-09-24";
+      const expectedFrom = "2026-08-26";
 
-      expect(mockRepo.getChartData).toHaveBeenCalledWith("Profit");
-      expect(result).toEqual(mockChartData);
+      mockProfitService.getByDate.mockReturnValue([
+        {
+          date: "2026-09-24",
+          revenue_usd: 500,
+          revenue_lbp: 0,
+          cost_usd: 300,
+          cost_lbp: 0,
+          profit_usd: 100,
+          profit_lbp: 9_000_000,
+          expenses_usd: 20,
+          expenses_lbp: 0,
+          net_profit_usd: 80,
+          net_profit_lbp: 9_000_000,
+        },
+      ]);
+
+      const scopedService = new SalesService(mockRepo, mockProfitService);
+
+      const result = scopedService.getChartData("Profit", endDay);
+
+      expect(mockProfitService.getByDate).toHaveBeenCalledWith(
+        expectedFrom,
+        endDay,
+      );
+      // The old per-unit query path must never fire for "Profit" (DC-10).
+      expect(mockRepo.getChartData).not.toHaveBeenCalled();
+
+      expect(result).toHaveLength(30);
+      // Days with no ProfitService row zero-fill.
+      expect(result[0]).toEqual({ date: expectedFrom, profit: 0, lbp: 0 });
+      // The one day with a row maps profit_usd -> profit, profit_lbp -> lbp
+      // (gross, before expenses — owner decision 2026-09-24).
+      expect(result[result.length - 1]).toEqual({
+        date: endDay,
+        profit: 100,
+        lbp: 9_000_000,
+      });
     });
   });
 });

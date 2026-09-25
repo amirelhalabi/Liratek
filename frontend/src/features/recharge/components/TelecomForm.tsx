@@ -7,14 +7,23 @@ import {
   useApi,
   hasNewClientInfo,
   type PaymentLine,
+  type CarrierLineEntity,
   appEvents,
 } from "@liratek/ui";
+// #28 (LIRA-218) — the ONE shared sold-ahead/validity rule (rule 14); the
+// pre-sale preview below must compute the SAME answer the write path does.
+import {
+  projectValidityExpiry,
+  classifyLineValidity,
+  LINE_REVIVAL_GRACE_DAYS,
+} from "@liratek/core";
 import type {
   FinancialTransaction,
   ProviderConfig,
   RechargeType,
 } from "../types";
 import { TELECOM_SERVICE_TYPES, ALFA_GIFT_TIERS } from "../types";
+import { deriveSubmittedRechargeType } from "@/shared/utils/rechargeLabels";
 import { HistoryModal } from "./HistoryModal";
 import { useSellRate } from "@/hooks/useSellRate";
 import { PaymentSheet } from "./PaymentSheet";
@@ -146,14 +155,33 @@ interface TelecomFormProps {
    *  loadDrawerBalances call in the parent's handleTelecomSubmit). */
   onRefreshBalances?: () => void;
   onTransactionTimeChange?: (time: string | undefined) => void;
-  /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7): true when the typed
-   *  `phoneNumber` matches this carrier's own primary line — computed ONCE
-   *  in the parent (Recharge/index.tsx owns the `getPrimaryCarrierLine`
-   *  fetch) and passed down so there is a single source of truth shared by
-   *  this form AND `handleTelecomSubmit`. Flips the Credit tab to a
-   *  buy-back (cash OUT for credits IN) and blocks/redirects Days & Alfa
-   *  Gift, which can only add validity via an iPick/Katsh self-charge. */
+  /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7), widened by owner note #21:
+   *  true when the typed `phoneNumber` matches ANY of the shop's active
+   *  lines for this carrier — computed ONCE in the parent
+   *  (Recharge/index.tsx owns the `getActiveCarrierLines` fetch, not just
+   *  the primary line) and passed down so there is a single source of truth
+   *  shared by this form AND `handleTelecomSubmit`. On the Credit tab this
+   *  only means the `shopLineBuyback` checkbox below is SHOWN — whether it's
+   *  actually a buy-back (payment OUT) or case 2's ordinary sale (payment
+   *  IN) is that checkbox's own state, not this flag alone. Blocks/redirects
+   *  Days & Alfa Gift unconditionally, which can only add validity via an
+   *  iPick/Katsh self-charge. */
   isShopLineMatch: boolean;
+  /** Owner note #21 (2026-09-24): the shop-line checkbox's own checked state,
+   *  lifted to the parent (Recharge/index.tsx) since `handleTelecomSubmit`
+   *  needs it too. ON (default) = case 1, the existing credit buy-back
+   *  (payment OUT). OFF = case 2, the customer used the shop line for a call
+   *  (payment IN, ordinary credit sale, no SMS fee). Only meaningful while
+   *  `isShopLineMatch` is true — ignored otherwise. */
+  shopLineBuyback: boolean;
+  setShopLineBuyback: (val: boolean) => void;
+  /** #28 (LIRA-218) — the carrier's PRIMARY line, fetched once by the
+   *  parent (Recharge/index.tsx already loads every active line for the
+   *  carrier). Used only for the DAYS tab's pre-sale sold-ahead preview —
+   *  `null` while no primary line is configured, in which case no warning
+   *  can be shown (the sale still goes through; the server logs and skips
+   *  the validity decrement the same way it always has). */
+  primaryLine: CarrierLineEntity | null;
 }
 
 export function TelecomForm({
@@ -215,6 +243,9 @@ export function TelecomForm({
   onRefreshBalances,
   onTransactionTimeChange,
   isShopLineMatch,
+  shopLineBuyback,
+  setShopLineBuyback,
+  primaryLine,
 }: TelecomFormProps) {
   const api = useApi();
   const { activeSession } = useSession();
@@ -246,6 +277,25 @@ export function TelecomForm({
     null,
   );
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
+
+  // Fix round 1 (minor, issue partner-path-sends-credit-transfer): "For
+  // Partner" and a shop-line match (case 1 buy-back OR case 2 shop-line
+  // use) don't compose. `handleForPartnerSubmit` builds its OWN payload,
+  // outside `deriveSubmittedRechargeType`'s reach, and — unlike
+  // `handleTelecomSubmit` — a `type: "CREDIT_BUYBACK"` sent through it would
+  // hit `RechargeRepository.processRecharge`'s CREDIT_BUYBACK dispatch,
+  // which routes straight to `processCreditBuyback` and has no partnerId/
+  // partner-ledger handling at all — silently dropping the partner
+  // attribution rather than erroring. Rather than teach that method a
+  // partner-buyback contract nobody asked for, keep the combination
+  // unreachable: hide the toggle and force `forPartner` off the moment a
+  // shop line matches, so case 2 always goes through the normal
+  // (non-partner) SHOP_LINE_USE path instead, and case 1 keeps its
+  // pre-existing (out-of-scope, "predates the change" per review) behavior
+  // simply by never being offered "For Partner" to begin with.
+  useEffect(() => {
+    if (isShopLineMatch) setForPartner(false);
+  }, [isShopLineMatch]);
 
   // Fetch the Alfa credit cost rate on mount (the USD→LBP rate now comes from
   // the shared useSellRate hook above).
@@ -317,7 +367,10 @@ export function TelecomForm({
 
   // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7): the Credit tab flips to a
   // buy-back (cash OUT for credits IN) only when the typed phone number
-  // matches this carrier's own primary line. `isShopLineMatch` alone is not
+  // matches ANY of the shop's active lines for this carrier (owner note #21
+  // widened this from "the primary line only" — `isShopLineMatch` is now
+  // computed by the parent from `getActiveCarrierLines`, not
+  // `getPrimaryCarrierLine`). `isShopLineMatch` alone is not
   // enough — it is computed from the SHARED `phoneNumber` state (see the
   // Days/Alfa Gift block below, which reuses the same flag while ON those
   // tabs). Review follow-up: the parent (Recharge/index.tsx) now clears
@@ -325,7 +378,46 @@ export function TelecomForm({
   // value typed here no longer survives onto Days/Alfa Gift after a tab
   // switch — only a same-tab edit (still on Credit) keeps this flag live,
   // which is what actually matters for flipping THIS line's UI.
-  const isCreditBuyback = rechargeType === "CREDIT_TRANSFER" && isShopLineMatch;
+  // Owner note #21: `isShopLineMatch` alone used to always mean buy-back;
+  // it now only means the checkbox is SHOWN. Whether it's actually a
+  // buy-back (case 1) is the `shopLineBuyback` checkbox itself — ON by
+  // default (mirrors the old always-buy-back behavior), OFF is case 2 (an
+  // ordinary sale, see every `!isCreditBuyback` branch below). Fix round 1
+  // (rule 14): derived from the SAME shared `deriveSubmittedRechargeType`
+  // helper `Recharge/index.tsx`'s `handleTelecomSubmit` uses for the
+  // actually-submitted payload, so this form's OWN UI branches can never
+  // disagree with what gets sent. `handleForPartnerSubmit` below does NOT
+  // use it — see the `forPartner`-reset effect's comment (near its
+  // declaration) for why the two don't compose.
+  const isCreditBuyback =
+    deriveSubmittedRechargeType(
+      rechargeType,
+      isShopLineMatch,
+      shopLineBuyback,
+    ) === "CREDIT_BUYBACK";
+
+  // #28 (LIRA-218) — pre-sale "days sold ahead" preview for the Days tab.
+  // Pure and read-only: projectValidityExpiry never writes anything, so
+  // this can run on every render with no server round trip, and it never
+  // blocks the sale (LIRA-157's "sell: never refused" — unchanged). It
+  // deliberately omits `today`/uses the client's own clock (localDay(),
+  // projectValidityExpiry's own default) rather than the server's — same
+  // reasoning as the write path (rule 27).
+  const telecomDaysAmount =
+    rechargeType === "DAYS" ? parseFloat(telecomAmount) || 0 : 0;
+  const daysPreview =
+    telecomDaysAmount > 0 && primaryLine
+      ? projectValidityExpiry(
+          primaryLine.validity_expires_at,
+          -telecomDaysAmount,
+          undefined,
+          primaryLine.days_owed ?? 0,
+        )
+      : null;
+  const soldAheadPreview = daysPreview?.soldAhead ?? 0;
+  const primaryLineDaysRemaining = primaryLine
+    ? classifyLineValidity(primaryLine.validity_expires_at).daysRemaining
+    : 0;
   // Phase 6: a payout item inside an IN-direction session basket is a design
   // problem the plan defaults to blocking outright (basket formData carries
   // no payment fields — checkout collects once — so there is nowhere for a
@@ -529,19 +621,44 @@ export function TelecomForm({
                     Phone Number
                   </label>
                   {isShopLineMatch && (
-                    <p
-                      className="text-xs text-amber-400 font-medium mb-2 -mt-1"
-                      data-testid="shop-line-buyback-note"
+                    <div
+                      className="mb-2 -mt-1 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2"
+                      data-testid="shop-line-note-block"
                     >
-                      This is the shop&apos;s own line — this will be recorded
-                      as a credit buy-back
-                    </p>
+                      <p
+                        className="text-xs text-amber-400 font-medium"
+                        data-testid="shop-line-buyback-note"
+                      >
+                        {shopLineBuyback
+                          ? "This is the shop's own line — this will be recorded as a credit buy-back"
+                          : "Customer is using the shop line — this will be charged to the customer."}
+                      </p>
+                      {/* Owner note #21: default ON (case 1, buy-back).
+                          Unticking flips to case 2 — an ordinary credit sale
+                          charged to the customer instead of a payout. */}
+                      <label className="mt-1.5 flex items-center gap-2 text-amber-200/90 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          data-testid="shop-line-buyback-checkbox"
+                          checked={shopLineBuyback}
+                          onChange={(e) =>
+                            setShopLineBuyback(e.target.checked)
+                          }
+                          className="w-4 h-4 rounded border-amber-500/40 bg-slate-900 text-amber-500 focus:ring-amber-500"
+                        />
+                        <span className="text-xs font-medium">
+                          Buy credits back from the customer
+                        </span>
+                      </label>
+                    </div>
                   )}
                   <div className="relative">
                     <div
                       className={`absolute left-0 top-0 bottom-0 flex items-center pl-4 pr-3 rounded-l-xl bg-${accent}-500/10 border-r border-slate-700`}
                     >
-                      <span className={`text-${accent}-400 font-bold text-sm`}>
+                      <span
+                        className={`text-${accent}-400 text-2xl font-bold font-mono tracking-widest`}
+                      >
                         +961
                       </span>
                     </div>
@@ -550,7 +667,7 @@ export function TelecomForm({
                       type="text"
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
-                      className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-20 pr-4 py-4 text-2xl font-bold text-white focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all tracking-widest font-mono`}
+                      className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-28 pr-4 py-4 text-2xl font-bold text-white focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all tracking-widest font-mono`}
                       placeholder="XX XXX XXX"
                       maxLength={8}
                     />
@@ -653,6 +770,22 @@ export function TelecomForm({
                     placeholder={rechargeType === "DAYS" ? "0" : "0.00"}
                   />
                 </div>
+                {/* #28 (LIRA-218) — pre-sale notice: warns, never blocks
+                    (LIRA-157's "sell: never refused" is unchanged). Preview
+                    computed with the SAME shared rule the write path uses
+                    (rule 14), so the number shown here matches what the
+                    server will actually bank into days_owed. */}
+                {soldAheadPreview > 0 && (
+                  <p
+                    className="mt-2 text-xs text-amber-400"
+                    data-testid="telecom-days-sold-ahead-warning"
+                  >
+                    {primaryLine?.label || primaryLine?.phone_number} only has{" "}
+                    {Math.max(primaryLineDaysRemaining, 0)} days left, so{" "}
+                    {soldAheadPreview} will be sold ahead. Recharge within{" "}
+                    {LINE_REVIVAL_GRACE_DAYS} days to deliver them.
+                  </p>
+                )}
               </div>
 
               {/* Cost field — manual entry for Days type */}
@@ -693,9 +826,7 @@ export function TelecomForm({
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-                    {rechargeType === "CREDIT_TRANSFER" && isShopLineMatch
-                      ? "Price to Customer"
-                      : "Price to Client"}
+                    {isCreditBuyback ? "Price to Customer" : "Price to Client"}
                   </label>
                   {rechargeType === "DAYS" && (
                     <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
@@ -834,17 +965,22 @@ export function TelecomForm({
               {/* PFT-3a: "For Partner" opt-in — routes the FULL price to a
                   selected partner's ledger instead of collecting counter
                   cash. Hides the Payment Sheet below (no walk-in customer,
-                  no cash taken). */}
-              <div>
-                <ForPartnerToggle
-                  testId="recharge-for-partner-toggle"
-                  checked={forPartner}
-                  onChange={setForPartner}
-                  selectedPartnerId={selectedPartnerId}
-                  onPartnerChange={setSelectedPartnerId}
-                  autoSelectSingle
-                />
-              </div>
+                  no cash taken). Fix round 1: hidden entirely once a shop
+                  line matches (case 1 buy-back or case 2 shop-line use) —
+                  see the `isShopLineMatch` reset effect above for why the
+                  two don't compose. */}
+              {!isShopLineMatch && (
+                <div>
+                  <ForPartnerToggle
+                    testId="recharge-for-partner-toggle"
+                    checked={forPartner}
+                    onChange={setForPartner}
+                    selectedPartnerId={selectedPartnerId}
+                    onPartnerChange={setSelectedPartnerId}
+                    autoSelectSingle
+                  />
+                </div>
+              )}
 
               {/* Payment Sheet — skipped entirely for a partner recharge:
                   it collects no cash, so show a short notice instead. */}

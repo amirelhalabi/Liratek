@@ -23,6 +23,13 @@
  * addition — stash that file back to its pre-LIRA-067 state and re-run; the
  * toggle button locator never becomes visible (times out), so this test
  * fails. Restore the fix and confirm it passes again.
+ *
+ * LIRA-201b (owner note #11-B, 2026-09-23): this checkout's split payment is
+ * written as the SESSION's pooled basket legs (session_id-keyed, never
+ * transaction_id-keyed — SessionPaymentService.recordBasketPayment), so the
+ * merged "in: $50" now renders on the row's separate, labelled "Session:"
+ * line (data-testid="session-payment-legs"), not the own-legs-only
+ * "payment-legs" line — see the assertion below.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -165,12 +172,19 @@ test.describe("LIRA-067 — payment-leg detail expandable row", () => {
     const row = appPage.locator("tr", { hasText: marker }).first();
     await expect(row).toBeVisible({ timeout: 8_000 });
 
-    // Compact Summary line still shows the merged total (unchanged behavior —
-    // formatPaymentLegs intentionally sums same-currency legs for the
-    // one-line preview).
-    await expect(row.locator('[data-testid="payment-legs"]')).toContainText(
-      "in: $50",
-    );
+    // LIRA-201b (owner note #11-B, 2026-09-23): this checkout's split
+    // payment is written as the SESSION's pooled basket legs
+    // (SessionPaymentService.recordBasketPayment always posts via
+    // insertSessionLeg — session_id-keyed, never transaction_id-keyed —
+    // even for a single-item basket), never this row's OWN `payments` leg.
+    // With one item in the session, this row is automatically the session's
+    // chosen group header (sessionGroupHeaders.ts), so the merged pooled
+    // total now renders on the separate, labelled "Session:" line — the
+    // row's own payment-legs line is own-legs-only (cashLegsFor) and stays
+    // empty here (it shows just the exchange-rate suffix).
+    await expect(
+      row.locator('[data-testid="session-payment-legs"]'),
+    ).toContainText("Session: in: $50");
 
     // Detail row starts collapsed — not in the DOM at all.
     const detailRow = appPage.locator(

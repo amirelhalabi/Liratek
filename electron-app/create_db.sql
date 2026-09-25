@@ -736,7 +736,7 @@ CREATE TABLE IF NOT EXISTS recharges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER REFERENCES tenants(id),
     carrier TEXT NOT NULL,
-    recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT', 'CREDIT_BUYBACK')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+    recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT', 'CREDIT_BUYBACK', 'SHOP_LINE_USE')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
     amount DECIMAL(10, 2) NOT NULL,
     cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
     price DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -941,6 +941,14 @@ CREATE TABLE IF NOT EXISTS financial_services (
     -- `ALTER ... DEFAULT 0` — 0 (legacy/safe) matches "no gate matched",
     -- never AT_SETTLEMENT by default.
     commission_model INTEGER NOT NULL DEFAULT 0,
+    -- v180 (OWNER_NOTES_2026-09-21.md §2b, D1) — per-row cutover flag, same
+    -- precedent as commission_model above: 0 = LEGACY (a RECEIVE's fee nets
+    -- out of both the payout and what the shop owes the provider); 1 =
+    -- CUTOVER (OMT never takes a fee at all; a Whish fee, if charged, is the
+    -- shop's own profit, never a deduction from what Whish owes) — stamped
+    -- ONLY by the repository's insert path for new OMT/WHISH RECEIVE rows.
+    -- DEFAULT 0 here mirrors the migration's own `ALTER ... DEFAULT 0`.
+    receive_fee_model INTEGER NOT NULL DEFAULT 0,
     -- v161 (LIRA-158_COMMISSION_REPORTING_PLAN.md Phase 0) is DATA-ONLY: it
     -- zeroes the stale commission-estimate term already sitting in
     -- transactions.profit_usd/profit_lbp for pre-existing commission_model=1
@@ -1043,6 +1051,18 @@ CREATE TABLE IF NOT EXISTS custom_services (
     -- is_refunded below, already stamped by the generic refund path.
     fulfillment_status TEXT DEFAULT NULL CHECK(fulfillment_status IN ('ORDERED', 'ISSUED', 'RECEIVED', 'DELIVERED')),
     fulfilled_at TEXT DEFAULT NULL,
+    -- v185 (OWNER_NOTES_REMAINING_BUILD.md #16, Route A) — 'IN' (default,
+    -- every existing row): the ordinary flow — a walk-in customer pays the
+    -- shop, and under partner_mode='VIA' the shop owes the partner the cost.
+    -- 'OUT' (only valid with partner_mode='VIA'): a PAYOUT — cash leaves the
+    -- General drawer to a local recipient (cost_usd/cost_lbp), and the
+    -- partner is booked owing the shop (price_usd/price_lbp, the amount that
+    -- "arrived" via the partner) on the SAME THROUGH_CUSTOM_SERVICE ledger,
+    -- direction DEBIT instead of CREDIT. See CustomServiceRepository's
+    -- isPayout branch. The CHECK constraint lives at the Zod validator layer
+    -- (createCustomServiceSchema), not here — see the v185 migration
+    -- description for why a table rebuild wasn't used for this column.
+    direction TEXT NOT NULL DEFAULT 'IN',
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
@@ -1163,6 +1183,13 @@ CREATE TABLE IF NOT EXISTS carrier_lines (
     -- and self-charges by default, per carrier. At most one per
     -- (tenant, carrier) — enforced by the partial unique index below.
     is_primary INTEGER NOT NULL DEFAULT 0,
+    -- v184 (#28, LIRA-218): the line's sold-ahead balance. A DAYS sale that
+    -- exceeds the line's real remaining days pins the real expiry at today
+    -- and banks the shortfall here instead of pushing expiry further
+    -- negative (which used to misclassify a sold-ahead line as BURNED). Paid
+    -- off 1:1 by the NEXT charge, before any of that charge's days stack
+    -- onto the real expiry — see carrierLineValidity.ts's projectValidityExpiry.
+    days_owed INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -1192,6 +1219,14 @@ CREATE TABLE IF NOT EXISTS carrier_line_movements (
     -- which cannot correctly undo the "already-expired extends from today"
     -- extension rule on reversal.
     previous_validity_expires_at TEXT,
+    -- v184 (#28, LIRA-218): the days_owed rule-20 snapshot pair, same shape
+    -- as previous_validity_expires_at above. days_owed_delta is the exact
+    -- (never lossy — days_owed has no grace/ceiling rule) change this
+    -- movement applied; reverseMovement undoes it by pure arithmetic for
+    -- BOTH a sell (banked owed) and a charge (paid-off owed). previous_days_owed
+    -- is carried for symmetry/audit but is not what reversal keys off.
+    days_owed_delta INTEGER NOT NULL DEFAULT 0,
+    previous_days_owed INTEGER NOT NULL DEFAULT 0,
     reason TEXT NOT NULL,
     is_reversed INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1202,6 +1237,38 @@ CREATE TABLE IF NOT EXISTS carrier_line_movements (
 CREATE INDEX IF NOT EXISTS idx_carrier_line_movements_tenant_id ON carrier_line_movements(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_carrier_line_movements_carrier_line_id ON carrier_line_movements(carrier_line_id);
 CREATE INDEX IF NOT EXISTS idx_carrier_line_movements_transaction_id ON carrier_line_movements(transaction_id);
+
+-- Carrier Line Owed Deliveries (v184 — #28, LIRA-218): the "days still to
+-- send" list. One row per DAYS sale that sold ahead of the line's real
+-- remaining days (days_owed > 0 was banked for it) — the sale itself was
+-- already recorded once (the DAYS recharge transaction, linked by
+-- transaction_id); this row tracks ONLY that delivery is still owed to the
+-- customer, until the operator marks it sent once the line is recharged.
+-- `Mark sent` (CarrierLineOwedDeliveryRepository.markSent) flips status to
+-- 'SENT' and stamps sent_at/sent_by — it never books a second sale, a second
+-- charge, or touches carrier_lines.days_owed (that balance is settled purely
+-- by the NEXT charge's owed-payoff, independently of this operational
+-- checklist).
+CREATE TABLE IF NOT EXISTS carrier_line_owed_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    carrier_line_id INTEGER NOT NULL,
+    transaction_id INTEGER,
+    client_id INTEGER,
+    client_name TEXT,
+    days_owed INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SENT')),
+    sent_at DATETIME,
+    sent_by INTEGER REFERENCES users(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (carrier_line_id) REFERENCES carrier_lines(id) ON DELETE CASCADE,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
+    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_carrier_line_owed_deliveries_tenant_id ON carrier_line_owed_deliveries(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_carrier_line_owed_deliveries_carrier_line_id ON carrier_line_owed_deliveries(carrier_line_id);
+CREATE INDEX IF NOT EXISTS idx_carrier_line_owed_deliveries_status ON carrier_line_owed_deliveries(status);
 
 -- =============================================================================
 -- 4. Financial Management (Drawers & Closings)
@@ -1915,6 +1982,12 @@ CREATE TABLE IF NOT EXISTS loto_cash_prizes (
     reimbursed_in_settlement_id INTEGER,
     checkpoint_id INTEGER REFERENCES loto_checkpoints(id),
     note TEXT,
+    -- LIRA-201c (migration v181): soft-void marker for a prize reversed as
+    -- part of a session-basket void/refund (TransactionRepository
+    -- ._reverseLotoCashPrize). Default 0/NULL keeps every prize counted
+    -- until explicitly voided.
+    voided INTEGER NOT NULL DEFAULT 0,
+    voided_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -1977,6 +2050,11 @@ CREATE TABLE IF NOT EXISTS hold_money (
     tenant_id INTEGER REFERENCES tenants(id),
     client_name TEXT NOT NULL,
     phone_number TEXT,
+    -- v183 (LIRA-214): the client autocomplete on the hold form resolves a
+    -- real client, but only name+phone reached this table (rule 11) — a
+    -- matched client's unified-transaction client_id read NULL. Nullable:
+    -- a walk-in (name+phone only, no clients row) is still fully supported.
+    client_id INTEGER REFERENCES clients(id),
     usd_amount REAL NOT NULL DEFAULT 0,
     lbp_amount REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'collected')),
@@ -1990,6 +2068,35 @@ CREATE TABLE IF NOT EXISTS hold_money (
 
 CREATE INDEX IF NOT EXISTS idx_hold_money_status ON hold_money(status);
 CREATE INDEX IF NOT EXISTS idx_hold_money_created_at ON hold_money(created_at);
+
+-- v183 (LIRA-214): partial-pickup balance model. One row per pickup EVENT
+-- against a hold — usd_amount/lbp_amount is the portion returned THIS
+-- pickup (its payment legs live in `payments`, keyed by transaction_id, like
+-- every other money flow). A hold's REMAINING balance is always derived
+-- live: hold_money.usd_amount/lbp_amount minus the SUM of this table's
+-- non-voided rows for that hold_money_id — never cached on hold_money
+-- itself. is_voided/voided_by/voided_at are this table's own rule-20
+-- reversal owner (HoldMoneyRepository.voidPickup): voiding ONE pickup
+-- re-credits whatever drawer(s) its legs debited and the derived remaining
+-- balance goes back up. See migrations/index.ts v183 for the full rationale.
+CREATE TABLE IF NOT EXISTS hold_money_pickups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    hold_money_id INTEGER NOT NULL REFERENCES hold_money(id),
+    transaction_id INTEGER REFERENCES transactions(id),
+    usd_amount REAL NOT NULL DEFAULT 0,
+    lbp_amount REAL NOT NULL DEFAULT 0,
+    is_voided INTEGER NOT NULL DEFAULT 0,
+    voided_by INTEGER REFERENCES users(id),
+    voided_at DATETIME,
+    created_by INTEGER REFERENCES users(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hold_money_pickups_hold_id ON hold_money_pickups(hold_money_id);
+CREATE INDEX IF NOT EXISTS idx_hold_money_pickups_transaction_id ON hold_money_pickups(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_hold_money_pickups_tenant_id ON hold_money_pickups(tenant_id);
 
 -- =============================================================================
 -- 13. Stock Adjustments (LIRA-077 audit trail)
@@ -2257,4 +2364,33 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- admin_only = 0. The 'profits' seed row above already carries that
     -- value (see its own v163 note), so a fresh DB needs no separate
     -- UPDATE — same shape as v163/v178's marker notes above.
-    (179, 'profits_module_visible_to_all_roles_backfill');
+    (179, 'profits_module_visible_to_all_roles_backfill'),
+    -- v180 adds financial_services.receive_fee_model (DEFAULT 0); the fresh
+    -- table declaration above already carries that column directly, so a
+    -- fresh DB needs no separate ALTER — same shape as v150's commission_model
+    -- marker note above.
+    (180, 'financial_services_receive_fee_model'),
+    -- v181 adds loto_cash_prizes.voided/voided_at; the fresh table
+    -- declaration above already carries both columns directly, so a fresh DB
+    -- needs no separate ALTER — same shape as v180's marker note above.
+    (181, 'loto_cash_prizes_voided'),
+    -- v182 adds 'SHOP_LINE_USE' to recharges.recharge_type CHECK; the fresh
+    -- table declaration above already carries it directly, so a fresh DB
+    -- needs no separate rebuild — same shape as v149's own marker note.
+    (182, 'add_shop_line_use_recharge_type'),
+    -- v183 adds hold_money.client_id + the hold_money_pickups table; both
+    -- are already declared directly on the fresh table/definitions above
+    -- (hold_money's client_id column, and hold_money_pickups itself), so a
+    -- fresh DB needs no separate ALTER/CREATE — same shape as v180's marker
+    -- note above.
+    (183, 'hold_money_payment_form_and_partial_pickup'),
+    -- v184 adds carrier_lines.days_owed, carrier_line_movements.days_owed_delta/
+    -- previous_days_owed and the carrier_line_owed_deliveries table; all three
+    -- are already declared directly above, so a fresh DB needs no separate
+    -- ALTER/CREATE — same shape as v183's marker note above.
+    (184, 'carrier_line_sold_ahead_days'),
+    -- v185 adds custom_services.direction ('IN'/'OUT', DEFAULT 'IN'); the
+    -- fresh table declaration above already carries that column directly,
+    -- so a fresh DB needs no separate ALTER — same shape as v180's marker
+    -- note above.
+    (185, 'custom_services_payout_direction');

@@ -22,6 +22,8 @@ function createTestDb(): Database.Database {
       credits_delta                 REAL NOT NULL DEFAULT 0,
       validity_days_delta           INTEGER NOT NULL DEFAULT 0,
       previous_validity_expires_at  TEXT,
+      days_owed_delta               INTEGER NOT NULL DEFAULT 0,
+      previous_days_owed            INTEGER NOT NULL DEFAULT 0,
       reason                        TEXT NOT NULL,
       is_reversed                   INTEGER NOT NULL DEFAULT 0,
       created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP,

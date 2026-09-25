@@ -17,7 +17,11 @@
  *   RECEIVE → shop OWES the partner (partner_ledger CREDIT):
  *     - the service's own drawer INCREASES by the received amount;
  *     - OMT/WHISH: credit = full amount (no fee);
- *     - OMT_APP/WHISH_APP: credit = amount − fee (fee optional);
+ *     - OMT_APP: credit = full amount — OMT_APP RECEIVE takes NO fee "for
+ *       now" (D1, OWNER_NOTES_2026-09-21.md §2b case #5); the repository
+ *       hard-rejects a nonzero commission/feePayments on this combination
+ *       instead of silently booking one;
+ *     - WHISH_APP: credit = amount − fee (fee optional, unchanged by D1);
  *     - BINANCE: drawer +USDT, credit = (amount − fee) in USD.
  *
  * Rule 15: every case uses its OWN fresh partner (identity by returned id)
@@ -232,18 +236,25 @@ const CASES: Case[] = [
     ],
   },
   {
-    label: "OMT App RECEIVE 30.34 (fee 2) → OMT_App +30.34, owes 28.34",
+    // D1 (OWNER_NOTES_2026-09-21.md §2b case #5, 2026-09-23): OMT App
+    // RECEIVE takes NO fee "for now" — `commission` is omitted here (a
+    // nonzero one is hard-rejected, see the dedicated guard test below).
+    // With fee=0, `creditAmount = amountAbs - fee` (the FOR-partner RECEIVE
+    // branch, FinancialServiceRepository.ts ~:2793) collapses to the full
+    // amount — the shop owes the partner everything, same as the OMT/WHISH
+    // system RECEIVE cases above. OLD -> NEW: owed 28.34 (netting a $2 fee)
+    // -> owed the full 30.34.
+    label: "OMT App RECEIVE 30.34 (no fee) → OMT_App +30.34, owes full 30.34",
     payload: {
       provider: "OMT_APP",
       serviceType: "RECEIVE",
       amount: 30.34,
       currency: "USD",
-      commission: 2,
     },
     match: "30.34",
     type: "FOR_OMT_APP_RECEIVE",
     direction: "CREDIT",
-    balDelta: { usd: -28.34, lbp: 0 },
+    balDelta: { usd: -30.34, lbp: 0 },
     drawerChecks: [
       { name: "OMT_App", field: "usd", delta: 30.34 },
       { name: "General", field: "usd", delta: 0 },
@@ -465,6 +476,59 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
       }
     });
   }
+
+  // D1 (OWNER_NOTES_2026-09-21.md §2b case #5): OMT App RECEIVE has no fee
+  // "for now" — the repository hard-rejects a nonzero commission/feePayments
+  // on this exact combination, checked BEFORE the FOR-partner dispatch (the
+  // guard sits at FinancialServiceRepository.ts ~:1768, ahead of the
+  // `partnerMode === "FOR"` early-return dispatch further down the same
+  // function), so a FOR-partner OMT App RECEIVE with a fee typed must be
+  // refused exactly like a walk-in one — no partner ledger row, no drawer
+  // move.
+  test("OMT App RECEIVE FOR a partner WITH a fee is REJECTED — OMT_APP RECEIVE takes no fee yet", async ({
+    appPage,
+  }) => {
+    const partnerId = await createPartner(appPage, "L119noFee");
+    const before = await snapshot(appPage, partnerId);
+
+    const res = await appPage.evaluate(async (partnerId) => {
+      const w = window as unknown as Api;
+      const r = await w.api.omt.addTransaction({
+        provider: "OMT_APP",
+        serviceType: "RECEIVE",
+        amount: 30.34,
+        currency: "USD",
+        commission: 2,
+        partnerId,
+        partnerMode: "FOR",
+      });
+      const ledger = await w.api.partners.getLedger(partnerId);
+      return {
+        ok: r.success,
+        error: r.error ?? null,
+        entryCount: ledger.entries.length,
+      };
+    }, partnerId);
+
+    expect(res.ok).toBe(false);
+    // Owner decision 2026-09-25: OMT_APP RECEIVE now shares the SAME D1
+    // message as OMT system RECEIVE (OMT_RECEIVE_NO_FEE_MESSAGE), not its
+    // own bespoke text.
+    expect(res.error ?? "").toContain(
+      "OMT RECEIVE never takes a fee from the customer",
+    );
+    // Nothing was written: the guard fires before any row exists.
+    expect(res.entryCount).toBe(0);
+
+    const after = await snapshot(appPage, partnerId);
+    expect(after.bal.usd - before.bal.usd).toBeCloseTo(0, 2);
+    for (const drawer of ["OMT_App", "General"]) {
+      expect(
+        drawerVal(after, drawer, "usd") - drawerVal(before, drawer, "usd"),
+        `${drawer}.usd must be untouched by a rejected transaction`,
+      ).toBeCloseTo(0, 2);
+    }
+  });
 
   test("a counter payment (IN leg) on a for-partner financial service is rejected", async ({
     appPage,

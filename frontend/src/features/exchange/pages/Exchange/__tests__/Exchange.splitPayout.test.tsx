@@ -1,4 +1,6 @@
 /** @jest-environment jsdom */
+// NOT RUN — proven at the end-of-batch gate (LIRA-213 #20 batch: updated
+// for the page's second DecimalInput and the calculateAmountInForTarget mock).
 
 /**
  * Exchange page — split payout contract (owner-requested 2026-07-30).
@@ -23,6 +25,10 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 // imports (CurrencyRate, CurrencyExchangeResult) are erased at compile time.
 jest.mock("@liratek/core", () => ({
   TAKE_USD: -1,
+  // LIRA-213 #20 — the typeable "Customer Gets" reverse calc. Unused by this
+  // suite's scenarios (it never types into the target box), so a trivial
+  // stub is enough to keep the module import from resolving to `undefined`.
+  calculateAmountInForTarget: jest.fn(() => 0),
   // EXCHANGE_LOT_SETTLEMENT.md Q1 — this suite only ever exercises USD/LBP,
   // both exempt from lot tracking; Exchange/index.tsx calls this
   // unconditionally every render, so it must exist even though the
@@ -76,19 +82,26 @@ jest.mock("@liratek/ui", () => ({
     getExchangeHistory: mockGetExchangeHistory,
     addExchangeTransaction: mockAddExchangeTransaction,
   }),
+  // LIRA-213 #20 added a SECOND DecimalInput to the page (the typeable
+  // "Customer Gets" target box), so this stub must respect a caller-passed
+  // `data-testid` instead of always rendering "amount-in" — otherwise two
+  // stubbed inputs would collide on the same testid. Callers that don't
+  // pass one (the "You Receive" box) keep the original "amount-in" id.
   DecimalInput: ({
     value,
     onChange,
     placeholder,
     className,
+    "data-testid": dataTestId,
   }: {
     value: number;
     onChange: (n: number) => void;
     placeholder?: string;
     className?: string;
+    "data-testid"?: string;
   }) => (
     <input
-      data-testid="amount-in"
+      data-testid={dataTestId ?? "amount-in"}
       type="text"
       value={value === 0 ? "" : String(value)}
       placeholder={placeholder}

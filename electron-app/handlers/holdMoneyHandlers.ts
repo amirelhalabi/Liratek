@@ -11,7 +11,12 @@ import { getHoldMoneyService, customServiceLogger } from "@liratek/core";
 import type { HoldMoneyStatus } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-import { HoldMoneyCreateSchema, validatePayload } from "../schemas/index.js";
+import {
+  HoldMoneyCreateSchema,
+  HoldMoneyCollectSchema,
+  HoldMoneyVoidPickupSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerHoldMoneyHandlers(): void {
   customServiceLogger.info("Registering Hold Money IPC handlers");
@@ -87,21 +92,78 @@ export function registerHoldMoneyHandlers(): void {
     },
   );
 
-  // Collect (return) a hold (admin + staff)
+  // Pickups (all events, voided or not) for one hold — detail view + void
+  // action source list.
+  ipcMain.handle(
+    "hold-money:pickups",
+    (_event: IpcMainInvokeEvent, holdMoneyId: number) => {
+      try {
+        return { success: true, data: service.getPickups(holdMoneyId) };
+      } catch (error) {
+        customServiceLogger.error({ error }, "hold-money:pickups failed");
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to list hold pickups",
+        };
+      }
+    },
+  );
+
+  // Collect (return) part or all of a hold (admin + staff) — LIRA-214
+  // (migration v183): now a payload (payment legs + optional partial
+  // amounts), not a bare id.
   ipcMain.handle(
     "hold-money:collect",
-    (event: IpcMainInvokeEvent, id: number) => {
+    (event: IpcMainInvokeEvent, data: unknown) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
-      customServiceLogger.info({ id }, "Collecting hold money");
-      const result = service.collectHold(id, auth.userId);
+      const v = validatePayload(HoldMoneyCollectSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      customServiceLogger.info({ id: v.data.id }, "Collecting hold money");
+      const result = service.collectHold(v.data, auth.userId);
       if (result.success) {
         audit(event.sender.id, {
           action: "collect",
           entity_type: "hold_money",
-          entity_id: String(id),
-          summary: `Collected hold #${id}`,
+          entity_id: String(v.data.id),
+          summary: `Collected hold #${v.data.id}`,
+          metadata: {
+            usd_amount: v.data.usd_amount,
+            lbp_amount: v.data.lbp_amount,
+          },
+        });
+      }
+      return result;
+    },
+  );
+
+  // Void (reverse) one pickup event (admin + staff) — rule-20 reversal
+  // owner for a pickup recorded in error.
+  ipcMain.handle(
+    "hold-money:void-pickup",
+    (event: IpcMainInvokeEvent, data: unknown) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(HoldMoneyVoidPickupSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      customServiceLogger.info(
+        { pickupId: v.data.pickup_id },
+        "Voiding hold money pickup",
+      );
+      const result = service.voidPickup(v.data.pickup_id, auth.userId);
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "void",
+          entity_type: "hold_money_pickup",
+          entity_id: String(v.data.pickup_id),
+          summary: `Voided hold pickup #${v.data.pickup_id}`,
         });
       }
       return result;

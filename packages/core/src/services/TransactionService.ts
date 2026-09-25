@@ -17,6 +17,7 @@ import {
   type VoidCheckoutGroupResult,
   type RefundLegOverride,
   type RefundUnitExtra,
+  type SessionBasketReversalResult,
   TransactionRepository,
   getTransactionRepository,
 } from "../repositories/TransactionRepository.js";
@@ -232,6 +233,50 @@ export class TransactionService {
       logger.error(
         { error, groupId, userId },
         "TransactionService.voidCheckoutGroup error",
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — void every item in a
+   * customer-session basket, plus the basket's pooled cash leg(s) and pooled
+   * debt (Session Debt / CREDIT_DEPOSIT), in ONE db transaction. Replaces
+   * the dead-end "Basket item — see admin to reverse" cell: this is now the
+   * one legitimate way to reverse a basket member (a bare
+   * voidTransaction/refundTransaction on a session-linked row is refused by
+   * the repository guard — see TransactionRepository._assertReversible).
+   */
+  voidSessionBasket(
+    sessionId: number,
+    userId: number,
+  ): SessionBasketReversalResult {
+    try {
+      return this.repo.voidSessionBasket(sessionId, userId);
+    } catch (error) {
+      logger.error(
+        { error, sessionId, userId },
+        "TransactionService.voidSessionBasket error",
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Same shape as {@link voidSessionBasket} (rule 14) but keeps every
+   * original item ACTIVE and creates a REFUND row per item, matching
+   * refundTransaction's own accounting.
+   */
+  refundSessionBasket(
+    sessionId: number,
+    userId: number,
+  ): SessionBasketReversalResult {
+    try {
+      return this.repo.refundSessionBasket(sessionId, userId);
+    } catch (error) {
+      logger.error(
+        { error, sessionId, userId },
+        "TransactionService.refundSessionBasket error",
       );
       throw error;
     }

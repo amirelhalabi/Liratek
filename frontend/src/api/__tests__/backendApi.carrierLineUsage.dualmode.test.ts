@@ -17,6 +17,8 @@
  * renders `error` to the operator.
  */
 
+export {}; // module scope: keeps helpers like okJson file-local (TS2393)
+
 function okJsonCarrierLineUsage(data: unknown) {
   return {
     ok: true,

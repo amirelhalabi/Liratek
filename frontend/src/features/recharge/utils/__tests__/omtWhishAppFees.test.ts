@@ -80,13 +80,17 @@ describe("calculateOmtWhishAppFees — Whish App RECEIVE (lira-100)", () => {
   });
 });
 
-describe("calculateOmtWhishAppFees — OMT App RECEIVE (lira-101: mirrors the Whish App full-fee-as-profit contract)", () => {
-  // LEFT_TO_DO.md "C4/C5 app-transfer fee split", decided 2026-07-04: the fee
-  // is fully the shop's for BOTH OMT App and Whish App. Whish App RECEIVE was
-  // fixed first (lira-100); this cluster brings OMT App RECEIVE onto the same
-  // contract. OMT App has no auto-fee and no "fee included" toggle in the UI
-  // (includingFees is always false in practice for this provider), so its
-  // only reachable RECEIVE state is the "fee charged on top" branch.
+describe("calculateOmtWhishAppFees — OMT App RECEIVE has NO fee (D1, owner decision 2026-09-23)", () => {
+  // SUPERSEDES the earlier lira-101 "mirrors Whish App full-fee-as-profit"
+  // contract for this one combination. The owner's verbatim D1 answer: "OMT
+  // App RECEIVE — no fee, for now."
+  //
+  // Actually run 2026-09-23: with `omtAppReceiveHasNoFee` temporarily forced
+  // to `false` in omtWhishAppFees.ts, `npx jest omtWhishAppFees.test.ts`
+  // FAILED — "a manual fee is IGNORED..." got providerFee 5 (Received: 5)
+  // against `expect(result.providerFee).toBe(0)` — the other 12 tests in the
+  // file still passed. Reverting to the real `omtAppReceiveHasNoFee` check
+  // and re-running: 13/13 GREEN.
   it("with no fee: wallet == payout == entered amount, no profit", () => {
     const result = calculateOmtWhishAppFees({
       ...base,
@@ -100,10 +104,12 @@ describe("calculateOmtWhishAppFees — OMT App RECEIVE (lira-101: mirrors the Wh
     expect(result.shopProfit).toBe(0);
   });
 
-  it("with a manual fee: wallet grosses up by the fee, customer receives the entered amount, shop keeps the FULL fee as profit", () => {
-    // Previously (the lira-101 baseline): a $5 fee here produced walletAmount
-    // 100 (fee not folded in) and shopProfit 0 — byte-identical to the no-fee
-    // case above, i.e. the fee the cashier typed had zero financial effect.
+  it("a manual fee is IGNORED — forced to 0 regardless of a stale/typed value, wallet == payout == entered amount", () => {
+    // Before D1 this manual fee would have folded into the wallet inflow
+    // (walletAmount 105) and become shop profit (shopProfit 5) — see the
+    // docblock above for the RED/GREEN proof. D1 forces it away entirely: a
+    // stale manualFee left over from OMT App SEND (or from a provider switch
+    // away from Whish App RECEIVE) must have zero financial effect here.
     const result = calculateOmtWhishAppFees({
       ...base,
       activeProvider: "OMT_APP",
@@ -112,9 +118,10 @@ describe("calculateOmtWhishAppFees — OMT App RECEIVE (lira-101: mirrors the Wh
     });
 
     expect(result.isAppWalletReceive).toBe(true);
-    expect(result.walletAmount).toBeCloseTo(105, 2); // NOT 100 — fee now folds into the wallet inflow
-    expect(result.totalAmount).toBeCloseTo(100, 2); // customer receives the entered amount
-    expect(result.shopProfit).toBeCloseTo(5, 2); // NOT 0 — the shop keeps the full fee
+    expect(result.providerFee).toBe(0);
+    expect(result.walletAmount).toBeCloseTo(100, 2);
+    expect(result.totalAmount).toBeCloseTo(100, 2);
+    expect(result.shopProfit).toBe(0);
   });
 
   it("has no auto-fee — that mechanism is Whish-App-only", () => {

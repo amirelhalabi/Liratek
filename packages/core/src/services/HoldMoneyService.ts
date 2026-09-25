@@ -2,7 +2,8 @@
  * Hold Money Service
  *
  * Business logic layer for holding cash on behalf of clients. Validation and
- * orchestration only — all data access goes through HoldMoneyRepository.
+ * orchestration only — all data access goes through HoldMoneyRepository
+ * (rule 13).
  */
 
 import {
@@ -12,8 +13,28 @@ import {
   type HoldMoneyStatus,
   type CreateHoldMoneyInput,
   type HoldMoneyResult,
+  type HoldMoneyPickupEntity,
 } from "../repositories/HoldMoneyRepository.js";
+import type { HoldMoneyCollectInput } from "../validators/holdMoney.js";
 import { customServiceLogger } from "../utils/logger.js";
+
+/** Shared "is this ISO datetime valid and not in the future" guard — both
+ *  write paths (create/collect) accept a client-supplied `transaction_time`
+ *  (rule 27) and must reject the same malformed/future value the same way
+ *  (rule 14 — one check, not two copies that could drift). */
+function validateTransactionTime(
+  transactionTime: string | undefined,
+): { ok: true } | { ok: false; error: string } {
+  if (!transactionTime) return { ok: true };
+  const txTime = new Date(transactionTime);
+  if (isNaN(txTime.getTime())) {
+    return { ok: false, error: "Invalid transaction_time format" };
+  }
+  if (txTime > new Date()) {
+    return { ok: false, error: "transaction_time cannot be in the future" };
+  }
+  return { ok: true };
+}
 
 export class HoldMoneyService {
   private repo: HoldMoneyRepository;
@@ -23,35 +44,53 @@ export class HoldMoneyService {
   }
 
   /**
-   * Create a new hold (cash in → General drawer).
+   * Create a new hold (cash in, posted per its payment legs).
    */
   createHold(
     data: CreateHoldMoneyInput,
     createdBy: number = 1,
   ): HoldMoneyResult {
-    if (data.transaction_time) {
-      const txTime = new Date(data.transaction_time);
-      if (isNaN(txTime.getTime())) {
-        return { success: false, error: "Invalid transaction_time format" };
-      }
-      if (txTime > new Date()) {
-        return {
-          success: false,
-          error: "transaction_time cannot be in the future",
-        };
-      }
-    }
+    const timeCheck = validateTransactionTime(data.transaction_time);
+    if (!timeCheck.ok) return { success: false, error: timeCheck.error };
     return this.repo.createHold(data, createdBy);
   }
 
   /**
-   * Collect (return) a held amount (cash out ← General drawer).
+   * Collect (return) part or all of a held amount (LIRA-214, migration
+   * v183 — partial pickup). `data.usd_amount`/`data.lbp_amount` default to
+   * the hold's full remaining balance when omitted.
    */
   collectHold(
-    id: number,
+    data: HoldMoneyCollectInput,
     collectedBy: number = 1,
-  ): { success: boolean; error?: string } {
-    return this.repo.collectHold(id, collectedBy);
+  ): HoldMoneyResult {
+    const timeCheck = validateTransactionTime(data.transaction_time);
+    if (!timeCheck.ok) return { success: false, error: timeCheck.error };
+    return this.repo.collectHold(data, collectedBy);
+  }
+
+  /**
+   * Void (reverse) ONE pickup event — rule-20 reversal owner for a pickup
+   * recorded in error.
+   */
+  voidPickup(pickupId: number, voidedBy: number = 1): HoldMoneyResult {
+    return this.repo.voidPickup(pickupId, voidedBy);
+  }
+
+  /**
+   * Every pickup event for one hold — the Active Holds detail view and the
+   * void action's source list.
+   */
+  getPickups(holdMoneyId: number): HoldMoneyPickupEntity[] {
+    try {
+      return this.repo.getPickups(holdMoneyId);
+    } catch (error) {
+      customServiceLogger.error(
+        { error, holdMoneyId },
+        "Failed to get hold pickups",
+      );
+      return [];
+    }
   }
 
   /**

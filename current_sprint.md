@@ -5,11 +5,17 @@
 > **Last Restructured:** 2026-08-12 (see "How to keep this file honest" below)
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW` | `PARTIAL`
 
-> **⬆ HIGHEST PRIORITY (2026-09-23): `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md`** — 29 notes
-> from the customer actually running the shop on the web app. **22 needed new tickets; LIRA-198,
-> LIRA-205 and LIRA-208 shipped 2026-09-23, so 19 remain**, four of them money bugs nobody has
-> reproduced yet (LIRA-204, LIRA-206, LIRA-215, LIRA-217) and two of them *reversals* of decisions
-> the owner confirmed within the last six weeks (D18, D1) that cannot be built until he says so.
+> **⬆ HIGHEST PRIORITY, updated 2026-09-25: `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md`** — 29
+> notes from the customer actually running the shop on the web app. **Implemented and unit-verified
+> 2026-09-25** (see the dated section near the end of this file for the full breakdown): the four
+> money bugs (D1/#4/#15, #6, #7/LIRA-203, #8/LIRA-204, #10/LIRA-206, #22/LIRA-088, #26/LIRA-215,
+> #27/LIRA-217), the Profits-page audit (PA-0..PA-4), the Dashboard chart/tile (DC-1..DC-12), the
+> widened **LIRA-219**, and the remaining notes (#11, #13, #16, #19–21, #24, #28, lira-141). All of
+> it is **uncommitted** — core/backend/electron/frontend jest, typecheck and lint are green; desktop
+> e2e was 310 passed / 3 failed, web e2e 118 passed / 3 failed / 1 skipped, and all 6 failures were
+> stale specs, now fixed, still awaiting the owner's re-run. Open: #1 and #25 (customer to confirm), #5 (voice
+> note), #17 (parked — owner unsure if it's the rate band or a selling price), #14 slice 3, a
+> single-item basket reversal, and two new tickets this batch filed, **LIRA-229** and **LIRA-230**.
 > That document outranks `PLAN_OVERVIEW.md` §5 and says so in its own header.
 >
 > **Superseded banner, kept for the record:** *"HIGHEST PRIORITY (2026-09-11): OMT open-credit
@@ -1291,7 +1297,7 @@ items. Add a flow to record the debt first, then attach the related products to 
 | **Epic**             | Recharge             |
 | **Type**             | Feature              |
 | **Priority**         | Medium               |
-| **Status**           | NEEDS INTERVIEW      |
+| **Status**           | DONE 2026-09-25 (uncommitted batch) — built as #21's shop-line checkbox (buy back vs charge the customer) + #22's signed decrement, per `OWNER_NOTES_REMAINING_BUILD.md`; unit/typecheck/lint green |
 | **Affected Modules** | Recharge > MTC, Alfa |
 | **Assigned To**      | —                    |
 | **Depends On**       | —                    |
@@ -3492,7 +3498,15 @@ confirm or rule out this exact mechanism.
 > Same failure mode as the LIRA-070/094 collision recorded in
 > `docs/plans/ongoing_plans/OWNER_NOTES_TASK_PLAN.md:20-24`.
 
-**Priority:** Medium · **Epic:** Closing · **Status:** TODO · **Found:** 2026-09-04, while building LIRA-174
+**Priority:** Medium · **Epic:** Closing · **Status:** DONE 2026-09-25 (uncommitted batch) — **WIDENED 2026-09-24**, built per `docs/plans/ongoing_plans/LIRA-219_CLOSING_PROFIT_PARITY.md`; unit/typecheck/lint green, desktop+web e2e green apart from unrelated stale specs (lira-158/lira-103 e2e updated but not yet re-run) · **Found:** 2026-09-04, while building LIRA-174
+
+> **Widened by the owner, 2026-09-24:** today's profit in the closing report must EQUAL the Profits
+> page's profit for today. Closing reuses the Profits page's shared code instead of its own copies
+> (rule 14); only owner-decided differences survive, as named exceptions. The original LBP-slice gap
+> below is one of four symptoms: (1) kept change ignored for every module, including loto's USD kept
+> change (`LO-R10`); (2) the LBP slice below; (3) sales profit per unit, never × quantity
+> (`ClosingRepository.ts:880`); (4) partner loto tickets. Symptom (4) is OUT of scope and goes with LIRA-173.
+> Design + status: `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` §6.9.
 
 `getDailyStatsSnapshot` returns two profit figures and an LBP-denominated profit slice can fall
 outside **both** of them. This is a gap in the data, not in the PDF that displays it.
@@ -3865,7 +3879,12 @@ spec now derives its expected value independently from its own constants
 
 ---
 
-## LIRA-183: every LBP row shows 0% margin on Profits → By Module — TODO — Medium
+## LIRA-183: every LBP row shows 0% margin on Profits → By Module — DONE 2026-09-25 (uncommitted batch) — Medium
+
+> **DONE 2026-09-25.** Fixed as part of the Profits audit's PA-4.21 (`OWNER_NOTES_2026-09-21.md`
+> §6.4/§6.6): server-side `margin_pct`/`margin_converted` on `ProfitByModule`, rate-free for
+> LBP-only rows, flagged "≈" for genuinely mixed rows — the recommendation below, as built.
+> Unit/typecheck/lint green.
 
 `frontend/src/features/profits/pages/Profits.tsx:1356` calls `formatPct(row.profit_usd, row.revenue_usd)`.
 `formatPct` (`:291`) returns `"0%"` when `total === 0`. An LBP-denominated row has **both USD
@@ -4211,7 +4230,8 @@ invariant it pins is the correct one.
 
 > These tickets were filed from `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
-> those three** and are new. Next free ID after this block: **LIRA-229**.
+> those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
+> 2026-09-24 Profits-audit findings at the end of this file; next free: **LIRA-231**).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -4749,3 +4769,121 @@ edit, and the form restores reading *clean* — so nothing warns them.
 Add `warrantyMonths` to the minimize snapshot type and to both the save and restore paths, or state
 in the UI that warranty is not preserved across a minimize. Prove it with a failing test first
 (rule 17).
+
+---
+
+## LIRA-229: a sale's draft autosave writes a fresh SALE transaction row every time — MEDIUM
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | POS / Sales                                                                        |
+| **Type**             | Bug — duplicate ledger rows (money path)                                           |
+| **Priority**         | Medium                                                                             |
+| **Status**           | TODO — owner decision 2026-09-24: its own ticket, not in the Profits batch         |
+| **Affected Modules** | pos, profits                                                                       |
+| **Source Plan**      | Profits audit run 2026-09-24, lane LCC (`OWNER_NOTES_2026-09-21.md` §6.9)          |
+
+### Summary
+
+Found by reading, not yet measured end to end: `SalesRepository.processSale` inserts a new
+`type = 'SALE'` row in `transactions` on **every** call, including each draft autosave and that
+same draft's completion. It has no status gate, and nothing voids the earlier row. The same run
+also found a **cancelled** sale that still has an ACTIVE SALE row (LCC-R2).
+
+The Profits reports now defend against this at the read side: `refundOriginalJoin` resolves an
+item refund to `MIN(o.id)`, one SALE row per sale. The rows are still written, though, and any
+reader that sums SALE rows without that defence over-counts. The run's parity probes measured it:
+P1b, a draft saved on 06-29 and completed on 07-02, split the profit across two periods. P2, a
+cancelled but paid sale, still showed profit on By Cashier.
+
+### Fix
+
+1. **Reproduce first (rule 28):** drive `processSale` as draft → re-save → complete and count the
+   SALE rows.
+2. Then either stop writing a SALE row for a draft, or void/replace the draft's row on completion
+   and on cancel.
+3. Rule 20: name the reversal owner for any row that stays.
+4. Check that the change touches no drawer or payment posting.
+5. Failing-first test (rule 17). Read `docs/FEATURE_GUIDE.md` §13 before touching it (rule 18).
+
+---
+
+## LIRA-230: a named walk-in's kept change lands in the unnamed "Walk-in" bucket — LOW
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Sessions / Profits                                                                 |
+| **Type**             | Bug — wrong attribution (reporting)                                                |
+| **Priority**         | Low                                                                                |
+| **Status**           | TODO — owner decision 2026-09-24: its own ticket                                   |
+| **Affected Modules** | pos (session checkout), profits                                                    |
+| **Source Plan**      | Profits audit run 2026-09-24, lane LCC (`OWNER_NOTES_2026-09-21.md` §6.9)          |
+
+### Summary
+
+Found by reading: `SessionCheckoutService`'s `KEPT_CHANGE` `createTransaction` call never stamps
+`client_name`. When a walk-in customer gives a name but isn't a saved client (no `client_id`, no
+phone match), Profits → By Client puts their kept-change profit in the unnamed **Walk-in** group
+rather than under their name. No refund is involved. The report side needs no change: By Client
+already groups walk-ins by the stamped name.
+
+### Fix
+
+1. Stamp the session's walk-in `client_name` on the KEPT_CHANGE row, the same way the session's
+   other rows get it.
+2. Failing-first test: a named walk-in session with kept change must show under that name on
+   By Client.
+
+---
+
+# 2026-09-25 — `OWNER_NOTES_2026-09-21.md` batch: implemented and unit-verified, uncommitted
+
+**Source:** `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` §6.9 (dated status log) and §2b (owner
+decisions). Everything below is in the working tree, not yet committed. Gates run: core/backend/
+electron/frontend jest, `build:core`, `check:schema-equivalence`, tenant-scoping, bind-arity,
+`yarn typecheck`, `yarn lint` — all green. Desktop e2e 310 passed / 3 failed; web e2e 118 passed /
+3 failed / 1 skipped — all 6 failures were stale specs (lira-127, lira-custom-service-payout,
+lira-web-016, lira-web-017 (d)/(e), and the pre-existing skip), now fixed but not yet re-run by the
+owner. Rule-17 red-proofs for this batch's own new guards passed (undo → red → restore, ~35-38
+checks across the two build runs).
+
+**Closed by this batch:**
+- The four money bugs: #4/#15 (D1, OMT/Whish RECEIVE fee model, migration v180), #6 (LIRA-202, OMT
+  fee no longer forced for cash-to-business), #7 (LIRA-203, supplier overpayment books a credit),
+  #8 (LIRA-204, debt-settlement cross-currency shortfall), #10 (LIRA-206, buy-back double-credit),
+  #22/#21 (LIRA-088, shop-line signed decrement + buy-back/charge checkbox), #26 (LIRA-215, expenses
+  now reach Profits), #27 (LIRA-217, debts no longer feed Profits revenue).
+- The Profits-page audit, batches 0-4 (`OWNER_NOTES_2026-09-21.md` §6, PA-0..PA-4.23), including
+  **LIRA-183** (see its own entry above) and **#29** and **#14 slices 1-2** (per-module detail,
+  net-profit headline). **#3** was closed as "no change" by the owner (LIRA-199 will not be filed).
+- The Dashboard Sales/Profit chart and Net Profit tile, DC-1..DC-12 (§7).
+- The widened **LIRA-219** (see its own entry above): closing's profit now equals the Profits
+  page's gross profit for the day, on both transports.
+- The remaining owner notes, per `docs/plans/ongoing_plans/OWNER_NOTES_REMAINING_BUILD.md`: #11
+  (A netted checkout, B session-group display, C whole-basket reversal, migration v181), #13 (buy
+  and resell phone lines), #16 (Syria payout, migration v185, "as built — no change" per the
+  owner's 2026-09-25 answer), #19 (Tier A), #20 (Part A only — "Customer gets" typeable for every
+  currency), #21 (shop-line checkbox, migration v182 — shares **LIRA-088** with #22), #24 (Hold
+  Money payment form + partial pickup, migration v183), #28 (sold-ahead days + days-to-send list,
+  migration v184 — owner confirmed 2026-09-25 the pre-existing arithmetic is correct, no change),
+  and the `TopUpModal` scroll fix (lira-141).
+
+**Still open — no ticket ID invented for any of these; do not file one without the owner:**
+- **#1** (staff name in the txn user column) and **#25** (maintenance "Start" button) — both may
+  already be fixed by earlier commits; **waiting on the customer to confirm**, per
+  `OWNER_NOTES_2026-09-21.md` §0.8/§0.9.
+- **#5** (cashout unicef) — blocked on the voice note.
+- **#17** (+15% price-adjustment alert) — PARKED; the owner is unsure whether it means the payment
+  form's rate band or a selling price.
+- **#14 slice 3** — the remaining modules' transaction-level drill-down (slices 1-2 shipped in this
+  batch).
+- A single-item basket reversal (distinct from #11-C's whole-basket reversal, which shipped).
+- **LIRA-229** (a sale's draft autosave writes a fresh SALE row every time) and **LIRA-230** (a
+  named walk-in's kept change lands in the unnamed "Walk-in" bucket) — filed this batch, both still
+  TODO, bodies above.
+
+**OMT_APP RECEIVE D1 message — DONE 2026-09-25** (owner: "don't wait for my e2e run, implement
+the change"). OMT_APP RECEIVE now refuses a customer fee (`commission`, `includingFees:true` or
+`feePayments`) with the shared `OMT_RECEIVE_NO_FEE_MESSAGE`. It is enforced in the shared validator
+refine, in the electron schema mirror and in the repository guard. The message wording was broadened
+so it names no single fee field. Verified: core jest 3,940/3,940, backend 963/963.

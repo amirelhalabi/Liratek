@@ -58,7 +58,10 @@ import {
 } from "../../db/tenantContext";
 import { resetSupplierRepository } from "../SupplierRepository";
 import { resetTransactionRepository } from "../TransactionRepository";
-import { createFinancialServiceSchema } from "../../validators/financial";
+import {
+  createFinancialServiceSchema,
+  OMT_RECEIVE_NO_FEE_MESSAGE,
+} from "../../validators/financial";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
 
@@ -155,6 +158,7 @@ function createTestDb(): Database.Database {
       partner_id INTEGER REFERENCES partners(id),
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER DEFAULT 0,
       refunded_at TEXT DEFAULT NULL
     );
@@ -334,6 +338,28 @@ function debtLedgerSumUsd(db: Database.Database): number {
   return row.total;
 }
 
+/**
+ * D1 cutover (OWNER_NOTES_2026-09-21.md §2b) — `createTestDb()` seeds ONLY
+ * 'OMT' as `shop_base_system` (cases (g)/(g2)/(l) deliberately need WHISH to
+ * stay the SECONDARY system, routed through a partner, so this must not be a
+ * global fixture change). Cases (a)-(d)/(h)/(i) used to exercise OMT as the
+ * walk-in PRIMARY system with a fee-on-top — no longer possible post-D1 (OMT
+ * system RECEIVE never takes a fee at all). Those cases move to WHISH, whose
+ * fee-on-top collection is unchanged in MECHANISM by D1 (only its supplier-
+ * ledger/profit treatment changed — see `whishReceiveFeeProfit`), so each of
+ * those tests calls this helper to make WHISH the PRIMARY system locally,
+ * scoped to its own fresh `db` (a new one every `beforeEach`) — no other
+ * test in this file is affected.
+ */
+function makeWhishBaseSystem(db: Database.Database): void {
+  db.prepare(
+    `UPDATE system_settings SET value = 'WHISH' WHERE key_name = 'shop_base_system'`,
+  ).run();
+  db.prepare(
+    `INSERT INTO suppliers (name, provider, is_system) VALUES ('WHISH', 'WHISH', 1)`,
+  ).run();
+}
+
 function rowCount(db: Database.Database, table: string): number {
   const row = db.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as {
     c: number;
@@ -380,12 +406,17 @@ function feeLegRows(
   }>;
 }
 
-// Drawers snapshotted for every case.
+// Drawers snapshotted for every case. "Whish_System" added for D1 cutover
+// (OWNER_NOTES_2026-09-21.md §2b) — cases (a)-(d)/(h)/(i) now route their PCD
+// leg there via `makeWhishBaseSystem`, and `drawerDeltaSum`/`assertInvariant`
+// would silently under-count without it (money moving into an untracked
+// drawer is invisible, not an error).
 const DRAWERS: Array<[string, string]> = [
   ["General", "USD"],
   ["OMT_System", "USD"],
   ["OMT_App", "USD"],
   ["Whish_App", "USD"],
+  ["Whish_System", "USD"],
 ];
 
 interface Snapshot {
@@ -401,7 +432,11 @@ function snapshot(db: Database.Database): Snapshot {
   }
   return {
     drawers,
-    supplierUsd: supplierLedgerSumUsd(db, "OMT"),
+    // D1 cutover: changed from "OMT" to "WHISH" — see `makeWhishBaseSystem`'s
+    // doc comment. No other case in this file asserts on `supplierUsd` (only
+    // (a)-(d)/(h) do, and they all now use WHISH as the PRIMARY system), so
+    // this is safe file-wide.
+    supplierUsd: supplierLedgerSumUsd(db, "WHISH"),
     debtUsd: debtLedgerSumUsd(db),
   };
 }
@@ -459,16 +494,22 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   // ═══════════════════════════════════════════════════════════════════════
   // (a) fee via single CASH leg
   // ═══════════════════════════════════════════════════════════════════════
-  it("(a) fee collected via a single CASH leg — PCD +f -x, ledger -(x-(f-c)), method stored CASH", () => {
+  it("(a) fee collected via a single CASH leg — PCD +f -x, ledger -x, fee kept as profit, method stored CASH", () => {
+    // D1 cutover (OWNER_NOTES_2026-09-21.md §2b): OMT system RECEIVE never
+    // takes a fee at all now (hard-rejected upstream) — this case moves to
+    // WHISH, whose fee-on-top COLLECTION mechanism is unchanged by D1 (only
+    // its supplier-ledger/profit treatment changed: the fee is now the
+    // shop's own profit, never netted from what Whish owes).
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
 
     const { id: fsId } = repo.createTransaction({
-      provider: "OMT",
+      provider: "WHISH",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 1,
-      omtFee: 5,
+      commission: 0,
+      whishFee: 5,
       cashoutMethod: "CASH",
       feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
       exchangeRate: 90000,
@@ -477,40 +518,40 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     const after = snapshot(db);
 
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
-    // PCD: +5 (fee) - 100 (payout) = -95, same as
-    // OmtSystemFeeCharacterization CASE 1 (implicit leg) — the collection
-    // METHOD must not change the drawer math.
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5);
-    // Phase 2 (D1, COMMISSION_AT_SETTLEMENT_PLAN.md §4, shipped 2026-08-29):
-    // grossOwedDelta(RECEIVE) = -(x-f) = -(100-5) = -95 — commission no
-    // longer netted here. OLD -> NEW: -96 -> -95.
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
-    // Invariant RHS drops the `c` term too (nothing kept at transaction time
-    // anymore) — OLD -> NEW: commission 1 -> 0, see
-    // OmtSystemFeeCharacterization.test.ts's header for the full re-derivation.
-    assertInvariant(before, after, { commission: 0 });
+    // PCD: +5 (fee) - 100 (payout) = -95 — the collection METHOD does not
+    // change the drawer math (unchanged in shape by D1).
+    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(-95, 5);
+    // D1 cutover: grossOwedDelta(RECEIVE) = -x = -100 — Whish owes the FULL
+    // principal now, undiminished by the fee (the fee is the shop's own
+    // profit instead). OLD -> NEW: -95 -> -100.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-100, 5);
+    // Invariant RHS is now the fee itself (5) — the shop genuinely keeps it
+    // as profit (sigma(-95) - owed(-100) = 5). OLD -> NEW: 0 -> 5.
+    assertInvariant(before, after, { commission: 5 });
 
     const legs = feeLegRows(db, fsId);
     expect(legs).toHaveLength(1);
     expect(legs[0].method).toBe("CASH");
-    expect(legs[0].drawer_name).toBe("OMT_System");
+    expect(legs[0].drawer_name).toBe("Whish_System");
     expect(legs[0].amount).toBeCloseTo(5, 5);
-    expect(legs[0].note).toBe("OMT RECEIVE fee (customer-paid)");
+    expect(legs[0].note).toBe("WHISH RECEIVE fee (customer-paid)");
   });
 
   // ═══════════════════════════════════════════════════════════════════════
   // (b) fee via WHISH wallet leg
   // ═══════════════════════════════════════════════════════════════════════
   it("(b) fee collected via a WHISH wallet leg — Whish_App +f, PCD -x, invariant holds across drawers", () => {
+    // D1 cutover: moved to WHISH — see (a)'s comment.
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
 
     repo.createTransaction({
-      provider: "OMT",
+      provider: "WHISH",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 1,
-      omtFee: 5,
+      commission: 0,
+      whishFee: 5,
       cashoutMethod: "CASH",
       feePayments: [{ method: "WHISH", currencyCode: "USD", amount: 5 }],
       exchangeRate: 90000,
@@ -520,25 +561,30 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
 
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
     expect(drawerDelta(before, after, "Whish_App_USD")).toBeCloseTo(5, 5);
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5); // payout only, no fee leg here
-    // Phase 2 (D1): -(x-f) = -(100-5) = -95. OLD -> NEW: -96 -> -95.
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
-    assertInvariant(before, after, { commission: 0 }); // OLD -> NEW: 1 -> 0
+    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(-100, 5); // payout only, no fee leg here
+    // D1 cutover: -x = -100. OLD -> NEW: -95 -> -100.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-100, 5);
+    assertInvariant(before, after, { commission: 5 }); // OLD -> NEW: 0 -> 5 (fee kept as profit)
   });
 
   // ═══════════════════════════════════════════════════════════════════════
   // (c) split fee: CASH 2 + OMT wallet 3
   // ═══════════════════════════════════════════════════════════════════════
   it("(c) split fee CASH 2 + OMT wallet 3 — both drawers move, invariant holds", () => {
+    // D1 cutover: moved to WHISH — see (a)'s comment. The fee's COLLECTION
+    // method (which wallet pays it) is independent of the RECEIVE provider —
+    // an OMT-wallet fee leg on a WHISH RECEIVE is exactly as valid as it was
+    // on an OMT RECEIVE.
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
 
     repo.createTransaction({
-      provider: "OMT",
+      provider: "WHISH",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 1,
-      omtFee: 5,
+      commission: 0,
+      whishFee: 5,
       cashoutMethod: "CASH",
       feePayments: [
         { method: "CASH", currencyCode: "USD", amount: 2 },
@@ -552,25 +598,27 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
     expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(3, 5);
     // PCD: +2 (CASH fee leg) - 100 (payout) = -98
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-98, 5);
-    // Phase 2 (D1): -(x-f) = -(100-5) = -95. OLD -> NEW: -96 -> -95.
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
-    assertInvariant(before, after, { commission: 0 }); // OLD -> NEW: 1 -> 0
+    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(-98, 5);
+    // D1 cutover: -x = -100. OLD -> NEW: -95 -> -100.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-100, 5);
+    assertInvariant(before, after, { commission: 5 }); // OLD -> NEW: 0 -> 5 (fee kept as profit)
   });
 
   // ═══════════════════════════════════════════════════════════════════════
   // (d) fee via CUSTOMER_ACCOUNT
   // ═══════════════════════════════════════════════════════════════════════
   it("(d) fee charged to CUSTOMER_ACCOUNT — no drawer for the fee, debt_ledger 'Service Debt' +f", () => {
+    // D1 cutover: moved to WHISH — see (a)'s comment.
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
 
     const { id: fsId } = repo.createTransaction({
-      provider: "OMT",
+      provider: "WHISH",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 1,
-      omtFee: 5,
+      commission: 0,
+      whishFee: 5,
       cashoutMethod: "CASH",
       clientName: "Fee Customer",
       phoneNumber: "70111111",
@@ -584,12 +632,12 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
 
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
     // PCD: only the payout (-100) — the fee never touches a drawer.
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5);
+    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(-100, 5);
     expect(after.debtUsd - before.debtUsd).toBeCloseTo(5, 5);
-    // Phase 2 (D1): -(x-f) = -(100-5) = -95. OLD -> NEW: -96 -> -95.
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
+    // D1 cutover: -x = -100. OLD -> NEW: -95 -> -100.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-100, 5);
     assertInvariant(before, after, {
-      commission: 0, // OLD -> NEW: 1 -> 0
+      commission: 5, // OLD -> NEW: 0 -> 5 (fee kept as profit)
       debtDeltaUsd: after.debtUsd - before.debtUsd,
     });
 
@@ -605,18 +653,25 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   });
 
   it("(d2) fee via CUSTOMER_ACCOUNT with no resolvable client throws, writes nothing", () => {
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
     const txnCountBefore = rowCount(db, "transactions");
 
+    // D1 cutover (OWNER_NOTES_2026-09-21.md §2b): OMT system RECEIVE never
+    // takes a fee at all now (hard-rejected upstream of this guard) — this
+    // case tests the CUSTOMER_ACCOUNT-fee-leg client-resolution guard
+    // specifically, so it moves to WHISH, whose fee-on-top collection is
+    // unchanged by D1 (the fee becomes shop profit, but the leg-collection
+    // mechanism itself — including this guard — is untouched).
     expect(() =>
       repo.createTransaction({
-        provider: "OMT",
+        provider: "WHISH",
         serviceType: "RECEIVE",
         amount: 100,
         currency: "USD",
-        commission: 1,
-        omtFee: 5,
+        commission: 0,
+        whishFee: 5,
         cashoutMethod: "CASH",
         // No clientName/clientId/phoneNumber — resolvedPrimaryClientId stays undefined.
         feePayments: [
@@ -637,19 +692,21 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   // (e) reconcile mismatch — hard-reject, nothing written
   // ═══════════════════════════════════════════════════════════════════════
   it("(e) fee legs summing to 4 against a $5 fee hard-rejects — nothing written", () => {
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
     const txnCountBefore = rowCount(db, "transactions");
     const paymentsCountBefore = rowCount(db, "payments");
 
+    // D1 cutover: moved to WHISH — see (d2)'s comment.
     expect(() =>
       repo.createTransaction({
-        provider: "OMT",
+        provider: "WHISH",
         serviceType: "RECEIVE",
         amount: 100,
         currency: "USD",
-        commission: 1,
-        omtFee: 5,
+        commission: 0,
+        whishFee: 5,
         cashoutMethod: "CASH",
         feePayments: [{ method: "CASH", currencyCode: "USD", amount: 4 }],
         exchangeRate: 90000,
@@ -672,19 +729,21 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   // phantom-fee bug class (plan §2 bug 1) inside the new code path itself.
   // ═══════════════════════════════════════════════════════════════════════
   it("(j) GIFT_CARD fee leg hard-rejects — nothing written", () => {
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
     const txnCountBefore = rowCount(db, "transactions");
     const paymentsCountBefore = rowCount(db, "payments");
 
+    // D1 cutover: moved to WHISH — see (d2)'s comment.
     expect(() =>
       repo.createTransaction({
-        provider: "OMT",
+        provider: "WHISH",
         serviceType: "RECEIVE",
         amount: 100,
         currency: "USD",
-        commission: 1,
-        omtFee: 5,
+        commission: 0,
+        whishFee: 5,
         cashoutMethod: "CASH",
         feePayments: [{ method: "GIFT_CARD", currencyCode: "USD", amount: 5 }],
         exchangeRate: 90000,
@@ -708,6 +767,12 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   // now hard-rejects each of these before any row is written.
   // ═══════════════════════════════════════════════════════════════════════
   it("(k) FOR-partner RECEIVE + feePayments throws before any row is written (§6bis finding 1)", () => {
+    // WHISH must be the PRIMARY system for a FOR-partner transaction to be
+    // valid on it at all (a secondary-system FOR-partner is its own,
+    // different rejection — see the guard a few lines above this one in the
+    // repository) — this test wants the feePayments/partner guard, not that
+    // one.
+    makeWhishBaseSystem(db);
     db.prepare(`INSERT INTO partners (name) VALUES ('Test Partner FOR')`).run();
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
@@ -715,14 +780,15 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     const paymentsCountBefore = rowCount(db, "payments");
     const partnerLedgerCountBefore = rowCount(db, "partner_ledger");
 
+    // D1 cutover: moved to WHISH — see (d2)'s comment.
     expect(() =>
       repo.createTransaction({
-        provider: "OMT",
+        provider: "WHISH",
         serviceType: "RECEIVE",
         amount: 100,
         currency: "USD",
-        commission: 1,
-        omtFee: 5,
+        commission: 0,
+        whishFee: 5,
         cashoutMethod: "CASH",
         partnerId: 1,
         partnerMode: "FOR",
@@ -772,19 +838,21 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   });
 
   it("(m) deferPayment + feePayments throws before any row is written (§6bis finding 4)", () => {
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
     const txnCountBefore = rowCount(db, "transactions");
     const paymentsCountBefore = rowCount(db, "payments");
 
+    // D1 cutover: moved to WHISH — see (d2)'s comment.
     expect(() =>
       repo.createTransaction({
-        provider: "OMT",
+        provider: "WHISH",
         serviceType: "RECEIVE",
         amount: 100,
         currency: "USD",
-        commission: 1,
-        omtFee: 5,
+        commission: 0,
+        whishFee: 5,
         cashoutMethod: "CASH",
         deferPayment: true,
         feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
@@ -800,19 +868,21 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   });
 
   it("(n) omtFee: 0 + feePayments throws before any row is written (§6bis finding 2)", () => {
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
     const txnCountBefore = rowCount(db, "transactions");
     const paymentsCountBefore = rowCount(db, "payments");
 
+    // D1 cutover: moved to WHISH — see (d2)'s comment.
     expect(() =>
       repo.createTransaction({
-        provider: "OMT",
+        provider: "WHISH",
         serviceType: "RECEIVE",
         amount: 100,
         currency: "USD",
-        commission: 1,
-        omtFee: 0,
+        commission: 0,
+        whishFee: 0,
         cashoutMethod: "CASH",
         feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
         exchangeRate: 90000,
@@ -828,19 +898,27 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     expect(after.drawers).toEqual(before.drawers);
   });
 
-  it("(n2) omtFee omitted (defaults to 0) + feePayments throws before any row is written (§6bis finding 2)", () => {
+  it("(n2) whishFee explicitly 0 + feePayments throws before any row is written (§6bis finding 2)", () => {
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
     const txnCountBefore = rowCount(db, "transactions");
 
+    // D1 cutover: moved to WHISH — see (d2)'s comment. Unlike OMT
+    // (`resolvedProviderFee = data.omtFee ?? 0`, no lookup fallback), WHISH's
+    // `storedWhishFee` falls back to `lookupWhishFee(data.amount)` when the
+    // field is OMITTED — so "omitted defaults to 0" (the (n2) title's
+    // original OMT-only premise) does not hold for WHISH; $100 resolves to a
+    // real $1 tier-table fee. `whishFee: 0` explicit is what actually
+    // isolates the zero-fee case here (mirrors (n)'s `omtFee: 0`).
     expect(() =>
       repo.createTransaction({
-        provider: "OMT",
+        provider: "WHISH",
         serviceType: "RECEIVE",
         amount: 100,
         currency: "USD",
-        commission: 1,
-        // omtFee omitted entirely → resolvedProviderFee resolves to 0.
+        commission: 0,
+        whishFee: 0,
         cashoutMethod: "CASH",
         feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
         exchangeRate: 90000,
@@ -897,7 +975,21 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     });
 
     it("accepts feePayments on a plain fee-on-top RECEIVE", () => {
-      const result = createFinancialServiceSchema.safeParse(basePayload);
+      // D1 cutover (OWNER_NOTES_2026-09-21.md §2b): provider overridden from
+      // OMT to WHISH here — an OMT RECEIVE's feePayments are now
+      // blanket-rejected by the schema's own D1 refine (mirroring the
+      // repository's unconditional hard-reject; see the "OMT RECEIVE
+      // feePayments — D1 blanket guard" describe block below for that
+      // coverage), so `basePayload` as-is no longer represents an accepted
+      // OMT case. WHISH fee-on-top RECEIVE via feePayments is unaffected by
+      // D1 (only its supplier-ledger/profit treatment changed — see
+      // `makeWhishBaseSystem`'s doc comment above), so it remains the
+      // representative positive case here.
+      const result = createFinancialServiceSchema.safeParse({
+        ...basePayload,
+        provider: "WHISH",
+        whishFee: 5,
+      });
       expect(result.success).toBe(true);
     });
 
@@ -963,6 +1055,135 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
           result.error.issues.some((i) => i.path.join(".") === "feePayments"),
         ).toBe(true);
       }
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // (o) D1 (OWNER_NOTES_2026-09-21.md §2b) — the schema's own blanket OMT
+  // RECEIVE refine wins over the partner/zero-fee refines above, at the
+  // schema layer (lira-web-017 (d)/(e) prove the same thing end-to-end over
+  // REST; this proves the schema in isolation, the way (f) does for its own
+  // refines).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe("(o) OMT RECEIVE feePayments — D1 blanket guard wins at the schema layer", () => {
+    it("rejects with the D1 message even when partnerId is attached (would otherwise hit the partner-specific refine)", () => {
+      const result = createFinancialServiceSchema.safeParse({
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        amount: 40,
+        currency: "USD",
+        commission: 0,
+        omtFee: 3,
+        partnerId: 1,
+        partnerMode: "THROUGH",
+        feePayments: [{ method: "CASH", currencyCode: "USD", amount: 3 }],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].message).toBe(
+          OMT_RECEIVE_NO_FEE_MESSAGE,
+        );
+      }
+    });
+
+    it("rejects with the D1 message even when omtFee is zero/omitted (would otherwise hit the zero-fee refine)", () => {
+      const result = createFinancialServiceSchema.safeParse({
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        amount: 40,
+        currency: "USD",
+        commission: 0,
+        omtFee: 0,
+        feePayments: [{ method: "CASH", currencyCode: "USD", amount: 3 }],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].message).toBe(
+          OMT_RECEIVE_NO_FEE_MESSAGE,
+        );
+      }
+    });
+
+    it("rejects includingFees: true alone (no feePayments) with the D1 message", () => {
+      const result = createFinancialServiceSchema.safeParse({
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        amount: 45,
+        currency: "USD",
+        commission: 0,
+        omtFee: 5,
+        includingFees: true,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].message).toBe(
+          OMT_RECEIVE_NO_FEE_MESSAGE,
+        );
+      }
+    });
+
+    it("does not affect WHISH — same shape is still accepted", () => {
+      const result = createFinancialServiceSchema.safeParse({
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        amount: 40,
+        currency: "USD",
+        commission: 0,
+        whishFee: 3,
+        partnerId: 1,
+        partnerMode: "THROUGH",
+      });
+      // No feePayments here — partnerId alone with WHISH is a valid THROUGH
+      // combo; this only proves D1's OMT-scoped condition doesn't misfire.
+      expect(result.success).toBe(true);
+    });
+
+    // Owner decision 2026-09-25: "OMT App RECEIVE: refuse a fee with the SAME
+    // D1 message as OMT system — one constant." OMT_APP's fee travels in
+    // `commission` (not `omtFee`), so this is a nonzero-commission reject,
+    // not a feePayments/omtFee one — but the message and refine are shared.
+    it("rejects an OMT_APP RECEIVE with a nonzero commission, with the SAME D1 message", () => {
+      const result = createFinancialServiceSchema.safeParse({
+        provider: "OMT_APP",
+        serviceType: "RECEIVE",
+        amount: 40,
+        currency: "USD",
+        commission: 3,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].message).toBe(
+          OMT_RECEIVE_NO_FEE_MESSAGE,
+        );
+      }
+    });
+
+    it("rejects an OMT_APP RECEIVE with includingFees: true and zero commission, with the SAME D1 message", () => {
+      const result = createFinancialServiceSchema.safeParse({
+        provider: "OMT_APP",
+        serviceType: "RECEIVE",
+        amount: 40,
+        currency: "USD",
+        commission: 0,
+        includingFees: true,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues[0].message).toBe(
+          OMT_RECEIVE_NO_FEE_MESSAGE,
+        );
+      }
+    });
+
+    it("does not affect WHISH_APP — a commission is still accepted (D1 does not cover WHISH_APP)", () => {
+      const result = createFinancialServiceSchema.safeParse({
+        provider: "WHISH_APP",
+        serviceType: "RECEIVE",
+        amount: 40,
+        currency: "USD",
+        commission: 3,
+      });
+      expect(result.success).toBe(true);
     });
   });
 
@@ -1067,15 +1288,17 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   // (h) legacy fallback — no feePayments
   // ═══════════════════════════════════════════════════════════════════════
   it("(h) legacy fallback (no feePayments): single +f leg, method CASH not FEE", () => {
+    // D1 cutover: moved to WHISH — see (a)'s comment.
+    makeWhishBaseSystem(db);
     const before = snapshot(db);
 
     const { id: fsId } = repo.createTransaction({
-      provider: "OMT",
+      provider: "WHISH",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 1,
-      omtFee: 5,
+      commission: 0,
+      whishFee: 5,
       cashoutMethod: "CASH",
       exchangeRate: 90000,
       // No feePayments — legacy synthesize-one-leg fallback.
@@ -1083,13 +1306,13 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
 
     const after = snapshot(db);
 
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // +5 - 100, same drawer as (a)
-    assertInvariant(before, after, { commission: 0 }); // Phase 2 (D1) OLD -> NEW: 1 -> 0
+    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(-95, 5); // +5 - 100, same drawer as (a)
+    assertInvariant(before, after, { commission: 5 }); // D1 cutover OLD -> NEW: 0 -> 5
 
     const legs = feeLegRows(db, fsId);
     expect(legs).toHaveLength(1);
     expect(legs[0].method).toBe("CASH"); // NOT "FEE" (owner decision #9)
-    expect(legs[0].drawer_name).toBe("OMT_System");
+    expect(legs[0].drawer_name).toBe("Whish_System");
     expect(legs[0].amount).toBeCloseTo(5, 5);
   });
 
@@ -1098,15 +1321,18 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   // ═══════════════════════════════════════════════════════════════════════
   describe("(i) reversal symmetry", () => {
     it("case (b) [WHISH wallet fee] create + void nets every drawer to 0", () => {
+      // D1 cutover: moved to WHISH (the RECEIVE provider itself, not just
+      // the fee-collection wallet) — see (a)'s comment above.
+      makeWhishBaseSystem(db);
       const before = snapshot(db);
 
       const { id: fsId } = repo.createTransaction({
-        provider: "OMT",
+        provider: "WHISH",
         serviceType: "RECEIVE",
         amount: 100,
         currency: "USD",
-        commission: 1,
-        omtFee: 5,
+        commission: 0,
+        whishFee: 5,
         cashoutMethod: "CASH",
         feePayments: [{ method: "WHISH", currencyCode: "USD", amount: 5 }],
         exchangeRate: 90000,
@@ -1133,15 +1359,17 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
     });
 
     it("case (d) [CUSTOMER_ACCOUNT fee] create + void cancels the 'Service Debt' row via the generic _cancelDebt", () => {
+      // D1 cutover: moved to WHISH — see (a)'s comment above.
+      makeWhishBaseSystem(db);
       const before = snapshot(db);
 
       const { id: fsId } = repo.createTransaction({
-        provider: "OMT",
+        provider: "WHISH",
         serviceType: "RECEIVE",
         amount: 100,
         currency: "USD",
-        commission: 1,
-        omtFee: 5,
+        commission: 0,
+        whishFee: 5,
         cashoutMethod: "CASH",
         clientName: "Fee Customer 2",
         phoneNumber: "70222222",
@@ -1303,27 +1531,32 @@ describe("FinancialServiceRepository — app-wallet RECEIVE mode C (BIDIRECTIONA
     assertInvariant(before, after, { commission: 5 });
   });
 
-  it("(p3) OMT_APP mode C, fee via OMT wallet leg — OMT_App +100 (wallet) +5 (fee) = +105, General -100", () => {
+  // D1 cutover (OWNER_NOTES_2026-09-21.md §2b, matrix row 5): OMT_APP
+  // RECEIVE has no fee "for now" — the mode-C fee-collection mechanism this
+  // case used to prove for OMT_APP is now rejected outright. WHISH_APP (p2)
+  // and BINANCE (r-series) remain unaffected and keep proving the mechanism.
+  it("(p3) OMT_APP mode C is rejected outright — OMT_APP RECEIVE has no fee for now", () => {
     const before = snapshot(db);
+    const fsCountBefore = rowCount(db, "financial_services");
 
-    repo.createTransaction({
-      provider: "OMT_APP",
-      serviceType: "RECEIVE",
-      amount: 100,
-      currency: "USD",
-      commission: 5,
-      omtFee: 5,
-      cashoutMethod: "CASH",
-      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
-      feePayments: [{ method: "OMT", currencyCode: "USD", amount: 5 }],
-      exchangeRate: 90000,
-    });
+    expect(() =>
+      repo.createTransaction({
+        provider: "OMT_APP",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 5,
+        omtFee: 5,
+        cashoutMethod: "CASH",
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+        feePayments: [{ method: "OMT", currencyCode: "USD", amount: 5 }],
+        exchangeRate: 90000,
+      }),
+    ).toThrow(/OMT RECEIVE never takes a fee from the customer/i);
 
     const after = snapshot(db);
-
-    expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(105, 5);
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(-100, 5);
-    assertInvariant(before, after, { commission: 5 });
+    expect(rowCount(db, "financial_services")).toBe(fsCountBefore);
+    expect(after.drawers).toEqual(before.drawers);
   });
 
   it("(p4) WHISH_APP mode C in LBP — per-currency proof (no USD drawer moves)", () => {
@@ -1701,10 +1934,17 @@ describe("FinancialServiceRepository — app-wallet RECEIVE mode C (BIDIRECTIONA
     expect(after.drawers).toEqual(before.drawers);
   });
 
-  it("(t2) OMT_APP mode C with omtFee: 0 + feePayments throws (guard fee-source is provider-aware, not resolvedProviderFee)", () => {
+  it("(t2) OMT_APP + feePayments is rejected by the D1 no-fee guard (superseded old zero-fee-guard case)", () => {
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
 
+    // D1 cutover (OWNER_NOTES_2026-09-21.md §2b, matrix row 5) superseded
+    // this case's original point (the zero-fee guard reads `omtFee`, not
+    // `resolvedProviderFee`, for OMT_APP): OMT_APP RECEIVE now hard-rejects
+    // ANY feePayments outright — `commission: 5` alone is enough (checked
+    // BEFORE the older zero-fee guard could ever run), so `omtFee: 0` no
+    // longer isolates that guard's own presence-source logic. Kept as the
+    // "OMT_APP + feePayments" regression case under its new, correct message.
     expect(() =>
       repo.createTransaction({
         provider: "OMT_APP",
@@ -1717,9 +1957,7 @@ describe("FinancialServiceRepository — app-wallet RECEIVE mode C (BIDIRECTIONA
         feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
         exchangeRate: 90000,
       }),
-    ).toThrow(
-      /feePayments requires a fee-on-top RECEIVE with a non-zero omtFee\/whishFee/i,
-    );
+    ).toThrow(/OMT RECEIVE never takes a fee from the customer/i);
 
     const after = snapshot(db);
     expect(rowCount(db, "financial_services")).toBe(fsCountBefore);

@@ -28,6 +28,7 @@ import {
   CarrierLineUpdateSchema,
   CarrierLineUpdateBalanceSchema,
   RecordCarrierLineUsageSchema,
+  MarkCarrierLineOwedDeliverySentSchema,
 } from "../schemas/index.js";
 import { audit } from "./auditHelper.js";
 
@@ -284,6 +285,72 @@ export function registerCarrierLineHandlers(): void {
       };
     }
   });
+
+  // v184 (#28, LIRA-218) — the "days still to send" list: every PENDING
+  // delivery, across every line. Read-only; no role gate (mirrors the other
+  // read handlers in this module).
+  ipcMain.handle("carrier-lines:get-owed-deliveries-pending", () => {
+    try {
+      const result = service.getPendingOwedDeliveries();
+      return result;
+    } catch (error) {
+      financialLogger.error(
+        { error },
+        "carrier-lines:get-owed-deliveries-pending failed",
+      );
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to get deliveries",
+      };
+    }
+  });
+
+  // v184 (#28) — mark a pending delivery as physically sent. Pure checklist
+  // bookkeeping (see CarrierLineOwedDeliveryRepository's module doc): no
+  // second sale, no second charge, no days_owed write. admin + staff — same
+  // gate as update-balance/record-usage above, since this is part of the
+  // day-to-day recharge workflow.
+  ipcMain.handle(
+    "carrier-lines:mark-owed-delivery-sent",
+    (e, data: { deliveryId: number }) => {
+      try {
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+
+        const v = validatePayload(MarkCarrierLineOwedDeliverySentSchema, data);
+        if (!v.ok) return { success: false, error: v.error };
+
+        const result = service.markOwedDeliverySent(
+          v.data.deliveryId,
+          auth.userId,
+        );
+        if (result.success && result.data) {
+          audit(e.sender.id, {
+            action: "update",
+            entity_type: "carrier_line",
+            entity_id: String(result.data.carrier_line_id),
+            summary: `Marked ${result.data.days_owed} sold-ahead days sent on carrier line #${result.data.carrier_line_id}`,
+            metadata: {
+              delivery_id: result.data.id,
+              days_owed: result.data.days_owed,
+            },
+          });
+        }
+        return result;
+      } catch (error) {
+        financialLogger.error(
+          { error },
+          "carrier-lines:mark-owed-delivery-sent failed",
+        );
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : "Failed to mark sent",
+        };
+      }
+    },
+  );
 
   // LIRA-090: designate a line as the primary for its carrier — Settings
   // admin only. Clears the previous primary atomically (see

@@ -50,9 +50,19 @@
  * `ctx.provider === ctx.baseSystem` (`shop_base_system` defaults to OMT —
  * migration v80 — so this walk-in transaction with no partnerId qualifies).
  * supplier_ledger books the GROSS amount owed the provider, `grossOwedDelta`
- * (`FinancialServiceRepository.ts`): SEND → +(x+f), RECEIVE → −(x−f) — as of
- * COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1, shipped 2026-08-29), no
- * commission netted (was: SEND +(x+f−c), RECEIVE −(x−f+c)).
+ * (`FinancialServiceRepository.ts`): SEND → +(x+f) — as of
+ * COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (that plan's own D1, shipped
+ * 2026-08-29), no commission netted (was: +(x+f−c)). RECEIVE was →
+ * −(x−f) under that same Phase 2 change, but for OMT specifically it has
+ * since moved AGAIN, superseding it: OWNER_NOTES_2026-09-21.md's §2b D1
+ * (a differently-numbered decision in a different plan — do not conflate the
+ * two "D1"s) hard-cuts every NEW OMT RECEIVE row to `receive_fee_model =
+ * CUTOVER`, under which `grossOwedDelta` returns bare −x, the fee term never
+ * entering the formula at all (see the RECEIVE section below for the full
+ * derivation). WHISH RECEIVE keeps the Phase-2 −(x−f) shape unchanged by
+ * this second cutover (its fee becomes the shop's own profit instead — see
+ * `whishReceiveFeeProfit`) — this file only exercises OMT, so only OMT's
+ * shape changed here.
  *
  * Covered, both directions, over the shared base-system OMT provider:
  *
@@ -74,21 +84,46 @@
  *       for Phase 2, not re-run (see file header)
  *
  *  2. RECEIVE $30 (x), omtServiceType INTRA, omtFee $1.5 (f, fee ON TOP),
- *     cashoutMethod CASH:
- *     - the customer-paid fee leg (RECEIVE's own fee leg, on top) credits
- *       the PCD: OMT_System +$1.5 (never General — same PCD routing)
- *     - the payout to the customer debits the PCD: OMT_System −$30 (fee is
- *       on top, not netted out of the payout since `includingFees` is false)
- *     - net OMT_System delta for this action: +1.5 − 30 = −$28.5; General
- *       delta = $0 (no leg touches it at all)
- *     - c = calculateCommission("INTRA", 1.5) = 1.5 × 10% = 0.15 (estimate
- *       only, Phase 2 D1 — not subtracted here)
- *     - supplier_ledger books the GROSS −(x−f) = −(30−1.5) = −$28.5 (Phase 2,
- *       D1 — OLD pre-Phase-2: −(x−f+c) = −28.65) — the SAME grossOwedDelta
- *       shape as SEND, signed negative
- *     - invariant check (Characterization CASE 1 shape, re-derived for
- *       Phase 2): PCDΣ(−28.5) − Δowed(−28.5) = 0 (was: 0.15 = c,
- *       pre-Phase-2) ✓
+ *     cashoutMethod CASH — RE-DERIVED AGAIN for owner decision D1
+ *     (OWNER_NOTES_2026-09-21.md §2b, case matrix row 1, migration v180,
+ *     `financial_services_receive_fee_model` / RECEIVE_FEE_MODEL_CUTOVER):
+ *     "OMT system RECEIVE — no fee is taken from the customer; the fee is
+ *     always shown … but never affects the drawer." Every NEW OMT RECEIVE
+ *     row is born `receive_fee_model = CUTOVER` unconditionally, and
+ *     `FinancialServiceRepository.createTransaction` hard-rejects
+ *     `includingFees: true` or a non-empty `feePayments` on an OMT RECEIVE
+ *     before any dispatch branch runs — so the fee-on-top collection this
+ *     spec originally exercised is no longer something an OMT RECEIVE can do
+ *     at all. The payload below sends `omtFee` purely as an informational
+ *     figure (no `feePayments`, `includingFees` omitted) and pays out via
+ *     the legacy single CASH leg:
+ *     - omtFee still drives the commission ESTIMATE stored on the row
+ *       (c = calculateCommission("INTRA", 1.5) = 1.5 × 10% = 0.15, shown for
+ *       the supplier settlement UI) but is never collected from the
+ *       customer and never deducted from the payout — there is no fee leg
+ *       at all now.
+ *     - the payout to the customer debits the PCD the FULL principal:
+ *       OMT_System −$30 (never −28.5 — nothing adds a fee leg back)
+ *     - General delta = $0 — no leg of a primary-system RECEIVE ever lands
+ *       there (unchanged by D1; only the OMT_System math changed)
+ *     - supplier_ledger (`grossOwedDelta`'s RECEIVE_FEE_MODEL_CUTOVER
+ *       branch, `SUPPLIER_OWED_EXPR`) books −x unconditionally, ignoring the
+ *       fee term entirely: −30 (was, pre-D1 Phase 2: −(x−f) = −28.5;
+ *       pre-Phase-2 legacy: −(x−f+c) = −28.65)
+ *     - profit/commission: `c` is stored on the row as a settlement-time
+ *       estimate only — the transaction's own `profit_usd` is 0 at creation
+ *       (OMT/WHISH RECEIVE is born `commission_model = 1`/AT_SETTLEMENT,
+ *       which zeroes the commission term of `profit_usd` at write time,
+ *       COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2), and
+ *       `whishReceiveFeeProfit` (the "fee becomes shop profit" term) is
+ *       WHISH-only, always 0 for OMT. No separate profit assertion is added
+ *       below — this file never asserted one for SEND either (rule 15:
+ *       deltas on the quantities this spec already tracks).
+ *     - invariant check (§8.1 / Characterization CASE 1 shape, re-derived
+ *       for D1): PCDΣ(−30) − Δowed(−30) = 0 (was: 0.15 = c pre-Phase-2, then
+ *       0 through Phase 2) ✓ — the fee never entering either side of the
+ *       invariant is exactly D1's "never affects the drawer" in the
+ *       formula's own terms.
  *
  * Identity + delta asserts only (rule 15) — the e2e DB accumulates across
  * runs; the OMT provider/supplier row is shared, so every assertion is a
@@ -233,25 +268,26 @@ test("OMT system SEND and RECEIVE with a fee book the Primary Cash Drawer shape 
     owed: await omtSupplierBalance(),
   };
 
-  // Both the customer-paid fee leg (+1.5) and the payout to the customer
-  // (−30) route through resolveServiceCashDrawer to the PCD (OMT_System),
-  // never General — net: +1.5 − 30 = −28.5. There is no separate "fill the
-  // float back up by the bare principal" posting under the PCD model.
+  // D1 (OWNER_NOTES_2026-09-21.md §2b): an OMT system RECEIVE never takes a
+  // fee from the customer at all now — there is no fee leg to route
+  // anywhere. Only the payout crosses the PCD: OMT_System −30 (never −28.5,
+  // which was the pre-D1 "+1.5 fee − 30 payout" net).
   expect(afterReceive.drawers.omt - beforeReceive.drawers.omt).toBeCloseTo(
-    -28.5,
+    -30,
     2,
   );
   // General is untouched — no leg of a primary-system RECEIVE ever lands
-  // there (the superseded float model expected the fee+payout net here
-  // instead).
+  // there (unaffected by D1; the superseded float model expected the
+  // fee+payout net here instead).
   expect(
     afterReceive.drawers.general - beforeReceive.drawers.general,
   ).toBeCloseTo(0, 2);
   // supplier_ledger books the GROSS amount owed BACK by the provider
-  // (grossOwedDelta, RECEIVE), Phase 2 D1 — no commission netted:
-  // -(x - f) = -(30 - 1.5) = -28.5. OLD (pre-Phase-2): -(x-f+c) =
-  // -(30-1.5+0.15) = -28.65. The same gross shape as SEND, signed negative
+  // (grossOwedDelta's RECEIVE_FEE_MODEL_CUTOVER branch, D1): −x = −30,
+  // unconditionally — the fee term never enters the formula at all now.
+  // OLD (Phase 2, pre-D1): -(x - f) = -(30 - 1.5) = -28.5. OLDER
+  // (pre-Phase-2 legacy): -(x-f+c) = -(30-1.5+0.15) = -28.65. Signed negative
   // (entry_type TOP_UP, not PAYMENT — PAYMENT force-negates and would flip
   // this positive again).
-  expect(afterReceive.owed - beforeReceive.owed).toBeCloseTo(-28.5, 2);
+  expect(afterReceive.owed - beforeReceive.owed).toBeCloseTo(-30, 2);
 });

@@ -271,12 +271,18 @@ export default function CheckpointModal({
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
 
+    // LIRA-219 (C.3): computed ONCE and reused for the checkpoint's
+    // `closing_date`, the daily-stats-snapshot query's `day`, and the PDF's
+    // `closing_date` line — so the checkpoint record, the profit figure and
+    // the printed date can never disagree with each other (rule 22).
+    const closingDay = localDay();
+
     try {
       const checkpointData: Parameters<typeof api.createCheckpoint>[0] = {
         user_id: user?.id ?? 0,
         drawer_name: drawerName,
         amounts,
-        closing_date: localDay(),
+        closing_date: closingDay,
       };
       // The SIM count travels as counted values only — the backend reads the
       // expected side off carrier_lines and derives the drawer from the sum.
@@ -299,7 +305,9 @@ export default function CheckpointModal({
 
       if (result.id != null) {
         try {
-          const dailyStats = await api.getDailyStatsSnapshot();
+          const dailyStats = await api.getDailyStatsSnapshot({
+            day: closingDay,
+          });
           const sumByCurrency = (code: string): number =>
             amounts
               .filter((a) => a.currency_code === code)
@@ -311,7 +319,7 @@ export default function CheckpointModal({
 
           const reportText = generateClosingReport(
             {
-              closing_date: localDay(),
+              closing_date: closingDay,
               drawer_name: drawerName,
               physical: Object.fromEntries(
                 currencies.map((c) => [c.code, sumByCurrency(c.code)]),
@@ -328,6 +336,7 @@ export default function CheckpointModal({
             },
             dailyStats,
             sellRate,
+            new Date(),
           );
 
           const html = `<!doctype html><html><head><meta charset="utf-8" /><title>Checkpoint Report</title></head><body><pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; white-space: pre-wrap;">${escapeHtml(reportText)}</pre></body></html>`;

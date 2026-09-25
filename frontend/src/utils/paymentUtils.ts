@@ -4,6 +4,11 @@
 
 import { PAYMENT_TOLERANCE } from "@/constants/checkout";
 import type { PaymentLine } from "@liratek/ui";
+import {
+  HOLD_MONEY_METHODS,
+  type HoldMoneyMethod,
+  type HoldMoneyPaymentLegInput,
+} from "@liratek/core";
 
 /** Backend payment leg (camelCase shape — Recharge, Financial, Debt). */
 export interface CamelPaymentLeg {
@@ -54,6 +59,45 @@ export function toSnakeLegs(
     ...(l.voucherCode ? { voucher_code: l.voucherCode } : {}),
     ...(l.direction ? { direction: l.direction } : {}),
   }));
+}
+
+/** Type guard built from the schema's own allow-list (rule 21) — narrows a
+ * leg's `string` method down to `HoldMoneyMethod` without an `as` cast. */
+function isHoldMoneyMethod(method: string): method is HoldMoneyMethod {
+  return (HOLD_MONEY_METHODS as readonly string[]).includes(method);
+}
+
+/**
+ * Same as {@link toSnakeLegs} but narrowed to Hold Money's stricter
+ * schema-derived leg type (`holdMoneyPaymentLegSchema`,
+ * `packages/core/src/validators/holdMoney.ts`) instead of the generic
+ * `SnakePaymentLeg` (`method: string`). The payment form already restricts
+ * `paymentMethods` to `HOLD_MONEY_METHODS` (owner answer #24 — cash + the
+ * shop's own wallets, no CUSTOMER_ACCOUNT/GIFT_CARD), so a leg whose method
+ * or currency fails the guard here can only be stale/foreign state, never an
+ * actual selection — it's dropped rather than reaching the call. No
+ * `voucher_code` field exists on the Hold Money leg schema, so it is never
+ * carried through.
+ */
+export function toHoldMoneyLegs(
+  lines: PaymentLine[],
+  returnLegs?: PaymentLine[],
+): HoldMoneyPaymentLegInput[] {
+  return toSnakeLegs(lines, returnLegs)
+    .filter(
+      (l): l is SnakePaymentLeg & {
+        method: HoldMoneyMethod;
+        currency_code: "USD" | "LBP";
+      } =>
+        isHoldMoneyMethod(l.method) &&
+        (l.currency_code === "USD" || l.currency_code === "LBP"),
+    )
+    .map((l) => ({
+      method: l.method,
+      currency_code: l.currency_code,
+      amount: l.amount,
+      ...(l.direction ? { direction: l.direction } : {}),
+    }));
 }
 
 /**

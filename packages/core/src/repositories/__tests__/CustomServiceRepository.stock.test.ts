@@ -89,7 +89,11 @@ function createTestDb(): Database.Database {
       product_id INTEGER,
       partner_mode TEXT,
       fulfillment_status TEXT,
-      fulfilled_at TEXT
+      fulfilled_at TEXT,
+      -- OWNER_NOTES_REMAINING_BUILD.md #16 (migration v185) — createService's
+      -- INSERT now always includes this column; a missing column here would
+      -- fail every INSERT in this file at runtime, not just the new tests.
+      direction TEXT NOT NULL DEFAULT 'IN'
     );
 
     CREATE TABLE transactions (

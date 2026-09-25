@@ -17,10 +17,12 @@ import { clientDay } from "../utils/requestDay.js";
 import {
   burnedLineMessage,
   projectValidityExpiry,
+  MAX_LINE_VALIDITY_DAYS,
+  type ValidityProjection,
 } from "../utils/carrierLineValidity.js";
 // Generic calendar-date arithmetic — not carrier-line specific, so it lives
 // in its own leaf module rather than in carrierLineValidity.js (rule 14).
-import { daysBetweenDateStrings } from "../utils/calendarDate.js";
+import { addDaysToDateString, daysBetweenDateStrings } from "../utils/calendarDate.js";
 import type { TelecomCarrierKey } from "../utils/telecomCredit.js";
 import {
   CarrierLineMovementRepository,
@@ -113,6 +115,13 @@ export interface CarrierLineEntity {
   label: string | null;
   credits: number;
   validity_expires_at: string | null;
+  /** v184 (#28, LIRA-218) — the line's sold-ahead balance: days a DAYS sale
+   *  promised the customer that could not be covered by the line's real
+   *  remaining days at sale time. Paid off 1:1 by the next charge before any
+   *  of that charge's days stack onto the real expiry. See
+   *  `utils/carrierLineValidity.ts`'s `projectValidityExpiry`, the one place
+   *  this number is computed. */
+  days_owed: number;
   notes: string | null;
   is_active: number;
   /** LIRA-090 v140 — at most one primary line per (tenant_id, carrier),
@@ -145,6 +154,10 @@ export interface UpdateCarrierLineData {
   label?: string | null;
   credits?: number;
   validity_expires_at?: string | null;
+  /** v184 (#28) — write path only (`applyMovement`/`reverseMovement`); not
+   *  exposed on the owner-facing update/updateBalance schemas — the balance
+   *  is computed, never hand-typed. */
+  days_owed?: number;
   notes?: string | null;
   is_active?: number;
 }
@@ -291,7 +304,7 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
   }
 
   protected getColumns(): string {
-    return "id, carrier, phone_number, label, credits, validity_expires_at, notes, is_active, is_primary, created_at, updated_at";
+    return "id, carrier, phone_number, label, credits, validity_expires_at, days_owed, notes, is_active, is_primary, created_at, updated_at";
   }
 
   /** Active lines for one carrier — the Recharge-tab compact panel. */
@@ -422,6 +435,10 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
     if (data.validity_expires_at !== undefined) {
       sets.push("validity_expires_at = ?");
       values.push(data.validity_expires_at);
+    }
+    if (data.days_owed !== undefined) {
+      sets.push("days_owed = ?");
+      values.push(data.days_owed);
     }
     if (data.notes !== undefined) {
       sets.push("notes = ?");
@@ -716,7 +733,8 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
       }
 
       const previousValidityExpiresAt = line.validity_expires_at;
-      const nextState = computeAppliedState(
+      const previousDaysOwed = line.days_owed ?? 0;
+      const { state: nextState, projection } = computeAppliedState(
         line,
         input.creditsDelta,
         input.validityDaysDelta,
@@ -732,16 +750,43 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
 
       // On the absolute-date variant the movement's day-delta is purely the
       // audit-trail figure (the reversal restores the snapshot, never this
-      // number) — see ApplyCarrierLineMovementInput.validityExpiresAt.
-      const recordedDaysDelta =
-        input.validityExpiresAt !== undefined
-          ? previousValidityExpiresAt
-            ? daysBetweenDateStrings(
-                previousValidityExpiresAt,
-                input.validityExpiresAt,
-              )
-            : 0
-          : input.validityDaysDelta;
+      // number) — see ApplyCarrierLineMovementInput.validityExpiresAt. It
+      // never touches days_owed (a checkpoint count is evidence about the
+      // real expiry, not a payment against the owed balance).
+      let recordedDaysDelta: number;
+      let daysOwedDelta: number;
+      if (input.validityExpiresAt !== undefined) {
+        recordedDaysDelta = previousValidityExpiresAt
+          ? daysBetweenDateStrings(
+              previousValidityExpiresAt,
+              input.validityExpiresAt,
+            )
+          : 0;
+        daysOwedDelta = 0;
+      } else if (!projection) {
+        // Credits-only movement (validityDaysDelta === 0) — nothing to log
+        // on either the validity or the days_owed side.
+        recordedDaysDelta = 0;
+        daysOwedDelta = 0;
+      } else if (input.validityDaysDelta < 0) {
+        // SELL (#28 item 6, owner: "the sell branch loses nothing"). Record
+        // the REAL amount consumed off validity — never the full requested
+        // magnitude once part of it overflows into days_owed — so
+        // reverseMovement can add it back by pure arithmetic, exactly,
+        // regardless of what happens to the line afterward. The overflow
+        // itself is recorded as a POSITIVE days_owed_delta.
+        const magnitude = -input.validityDaysDelta;
+        recordedDaysDelta = -(magnitude - projection.soldAhead);
+        daysOwedDelta = projection.soldAhead;
+      } else {
+        // CHARGE — keep recording the RAW requested delta, unchanged from
+        // pre-#28 behaviour; its validity reversal stays snapshot-based
+        // below (grace-rebase/365-day-ceiling can both discard days, so only
+        // the snapshot undoes it exactly). The owed payoff, if any, is
+        // always exact arithmetic.
+        recordedDaysDelta = input.validityDaysDelta;
+        daysOwedDelta = -projection.owedApplied;
+      }
 
       const movement = this.movementRepo.createMovement({
         carrier_line_id: input.carrierLineId,
@@ -749,6 +794,8 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
         credits_delta: input.creditsDelta,
         validity_days_delta: recordedDaysDelta,
         previous_validity_expires_at: previousValidityExpiresAt,
+        days_owed_delta: daysOwedDelta,
+        previous_days_owed: previousDaysOwed,
         reason: input.reason,
       });
 
@@ -780,8 +827,42 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
    * `-validityDaysDelta` cannot undo `applyMovement`'s grace rebase or its
    * 365-day clip (both discard days), but restoring the exact pre-mutation
    * snapshot always can.
+   *
+   * v184 (#28, LIRA-218) ADDED: a SELL's validity delta is recorded as the
+   * real (never lossy) amount consumed, so it reverses by ARITHMETIC
+   * addback instead of the snapshot — see the method body for the sign-based
+   * discriminator. `days_owed` always reverses arithmetically, both
+   * directions, since nothing ever clips or forgives it.
+   *
+   * M1/M2/m3 fix (2026-09-24 adversarial review): the SELL addback above has
+   * three refinements over a bare `+magnitude`:
+   *   - M2: when the sell's OWN `previous_validity_expires_at` is null (the
+   *     line had NO_EXPIRY at sale time — the pre-#28 legacy branch that
+   *     never banks into `days_owed`), the addback is skipped entirely and
+   *     the null snapshot is restored verbatim. Arithmetic addback onto
+   *     whatever the line's CURRENT date happens to be would invent a real
+   *     expiry where none ever existed.
+   *   - M1: when this sell banked part of itself into `days_owed`
+   *     (`movement.days_owed_delta > 0`) and a LATER charge already paid
+   *     some of that debt off (`line.days_owed` today is lower than what
+   *     this movement banked), that paid-off portion is sitting on the
+   *     line's REAL expiry right now — the charge's stacking rule put it
+   *     there. Un-selling must reclaim that shortfall back onto the expiry
+   *     addback too, or those days silently vanish instead of returning to
+   *     the line. `days_owed` itself still only ever loses this movement's
+   *     own contribution (`Math.max(0, current - movement.days_owed_delta)`,
+   *     below), which is exactly "subtract `min(days_owed_delta, current)`".
+   *   - m3: the addback (plus any reclaimed shortfall) can overshoot
+   *     {@link MAX_LINE_VALIDITY_DAYS} the same way a charge can (a later
+   *     charge may already have used the headroom this sell freed up), so
+   *     the ceiling is re-applied here too.
+   * `today` defaults to `clientDay()` (rule 27) so the ceiling is computed
+   * from the request's own day, matching `computeAppliedState`.
    */
-  reverseMovement(movementId: number): CarrierLineMovementMutation | null {
+  reverseMovement(
+    movementId: number,
+    today: string = clientDay(),
+  ): CarrierLineMovementMutation | null {
     return this.transaction(() => {
       const movement = this.movementRepo.getById(movementId);
       if (!movement) return null;
@@ -800,14 +881,85 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
       }
 
       const newCredits = (line.credits ?? 0) - movement.credits_delta;
-      const newExpiry =
-        movement.validity_days_delta !== 0
-          ? movement.previous_validity_expires_at
-          : line.validity_expires_at;
+
+      // Validity (#28 item 6): a SELL's recorded delta is the REAL amount
+      // consumed (see applyMovement) — never lossy, so it reverses by pure
+      // arithmetic addback. A CHARGE's recorded delta is the raw requested
+      // amount, which the grace rebase / 365-day ceiling CAN make lossy, so
+      // it stays on the M2 verbatim-snapshot restore, unchanged. A charge's
+      // real effect on validity is never negative (see
+      // carrierLineValidity.ts), so a negative recorded delta can only have
+      // come from a sell — the sign alone discriminates.
+      let newExpiry: string | null;
+      if (movement.validity_days_delta < 0) {
+        if (movement.previous_validity_expires_at === null) {
+          // M2 fix: the pre-#28 legacy sell arithmetic (line had NO_EXPIRY
+          // at sale time — never banks into days_owed) — verbatim null
+          // restore, not an addback onto whatever the current date is.
+          newExpiry = null;
+        } else {
+          const currentDaysOwed = line.days_owed ?? 0;
+          // M1 fix: reclaim any part of THIS sell's soldAhead banking that a
+          // later charge has already paid off (see the method doc above).
+          const alreadyPaidOff =
+            movement.days_owed_delta > 0
+              ? Math.max(0, movement.days_owed_delta - currentDaysOwed)
+              : 0;
+          const base =
+            line.validity_expires_at ?? movement.previous_validity_expires_at;
+          const restored = addDaysToDateString(
+            base,
+            -movement.validity_days_delta + alreadyPaidOff,
+          );
+          // m3 fix: re-apply the ceiling — the addback can overshoot it when
+          // a LATER charge has since consumed headroom this sell freed up.
+          //
+          // LIRA-113 fix (owner notes #28 regression, 2026-09-25): the
+          // ceiling must never clip BELOW the sell's own recorded
+          // `previous_validity_expires_at` — that value is what this
+          // reversal is contractually required to restore EXACTLY when
+          // nothing else touched the line afterward (LIRA-113's own
+          // pre-existing guard). A line can legitimately already carry an
+          // expiry beyond `MAX_LINE_VALIDITY_DAYS` from *today* (grandfathered
+          // data, a manually set expiry, or simply time passing since it was
+          // set) without ever having been charged through the cap itself —
+          // clipping a bare restore-to-previous down to `today + 365` in
+          // that case silently deletes real validity the line always had.
+          // The effective ceiling is therefore the wider of the two: the
+          // ordinary 365-day cap, or the exact value being restored to.
+          // Only drift STRICTLY BEYOND that (a later charge stacking on top)
+          // still gets clipped, preserving the m3 intent.
+          const ceiling = addDaysToDateString(today, MAX_LINE_VALIDITY_DAYS);
+          const effectiveCeiling =
+            movement.previous_validity_expires_at > ceiling
+              ? movement.previous_validity_expires_at
+              : ceiling;
+          newExpiry = restored > effectiveCeiling ? effectiveCeiling : restored;
+        }
+      } else if (movement.validity_days_delta > 0) {
+        newExpiry = movement.previous_validity_expires_at;
+      } else {
+        newExpiry = line.validity_expires_at;
+      }
+
+      // days_owed (#28 item 7, rule 20): a plain running balance with no
+      // clip/grace rule ever applied to it, so BOTH directions (a sell's
+      // bank, a charge's payoff) always reverse by pure arithmetic — this
+      // movement's own contribution only ("subtract min(days_owed_delta,
+      // current)", equivalent to subtracting the raw delta and clamping at
+      // 0). Any part of a sell's banked debt a LATER charge already paid off
+      // is reclaimed onto the expiry instead (M1 fix, above), not restored
+      // here — that is what makes this subtraction correct even when a
+      // charge sits between the sell and its reversal.
+      const newDaysOwed = Math.max(
+        0,
+        (line.days_owed ?? 0) - movement.days_owed_delta,
+      );
 
       const updatedLine = this.updateLine(movement.carrier_line_id, {
         credits: newCredits,
         validity_expires_at: newExpiry,
+        days_owed: newDaysOwed,
       })!;
 
       this.movementRepo.markReversed(movementId);
@@ -1003,6 +1155,15 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
  * `applyMovement` runs this inside its db transaction, so better-sqlite3 rolls
  * the savepoint back and no partial movement row survives.
  */
+/** Output of {@link computeAppliedState} — the state to write, plus the raw
+ *  {@link ValidityProjection} (when one ran) so `applyMovement` can log an
+ *  exact, arithmetically-reversible movement (#28 item 6/7) without
+ *  re-deriving the sold-ahead/owed-payoff split a second time (rule 14). */
+interface AppliedStateResult {
+  state: Pick<UpdateCarrierLineData, "credits" | "validity_expires_at" | "days_owed">;
+  projection: ValidityProjection | null;
+}
+
 function computeAppliedState(
   line: CarrierLineEntity,
   creditsDelta: number,
@@ -1012,21 +1173,35 @@ function computeAppliedState(
    *  cannot express a counted date on an expired line). */
   validityExpiresAt?: string,
   today: string = clientDay(),
-): Pick<UpdateCarrierLineData, "credits" | "validity_expires_at"> {
+): AppliedStateResult {
   const newCredits = (line.credits ?? 0) + creditsDelta;
+  const currentDaysOwed = line.days_owed ?? 0;
 
   // The counted-date variant is the operator recording what the carrier
   // actually says. It deliberately bypasses the rule below — including the
   // ceiling and the burned check — because it is evidence, not a projection.
   // This is the documented escape hatch for a line the rule would refuse.
+  // It never touches days_owed (#28): a counted date says nothing about the
+  // customer's owed-days balance.
   if (validityExpiresAt !== undefined) {
-    return { credits: newCredits, validity_expires_at: validityExpiresAt };
+    return {
+      state: {
+        credits: newCredits,
+        validity_expires_at: validityExpiresAt,
+        days_owed: currentDaysOwed,
+      },
+      projection: null,
+    };
   }
 
   if (validityDaysDelta === 0) {
     return {
-      credits: newCredits,
-      validity_expires_at: line.validity_expires_at,
+      state: {
+        credits: newCredits,
+        validity_expires_at: line.validity_expires_at,
+        days_owed: currentDaysOwed,
+      },
+      projection: null,
     };
   }
 
@@ -1034,12 +1209,20 @@ function computeAppliedState(
     line.validity_expires_at,
     validityDaysDelta,
     today,
+    currentDaysOwed,
   );
   if (projection.burned) {
     throw new Error(burnedLineMessage(projection.lapseDays));
   }
 
-  return { credits: newCredits, validity_expires_at: projection.expiry };
+  return {
+    state: {
+      credits: newCredits,
+      validity_expires_at: projection.expiry,
+      days_owed: projection.daysOwed,
+    },
+    projection,
+  };
 }
 
 // =============================================================================

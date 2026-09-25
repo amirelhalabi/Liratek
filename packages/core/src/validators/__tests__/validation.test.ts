@@ -164,6 +164,7 @@ describe("Validation Schemas", () => {
       const validExpense = {
         category: "Utilities",
         amount_usd: 100,
+        expense_date: "2026-09-23T00:00:00.000Z",
       };
 
       expect(() => createExpenseSchema.parse(validExpense)).not.toThrow();
@@ -173,11 +174,32 @@ describe("Validation Schemas", () => {
       const expense = {
         category: "Rent",
         amount_usd: 500,
+        expense_date: "2026-09-23T00:00:00.000Z",
       };
 
       const parsed = createExpenseSchema.parse(expense);
       expect(parsed.amount_lbp).toBe(0);
       expect(parsed.paid_by_method).toBe("CASH");
+    });
+
+    /**
+     * Owner ticket #26 (2026-09-23) regression guard, rule 17 (failing-first
+     * — this DID fail before `expense_date` was added to the schema, since
+     * the field simply didn't exist in the shape and every payload "passed"
+     * by having it silently stripped instead of rejected) — rule 23: a
+     * REST expense payload missing `expense_date` must be REJECTED here,
+     * not silently stripped and forwarded to `ExpenseRepository
+     * .createExpense` as `undefined` (which `better-sqlite3` binds as NULL,
+     * permanently excluding the row from every Profits date-range query —
+     * see `ProfitRepository.expenseReachesProfitsPage.test.ts`).
+     */
+    it("rejects a payload with no expense_date instead of silently stripping it", () => {
+      const missingDate = {
+        category: "Utilities",
+        amount_usd: 100,
+      };
+
+      expect(() => createExpenseSchema.parse(missingDate)).toThrow();
     });
   });
 

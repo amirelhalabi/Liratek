@@ -18,6 +18,8 @@ import { audit } from "./auditHelper.js";
 import {
   SaleProcessSchema,
   SaleUpdateMetadataSchema,
+  DashboardChartQuerySchema,
+  NetProfitWindowQuerySchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -73,12 +75,34 @@ export function registerSalesHandlers(): void {
     return salesService.getDashboardStats();
   });
 
-  // Chart Data (Sales or Profit for last 30 days)
+  // Chart Data (Sales or Profit for last 30 days). `clientDay` is the
+  // renderer's OWN calendar day (rule 27, DC-10) — read-only handler, so a
+  // malformed value degrades to "omitted" (server-side clientDay()
+  // fallback) rather than failing the whole read (electron-app/CLAUDE.md:
+  // "read-only handlers — validation optional but recommended").
   ipcMain.handle(
     "dashboard:get-profit-sales-chart",
-    (_event, type: "Sales" | "Profit") => {
-      salesLogger.debug({ type }, "Getting chart data");
-      return salesService.getChartData(type);
+    (_event, type: "Sales" | "Profit", clientDay?: string) => {
+      const v = validatePayload(DashboardChartQuerySchema, {
+        type,
+        client_day: clientDay,
+      });
+      const safeType = v.ok ? v.data.type : type === "Profit" ? "Profit" : "Sales";
+      const safeDay = v.ok ? v.data.client_day : undefined;
+      salesLogger.debug({ type: safeType }, "Getting chart data");
+      return salesService.getChartData(safeType, safeDay);
+    },
+  );
+
+  // DC-11 — "Net Profit — last 30 days" tile.
+  ipcMain.handle(
+    "dashboard:get-net-profit-last-30-days",
+    (_event, clientDay?: string) => {
+      const v = validatePayload(NetProfitWindowQuerySchema, {
+        client_day: clientDay,
+      });
+      const safeDay = v.ok ? v.data.client_day : undefined;
+      return salesService.getNetProfitLast30Days(safeDay);
     },
   );
 

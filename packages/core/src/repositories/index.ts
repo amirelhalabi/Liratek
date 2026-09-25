@@ -196,7 +196,6 @@ export {
   FinancialRepository,
   getFinancialRepository,
 } from "./FinancialRepository.js";
-export type { MonthlyPL } from "./FinancialRepository.js";
 
 // Payment Method Repository
 export {
@@ -350,7 +349,7 @@ export type {
   DailyClosingEntity,
   ClosingAmountEntity,
   DynamicSystemExpectedBalances,
-  DailyStatsSnapshot,
+  DailyActivityStats,
   CheckpointAmount,
   CheckpointCarrierLineCount,
   CheckpointCarrierLineRecord,
@@ -411,6 +410,7 @@ export type {
   HoldMoneyStatus,
   CreateHoldMoneyInput,
   HoldMoneyResult,
+  HoldMoneyPickupEntity,
 } from "./HoldMoneyRepository.js";
 
 // Transaction Repository
@@ -568,6 +568,18 @@ export type {
   CarrierLineMovementEntity,
   CreateCarrierLineMovementData,
 } from "./CarrierLineMovementRepository.js";
+
+// Carrier Line Owed Delivery Repository (v184 — #28, LIRA-218 "days still to send")
+export {
+  CarrierLineOwedDeliveryRepository,
+  getCarrierLineOwedDeliveryRepository,
+  resetCarrierLineOwedDeliveryRepository,
+} from "./CarrierLineOwedDeliveryRepository.js";
+export type {
+  CarrierLineOwedDeliveryEntity,
+  CarrierLineOwedDeliveryStatus,
+  CreateCarrierLineOwedDeliveryData,
+} from "./CarrierLineOwedDeliveryRepository.js";
 
 // Audit Repository
 export {

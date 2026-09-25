@@ -29,10 +29,37 @@
  * supersedes the float model this spec was written against):
  *   SEND fee-on-top   : PCD +(x+f), General UNTOUCHED
  *   SEND fee-included : PCD +x,     General UNTOUCHED
- *   RECEIVE fee-incl. : PCD −(x−f), General UNTOUCHED
  * `OMT_System` is no longer a provider-side float that mirrors every move —
  * it is the physical cash drawer at the money-transfer counter, so exactly
  * ONE drawer moves per transaction and it is never General.
+ *
+ * RE-DERIVED 2026-09-23 for owner decision D1 (`docs/plans/todo_plans/
+ * OWNER_NOTES_2026-09-21.md` §2b, case matrix row 1, migration v180):
+ *
+ *   RECEIVE (OMT system) : fee ALWAYS SHOWN (drives the commission estimate
+ *                           only), NEVER collected, NEVER deducted —
+ *                           PCD −x (the FULL principal), General UNTOUCHED.
+ *
+ * OLD rule this spec used to guard on RECEIVE (now removed, both from core
+ * and from the UI): a "Fee included in payout" toggle let the operator
+ * choose fee-on-top (customer collects x, separately pays f) vs
+ * fee-included (customer collects x−f); a fee-on-top RECEIVE could also
+ * route its fee through a real drawer-affecting method via a counter-flow
+ * section (`MultiPaymentInput`'s `counterFlow` prop), including a wallet
+ * other than cash. D1 deletes BOTH: `Services/index.tsx`'s "Including Fees
+ * Checkbox" block now renders only for `(OMT, SEND)` or `(WHISH, RECEIVE)`
+ * — never `(OMT, RECEIVE)` — and `showFeeCounterFlow` is now WHISH-only.
+ * `FinancialServiceRepository.createTransaction` backs this with a
+ * hard-reject: an OMT RECEIVE carrying `includingFees: true` or a non-empty
+ * `feePayments` is refused outright (see lira-web-017 for the REST-level
+ * proof of that guard). The third test below (previously "RECEIVE with a
+ * fee: float FILLS by the full x, customer collects x−f") is rewritten to
+ * prove the OPPOSITE — fee shown, payout is the full x, no drawer effect
+ * from the fee at all. The fourth test (previously a Whish-wallet
+ * counter-flow acceptance case) is rewritten into a guard that the old path
+ * is NOT reachable from the UI anymore (rule 24): neither the toggle nor
+ * the counter-flow section renders for OMT RECEIVE, regardless of the fee
+ * typed in.
  *
  * The old "Σ(drawer deltas) = +f" identity is GONE, and its absence is the
  * clearest statement of what changed: under the float model the principal
@@ -42,25 +69,16 @@
  * guarded with the ledger in view by lira-076). Asserting a drawer-only sum
  * here would be asserting half an equation.
  * UPDATE (2026-08-29, COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2, D1): the
- * ledger-side identity above is now `Σ drawer − Δ owed = 0` — `Δ owed` no
- * longer nets the shop's commission out at all, so nothing is left over to
- * balance (the commission settles separately, later). See lira-076 and
+ * ledger-side identity above was `Σ drawer − Δ owed = 0` for SEND. RE-UPDATE
+ * (2026-09-23, D1 owner decision): for an OMT RECEIVE the identity is now
+ * simply `Σ drawer = Δ owed` with no fee term anywhere — the fee never
+ * enters either side of the equation. See lira-076 and
  * OmtSystemFeeCharacterization.test.ts for the re-derived numbers; this
  * spec's own assertions are drawer-only and unaffected either way.
  *
  * Rule 15 discipline: every assertion is a DELTA snapshotted immediately
  * before the action, matched by drawer NAME. No absolute totals, no row
  * positions, no `getRecent()[0]` — this suite shares one accumulating DB.
- *
- * EXTENSION (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.3 item (i), 2026-08-07):
- * the fourth test below drives the Phase C counter-flow section — a
- * fee-on-top RECEIVE where the customer pays the fee back via a WALLET
- * (Whish) instead of cash, through the REAL `MultiPaymentInput` counter-flow
- * UI embedded in the Services page form (never a hand-built `feePayments[]`
- * IPC payload). §1.4 of the plan: a wallet-collected fee on a fee-on-top
- * RECEIVE does NOT net the payout — the PCD still pays out the FULL
- * requested amount `x`, and the fee `f` is credited separately to the
- * wallet drawer the operator chose.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -74,6 +92,15 @@ type Api = {
       getDrawerBalances: () => Promise<
         Array<{ name: string; usdBalance: number; lbpBalance: number }>
       >;
+    };
+    suppliers: {
+      list: (
+        search: string,
+        includeInactive: boolean,
+      ) => Promise<Array<{ id: number; provider: string | null }>>;
+      getBalances: (
+        includeInactive?: boolean,
+      ) => Promise<Array<{ supplier_id: number; total_usd: number }>>;
     };
   };
 };
@@ -91,6 +118,22 @@ async function drawers(
       omtSystem: pick("OMT_System"),
       whishApp: pick("Whish_App"),
     };
+  });
+}
+
+/** The OMT supplier's USD balance ("what we owe OMT") — identity via
+ *  provider, never position (rule 15), mirrors lira-076's own helper. */
+async function omtOwedUsd(page: Page): Promise<number> {
+  return page.evaluate(async () => {
+    const w = window as unknown as Api;
+    const omt = (await w.api.suppliers.list("", true)).find(
+      (s) => s.provider === "OMT",
+    );
+    if (!omt) throw new Error("OMT supplier not found");
+    const bal = (await w.api.suppliers.getBalances(true)).find(
+      (b) => b.supplier_id === omt.id,
+    );
+    return bal?.total_usd ?? 0;
   });
 }
 
@@ -185,7 +228,7 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
     // passed. That failure mode is independent of which drawer receives.
   });
 
-  test("RECEIVE with a fee: float FILLS by the full x, customer collects x−f", async ({
+  test("RECEIVE: the fee is shown for the commission estimate only — payout is the FULL x, PCD −x, OMT is owed the full x (D1, 2026-09-23)", async ({
     appPage,
   }) => {
     await navigateTo(appPage, "/omt-whish");
@@ -199,33 +242,55 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
     await expect(feeInput).toBeVisible({ timeout: 10_000 });
     await feeInput.fill("5");
 
-    // Fee withheld from the received amount — the customer collects the net.
-    const toggle = appPage.getByTestId("service-including-fees-toggle");
-    await expect(toggle).toBeVisible({ timeout: 10_000 });
-    await toggle.check();
+    // D1: the informational note replaces any on-top/deducted choice for an
+    // OMT RECEIVE — it renders unconditionally once serviceType is RECEIVE,
+    // right under the (still-visible, still-editable) fee input.
+    await expect(
+      appPage.getByTestId("service-omt-receive-fee-informational-note"),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      appPage.getByTestId("service-omt-receive-fee-informational-note"),
+    ).toContainText("doesn't affect your drawer or what's owed to OMT");
 
-    const before = await drawers(appPage);
+    // The "Including Fees Checkbox" block (on-top vs deducted) no longer
+    // renders at all for (OMT, RECEIVE) — it's (OMT, SEND) or (WHISH,
+    // RECEIVE) only now (Services/index.tsx). Confirmed absent before
+    // relying on that fact for the rest of this test.
+    await expect(
+      appPage.getByTestId("service-including-fees-toggle"),
+    ).toHaveCount(0);
+
+    const beforeD = await drawers(appPage);
+    const beforeOwed = await omtOwedUsd(appPage);
 
     await appPage.getByRole("button", { name: /Record Receive/i }).click();
     await expect(amountInput).toHaveValue("", { timeout: 15_000 });
 
-    const after = await drawers(appPage);
+    const afterD = await drawers(appPage);
+    const afterOwed = await omtOwedUsd(appPage);
 
-    // The payout is real banknotes handed across the counter, so it comes OUT
-    // of the OMT drawer: −(x−f) = −95 (the fee is withheld from what the
-    // customer collects). Under the float model this drawer went UP by 100
-    // here — the sign itself is the model change.
-    expect(after.omtSystem - before.omtSystem).toBeCloseTo(-95, 2);
-    // The till is untouched: the payout never came from General.
-    expect(after.general - before.general).toBeCloseTo(0, 2);
-    // NOTE (owner decision 2026-08-01): this payout is NOT blocked when the
-    // drawer cannot cover it — the balance is simply allowed to go negative,
-    // which the transfer modal then flags for the operator to cover. An
-    // earlier revision of this feature rejected the transaction here, which
-    // is why this spec used to fail with the amount field still filled.
+    // The payout is the FULL requested amount — the $5 fee never reduces
+    // what the customer collects, and never posts a separate collection
+    // leg either: -100, not -95.
+    expect(afterD.omtSystem - beforeD.omtSystem).toBeCloseTo(-100, 2);
+    // The till is untouched, exactly as before D1 (the payout never came
+    // from General).
+    expect(afterD.general - beforeD.general).toBeCloseTo(0, 2);
+    // Nor does the fee land in any wallet drawer — there is no fee leg to
+    // route anywhere for an OMT RECEIVE under D1.
+    expect(afterD.whishApp - beforeD.whishApp).toBeCloseTo(0, 2);
+    // supplier_ledger: OMT is owed the FULL principal regardless of the fee
+    // (`grossOwedDelta`'s RECEIVE_FEE_MODEL_CUTOVER branch returns
+    // `-principal` unconditionally — the fee term never enters the
+    // formula). -100, not -(100-5) = -95.
+    expect(afterOwed - beforeOwed).toBeCloseTo(-100, 2);
+    // NOTE (owner decision 2026-08-01, unaffected by D1): this payout is NOT
+    // blocked when the drawer cannot cover it — the balance is simply
+    // allowed to go negative, which the transfer modal then flags for the
+    // operator to cover.
   });
 
-  test("RECEIVE fee-on-top, fee collected via the Whish wallet: PCD pays the FULL x, Whish_App collects f", async ({
+  test("RECEIVE: the old fee-collection counter-flow is GONE from the UI — no toggle, no counter-flow section, regardless of the fee typed (D1 guard)", async ({
     appPage,
   }) => {
     await navigateTo(appPage, "/omt-whish");
@@ -233,45 +298,46 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
 
     const amountInput = appPage.locator("#service-amount");
     await expect(amountInput).toBeVisible({ timeout: 15_000 });
-    await amountInput.fill("100");
+    // Different amount from the previous test — keeps this test's drawer
+    // delta unambiguous (rule 15 identity) if run adjacent to it.
+    await amountInput.fill("60");
 
-    // Explicit fee, fee-on-top (includingFees toggle left OFF) — the same
-    // §4 Phase C gate lira-131's third test exercises, but this time the
-    // counter-flow's fee-collection LEG is switched from the auto-seeded
-    // CASH default to the Whish wallet — a real drawer-affecting method
-    // distinct from the OMT provider itself, proving the fee is routed by
-    // the LEG's own method, not by which provider tab is active.
     const feeInput = appPage.getByTestId("service-omt-fee-input");
     await expect(feeInput).toBeVisible({ timeout: 10_000 });
-    await feeInput.fill("5");
+    await feeInput.fill("6");
 
-    // The Phase C counter-flow card ("Customer pays — OMT fee") renders the
-    // instant serviceType===RECEIVE && !includingFees && fee>0 (no session,
-    // no partner) — no extra toggle needed, mirrors Services.feeCounterFlow
-    // .test.tsx's `showFeeCounterFlow` gate. It auto-seeds ONE CASH line at
-    // the fee amount; switch that line's method to WHISH.
-    const counterFlowSection = appPage.getByTestId("counter-flow-section");
-    await expect(counterFlowSection).toBeVisible({ timeout: 10_000 });
-    const feeMethodSelect = counterFlowSection.locator(
-      '[data-testid^="counter-flow-method-"]',
-    );
-    await expect(feeMethodSelect).toBeVisible();
-    await feeMethodSelect.selectOption("WHISH");
+    // OLD behaviour this test used to prove: filling a RECEIVE fee here made
+    // the "Customer pays — OMT fee" counter-flow section
+    // (`counter-flow-section`) appear, letting the operator route the fee's
+    // collection through any drawer-affecting method (this file's own prior
+    // version switched it to Whish). D1 (`showFeeCounterFlow` is now
+    // `provider === "WHISH"` only) removes that entirely for OMT — assert
+    // it's simply not in the DOM, not just hidden, so a regression that
+    // brings it back can't hide behind a visibility check alone.
+    await expect(appPage.getByTestId("counter-flow-section")).toHaveCount(0);
+    // And the on-top/deducted toggle is equally absent (same assertion as
+    // the previous test, re-proven here with a fee actually typed in, to
+    // rule out a fee-value-gated regression the previous test's blank-typed
+    // check wouldn't catch).
+    await expect(
+      appPage.getByTestId("service-including-fees-toggle"),
+    ).toHaveCount(0);
 
-    const before = await drawers(appPage);
+    const beforeD = await drawers(appPage);
+    const beforeOwed = await omtOwedUsd(appPage);
 
     await appPage.getByRole("button", { name: /Record Receive/i }).click();
     await expect(amountInput).toHaveValue("", { timeout: 15_000 });
 
-    const after = await drawers(appPage);
+    const afterD = await drawers(appPage);
+    const afterOwed = await omtOwedUsd(appPage);
 
-    // §1.4 table, "WHISH wallet" row: PCD −x (the FULL requested amount —
-    // fee-on-top never nets the payout, unlike the fee-included case above),
-    // Whish_App +f (the fee, collected separately via the counter-flow leg).
-    expect(after.omtSystem - before.omtSystem).toBeCloseTo(-100, 2);
-    expect(after.whishApp - before.whishApp).toBeCloseTo(5, 2);
-    // General never moves for a primary-system RECEIVE — the whole point of
-    // the PCD model this suite guards throughout.
-    expect(after.general - before.general).toBeCloseTo(0, 2);
+    // With no fee-collection UI reachable at all, the submit still succeeds
+    // (the fee stays purely informational) and books exactly the same shape
+    // as the plain case above: full payout, no fee leg anywhere.
+    expect(afterD.omtSystem - beforeD.omtSystem).toBeCloseTo(-60, 2);
+    expect(afterD.general - beforeD.general).toBeCloseTo(0, 2);
+    expect(afterD.whishApp - beforeD.whishApp).toBeCloseTo(0, 2);
+    expect(afterOwed - beforeOwed).toBeCloseTo(-60, 2);
   });
 });

@@ -159,6 +159,7 @@ function createTestDb(): Database.Database {
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at TEXT,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

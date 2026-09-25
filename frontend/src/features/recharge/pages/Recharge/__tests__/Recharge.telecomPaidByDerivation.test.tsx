@@ -45,6 +45,9 @@ jest.mock("@liratek/ui", () => ({
   useApi: () => ({
     getAllSettings: mockGetAllSettings,
     getPrimaryCarrierLine: mockGetPrimaryCarrierLine,
+    // Owner note #21 (migration v182): shop-line detection now fetches
+    // every active line, not just the primary one.
+    getActiveCarrierLines: jest.fn().mockResolvedValue([]),
     getClients: mockGetClients,
     processRecharge: mockProcessRecharge,
   }),

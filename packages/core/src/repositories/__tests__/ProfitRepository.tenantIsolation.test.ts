@@ -203,14 +203,24 @@ function createSchema(db: Database.Database): void {
       created_at TEXT
     , refunded_at TEXT DEFAULT NULL);
 
+    -- session_id + note: real columns on production payments (electron-app
+    -- /create_db.sql) since migration v100 (session_id) — needed for
+    -- getPaymentMethodRows's LPAY-V1 session_legs CTE and the
+    -- sessionBasketNotReversedSql fragment it evaluates (rp.session_id,
+    -- rp.note) to even parse, though no seeded row here uses either (every
+    -- seeded payment carries a transaction_id, so it is scoped by
+    -- linked_legs, not session_legs — this fixture update does not change
+    -- what the suite exercises, only lets the query compile).
     CREATE TABLE payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER,
       transaction_id INTEGER,
+      session_id INTEGER,
       method TEXT,
       drawer_name TEXT,
       currency_code TEXT,
       amount REAL DEFAULT 0,
+      note TEXT,
       created_at TEXT
     );
 
@@ -599,5 +609,70 @@ describe("ProfitRepository — cross-tenant isolation (exact sums)", () => {
 
     const rows2 = runWithTenant(2, () => repo.getPaymentMethodRows(FROM, TO));
     expect(rows2[0].total_usd).toBe(300);
+  });
+
+  /**
+   * LPAY-X3 (OWNER_NOTES_2026-09-21.md §6.8 follow-up): the test above only
+   * exercises `linked_legs` (every seeded payment carries a
+   * `transaction_id`), which is doubly tenant-scoped — both the CTE's own
+   * `p.tenant_id = ?` bind AND its `JOIN transactions t ON ... AND
+   * t.tenant_id = ?`. `getPaymentMethodRows`'s `session_legs` and
+   * `orphan_legs` CTEs have no such JOIN — `p.tenant_id = ?` is their ONLY
+   * tenant scope, and `session_legs` additionally evaluates
+   * `sessionBasketNotReversedSql`, a correlated subquery keyed on
+   * `rp.tenant_id = p.tenant_id` (the OUTER row's own tenant, not a second
+   * bind param). Neither shape had ever been exercised cross-tenant before
+   * this test. They are correct today — this guards that, it does not fix a
+   * bug: a colliding `session_id` (900) is seeded for BOTH tenants, with
+   * ONLY tenant 2 holding a "Basket reversal" sibling against it, and a
+   * colliding-shape orphan leg (no `transaction_id`, no `session_id`) is
+   * seeded for both tenants too.
+   */
+  it("getPaymentMethodRows — session_legs and orphan_legs are tenant-scoped even with a colliding session_id across tenants (LPAY-X3)", () => {
+    const insertSessionLeg = (
+      tenantId: number,
+      sessionId: number,
+      amount: number,
+      note: string | null = null,
+    ) =>
+      db
+        .prepare(
+          `INSERT INTO payments (tenant_id, transaction_id, session_id, method, drawer_name, currency_code, amount, note, created_at)
+           VALUES (?, NULL, ?, 'CASH', 'General', 'USD', ?, ?, ?)`,
+        )
+        .run(tenantId, sessionId, amount, note, D);
+    const insertOrphanLeg = (tenantId: number, amount: number) =>
+      db
+        .prepare(
+          `INSERT INTO payments (tenant_id, transaction_id, session_id, method, drawer_name, currency_code, amount, note, created_at)
+           VALUES (?, NULL, NULL, 'CASH', 'General', 'USD', ?, NULL, ?)`,
+        )
+        .run(tenantId, amount, D);
+
+    // Same session_id (900) used by BOTH tenants — only tenant 2's basket is
+    // reversed. If the reversal check ever lost its tenant correlation,
+    // tenant 2's reversal would wrongly cancel tenant 1's still-live basket.
+    insertSessionLeg(1, 900, 70);
+    insertSessionLeg(2, 900, 210);
+    insertSessionLeg(2, 900, -210, "Basket reversal");
+
+    // Fully-orphaned legs (no transaction_id, no session_id) for both tenants.
+    insertOrphanLeg(1, 15);
+    insertOrphanLeg(2, 45);
+
+    const rows1 = runWithTenant(1, () => repo.getPaymentMethodRows(FROM, TO));
+    const cash1 = rows1.find((r) => r.method === "CASH");
+    expect(cash1).toBeDefined();
+    // 100 (existing linked leg) + 70 (tenant 1's own, never-reversed session
+    // 900) + 15 (tenant 1's own orphan leg) — tenant 2's rows must not leak
+    // in, and tenant 2's reversal must not cancel tenant 1's live basket.
+    expect(cash1!.total_usd).toBe(185);
+
+    const rows2 = runWithTenant(2, () => repo.getPaymentMethodRows(FROM, TO));
+    const cash2 = rows2.find((r) => r.method === "CASH");
+    expect(cash2).toBeDefined();
+    // 300 (existing linked leg ×3) + 0 (tenant 2's OWN session 900 basket
+    // really is reversed) + 45 (tenant 2's own orphan leg).
+    expect(cash2!.total_usd).toBe(345);
   });
 });

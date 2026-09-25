@@ -3,6 +3,7 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   startTransition,
 } from "react";
 import logger from "@/utils/logger";
@@ -49,6 +50,19 @@ import type {
   ProviderAnalytics,
 } from "../../types";
 import { PROVIDER_CONFIGS } from "../../types";
+import { deriveSubmittedRechargeType } from "@/shared/utils/rechargeLabels";
+
+// Fix round 1 (major, rule 25 — render-loop): a stable, module-level empty
+// array so the shop-lines effect below never sets a FRESH `[]` reference on
+// its early-return/error paths. A fresh array on every fire is a state
+// change React can't bail out of, and combined with `api` sitting in that
+// effect's own dependency list (see the `apiRef` comment at its call site)
+// an unstable `useApi()` mock — several existing Recharge page test suites
+// return a NEW object literal per render — turned this into a synchronous
+// infinite loop (the "Jest worker ran out of memory" signature FeatureFlag
+// Context.tsx documents, not a real OOM).
+const NO_SHOP_LINES: CarrierLineEntity[] = [];
+
 export default function MobileRecharge() {
   const api = useApi();
   const { formatAmount } = useCurrencyContext();
@@ -156,34 +170,99 @@ export default function MobileRecharge() {
   // Credit to clear it. The tab-switch wrapper passed to `TelecomForm` below
   // now clears `phoneNumber` whenever the NEW tab is not Credit — same-tab
   // edits (the actual anti-bypass-while-still-on-Credit case) are untouched.
-  const [primaryLine, setPrimaryLine] = useState<CarrierLineEntity | null>(
-    null,
+  // Owner note #21 (2026-09-24): the checkbox must appear for ANY of the
+  // shop's active lines for this carrier, not just the primary one — a shop
+  // can have several lines and the operator may be typing back a number that
+  // matches a non-primary one. Widened from the single `getPrimaryCarrierLine`
+  // fetch to the full active-lines list; `isShopLineMatch` now checks against
+  // all of them. The credit MOVEMENT itself is unaffected by this widening —
+  // it still always lands on the primary line (RechargeRepository's existing
+  // `getCarrierLineRepository().getPrimary(carrier)` call, unchanged), which
+  // is what "the line selected on the MTC/Alfa page" means in practice.
+  const [shopLines, setShopLines] = useState<CarrierLineEntity[]>(
+    NO_SHOP_LINES,
   );
-  useEffect(() => {
-    if (activeProvider !== "MTC" && activeProvider !== "Alfa") {
-      setPrimaryLine(null);
+  // Fix round 1 (major, rule 25): `api` is read through a ref so this
+  // effect's dependency list never carries the (possibly per-render-fresh)
+  // `useApi()` identity itself — only `activeProvider`, which is real state
+  // and genuinely should re-fire the fetch. Every reset path below now sets
+  // the SAME `NO_SHOP_LINES` reference rather than a fresh `[]`, so on a
+  // stable `activeProvider` this can no longer re-render-loop even if the
+  // caller's `api` object churns every render (see FeatureFlagContext.tsx's
+  // canonical writeup of this exact hazard).
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  // m1 fix (2026-09-24 adversarial review): pulled out of the effect below
+  // so a successful telecom submit can re-run the SAME fetch on demand,
+  // not just on an `activeProvider` change — otherwise a second DAYS sale
+  // on the same provider tab reads a stale `primaryLine.days_owed`/
+  // `validity_expires_at` for its pre-sale sold-ahead warning until the
+  // operator switches tabs and back.
+  const loadShopLines = useCallback(async (provider: AnyProvider) => {
+    if (provider !== "MTC" && provider !== "Alfa") {
+      setShopLines(NO_SHOP_LINES);
       return;
     }
+    try {
+      const lines = await apiRef.current.getActiveCarrierLines(
+        provider === "MTC" ? "mtc" : "alfa",
+      );
+      setShopLines(lines ?? NO_SHOP_LINES);
+    } catch (error) {
+      logger.error("Failed to load active carrier lines:", error);
+      setShopLines(NO_SHOP_LINES);
+    }
+  }, []);
+  useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (activeProvider !== "MTC" && activeProvider !== "Alfa") {
+        if (!cancelled) setShopLines(NO_SHOP_LINES);
+        return;
+      }
       try {
-        const res = await api.getPrimaryCarrierLine(
+        const lines = await apiRef.current.getActiveCarrierLines(
           activeProvider === "MTC" ? "mtc" : "alfa",
         );
-        if (!cancelled) setPrimaryLine(res.success ? (res.data ?? null) : null);
+        if (!cancelled) setShopLines(lines ?? NO_SHOP_LINES);
       } catch (error) {
-        logger.error("Failed to load primary carrier line:", error);
-        if (!cancelled) setPrimaryLine(null);
+        logger.error("Failed to load active carrier lines:", error);
+        if (!cancelled) setShopLines(NO_SHOP_LINES);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeProvider, api]);
-  const isShopLineMatch = isSameLebanesePhone(
-    phoneNumber,
-    primaryLine?.phone_number,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef.current is read at call time, not captured; intentionally excluding the unstable `api` identity (see comment above)
+  }, [activeProvider]);
+  // m1 fix: refetch whenever ANY telecom submit changes carrier lines,
+  // regardless of which page/tab triggered it (e.g. a self-charge from
+  // KatchForm) — matches `carrier`, or refreshes unconditionally when the
+  // event carries none.
+  useEffect(() => {
+    return appEvents.on("carrier-lines:changed", (carrier) => {
+      if (
+        (activeProvider === "MTC" || activeProvider === "Alfa") &&
+        (!carrier ||
+          carrier === (activeProvider === "MTC" ? "mtc" : "alfa"))
+      ) {
+        void loadShopLines(activeProvider);
+      }
+    });
+  }, [activeProvider, loadShopLines]);
+  const isShopLineMatch = shopLines.some((line) =>
+    isSameLebanesePhone(phoneNumber, line.phone_number),
   );
+  // Owner note #21: the checkbox itself. ON (default) = case 1, the existing
+  // credit buy-back (payment OUT). OFF = case 2, the customer used the shop
+  // line for a call (payment IN, ordinary credit sale, no SMS fee). Reset to
+  // ON whenever the phone number or the active provider/tab changes, per the
+  // owner's answer — each fresh match starts as a buy-back until the
+  // operator explicitly says otherwise.
+  const [shopLineBuyback, setShopLineBuyback] = useState(true);
+  useEffect(() => {
+    setShopLineBuyback(true);
+  }, [phoneNumber, activeProvider, rechargeType]);
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoFeeIncluded, setCryptoFeeIncluded] = useState(false);
@@ -505,7 +584,22 @@ export default function MobileRecharge() {
     // once, at checkout), so block outright rather than silently adding a
     // payout to the cart. Checked BEFORE the `activeSession` branch below so
     // it short-circuits instead of falling into it.
-    const isBuyback = rechargeType === "CREDIT_TRANSFER" && isShopLineMatch;
+    //
+    // Owner note #21: `isShopLineMatch` alone no longer decides case 1 vs
+    // case 2 — the `shopLineBuyback` checkbox does. Case 2 (unticked) is an
+    // ordinary IN-direction sale and stays allowed inside a session, same as
+    // any other credit sale. Fix round 1 (rule 14): derived from the ONE
+    // shared helper (`rechargeLabels.ts`) instead of two hand-duplicated
+    // predicates, so this and `TelecomForm`'s own `isCreditBuyback` (which UI
+    // branch to render) can never disagree on which type a given checkbox
+    // state means.
+    const submittedRechargeType = deriveSubmittedRechargeType(
+      rechargeType,
+      isShopLineMatch,
+      shopLineBuyback,
+    );
+    const isBuyback = submittedRechargeType === "CREDIT_BUYBACK";
+    const isShopLineCase2 = submittedRechargeType === "SHOP_LINE_USE";
     if (isBuyback && activeSession) {
       appEvents.emit(
         "notification:show",
@@ -544,8 +638,9 @@ export default function MobileRecharge() {
     // If session is active, add to cart instead of submitting
     if (activeSession) {
       const providerLabel = activeProvider === "MTC" ? "MTC" : "Alfa";
-      const typeLabel =
-        rechargeType === "CREDIT_TRANSFER"
+      const typeLabel = isShopLineCase2
+        ? "Shop Line Use"
+        : rechargeType === "CREDIT_TRANSFER"
           ? "Recharge"
           : rechargeType.replace(/_/g, " ");
       const label = phoneNumber
@@ -554,7 +649,10 @@ export default function MobileRecharge() {
 
       // Session mode: the basket owns the payment, so the cart item carries NO
       // payment fields (paid_by_method / payments). The Session Checkout modal
-      // collects payment once for the whole basket.
+      // collects payment once for the whole basket. `isBuyback` can never be
+      // true here — it short-circuits above before this branch — so
+      // `submittedRechargeType` is either SHOP_LINE_USE (case 2) or the plain
+      // tab type.
       addToSessionCart({
         module: activeProvider === "MTC" ? "recharge_mtc" : "recharge_alfa",
         label,
@@ -563,7 +661,7 @@ export default function MobileRecharge() {
         ipcChannel: "recharge:process",
         formData: {
           provider: activeProvider,
-          type: rechargeType,
+          type: submittedRechargeType,
           phoneNumber:
             rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
           amount,
@@ -591,12 +689,15 @@ export default function MobileRecharge() {
     try {
       const result = await api.processRecharge({
         provider: activeProvider,
-        // Phase 6 (D7/D8): a shop-line match on the Credit tab flips the
-        // submitted type to CREDIT_BUYBACK — everything else about this
-        // payload (amount = credits gained, price = payout amount,
-        // payments = the payout legs) is unchanged; processCreditBuyback
-        // reinterprets the same fields per its own contract.
-        type: isBuyback ? "CREDIT_BUYBACK" : rechargeType,
+        // Phase 6 (D7/D8): a shop-line match on the Credit tab, with the
+        // checkbox left ON, flips the submitted type to CREDIT_BUYBACK —
+        // everything else about this payload (amount = credits gained,
+        // price = payout amount, payments = the payout legs) is unchanged;
+        // processCreditBuyback reinterprets the same fields per its own
+        // contract. Owner note #21: with the checkbox unticked instead, it
+        // flips to SHOP_LINE_USE (case 2) — an ordinary sale payload, just a
+        // distinct `type` so the SMS fee stays off and history reads right.
+        type: submittedRechargeType,
         phoneNumber:
           rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
         amount,
@@ -661,6 +762,17 @@ export default function MobileRecharge() {
         `${activeProvider} recharge processed successfully`,
         "success",
       );
+      // m1 fix (2026-09-24 adversarial review): this sale may have moved
+      // the shop's own carrier line (credits, validity, days_owed) — tell
+      // every listener (this page's own `shopLines` preview, the
+      // `CarrierLinesPanel` chip/"days still to send" list) to refetch,
+      // rather than only on the next `activeProvider` tab switch.
+      if (activeProvider === "MTC" || activeProvider === "Alfa") {
+        appEvents.emit(
+          "carrier-lines:changed",
+          activeProvider === "MTC" ? "mtc" : "alfa",
+        );
+      }
       void autoPrintReceipt({
         type: "RECHARGE",
         sourceTable: "recharges",
@@ -701,6 +813,7 @@ export default function MobileRecharge() {
     loadFinancialData,
     activeSession,
     isShopLineMatch,
+    shopLineBuyback,
     linkTransaction,
     loadDrawerBalances,
     telecomTransactionTime,
@@ -1559,6 +1672,14 @@ export default function MobileRecharge() {
             activeConfig={activeConfig}
             handleTelecomSubmit={handleTelecomSubmit}
             isShopLineMatch={isShopLineMatch}
+            shopLineBuyback={shopLineBuyback}
+            setShopLineBuyback={setShopLineBuyback}
+            // #28 (LIRA-218) — the line a DAYS sale actually decrements
+            // server-side (RechargeRepository always resolves the PRIMARY
+            // line for the carrier, never a non-primary match). Reused from
+            // the same `shopLines` fetch above rather than a second API
+            // call (rule 14).
+            primaryLine={shopLines.find((l) => l.is_primary === 1) ?? null}
             onKeptChange={setKeptChange}
             onEffectiveRateChange={setTelecomTenderRate}
             giftTierKey={giftTierKey}

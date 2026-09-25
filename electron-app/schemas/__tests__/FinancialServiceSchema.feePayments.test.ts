@@ -18,6 +18,7 @@
  * fixed (current) behavior.
  */
 import { FinancialServiceSchema } from "../index";
+import { OMT_RECEIVE_NO_FEE_MESSAGE } from "@liratek/core";
 
 // A minimal, legitimate fee-on-top RECEIVE payload: no partnerId, a
 // non-zero omtFee, includingFees false, feePayments summing to the fee.
@@ -45,7 +46,17 @@ function issuesFor(
 
 describe("FinancialServiceSchema — feePayments refines (§6bis finding 6)", () => {
   it("baseline: accepts feePayments on a valid fee-on-top RECEIVE payload", () => {
-    const result = FinancialServiceSchema.safeParse(basePayload);
+    // D1 (OWNER_NOTES_2026-09-21.md §2b): provider overridden from OMT to
+    // WHISH — an OMT RECEIVE's feePayments are now blanket-rejected by this
+    // schema's own D1 refine (see the "D1 blanket guard" describe block
+    // below), so `basePayload` as-is no longer represents an accepted OMT
+    // case. WHISH is unaffected by D1 and remains the representative
+    // positive case here.
+    const result = FinancialServiceSchema.safeParse({
+      ...basePayload,
+      provider: "WHISH" as const,
+      whishFee: 5,
+    });
     expect(result.success).toBe(true);
   });
 
@@ -162,6 +173,103 @@ describe("FinancialServiceSchema — feePayments refines (§6bis finding 6)", ()
     expect(issuesFor(result)).toContainEqual({
       path: ["feePayments"],
       message: "feePayments is only valid on serviceType RECEIVE",
+    });
+  });
+
+  // D1 (OWNER_NOTES_2026-09-21.md §2b) — this schema's own blanket OMT
+  // RECEIVE refine, mirroring the core one (rule 14/19b: both must reject
+  // with the SAME message, or the desktop IPC path and the REST route
+  // disagree — rule 19).
+  describe("D1 blanket guard wins over the partner/zero-fee refines for an OMT RECEIVE", () => {
+    it("rejects with the D1 message even when partnerId is attached", () => {
+      const result = FinancialServiceSchema.safeParse({
+        ...basePayload,
+        partnerId: 1,
+        partnerMode: "THROUGH" as const,
+      });
+      expect(result.success).toBe(false);
+      const issues = issuesFor(result);
+      expect(issues[0]).toEqual({
+        path: ["feePayments"],
+        message: OMT_RECEIVE_NO_FEE_MESSAGE,
+      });
+    });
+
+    it("rejects with the D1 message even when omtFee is zero", () => {
+      const result = FinancialServiceSchema.safeParse({
+        ...basePayload,
+        omtFee: 0,
+      });
+      expect(result.success).toBe(false);
+      const issues = issuesFor(result);
+      expect(issues[0]).toEqual({
+        path: ["feePayments"],
+        message: OMT_RECEIVE_NO_FEE_MESSAGE,
+      });
+    });
+
+    it("does not affect WHISH — the same partner combo is still accepted with no feePayments", () => {
+      const result = FinancialServiceSchema.safeParse({
+        provider: "WHISH" as const,
+        serviceType: "RECEIVE" as const,
+        amount: 40,
+        currency: "USD",
+        whishFee: 3,
+        partnerId: 1,
+        partnerMode: "THROUGH" as const,
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // Owner decision 2026-09-25: "OMT App RECEIVE: refuse a fee with the SAME
+  // D1 message as OMT system — one constant." OMT_APP's fee travels in
+  // `commission`, not `omtFee`/`feePayments`, but both providers must reject
+  // with the SAME message on this transport too (rule 19 — desktop and REST
+  // agree), mirroring the core validator's own coverage.
+  describe("D1 blanket guard also covers OMT_APP RECEIVE (owner decision 2026-09-25)", () => {
+    it("rejects an OMT_APP RECEIVE with a nonzero commission, with the SAME D1 message", () => {
+      const result = FinancialServiceSchema.safeParse({
+        provider: "OMT_APP" as const,
+        serviceType: "RECEIVE" as const,
+        amount: 40,
+        currency: "USD",
+        commission: 3,
+      });
+      expect(result.success).toBe(false);
+      const issues = issuesFor(result);
+      expect(issues[0]).toEqual({
+        path: ["feePayments"],
+        message: OMT_RECEIVE_NO_FEE_MESSAGE,
+      });
+    });
+
+    it("rejects an OMT_APP RECEIVE with includingFees: true and zero commission, with the SAME D1 message", () => {
+      const result = FinancialServiceSchema.safeParse({
+        provider: "OMT_APP" as const,
+        serviceType: "RECEIVE" as const,
+        amount: 40,
+        currency: "USD",
+        commission: 0,
+        includingFees: true,
+      });
+      expect(result.success).toBe(false);
+      const issues = issuesFor(result);
+      expect(issues[0]).toEqual({
+        path: ["feePayments"],
+        message: OMT_RECEIVE_NO_FEE_MESSAGE,
+      });
+    });
+
+    it("does not affect WHISH_APP — a commission is still accepted (D1 does not cover WHISH_APP)", () => {
+      const result = FinancialServiceSchema.safeParse({
+        provider: "WHISH_APP" as const,
+        serviceType: "RECEIVE" as const,
+        amount: 40,
+        currency: "USD",
+        commission: 3,
+      });
+      expect(result.success).toBe(true);
     });
   });
 });

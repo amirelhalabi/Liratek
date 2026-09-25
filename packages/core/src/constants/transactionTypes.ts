@@ -169,6 +169,18 @@ export const TRANSACTION_TYPES = {
   // Hold Money (cash held on behalf of a client, returned on collection)
   HOLD_MONEY: "HOLD_MONEY",
   HOLD_MONEY_COLLECT: "HOLD_MONEY_COLLECT",
+  /** LIRA-214 (migration v183, partial pickup): the module-owned reversal
+   *  (rule 20) for a single `hold_money_pickups` row — voids that ONE
+   *  pickup's payout legs (re-credits every drawer it debited) and lets
+   *  `hold_money`'s remaining balance (derived live from
+   *  `usd_amount/lbp_amount` minus the SUM of non-voided pickups) go back
+   *  up, flipping `status` back to 'held' if it had reached 'collected'.
+   *  `reverses_id` points at the pickup's own HOLD_MONEY_COLLECT row, same
+   *  accounting-journal convention as every other reversal in this file.
+   *  Deliberately kept OUT of the generic void/refund path (stays gated by
+   *  NON_REVERSIBLE_TRANSACTION_TYPES below, like its parent type) — see
+   *  `HoldMoneyRepository.voidPickup` for the dedicated reversal. */
+  HOLD_MONEY_COLLECT_VOID: "HOLD_MONEY_COLLECT_VOID",
 
   // Debt & supplier
   DEBT_REPAYMENT: "DEBT_REPAYMENT",
@@ -385,10 +397,20 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     TRANSACTION_TYPES.DRAWER_CASHOUT,
     // HOLD_MONEY / HOLD_MONEY_COLLECT: hold_money.status ('held'/'collected')
     // is not reset by the generic reversal (hold_money is not in
-    // _markSourceRefunded) — voiding a hold then collecting it pays out twice.
-    // Rule-20 owner: the Hold Money page's own lifecycle.
+    // _markSourceRefunded) — voiding a hold then collecting it pays out
+    // twice. LIRA-214 (migration v183) added a PER-PICKUP reversal owner
+    // instead of removing these from this set: `HoldMoneyRepository
+    // .voidPickup` reverses ONE `hold_money_pickups` row directly (its own
+    // payment legs + the derived remaining balance), writing a dedicated
+    // HOLD_MONEY_COLLECT_VOID row rather than routing through the generic
+    // path — see that type's own doc comment above. Rule-20 owner for the
+    // DROP-OFF (HOLD_MONEY) side only: still the Hold Money page's
+    // lifecycle (correct with a pickup of the same amount).
     TRANSACTION_TYPES.HOLD_MONEY,
     TRANSACTION_TYPES.HOLD_MONEY_COLLECT,
+    // A void-of-a-pickup is itself terminal — nothing reverses a reversal
+    // (same rationale as REFUND above).
+    TRANSACTION_TYPES.HOLD_MONEY_COLLECT_VOID,
     // LOTO_MONTHLY_FEE: loto_monthly_fees.is_paid stays 1 on a voided payment
     // (table not in _markSourceRefunded) — the month would show paid with the
     // cash reversed. Rule-20 owner: the Loto monthly-fee page.
@@ -421,6 +443,35 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     TRANSACTION_TYPES.CLIENT_CREATED,
     TRANSACTION_TYPES.CLIENT_UPDATED,
     TRANSACTION_TYPES.CLIENT_DELETED,
+  ]);
+
+/**
+ * LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — types that stay
+ * NON_REVERSIBLE standalone (their solo rationale above is unchanged — a
+ * lone `voidTransaction("<id>")` on one of these still throws) but that
+ * `TransactionRepository._assertReversible` now lets through when
+ * `allowSessionMember: true` (i.e. only via `voidSessionBasket`/
+ * `refundSessionBasket`), because a dedicated basket-only reversal owner now
+ * exists for each:
+ * - LOTO_CASH_PRIZE: `_reverseLotoCashPrize` soft-voids the prize's
+ *   `supplier_ledger` CASH_PRIZE row, marks `loto_cash_prizes.voided = 1`
+ *   (migration v181), and delta-adjusts an unsettled checkpoint — mirroring
+ *   `_reverseLotoSupplierLedger`'s pattern for a LOTO ticket (rule 14). A
+ *   settled checkpoint or an already-reimbursed prize is refused up-front by
+ *   `_assertLotoCashPrizeVoidable`, mirroring `_assertLotoTicketVoidable`.
+ * - KEPT_CHANGE: no dedicated code owns it — the generic void/refund path
+ *   already zeroes its profit correctly (void: `status` flips to VOIDED,
+ *   every profit query already gates on `status = 'ACTIVE'`; refund:
+ *   `keptChangeSource`'s new REFUND branch, ProfitRepository.ts, picks up
+ *   the negated REFUND row). Solo KEPT_CHANGE stays blocked only because a
+ *   standalone row never exists outside a basket (T3 keep-change is always
+ *   session-linked) — this bypass just lets the basket loop reach it instead
+ *   of throwing on item #1.
+ */
+export const SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES: ReadonlySet<TransactionType> =
+  new Set<TransactionType>([
+    TRANSACTION_TYPES.LOTO_CASH_PRIZE,
+    TRANSACTION_TYPES.KEPT_CHANGE,
   ]);
 
 /**

@@ -26,6 +26,20 @@ export const sessionCheckoutPaymentSchema = z.object({
    * pre-Phase-F payload parses unchanged.
    */
   kind: z.enum(["PAYOUT", "CHANGE"]).optional(),
+  /**
+   * Owner decision #11-A (2026-09-24, netted session checkout): meaningful
+   * ONLY on a `kind: "PAYOUT"` leg. "SYSTEM" = an OMT/Whish SYSTEM
+   * money-transfer-box payout — always routes 100% to the primary cash
+   * drawer, NEVER netted against the basket's charge. "GENERAL" = a
+   * General-drawer payout (loto prize, wallet/Binance cash-out) — routes
+   * 100% to General; the frontend only ever sends the EXCESS left after
+   * netting the CASH-routed portion against the charge (see
+   * `netCashPayoutAgainstCharge`, binanceCart.ts). Absent = legacy
+   * behavior: split by the session's blended primary-system payout share
+   * (`SessionPaymentService.ratioForCurrency`) — every pre-#11-A payload
+   * parses unchanged.
+   */
+  payoutOrigin: z.enum(["SYSTEM", "GENERAL"]).optional(),
   // Present only for GIFT_CARD legs.
   voucher_code: z.string().optional(),
 });

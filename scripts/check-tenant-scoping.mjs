@@ -127,6 +127,7 @@ const TENANT_SCOPED_TABLES = [
   "loto_settings",
   "carrier_lines",
   "carrier_line_movements",
+  "carrier_line_owed_deliveries",
 ];
 
 // Explicitly never flagged, even if referenced.

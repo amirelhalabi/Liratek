@@ -68,10 +68,10 @@ function countRows(
 /**
  * Inserts exactly ONE row into every `RESET_WIPE_TABLES` table for the given
  * tenant, satisfying every NOT-NULL foreign key in `create_db.sql` (nullable
- * FKs are left NULL — they need no parent row). 13 of the 53 rows double as
+ * FKs are left NULL — they need no parent row). 13 of the 55 rows double as
  * both a "parent" row (referenced by another WIPE table's mandatory FK) and
  * a WIPE-table row in their own right (e.g. `sales` / `sale_items`), so this
- * function's INSERT count is 53, matching `RESET_WIPE_TABLES.length` exactly
+ * function's INSERT count is 55, matching `RESET_WIPE_TABLES.length` exactly
  * — asserted by the "fixture sanity" step in each test that uses it.
  * `defer_foreign_keys` removes any insertion-order requirement.
  */
@@ -167,13 +167,16 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
        VALUES (?, 'SALE', 'sales', ?, ?)`,
     ).run(tenantId, saleId, userId);
 
-    // The remaining 40 WIPE tables — one plain row each.
+    // The remaining 41 WIPE tables — one plain row each.
     db.prepare(
       `INSERT INTO audit_log (tenant_id, user_id, username, role, action, entity_type, summary)
        VALUES (?, ?, 'tester', 'staff', 'TEST', 'test', 'fixture')`,
     ).run(tenantId, userId);
     db.prepare(
       `INSERT INTO carrier_line_movements (tenant_id, carrier_line_id, reason) VALUES (?, ?, 'TEST')`,
+    ).run(tenantId, carrierLineId);
+    db.prepare(
+      `INSERT INTO carrier_line_owed_deliveries (tenant_id, carrier_line_id, days_owed) VALUES (?, ?, 30)`,
     ).run(tenantId, carrierLineId);
     db.prepare(
       `INSERT INTO custom_services (tenant_id, description) VALUES (?, 'Fixture service')`,
@@ -221,9 +224,15 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
        VALUES (?, 'BUY', 'USD', 'LBP', 1, 1, 1)`,
     ).run(tenantId);
     db.prepare(`INSERT INTO expenses (tenant_id) VALUES (?)`).run(tenantId);
+    const holdMoneyId = db
+      .prepare(
+        `INSERT INTO hold_money (tenant_id, client_name) VALUES (?, 'Fixture')`,
+      )
+      .run(tenantId).lastInsertRowid as number;
     db.prepare(
-      `INSERT INTO hold_money (tenant_id, client_name) VALUES (?, 'Fixture')`,
-    ).run(tenantId);
+      `INSERT INTO hold_money_pickups (tenant_id, hold_money_id, usd_amount)
+       VALUES (?, ?, 1)`,
+    ).run(tenantId, holdMoneyId);
     db.prepare(
       `INSERT INTO item_costs (tenant_id, provider, category, item_key, cost)
        VALUES (?, 'test', 'test', 'test-key', 1)`,
@@ -343,7 +352,7 @@ describe("DatabaseResetRepository", () => {
     insertTenantFixture(db, 1);
 
     // Fixture sanity — every WIPE table starts with exactly 1 row, and the
-    // fixture wrote exactly RESET_WIPE_TABLES.length rows (53), not fewer
+    // fixture wrote exactly RESET_WIPE_TABLES.length rows (54), not fewer
     // (a silently-skipped table would otherwise make this test pass
     // vacuously on that table).
     for (const table of RESET_WIPE_TABLES) {

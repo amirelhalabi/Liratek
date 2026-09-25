@@ -64,6 +64,22 @@ import {
  * re-exported from `@liratek/ui` via `useSuppliers.ts`) — core populates
  * these unconditionally (0 for any non-cashout row), so this never guesses
  * at a server-computed commission.
+ *
+ * Overpayment surplus (LIRA-203, owner D18 follow-up): the sheet used to
+ * hard-block ANY entered amount above the selected rows' net (see the old
+ * comment on `overpaid` below, kept for history) — that block stays for an
+ * UNDECLARED overpay, but PAY now offers an explicit "record as credit"
+ * amount that widens the payment target on top of the rows' own net. The
+ * surplus is entered in the settlement's own collapsed currency
+ * (`collapsedNet.currency`) — the same single currency `MultiPaymentInput`
+ * already targets for the rows themselves — and sent as `surplus_usd` XOR
+ * `surplus_lbp` accordingly; core rejects it outright on COLLECT. Existing
+ * open credit (a prior overpayment, or a `WALLET_CASHOUT`) needs NO new UI
+ * to "apply": it is already a negative row in the list above, pre-selected
+ * like any other, and ticking/unticking it already nets against debt via
+ * `computeSelectionTotals` — this component only adds a banner surfacing
+ * `account.total_usd`/`total_lbp` (already fetched, no new query) so the
+ * operator knows credit is sitting there to apply.
  */
 
 const NET_EPS = 0.01;
@@ -133,6 +149,11 @@ export function AccountSettleSheet({
   const [commissionLbpInput, setCommissionLbpInput] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // LIRA-203 — declared overpayment, recorded as an account credit. Only
+  // meaningful on PAY (core rejects a nonzero surplus on COLLECT) — cleared
+  // whenever the direction isn't PAY so a stale value can never leak into a
+  // COLLECT submission.
+  const [surplusInput, setSurplusInput] = useState("");
 
   // D8 — pre-select every open row the FIRST time the queue resolves (not
   // on every refetch, which would silently re-check rows the admin had
@@ -154,12 +175,33 @@ export function AccountSettleSheet({
     [totals.netUsd, totals.netLbp, exchangeRate],
   );
   const direction = directionOverride ?? collapsedNet.direction;
-  const targetAmount = Math.abs(collapsedNet.amount);
+  const rowsTargetAmount = Math.abs(collapsedNet.amount);
+
+  // LIRA-203 — only meaningful on PAY; core rejects a nonzero surplus on
+  // COLLECT (an "overpaid collect" is a different, undesigned flow). Parsed
+  // defensively like every other free-text money field in this file.
+  const surplusAmount =
+    direction === "PAY"
+      ? Math.max(0, parseFloat(surplusInput.replace(/,/g, "")) || 0)
+      : 0;
+  const hasSurplusInput = surplusAmount > NET_EPS;
+  useEffect(() => {
+    if (direction !== "PAY" && surplusInput !== "") setSurplusInput("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [direction]);
+
+  // The amount `MultiPaymentInput` must be handed and the payment legs must
+  // reconcile to — rows' own net PLUS whatever overpayment surplus was
+  // declared (0 when none). `data.amount_usd`/`amount_lbp` sent on submit
+  // below stay the rows-only figures — this combined figure only ever feeds
+  // the leg-side UI/target, never the rows guard itself.
+  const targetAmount = rowsTargetAmount + surplusAmount;
   const hasTarget = targetAmount > NET_EPS;
 
   // Reset the payment legs whenever the target the admin must cover changes
-  // (a different selection or a manual direction flip) — a stale leg from a
-  // previous selection must never silently carry into a new one.
+  // (a different selection, a manual direction flip, or a surplus edit) — a
+  // stale leg from a previous selection must never silently carry into a
+  // new one.
   const multiPaymentKey = `${direction}-${targetAmount.toFixed(2)}-${collapsedNet.currency}`;
 
   const activeLines = paymentLines.filter((p) => p.amount > 0);
@@ -180,14 +222,17 @@ export function AccountSettleSheet({
   // hard block, not just a warning the admin can submit past.
   //
   // Money-safety (owner-reported overpay bug) — an entered amount ABOVE the
-  // target is ALSO a hard block, not just the lower bound. This sheet
-  // deliberately does NOT wire MultiPaymentInput's `onReturnChange` /
-  // `onKeptChange`, so every leg it produces is IN — there is no customer
-  // here for a supplier settlement to return change to, and the core
-  // repository now rejects any leg with `direction: "OUT"` outright. Until
-  // an overpay flow is designed for this sheet, a raw overpaid IN leg must
-  // never reach the backend — this is exactly the reviewer-proven "$150 leg
-  // settles a $100 debt, drawer drops $150, ledger nets to 0" bug.
+  // target (rows' net + any DECLARED surplus above) is ALSO a hard block,
+  // not just the lower bound. This sheet deliberately does NOT wire
+  // MultiPaymentInput's `onReturnChange`/`onKeptChange`, so every leg it
+  // produces is IN — there is no customer here for a supplier settlement to
+  // return change to, and the core repository rejects any leg with
+  // `direction: "OUT"` outright. LIRA-203 is the designed overpay flow this
+  // comment used to say didn't exist yet: an UNDECLARED overpaid IN leg
+  // still must never reach the backend (the reviewer-proven "$150 leg
+  // settles a $100 debt, drawer drops $150, ledger nets to 0" bug) — the
+  // surplus input above is the ONLY sanctioned way to widen the target, and
+  // once widened, legs must STILL reconcile to it exactly.
   const underpaid = hasTarget && enteredAmount < targetAmount - NET_EPS;
   const overpaid = hasTarget && enteredAmount > targetAmount + NET_EPS;
   const reconciles = !underpaid && !overpaid;
@@ -227,6 +272,8 @@ export function AccountSettleSheet({
       const result = await settleMutation.mutateAsync({
         direction,
         selections,
+        // Rows-only net — UNCHANGED by the surplus (D18: the ticked rows
+        // settle exactly as today). The surplus travels separately below.
         amount_usd: Math.abs(totals.netUsd),
         amount_lbp: Math.abs(totals.netLbp),
         commission_usd: commissionUsd,
@@ -241,6 +288,15 @@ export function AccountSettleSheet({
                 amount: p.amount,
               })),
             }
+          : {}),
+        // LIRA-203 — entered in the settlement's own collapsed currency
+        // (the same single currency MultiPaymentInput targets); core
+        // rejects a nonzero value on COLLECT (already guaranteed here since
+        // `surplusAmount` is forced to 0 off PAY).
+        ...(hasSurplusInput
+          ? collapsedNet.currency === "LBP"
+            ? { surplus_lbp: surplusAmount }
+            : { surplus_usd: surplusAmount }
           : {}),
       });
 
@@ -316,6 +372,36 @@ export function AccountSettleSheet({
             ))}
           </div>
 
+          {/* LIRA-203 — the account already carries a credit (a prior
+              overpayment, or a WALLET_CASHOUT) when its rollup balance is
+              negative. Reuses the `account` prop this sheet already
+              receives (LIRA-188's `getAccountBalances`) — no new query.
+              "Applying" it needs no dedicated control: it's already a
+              negative row in the list below, pre-selected like any other —
+              this banner only makes that fact visible. */}
+          {(account.total_usd < -NET_EPS || account.total_lbp < -0.5) && (
+            <div
+              className="bg-emerald-950/40 border border-emerald-800/60 rounded-xl px-3 py-2 text-xs text-emerald-300"
+              data-testid="supplier-account-settle-available-credit"
+            >
+              This account has an available credit of{" "}
+              <span className="font-mono font-semibold">
+                {[
+                  account.total_usd < -NET_EPS
+                    ? formatMoney(-account.total_usd, "USD")
+                    : null,
+                  account.total_lbp < -0.5
+                    ? formatMoney(-account.total_lbp, "LBP")
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" + ")}
+              </span>{" "}
+              — the credit row is already ticked below; leave it selected to
+              apply it toward this settlement.
+            </div>
+          )}
+
           <div className="border border-slate-700 rounded-xl overflow-hidden">
             <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
               <div className="col-span-1" aria-hidden="true" />
@@ -353,8 +439,17 @@ export function AccountSettleSheet({
                           className="w-4 h-4 rounded border-slate-600 bg-slate-900"
                         />
                       </div>
-                      <div className="col-span-3 text-slate-300 truncate">
+                      <div className="col-span-3 text-slate-300 truncate flex items-center gap-1">
                         {rowTypeLabel(row)}
+                        {/* LIRA-203/§8.4 — any negative row (an overpayment
+                            surplus OR a WALLET_CASHOUT) is account credit,
+                            not debt; badge it so ticking it reads as
+                            "applying credit", not "paying a bill". */}
+                        {(row.amount_usd < 0 || row.amount_lbp < 0) && (
+                          <span className="px-1 py-0.5 rounded bg-emerald-900/50 text-emerald-400 text-[9px] font-semibold uppercase tracking-wide">
+                            Credit
+                          </span>
+                        )}
                       </div>
                       <div className="col-span-3 text-right font-mono text-white">
                         {rowAmountLabel(row)}
@@ -437,13 +532,55 @@ export function AccountSettleSheet({
                   : `The entered payment is ${formatMoney(
                       enteredAmount - targetAmount,
                       collapsedNet.currency,
-                    )} more than the net amount. Settlement legs must match exactly — reduce the payment to ${formatMoney(
+                    )} more than the net amount${hasSurplusInput ? " + declared surplus" : ""}. Settlement legs must match exactly — reduce the payment to ${formatMoney(
                       targetAmount,
                       collapsedNet.currency,
-                    )}.`}
+                    )}${hasSurplusInput ? ", or lower the overpayment amount below" : ""}.`}
               </p>
             )}
           </div>
+
+          {/* LIRA-203 — record a DECLARED overpayment as account credit.
+              PAY only (core rejects a nonzero surplus on COLLECT — there is
+              no ticked debt to overpay against when the account already
+              owes the shop). Entered in the settlement's own collapsed
+              currency and added straight onto `targetAmount`, so the
+              payment-leg input below already asks for rows + surplus. */}
+          {direction === "PAY" && (
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">
+                Record an overpayment as account credit (optional,{" "}
+                {collapsedNet.currency})
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
+                data-testid="supplier-account-settle-surplus-input"
+                value={surplusInput}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/,/g, "");
+                  if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                    setSurplusInput(raw);
+                  }
+                }}
+                placeholder="0.00"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+              />
+              {hasSurplusInput && (
+                <p
+                  className="text-emerald-400 text-xs mt-1"
+                  data-testid="supplier-account-settle-surplus-note"
+                >
+                  Paying {formatMoney(targetAmount, collapsedNet.currency)}{" "}
+                  total — the {formatMoney(surplusAmount, collapsedNet.currency)}{" "}
+                  above the selected rows will be recorded as an account
+                  credit ({account.account_name} will owe the shop), applied
+                  manually at a future settlement — it is never applied
+                  automatically.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Settlement-day commission for whichever selected rows are
               commission-eligible (the OMT counter, LUMP — iPick never earns

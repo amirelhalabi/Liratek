@@ -1,12 +1,22 @@
-import { useState, useEffect, useCallback } from "react";
-import { useApi } from "@liratek/ui";
-import type { CarrierLineEntity } from "@liratek/ui";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useApi, appEvents } from "@liratek/ui";
+import type {
+  CarrierLineEntity,
+  CarrierLineOwedDeliveryEntity,
+} from "@liratek/ui";
 import { daysRemaining } from "@/shared/utils/daysRemaining";
 // LIRA-157 — "expired" and "burned" are different facts: a line lapsed inside
 // the revival grace can still be charged, one past it cannot. Classified with
 // the SAME rule the write path enforces, never a local `> 5` comparison.
 import { classifyLineValidity } from "@liratek/core";
 import logger from "@/utils/logger";
+
+// m6 fix (2026-09-24 adversarial review): a stable module-level empty array,
+// never a fresh `[]` literal per render/catch — an unstable identity here
+// would be handed straight into state and re-render every consumer that
+// depends on referential equality (rule 25's own hazard, one layer up from
+// the `api` dependency issue this file already documents).
+const EMPTY_DELIVERIES: CarrierLineOwedDeliveryEntity[] = [];
 
 interface CarrierLinesPanelProps {
   carrier: "alfa" | "mtc";
@@ -46,6 +56,14 @@ function addDaysToToday(days: number): string {
  *   the generic void path in the Transactions viewer. */
 export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
   const api = useApi();
+  // m6 fix (rule 25): `useApi()` is only stable in production because
+  // `ApiProvider` happens to hand out a module-level singleton — a test's
+  // `jest.mock("@liratek/ui", () => ({ useApi: () => ({...}) }))` returns a
+  // FRESH object every call, which is exactly the unstable identity that
+  // would otherwise re-fire `load`/`loadDeliveries` on every render. Read
+  // through a ref so the callbacks below need no `api` dependency at all.
+  const apiRef = useRef(api);
+  apiRef.current = api;
   const [lines, setLines] = useState<CarrierLineEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -83,23 +101,90 @@ export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
   const [usageSaving, setUsageSaving] = useState(false);
   const [usageFeedback, setUsageFeedback] = useState("");
 
+  // ── "Days still to send" list (#28, LIRA-218) ──────────────────────────
+  // One row per DAYS sale that sold ahead of the line's real remaining
+  // days. "Mark sent" is pure checklist bookkeeping — it records that the
+  // days were physically delivered, never a second sale/charge (see
+  // CarrierLineOwedDeliveryRepository's module doc).
+  const [pendingDeliveries, setPendingDeliveries] = useState<
+    CarrierLineOwedDeliveryEntity[]
+  >([]);
+  const [markingSentId, setMarkingSentId] = useState<number | null>(null);
+  const [markSentError, setMarkSentError] = useState("");
+
+  // m6 fix: wrapped in try/catch (the "days still to send" list is
+  // secondary information — a failed fetch must not crash the whole panel,
+  // matching `load`'s own established convention just below), falling back
+  // to the STABLE `EMPTY_DELIVERIES` constant rather than a fresh `[]`.
+  const loadDeliveries = useCallback(async () => {
+    try {
+      const res = await apiRef.current.getPendingCarrierLineOwedDeliveries();
+      setPendingDeliveries(res.success ? (res.data ?? EMPTY_DELIVERIES) : EMPTY_DELIVERIES);
+    } catch {
+      setPendingDeliveries(EMPTY_DELIVERIES);
+    }
+  }, []);
+
+  const handleMarkSent = async (deliveryId: number) => {
+    setMarkingSentId(deliveryId);
+    setMarkSentError("");
+    try {
+      const res = await apiRef.current.markCarrierLineOwedDeliverySent(deliveryId);
+      if (res.success) {
+        await loadDeliveries();
+      } else {
+        // m6 fix: a failed "Mark sent" used to fail silently — no
+        // notification, nothing telling the operator to retry.
+        setMarkSentError(res.error || "Failed to mark as sent");
+      }
+    } catch {
+      setMarkSentError("Failed to mark as sent");
+    } finally {
+      setMarkingSentId(null);
+    }
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.getActiveCarrierLines(carrier);
+      const data = await apiRef.current.getActiveCarrierLines(carrier);
       setLines(data);
     } catch {
       setLines([]);
     } finally {
       setLoading(false);
     }
-  }, [api, carrier]);
+  }, [carrier]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  useEffect(() => {
+    loadDeliveries();
+  }, [loadDeliveries]);
+
+  // m1 fix (2026-09-24 adversarial review): this panel previously only
+  // refetched on MOUNT — a DAYS sale (or self-charge) elsewhere on the
+  // page left both the chip (credits/validity/sold-ahead) and the "days
+  // still to send" list stale until a full remount. `carrier` narrows the
+  // refresh to this panel's own tab; an event with none (or matching)
+  // triggers both refetches.
+  useEffect(() => {
+    return appEvents.on("carrier-lines:changed", (changedCarrier) => {
+      if (!changedCarrier || changedCarrier === carrier) {
+        load();
+        loadDeliveries();
+      }
+    });
+  }, [carrier, load, loadDeliveries]);
+
   if (loading) return null;
+
+  const lineIds = new Set(lines.map((l) => l.id));
+  const deliveriesForThisCarrier = pendingDeliveries.filter((d) =>
+    lineIds.has(d.carrier_line_id),
+  );
 
   const openCreateForm = () => {
     setCreatePhone("");
@@ -581,6 +666,18 @@ export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
                           : `${remaining}d left`}
                       </span>
                     )}
+                    {/* #28 (LIRA-218) — a sold-ahead balance is shown
+                        separately, never folded into "expired"/"burned":
+                        the line is never dead because of days sold ahead. */}
+                    {(line.days_owed ?? 0) > 0 && (
+                      <span
+                        className="text-amber-400 font-mono"
+                        title="Days promised to customers ahead of the line's own remaining days. Paid off automatically by the next recharge."
+                        data-testid={`carrier-line-sold-ahead-${line.id}`}
+                      >
+                        {line.days_owed} sold ahead
+                      </span>
+                    )}
                     {isBurned && (
                       <span
                         className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-300"
@@ -664,6 +761,58 @@ export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
           );
         })}
       </div>
+      {/* #28 (LIRA-218) — "days still to send": the sale was already
+          recorded once (the DAYS transaction); Mark Sent only records
+          delivery, never a second sale or a second charge. */}
+      {deliveriesForThisCarrier.length > 0 && (
+        <div
+          className="mt-2 flex flex-col gap-1"
+          data-testid="carrier-lines-owed-deliveries"
+        >
+          <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+            Days still to send
+          </span>
+          {markSentError && (
+            <p
+              className="text-xs text-red-400"
+              data-testid="carrier-line-owed-delivery-mark-sent-error"
+            >
+              {markSentError}
+            </p>
+          )}
+          {deliveriesForThisCarrier.map((d) => {
+            const line = lines.find((l) => l.id === d.carrier_line_id);
+            return (
+              <div
+                key={d.id}
+                className="flex items-center gap-2 rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-xs"
+                data-testid={`carrier-line-owed-delivery-${d.id}`}
+              >
+                <span className="text-amber-300 font-mono">
+                  {d.days_owed}d
+                </span>
+                <span className="text-slate-300">
+                  {d.client_name || "Walk-in"}
+                </span>
+                {line && (
+                  <span className="text-slate-500 font-mono">
+                    ({line.label || line.phone_number})
+                  </span>
+                )}
+                <button
+                  type="button"
+                  disabled={markingSentId === d.id}
+                  onClick={() => handleMarkSent(d.id)}
+                  data-testid={`carrier-line-owed-delivery-mark-sent-${d.id}`}
+                  className="ml-auto shrink-0 rounded border border-emerald-600/40 px-1.5 py-0.5 text-emerald-400 hover:bg-emerald-600/10 disabled:opacity-50"
+                >
+                  Mark sent
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

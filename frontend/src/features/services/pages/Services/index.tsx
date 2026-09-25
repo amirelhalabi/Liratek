@@ -487,9 +487,21 @@ export default function Services() {
     return 0;
   })();
 
-  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: an OMT/WHISH system
-  // RECEIVE with a fee-on-top (never fee-included, never inside a session —
-  // the basket path doesn't wire fee collection yet, §2 bug 1) shows the
+  // D1 (owner decision, 2026-09-23): Whish system RECEIVE now carries an
+  // OPTIONAL, manually-entered fee (no tier table — WHISH_FEE_TIERS is only
+  // ever consulted by the SEND includingFees back-calc above) that DOES
+  // affect the drawer and is booked as shop profit — the mirror of OMT App /
+  // Whish App's existing model, now extended to the Whish "system" tab's
+  // RECEIVE direction only. `renderProviderFee` stays OMT-only by design
+  // (hardcodes 0 for WHISH), so this is a separate render-time value rather
+  // than widening that one (rule 14 — OMT's tier auto-lookup must never run
+  // for WHISH).
+  const renderWhishFee =
+    provider === "WHISH" && whishFee ? parseFloat(whishFee) || 0 : 0;
+
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: a WHISH system RECEIVE
+  // with a fee-on-top (never fee-included, never inside a session — the
+  // basket path doesn't wire fee collection yet, §2 bug 1) shows the
   // MultiPaymentInput counter-flow section so the operator can choose how
   // the customer pays the fee back (any method, split allowed — owner
   // decision #1). Mirrors (render-time) the `resolvedFee > 0` gate handleSubmit
@@ -498,10 +510,18 @@ export default function Services() {
   // the toggle alone (before a partner is even selected) must hide this
   // section, since `forPartner` is what routes to the no-fee-collection
   // dispatch, not just a fully-selected `forPartnerId`.
+  //
+  // D1 (owner decision, 2026-09-23): OMT system RECEIVE no longer offers a
+  // fee-on-top/deducted choice at all — the fee is informational only, never
+  // touches the drawer, and is never collected as a counter-flow leg. This
+  // section is now WHISH-only (`provider === "WHISH"`); `renderProviderFee`
+  // (OMT-only by construction) is replaced with `renderWhishFee` so the
+  // condition can never accidentally re-open for OMT via a shared fee value.
   const showFeeCounterFlow =
     serviceType === "RECEIVE" &&
+    provider === "WHISH" &&
     !includingFees &&
-    renderProviderFee > 0 &&
+    renderWhishFee > 0 &&
     !activeSession &&
     !forPartner;
 
@@ -884,9 +904,11 @@ export default function Services() {
         }
       }
 
-      // Resolve the WHISH fee: user-entered only.
-      // Per LIRA-023, Whish System has no fees — the fee input is hidden,
-      // so we never auto-lookup. Only use a fee if the user explicitly entered one.
+      // Resolve the WHISH fee: user-entered only, no tier table (unlike OMT).
+      // SEND still has no fee input at all (LIRA-023, unchanged by D1), so
+      // `whishFee` stays "" there and this resolves to 0. RECEIVE (D1, owner
+      // decision 2026-09-23) now has a fee input — only use a fee if the
+      // operator explicitly entered one.
       let resolvedWhishFee: number | undefined;
       if (provider === "WHISH") {
         if (whishFee && parseFloat(whishFee) > 0) {
@@ -915,12 +937,29 @@ export default function Services() {
       // collect — the toggle alone (before a partner is even selected) must
       // suppress these legs, since `forPartner` is what routes to the
       // no-fee-collection dispatch, not just a fully-selected `forPartnerId`.
+      //
+      // D1 (owner decision, 2026-09-23): OMT system RECEIVE's fee is
+      // informational only and must NEVER become a counter-flow leg — this
+      // gate is now WHISH-only, mirroring showFeeCounterFlow above.
       const feeCounterFlowActive =
         serviceType === "RECEIVE" &&
+        provider === "WHISH" &&
         !includingFees &&
         (resolvedFee ?? 0) > 0 &&
         !activeSession &&
         !forPartner;
+
+      // D1 (owner decision, 2026-09-23): OMT system RECEIVE never carries
+      // includingFees:true — the on-top/deducted choice doesn't exist for it
+      // any more (the checkbox is hidden for this combination, see the
+      // "Including Fees Checkbox" render gate), so `includingFees` state
+      // should already be false here. This is a belt-and-suspenders
+      // invariant at the payload boundary itself — the core validator
+      // hard-rejects a non-empty feePayments/includingFees:true on an OMT
+      // RECEIVE, per the contract with the backend change landing alongside
+      // this one.
+      const omtSystemReceiveInformationalOnly =
+        provider === "OMT" && serviceType === "RECEIVE";
 
       // Determine PM fee for non-cash single payments on SEND
       const activePmFeeApplies =
@@ -1054,9 +1093,14 @@ export default function Services() {
         ...(binanceSupplier ? { itemKey: binanceSupplier } : {}),
         // Float model (owner-confirmed 2026-07-29): includingFees is
         // direction-agnostic — SEND nets it out of what the customer pays,
-        // RECEIVE nets it out of the payout. No serviceType gate here
-        // matches the (already direction-agnostic) core validator/repo.
-        includingFees,
+        // RECEIVE nets it out of the payout. D1 (2026-09-23) narrows this:
+        // an OMT system RECEIVE forces the flag to false regardless of state
+        // (omtSystemReceiveInformationalOnly, defined above) — see that
+        // constant's comment for why this is enforced here as well as at the
+        // render gate.
+        includingFees: omtSystemReceiveInformationalOnly
+          ? false
+          : includingFees,
         // S1 — never gate legs on split: forward the full leg set whenever
         // ANY payment line exists (a single-line payment still carries the
         // tender's amount + currency the backend needs). This matches the
@@ -1620,34 +1664,49 @@ export default function Services() {
                 </div>
               </div>
 
-              {/* Including Fees Checkbox — OMT only, WHISH has no fees per
-                  LIRA-023. Float model (owner-confirmed 2026-07-29): a
-                  RECEIVE can carry a customer-facing fee exactly like SEND,
-                  so this block renders for BOTH directions with
-                  direction-specific arithmetic copy. BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md
-                  §4 Phase F: RECEIVE fee entry is no longer suppressed inside
-                  an active session/basket — the session model now pools the
-                  fee into the basket's charge bucket (splitBasketCashSides,
-                  §1.5) and collects it via the pooled payment lines, so this
-                  input is just as real in-session as it is standalone. */}
-              {provider !== "WHISH" &&
+              {/* Including Fees Checkbox — D1 (owner decision, 2026-09-23):
+                  OMT system RECEIVE no longer has this on-top/deducted choice
+                  at all (the fee is informational only, see the OMT Fee Input
+                  block below), so this section is now:
+                    - OMT SEND (unchanged, float model owner-confirmed
+                      2026-07-29): on-top vs included, drives a real drawer
+                      leg.
+                    - WHISH RECEIVE (new): the fee the shop charges the
+                      receiver — on top or deducted from the payout — is shop
+                      profit and moves the drawer, mirroring Whish App/Binance.
+                  Never OMT RECEIVE, never WHISH SEND (Whish System has no
+                  SEND fee, LIRA-023, unchanged by D1).
+                  BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F: RECEIVE fee
+                  entry is not suppressed inside an active session/basket —
+                  the session model pools the fee into the basket's charge
+                  bucket (splitBasketCashSides, §1.5), so this input is just
+                  as real in-session as it is standalone. */}
+              {((provider === "OMT" && serviceType === "SEND") ||
+                (provider === "WHISH" && serviceType === "RECEIVE")) &&
                 (() => {
+                  const isOmt = provider === "OMT";
                   const amtVal = parseFloat(amount) || 0;
-                  const autoFee =
-                    omtServiceType &&
-                    omtServiceType !== "OMT_WALLET" &&
-                    omtServiceType !== "ONLINE_BROKERAGE" &&
-                    amtVal > 0
+                  // Whish has no fee tier table (manual entry only, matching
+                  // the pre-existing SEND-side `resolvedWhishFee` behavior in
+                  // handleSubmit) — the OMT tier auto-lookup must never run
+                  // for a Whish fee.
+                  const autoFee = isOmt
+                    ? omtServiceType &&
+                      omtServiceType !== "OMT_WALLET" &&
+                      omtServiceType !== "ONLINE_BROKERAGE" &&
+                      amtVal > 0
                       ? lookupOmtFee(
                           omtServiceType as OmtServiceType,
                           amtVal,
                           currency,
                         )
-                      : null;
-                  const feeLabel = "OMT fee";
+                      : null
+                    : null;
+                  const feeLabel = isOmt ? "OMT fee" : "Whish fee";
+                  const feeInputState = isOmt ? omtFee : whishFee;
                   const userEnteredFee =
-                    omtFee && parseFloat(omtFee) > 0
-                      ? parseFloat(omtFee)
+                    feeInputState && parseFloat(feeInputState) > 0
+                      ? parseFloat(feeInputState)
                       : null;
                   const feeVal = userEnteredFee ?? autoFee ?? 0;
 
@@ -1946,10 +2005,27 @@ export default function Services() {
                           based on amount
                         </p>
                       )}
+                      {/* RECEIVE (D1, owner decision 2026-09-23): "always show
+                          the fee amount ... but it shouldnt affect the
+                          drawer, and further more it will help us understand
+                          how much commission." The fee is informational
+                          only — no customer charge, no drawer leg, nothing
+                          owed to OMT from it — used purely to compute the
+                          commission estimate below. */}
+                      {serviceType === "RECEIVE" && (
+                        <p
+                          data-testid="service-omt-receive-fee-informational-note"
+                          className="text-xs text-slate-400 mt-1"
+                        >
+                          Informational only — doesn't affect your drawer or
+                          what's owed to OMT; used to estimate the commission
+                          below.
+                        </p>
+                      )}
                       {/* Live profit preview — DISPLAY ESTIMATE ONLY
                           (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2, D1):
-                          the whole OMT fee is now owed to OMT in full; the
-                          shop's cut is no longer withheld here — it is
+                          the whole OMT fee is now owed to OMT in full (SEND);
+                          the shop's cut is no longer withheld here — it is
                           entered by the operator at supplier settlement.
                           This figure (and the value this form submits, which
                           never includes a commission field — the backend's
@@ -1957,7 +2033,10 @@ export default function Services() {
                           for display purposes) is not money kept today. */}
                       {feeVal > 0 && (
                         <p className="text-sm text-emerald-400 mt-1 font-medium">
-                          Estimated commission (settled with OMT later):{" "}
+                          Estimated commission
+                          {serviceType === "SEND"
+                            ? " (settled with OMT later): "
+                            : ": "}
                           <span className="font-mono">
                             {isLbp
                               ? Math.round(profit).toLocaleString() + " LBP"
@@ -1967,16 +2046,60 @@ export default function Services() {
                           {isLbp
                             ? feeVal.toLocaleString() + " LBP"
                             : "$" + feeVal.toFixed(2)}{" "}
-                          OMT fee) — the full fee is owed to OMT now; your cut
-                          is paid out at settlement.
+                          OMT fee)
+                          {serviceType === "SEND"
+                            ? " — the full fee is owed to OMT now; your cut is paid out at settlement."
+                            : "."}
                         </p>
                       )}
                     </div>
                   );
                 })()}
 
-              {/* WHISH Fee Input — shown for WHISH SEND */}
-              {/* WHISH Fee Input — hidden per LIRA-023 (Whish System has no fees) */}
+              {/* Whish Fee Input — D1 (owner decision, 2026-09-23): Whish
+                  system RECEIVE now takes an OPTIONAL, manually-entered fee
+                  (no tier table for Whish, matching the pre-existing
+                  SEND-side "user-entered only" resolvedWhishFee behavior in
+                  handleSubmit). Whish system SEND still has no fee at all
+                  (LIRA-023, unchanged by D1). Unlike the OMT Fee Input above,
+                  this one DOES affect the drawer — see the "Including Fees
+                  Checkbox" block above for the on-top/deducted choice and the
+                  counter-flow fee collection it drives. */}
+              {provider === "WHISH" && serviceType === "RECEIVE" && (
+                <div>
+                  <label
+                    htmlFor="service-whish-fee"
+                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                  >
+                    Whish Fee (optional — charged to the customer)
+                  </label>
+                  <div className="relative">
+                    {currency === "USD" && (
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                        $
+                      </span>
+                    )}
+                    <DecimalInput
+                      id="service-whish-fee"
+                      data-testid="service-whish-fee-input"
+                      value={parseFloat(whishFee) || 0}
+                      onChange={(n) => setWhishFee(n ? String(n) : "")}
+                      className={
+                        INPUT_CLASS + (currency === "USD" ? " pl-8" : "")
+                      }
+                      placeholder={currency === "LBP" ? "0" : "0.00"}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Left blank or 0, no fee is charged. When charged, it's
+                    shop profit — choose on top or deducted above.
+                  </p>
+                </div>
+              )}
+
+              {/* WHISH Fee Input — SEND still has no fee at all (LIRA-023,
+                  unchanged by D1). RECEIVE's fee input now lives above, right
+                  after the OMT Fee Input block. */}
 
               {/* Online Brokerage — Flat $3 estimated commission (DISPLAY
                   ESTIMATE ONLY, Phase 2 D1 — see the OMT Fee preview above) */}
@@ -2191,26 +2314,34 @@ export default function Services() {
                         // On SEND:
                         // - includingFees=false: customer pays amount + fee on top
                         // - includingFees=true: fee is already inside amount, customer pays just amount
-                        // On RECEIVE (float model, owner-confirmed 2026-07-29)
-                        // this sheet books the shop's PAYOUT to the customer —
-                        // the fee-on-top leg is a separate customer-paid-IN
-                        // amount FinancialServiceRepository books itself, never
-                        // part of these payout legs:
+                        // On RECEIVE (float model, owner-confirmed 2026-07-29,
+                        // narrowed by D1 2026-09-23 to WHISH only — OMT
+                        // RECEIVE's includingFees is always false, see the
+                        // "Including Fees Checkbox" gate above) this sheet
+                        // books the shop's PAYOUT to the customer — the
+                        // fee-on-top leg is a separate customer-paid-IN amount
+                        // FinancialServiceRepository books itself, never part
+                        // of these payout legs:
                         // - includingFees=false (fee on top): payout is the
                         //   full requested amount — the fee never touches this
                         //   sheet.
-                        // - includingFees=true (fee included): payout is netted
-                        //   down by the fee, mirroring the repository's
-                        //   payoutAmount = max(0, receiveAmount - fee) so the
-                        //   legs entered here reconcile against exactly what
-                        //   the backend expects to pay out.
+                        // - includingFees=true (fee included, WHISH only):
+                        //   payout is netted down by the fee, mirroring the
+                        //   repository's payoutAmount = max(0, receiveAmount -
+                        //   fee) so the legs entered here reconcile against
+                        //   exactly what the backend expects to pay out.
+                        //   Uses renderWhishFee, NOT renderProviderFee — the
+                        //   latter is hardcoded 0 for WHISH (it's the OMT
+                        //   tier-lookup fee), so using it here would silently
+                        //   pay out the FULL amount on a Whish deducted-fee
+                        //   RECEIVE instead of the netted-down figure.
                         amount:
                           serviceType === "SEND"
                             ? sendPayoutTotal
                             : includingFees
                               ? Math.max(
                                   0,
-                                  (parseFloat(amount) || 0) - renderProviderFee,
+                                  (parseFloat(amount) || 0) - renderWhishFee,
                                 )
                               : parseFloat(amount) || 0,
                         // The toggle denominates BOTH the amount and
@@ -2315,19 +2446,21 @@ export default function Services() {
                     exchangeRate={exchangeRate}
                     onExchangeRateChange={setEffectiveRate}
                     onReturnChange={setReturnLegs}
-                    // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: an OMT/WHISH
+                    // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: a WHISH
                     // system RECEIVE with a fee-on-top collects the customer's
                     // fee payment via this counter-flow section, independent of
-                    // the payout lines above. GIFT_CARD is excluded — its fee
-                    // leg would hard-reject server-side (FinancialServiceRepository
-                    // only accepts CUSTOMER_ACCOUNT or a drawer-affecting method;
+                    // the payout lines above (D1, 2026-09-23: OMT RECEIVE no
+                    // longer reaches this at all — showFeeCounterFlow is now
+                    // WHISH-only). GIFT_CARD is excluded — its fee leg would
+                    // hard-reject server-side (FinancialServiceRepository only
+                    // accepts CUSTOMER_ACCOUNT or a drawer-affecting method;
                     // GIFT_CARD is neither, and this section has no voucher
                     // picker to back it anyway).
                     counterFlow={
                       showFeeCounterFlow
                         ? {
                             label: `Customer pays — ${provider} fee`,
-                            totalAmount: renderProviderFee,
+                            totalAmount: renderWhishFee,
                             currency,
                             onChange: setFeePaymentLines,
                             paymentMethods: allPaymentMethods.filter(

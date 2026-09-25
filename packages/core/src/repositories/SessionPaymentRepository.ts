@@ -82,6 +82,21 @@ export interface SessionCashSplitContext {
   payoutTotalLbp: number;
   primarySystemPayoutUsd: number;
   primarySystemPayoutLbp: number;
+  /**
+   * Owner decision #11-A (2026-09-24) / fix-round finding #2. Payout total
+   * restricted to items backed by an OMT/WHISH `financial_services` row
+   * (`fs.provider IS NOT NULL` below) — i.e. EXCLUDES a General-drawer payout
+   * (loto prize, wallet/Binance cash-out), which is never financial_services-
+   * backed. A basket's `payoutOrigin: "SYSTEM"` leg (binanceCart.ts's
+   * `SYSTEM_PAYOUT_MODULES` = omt_system + whish_system combined into ONE
+   * cross-provider number) needs THIS as its ratio denominator, not
+   * `payoutTotalUsd` — that one also contains any General payout in the same
+   * basket, which would wrongly shrink the SYSTEM leg's PCD share whenever a
+   * loto/wallet payout rides along (see `ratioForCurrency`'s `SYSTEM` branch
+   * in SessionPaymentService.ts).
+   */
+  systemPayoutTotalUsd: number;
+  systemPayoutTotalLbp: number;
 }
 
 interface SessionCashSplitRow {
@@ -93,6 +108,8 @@ interface SessionCashSplitRow {
   primary_charge_lbp: number;
   primary_payout_usd: number;
   primary_payout_lbp: number;
+  system_payout_usd: number;
+  system_payout_lbp: number;
 }
 
 /** One `financial_services` row's persisted fee, resolved for the fee-on-top
@@ -243,6 +260,8 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
       payoutTotalLbp: 0,
       primarySystemPayoutUsd: 0,
       primarySystemPayoutLbp: 0,
+      systemPayoutTotalUsd: 0,
+      systemPayoutTotalLbp: 0,
     };
     try {
       const tenantId = getCurrentTenantId();
@@ -256,7 +275,9 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
              COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_usd > 0 THEN cst.amount_usd ELSE 0 END), 0) AS primary_charge_usd,
              COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_lbp > 0 THEN cst.amount_lbp ELSE 0 END), 0) AS primary_charge_lbp,
              COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_usd < 0 THEN -cst.amount_usd ELSE 0 END), 0) AS primary_payout_usd,
-             COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_lbp < 0 THEN -cst.amount_lbp ELSE 0 END), 0) AS primary_payout_lbp
+             COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_lbp < 0 THEN -cst.amount_lbp ELSE 0 END), 0) AS primary_payout_lbp,
+             COALESCE(SUM(CASE WHEN fs.provider IS NOT NULL AND cst.amount_usd < 0 THEN -cst.amount_usd ELSE 0 END), 0) AS system_payout_usd,
+             COALESCE(SUM(CASE WHEN fs.provider IS NOT NULL AND cst.amount_lbp < 0 THEN -cst.amount_lbp ELSE 0 END), 0) AS system_payout_lbp
            FROM customer_session_transactions cst
            LEFT JOIN transactions t
              ON t.id = cst.unified_transaction_id
@@ -286,9 +307,32 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
 
       if (feeOnTopReceiveFsIds.length > 0) {
         const placeholders = feeOnTopReceiveFsIds.map(() => "?").join(",");
+        // D1 cutover (OWNER_NOTES_2026-09-21.md §2b): the fee source is now
+        // PROVIDER-gated, not just column-coalesced — two reasons, one fix:
+        //
+        //   1. OMT system RECEIVE never takes a fee at all, in a session
+        //      basket exactly as everywhere else. `createTransaction`'s own
+        //      hard-reject guards (includingFees/feePayments) don't reach
+        //      this path (the basket's pooled legs are posted by
+        //      `recordBasketPayment`, a completely separate call), so this
+        //      query is the one place that must independently refuse to
+        //      fold an OMT row's `omt_fee` into the charge bucket — even
+        //      when a stale/mistaken caller still lists its fsId here.
+        //      `omt_fee` stays informational (it drove the commission
+        //      calculation at creation time); it must never become real
+        //      collected cash.
+        //   2. The OLD `COALESCE(omt_fee, whish_fee, 0)` was ALSO latently
+        //      broken for a genuine Whish fee-on-top session item, before
+        //      D1 and unrelated to it: `omt_fee` carries `DEFAULT 0` (never
+        //      NULL), so COALESCE always resolved to 0 for a WHISH row
+        //      regardless of `whish_fee` — this mechanism never actually
+        //      folded a Whish session fee in, in practice. Provider-gating
+        //      the SELECT fixes both issues with one change instead of
+        //      leaving the bug and bolting a JS-side skip in front of it.
         const feeRows = this.db
           .prepare(
-            `SELECT provider, currency, COALESCE(omt_fee, whish_fee, 0) AS fee
+            `SELECT provider, currency,
+                    CASE WHEN provider = 'WHISH' THEN COALESCE(whish_fee, 0) ELSE 0 END AS fee
              FROM financial_services
              WHERE tenant_id = ? AND id IN (${placeholders})`,
           )
@@ -319,6 +363,8 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
         payoutTotalLbp: row?.payout_lbp ?? 0,
         primarySystemPayoutUsd: row?.primary_payout_usd ?? 0,
         primarySystemPayoutLbp: row?.primary_payout_lbp ?? 0,
+        systemPayoutTotalUsd: row?.system_payout_usd ?? 0,
+        systemPayoutTotalLbp: row?.system_payout_lbp ?? 0,
       };
     } catch (error) {
       closingLogger.error(

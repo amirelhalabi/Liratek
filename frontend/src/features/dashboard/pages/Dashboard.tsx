@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  Suspense,
+} from "react";
 import { lazyWithReload } from "@/shared/utils/lazyWithReload";
 import { useNavigate } from "react-router-dom";
 import {
@@ -39,18 +46,42 @@ import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useShopBase } from "@/hooks/useShopBase";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
-import { localMonth } from "@/shared/utils/localDay";
 import {
   computeCarrierLineAlerts,
   carrierLineAlertText,
 } from "../utils/carrierLineAlerts";
+// DC-5/DC-8 helpers live in a plain (non-component) module — see that
+// file's doc comment for why (LINT-1, round-2 verifier finding: a
+// component file cannot also export plain functions under
+// react-refresh/only-export-components).
+import { parseLocalDateOnly, niceUsdAxisMax } from "../utils/chartFormat";
 import { isDrawerVisible } from "@liratek/core";
+// LIRA-214 (OWNER_NOTES_REMAINING_BUILD.md #24, migration v183) — the shared
+// Hold Money pickup sheet (also used by HoldMoneySection's Active Holds
+// list), so this card's "Collect" opens the SAME payment-form + partial-
+// pickup flow instead of the old one-click full-CASH collect.
+import { HoldMoneyPickupSheet } from "@/features/custom-services/components/HoldMoneyPickupSheet";
 
 const DashboardChart = lazyWithReload(
   () => import("../components/DashboardChart"),
 );
 
 type ChartType = "Sales" | "Profit";
+
+/**
+ * DC-4 (OWNER_NOTES_2026-09-21.md §7.1, owner decision 2026-09-24) — the
+ * "Sales" series is PRODUCT AND TELECOM SALES ONLY (never OMT/WHISH
+ * transfers, bills, or app-wallet loads — see
+ * `SalesRepository.getChartData`'s own doc comment for the exact
+ * definition), so the label says so instead of the generic "Sales". The
+ * internal `ChartType` value ("Sales") stays unchanged — it's the literal
+ * the IPC channel/REST query param and `DashboardChart`'s `chartType` prop
+ * both key off — only the DISPLAYED text changes here.
+ */
+const CHART_TYPE_LABELS: Record<ChartType, string> = {
+  Sales: "Product & Telecom Sales",
+  Profit: "Profit",
+};
 
 /** The three tabbed dashboard insight panels */
 type DashboardTab = "trend" | "sales" | "debtors";
@@ -208,6 +239,15 @@ function stalenessTextColor(iso: string | null): string {
 
 export default function Dashboard() {
   const api = useApi();
+  // Rule 25 — `loadData` below was substantially rewritten for DC-7 and
+  // reads `api` on every one of its 8 independent widget calls; read it
+  // through a ref (same pattern as FeatureFlagContext.tsx) so `loadData`'s
+  // own identity stays stable across renders regardless of whether
+  // `useApi()` itself is a stable singleton — an implicit contract of
+  // `ApiProvider`, not a guarantee. The ref is reassigned every render, so
+  // `.current` is always current when `loadData` actually runs.
+  const apiRef = useRef(api);
+  apiRef.current = api;
   const navigate = useNavigate();
   const { user } = useAuth();
   const { formatAmount, getSymbol } = useCurrencyContext();
@@ -234,8 +274,12 @@ export default function Dashboard() {
     activeClients: 0,
     stockBudgetUSD: 0,
     stockCount: 0,
-    monthlyNetProfitUSD: 0,
-    monthlyNetProfitLBP: 0,
+    // DC-11 (OWNER_NOTES_2026-09-21.md §7.2) — renamed from
+    // monthlyNetProfitUSD/LBP: the tile is now a ROLLING 30-day window
+    // (`SalesService.getNetProfitLast30Days`), not the calendar month
+    // `getMonthlyPL` used to read.
+    netProfitLast30USD: 0,
+    netProfitLast30LBP: 0,
   });
   /** Dynamic drawer balances: drawer_name → currency_code → amount */
   const [drawerBalances, setDrawerBalances] = useState<
@@ -356,62 +400,187 @@ export default function Dashboard() {
     usd_amount: number;
     lbp_amount: number;
     created_at: string;
+    // Migration v183 — derived remaining balance (equal to usd/lbp_amount
+    // for a hold that has never been partially collected).
+    remaining_usd: number;
+    remaining_lbp: number;
   };
   const [activeHolds, setActiveHolds] = useState<ActiveHold[]>([]);
-  const [collectingHoldId, setCollectingHoldId] = useState<number | null>(null);
+  const [holdPickupTarget, setHoldPickupTarget] = useState<ActiveHold | null>(
+    null,
+  );
 
   // State for dynamic Y-axis domains
   const [maxUsdSales, setMaxUsdSales] = useState(0);
   const [maxLbpSales, setMaxLbpSales] = useState(0);
+  /** DC-7 — display names of the widgets whose LAST load attempt failed.
+   *  Empty on a normal load; surfaced via the PageAlerts pill below so a
+   *  failure is visible instead of the tile silently staying at its last
+   *  (or initial 0) value. */
+  const [widgetLoadErrors, setWidgetLoadErrors] = useState<string[]>([]);
+  /** CHART-STALE-ON-TYPE-SWITCH (chart-lane round-1 review,
+   *  OWNER_NOTES_2026-09-21.md §7.1) — which `ChartType` the rows currently
+   *  in `chartData` were loaded for. A ref, not state: it's read/written
+   *  only inside `loadData` to decide whether to clear stale rows on a
+   *  failed load, so putting it in `loadData`'s dependency array (state
+   *  would require that) would churn the callback's identity on every
+   *  successful load and re-fire the mount effect's interval/subscription
+   *  setup for no reason (rule 25 — same hazard the `apiRef` comment above
+   *  documents). */
+  const chartDataTypeRef = useRef<ChartType | null>(null);
 
   const loadData = useCallback(async () => {
     try {
       // Dual-mode via useApi() — the adapter picks IPC vs REST internally
       // (ipcOrHttp), so no window.api gate belongs here (rule 19a).
+      //
+      // DC-7 (OWNER_NOTES_2026-09-21.md §7.1): `Promise.all` rejects the
+      // WHOLE batch on the FIRST failing widget, and the lone catch at the
+      // bottom of this function used to swallow that rejection silently —
+      // every tile (even ones whose own request succeeded) stayed frozen
+      // at its last value (0 on first load). `Promise.allSettled` lets
+      // each widget succeed or fail independently: a failure keeps that
+      // widget's PREVIOUS data (never resets it to 0) and is surfaced by
+      // name via `widgetLoadErrors` below, instead of failing silently.
       const [
-        statsData,
-        profitChartData,
-        salesTodayData,
-        drawerData,
-        debtData,
-        stockStats,
-        monthlyPL,
-        debtorsData,
-      ] = await Promise.all([
-        api.getDashboardStats(),
-        api.getProfitSalesChart(chartType),
-        api.getTodaysSales(),
-        api.getSystemExpectedBalancesDynamic(),
-        api.getDebtSummary(),
-        api.getInventoryStockStats(),
-        api.getMonthlyPL(localMonth()),
-        api.getDebtors(),
+        statsResult,
+        profitChartResult,
+        salesTodayResult,
+        drawerResult,
+        debtResult,
+        stockStatsResult,
+        netProfitResult,
+        debtorsResult,
+      ] = await Promise.allSettled([
+        apiRef.current.getDashboardStats(),
+        apiRef.current.getProfitSalesChart(chartType),
+        apiRef.current.getTodaysSales(),
+        apiRef.current.getSystemExpectedBalancesDynamic(),
+        apiRef.current.getDebtSummary(),
+        apiRef.current.getInventoryStockStats(),
+        // DC-11 (OWNER_NOTES_2026-09-21.md §7.2) — replaces
+        // getMonthlyPL(localMonth()): the tile is now a rolling 30-day
+        // window, composed (SalesService) from the SAME ProfitService
+        // .getByDate call family the chart above reads.
+        apiRef.current.getNetProfitLast30Days(),
+        apiRef.current.getDebtors(),
       ]);
 
-      setStats({
-        ...statsData,
-        stockBudgetUSD: stockStats?.stock_budget_usd || 0,
-        stockCount: stockStats?.stock_count || 0,
-        monthlyNetProfitUSD: monthlyPL?.netProfitUSD || 0,
-        monthlyNetProfitLBP: monthlyPL?.netProfitLBP || 0,
-      });
-      const formattedChartData = profitChartData.map((d: any) => ({
-        ...d,
-        date: new Date(d.date).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-        }),
-      }));
-      setChartData(formattedChartData);
-      setTodaysSales(salesTodayData);
-      if (drawerData) {
-        setDrawerBalances(drawerData);
+      const failedWidgets: string[] = [];
+      if (statsResult.status === "rejected") failedWidgets.push("Sales stats");
+      if (profitChartResult.status === "rejected")
+        failedWidgets.push("Sales/Profit chart");
+      if (salesTodayResult.status === "rejected")
+        failedWidgets.push("Today's sales");
+      if (drawerResult.status === "rejected")
+        failedWidgets.push("Drawer balances");
+      if (debtResult.status === "rejected") failedWidgets.push("Debt summary");
+      if (stockStatsResult.status === "rejected")
+        failedWidgets.push("Inventory stock");
+      if (netProfitResult.status === "rejected")
+        failedWidgets.push("Net profit (30d)");
+      if (debtorsResult.status === "rejected")
+        failedWidgets.push("Top debtors");
+      setWidgetLoadErrors(failedWidgets);
+
+      const statsData =
+        statsResult.status === "fulfilled" ? statsResult.value : undefined;
+      const stockStats =
+        stockStatsResult.status === "fulfilled"
+          ? stockStatsResult.value
+          : undefined;
+      const netProfit =
+        netProfitResult.status === "fulfilled"
+          ? netProfitResult.value
+          : undefined;
+      if (statsData || stockStats || netProfit) {
+        setStats((prev) => ({
+          ...prev,
+          ...(statsData ?? {}),
+          stockBudgetUSD: stockStats?.stock_budget_usd ?? prev.stockBudgetUSD,
+          stockCount: stockStats?.stock_count ?? prev.stockCount,
+          netProfitLast30USD:
+            netProfit?.netProfitUSD ?? prev.netProfitLast30USD,
+          netProfitLast30LBP:
+            netProfit?.netProfitLBP ?? prev.netProfitLast30LBP,
+        }));
       }
-      if (debtData) {
-        setDebtSummary(debtData);
+
+      // Chart data + its derived Y-axis domain both live inside this ONE
+      // guard: when this load's chart request failed, skip both and keep
+      // whatever the chart/axes already showed (never reset to empty/0) —
+      // UNLESS the rows on screen were loaded for a DIFFERENT chartType
+      // (CHART-STALE-ON-TYPE-SWITCH below), in which case keeping them is
+      // itself the bug: they'd render under the new type's header/axis.
+      if (
+        profitChartResult.status === "fulfilled" &&
+        Array.isArray(profitChartResult.value)
+      ) {
+        // rule 1 — no explicit `any` here: `profitChartResult.value` is
+        // already `ChartDataPoint[]` (the `getProfitSalesChart` adapter
+        // return type), so `d` infers correctly without an annotation.
+        const formattedChartData = profitChartResult.value.map((d) => ({
+          ...d,
+          // DC-8: parse the "YYYY-MM-DD" day string as LOCAL, not UTC.
+          date: parseLocalDateOnly(d.date).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          }),
+        }));
+        setChartData(formattedChartData);
+        chartDataTypeRef.current = chartType;
+
+        // Y-axis domain, Sales chart only.
+        if (chartType === "Sales" && formattedChartData.length > 0) {
+          const currentMaxUsd = Math.max(
+            ...formattedChartData.map((d) => d.usd || 0),
+          );
+          const currentMaxLbp = Math.max(
+            ...formattedChartData.map((d) => d.lbp || 0),
+          );
+          // DC-5: round to a step proportional to magnitude (next $100
+          // under $1,000, next $1,000 at/above) instead of always the next
+          // thousand — see `niceUsdAxisMax`'s doc comment.
+          setMaxUsdSales(niceUsdAxisMax(currentMaxUsd));
+          // Round up LBP to the next million (unchanged — not in DC-5's
+          // reported symptom, which was USD-only).
+          setMaxLbpSales(Math.ceil(currentMaxLbp / 1_000_000) * 1_000_000);
+        }
+      } else if (
+        profitChartResult.status === "rejected" &&
+        chartDataTypeRef.current !== null &&
+        chartDataTypeRef.current !== chartType
+      ) {
+        // CHART-STALE-ON-TYPE-SWITCH (chart-lane round-1 review,
+        // OWNER_NOTES_2026-09-21.md §7.1): the operator just switched the
+        // chart type (e.g. Sales → Profit) and THIS load's fetch for the
+        // new type failed. The keep-previous-data-on-failure rule above
+        // exists so a transient failure doesn't blank a chart the operator
+        // is actively looking at — but here the previous rows are the OLD
+        // type's, so keeping them would draw e.g. Sales usd/lbp values
+        // under a "Profit Trend" header with no `profit` key (an empty
+        // line), beside the failure pill. Clear instead: the failure pill
+        // alone is the honest state.
+        setChartData([]);
+        chartDataTypeRef.current = null;
       }
-      if (Array.isArray(debtorsData)) {
-        setDebtors(debtorsData);
+      if (
+        salesTodayResult.status === "fulfilled" &&
+        Array.isArray(salesTodayResult.value)
+      ) {
+        setTodaysSales(salesTodayResult.value);
+      }
+      if (drawerResult.status === "fulfilled" && drawerResult.value) {
+        setDrawerBalances(drawerResult.value);
+      }
+      if (debtResult.status === "fulfilled" && debtResult.value) {
+        setDebtSummary(debtResult.value);
+      }
+      if (
+        debtorsResult.status === "fulfilled" &&
+        Array.isArray(debtorsResult.value)
+      ) {
+        setDebtors(debtorsResult.value);
       }
 
       // Load last-checkpoint-per-drawer for staleness badges (admin +
@@ -420,7 +589,7 @@ export default function Dashboard() {
       // identically in web mode.
       if (checkpointsEnabled) {
         try {
-          const statuses = await api.getLastCheckpointPerDrawer();
+          const statuses = await apiRef.current.getLastCheckpointPerDrawer();
           if (statuses) {
             setDrawerStatuses(statuses);
           }
@@ -432,7 +601,7 @@ export default function Dashboard() {
       // Load unsettled summary (non-critical — don't let failures block
       // dashboard). Dual-mode via useApi() — no window.api gate.
       try {
-        const unsettled = await api.getUnsettledSummary();
+        const unsettled = await apiRef.current.getUnsettledSummary();
         if (Array.isArray(unsettled)) setUnsettledSummary(unsettled);
       } catch {
         // non-critical
@@ -441,7 +610,7 @@ export default function Dashboard() {
       // Load active carrier lines (non-critical — feeds the expiry/missing-
       // line banner, D11/D4). Dual-mode via useApi() — no window.api gate.
       try {
-        const carrierLinesData = await api.getAllActiveCarrierLines();
+        const carrierLinesData = await apiRef.current.getAllActiveCarrierLines();
         if (Array.isArray(carrierLinesData)) setCarrierLines(carrierLinesData);
       } catch {
         // non-critical
@@ -450,61 +619,20 @@ export default function Dashboard() {
       // Load active money holds (non-critical — surfaced as notification
       // cards). Dual-mode via useApi().holdMoney — no window.api gate.
       try {
-        const holdsRes = await api.holdMoney.active();
+        const holdsRes = await apiRef.current.holdMoney.active();
         if (holdsRes.success && holdsRes.data) {
           setActiveHolds(holdsRes.data);
         }
       } catch {
         // non-critical
       }
-
-      // Calculate max values for Y-axis domain
-      if (chartType === "Sales" && formattedChartData.length > 0) {
-        const currentMaxUsd = Math.max(
-          ...formattedChartData.map((d: any) => d.usd || 0),
-        );
-        const currentMaxLbp = Math.max(
-          ...formattedChartData.map((d: any) => d.lbp || 0),
-        );
-
-        // Round up USD to the next thousand
-        setMaxUsdSales(Math.ceil(currentMaxUsd / 1000) * 1000);
-
-        // Round up LBP to the next million
-        setMaxLbpSales(Math.ceil(currentMaxLbp / 1_000_000) * 1_000_000);
-      }
     } catch (_error) {
       // logger.error('Failed to load dashboard data:', error);
     }
-  }, [api, chartType, checkpointsEnabled]);
-
-  const handleCollectHold = useCallback(
-    async (hold: ActiveHold) => {
-      setCollectingHoldId(hold.id);
-      try {
-        const res = await api.holdMoney.collect(hold.id);
-        if (res.success) {
-          appEvents.emit(
-            "notification:show",
-            `Returned hold to ${hold.client_name}.`,
-            "success",
-          );
-          await loadData();
-        } else {
-          appEvents.emit(
-            "notification:show",
-            res.error ?? "Failed to collect hold.",
-            "error",
-          );
-        }
-      } catch {
-        appEvents.emit("notification:show", "Failed to collect hold.", "error");
-      } finally {
-        setCollectingHoldId(null);
-      }
-    },
-    [loadData],
-  );
+    // apiRef.current is read at call time, not captured — api is
+    // deliberately excluded so loadData's identity depends only on the
+    // values that actually change what it fetches (rule 25).
+  }, [chartType, checkpointsEnabled]);
 
   // Check once on mount whether initial drawer amounts have been set.
   // Dual-mode via useApi() — no window.api gate; the REST mirror landed
@@ -580,6 +708,18 @@ export default function Dashboard() {
   const carrierLineAlerts = useMemo(
     () => computeCarrierLineAlerts(carrierLines, isModuleEnabled("recharge")),
     [carrierLines, isModuleEnabled],
+  );
+
+  // #28 (LIRA-218) — M6 fix (2026-09-24 adversarial review): a sold-ahead
+  // balance is its own STANDING red banner (rendered below, near
+  // `activeHolds`), never folded into the collapsible `PageAlerts` pill —
+  // the owner asked for a countdown that "stays until the line is
+  // recharged", which a pill the operator has to click open to even see
+  // does not satisfy. Split out here so both the banner JSX and the
+  // `pageAlerts` memo below read the SAME filtered list (rule 14).
+  const soldAheadCarrierAlerts = useMemo(
+    () => carrierLineAlerts.filter((a) => a.kind === "sold-ahead"),
+    [carrierLineAlerts],
   );
 
   // Financial Metrics (Row 1)
@@ -744,7 +884,7 @@ export default function Dashboard() {
       glow: "bg-cyan-500",
       hoverShadow: "hover:shadow-cyan-500/20 hover:border-cyan-500/50",
     },
-    "Monthly Net Profit": {
+    "Net Profit — Last 30 Days": {
       labelColor: "text-green-400",
       borderL: "border-l-green-500",
       glow: "bg-green-500",
@@ -813,17 +953,47 @@ export default function Dashboard() {
       });
     }
 
-    if (carrierLineAlerts.length > 0) {
+    // #28 (LIRA-218) — split out from the general "expiring/missing" item
+    // below: a sold-ahead balance is never a "line about to die" fact (the
+    // line is never burned because of days sold ahead), it is a standing
+    // "you owe delivery once recharged" countdown. M6 fix: it is now the
+    // dedicated red banner below (`soldAheadCarrierAlerts`), NOT a pill
+    // entry here — a collapsible "N need attention" popover the operator
+    // has to open does not satisfy "stays up until the line is recharged".
+    const otherCarrierLineAlerts = carrierLineAlerts.filter(
+      (a) => a.kind !== "sold-ahead",
+    );
+
+    if (otherCarrierLineAlerts.length > 0) {
       items.push({
         id: "carrier-lines",
         icon: Phone,
         title:
-          carrierLineAlerts.length > 1
+          otherCarrierLineAlerts.length > 1
             ? "Carrier lines need attention"
             : "Carrier line needs attention",
-        detail: carrierLineAlerts.map(carrierLineAlertText).join(" · "),
+        detail: otherCarrierLineAlerts.map(carrierLineAlertText).join(" · "),
         actionLabel: "Review",
         onAction: () => navigate("/settings?tab=carrier-lines"),
+      });
+    }
+
+    // DC-7 — one or more widgets failed on the last load. Named so the
+    // operator knows WHICH figures might be stale, instead of a tile
+    // silently sitting at 0 with no indication anything went wrong.
+    if (widgetLoadErrors.length > 0) {
+      items.push({
+        id: "widget-load-errors",
+        icon: AlertTriangle,
+        title:
+          widgetLoadErrors.length === 1
+            ? "1 dashboard widget failed to load"
+            : `${widgetLoadErrors.length} dashboard widgets failed to load`,
+        detail: `${widgetLoadErrors.join(", ")} — showing the last known values.`,
+        actionLabel: "Retry now",
+        onAction: () => {
+          void loadData();
+        },
       });
     }
 
@@ -835,6 +1005,8 @@ export default function Dashboard() {
     carrierLineAlerts,
     drawerEntries,
     navigate,
+    widgetLoadErrors,
+    loadData,
   ]);
 
   // Credits & Stock (Row 3)
@@ -848,9 +1020,9 @@ export default function Dashboard() {
       singleValue: `${stats.stockCount.toLocaleString()} items`,
     },
     {
-      label: "Monthly Net Profit",
-      usdValue: stats.monthlyNetProfitUSD,
-      lbpValue: stats.monthlyNetProfitLBP,
+      label: "Net Profit — Last 30 Days",
+      usdValue: stats.netProfitLast30USD,
+      lbpValue: stats.netProfitLast30LBP,
     },
   ];
 
@@ -861,6 +1033,35 @@ export default function Dashboard() {
           title="Dashboard"
           actions={<PageAlerts alerts={pageAlerts} />}
         />
+
+        {/* #28 (LIRA-218) — M6 fix: a standing RED banner for sold-ahead
+            carrier-line days, always visible (never inside the collapsible
+            PageAlerts pill) and up until every line's days_owed is back to
+            0. One row per affected line so each gets its own deadline. */}
+        {soldAheadCarrierAlerts.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {soldAheadCarrierAlerts.map((alert) => (
+              <div
+                key={`${alert.carrier}-${alert.lineLabel}`}
+                data-testid={`dashboard-sold-ahead-banner-${alert.carrier}`}
+                className="flex items-center gap-3 px-4 py-3 bg-red-500/10 border border-red-500/40 rounded-xl"
+              >
+                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+                <p className="flex-1 min-w-0 text-sm font-medium text-red-200">
+                  {carrierLineAlertText(alert)}
+                </p>
+                <button
+                  type="button"
+                  data-testid={`dashboard-sold-ahead-review-${alert.carrier}`}
+                  onClick={() => navigate("/settings?tab=carrier-lines")}
+                  className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/15 text-red-200 border border-red-500/30 hover:bg-red-500/25 transition-all"
+                >
+                  Review
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Active money holds — one notification card per held amount */}
         {activeHolds.length > 0 && (
@@ -876,27 +1077,27 @@ export default function Dashboard() {
                     Holding for {hold.client_name}
                   </p>
                   <div className="flex items-center gap-2 text-xs mt-0.5">
-                    {hold.usd_amount > 0 && (
+                    {hold.remaining_usd > 0 && (
                       <span className="text-orange-300 font-mono">
                         $
-                        {hold.usd_amount.toLocaleString(undefined, {
+                        {hold.remaining_usd.toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
                       </span>
                     )}
-                    {hold.lbp_amount > 0 && (
+                    {hold.remaining_lbp > 0 && (
                       <span className="text-orange-300 font-mono">
-                        {hold.lbp_amount.toLocaleString()} LBP
+                        {hold.remaining_lbp.toLocaleString()} LBP
                       </span>
                     )}
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleCollectHold(hold)}
-                  disabled={collectingHoldId === hold.id}
-                  className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 disabled:opacity-50 transition-all flex items-center gap-1"
+                  data-testid={`dashboard-hold-collect-${hold.id}`}
+                  onClick={() => setHoldPickupTarget(hold)}
+                  className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all flex items-center gap-1"
                 >
                   <HandCoins size={13} />
                   Collect
@@ -904,6 +1105,14 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+        )}
+
+        {holdPickupTarget && (
+          <HoldMoneyPickupSheet
+            hold={holdPickupTarget}
+            onClose={() => setHoldPickupTarget(null)}
+            onCollected={loadData}
+          />
         )}
 
         {/* Scrollable content area */}
@@ -1347,20 +1556,29 @@ export default function Dashboard() {
               {/* Sales Trend */}
               {activeTab === "trend" && (
                 <>
-                  <div className="relative flex justify-between items-center mb-3">
+                  <div className="relative flex justify-between items-center mb-1">
                     <h3 className="text-lg font-bold text-white">
-                      {chartType} Trend (Last 30 Days)
+                      {CHART_TYPE_LABELS[chartType]} Trend (Last 30 Days)
                     </h3>
                     <Select
                       value={chartType}
                       onChange={(v) => setChartType(v as ChartType)}
                       options={[
-                        { value: "Sales", label: "Sales" },
+                        {
+                          value: "Sales",
+                          label: CHART_TYPE_LABELS.Sales,
+                        },
                         { value: "Profit", label: "Profit" },
                       ]}
                       buttonClassName="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
                     />
                   </div>
+                  {chartType === "Sales" && (
+                    <p className="relative text-[11px] text-slate-500 mb-2">
+                      The USD line is the USD VALUE of what was sold, not
+                      cash collected in USD.
+                    </p>
+                  )}
                   <div className="flex-1 w-full min-h-0">
                     <Suspense
                       fallback={

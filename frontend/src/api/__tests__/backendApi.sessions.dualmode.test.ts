@@ -27,6 +27,8 @@
  * gap — only the two writes were missing the try/catch.
  */
 
+export {}; // module scope: keeps helpers like okJson file-local (TS2393)
+
 function jsonResponse(status: number, body: unknown) {
   return {
     ok: status >= 200 && status < 300,

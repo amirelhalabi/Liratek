@@ -13,6 +13,12 @@ const mockGetActiveCarrierLines = jest.fn();
 const mockUpdateCarrierLineBalance = jest.fn();
 const mockCreateCarrierLine = jest.fn();
 const mockRecordCarrierLineUsage = jest.fn();
+// #28 (LIRA-218) — the "days still to send" list, fetched unconditionally
+// by CarrierLinesPanel's own effect.
+const mockGetPendingCarrierLineOwedDeliveries = jest
+  .fn()
+  .mockResolvedValue({ success: true, data: [] });
+const mockMarkCarrierLineOwedDeliverySent = jest.fn();
 // A STABLE object reference — CarrierLinesPanel's load() is a useCallback
 // depending on [api, carrier]; a factory that returns a fresh object literal
 // on every useApi() call would re-trigger the effect on every render.
@@ -21,6 +27,8 @@ const mockApi = {
   updateCarrierLineBalance: mockUpdateCarrierLineBalance,
   createCarrierLine: mockCreateCarrierLine,
   recordCarrierLineUsage: mockRecordCarrierLineUsage,
+  getPendingCarrierLineOwedDeliveries: mockGetPendingCarrierLineOwedDeliveries,
+  markCarrierLineOwedDeliverySent: mockMarkCarrierLineOwedDeliverySent,
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -47,6 +55,7 @@ const LINE: CarrierLineEntity = {
   label: "Shop Line 1",
   credits: 5,
   validity_expires_at: todayPlus(10),
+  days_owed: 0,
   notes: null,
   is_active: 1,
   is_primary: 0,
@@ -73,6 +82,10 @@ describe("CarrierLinesPanel", () => {
         newCredits: 3.75,
       },
     });
+    mockGetPendingCarrierLineOwedDeliveries
+      .mockReset()
+      .mockResolvedValue({ success: true, data: [] });
+    mockMarkCarrierLineOwedDeliverySent.mockReset();
   });
 
   it("shows an '+ Add line' chip (not empty) when there are no active lines", async () => {
@@ -354,6 +367,155 @@ describe("CarrierLinesPanel", () => {
       expect(
         await screen.findByTestId("carrier-line-usage-error"),
       ).toHaveTextContent("Failed to record usage — check your connection");
+    });
+  });
+
+  describe("sold-ahead days (#28, LIRA-218)", () => {
+    it("shows a 'sold ahead' chip when the line carries days_owed, never the burned badge for it", async () => {
+      mockGetActiveCarrierLines.mockResolvedValue([
+        { ...LINE, days_owed: 210 },
+      ]);
+      render(<CarrierLinesPanel carrier="mtc" />);
+      expect(
+        await screen.findByTestId("carrier-line-sold-ahead-1"),
+      ).toHaveTextContent("210 sold ahead");
+      expect(
+        screen.queryByTestId("carrier-line-burned-1"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows no sold-ahead chip for a line with no owed balance", async () => {
+      render(<CarrierLinesPanel carrier="mtc" />);
+      await screen.findByTestId("carrier-line-1");
+      expect(
+        screen.queryByTestId("carrier-line-sold-ahead-1"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("lists a pending 'days still to send' delivery and marks it sent on click", async () => {
+      mockGetPendingCarrierLineOwedDeliveries.mockResolvedValue({
+        success: true,
+        data: [
+          {
+            id: 7,
+            carrier_line_id: 1,
+            transaction_id: 55,
+            client_id: 3,
+            client_name: "Jean",
+            days_owed: 210,
+            status: "PENDING",
+            sent_at: null,
+            sent_by: null,
+            created_at: "2026-09-24 00:00:00",
+            updated_at: "2026-09-24 00:00:00",
+          },
+        ],
+      });
+      mockMarkCarrierLineOwedDeliverySent.mockResolvedValue({
+        success: true,
+        data: { id: 7, status: "SENT" },
+      });
+
+      render(<CarrierLinesPanel carrier="mtc" />);
+      const row = await screen.findByTestId(
+        "carrier-line-owed-delivery-7",
+      );
+      expect(row).toHaveTextContent("210d");
+      expect(row).toHaveTextContent("Jean");
+
+      fireEvent.click(
+        screen.getByTestId("carrier-line-owed-delivery-mark-sent-7"),
+      );
+
+      await waitFor(() =>
+        expect(mockMarkCarrierLineOwedDeliverySent).toHaveBeenCalledWith(7),
+      );
+      // Never a second sale/charge — Mark Sent calls ONLY the delivery
+      // endpoint, never recordCarrierLineUsage or updateCarrierLineBalance.
+      expect(mockRecordCarrierLineUsage).not.toHaveBeenCalled();
+      expect(mockUpdateCarrierLineBalance).not.toHaveBeenCalled();
+    });
+
+    it("a delivery for a DIFFERENT carrier's line is not shown on this panel", async () => {
+      mockGetPendingCarrierLineOwedDeliveries.mockResolvedValue({
+        success: true,
+        data: [
+          {
+            id: 9,
+            carrier_line_id: 999, // not in this carrier's `lines`
+            transaction_id: 1,
+            client_id: null,
+            client_name: null,
+            days_owed: 5,
+            status: "PENDING",
+            sent_at: null,
+            sent_by: null,
+            created_at: "2026-09-24 00:00:00",
+            updated_at: "2026-09-24 00:00:00",
+          },
+        ],
+      });
+      render(<CarrierLinesPanel carrier="mtc" />);
+      await screen.findByTestId("carrier-line-1");
+      expect(
+        screen.queryByTestId("carrier-lines-owed-deliveries"),
+      ).not.toBeInTheDocument();
+    });
+
+    // m6 fix (2026-09-24 adversarial review): loadDeliveries() had no
+    // try/catch at all — a rejected fetch was an unhandled promise
+    // rejection, and a failed "Mark sent" gave the operator no feedback.
+
+    it("m6: a rejected getPendingCarrierLineOwedDeliveries() does not crash the panel — the lines still render", async () => {
+      mockGetPendingCarrierLineOwedDeliveries.mockRejectedValue(
+        new Error("network down"),
+      );
+
+      render(<CarrierLinesPanel carrier="mtc" />);
+      // Pre-fix, this threw an unhandled rejection instead of resolving to
+      // an empty, harmless deliveries list.
+      expect(await screen.findByTestId("carrier-line-1")).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("carrier-lines-owed-deliveries"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("m6: a failed 'Mark sent' shows an error instead of failing silently", async () => {
+      mockGetPendingCarrierLineOwedDeliveries.mockResolvedValue({
+        success: true,
+        data: [
+          {
+            id: 7,
+            carrier_line_id: 1,
+            transaction_id: 55,
+            client_id: 3,
+            client_name: "Jean",
+            days_owed: 210,
+            status: "PENDING",
+            sent_at: null,
+            sent_by: null,
+            created_at: "2026-09-24 00:00:00",
+            updated_at: "2026-09-24 00:00:00",
+          },
+        ],
+      });
+      mockMarkCarrierLineOwedDeliverySent.mockResolvedValue({
+        success: false,
+        error: "delivery already sent",
+      });
+
+      render(<CarrierLinesPanel carrier="mtc" />);
+      fireEvent.click(
+        await screen.findByTestId("carrier-line-owed-delivery-mark-sent-7"),
+      );
+
+      expect(
+        await screen.findByTestId("carrier-line-owed-delivery-mark-sent-error"),
+      ).toHaveTextContent("delivery already sent");
+      // The row is still there — a failed mark-sent must not silently drop it.
+      expect(
+        screen.getByTestId("carrier-line-owed-delivery-7"),
+      ).toBeInTheDocument();
     });
   });
 });

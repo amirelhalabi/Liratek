@@ -98,6 +98,14 @@ describe("createRechargeSchema — fields the old REST copy silently stripped", 
     ).toBe("ALFA_GIFT");
   });
 
+  // NOT RUN — proven at the end-of-batch gate. Owner note #21 case 2
+  // (LIRA-088, migration v182): SHOP_LINE_USE added alongside CREDIT_BUYBACK.
+  it("accepts SHOP_LINE_USE (owner note #21 case 2, migration v182)", () => {
+    expect(
+      createRechargeSchema.parse({ ...base, type: "SHOP_LINE_USE" }).type,
+    ).toBe("SHOP_LINE_USE");
+  });
+
   it("still carries every field the old core copy had", () => {
     const parsed = createRechargeSchema.parse({
       ...base,

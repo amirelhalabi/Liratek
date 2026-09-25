@@ -66,10 +66,10 @@ The green ↓ (in) / red ↑ (out) badge in the transactions table comes from
 
 | Direction                          | Types                                                                                                                                                                                |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **in** (customer hands us cash)    | SALE, RECHARGE, CUSTOM_SERVICE, MAINTENANCE, DEBT_REPAYMENT, MTC_TOPUP, ALFA_TOPUP, LOTO, FINANCIAL_SERVICE with service_type SEND or BILL                                           |
+| **in** (customer hands us cash)    | SALE, RECHARGE, MAINTENANCE, DEBT_REPAYMENT, MTC_TOPUP, ALFA_TOPUP, LOTO, FINANCIAL_SERVICE with service_type SEND or BILL                                           |
 | **out** (shop pays out of drawers) | FINANCIAL_SERVICE with service_type RECEIVE, EXPENSE, LOTO_MONTHLY_FEE, LOTO_SETTLEMENT, LOTO_CASH_PRIZE, SUPPLIER_SETTLEMENT, CREDIT_CASH_OUT, RECHARGE_TOPUP (classic from-drawer) |
 | **in** (special case)              | RECHARGE_TOPUP with `partnerId` or `cashPaid` metadata (Whish credit acquisition — provider drawer inflow)                                                                           |
-| **metadata-resolved**              | SUPPLIER_PAYMENT, PARTNER_SETTLEMENT, PARTNER_PAYMENT — direction from `metadata.counterparty.flow` (OUT→out, IN→in); SUPPLIER_PAYMENT also accepts `metadata.direction` PAY/RECEIVE |
+| **metadata-resolved**              | SUPPLIER_PAYMENT, PARTNER_SETTLEMENT, PARTNER_PAYMENT — direction from `metadata.counterparty.flow` (OUT→out, IN→in); SUPPLIER_PAYMENT also accepts `metadata.direction` PAY/RECEIVE; CUSTOM_SERVICE (migration v185) — `metadata.direction` "OUT" is a Via-Partner payout (the Syria transfer OUT), everything else (no partner, For-Partner, or the ordinary Via-Partner IN flow, including every pre-v185 row) is "in" |
 | **both**                           | EXCHANGE                                                                                                                                                                             |
 
 On a system SEND the row reads as cash **in only**; on a RECEIVE as cash **out only**
@@ -620,14 +620,72 @@ booked once, at load time. Do not "fix" that.
   cannot settle an on-account sale); GIFT_CARD legs are excluded from account debt
   (lira-session-allocation).
 - Payouts: a negative-amount financial item (e.g. Binance receive → cash payout)
-  **self-posts** its drawer movement even in deferred mode; a loto cash prize instead
-  **defers** and checkout emits ONE net cash-OUT leg — either way the payout posts
-  exactly once (lira-session-payout).
+  and a loto cash prize both **defer** in a session basket — no item posts its own
+  drawer movement; `SessionPaymentService.recordBasketPayment` is the only place
+  that pays out (lira-session-payout).
+  - **Netted checkout** (owner decision #11-A, 2026-09-24). A CASH-routed
+    GENERAL-drawer payout (loto prize, wallet/Binance cash-out) is netted
+    against the basket's charge before it ever reaches MultiPaymentInput:
+    `netCashPayoutAgainstCharge` (`frontend/src/features/sessions/utils/binanceCart.ts`)
+    reduces the charge total by the payout, and change is computed on that
+    NET — only the physical difference is recorded. If the payout is bigger
+    than the charge, the excess still posts as a real PAYOUT leg (money that
+    actually has to leave the drawer); if it's smaller or equal, **no PAYOUT
+    leg is sent at all** — that money was absorbed into what the customer
+    still owed and never physically moved.
+  - **OMT/Whish SYSTEM payouts stay SEPARATE, always.** A negative-amount
+    `omt_system`/`whish_system` item's payout is NEVER netted, regardless of
+    the chosen method — it always posts its own GROSS PAYOUT leg, tagged
+    `payoutOrigin: "SYSTEM"` so `SessionPaymentService` routes it 100% to the
+    primary cash drawer instead of the session's blended item-value ratio
+    (which would otherwise mis-split it once the General portion no longer
+    equals the full gross payout total). A General-drawer leg is tagged
+    `payoutOrigin: "GENERAL"` and routes 100% to General. Example: a $100 OMT
+    payout plus a $20 unrelated charge books OMT_System −$100 and General
+    +$20 — two separate legs, never one netted −$80.
+  - **Non-cash payouts stay gross.** A payout routed to CUSTOMER_ACCOUNT or a
+    wallet method is never netted, whichever module it came from.
 - The operator-edited exchange rate in Session Checkout is stamped on **every**
   basket-created transaction, including custom-service and loto paths
   (lira-session-exchange-rate).
 - Exchange has no basket branch: it executes immediately and links via
   `session.linkTransaction` (lira-094).
+- **Whole-basket void/refund** (owner decision #11-C, LIRA-201c, 2026-09-24).
+  A session-linked row's pooled customer money can never be reversed alone —
+  `TransactionRepository._assertReversible` hard-refuses a bare void/refund
+  on it. `TransactionRepository.voidSessionBasket`/`refundSessionBasket`
+  (wired end to end: `TransactionService`, IPC `transactions:void-session-
+  basket`/`transactions:refund-session-basket`, REST `POST /api/transactions/
+  session-basket/:sessionId/void`/`.../refund`, `backendApi.ts`) reverse
+  every item plus the basket's pooled leg(s)/debt in ONE db transaction,
+  replacing the old "Basket item — see admin to reverse" dead end.
+  - **Kept change goes back to the customer.** `_reverseSessionPooledPayments`
+    negates every pooled `payments` row (session_id set, transaction_id
+    NULL) regardless of direction, so the drawer returns exactly what the
+    customer handed over. `KEPT_CHANGE` itself posts no drawer leg of its
+    own (T3, §11 above) — voiding it flips `status` to VOIDED, which is
+    enough to cancel its profit (every profit query already gates on
+    `status = 'ACTIVE'`).
+  - **A basket-member loto cash prize** gets a dedicated reversal owner,
+    `_reverseLotoCashPrize` (rule 20 — `LOTO_CASH_PRIZE` stays
+    `NON_REVERSIBLE` standalone, but is bypassed for a basket member via
+    `SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES`): it soft-voids the
+    prize's `supplier_ledger` CASH_PRIZE row, marks `loto_cash_prizes.voided
+    = 1` (migration v181), and delta-adjusts an still-open checkpoint's
+    totals. `LotoCashPrizeRepository`'s prize-total/checkpoint queries all
+    filter `NOT_VOIDED_CASH_PRIZE_SQL` (rule 14 — one predicate, reused).
+    `_assertLotoCashPrizeVoidable` refuses up-front, with the message "This
+    prize was already settled with Loto on \<date\>. Fix it from the Loto
+    page.", when the prize is already reimbursed or its checkpoint has
+    already settled — mirrors `_assertLotoTicketVoidable`.
+  - **A pooled session `CREDIT_DEPOSIT`** (a basket payout/change sent to
+    the customer's account) is reversed by `_cancelSessionDebt` alongside
+    the pre-existing pooled `'Session Debt'` charge (rule 20 — the gap the
+    owner named directly: without this, refunding a basket left the
+    customer's credit behind).
+  - Idempotency: `_assertSessionBasketReversible` refuses a second
+    void/refund call on an already-reversed basket up front, before any
+    write.
 
 ---
 
@@ -639,6 +697,77 @@ booked once, at load time. Do not "fix" that.
 - The Checkpoint Timeline flags **any** variance (no tolerance) on both the row badge
   and the detail modal, using a single amber "attention" style for overage and
   shortage alike — never green/red (lira-091-checkpoint-timeline-variance).
+- **Closing profit = the Profits Overview's GROSS profit for the client's day**
+  (LIRA-219). `ClosingService.getDailyStatsSnapshot` computes NO profit SQL of its
+  own — `ClosingRepository.getDailyActivityStats` returns only activity stats
+  (sales count/total, debt payments, expenses); the service composes profit by
+  calling `ProfitService.getSummary(day, day).totals.gross_profit_usd/_lbp`, the
+  ONE definition of gross profit (rule 14) the Profits page's own headline card
+  reads. This means closing now inherits every Profits-page recognition rule for
+  free: per-unit-×-quantity-minus-discount sales, kept change in every module (not
+  just loto), LBP for every module (not just loto), proportional partner
+  recognition (owner decision E-Q2, 2026-09-24 — a partner row recognises the
+  FRACTION the partner has actually covered, not an all-or-nothing gate), and
+  client-debt deferral (a module-debt charge withholds its profit until the
+  client's repayment FIFO-covers it). The day is `input?.day ?? clientDay()`
+  (rule 27) — the caller's day wins; the server's own calendar day is only a
+  fallback for a caller that sends none.
+  - **Gated, not always shown.** `includeProfit` defaults to **false** (fail
+    closed). The caller must pass it explicitly, and even then the transport
+    layer decides it via `canIncludeProfit`/`hasProfitsUnlock` (E-Q6): admin, or a
+    caller that has unlocked the Profits page. A gated caller still gets activity
+    stats and expenses — only the profit fields are withheld, and the snapshot
+    carries `profitHidden: true` instead.
+  - **Never a silent $0.00 on failure** (E-Q7). If `getSummary` throws, the
+    service catches it, logs it, and returns the activity stats with
+    `profitUnavailable: true` — the PDF prints "unavailable", never a confident
+    zero.
+  - **A snapshot, not a restatement** (E-Q3). Profit recognised on a LATER day (a
+    debt repaid tomorrow, a partner covering later, a refund of an older sale)
+    changes that ORIGIN day on the Profits page and never appears in any already-
+    printed closing. The PDF prints an "as of HH:MM" line to make this explicit —
+    this is expected, not a bug, and it was already true before LIRA-219.
+  - **No stored history / no migration.** `daily_closings`/`daily_closing_amounts`
+    carry no profit column; profit exists only inside the PDF generated at print
+    time. Old PDFs keep their old (pre-LIRA-219) figures — history is not
+    restated.
+
+### 12.1 Carrier-line sold-ahead days (#28, LIRA-218, v184)
+
+A DAYS sale can ask for more days than the shop's own line currently holds —
+the sale still happens in ONE transaction, seamlessly, per LIRA-157's "sell:
+never refused." `carrier_lines.days_owed` is the running balance of days
+promised that the line's real remaining days couldn't cover yet:
+selling never pushes the real `validity_expires_at` below today — it consumes
+at most what is actually available and banks the shortfall into `days_owed`
+instead (a line is **never** classified BURNED because of days sold ahead).
+The **next charge** pays off `days_owed` first, at 1:1 and never refused,
+before any of that charge's days reach the ordinary VALID/GRACE/BURNED
+stacking rule. All of this is ONE shared rule
+(`utils/carrierLineValidity.ts`'s `projectValidityExpiry`, rule 14) — the
+Recharge page, the self-charge dialog, the dashboard banner and the server
+write path all read the same projection, never a second copy.
+
+`carrier_line_owed_deliveries` ("days still to send") is a SEPARATE,
+purely operational table: one row per sale that sold ahead, tracking the
+customer until the operator "Mark sent"s it once the line is recharged.
+Marking sent never books a second sale, a second charge, or touches
+`days_owed` — that balance is settled independently by the next charge's
+payoff. No reversal owner needed for this table's row itself: voiding/
+refunding the original DAYS sale reverses the `carrier_line_movements` row
+(which restores `days_owed`) through the existing generic path, and leaves
+the delivery row untouched. That dangling row is cosmetic only because
+`getAllPending` — the ONLY read the "days still to send" action list uses —
+excludes any delivery whose source transaction was voided or refunded (a
+`LEFT JOIN transactions` check, `CarrierLineOwedDeliveryRepository`'s M5
+fix); `getByCarrierLineId`, the per-line HISTORY view, still shows it.
+
+A charge's `days_owed` payoff is never refused even on a line that would
+otherwise classify BURNED (M4 fix): a debt-carrying line can age past the
+grace window purely by the calendar while nobody recharges it, and the
+owner's "never burned because of days sold ahead" rule extends to that
+remainder too — only a burn with **zero** `days_owed` in play still refuses
+the whole charge.
 
 ---
 

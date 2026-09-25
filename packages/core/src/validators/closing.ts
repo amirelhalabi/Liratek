@@ -3,11 +3,29 @@ import {
   positiveDecimalSchema,
   positiveIntegerSchema,
   currencyCodeSchema,
+  localDayFormatSchema,
 } from "./common.js";
 
 /**
  * Daily closing validation schemas
  */
+
+/**
+ * A `YYYY-MM-DD` CLIENT local calendar day (rule 14 — this file repeated the
+ * same regex 5 times before LIRA-219 extracted it once here; every schema
+ * below that accepts a client-supplied day reuses this, so the format can
+ * never drift between them). Not itself optional — callers that want an
+ * optional day wrap this with `.optional()` at the point of use, same as
+ * before.
+ *
+ * Re-exported alias of `common.ts`'s `localDayFormatSchema` (rule 14 dedup):
+ * `common.ts` already carries the same YYYY-MM-DD regex as
+ * `clientDayInputSchema`'s base, so this file reuses that one definition
+ * instead of keeping a second copy of the pattern. `common.ts` is the more
+ * neutral home (no closing-specific semantics), and this name stays so every
+ * existing caller in this file is unchanged.
+ */
+export const localDaySchema = localDayFormatSchema;
 
 const drawerAmountSchema = z.object({
   currency: currencyCodeSchema,
@@ -15,9 +33,7 @@ const drawerAmountSchema = z.object({
 });
 
 export const setOpeningBalancesSchema = z.object({
-  closingDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
+  closingDate: localDaySchema,
   amounts: z
     .array(drawerAmountSchema)
     .min(1, "At least one drawer amount is required"),
@@ -25,9 +41,7 @@ export const setOpeningBalancesSchema = z.object({
 });
 
 export const createDailyClosingSchema = z.object({
-  closingDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
+  closingDate: localDaySchema,
   amounts: z
     .array(drawerAmountSchema)
     .min(1, "At least one drawer amount is required"),
@@ -60,11 +74,7 @@ const checkpointAmountSchema = z.object({
 const checkpointCarrierLineSchema = z.object({
   carrier_line_id: positiveIntegerSchema,
   counted_credits: z.number().nonnegative(),
-  counted_expires_at: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
-    .nullable()
-    .optional(),
+  counted_expires_at: localDaySchema.nullable().optional(),
 });
 
 // Create a unified checkpoint (the money write: reconciles each drawer/currency
@@ -90,10 +100,7 @@ export const createCheckpointSchema = z.object({
    * (`ClosingRepository.createCheckpoint`) — unchanged behaviour for
    * desktop, where server-local IS shop-local.
    */
-  closing_date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
-    .optional(),
+  closing_date: localDaySchema.optional(),
 });
 
 /**
@@ -107,10 +114,22 @@ export const createCheckpointSchema = z.object({
  * `createCheckpointSchema` above.
  */
 export const hasOpeningBalanceTodayQuerySchema = z.object({
-  day: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
-    .optional(),
+  day: localDaySchema.optional(),
+});
+
+/**
+ * GET .../daily-stats-snapshot query contract (LIRA-219). Same CLIENT-day
+ * contract as `hasOpeningBalanceTodayQuerySchema` immediately above — the
+ * server falls back to `clientDay()` (the request's own `X-Client-Day`
+ * context value, else `localDay()`) when `day` is omitted, never trusting
+ * its own bare calendar day as primary (rule 27). `z.input<>`, not `z.infer<>`
+ * (rule 21): the schema has no `.default()` or transform on this field today,
+ * so the two are identical, but `z.input` is the contract every adapter
+ * payload type in this codebase derives from, and staying consistent means a
+ * future `.default()` here doesn't silently change what callers must supply.
+ */
+export const dailyStatsSnapshotQuerySchema = z.object({
+  day: localDaySchema.optional(),
 });
 
 export type DrawerAmountInput = z.infer<typeof drawerAmountSchema>;
@@ -123,4 +142,7 @@ export type CheckpointCarrierLineInput = z.infer<
 export type CreateCheckpointInput = z.infer<typeof createCheckpointSchema>;
 export type HasOpeningBalanceTodayQueryInput = z.infer<
   typeof hasOpeningBalanceTodayQuerySchema
+>;
+export type DailyStatsSnapshotQuery = z.input<
+  typeof dailyStatsSnapshotQuerySchema
 >;

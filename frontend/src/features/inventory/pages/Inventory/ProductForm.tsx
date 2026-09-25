@@ -4,6 +4,7 @@ import logger from "@/utils/logger";
 import { X, Save, Printer, Minus, Sparkles, PackagePlus } from "lucide-react";
 import { useApi, appEvents, DecimalInput } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
+import { isPhoneLineCategoryName } from "@liratek/core";
 import JsBarcode from "jsbarcode";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { ProductUnitsSection } from "../../components/ProductUnitsSection";
@@ -538,6 +539,13 @@ ${labels}
     (c) => c.name === formData.category && c.tracks_imei_units === 1,
   );
 
+  // LIRA-207 (OWNER_NOTES_REMAINING_BUILD.md #13) — a "Phone Lines" category
+  // sells resold phone numbers as products (barcode field holds the
+  // number). Same name-based predicate the backend guard uses (rule 14 —
+  // one classification, never a second copy), read off the CURRENTLY
+  // selected/typed category, same reasoning as `categoryTracksImei` above.
+  const categoryIsLines = isPhoneLineCategoryName(formData.category);
+
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
@@ -593,19 +601,28 @@ ${labels}
                   <span className="font-mono">{duplicateInfo.suggested}</span>
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormData((prev) => ({
-                        ...prev,
-                        barcode: duplicateInfo.suggested,
-                      }));
-                      setDuplicateInfo(null);
-                    }}
-                    className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium"
-                  >
-                    Duplicate Barcode
-                  </button>
+                  {/* LIRA-207 (#13): a lines-category collision is a SAME
+                      physical number, never a "different" barcode to
+                      suggest — the service now never returns
+                      `suggested_barcode` for that case, so this branch is
+                      already unreachable there. Also gated here (defense
+                      in depth, rule 14's spirit — never rely on one layer
+                      alone for a "must never duplicate" invariant). */}
+                  {!categoryIsLines && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          barcode: duplicateInfo.suggested,
+                        }));
+                        setDuplicateInfo(null);
+                      }}
+                      className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium"
+                    >
+                      Duplicate Barcode
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setDuplicateInfo(null)}
@@ -648,7 +665,7 @@ ${labels}
                   htmlFor="product-barcode"
                   className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  Barcode
+                  {categoryIsLines ? "Number" : "Barcode"}
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -662,6 +679,7 @@ ${labels}
                         e.preventDefault();
                       }
                     }}
+                    placeholder={categoryIsLines ? "e.g. 03 123 456" : undefined}
                     className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
                   />
                   <button

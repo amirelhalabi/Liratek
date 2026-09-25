@@ -137,6 +137,7 @@ function createTestDb(): Database.Database {
       partner_id INTEGER REFERENCES partners(id),
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER DEFAULT 0,
       refunded_at TEXT DEFAULT NULL
     );
@@ -322,8 +323,16 @@ function createTestDb(): Database.Database {
 
     -- Primary (base) system supplier row — required for the supplier-ledger
     -- auto-booking block to fire at all (getByProvider lookup).
-    INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT', 'OMT', 1);
-    INSERT INTO system_settings (key_name, value) VALUES ('shop_base_system', 'OMT');
+    --
+    -- D1 cutover (OWNER_NOTES_2026-09-21.md §2b): this file's own scenario
+    -- (a fee-on-top RECEIVE) moved from OMT to WHISH — OMT system RECEIVE
+    -- never takes a fee at all anymore (hard-rejected), so createFeeOnTopReceive
+    -- below could no longer build its fixture on OMT. WHISH is the
+    -- only system provider that still supports fee-on-top collection (the
+    -- fee becomes shop profit instead of being netted from the payable), so
+    -- it is now the base system.
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('WHISH', 'WHISH', 1);
+    INSERT INTO system_settings (key_name, value) VALUES ('shop_base_system', 'WHISH');
 
     -- SUPPLIER_STOCK_INTAKE_PLAN.md v164 — production code now unconditionally
     -- touches these two tables from SalesRepository.processSale/refundSaleItem
@@ -404,6 +413,7 @@ const DRAWERS: Array<[string, string]> = [
   ["OMT_System", "USD"],
   ["OMT_App", "USD"],
   ["Whish_App", "USD"],
+  ["Whish_System", "USD"], // D1 cutover — the PCD moved to WHISH, see createTestDb's comment
 ];
 
 function balance(
@@ -472,17 +482,18 @@ describe("TransactionRepository — refund method-override on a fee-on-top RECEI
   });
 
   /** x=100 payout, f=5 CASH fee leg, cashoutMethod CASH — matches
-   *  FinancialServiceRepository.receiveFeeLegs.test.ts case (a) exactly, so
-   *  this file's baseline (-95 on OMT_System) is directly diffable against
+   *  FinancialServiceRepository.receiveFeeLegs.test.ts case (a) exactly
+   *  (D1 cutover: now WHISH, not OMT — see createTestDb's comment), so
+   *  this file's baseline (-95 on Whish_System) is directly diffable against
    *  it. */
   function createFeeOnTopReceive(): number {
     const { id: fsId } = fsRepo.createTransaction({
-      provider: "OMT",
+      provider: "WHISH",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 1,
-      omtFee: 5,
+      commission: 0,
+      whishFee: 5,
       cashoutMethod: "CASH",
       feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
       exchangeRate: 90000,
@@ -501,8 +512,11 @@ describe("TransactionRepository — refund method-override on a fee-on-top RECEI
 
     const afterCreate = snapshotDrawers(db);
     // Sanity on the forward state (matches Phase A's case (a) exactly): the
-    // PCD absorbs -100 (payout) + 5 (fee) = -95.
-    expect(afterCreate.OMT_System_USD - before.OMT_System_USD).toBeCloseTo(
+    // PCD absorbs -100 (payout) + 5 (fee) = -95 (D1 cutover: PCD is now
+    // Whish_System — the drawer PHYSICS here are unchanged by D1, only the
+    // supplier-owed/profit treatment moved, which this refund-mechanics file
+    // doesn't assert on).
+    expect(afterCreate.Whish_System_USD - before.Whish_System_USD).toBeCloseTo(
       -95,
       5,
     );
@@ -534,7 +548,7 @@ describe("TransactionRepository — refund method-override on a fee-on-top RECEI
       note: string;
     };
     expect(overrideLeg.method).toBe("CASH");
-    expect(overrideLeg.drawer_name).toBe("OMT_System");
+    expect(overrideLeg.drawer_name).toBe("Whish_System");
     expect(overrideLeg.amount).toBeCloseTo(95, 5);
   });
 

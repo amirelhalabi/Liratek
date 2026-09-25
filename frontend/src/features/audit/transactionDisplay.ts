@@ -296,9 +296,48 @@ export function formatPaymentMethods(
 }
 
 /**
- * Legs for the Method column only: cash/wallet `payments` legs plus any
- * CUSTOMER_ACCOUNT settlement from `account_payments` (debt_ledger). Kept out
- * of `row.payments` itself so the Summary column's cash-only in:/out: line is
+ * LIRA-201b (owner note #11-B), fix round M3: the session basket's pooled
+ * CASH legs, for the group-header row's OWN, SEPARATELY LABELLED "Session:"
+ * line (`SummaryCell`) — never merged into `cashLegsFor`/`methodLegsFor`.
+ *
+ * Earlier this fed straight into the header row's own in/out line and Method
+ * cell, so a header member that ALSO carries its own customer-facing legs
+ * (e.g. an exchange linked via `session:linkTransaction`) printed a single
+ * mixed own+pooled figure that was neither its own amount nor the pooled
+ * total, and the expanded detail/Method cell couldn't tell the two apart.
+ * The caller now decides whether to render this (only when the row is the
+ * chosen group header) and renders it as its own line, so the row's own
+ * legs stay own-only unconditionally — the spec's "each member shows only
+ * its own amount and legs" holds for the header member too.
+ */
+export function sessionPooledCashLegsFor(
+  row: TransactionRow,
+): TransactionPaymentLeg[] {
+  return row.session_payments ?? [];
+}
+
+/**
+ * The session basket's pooled legs for the Method column / payment-detail
+ * expander's "Session:" section — cash legs plus the basket's pooled
+ * CUSTOMER_ACCOUNT settlement (`session_account_payments`). Same
+ * own/pooled separation as `sessionPooledCashLegsFor` above.
+ */
+export function sessionPooledMethodLegsFor(
+  row: TransactionRow,
+): TransactionPaymentLeg[] {
+  return [
+    ...(row.session_payments ?? []),
+    ...(row.session_account_payments ?? []),
+  ];
+}
+
+/**
+ * Legs for the Method column only: THIS row's own cash/wallet `payments`
+ * legs plus any CUSTOMER_ACCOUNT settlement from `account_payments`
+ * (debt_ledger). Always own-only, including on a session group-header row
+ * (LIRA-201b fix round M3) — the pooled basket legs render separately via
+ * `sessionPooledMethodLegsFor`, never merged in here. Kept out of
+ * `row.payments` itself so the Summary column's cash-only in:/out: line is
  * unaffected — see the `account_payments` field doc on TransactionRow.
  */
 export function methodLegsFor(row: TransactionRow): TransactionPaymentLeg[] {
@@ -309,6 +348,24 @@ export function methodLegsFor(row: TransactionRow): TransactionPaymentLeg[] {
     // the upstream customer-cash filter strips them from `row.payments` —
     // without them the Method column reads "—" on a CASH deposit and the
     // "▸ payment detail" expander never appears. See `extraCurrencyLegs`.
+    ...extraCurrencyLegs(row.type, row.metadata_json),
+  ];
+}
+
+/**
+ * Cash-only legs for the Summary column's `in: ... · out: ...` line: THIS
+ * row's own `payments` only — always, including on a session group-header
+ * row (LIRA-201b fix round M3; see `sessionPooledCashLegsFor` for the
+ * pooled basket total's own line). Deliberately WITHOUT `account_payments`
+ * (CUSTOMER_ACCOUNT never touches a drawer, so it has never belonged in the
+ * cash-only line).
+ *
+ * m1 (fix round) — NOT fed to `CashFlowBadge`: that component reads
+ * `row.payments` directly (`SummaryCell`), not this function's output.
+ */
+export function cashLegsFor(row: TransactionRow): TransactionPaymentLeg[] {
+  return [
+    ...(row.payments ?? []),
     ...extraCurrencyLegs(row.type, row.metadata_json),
   ];
 }

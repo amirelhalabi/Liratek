@@ -140,7 +140,8 @@ function createTestDb(): Database.Database {
       paid_currency TEXT DEFAULT NULL,
       partner_id INTEGER REFERENCES partners(id),
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
-      commission_model INTEGER NOT NULL DEFAULT 0
+      commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE partner_ledger (
@@ -365,23 +366,23 @@ describe("FinancialServiceRepository — primary-cash-drawer model: supplier led
 
     // f=1 (explicit), commission auto-calculates to
     // calculateCommission("INTRA", 1) = 1 × 0.1 = 0.1 — still computed and
-    // stored (D1's at-settlement estimate), no longer subtracted here.
-    // grossOwedDelta = −(principal − fee) = −(100 − 1) = −99. Still a signed
-    // TOP_UP entry (never the force-negated PAYMENT type — see
+    // stored (an at-settlement estimate), never subtracted here.
+    // D1 cutover (OWNER_NOTES_2026-09-21.md §2b, shipped): grossOwedDelta for
+    // a NEW OMT RECEIVE row is now −principal — the fee never reduces what
+    // OMT owes at all (OMT never takes one from the customer; omtFee is
+    // informational, driving the commission calculation only). Still a
+    // signed TOP_UP entry (never the force-negated PAYMENT type — see
     // FinancialServiceRepository.ts's grossOwedDelta doc comment on the
     // entry_type decision, carried over unchanged from the float model's own
     // sign-convention fix).
-    // OLD -> NEW: -99.1 -> -99 (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2,
-    // D1 — the `+ commission(0.1)` term was removed from grossOwedDelta).
-    // (Before that, float model, superseded: feeOwedDelta = |fee| −
-    // |commission| = 0.9 — the bare 100 principal never touched the ledger,
-    // it filled the float instead.)
+    // OLD -> NEW: -99 -> -100 (Phase 2 D1, superseded here, booked
+    // −(principal − fee) = −(100 − 1) = −99; before that, pre-Phase-2, -99.1
+    // netted the commission too; float model before that, -0.9, fee-only).
     const entries = omtLedgerEntries(db);
     expect(entries).toHaveLength(1);
     expect(entries[0].entry_type).toBe("TOP_UP");
-    // -99 = -(principal(100) - fee(1)); OLD (pre-Phase-2) read -99.1
-    // (commission 0.1 netted out); float model before that read 0.9 (fee-only).
-    expect(entries[0].amount_usd).toBeCloseTo(-99, 2);
+    // -100 = -principal; the fee no longer reduces it at all under D1.
+    expect(entries[0].amount_usd).toBeCloseTo(-100, 2);
     expect(entries[0].amount_lbp).toBeCloseTo(0, 2);
   });
 

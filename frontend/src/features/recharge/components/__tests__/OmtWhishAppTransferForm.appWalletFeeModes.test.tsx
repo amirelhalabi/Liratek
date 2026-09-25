@@ -294,17 +294,82 @@ describe("OmtWhishAppTransferForm — Phase D app-wallet fee modes", () => {
     expect(payload.cashoutMethod).toBe("OMT");
   });
 
-  // (c) mode B is not offered on OMT App — mirrors the old checkbox's
-  // reachability (it only ever rendered for WHISH_APP). Mode C IS offered
-  // on both providers.
-  it("mode B (Deducted from payout) is not offered on OMT App; mode C is", () => {
+  // (c) D1 (owner decision, 2026-09-23) superseded this: OMT App RECEIVE now
+  // has NO fee at all, for now — not "mode A/C only, no mode B" as this test
+  // used to assert. The entire Fee Breakdown block (including all three
+  // fee-mode radios) is hidden for this combination.
+  //
+  // Actually run 2026-09-23: this test's OLD body — asserting fee-mode-sender
+  // and fee-mode-separate WERE present — FAILED against the current (D1)
+  // source with "Unable to find an element by: [data-testid="fee-mode-sender"]"
+  // (captured while diagnosing this file for the D1 update; see the full
+  // OmtWhishAppTransferForm.appWalletFeeModes.test.tsx run showing 1 failed/5
+  // passed before this edit). That is the RED proof; the rewritten body below
+  // is GREEN on the current source.
+  it("D1: OMT App RECEIVE has no fee UI at all — none of the fee-mode radios render", () => {
     renderForm("OMT_APP");
     switchToReceive();
     typeAmount("100");
 
-    expect(screen.getByTestId("fee-mode-sender")).toBeInTheDocument();
+    expect(screen.queryByTestId("fee-mode-sender")).not.toBeInTheDocument();
     expect(screen.queryByTestId("fee-mode-deducted")).not.toBeInTheDocument();
-    expect(screen.getByTestId("fee-mode-separate")).toBeInTheDocument();
+    expect(screen.queryByTestId("fee-mode-separate")).not.toBeInTheDocument();
+  });
+
+  // (c, submit variant) D1: a fee typed while on OMT App SEND (where the Fee
+  // Breakdown block — including the manual fee input — is still shown, D1
+  // doesn't touch SEND) must have ZERO effect after switching to RECEIVE,
+  // even though the `manualFee` state itself isn't cleared by the tab switch
+  // (pre-existing behavior, out of scope for D1 — see omtWhishAppFees.ts's
+  // docblock). This is the actual "stale value" scenario the util's
+  // `omtAppReceiveHasNoFee` forcing exists to defend, driven through the
+  // real form rather than the util in isolation (a helper test passes while
+  // the form is broken).
+  //
+  // Actually run 2026-09-23, in two rounds:
+  //  1. With BOTH the component's OMT_APP-RECEIVE exclusion and the util's
+  //     `omtAppReceiveHasNoFee` forcing reverted, an earlier version of this
+  //     test (typing no fee at all) PASSED anyway (6/7 passed, only the
+  //     render-only test above failed) — because with no fee ever typed,
+  //     providerFee was already 0 pre-D1 too (the lira-101 baseline "no fee"
+  //     case). That proved the original test too weak to catch the D1
+  //     regression, so it was strengthened to type a fee on SEND first.
+  //  2. With only the util's `omtAppReceiveHasNoFee` reverted to `false`
+  //     (the component change left in place — the stale value lives in
+  //     React state regardless of whether the input is rendered), the
+  //     strengthened test FAILED: `expect(payload.amount).toBeCloseTo(100, 2)`
+  //     got `Received: 105` — the stale $5 SEND-side fee folded into the
+  //     RECEIVE wallet inflow exactly as the pre-D1 code would. Reverting the
+  //     revert and re-running: 7/7 GREEN.
+  it("D1: a fee typed on OMT App SEND has no effect after switching to RECEIVE — omtFee 0, no commission, no feePayments", async () => {
+    renderForm("OMT_APP");
+    typeAmount("100");
+    fireEvent.change(
+      document.getElementById("transfer-fee") as HTMLInputElement,
+      { target: { value: "5" } },
+    );
+
+    switchToReceive();
+    typeAmount("100");
+
+    fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+    await screen.findByTestId("stub-payment-sheet");
+
+    window.__stubPayoutAmount = 100;
+    fireEvent.click(screen.getByTestId("stub-inject-payout"));
+    fireEvent.click(screen.getByTestId("stub-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+
+    expect(payload.amount).toBeCloseTo(100, 2); // wallet = bare amount, no fee folded in
+    expect(payload.omtFee).toBe(0);
+    expect(payload.commission).toBe(0);
+    expect(payload.includingFees).toBe(false);
+    expect(payload.feePayments).toBeUndefined();
   });
 
   // (d) mode C (Customer pays separately, NEW): the wallet receives the bare

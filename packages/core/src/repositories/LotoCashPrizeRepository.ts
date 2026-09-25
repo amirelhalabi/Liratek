@@ -16,6 +16,15 @@ import {
 } from "../utils/payments.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
+/**
+ * LIRA-201c (rule 14) — the ONE "exclude a basket-voided prize" predicate,
+ * reused by every total/checkpoint-gathering query below rather than
+ * hand-copied. `COALESCE` covers a pre-v181 row (column added with
+ * `DEFAULT 0`, but a defensive NULL still reads as "not voided" — the same
+ * house convention `notRefunded`/`is_auto` reads use elsewhere).
+ */
+const NOT_VOIDED_CASH_PRIZE_SQL = "COALESCE(voided, 0) = 0";
+
 export interface LotoCashPrize {
   id: number;
   ticket_number: string | null;
@@ -27,6 +36,12 @@ export interface LotoCashPrize {
   reimbursed_in_settlement_id: number | null;
   checkpoint_id: number | null;
   note: string | null;
+  /** LIRA-201c (migration v181) — set by TransactionRepository
+   *  ._reverseLotoCashPrize when this prize's own session-basket item is
+   *  voided/refunded. 0 for every prize created before this ticket and for
+   *  every non-reversed prize going forward. */
+  voided: number;
+  voided_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -45,6 +60,11 @@ export interface LotoCashPrizeCreate {
   deferPayment?: boolean;
   /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
   exchange_rate?: number;
+  /** LIRA-201c (rule 11) — the session's resolved client, injected by
+   *  SessionCheckoutService alongside every other basket item's formData
+   *  (`fd.clientId`). Standalone (non-session) prizes correctly omit it —
+   *  `client_id` stays NULL, unchanged behavior. */
+  clientId?: number;
 }
 
 export class LotoCashPrizeRepository {
@@ -84,6 +104,7 @@ export class LotoCashPrizeRepository {
         amount_usd: 0,
         amount_lbp: -data.prize_amount,
         exchange_rate: data.exchange_rate ?? 100000,
+        client_id: data.clientId ?? null,
         summary: data.ticket_number
           ? `Loto cash prize payout: ${data.ticket_number}`
           : "Loto cash prize payout",
@@ -93,10 +114,13 @@ export class LotoCashPrizeRepository {
       });
 
       // 3. Record payment and update drawer balance (money OUT = negative).
-      // Deferred (session basket): the prize is a NEGATIVE-LBP cart item, so the
-      // checkout modal already nets it into the basket total and emits the net
-      // cash-OUT leg the basket recorder posts. Skip the General payout here to
-      // avoid double-counting it. Non-session callers post it normally.
+      // Deferred (session basket): the prize is a NEGATIVE-LBP cart item, so
+      // the checkout modal nets this GENERAL-drawer cash payout against the
+      // basket's charge (owner decision #11-A, OWNER_NOTES_REMAINING_BUILD.md,
+      // 2026-09-24) and posts only the physical excess, if any, as its own
+      // PAYOUT leg — never this row's gross prize_amount. Skip the General
+      // payout here to avoid double-counting it. Non-session callers post it
+      // normally.
       const currency = "LBP";
       if (!data.deferPayment) {
         const paymentMethod = "CASH";
@@ -185,7 +209,7 @@ export class LotoCashPrizeRepository {
   getUnreimbursedCashPrizes(): LotoCashPrize[] {
     const stmt = this.db.prepare(`
       SELECT * FROM loto_cash_prizes
-      WHERE is_reimbursed = 0 AND tenant_id = ?
+      WHERE is_reimbursed = 0 AND ${NOT_VOIDED_CASH_PRIZE_SQL} AND tenant_id = ?
       ORDER BY prize_date DESC
     `);
     return stmt.all(getCurrentTenantId()) as LotoCashPrize[];
@@ -210,7 +234,8 @@ export class LotoCashPrizeRepository {
   getTotalCashPrizes(from: string, to: string): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_cash_prizes
-      WHERE date(prize_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
+      WHERE date(prize_date) BETWEEN date(?) AND date(?)
+        AND ${NOT_VOIDED_CASH_PRIZE_SQL} AND tenant_id = ?
     `);
     const result = stmt.get(from, to, getCurrentTenantId()) as {
       total: number;
@@ -221,7 +246,7 @@ export class LotoCashPrizeRepository {
   getTotalUnreimbursedCashPrizes(): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_cash_prizes
-      WHERE is_reimbursed = 0 AND tenant_id = ?
+      WHERE is_reimbursed = 0 AND ${NOT_VOIDED_CASH_PRIZE_SQL} AND tenant_id = ?
     `);
     const result = stmt.get(getCurrentTenantId()) as { total: number };
     return result.total;
@@ -257,7 +282,9 @@ export class LotoCashPrizeRepository {
    */
   getByCheckpointId(checkpointId: number): LotoCashPrize[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_cash_prizes WHERE checkpoint_id = ? AND tenant_id = ? ORDER BY prize_date DESC
+      SELECT * FROM loto_cash_prizes
+      WHERE checkpoint_id = ? AND ${NOT_VOIDED_CASH_PRIZE_SQL} AND tenant_id = ?
+      ORDER BY prize_date DESC
     `);
     return stmt.all(checkpointId, getCurrentTenantId()) as LotoCashPrize[];
   }
@@ -270,6 +297,7 @@ export class LotoCashPrizeRepository {
       SELECT * FROM loto_cash_prizes
       WHERE checkpoint_id IS NULL
         AND is_reimbursed = 0
+        AND ${NOT_VOIDED_CASH_PRIZE_SQL}
         AND date(prize_date) BETWEEN date(?) AND date(?)
         AND tenant_id = ?
       ORDER BY prize_date DESC
@@ -286,6 +314,7 @@ export class LotoCashPrizeRepository {
       SELECT * FROM loto_cash_prizes
       WHERE checkpoint_id IS NULL
         AND is_reimbursed = 0
+        AND ${NOT_VOIDED_CASH_PRIZE_SQL}
         AND tenant_id = ?
       ORDER BY prize_date DESC
     `);

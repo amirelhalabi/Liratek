@@ -3,7 +3,11 @@ import { contextBridge, ipcRenderer, webFrame } from "electron";
 // dependency on @liratek/core (which is main-process only). preload.ts is
 // compiled to CommonJS (tsconfig.preload.json, module: Node16) while core is
 // ESM, hence the explicit resolution-mode attribute — without it TS1541.
-import type { ProductListFilters, SaveJobParams } from "@liratek/core" with {
+import type {
+  ProductListFilters,
+  SaveJobParams,
+  DailyStatsSnapshotQuery,
+} from "@liratek/core" with {
   "resolution-mode": "import",
 };
 
@@ -193,8 +197,11 @@ contextBridge.exposeInMainWorld("api", {
     getStats: () => ipcRenderer.invoke("sales:get-dashboard-stats"),
     getDrawerBalances: () =>
       ipcRenderer.invoke("dashboard:get-drawer-balances"),
-    getProfitSalesChart: (type: "Sales" | "Profit") =>
-      ipcRenderer.invoke("dashboard:get-profit-sales-chart", type),
+    getProfitSalesChart: (type: "Sales" | "Profit", clientDay?: string) =>
+      ipcRenderer.invoke("dashboard:get-profit-sales-chart", type, clientDay),
+    // DC-11 — "Net Profit — last 30 days" tile.
+    getNetProfitLast30Days: (clientDay?: string) =>
+      ipcRenderer.invoke("dashboard:get-net-profit-last-30-days", clientDay),
   },
 
   // Debt
@@ -308,8 +315,6 @@ contextBridge.exposeInMainWorld("api", {
 
   // Financial
   financial: {
-    getMonthlyPL: (month: string) =>
-      ipcRenderer.invoke("financial:get-monthly-pl", month),
     getDrawerNames: () => ipcRenderer.invoke("financial:get-drawer-names"),
     // NOTE: field name must match what "financial:update-metadata" (omtHandlers.ts)
     // actually reads (client_name) — a prior mismatch (customer_name) type-checked
@@ -504,7 +509,8 @@ contextBridge.exposeInMainWorld("api", {
         | "VOUCHER"
         | "DAYS"
         | "ALFA_GIFT"
-        | "CREDIT_BUYBACK";
+        | "CREDIT_BUYBACK"
+        | "SHOP_LINE_USE";
       amount: number;
       cost: number;
       price: number;
@@ -703,6 +709,10 @@ contextBridge.exposeInMainWorld("api", {
         amount: number;
         direction?: "IN" | "OUT";
       }>;
+      /** LIRA-203 — pay MORE than `selections` net to; the difference is
+       *  booked as a standalone account credit (direction: "PAY" only). */
+      surplus_usd?: number;
+      surplus_lbp?: number;
     }) => ipcRenderer.invoke("suppliers:settle-account", data),
     recordCashflow: (data: {
       supplier_id: number;
@@ -900,8 +910,8 @@ contextBridge.exposeInMainWorld("api", {
       drawer_name?: string;
       user_id?: number;
     }) => ipcRenderer.invoke("closing:getCheckpointTimeline", filters),
-    getDailyStatsSnapshot: () =>
-      ipcRenderer.invoke("closing:get-daily-stats-snapshot"),
+    getDailyStatsSnapshot: (data?: DailyStatsSnapshotQuery) =>
+      ipcRenderer.invoke("closing:get-daily-stats-snapshot", data),
     recalculateDrawerBalances: () =>
       ipcRenderer.invoke("closing:recalculate-drawer-balances"),
     // Unified checkpoint API
@@ -1300,6 +1310,17 @@ contextBridge.exposeInMainWorld("api", {
      *  member of a multi-unit split checkout in ONE transaction. */
     voidCheckoutGroup: (groupId: string) =>
       ipcRenderer.invoke("transactions:void-checkout-group", { groupId }),
+    /** LIRA-201c: void every item in a customer-session basket, plus its
+     *  pooled cash leg(s) and pooled debt, in ONE transaction. Replaces the
+     *  "Basket item — see admin to reverse" dead end. */
+    voidSessionBasket: (sessionId: number) =>
+      ipcRenderer.invoke("transactions:void-session-basket", { sessionId }),
+    /** Same shape as voidSessionBasket but refunds (keeps items ACTIVE,
+     *  creates a REFUND row per item). */
+    refundSessionBasket: (sessionId: number) =>
+      ipcRenderer.invoke("transactions:refund-session-basket", {
+        sessionId,
+      }),
     dailySummary: (date: string) =>
       ipcRenderer.invoke("transactions:daily-summary", date),
     debtAging: (clientId: number) =>
@@ -1338,6 +1359,15 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("profits:by-client", from, to, limit),
     pending: (from: string, to: string) =>
       ipcRenderer.invoke("profits:pending", from, to),
+    // By Module drill-down "Show transactions" list (2026-09-24,
+    // OWNER_NOTES_REMAINING_BUILD.md #14 slice 2).
+    moduleDetail: (moduleKey: string, from: string, to: string) =>
+      ipcRenderer.invoke("profits:module-detail", moduleKey, from, to),
+    // Commissions tab (OWNER_NOTES_2026-09-21.md §6, lane LC) — Profits-gated,
+    // separate from the pre-existing `omt:get-analytics`/
+    // `suppliers:unsettled-summary` channels the Services/Recharge pages use.
+    commissions: (from: string, to: string) =>
+      ipcRenderer.invoke("profits:commissions", from, to),
     // Profits password gate (frozen contract). passwordStatus returns the
     // RAW { isSet } shape (reads are raw, writes are the envelope — the
     // adapter contract); the other three return { success, error? }.
@@ -1513,6 +1543,11 @@ contextBridge.exposeInMainWorld("api", {
         currency_code: string;
         amount: number;
         direction?: "IN" | "OUT";
+        kind?: "PAYOUT" | "CHANGE";
+        /** Owner decision #11-A (netted session checkout, 2026-09-24) —
+         *  meaningful only on a `kind: "PAYOUT"` leg. See
+         *  SessionPaymentService's `payoutOrigin` doc for the full contract. */
+        payoutOrigin?: "SYSTEM" | "GENERAL";
         voucher_code?: string;
       }>;
       exchangeRate?: number;
@@ -1747,6 +1782,11 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("carrier-lines:get-primary", carrier),
     setPrimary: (id: number) =>
       ipcRenderer.invoke("carrier-lines:set-primary", id),
+    // v184 (#28, LIRA-218) — "days still to send" list.
+    getOwedDeliveriesPending: () =>
+      ipcRenderer.invoke("carrier-lines:get-owed-deliveries-pending"),
+    markOwedDeliverySent: (data: { deliveryId: number }) =>
+      ipcRenderer.invoke("carrier-lines:mark-owed-delivery-sent", data),
   },
 
   // Custom Services
@@ -1779,6 +1819,10 @@ contextBridge.exposeInMainWorld("api", {
       /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
        *  service and we owe them the cost instead. */
       partnerMode?: "FOR" | "VIA";
+      /** OWNER_NOTES_REMAINING_BUILD.md #16 — "OUT" is a payout (Via-Partner
+       *  only): cash leaves the General drawer to a local recipient instead
+       *  of a customer paying the shop. Omitted/"IN" is the existing flow. */
+      direction?: "IN" | "OUT";
       /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
        *  operator picked a product from the inventory SearchBar; decrements
        *  1 unit of stock. Omitted (preset/free-text) -> NULL -> no stock
@@ -1813,12 +1857,42 @@ contextBridge.exposeInMainWorld("api", {
     create: (data: {
       client_name: string;
       phone_number?: string;
+      client_id?: number | null;
       usd_amount?: number;
       lbp_amount?: number;
       notes?: string;
       transaction_time?: string;
+      // LIRA-214 (migration v183) — the payment form's own legs (rule 16)
+      // and the tender rate it converted a cross-currency leg at.
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      exchange_rate?: number;
     }) => ipcRenderer.invoke("hold-money:create", data),
-    collect: (id: number) => ipcRenderer.invoke("hold-money:collect", id),
+    // Pickups (all events, voided or not) for one hold.
+    pickups: (holdMoneyId: number) =>
+      ipcRenderer.invoke("hold-money:pickups", holdMoneyId),
+    // LIRA-214 (migration v183): collect is now a payload — payout legs plus
+    // the optional partial amounts (omitted = full remaining balance).
+    collect: (data: {
+      id: number;
+      usd_amount?: number;
+      lbp_amount?: number;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      exchange_rate?: number;
+      transaction_time?: string;
+    }) => ipcRenderer.invoke("hold-money:collect", data),
+    // Void (reverse) one pickup event — rule-20 reversal owner.
+    voidPickup: (pickupId: number) =>
+      ipcRenderer.invoke("hold-money:void-pickup", { pickup_id: pickupId }),
   },
 
   // Service Presets (digital accounts, repairs, etc.)

@@ -71,9 +71,11 @@ const mockApi = {
   getInventoryStockStats: jest
     .fn()
     .mockResolvedValue({ stock_budget_usd: 0, stock_count: 0 }),
-  getMonthlyPL: jest.fn().mockResolvedValue({
+  getNetProfitLast30Days: jest.fn().mockResolvedValue({
     netProfitUSD: 0,
     netProfitLBP: 0,
+    fromDate: "2026-08-26",
+    toDate: "2026-09-24",
   }),
   getDebtors: jest.fn().mockResolvedValue([]),
   getUnsettledSummary: mockGetUnsettledSummary,
@@ -197,7 +199,12 @@ beforeEach(() => {
     stock_budget_usd: 0,
     stock_count: 0,
   });
-  mockApi.getMonthlyPL.mockResolvedValue({ netProfitUSD: 0, netProfitLBP: 0 });
+  mockApi.getNetProfitLast30Days.mockResolvedValue({
+    netProfitUSD: 0,
+    netProfitLBP: 0,
+    fromDate: "2026-08-26",
+    toDate: "2026-09-24",
+  });
   mockApi.getDebtors.mockResolvedValue([]);
   mockApi.getAllActiveCarrierLines.mockResolvedValue([]);
   mockApi.hasInitialBalancesSet.mockResolvedValue(true);

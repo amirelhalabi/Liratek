@@ -2,10 +2,13 @@
  * LIRA-159 Task 2 — `monthBounds` unit tests.
  *
  * `monthBounds()` (utils/localDate.ts) is the ONE definition of a calendar-
- * month window in local time — `FinancialRepository.getMonthlyPL` and
- * `ProfitRepository.dateRange()`'s SQL `datetime(col, 'localtime')` bound are
- * meant to describe the identical window (see localDate.ts's own doc
- * comment). This file proves the JS half in isolation: exact returned
+ * month window in local time, meant to describe the identical window
+ * `ProfitRepository.dateRange()`'s SQL `datetime(col, 'localtime')` bound
+ * describes (see localDate.ts's own doc comment). Its one caller,
+ * `FinancialRepository.getMonthlyPL`, was deleted as dead code (DAY-2,
+ * OWNER_NOTES_2026-09-21.md:1051); `monthBounds` itself is kept as a
+ * general-purpose util, still guarded here. This file proves the JS half in
+ * isolation: exact returned
  * strings for a 31-day month, a 30-day month, February in both a leap and a
  * non-leap year, December (year must not roll over), malformed-input
  * rejection, and purity (no dependency on the system clock — the function

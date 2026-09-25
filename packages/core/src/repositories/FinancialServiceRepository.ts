@@ -5,6 +5,7 @@
  * Uses BaseRepository for common functionality.
  */
 import { BaseRepository } from "./BaseRepository.js";
+import { OMT_RECEIVE_NO_FEE_MESSAGE } from "../validators/financial.js";
 import {
   atSettlementCommission,
   embeddedCommission,
@@ -104,6 +105,42 @@ type ForPartnerLedgerType = NonNullable<
  * `CreateLedgerEntryData["transaction_type"]` for a mapped value to satisfy
  * — better to throw loudly than invent an unproven mapping.
  */
+/**
+ * D1 cutover (OWNER_NOTES_2026-09-21.md §2b, migration v180
+ * `financial_services_receive_fee_model`) — a per-row marker distinct from
+ * `commission_model` (which governs WHEN the shop's own commission is
+ * realized). This one governs WHOSE fee a RECEIVE's `omt_fee`/`whish_fee`
+ * is modeled as, and therefore whether it nets against the drawer/payable at
+ * all:
+ *
+ *   LEGACY  (0, the default on every pre-existing row) — the RECEIVING
+ *     customer is assumed to have paid the fee at the shop's counter, so it
+ *     nets out of both the customer's payout AND what the shop owes the
+ *     provider (`−(x − f)`). This was a genuine model bug for OMT: the fee
+ *     is not always the receiving customer's to pay, and the two errors
+ *     (drawer overstated by f, provider debt understated by f) cancel on
+ *     paper, which is why nothing caught it (see FinancialServiceRepository
+ *     .grossOwedDeltaSqlJsParity.test.ts's D3-cutover describe block for the
+ *     sibling precedent this mirrors).
+ *
+ *   CUTOVER (1, born on every NEW OMT/WHISH system RECEIVE row) — the
+ *     provider is owed the FULL principal, undiminished by any fee:
+ *       - OMT:   never takes a fee from the customer at all. `omt_fee` is
+ *         still stored and still drives the commission calculation
+ *         (`calculatedCommission`) — shown, never collected, never netted.
+ *       - WHISH: a fee, if the operator charges one, is the SHOP's own
+ *         profit (stamped on `profit_usd`/`profit_lbp` immediately — see the
+ *         `whishReceiveFeeProfit` term below), never a deduction from what
+ *         Whish owes.
+ *
+ * Cutover only, no restatement (LIRA-095 D3 precedent, `OWNER_NOTES_2026-09-
+ * 21.md` §2b): a row must be READ with the formula that WROTE it — see
+ * `SUPPLIER_OWED_EXPR`'s own doc comment for the three-tier CASE this
+ * produces (cutover / phase-2-only-net-formula / pre-phase-2 legacy).
+ */
+const RECEIVE_FEE_MODEL_LEGACY = 0;
+const RECEIVE_FEE_MODEL_CUTOVER = 1;
+
 const THROUGH_PROVIDER_LEDGER_KEY: Readonly<Record<string, string>> = {
   OMT: "OMT",
   OMT_APP: "OMT",
@@ -191,6 +228,12 @@ export interface FinancialServiceEntity {
    * D2 was written to retire).
    */
   commission_model: number;
+  /** D1 cutover (`RECEIVE_FEE_MODEL_LEGACY`/`RECEIVE_FEE_MODEL_CUTOVER`, see
+   *  that constant's doc comment) — per-row marker for whose fee a RECEIVE's
+   *  `omt_fee`/`whish_fee` is modeled as, distinct from `commission_model`.
+   *  Only meaningful for OMT/WHISH RECEIVE rows; 0 (LEGACY) on every other
+   *  row, including all pre-cutover history. */
+  receive_fee_model: number;
   /** LIRA-131: set by `TransactionRepository._markSourceRefunded` when the
    *  unified transaction sourced from this row is voided/refunded —
    *  `financial_services` is in its supported-tables whitelist. Already
@@ -749,6 +792,18 @@ function grossOwedDelta(params: {
   commissionModel: number;
   /** The shop's cut. Only consulted for legacy (model 0) rows. */
   commission: number;
+  /**
+   * D1 cutover (`RECEIVE_FEE_MODEL_LEGACY`/`RECEIVE_FEE_MODEL_CUTOVER`,
+   * see that constant's doc comment) — RECEIVE only. CUTOVER means the
+   * provider is owed the full principal, undiminished by any fee (OMT never
+   * takes one; a Whish fee is the shop's own profit, not a deduction from
+   * what Whish owes). Ignored for SEND — same reason `commissionModel` is
+   * still accepted here even though every row this function writes today is
+   * model 1: the SQL twin (`SUPPLIER_OWED_EXPR`) genuinely needs it to
+   * describe rows written before the flip, and the two definitions must stay
+   * structurally comparable (rule 14).
+   */
+  receiveFeeModel: number;
 }): number {
   if (isWalletProvider(params.provider) && params.cost <= 0) return 0;
   if (params.serviceType === "SEND" && params.cost > 0) return params.cost;
@@ -760,7 +815,15 @@ function grossOwedDelta(params: {
     const embedded = params.commissionModel === 0;
     const c = embedded ? Math.abs(params.commission) : 0;
     if (params.serviceType === "SEND") return principal + fee - c;
-    if (params.serviceType === "RECEIVE") return -(principal - fee + c);
+    if (params.serviceType === "RECEIVE") {
+      // D1 cutover: the provider is owed the full principal — the fee never
+      // reduces what it owes, whether or not the shop actually collected
+      // one (OMT never does; a Whish fee, if any, is the shop's profit).
+      if (params.receiveFeeModel === RECEIVE_FEE_MODEL_CUTOVER) {
+        return -principal;
+      }
+      return -(principal - fee + c);
+    }
     // BILL/other on an OMT/WHISH supplier never reaches this booking site
     // today (the BILL branch below books a hardcoded LBP entry instead) —
     // kept structurally close to the old fee-only fallback in case a future
@@ -820,10 +883,22 @@ const SUPPLIER_OWED_EXPR = `CASE
   -- leaving the ledger at -0.50 and the cash really gone).
   WHEN provider = 'OMT' AND service_type = 'SEND' AND commission_model = 1 THEN ABS(amount) + ABS(COALESCE(omt_fee, 0))
   WHEN provider = 'OMT' AND service_type = 'SEND' THEN ABS(amount) + ABS(COALESCE(omt_fee, 0)) - ABS(COALESCE(commission, 0))
+  -- D1 cutover (OWNER_NOTES_2026-09-21.md §2b, migration v180). A THIRD tier,
+  -- same "read with the formula that wrote it" discipline as the
+  -- commission_model split above: cutover rows (receive_fee_model = 1) owe
+  -- the FULL principal — no fee ever reduces it (OMT never takes one; a
+  -- Whish fee, if charged, is the shop's own profit, stamped separately on
+  -- profit_usd/profit_lbp at write time, not netted from the provider's
+  -- payable). Phase-2-only rows (commission_model = 1, receive_fee_model = 0
+  -- — created between the Phase 2 gross-payable flip and this cutover) and
+  -- pre-Phase-2 legacy rows both keep reading net, exactly as they always
+  -- have — this migration does not touch either of those two branches.
+  WHEN provider = 'OMT' AND service_type = 'RECEIVE' AND commission_model = 1 AND receive_fee_model = 1 THEN -ABS(amount)
   WHEN provider = 'OMT' AND service_type = 'RECEIVE' AND commission_model = 1 THEN -(ABS(amount) - ABS(COALESCE(omt_fee, 0)))
   WHEN provider = 'OMT' AND service_type = 'RECEIVE' THEN -(ABS(amount) - ABS(COALESCE(omt_fee, 0)) + ABS(COALESCE(commission, 0)))
   WHEN provider = 'WHISH' AND service_type = 'SEND' AND commission_model = 1 THEN ABS(amount) + ABS(COALESCE(whish_fee, 0))
   WHEN provider = 'WHISH' AND service_type = 'SEND' THEN ABS(amount) + ABS(COALESCE(whish_fee, 0)) - ABS(COALESCE(commission, 0))
+  WHEN provider = 'WHISH' AND service_type = 'RECEIVE' AND commission_model = 1 AND receive_fee_model = 1 THEN -ABS(amount)
   WHEN provider = 'WHISH' AND service_type = 'RECEIVE' AND commission_model = 1 THEN -(ABS(amount) - ABS(COALESCE(whish_fee, 0)))
   WHEN provider = 'WHISH' AND service_type = 'RECEIVE' THEN -(ABS(amount) - ABS(COALESCE(whish_fee, 0)) + ABS(COALESCE(commission, 0)))
   ELSE ABS(amount)
@@ -970,7 +1045,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   // route via FinancialService.getHistory -> repo.getHistory), so this one
   // change fixes the read path identically for desktop and web (rule 19).
   protected getColumns(): string {
-    return `id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, is_refunded, refunded_at, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
+    return `id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, receive_fee_model, is_refunded, refunded_at, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
   }
 
   // ---------------------------------------------------------------------------
@@ -1554,6 +1629,21 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           ? 1
           : 0;
 
+      // D1 cutover (RECEIVE_FEE_MODEL_LEGACY/CUTOVER — see that constant's
+      // doc comment). Every NEW OMT/WHISH RECEIVE row is born CUTOVER,
+      // unconditionally — same "no partial cutover" discipline commission_
+      // model uses above: partner mode, session-basket deferral, none of it
+      // changes which formula a row is READ with, only commission_model's
+      // own AT_SETTLEMENT/EMBEDDED split does that, and this marker is
+      // orthogonal to it. SEND rows (and every other provider) are born
+      // LEGACY — the marker is meaningless there and grossOwedDelta/
+      // SUPPLIER_OWED_EXPR never consult it outside the RECEIVE branch.
+      const receiveFeeModel: number =
+        data.serviceType === "RECEIVE" &&
+        (data.provider === "OMT" || data.provider === "WHISH")
+          ? RECEIVE_FEE_MODEL_CUTOVER
+          : RECEIVE_FEE_MODEL_LEGACY;
+
       // LIRA-112 (D12) — the row's OWN supplier's commission_eligible bit
       // (v151), looked up ONLY for BILL rows (the one kind the predicate's
       // eligibility branch actually consults — OMT/WHISH SEND/RECEIVE and
@@ -1596,11 +1686,34 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // Resolve the stored whish_fee: user-entered or auto-looked-up (classic
       // WHISH uses the tier table; WHISH_APP's flat 1% auto-fee is computed by
       // the frontend, so it's stored as-is with no tier fallback here).
+      //
+      // D1 fix (OWNER_NOTES_2026-09-21.md §2b row 8, proven bug report
+      // 2026-09-23): the tier-table fallback used to apply on BOTH SEND and
+      // RECEIVE. On SEND that's correct — a classic WHISH SEND fee is
+      // genuinely the provider's tier-table charge whether or not the
+      // operator retyped it, and nothing downstream of a SEND's whish_fee
+      // moves money on its own (the SEND cash leg reads `data.amount`, which
+      // the frontend already nets/grosses; the tier value only feeds the
+      // gross supplier-ledger booking, which is meant to include it).
+      // On RECEIVE the owner's rule (D1) is different: the fee is OPTIONAL
+      // and, when charged, is the SHOP's profit collected from the customer
+      // at the counter — never a number the backend may invent on the
+      // operator's behalf. A blank `whishFee` on RECEIVE must store 0/null,
+      // not an auto-filled tier lookup: `resolvedProviderFee` below feeds
+      // BOTH the RECEIVE fee-leg (drawer money) and `whishReceiveFeeProfit`
+      // (booked profit) directly from this value, so an invented fee here
+      // becomes invented cash and invented profit nobody collected. The
+      // supplier-ledger booking (`grossOwedDelta`/`SUPPLIER_OWED_EXPR`) does
+      // NOT need this guard — a cutover RECEIVE row (`receive_fee_model = 1`,
+      // stamped unconditionally for every new OMT/WHISH RECEIVE) already
+      // ignores the fee entirely and books the full principal regardless.
       const storedWhishFee =
         data.provider === "WHISH"
           ? data.whishFee != null
             ? data.whishFee
-            : (lookupWhishFee(data.amount) ?? null)
+            : data.serviceType === "SEND"
+              ? (lookupWhishFee(data.amount) ?? null)
+              : null
           : data.provider === "WHISH_APP"
             ? (data.whishFee ?? null)
             : null;
@@ -1621,6 +1734,49 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           : data.provider === "WHISH"
             ? (storedWhishFee ?? 0)
             : 0;
+
+      // ═══════════════════════════════════════════════════════════════════
+      // D1 cutover (OWNER_NOTES_2026-09-21.md §2b) — hard-reject guards,
+      // checked here (right after resolvedProviderFee/calculatedCommission
+      // resolve, before every dispatch branch: FOR-partner, THROUGH-partner,
+      // deferPayment, walk-in) so no branch can reach a write with a payload
+      // shape this rule no longer supports. Never silently reinterpreted —
+      // a stale client that still shows "payout x − f" on screen must not
+      // have the full x booked behind the operator's back (rule 22's
+      // reasoning, applied to a schema field instead of a naming drift).
+      //
+      // OMT system RECEIVE never takes a fee from the customer. omtFee stays
+      // informational (it drives calculatedCommission above) but must not
+      // reach either fee-collection shape: `includingFees: true` (nets the
+      // fee out of the payout — there is no payout reduction to apply) or a
+      // non-empty `feePayments` (there is nothing to collect a leg for).
+      if (
+        data.provider === "OMT" &&
+        data.serviceType === "RECEIVE" &&
+        (data.includingFees === true ||
+          (data.feePayments && data.feePayments.length > 0))
+      ) {
+        throw new Error(OMT_RECEIVE_NO_FEE_MESSAGE);
+      }
+
+      // OMT_APP RECEIVE has no fee "for now" (owner decision, D1 case #5,
+      // reaffirmed 2026-09-25: "OMT App RECEIVE: refuse a fee with the SAME
+      // D1 message as OMT system — one constant") — reject a nonzero fee,
+      // `includingFees: true`, or a non-empty `feePayments` instead of
+      // silently booking one, with the SAME message the OMT-system guard
+      // above throws (rule 14 — one constant, not a retyped string). The
+      // wallet branch's own fee is `calculatedCommission` (resolved above
+      // from `data.commission`), not `resolvedProviderFee` (which only
+      // resolves for the SYSTEM providers "OMT"/"WHISH").
+      if (
+        data.provider === "OMT_APP" &&
+        data.serviceType === "RECEIVE" &&
+        (Math.abs(calculatedCommission) > 0 ||
+          data.includingFees === true ||
+          (data.feePayments && data.feePayments.length > 0))
+      ) {
+        throw new Error(OMT_RECEIVE_NO_FEE_MESSAGE);
+      }
 
       // ═══════════════════════════════════════════════════════════════════
       // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §6bis findings 1/2/4/5 — the
@@ -1757,8 +1913,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee,
           item_key, note, is_settled, settled_at,
           payment_method_fee, payment_method_fee_rate, commission_model,
-          tenant_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+          receive_fee_model, tenant_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       const result = stmt.run(
@@ -1794,6 +1950,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         pmFee,
         pmFeeRate,
         commissionModel,
+        receiveFeeModel,
         tenantId,
         data.transaction_time ?? null,
       );
@@ -1920,6 +2077,29 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           ? data.amount + resolvedProviderFee
           : data.amount;
 
+      // D1 cutover (OWNER_NOTES_2026-09-21.md §2b) — a Whish system RECEIVE
+      // fee, when the operator charges one, is the SHOP's own profit (unlike
+      // OMT, which never takes one at all — see the hard-reject guards
+      // above). Realized IMMEDIATELY, unlike `commission` above (which stays
+      // deferred to settlement for a commissionModel === 1 row — the two are
+      // separate concepts kept deliberately apart: `commission` is OMT/
+      // Whish's own settlement-time cut, `resolvedProviderFee` here is what
+      // the shop charged ITS customer at the counter, on top or deducted,
+      // either way). Zero for OMT (fee never collected) and zero whenever
+      // the operator didn't charge one (`resolvedProviderFee` defaults to
+      // 0). FOR-partner never reaches this: no cash crosses the shop's own
+      // counter for a FOR-partner RECEIVE (obligations only — see the
+      // isForPartner dispatch below), so there is no fee for the shop to
+      // keep. useCostPriceFlow is excluded defensively — a system RECEIVE
+      // transfer never takes that branch.
+      const whishReceiveFeeProfit =
+        data.provider === "WHISH" &&
+        data.serviceType === "RECEIVE" &&
+        !useCostPriceFlow &&
+        !isForPartner
+          ? resolvedProviderFee
+          : 0;
+
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.FINANCIAL_SERVICE,
         source_table: "financial_services",
@@ -1982,13 +2162,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             ? 0
             : currency === "USD"
               ? commission
-              : 0) + (data.kept_change_usd ?? 0),
+              : 0) +
+          (data.kept_change_usd ?? 0) +
+          (currency === "USD" ? whishReceiveFeeProfit : 0),
         profit_lbp:
           (commissionModel === 1 && !useCostPriceFlow
             ? 0
             : currency === "LBP"
               ? commission
-              : 0) + (data.kept_change_lbp ?? 0),
+              : 0) +
+          (data.kept_change_lbp ?? 0) +
+          (currency === "LBP" ? whishReceiveFeeProfit : 0),
         client_id: resolvedPrimaryClientId ?? null,
         // For-partner services label the row with the partner (owner ask: the
         // transactions table shows "<partner> [partner]" in the client column).
@@ -2661,6 +2845,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   // the two must not be able to disagree.
                   commissionModel,
                   commission,
+                  // D1 trace (OWNER_NOTES_2026-09-21.md §2b, matrix row 3):
+                  // this FOR-partner RECEIVE booking used to net `fee` out of
+                  // what OMT/WHISH owe even though the comment above already
+                  // says OMT takes "no fee" here (the CREDIT to the partner's
+                  // tab never subtracted one) — the supplier ledger disagreed
+                  // with its own neighbor comment. Passing the row's own
+                  // stamp fixes it the same way the generic booking below is
+                  // fixed: a cutover row owes the full principal regardless.
+                  receiveFeeModel,
                 });
                 supplierRepo.addLedgerEntry({
                   supplier_id: supplier.id,
@@ -3685,7 +3878,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // was foregone revenue, not a phantom-credit guard. The
           // fee-on-top leg now posts unconditionally (same as walk-in);
           // `!skipSystemDrawer` removed.
-          if (!deferPayment && !receiveFeeIncluded && receiveFeeAmt > 0) {
+          //
+          // D1 cutover (OWNER_NOTES_2026-09-21.md §2b): `data.provider !==
+          // "OMT"` added — OMT system RECEIVE never takes a fee from the
+          // customer at all, whether walk-in or THROUGH-partner (both reach
+          // this same branch). The hard-reject guards near
+          // `resolvedProviderFee` already stop `includingFees`/`feePayments`
+          // from reaching here for OMT; this stops the LEGACY single-leg
+          // fallback (the `else` a few lines down) from posting one too, so
+          // `omtFee` stays purely informational (drives the commission
+          // calculation only) exactly as the owner's rule requires. WHISH is
+          // unaffected — its fee, when charged, still moves the drawer here;
+          // only its supplier-ledger/profit treatment changed (see
+          // `grossOwedDelta`/`whishReceiveFeeProfit`).
+          if (
+            !deferPayment &&
+            !receiveFeeIncluded &&
+            receiveFeeAmt > 0 &&
+            data.provider !== "OMT"
+          ) {
             if (data.feePayments && data.feePayments.length > 0) {
               // Phase A (owner decision #1, 2026-08-06): operator-chosen fee
               // legs — split allowed, any real tender method including
@@ -3981,6 +4192,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // Creation path: this row's own stamp (see the RECEIVE site above).
             commissionModel,
             commission,
+            // D1 trace (OWNER_NOTES_2026-09-21.md §2b, matrix rows 1/2/4):
+            // this is the ONE shared booking site for walk-in, THROUGH-
+            // partner (LIRA-124 removed the `!skipSystemDrawer` gate that
+            // used to route THROUGH differently) AND session-basket RECEIVE
+            // (deferPayment does not skip this block — only the customer-
+            // cash legs above are skipped for a basket item) — so stamping
+            // `receiveFeeModel` here fixes all three cases at once: a
+            // cutover row owes the full principal regardless of whether a
+            // fee was ever collected in cash.
+            receiveFeeModel,
           });
 
           // Ledger entry_type (C5 prepaid-units model):
@@ -4518,7 +4739,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   // getColumns() fix, since it's a separate hand-written column list (rule
   // 14 — same underlying "is this row refunded" fact, kept in sync here).
   private getSaleCostSettleColumns(): string {
-    return `id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, is_refunded, refunded_at, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
+    return `id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, receive_fee_model, is_refunded, refunded_at, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
   }
 
   /**

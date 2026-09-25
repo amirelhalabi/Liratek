@@ -52,3 +52,30 @@ export const idSchema = z.number().int().positive();
 
 /** Optional ISO datetime for backdating transactions. */
 export const transactionTimeSchema = z.string().datetime().optional();
+
+/**
+ * A `YYYY-MM-DD` CLIENT local calendar day — REQUIRED shape. This is the one
+ * definition of the regex (rule 14); every other client-day schema in the
+ * codebase (this file's own `clientDayInputSchema` below, and
+ * `validators/closing.ts`'s `localDaySchema`, which LIRA-219 extracted
+ * separately before this dedup) derives from it rather than repeating the
+ * pattern. Not itself optional — wrap with `.optional()` at the point of use
+ * (as `clientDayInputSchema` does immediately below) when a caller may omit
+ * the day and fall back to `clientDay()`/`localDay()` server-side.
+ */
+export const localDayFormatSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format");
+
+/**
+ * The CLIENT's own local calendar day (`YYYY-MM-DD`) for ANY request-path
+ * query whose answer depends on "what day is it for the shop" (CLAUDE.md
+ * rule 27) — e.g. a rolling-window report's end day. Same shape as the
+ * per-module `client_day` fields already hand-written in
+ * `validators/recharge.ts`/`validators/financial.ts` (not centralized
+ * retroactively here — out of scope for this change), but a NEW caller
+ * should reuse this one instead of pasting a third copy of the regex (rule
+ * 14). Optional; the caller falls back to `clientDay()`/`localDay()`
+ * (`utils/requestDay.ts`) when omitted.
+ */
+export const clientDayInputSchema = localDayFormatSchema.optional();

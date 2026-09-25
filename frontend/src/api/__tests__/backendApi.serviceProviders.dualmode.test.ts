@@ -7,6 +7,8 @@
  *   `providers` array to the same raw shape the IPC handler returns.
  */
 
+export {}; // module scope: keeps helpers like okJson file-local (TS2393)
+
 // Named distinctly from backendApi.dualmode.test.ts's own `okJson` helper —
 // this file has no top-level import/export, so TS treats it as a global
 // script; two same-named top-level `function`s across such files collide

@@ -22,16 +22,19 @@ import {
   revokeProfitsUnlock,
 } from "../middleware/profitsUnlock.js";
 import { profitsUnlockLimiter } from "../middleware/rateLimit.js";
-import { validateRequest } from "../middleware/validation.js";
+import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
 import {
   getProfitService,
   getProfitsAccessService,
+  getCommissionsReportService,
   localDay,
   localDaysAgo,
   PROFITS_PASSWORD_SETTING_KEY,
   SetProfitsPasswordSchema,
   UnlockProfitsSchema,
+  commissionsReportQuerySchema,
+  moduleDetailQuerySchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
 
@@ -258,6 +261,70 @@ router.get("/pending", async (req, res) => {
       .json({ success: false, error: "Failed to get pending profit" });
   }
 });
+
+// GET /api/profits/module-detail?module=...&from=...&to=... — the By Module
+// drill-down's "Show transactions" list (2026-09-24,
+// OWNER_NOTES_REMAINING_BUILD.md #14 slice 2). Mounted below
+// requireProfitsUnlock like every other data route above — cost prices are
+// visible here too, same gate, no new decision needed.
+router.get(
+  "/module-detail",
+  validateQuery(moduleDetailQuerySchema),
+  async (req, res) => {
+    try {
+      const moduleKey = req.query.module as string;
+      const from = (req.query.from as string) || todayISO();
+      const to = (req.query.to as string) || todayISO();
+      const data = getProfitService().getModuleDetail(moduleKey, from, to);
+      res.json({ success: true, data });
+    } catch (error) {
+      logger.error({ error }, "Profits module-detail error");
+      // PROF-DD-FIX (review round, m3) — rule 19c: REST answers the IPC-
+      // identical envelope, HTTP 200 even on failure, so the adapter can
+      // branch on `result.success` alone. This route used to answer 500,
+      // which made `requestJson` reject BEFORE the adapter's own
+      // `!res.success` check ever ran (see backendApi.ts's own "LC-2
+      // precedent" comment on `getProfitModuleDetail`, which already
+      // documented the 200 contract this code didn't follow) — silently
+      // wrapping the service's own controlled "not built yet" (slice 3)
+      // message in a generic network-error shape instead of surfacing it.
+      // `getModuleDetail` only ever throws its own deliberate Error (an
+      // unsupported module key) or lets an unexpected DB error propagate;
+      // the latter's raw message could leak SQL text to the browser, so
+      // only a recognised, deliberately-thrown Error's message is passed
+      // through — anything else gets a generic message.
+      const message =
+        error instanceof Error &&
+        error.message.includes("No transaction-level detail is available")
+          ? error.message
+          : "Failed to get profit module detail";
+      res.json({ success: false, error: message });
+    }
+  },
+);
+
+// GET /api/profits/commissions?from=...&to=... — Commissions tab
+// (OWNER_NOTES_2026-09-21.md §6, lane LC). A NEW read path, separate from
+// the pre-existing `GET /api/services/analytics` / `GET
+// /api/suppliers/unsettled-summary` routes those keep serving the
+// Services/Recharge pages unchanged (PA-4.20).
+router.get(
+  "/commissions",
+  validateQuery(commissionsReportQuerySchema),
+  async (req, res) => {
+    try {
+      const from = (req.query.from as string) || todayISO();
+      const to = (req.query.to as string) || todayISO();
+      const data = getCommissionsReportService().getReport(from, to);
+      res.json({ success: true, data });
+    } catch (error) {
+      logger.error({ error }, "Profits commissions error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to get commissions report" });
+    }
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Helpers

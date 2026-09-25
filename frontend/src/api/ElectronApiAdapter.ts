@@ -12,6 +12,9 @@ import type {
   CreateUserInput,
   SupplierAccountLinkInput,
   TopUpFromClientInput,
+  DailyStatsSnapshotQuery,
+  HoldMoneyCreateInput,
+  HoldMoneyCollectInput,
 } from "@liratek/core";
 import * as api from "./backendApi";
 
@@ -193,13 +196,19 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Dashboard
   // ---------------------------------------------------------------------------
   getDashboardStats = () => api.getDashboardStats();
-  getProfitSalesChart = (type: "Sales" | "Profit") =>
-    api.getProfitSalesChart(type);
+  getProfitSalesChart = (type: "Sales" | "Profit", clientDay?: string) =>
+    clientDay === undefined
+      ? api.getProfitSalesChart(type)
+      : api.getProfitSalesChart(type, clientDay);
   getTodaysSales = (date?: string) => api.getTodaysSales(date);
   getDrawerBalances = () => api.getDrawerBalances();
   getDebtSummary = () => api.getDebtSummary();
   getInventoryStockStats = () => api.getInventoryStockStats();
-  getMonthlyPL = (month: string) => api.getMonthlyPL(month);
+  /** DC-11 — "Net Profit — last 30 days" tile. */
+  getNetProfitLast30Days = (clientDay?: string) =>
+    clientDay === undefined
+      ? api.getNetProfitLast30Days()
+      : api.getNetProfitLast30Days(clientDay);
   getDrawerNames = () => api.getDrawerNames();
 
   // ---------------------------------------------------------------------------
@@ -314,7 +323,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   getSystemExpectedBalancesDynamic = () =>
     api.getSystemExpectedBalancesDynamic();
   hasOpeningBalanceToday = (day?: string) => api.hasOpeningBalanceToday(day);
-  getDailyStatsSnapshot = () => api.getDailyStatsSnapshot();
+  getDailyStatsSnapshot = (input?: DailyStatsSnapshotQuery) =>
+    api.getDailyStatsSnapshot(input);
   recalculateDrawerBalances = () => api.recalculateDrawerBalances();
   updateDailyClosing = (id: number, data: any) =>
     api.updateDailyClosing(id, data);
@@ -410,6 +420,10 @@ export class ElectronApiAdapter implements ApiAdapter {
         amount: number;
         direction?: "IN" | "OUT";
       }>;
+      /** LIRA-203 — pay MORE than `selections` net to; the difference is
+       *  booked as a standalone account credit (direction: "PAY" only). */
+      surplus_usd?: number;
+      surplus_lbp?: number;
     },
   ) => api.settleSupplierAccount(accountSupplierId, data);
   // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
@@ -481,6 +495,13 @@ export class ElectronApiAdapter implements ApiAdapter {
     unitExtras?: api.RefundUnitExtraOverride[],
   ) => api.refundTransaction(id, refundLegs, unitExtras);
   voidCheckoutGroup = (groupId: string) => api.voidCheckoutGroup(groupId);
+  /** LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — whole-basket
+   *  void/refund, replacing the "Basket item — see admin to reverse" dead
+   *  end. Mirrors voidCheckoutGroup immediately above (rule 14). */
+  voidSessionBasket = (sessionId: number) =>
+    api.voidSessionBasket(sessionId);
+  refundSessionBasket = (sessionId: number) =>
+    api.refundSessionBasket(sessionId);
   getTransactionDailySummary = (date: string) =>
     api.getTransactionDailySummary(date);
   getDebtAging = (clientId: number) => api.getDebtAging(clientId);
@@ -518,8 +539,14 @@ export class ElectronApiAdapter implements ApiAdapter {
   lockProfits = () => api.lockProfits();
   getProfitByClient = (from: string, to: string, limit?: number) =>
     api.getProfitByClient(from, to, limit);
+  // PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the
+  // By Module drill-down's "Show transactions" list.
+  getProfitModuleDetail = (moduleKey: string, from: string, to: string) =>
+    api.getProfitModuleDetail(moduleKey, from, to);
   getPendingProfit = (from: string, to: string) =>
     api.getPendingProfit(from, to);
+  getProfitsCommissions = (from: string, to: string) =>
+    api.getProfitsCommissions(from, to);
 
   // ---------------------------------------------------------------------------
   // Reports / Backup
@@ -621,6 +648,12 @@ export class ElectronApiAdapter implements ApiAdapter {
     expectedCurrentCredits?: number;
     note?: string;
   }) => api.recordCarrierLineUsage(data);
+  /** v184 (#28, LIRA-218): the "days still to send" list. */
+  getPendingCarrierLineOwedDeliveries = () =>
+    api.getPendingCarrierLineOwedDeliveries();
+  /** v184 (#28): mark a pending delivery as physically sent. */
+  markCarrierLineOwedDeliverySent = (deliveryId: number) =>
+    api.markCarrierLineOwedDeliverySent(deliveryId);
 
   // ---------------------------------------------------------------------------
   // Mobile Service Items — admin (LIRA W6.b) + LIRA-090
@@ -767,15 +800,10 @@ export class ElectronApiAdapter implements ApiAdapter {
     list: (filter?: { status?: "held" | "collected" }) =>
       api.holdMoneyList(filter),
     active: () => api.holdMoneyActive(),
-    create: (data: {
-      client_name: string;
-      phone_number?: string;
-      usd_amount?: number;
-      lbp_amount?: number;
-      notes?: string;
-      transaction_time?: string;
-    }) => api.holdMoneyCreate(data),
-    collect: (id: number) => api.holdMoneyCollect(id),
+    create: (data: HoldMoneyCreateInput) => api.holdMoneyCreate(data),
+    pickups: (holdMoneyId: number) => api.holdMoneyPickups(holdMoneyId),
+    collect: (data: HoldMoneyCollectInput) => api.holdMoneyCollect(data),
+    voidPickup: (pickupId: number) => api.holdMoneyVoidPickup(pickupId),
   };
 
   // Nested namespace mirroring window.api.servicePresets (dual-mode IPC/REST).
@@ -1077,6 +1105,10 @@ export class ElectronApiAdapter implements ApiAdapter {
     /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
      *  service and we owe them the cost instead. */
     partnerMode?: "FOR" | "VIA";
+    /** OWNER_NOTES_REMAINING_BUILD.md #16 — "OUT" is a payout (Via-Partner
+     *  only): cash leaves the General drawer to a local recipient instead
+     *  of a customer paying the shop. Omitted/"IN" is the existing flow. */
+    direction?: "IN" | "OUT";
     /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
      *  operator picked a product from the inventory SearchBar; decrements 1
      *  unit of stock. */

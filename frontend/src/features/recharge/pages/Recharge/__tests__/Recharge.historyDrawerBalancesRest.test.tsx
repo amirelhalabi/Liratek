@@ -84,6 +84,10 @@ const mockApi = {
   processRecharge: mockProcessRecharge,
   addOMTTransaction: jest.fn().mockResolvedValue({ success: true }),
   getPrimaryCarrierLine: mockGetPrimaryCarrierLine,
+  // Owner note #21 (migration v182): the page's own shop-line detection now
+  // fetches every active line, not just the primary one — mocked here too
+  // so that (caught, harmless) fetch doesn't log noise on mount.
+  getActiveCarrierLines: jest.fn().mockResolvedValue([]),
   getRechargeHistory: mockGetRechargeHistory,
   getRechargeDrawerBalances: mockGetRechargeDrawerBalances,
 };

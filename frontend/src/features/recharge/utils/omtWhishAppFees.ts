@@ -34,9 +34,12 @@ export interface OmtWhishAppFeeResult {
   autoFee: number;
   providerFee: number;
   /** True for RECEIVE on either app-wallet provider (OMT App or Whish App) —
-   *  both keep the ENTIRE fee as profit and split wallet-inflow vs. cash-payout
-   *  the same way (LEFT_TO_DO.md "C4/C5 app-transfer fee split", decided
-   *  2026-07-04: the fee is fully the shop's for both providers). */
+   *  structurally both still split wallet-inflow vs. cash-payout the same way
+   *  (LEFT_TO_DO.md "C4/C5 app-transfer fee split", decided 2026-07-04). D1
+   *  (2026-09-23) narrows the FEE side only: OMT App RECEIVE's providerFee/
+   *  shopProfit are now forced to 0 above, so wallet-inflow and cash-payout
+   *  collapse to the same bare entered amount for it — this flag itself is
+   *  unaffected and stays true for both providers on RECEIVE. */
   isAppWalletReceive: boolean;
   /** The amount sent to the API as `data.amount` — for an app-wallet RECEIVE
    *  this is the GROSS wallet inflow, not the cash the customer receives. */
@@ -68,14 +71,30 @@ export function calculateOmtWhishAppFees({
   includingFees,
   feeCollectedSeparately = false,
 }: OmtWhishAppFeeInputs): OmtWhishAppFeeResult {
+  // D1 (owner decision, 2026-09-23, supersedes the lira-101 "mirrors Whish
+  // App" contract for this one combination): OMT App RECEIVE has no fee at
+  // all, for now. SEND is unaffected on both providers, and Whish App
+  // RECEIVE keeps its existing full-fee-as-profit model unchanged. Forced
+  // here — the single place this math lives (rule 14) — rather than relying
+  // on the form to simply not render the fee input, so a stale `manualFee`
+  // left over from switching away from OMT App SEND (or from Whish App
+  // RECEIVE) can never leak into the wallet/payout/profit figures.
+  const omtAppReceiveHasNoFee =
+    activeProvider === "OMT_APP" && serviceType === "RECEIVE";
+
   const autoFee =
+    !omtAppReceiveHasNoFee &&
     activeProvider === "WHISH_APP" &&
     serviceType === "RECEIVE" &&
     currency === "USD" &&
     parsedAmount > 0
       ? parsedAmount * 0.01
       : 0;
-  const providerFee = manualFee !== "" ? parseFloat(manualFee) || 0 : autoFee;
+  const providerFee = omtAppReceiveHasNoFee
+    ? 0
+    : manualFee !== ""
+      ? parseFloat(manualFee) || 0
+      : autoFee;
 
   const isAppWalletReceive = serviceType === "RECEIVE"; // both OMT_APP and WHISH_APP reach this form
 

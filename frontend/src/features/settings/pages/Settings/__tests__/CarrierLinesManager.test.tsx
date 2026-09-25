@@ -37,6 +37,7 @@ const EXISTING_LINE: CarrierLineEntity = {
   label: "Line A",
   credits: 10,
   validity_expires_at: "2026-08-01",
+  days_owed: 0,
   notes: null,
   is_active: 1,
   is_primary: 0,

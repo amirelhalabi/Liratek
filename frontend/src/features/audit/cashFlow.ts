@@ -99,6 +99,26 @@ export function getCashFlowDirection(
       }
       return "in";
     }
+    // OWNER_NOTES_REMAINING_BUILD.md #16 — a Via-Partner custom service can
+    // be a payout (the Syria "Pay out" flow): cash leaves the General
+    // drawer to a local recipient instead of a customer paying the shop.
+    // CustomServiceRepository stamps `metadata_json.direction` on every row
+    // ("OUT" for a payout, "IN" for everything else — no counter/for-partner
+    // service, or the ordinary Via-Partner IN flow) precisely so this badge
+    // doesn't have to re-derive direction from cost/price sign or partner
+    // mode. Absent/malformed metadata (every pre-v185 row) falls through to
+    // "in" — the type's old fixed answer, unchanged.
+    case "CUSTOM_SERVICE": {
+      if (metaJson) {
+        try {
+          const m = JSON.parse(metaJson) as { direction?: string };
+          if (m.direction === "OUT") return "out";
+        } catch {
+          /* fall through to default "in" */
+        }
+      }
+      return "in";
+    }
     // RECHARGE_TOPUP covers four funding/destination shapes (Top-Up
     // Cash-Flow Direction Audit, TOPUP_CASHFLOW_DIRECTION_AUDIT.md — owner-
     // approved rule: "in" when no cash-equivalent drawer is actually

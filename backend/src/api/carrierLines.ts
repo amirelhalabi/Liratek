@@ -6,6 +6,7 @@ import {
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
   recordCarrierLineUsageSchema,
+  markCarrierLineOwedDeliverySentSchema,
 } from "@liratek/core";
 import type { RecordCarrierLineUsageInput } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
@@ -87,6 +88,74 @@ router.get("/", requireRole(["admin"]), (_req, res): void => {
     res.status(500).json({ success: false, error: "Failed to get lines" });
   }
 });
+
+// GET /api/carrier-lines/owed-deliveries/pending — v184 (#28, LIRA-218) the
+// "days still to send" list: every PENDING delivery, across every line.
+// Read-only, no role gate. STATIC path, registered before any `/:id` route.
+router.get("/owed-deliveries/pending", (_req, res): void => {
+  try {
+    const service = getCarrierLineService();
+    const result = service.getPendingOwedDeliveries();
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, "Get pending carrier line owed deliveries error");
+    res.status(500).json({ success: false, error: "Failed to get deliveries" });
+  }
+});
+
+// POST /api/carrier-lines/owed-deliveries/:id/mark-sent (admin/staff — v184,
+// #28). Pure checklist bookkeeping (CarrierLineOwedDeliveryRepository's
+// module doc): never a second sale, never a second charge, never a
+// `days_owed` write. Roles mirror the IPC channel
+// `carrier-lines:mark-owed-delivery-sent`.
+router.post(
+  "/owed-deliveries/:id/mark-sent",
+  requireRole(["admin", "staff"]),
+  (req, res): void => {
+    // m4 fix (2026-09-24 adversarial review): validated through the SAME
+    // shared schema the IPC handler uses (rule 14), not a hand-rolled
+    // `Number.isFinite` check — the id arrives as a URL path param, not a
+    // body, so `validateRequest` (body-only middleware) does not apply
+    // here; parsed inline instead.
+    const parsed = markCarrierLineOwedDeliverySentSchema.safeParse({
+      deliveryId: Number(req.params.id),
+    });
+    if (!parsed.success) {
+      // Rule 19c: HTTP 200 even on a validation rejection.
+      res.json({
+        success: false,
+        error: parsed.error.issues[0]?.message || "Invalid id",
+      });
+      return;
+    }
+    const { deliveryId } = parsed.data;
+    try {
+      const service = getCarrierLineService();
+      // Actor comes from the verified JWT ONLY — never from the body.
+      const result = service.markOwedDeliverySent(
+        deliveryId,
+        req.user!.userId,
+      );
+      if (result.success && result.data) {
+        auditRest(req, {
+          action: "update",
+          entity_type: "carrier_line",
+          entity_id: String(result.data.carrier_line_id),
+          summary: `Marked ${result.data.days_owed} sold-ahead days sent on carrier line #${result.data.carrier_line_id}`,
+          metadata: {
+            delivery_id: result.data.id,
+            days_owed: result.data.days_owed,
+          },
+        });
+      }
+      // HTTP 200 even on a business rejection (delivery not found) — rule 19c.
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Mark carrier line owed delivery sent error");
+      res.status(500).json({ success: false, error: "Failed to mark sent" });
+    }
+  },
+);
 
 // POST /api/carrier-lines/record-usage (admin/staff — LIRA-145).
 //

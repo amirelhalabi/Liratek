@@ -102,6 +102,7 @@ function createSchema(db: Database.Database): void {
       currency TEXT DEFAULT 'USD',
       commission REAL DEFAULT 0,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       settlement_id INTEGER,
       omt_fee REAL,
       cost REAL DEFAULT 0,
@@ -487,9 +488,18 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
   describe("Group 1 (sites #11 + #14) — financial_services BASE arm: getFinancialSettledByProvider + getByDate daily_commissions, both weighted by partnerCoverageRatio('financial_services','fs.id')", () => {
     it("0% / 50% / 100% partner coverage recognises 0 / half / full revenue+profit; count only at ratio > 0", () => {
       // Three providers (isolate getFinancialSettledByProvider's GROUP BY provider)
-      // on three distinct dates (isolate getByDate's GROUP BY day).
+      // on three distinct dates (isolate getByDate's GROUP BY day). Real
+      // COMMISSION_PROVIDERS codes (LO-V2, round 2 adversarial review):
+      // getFinancialSettledByProvider now restricts its base arm to the
+      // known provider set (fsProviderRowRecognized) so a provider outside
+      // it is excluded the same way the Overview already excludes it — this
+      // fixture's ORIGINAL placeholder labels ("P0"/"P50"/"P100") were never
+      // meant to model provider identity (only to isolate GROUP BY provider,
+      // unrelated to what this test actually verifies: partner-coverage
+      // weighting), so they are renamed to real codes here, not exempted
+      // from the gate.
       const fs0 = seedFs(db, {
-        provider: "P0",
+        provider: "OMT",
         amount: 100,
         cost: 0,
         createdAt: "2026-07-05 12:00:00",
@@ -504,7 +514,7 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
       );
 
       const fs50 = seedFs(db, {
-        provider: "P50",
+        provider: "WHISH",
         amount: 100,
         cost: 0,
         createdAt: "2026-07-10 12:00:00",
@@ -519,7 +529,7 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
       );
 
       const fs100 = seedFs(db, {
-        provider: "P100",
+        provider: "OMT_APP",
         amount: 100,
         cost: 0,
         createdAt: "2026-07-15 12:00:00",
@@ -536,9 +546,9 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
       const rows = runWithTenant(1, () =>
         repo.getFinancialSettledByProvider(FROM, TO),
       );
-      const p0 = rows.find((r) => r.provider === "P0");
-      const p50 = rows.find((r) => r.provider === "P50");
-      const p100 = rows.find((r) => r.provider === "P100");
+      const p0 = rows.find((r) => r.provider === "OMT");
+      const p50 = rows.find((r) => r.provider === "WHISH");
+      const p100 = rows.find((r) => r.provider === "OMT_APP");
 
       expect(p0?.revenue_usd ?? 0).toBe(0);
       expect(p0?.profit_usd ?? 0).toBe(0);

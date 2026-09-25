@@ -27,6 +27,7 @@ describe("salesHandlers registration", () => {
       "sales:get-dashboard-stats",
       "dashboard:get-drawer-balances",
       "dashboard:get-profit-sales-chart",
+      "dashboard:get-net-profit-last-30-days",
       "sales:get-drafts",
       "sales:get-todays-sales",
       "sales:get-top-products",

@@ -129,7 +129,8 @@ function createTestDb(): Database.Database {
       paid_currency         TEXT DEFAULT NULL,
       partner_id            INTEGER,
       partner_mode          TEXT,
-      commission_model      INTEGER NOT NULL DEFAULT 0,
+      commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       is_refunded           INTEGER DEFAULT 0,
       refunded_at           TEXT DEFAULT NULL
     );
@@ -250,6 +251,7 @@ function createTestDb(): Database.Database {
       label               TEXT,
       credits             REAL NOT NULL DEFAULT 0,
       validity_expires_at TEXT,
+      days_owed           INTEGER NOT NULL DEFAULT 0,
       notes               TEXT,
       is_active           INTEGER NOT NULL DEFAULT 1,
       is_primary          INTEGER NOT NULL DEFAULT 0,
@@ -268,6 +270,8 @@ function createTestDb(): Database.Database {
       credits_delta                 REAL NOT NULL DEFAULT 0,
       validity_days_delta           INTEGER NOT NULL DEFAULT 0,
       previous_validity_expires_at  TEXT,
+      days_owed_delta               INTEGER NOT NULL DEFAULT 0,
+      previous_days_owed            INTEGER NOT NULL DEFAULT 0,
       reason                        TEXT NOT NULL,
       is_reversed                   INTEGER NOT NULL DEFAULT 0,
       created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP,

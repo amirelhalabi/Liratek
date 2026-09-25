@@ -4,11 +4,17 @@
  * review) must gate EVERY reporting read of the `expenses` table, not just
  * `ProfitRepository.getExpenseTotals` (which already had it).
  *
- * VERIFIED BUG (pre-fix): both `ClosingRepository.getDailyStatsSnapshot()`
- * and `FinancialRepository.getMonthlyPL()` summed the `expenses` table with
- * NO active/refunded gate at all — every voided or refunded expense stayed
- * in the closing snapshot and the monthly P&L forever, even after its drawer
- * leg had already been given back by the generic void path (rule 20).
+ * VERIFIED BUG (pre-fix): `ClosingRepository.getDailyStatsSnapshot()`
+ * (renamed `getDailyActivityStats(day)` under LIRA-219, which moved all
+ * profit SQL out of this repository — see `ClosingService
+ * .profitParity.test.ts` — but kept its own expense query, still gated the
+ * same way) summed the `expenses` table with NO active/refunded gate at
+ * all — every voided or refunded expense stayed in the closing snapshot
+ * forever, even after its drawer leg had already been given back by the
+ * generic void path (rule 20). `FinancialRepository.getMonthlyPL()` had the
+ * identical bug and was ALSO covered here; it was deleted as dead code
+ * (DAY-2, OWNER_NOTES_2026-09-21.md:1051 — no product/UI caller ever read
+ * it), taking its half of this file with it.
  *
  * An expense can be undone through TWO different doors, each flipping a
  * DIFFERENT column, so both must be exercised:
@@ -40,7 +46,6 @@ import {
   ClosingRepository,
   resetClosingRepository,
 } from "../ClosingRepository.js";
-import { FinancialRepository } from "../FinancialRepository.js";
 import { resetProfitRepository } from "../ProfitRepository.js";
 import {
   initFixedTenantContext,
@@ -115,10 +120,10 @@ function createTestDb(): Database.Database {
       -- LIRA-159: required by ProfitRepository's notDebtPending (DBT-1),
       -- read unconditionally by getRealizedCommissionTotals AND
       -- allocationNotDebtPending (getSupplierCommissionTotals's cashless
-      -- bucket) — both now reachable via FinancialRepository.getMonthlyPL's
-      -- composed commission arms. Left at their DEFAULT 0 everywhere in this
-      -- file (no row is ever inserted here), so the NOT EXISTS gate passes
-      -- every row unchanged.
+      -- bucket) — left over from when this fixture also exercised
+      -- FinancialRepository.getMonthlyPL (deleted, DAY-2). Left at their
+      -- DEFAULT 0 everywhere in this file (no row is ever inserted here),
+      -- so the NOT EXISTS gate passes every row unchanged.
       covered_usd      REAL NOT NULL DEFAULT 0,
       covered_lbp      REAL NOT NULL DEFAULT 0,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
@@ -126,10 +131,11 @@ function createTestDb(): Database.Database {
 
     -- LIRA-159: required (even empty) by ProfitRepository's notPartnerPending
     -- (PFT-6), read unconditionally by getRealizedCommissionTotals AND
-    -- getSupplierCommissionTotals's cashless bucket — both now reachable via
-    -- FinancialRepository.getMonthlyPL's composed commission arms. This
-    -- table did not exist at all in this fixture before; every test in this
-    -- file leaves it empty, so the NOT EXISTS gate passes every row.
+    -- getSupplierCommissionTotals's cashless bucket — left over from when
+    -- this fixture also exercised FinancialRepository.getMonthlyPL (deleted,
+    -- DAY-2). This table did not exist at all in this fixture before; every
+    -- test in this file leaves it empty, so the NOT EXISTS gate passes every
+    -- row.
     --
     -- NOT actually empty at runtime, though: this file's own
     -- seedThreeExpenses() drives TransactionRepository.voidTransaction
@@ -179,9 +185,9 @@ function createTestDb(): Database.Database {
     );
 
     -- Minimal empty fixtures for the OTHER modules
-    -- ClosingRepository.getDailyStatsSnapshot / FinancialRepository.getMonthlyPL
-    -- aggregate — every test in this file leaves them empty, so each module's
-    -- own contribution is always 0 and only the expenses figure is exercised.
+    -- ClosingRepository.getDailyStatsSnapshot aggregates — every test in
+    -- this file leaves them empty, so each module's own contribution is
+    -- always 0 and only the expenses figure is exercised.
     CREATE TABLE sales (
       id                     INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id              INTEGER DEFAULT 1,
@@ -212,10 +218,10 @@ function createTestDb(): Database.Database {
       commission   REAL NOT NULL DEFAULT 0,
       -- LIRA-159: required by getRealizedCommissionTotals's unconditional
       -- WHERE fs.is_settled = 1 (unlike commission_model, this column has
-      -- no schema-drift PRAGMA guard) — now reachable via
-      -- FinancialRepository.getMonthlyPL's composed commission arms. No row
-      -- is ever inserted into this table in this file, so the DEFAULT is
-      -- never exercised either way.
+      -- no schema-drift PRAGMA guard) — left over from when this fixture
+      -- also exercised FinancialRepository.getMonthlyPL (deleted, DAY-2). No
+      -- row is ever inserted into this table in this file, so the DEFAULT
+      -- is never exercised either way.
       is_settled   INTEGER NOT NULL DEFAULT 1,
       is_refunded  INTEGER DEFAULT 0,
       created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -288,20 +294,23 @@ function createTestDb(): Database.Database {
   return db;
 }
 
-describe("Expense active-gate (rule 14 / rule 20) — Closing + Financial reporting", () => {
+describe("Expense active-gate (rule 14 / rule 20) — Closing reporting", () => {
   let db: Database.Database;
   let expenseRepo: ExpenseRepository;
   let txnRepo: TransactionRepository;
   let closingRepo: ClosingRepository;
-  let financialRepo: FinancialRepository;
 
-  /** A real "now" so every date-bucketed query (`todayLocal`, the
-   *  `strftime('%Y-%m', ...)` month bucket) sees the same calendar day/month
-   *  — TZ is pinned to Asia/Beirut by the jest script, and Node's own Date
-   *  getters respect that, matching SQLite's own `'localtime'` modifier. */
+  /** A real "now" so every date-bucketed query (`todayLocal`) sees the same
+   *  calendar day — TZ is pinned to Asia/Beirut by the jest script, and
+   *  Node's own Date getters respect that, matching SQLite's own
+   *  `'localtime'` modifier. */
   const NOW = new Date();
   const TODAY_ISO = NOW.toISOString();
-  const THIS_MONTH = `${NOW.getFullYear()}-${String(NOW.getMonth() + 1).padStart(2, "0")}`;
+  // LIRA-219: `ClosingRepository.getDailyActivityStats` now takes `day`
+  // explicitly instead of asking SQLite for `DATE('now','localtime')`
+  // itself — this is the same local calendar day, built from the same
+  // TZ-pinned `NOW` the rest of this file already uses.
+  const TODAY_DAY = `${NOW.getFullYear()}-${String(NOW.getMonth() + 1).padStart(2, "0")}-${String(NOW.getDate()).padStart(2, "0")}`;
 
   beforeEach(() => {
     db = createTestDb();
@@ -312,17 +321,14 @@ describe("Expense active-gate (rule 14 / rule 20) — Closing + Financial report
     resetExpenseRepository();
     resetTransactionRepository();
     resetClosingRepository();
-    // LIRA-159: FinancialRepository.getMonthlyPL now calls the
-    // ProfitRepository SINGLETON (getProfitRepository()) for its composed
-    // commission arms, and that singleton's schema probes are memoized PER
-    // INSTANCE — reset it alongside the other singletons above so it is
-    // always (re)constructed against THIS test's fresh db, never a stale
-    // instance left over from another test/file.
+    // ProfitRepository is a SINGLETON (getProfitRepository()) whose schema
+    // probes are memoized PER INSTANCE — reset it alongside the other
+    // singletons above so it is always (re)constructed against THIS test's
+    // fresh db, never a stale instance left over from another test/file.
     resetProfitRepository();
     expenseRepo = new ExpenseRepository();
     txnRepo = new TransactionRepository();
     closingRepo = new ClosingRepository();
-    financialRepo = new FinancialRepository();
   });
 
   afterEach(() => {
@@ -400,10 +406,10 @@ describe("Expense active-gate (rule 14 / rule 20) — Closing + Financial report
     return { activeId, voidedId, refundedId };
   }
 
-  it("ClosingRepository.getDailyStatsSnapshot excludes a status='voided' expense AND an is_refunded=1 expense, while still counting a plain active one", () => {
+  it("ClosingRepository.getDailyActivityStats excludes a status='voided' expense AND an is_refunded=1 expense, while still counting a plain active one", () => {
     seedThreeExpenses({ activeUsd: 10, voidedUsd: 20, refundedUsd: 30 });
 
-    const snapshot = closingRepo.getDailyStatsSnapshot();
+    const snapshot = closingRepo.getDailyActivityStats(TODAY_DAY);
 
     expect(snapshot.totalExpensesUSD).toBe(10);
     expect(snapshot.totalExpensesLBP).toBe(0);
@@ -422,25 +428,5 @@ describe("Expense active-gate (rule 14 / rule 20) — Closing + Financial report
     const refundedRow = expenseRepo.getExpenseById(refundedId)!;
     expect(refundedRow.status).toBe("active");
     expect(refundedRow.is_refunded).toBe(1);
-  });
-
-  it("FinancialRepository.getMonthlyPL excludes a status='voided' expense AND an is_refunded=1 expense from expensesUSD/expensesLBP and netProfitUSD", () => {
-    seedThreeExpenses({
-      activeUsd: 15,
-      voidedUsd: 25,
-      refundedUsd: 35,
-      activeLbp: 150_000,
-      voidedLbp: 250_000,
-      refundedLbp: 350_000,
-    });
-
-    const pl = financialRepo.getMonthlyPL(THIS_MONTH);
-
-    expect(pl.expensesUSD).toBe(15);
-    expect(pl.expensesLBP).toBe(150_000);
-    // netProfitUSD = salesProfit(0) + commissionUSD(0) - expensesUSD(15)
-    expect(pl.netProfitUSD).toBe(-15);
-    // netProfitLBP = commissionLBP(0) - expensesLBP(150000)
-    expect(pl.netProfitLBP).toBe(-150_000);
   });
 });

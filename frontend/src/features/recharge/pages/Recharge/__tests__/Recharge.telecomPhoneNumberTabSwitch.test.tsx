@@ -1,6 +1,9 @@
 /** @jest-environment jsdom */
 
 /**
+ * NOT RUN — proven at the end-of-batch gate. Updated for owner note #21
+ * (migration v182): `getPrimaryCarrierLine` → `getActiveCarrierLines`.
+ *
  * Recharge page — switching AWAY from the Credit tab must clear the shared
  * `phoneNumber` state (review finding #2, CARRIER_LINES_VALIDITY_PLAN.md
  * Phase 6 follow-up).
@@ -44,9 +47,11 @@ const mockGetOMTAnalytics = jest.fn().mockResolvedValue({
   byProvider: [],
 });
 const mockGetClients = jest.fn().mockResolvedValue([]);
-const mockGetPrimaryCarrierLine = jest.fn().mockResolvedValue({
-  success: true,
-  data: {
+// Owner note #21 (migration v182): the page now widens shop-line detection
+// from the single primary line to EVERY active line for the carrier —
+// `getActiveCarrierLines` replaces the old `getPrimaryCarrierLine` fetch.
+const mockGetActiveCarrierLines = jest.fn().mockResolvedValue([
+  {
     id: 1,
     carrier: "mtc",
     phone_number: "70123456",
@@ -55,7 +60,7 @@ const mockGetPrimaryCarrierLine = jest.fn().mockResolvedValue({
     is_active: 1,
     is_primary: 1,
   },
-});
+]);
 const mockProcessRecharge = jest.fn().mockResolvedValue({ success: true });
 
 jest.mock("@liratek/ui", () => ({
@@ -67,7 +72,7 @@ jest.mock("@liratek/ui", () => ({
     getClients: mockGetClients,
     processRecharge: mockProcessRecharge,
     addOMTTransaction: jest.fn().mockResolvedValue({ success: true }),
-    getPrimaryCarrierLine: mockGetPrimaryCarrierLine,
+    getActiveCarrierLines: mockGetActiveCarrierLines,
   }),
 }));
 
@@ -194,8 +199,8 @@ async function renderPage() {
   await waitFor(() => expect(mockGetAllSettings).toHaveBeenCalled());
   await screen.findByTestId("stub-telecom-form");
   // Default activeProvider is MTC (PROVIDER_CONFIGS[0]) — wait for the
-  // primary-line fetch this drives so `isShopLineMatch` is ready to flip.
-  await waitFor(() => expect(mockGetPrimaryCarrierLine).toHaveBeenCalled());
+  // active-lines fetch this drives so `isShopLineMatch` is ready to flip.
+  await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 }
 
 describe("Recharge page — tab switch clears the stale Credit-tab phoneNumber (review finding #2)", () => {

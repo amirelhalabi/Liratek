@@ -1,34 +1,30 @@
 /** @jest-environment jsdom */
 
 /**
- * Services page — a session-basket OMT/WHISH RECEIVE fee-on-top
- * (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.5/§4 Phase F).
+ * Services page — a session-basket OMT RECEIVE fee
+ * (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.5/§4 Phase F, narrowed by D1).
  *
  * Phase 0 (§2 bug 1, P0) made a session RECEIVE ship `omtFee: 0` — a
  * necessary STOPGAP because the session basket path didn't wire fee
- * collection through yet (the fee would have stamped profit and booked the
- * supplier ledger for a fee no drawer ever received). Phase F replaces that
- * stopgap with REAL wiring: `splitBasketCashSides` (binanceCart.ts) now pools
- * a fee-on-top RECEIVE's fee into the basket's CHARGE bucket, collected by
- * the pooled session payment lines — so the fee no longer needs to be zeroed
- * out. This file asserts the NEW contract:
+ * collection through yet. Phase F replaced that stopgap with real wiring for
+ * the fee-on-top case: the fee rides through as-entered/resolved and the
+ * cart item's `amount` is the FULL requested payout, the fee collected
+ * separately via the pooled charge bucket (splitBasketCashSides).
  *
- *  1. Fee-on-top (includingFees unchecked, the default): `formData.omtFee`
- *     ships AS ENTERED/resolved (no longer zeroed), and the cart item's
- *     `amount` is the FULL requested payout `-(x)` — the fee is collected
- *     separately, never subtracted from the payout.
- *  2. Fee-included (includingFees checked): `formData.omtFee` +
- *     `formData.includingFees` both ship as entered, and the cart item's
- *     `amount` is the NETTED payout `-(x - f)`.
+ * D1 (owner decision, 2026-09-23) then removed the fee-INCLUDED (deducted)
+ * choice for OMT system RECEIVE entirely — the fee there is informational
+ * only (drives the commission estimate, never the drawer or the payout), so
+ * test 2 below no longer proves a netted `-99` cart amount; it proves the
+ * opposite invariant D1 requires: the toggle is GONE and the payout stays the
+ * full `-100` no matter what fee was typed, even inside a session.
  *
- * rule 17 — proven failing-first against the PRE-Phase-F code: test 1 failed
- * because `formData.omtFee` read `0` (zeroed by the since-removed payload
- * guard) instead of `1`; test 2 failed because the "Fee included in payout"
- * checkbox didn't even render inside a session (gated out by the
- * since-removed `!(serviceType === "RECEIVE" && activeSession)` guard) —
- * `screen.getByTestId("service-including-fees-toggle")` threw
- * "Unable to find an element". Both captured pre-fix by the orchestrator
- * before this update landed.
+ * rule 17 — proven failing-first:
+ *  - Test 1 (fee-on-top) failed pre-Phase-F because `formData.omtFee` read
+ *    `0` (zeroed by the since-removed payload guard) instead of `1` —
+ *    captured pre-fix by the orchestrator before that update landed.
+ *  - Test 2 (D1 "no toggle, full payout") FAILED against the pre-D1 code —
+ *    actually run 2026-09-23 (see the test's own inline note) with D1's
+ *    render/payload gates temporarily reverted.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -231,7 +227,15 @@ describe("Services page — session RECEIVE fee-on-top is REAL (BIDIRECTIONAL_PA
     expect(cartItem.amount).toBe(-100);
   });
 
-  it("fee-included: ships includingFees=true, and the cart amount is the NETTED payout (-$99 = -(100 - 1))", async () => {
+  it("D1: no Including-Fees toggle at all — the cart amount stays the FULL payout (-$100) regardless of the fee typed, even inside a session", async () => {
+    // Actually run 2026-09-23: with the "Including Fees Checkbox" render gate
+    // in Services/index.tsx temporarily reverted to `provider !== "WHISH"`
+    // (pre-D1), `npx jest Services.sessionReceiveFee.test.tsx` FAILED this
+    // test at `fireEvent.click(screen.getByTestId("service-including-fees-toggle"))`
+    // with "Unable to find an element by: [data-testid="service-including-fees-toggle"]"
+    // — i.e. the old test body (asserting a netted -$99) couldn't even reach
+    // its own setup step, because the removed line is gone. Reverting the
+    // revert and re-running: GREEN, both assertions below hold.
     await renderPage();
     switchToOmtReceive();
 
@@ -240,10 +244,9 @@ describe("Services page — session RECEIVE fee-on-top is REAL (BIDIRECTIONAL_PA
       { target: { value: "100" } },
     );
 
-    // This checkbox used to be gated out entirely inside an active session
-    // (`!(serviceType === "RECEIVE" && activeSession)`) — Phase F renders it
-    // unconditionally.
-    fireEvent.click(screen.getByTestId("service-including-fees-toggle"));
+    expect(
+      screen.queryByTestId("service-including-fees-toggle"),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Record Receive/i }));
 
@@ -255,10 +258,9 @@ describe("Services page — session RECEIVE fee-on-top is REAL (BIDIRECTIONAL_PA
     };
 
     expect(cartItem.formData.omtFee).toBe(1);
-    expect(cartItem.formData.includingFees).toBe(true);
-    // Fee-included: the $1 fee is deducted from the $100 requested amount —
-    // the customer receives $99, and there is nothing left to collect
-    // separately.
-    expect(cartItem.amount).toBe(-99);
+    expect(cartItem.formData.includingFees).toBe(false);
+    // D1: the fee never touches the payout — the customer still receives the
+    // FULL requested $100, exactly like the fee-on-top case above.
+    expect(cartItem.amount).toBe(-100);
   });
 });

@@ -14,6 +14,7 @@ import {
 import { salesLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
   applyDrawerDelta,
@@ -225,6 +226,15 @@ export interface RecentSale {
   created_at: string;
 }
 
+/**
+ * One dashboard-chart day. The `usd`/`lbp`/`profit` fields are shared by
+ * BOTH chart types (`SalesRepository.getChartData("Sales")` and
+ * `SalesService.getChartData("Profit", …)`), which is why `lbp` means two
+ * different things depending on which series produced the row: for "Sales"
+ * it's the day's LBP-denominated sales; for "Profit" (DC-10) it's the day's
+ * LBP gross profit — `SalesService.getChartData`'s own doc comment on the
+ * "Profit" branch. `profit` is USD-only (Sales' USD figure lives in `usd`).
+ */
 export interface ChartDataPoint {
   date: string;
   usd?: number;
@@ -248,7 +258,6 @@ type SaleItemWithProductRow = SaleItemEntity & {
 type SumRow = { total_usd: number; total_lbp: number };
 type CountRow = { count: number };
 type DateRow = { date: string };
-type ProfitRow = { profit_date: string; profit: number };
 
 /**
  * Human-readable "what was sold" label built from a sale's resolved line
@@ -1968,31 +1977,100 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
-   * Get chart data for last 30 days - Sales or Profit
+   * Get dashboard chart data for the rolling past 30 days — "Sales" ONLY.
+   *
+   * DC-10 (OWNER_NOTES_2026-09-21.md §7.2) moved the "Profit" series OUT of
+   * this repository entirely: it used to run its own per-unit
+   * `SUM(si.sold_price_usd - si.cost_price_snapshot_usd)` query here — never
+   * × quantity, no discount, no partial refund, no non-product module, no
+   * LBP — a SECOND, divergent profit definition from the Profits page's own
+   * By Date figures (rule 14). `SalesService.getChartData` now composes the
+   * Profit series in the SERVICE layer from `ProfitService.getByDate`
+   * instead (rule 13 — no re-texted profit SQL in a repository). This
+   * method keeps only the "Sales" (product & telecom) series, which DC-1..
+   * DC-4 already fixed and which is unaffected by DC-10.
+   *
+   * Owner decisions (OWNER_NOTES_2026-09-21.md §7, 2026-09-24):
+   *  1. "Sales" = PRODUCT AND TELECOM SALES ONLY (DC-1..DC-4 below), never
+   *     all revenue.
+   *  2. The series covers the rolling past 30 days (today inclusive).
+   *
+   * `endDay` is the SAME client calendar day (`YYYY-MM-DD`) the "Profit"
+   * series windows on (`SalesService.getChartData`, DC-10, rule 27) — that
+   * service method resolves it ONCE (`endDay ?? clientDay()`) and passes the
+   * identical value to both series, so this repository never resolves a
+   * second, independent "today" via SQLite `date('now','localtime')`. On
+   * web, between 00:00 and 03:00 Beirut, the server's own `'now'` is still
+   * the PREVIOUS Beirut day — binding it here (rather than letting SQLite
+   * compute it) is what keeps the Sales and Profit series covering the same
+   * 30 calendar days.
    */
-  getChartData(type: "Sales" | "Profit"): ChartDataPoint[] {
+  getChartData(type: "Sales", endDay: string): ChartDataPoint[] {
     try {
-      // Generate last 30 days
-      const datesResult = this.query<DateRow>(`
+      // Generate the 30 days ending on `endDay` (inclusive).
+      const datesResult = this.query<DateRow>(
+        `
         WITH RECURSIVE dates(date) AS (
-          VALUES(date('now', 'localtime', '-29 days'))
+          VALUES(date(?, '-29 days'))
           UNION ALL
           SELECT date(date, '+1 day')
           FROM dates
-          WHERE date < date('now', 'localtime')
+          WHERE date < date(?)
         )
         SELECT date FROM dates
-      `);
+      `,
+        endDay,
+        endDay,
+      );
       const dates = datesResult.map((r) => r.date);
       const tenantId = getCurrentTenantId();
 
       if (type === "Sales") {
-        // Chart shows USD and LBP transactions from three sources:
-        // - Inventory sales (USD only, from sales table)
-        // - Mobile recharges (MTC/Alfa, USD or LBP, from recharges table)
-        // - Financial services (OMT/WHISH/iPick/Katsh, USD or LBP, from financial_services table)
+        // "Product & telecom sales" (DC-4, OWNER_NOTES_2026-09-21.md §7.1,
+        // owner decision 2026-09-24: "Sales" = product + telecom sales only,
+        // never all revenue). Three sources, each excluding voided/refunded
+        // rows and non-sale money movement:
+        //   - Inventory sales (USD only, from `sales`) — DC-3 subtracts the
+        //     refunded share of an item-refunded (still 'completed') sale.
+        //   - MTC/Alfa telecom recharges (USD or LBP, from `recharges`) —
+        //     DC-1 excludes is_refunded rows; DC-2 excludes TOP_UP (drawer/
+        //     client-wallet top-ups, `price` = credits loaded, not cash
+        //     revenue) and CREDIT_BUYBACK (`price` = cash paid OUT to the
+        //     customer) by joining `transactions` on type = 'RECHARGE' —
+        //     every real customer-facing recharge sale (CREDIT_TRANSFER/
+        //     VOUCHER/DAYS/ALFA_GIFT) is stamped with that type; TOP_UP and
+        //     CREDIT_BUYBACK are stamped RECHARGE_TOPUP / TELECOM_CREDIT_
+        //     BUYBACK respectively (constants/transactionTypes.ts), so this
+        //     join expresses "a real sale" without hand-listing
+        //     recharge_type values that would drift if a new internal type
+        //     is ever added (rule 14 — mirrors the Profits page's own
+        //     `ProfitRepository.getRechargesByCurrency` exclusion).
+        //   - iPick/Katsh/BOB telecom mobile-service ITEM sales (USD or
+        //     LBP, from `financial_services`) — DC-1 excludes is_refunded
+        //     rows; DC-4 restricts to the cost/price "mobile services"
+        //     provider family (`constants/mobileServiceProviders.ts`'s doc
+        //     comment: iPick/Katsh/BOB profit is a MARGIN, never a
+        //     commission — OMT/WHISH/OMT_APP/WHISH_APP/BINANCE are never in
+        //     this family) and excludes service_type = 'BILL' (a bill
+        //     payment is not a telecom item sale). This is narrower than
+        //     `ProfitRepository.getMobileServicesByCurrency`'s "Mobile
+        //     Services" bucket, which deliberately still includes bills —
+        //     a DIFFERENT, broader definition for a different report.
 
-        // Inventory sales (USD only)
+        // Inventory sales (USD only), less the refunded share of any
+        // item-refunded line (DC-3). `sale_items.sold_price_usd *
+        // refunded_quantity` is the PRE-discount value of the refunded
+        // units — the same numerator `refundSaleItem` computes as
+        // `refundAmount` above in this file. Dividing by the sale's
+        // PRE-discount `total_amount_usd` (the same `lineShareOfSale`
+        // denominator `refundSaleItem` uses) and applying that ratio to the
+        // POST-discount `final_amount_usd` gives the refunded share of what
+        // actually stayed on the books — the same ratio `refundSaleItem`
+        // already applies to each payment leg it reverses. Guarded against
+        // a zero/absent total (no division unless there's an actual
+        // refund AND a positive pre-discount total) so a degenerate row
+        // contributes its full final_amount_usd instead of silently
+        // dropping out of the SUM via a NULL term.
         const salesData = this.query<{
           date: string;
           currency: string;
@@ -2000,18 +2078,33 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }>(
           `
           SELECT
-            DATE(created_at, 'localtime') as date,
+            DATE(s.created_at, 'localtime') as date,
             'USD' as currency,
-            SUM(final_amount_usd) as daily_amount
-          FROM ${this.tableName}
-          WHERE status = 'completed' AND DATE(created_at, 'localtime') >= ? AND tenant_id = ?
+            SUM(
+              CASE
+                WHEN COALESCE(ri.refunded_pre_discount_usd, 0) > 0
+                     AND s.total_amount_usd > 0
+                  THEN s.final_amount_usd - (s.final_amount_usd * ri.refunded_pre_discount_usd / s.total_amount_usd)
+                ELSE s.final_amount_usd
+              END
+            ) as daily_amount
+          FROM ${this.tableName} s
+          LEFT JOIN (
+            SELECT sale_id, SUM(sold_price_usd * refunded_quantity) as refunded_pre_discount_usd
+            FROM sale_items
+            WHERE tenant_id = ?
+            GROUP BY sale_id
+          ) ri ON ri.sale_id = s.id
+          WHERE s.status = 'completed' AND DATE(s.created_at, 'localtime') >= ? AND s.tenant_id = ?
           GROUP BY date
         `,
+          tenantId,
           dates[0],
           tenantId,
         );
 
-        // Recharges (MTC/Alfa in USD or LBP)
+        // MTC/Alfa telecom recharges (USD or LBP) — real sales only, see
+        // doc comment above.
         const rechargesData = this.query<{
           date: string;
           currency: string;
@@ -2019,18 +2112,25 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }>(
           `
           SELECT
-            DATE(created_at, 'localtime') as date,
-            currency_code as currency,
-            SUM(price) as daily_amount
-          FROM recharges
-          WHERE DATE(created_at, 'localtime') >= ? AND tenant_id = ?
-          GROUP BY date, currency_code
+            DATE(r.created_at, 'localtime') as date,
+            r.currency_code as currency,
+            SUM(r.price) as daily_amount
+          FROM recharges r
+          JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
+          WHERE t.status = 'ACTIVE'
+            AND COALESCE(r.is_refunded, 0) = 0
+            AND DATE(r.created_at, 'localtime') >= ?
+            AND r.tenant_id = ? AND t.tenant_id = ?
+          GROUP BY date, r.currency_code
         `,
           dates[0],
           tenantId,
+          tenantId,
         );
 
-        // Financial services (OMT/WHISH/iPick/Katsh in USD or LBP)
+        // iPick/Katsh/BOB telecom mobile-service item sales (USD or LBP) —
+        // not bills, not OMT/WHISH transfers, not app wallets, see doc
+        // comment above.
         const financialData = this.query<{
           date: string;
           currency: string;
@@ -2038,12 +2138,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }>(
           `
           SELECT
-            DATE(created_at, 'localtime') as date,
-            currency as currency,
-            SUM(price) as daily_amount
-          FROM financial_services
-          WHERE DATE(created_at, 'localtime') >= ? AND tenant_id = ?
-          GROUP BY date, currency
+            DATE(fs.created_at, 'localtime') as date,
+            fs.currency as currency,
+            SUM(fs.price) as daily_amount
+          FROM financial_services fs
+          WHERE fs.provider IN (${MOBILE_SERVICE_PROVIDERS_SQL_LIST})
+            AND fs.service_type != 'BILL'
+            AND COALESCE(fs.is_refunded, 0) = 0
+            AND DATE(fs.created_at, 'localtime') >= ?
+            AND fs.tenant_id = ?
+          GROUP BY date, fs.currency
         `,
           dates[0],
           tenantId,
@@ -2070,32 +2174,13 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }));
       }
 
-      // Profit data
-      const profitData = this.query<ProfitRow>(
-        `
-        SELECT
-          DATE(s.created_at, 'localtime') as profit_date,
-          SUM(si.sold_price_usd - si.cost_price_snapshot_usd) as profit
-        FROM ${this.tableName} s
-        JOIN sale_items si ON s.id = si.sale_id AND si.tenant_id = ?
-        WHERE s.status = 'completed'
-          AND si.is_refunded = 0
-          AND DATE(s.created_at, 'localtime') >= ?
-          AND s.tenant_id = ?
-        GROUP BY profit_date
-      `,
-        tenantId,
-        dates[0],
-        tenantId,
-      );
-
-      const profitMap = new Map<string, number>();
-      profitData.forEach((row) => profitMap.set(row.profit_date, row.profit));
-
-      return dates.map((date) => ({
-        date,
-        profit: profitMap.get(date) ?? 0,
-      }));
+      // Unreachable: `type` is narrowed to the literal "Sales" above, and
+      // the branch returns unconditionally when it matches. Kept as an
+      // explicit throw (not a silent fallthrough) so a future caller that
+      // widens the parameter type again fails loudly here instead of
+      // reintroducing a re-texted profit query (see this method's own doc
+      // comment — DC-10 moved "Profit" to `SalesService.getChartData`).
+      throw new Error(`SalesRepository.getChartData: unsupported type "${type}"`);
     } catch (error) {
       throw new DatabaseError("Failed to get chart data", { cause: error });
     }

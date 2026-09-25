@@ -138,6 +138,7 @@ function createSchema(db: Database.Database): void {
       is_refunded INTEGER DEFAULT 0,
       payment_method_fee REAL DEFAULT 0,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       settlement_id INTEGER,
       created_at TEXT,
       refunded_at TEXT DEFAULT NULL

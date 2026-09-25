@@ -10,6 +10,8 @@
  *   unwraps the envelope to the same raw shape the IPC handler returns.
  */
 
+export {}; // module scope: keeps helpers like okJson file-local (TS2393)
+
 function okJsonServiceProvidersWrite(data: unknown) {
   return {
     ok: true,

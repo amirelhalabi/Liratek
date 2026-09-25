@@ -14,12 +14,14 @@ import {
   closingLogger,
   logger,
   getUserRepository,
+  canIncludeProfit,
 } from "@liratek/core";
-import { requireRole } from "../session.js";
+import { requireRole, hasProfitsUnlock } from "../session.js";
 import { audit } from "./auditHelper.js";
 import {
   AddExpenseSchema,
   ExpenseUpdateMetadataSchema,
+  DailyStatsSnapshotQuerySchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -211,10 +213,34 @@ export function registerDatabaseHandlers(): void {
     return getClosingService().getSystemExpectedBalancesDynamic();
   });
 
-  // Get daily stats snapshot
-  ipcMain.handle("closing:get-daily-stats-snapshot", async () => {
-    return getClosingService().getDailyStatsSnapshot();
-  });
+  // Get daily stats snapshot (LIRA-219). Read — raw shape, no envelope
+  // (adapter contract), unchanged from before. Rule 23 three-way diff:
+  // schema `{day}` / preload `{day}` / handler forwards `{day}` — all three
+  // agree. E-Q6: the profit block is included only for an admin OR a live
+  // Profits unlock — `canIncludeProfit` (the ONE shared predicate, rule 14)
+  // is fed this session's own role + `hasProfitsUnlock` read, never
+  // re-derived here. This channel itself keeps its historical no-role-check
+  // access (the activity stats/expenses stay visible to any caller, same as
+  // before LIRA-219) — only the profit fields are gated.
+  ipcMain.handle(
+    "closing:get-daily-stats-snapshot",
+    async (e, data?: unknown) => {
+      const validation = validatePayload(
+        DailyStatsSnapshotQuerySchema,
+        data ?? {},
+      );
+      if (!validation.ok) throw new Error(validation.error);
+
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      const includeProfit = canIncludeProfit(
+        auth.ok ? auth.role : undefined,
+        hasProfitsUnlock(e.sender.id),
+      );
+      return getClosingService().getDailyStatsSnapshot(validation.data, {
+        includeProfit,
+      });
+    },
+  );
 
   // ==================== ACTIVITY & DIAGNOSTICS ====================
 

@@ -42,6 +42,39 @@ const providerCodeSchema = z
     "Provider code may only contain letters, numbers, and underscores",
   );
 
+/**
+ * D1 (OWNER_NOTES_2026-09-21.md §2b, case matrix row 1 AND row 5, owner
+ * decision 2026-09-25): "neither OMT system nor OMT App takes a fee from the
+ * customer on RECEIVE." `FinancialServiceRepository.createTransaction` has
+ * always been the AUTHORITATIVE enforcement of this (hard-rejects a
+ * customer-facing fee on an OMT/OMT_APP RECEIVE, unconditionally, before
+ * every dispatch branch — see its own D1-cutover comment). This is the exact
+ * same message, reused (rule 14) rather than retyped, for BOTH providers, so
+ * every layer speaks with one voice.
+ *
+ * The two providers trigger this on different fields — OMT's customer-facing
+ * fee lives in `omtFee`/`includingFees`/`feePayments`; OMT_APP's lives in
+ * `commission` (its fee travels there, not `omtFee`) as well as
+ * `includingFees`/`feePayments` — so the wording deliberately does not name
+ * a specific field, only "the fee amount, includingFees, and feePayments".
+ *
+ * Rule 23 lesson applied in advance: this schema ALSO carries pre-existing
+ * `.refine()`s that reject `feePayments` for narrower reasons (attached to a
+ * partner, or a zero/omitted fee) — reasons that, for every OTHER provider,
+ * are still the right diagnosis. For an OMT/OMT_APP RECEIVE they are no
+ * longer even reachable (D1 rejects it regardless of partner/magnitude), but
+ * because Zod evaluates every `.refine()` and a caller only ever sees ONE
+ * message (`validateRequest`/`validatePayload` surface the FIRST issue — see
+ * their own comments), the message the operator sees depends on refine
+ * ORDER: the D1 refine below is deliberately the FIRST one chained onto
+ * `.object()` — keep it first if another refine is ever added ahead of it —
+ * so its issue sorts first and wins, while the later partner/zero-fee
+ * refines keep firing — and keep being the right answer — for every other
+ * case.
+ */
+export const OMT_RECEIVE_NO_FEE_MESSAGE =
+  "OMT RECEIVE never takes a fee from the customer — any provider fee is shown for the commission calculation only, never collected or deducted. Remove the fee amount, includingFees, and feePayments, then resubmit.";
+
 // OMT/WHISH Money Transfer & iPick/Katsh/WishApp/Binance services
 export const createFinancialServiceSchema = z
   .object({
@@ -255,6 +288,38 @@ export const createFinancialServiceSchema = z
   })
   .refine(
     (data) => {
+      // D1 blanket guard — kept FIRST in the chain (see OMT_RECEIVE_NO_FEE_
+      // MESSAGE's doc comment above for why order matters here). Mirrors
+      // FinancialServiceRepository's own unconditional OMT/OMT_APP RECEIVE
+      // guard: `includingFees === true` or a non-empty `feePayments` reject
+      // for EITHER provider; OMT_APP additionally rejects a nonzero
+      // `commission` (its fee travels there, not `omtFee` — OMT's own
+      // `commission` is auto-derived bookkeeping and stays allowed). WHISH/
+      // WHISH_APP/BINANCE are untouched — D1 does not apply to them.
+      const isOmtSystemReceive =
+        data.provider === "OMT" && data.serviceType === "RECEIVE";
+      const isOmtAppReceive =
+        data.provider === "OMT_APP" && data.serviceType === "RECEIVE";
+      if (!isOmtSystemReceive && !isOmtAppReceive) {
+        return true;
+      }
+      const hasFeeCollectionShape =
+        data.includingFees === true ||
+        (data.feePayments && data.feePayments.length > 0);
+      const hasAppWalletFee =
+        isOmtAppReceive && Math.abs(data.commission ?? 0) > 0;
+      if (hasFeeCollectionShape || hasAppWalletFee) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: OMT_RECEIVE_NO_FEE_MESSAGE,
+      path: ["feePayments"],
+    },
+  )
+  .refine(
+    (data) => {
       if (data.paidByMethod === "CUSTOMER_ACCOUNT" && !data.clientId) {
         return false;
       }
@@ -305,13 +370,24 @@ export const createFinancialServiceSchema = z
       // For OMT services (except OMT_WALLET and ONLINE_BROKERAGE), omtFee is optional
       // when the service type has a fee lookup table (INTRA, WESTERN_UNION).
       // For other service types (CASH_TO_BUSINESS, CASH_TO_GOV, OMT_CARD, OGERO_MECANIQUE),
-      // the fee must be entered manually.
+      // the fee must be entered manually — for a SEND, where the fee is real
+      // money the shop needs an exact figure for before it can post a leg.
+      //
+      // D1 cutover (OWNER_NOTES_2026-09-21.md §2b, note #6): RECEIVE is
+      // deliberately excluded. "OMT RECEIVE $40 cash-to-business, no fee,
+      // but 'OMT fee' is required" — a RECEIVE never collects this fee from
+      // the customer at all (it is informational, driving the commission
+      // calculation only — see FinancialServiceRepository's hard-reject
+      // guards and `RECEIVE_FEE_MODEL_CUTOVER`), so there is nothing here to
+      // require an exact figure for. 0/absent is valid on a RECEIVE for
+      // every omtServiceType, including CASH_TO_BUSINESS.
       const hasFeeLookupTable =
         data.omtServiceType === "INTRA" ||
         data.omtServiceType === "WESTERN_UNION";
 
       if (
         data.provider === "OMT" &&
+        data.serviceType !== "RECEIVE" &&
         data.omtServiceType &&
         data.omtServiceType !== "OMT_WALLET" &&
         data.omtServiceType !== "ONLINE_BROKERAGE" &&

@@ -31,13 +31,12 @@
  * order), snapshotted immediately before/after this file's own single
  * create/settle action.
  *
- * `amount_usd`/`amount_lbp` are 0 in the raw `settleTransactions` call for
- * the same reason `lira-159-monthly-pl-settled-commission.spec.ts` documents
- * at length in its own header: that pair is the settlement's own net-pay
- * bookkeeping figure, orthogonal to `commission_usd`/`commission_lbp` (which
- * is the only thing this file's own assertions read), and passing 0/0 keeps
- * `owesCash` false so no `payments[]` leg is required — correctly scoping
- * this IPC-driven test to the ONE axis it exists to prove.
+ * `amount_usd`/`amount_lbp` are 0 in the raw `settleTransactions` call
+ * because that pair is the settlement's own net-pay bookkeeping figure,
+ * orthogonal to `commission_usd`/`commission_lbp` (which is the only thing
+ * this file's own assertions read), and passing 0/0 keeps `owesCash` false
+ * so no `payments[]` leg is required — correctly scoping this IPC-driven
+ * test to the ONE axis it exists to prove.
  */
 
 import { test, expect } from "./fixtures";
@@ -166,7 +165,7 @@ test.describe("LIRA-159 — unsettled summary: awaiting_settlement_count is a co
           financial_service_ids: [args.rowId],
           amount_usd: 0,
           amount_lbp: 0,
-          commission_usd: 2.0, // deliberately != CREATION_ESTIMATE — irrelevant to this file's own assertions, see lira-159-monthly-pl-settled-commission.spec.ts for that axis
+          commission_usd: 2.0, // deliberately != CREATION_ESTIMATE — irrelevant to this file's own assertions (the entered-vs-estimate axis is covered at the unit level, ProfitRepository.supplierSettlementCommission.test.ts)
           commission_lbp: 0,
           entry_mode: "LUMP",
           note: "LIRA-159 e2e unsettled-summary settlement",

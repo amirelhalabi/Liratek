@@ -17,7 +17,11 @@ import {
   type PaymentLine,
 } from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
-import { binanceCashSide, splitBasketCashSides } from "../utils/binanceCart";
+import {
+  binanceCashSide,
+  netCashPayoutAgainstCharge,
+  splitBasketCashSides,
+} from "../utils/binanceCart";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -133,6 +137,23 @@ function applyItemDiscount(
  * matching field; this file does not import from core.
  */
 type SessionPaymentLegKind = "PAYOUT" | "CHANGE";
+
+/**
+ * One customer-facing payment leg sent to `api.session.checkout`. Named and
+ * shared by BOTH the array annotation and the object literals that build it
+ * (fix-round finding #1, 2026-09-24) so `legs.push({ ..., payoutOrigin })`
+ * type-checks instead of tripping TS2353 against an inferred, narrower type.
+ */
+interface SessionCheckoutLeg {
+  method: string;
+  currency_code: string;
+  amount: number;
+  direction: "IN" | "OUT";
+  voucher_code?: string;
+  kind?: SessionPaymentLegKind;
+  /** Owner decision #11-A — see SessionPaymentService's `payoutOrigin` doc. */
+  payoutOrigin?: "SYSTEM" | "GENERAL";
+}
 
 /**
  * Payout methods the operator may route a basket's cash-out payout through,
@@ -333,12 +354,6 @@ export function SessionCheckoutModal({
     [hasClient, allMethods.map((m) => m.code).join(",")],
   );
 
-  // Remount MultiPaymentInput whenever initialMethod or cart totals change so
-  // the first line tracks the current state correctly.
-  useEffect(() => {
-    setPaymentInputKey((k) => k + 1);
-  }, [initialMethod]);
-
   const totals = useMemo(() => getCartTotals(), [getCartTotals]);
 
   // Customer NET position per currency (+ pays / − is paid). Every part of
@@ -358,10 +373,34 @@ export function SessionCheckoutModal({
   // charges seed the payment / debt; the payouts become the cash payout or the
   // account credit. (binanceCashSide folds a Binance item's USDT tag into its
   // USD cash side.)
-  const { chargeUsd, chargeLbp, payoutUsd, payoutLbp } = useMemo(
-    () => splitBasketCashSides(cartItems),
-    [cartItems],
-  );
+  const {
+    chargeUsd,
+    chargeLbp,
+    payoutUsd,
+    payoutLbp,
+    systemPayoutUsd,
+    systemPayoutLbp,
+    systemChargeUsd,
+    systemChargeLbp,
+  } = useMemo(() => splitBasketCashSides(cartItems), [cartItems]);
+
+  // General-drawer-eligible payout (loto prize, wallet/Binance cash-out) —
+  // excludes OMT/Whish SYSTEM payouts, which always keep their own box and
+  // are never netted below (owner decision #11-A,
+  // OWNER_NOTES_REMAINING_BUILD.md, 2026-09-24).
+  const generalPayoutUsd = payoutUsd - systemPayoutUsd;
+  const generalPayoutLbp = payoutLbp - systemPayoutLbp;
+
+  // General-drawer-eligible NETTING BASE (fix-round finding #3, 2026-09-24):
+  // excludes any OMT/Whish SYSTEM charge (a SEND item, or a SYSTEM RECEIVE's
+  // fee-on-top) from what a General payout may net against. OMT_System /
+  // Whish_System and General are physically different cash boxes — netting
+  // a loto prize or a wallet/Binance cash-out against a SYSTEM charge would
+  // silently move money between them (e.g. an OMT SEND $100 + a $20 phone
+  // case paid from a Binance cash-out must book OMT_System +$100, General
+  // -$20 exactly like a SYSTEM payout would, never a blended $80/$0 split).
+  const generalChargeUsd = chargeUsd - systemChargeUsd;
+  const generalChargeLbp = chargeLbp - systemChargeLbp;
 
   // Does the operator settle this basket on the customer's account BY
   // DEFAULT? Then the cash-out payouts (shop owes the customer, e.g. a
@@ -384,6 +423,71 @@ export function SessionCheckoutModal({
     payoutMethodOverride.USD ?? defaultPayoutMethod;
   const resolvedPayoutMethodLbp =
     payoutMethodOverride.LBP ?? defaultPayoutMethod;
+
+  // Remount MultiPaymentInput whenever initialMethod OR the resolved payout
+  // method changes, so the pre-seeded first line always tracks the current
+  // net charge. Fix-round finding #8 (2026-09-24): `paymentInitialLines`
+  // below is only re-derived when `paymentInputKey` bumps, but `netChargeUsd`/
+  // `netChargeLbp` also depend on the payout method (switching a General
+  // payout off CASH, e.g. to WHISH wallet, un-nets the charge back to gross)
+  // — without this, the seeded lines silently go stale after such a switch.
+  // Deliberately NOT keyed on `netChargeUsd`/`netChargeLbp` themselves: those
+  // also change on every live cart edit (a discount, a rate override), which
+  // would wipe the operator's in-progress payment lines on every keystroke.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setPaymentInputKey((k) => k + 1);
+  }, [initialMethod, resolvedPayoutMethodUsd, resolvedPayoutMethodLbp]);
+
+  // Owner decision #11-A: only a CASH-routed General payout nets against the
+  // charge — one settled to the customer's account or a wallet stays gross
+  // ("Non-cash payouts ... stay gross"). The OMT/Whish SYSTEM portion is
+  // excluded regardless of the chosen method — see generalPayoutUsd/Lbp above.
+  const cashNetEligibleUsd =
+    resolvedPayoutMethodUsd === "CASH" ? generalPayoutUsd : 0;
+  const cashNetEligibleLbp =
+    resolvedPayoutMethodLbp === "CASH" ? generalPayoutLbp : 0;
+
+  // Net the eligible General-drawer cash payout against the charge (owner
+  // decision #11-A): change is computed on the NET, and only the physical
+  // difference is recorded — the 390,000 LBP drawer gap a GROSS payout leg
+  // used to create. `excessPayoutUsd/Lbp` is what's left when the payout is
+  // BIGGER than the charge — that portion still has to leave the drawer as
+  // a real leg (see the `allPaymentLegs` construction below).
+  // Net against the GENERAL-bound share of the charge only (fix-round finding
+  // #3) — never the raw gross `chargeUsd`/`chargeLbp`, which would include a
+  // SYSTEM charge from a different physical box. `netGeneralChargeUsd/Lbp`
+  // below is therefore the General drawer's OWN remaining charge after
+  // netting; the SYSTEM charge (if any) is added back on top, gross and
+  // untouched, when building the combined MultiPaymentInput total.
+  const {
+    netChargeUsd: netGeneralChargeUsd,
+    netChargeLbp: netGeneralChargeLbp,
+    excessPayoutUsd,
+    excessPayoutLbp,
+  } = useMemo(
+    () =>
+      netCashPayoutAgainstCharge({
+        chargeUsd: generalChargeUsd,
+        chargeLbp: generalChargeLbp,
+        cashPayoutUsd: cashNetEligibleUsd,
+        cashPayoutLbp: cashNetEligibleLbp,
+        rate: exchangeRate,
+      }),
+    [
+      generalChargeUsd,
+      generalChargeLbp,
+      cashNetEligibleUsd,
+      cashNetEligibleLbp,
+      exchangeRate,
+    ],
+  );
+
+  // Combined NET charge MultiPaymentInput must cover: the SYSTEM charge
+  // (always gross — a different physical box, fix-round finding #3) plus the
+  // General charge after netting against any General-drawer cash payout.
+  const netChargeUsd = systemChargeUsd + netGeneralChargeUsd;
+  const netChargeLbp = systemChargeLbp + netGeneralChargeLbp;
 
   // Group items by module for display
   const groupedItems = useMemo(() => {
@@ -426,21 +530,25 @@ export function SessionCheckoutModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentMethodOptions.map((m) => m.code).join(","), hasClient]);
 
-  // Combined total the pooled MultiPaymentInput must cover — the GROSS charges
-  // (never netted against the payouts, which are settled separately below).
-  // LBP is converted to USD via the operator rate.
+  // Combined total the pooled MultiPaymentInput must cover — the NET charge
+  // (owner decision #11-A: the General-drawer CASH payout is netted in
+  // above; an OMT/Whish SYSTEM payout or a non-cash payout never reduces
+  // this — see netChargeUsd/Lbp). LBP is converted to USD via the operator
+  // rate.
   const combinedTotalUSD = useMemo(() => {
-    return chargeUsd + (exchangeRate > 0 ? chargeLbp / exchangeRate : 0);
-  }, [chargeUsd, chargeLbp, exchangeRate]);
+    return netChargeUsd + (exchangeRate > 0 ? netChargeLbp / exchangeRate : 0);
+  }, [netChargeUsd, netChargeLbp, exchangeRate]);
 
-  // Seed one line per currency that has a GROSS charge — this opens
+  // Seed one line per currency that still has a NET charge due — this opens
   // MultiPaymentInput directly in split mode with both rows pre-filled instead
   // of showing two separate widget instances (initialLines is read once, on
   // mount/remount, per the component's own contract).
   const paymentInitialLines = useMemo(() => {
     const lines: Array<{ currencyCode: string; amount: number }> = [];
-    if (chargeUsd > 0) lines.push({ currencyCode: "USD", amount: chargeUsd });
-    if (chargeLbp > 0) lines.push({ currencyCode: "LBP", amount: chargeLbp });
+    if (netChargeUsd > 0)
+      lines.push({ currencyCode: "USD", amount: netChargeUsd });
+    if (netChargeLbp > 0)
+      lines.push({ currencyCode: "LBP", amount: netChargeLbp });
     return lines;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentInputKey]);
@@ -453,17 +561,10 @@ export function SessionCheckoutModal({
   // distinguishes the two OUT flavors for anything downstream that needs to
   // tell them apart (receipt printing, refund tooling). GIFT_CARD legs carry
   // their voucher_code so the basket recorder can redeem the voucher.
-  const allPaymentLegs: Array<{
-    method: string;
-    currency_code: string;
-    amount: number;
-    direction: "IN" | "OUT";
-    voucher_code?: string;
-    kind?: SessionPaymentLegKind;
-  }> = useMemo(() => {
+  const allPaymentLegs: SessionCheckoutLeg[] = useMemo(() => {
     const toLeg =
       (direction: "IN" | "OUT", kind?: SessionPaymentLegKind) =>
-      (l: PaymentLine) => ({
+      (l: PaymentLine): SessionCheckoutLeg => ({
         method: l.method,
         currency_code: l.currencyCode,
         amount: l.amount,
@@ -473,46 +574,96 @@ export function SessionCheckoutModal({
           ? { voucher_code: l.voucherCode }
           : {}),
       });
-    const legs = [
+    // Annotated explicitly (rather than inferred from the two `.map()` spreads
+    // above) — a bare `const legs = [...]` infers its element type from ONLY
+    // those two arrays, which lack `payoutOrigin`; the `legs.push({...
+    // payoutOrigin: "SYSTEM" })` calls below would then fail TypeScript's
+    // excess-property check on an object literal argument (TS2353). Fix-round
+    // finding #1 (2026-09-24) — this was a real compile break, never exercised
+    // because only the core `tsc` was run at the time.
+    const legs: SessionCheckoutLeg[] = [
       ...paymentLines.map(toLeg("IN")),
       // Change/return from the pooled payment — never a payout.
       ...returnLines.map(toLeg("OUT", "CHANGE")),
     ];
     // Cash-out payouts (loto cash prize, OMT/Whish RECEIVE, Binance cash out):
-    // the shop owes the customer. Emit the GROSS payout as ONE OUT leg per
-    // currency — NOT netted against the charges, so the Debts page lists the
-    // full payout ($20), not a net. Route to the operator-chosen method per
+    // the shop owes the customer. Route to the operator-chosen method per
     // currency (`resolvedPayoutMethodUsd`/`resolvedPayoutMethodLbp` —
     // defaults to CUSTOMER_ACCOUNT when the basket is settled on account,
     // else CASH, lira-098; Phase F lets the operator pick any drawer-
     // affecting method too). Deferred cash-out items self-post nothing, so
-    // this leg is the only place the payout is booked — recordBasketPayment
+    // these legs are the only place the payout is booked — recordBasketPayment
     // turns a CUSTOMER_ACCOUNT OUT leg into a session credit (Debts Payments
     // side).
-    if (payoutUsd > 0) {
+    //
+    // Owner decision #11-A (2026-09-24) splits this into TWO legs per
+    // currency instead of one combined gross leg:
+    //  - SYSTEM (OMT/Whish money-transfer box): ALWAYS its own GROSS leg,
+    //    never netted — "keep the two boxes SEPARATE". `payoutOrigin:
+    //    "SYSTEM"` forces the recorder to route it 100% to the primary cash
+    //    drawer, bypassing the session's blended item-value-share ratio
+    //    (which would otherwise mis-split it once the General portion below
+    //    no longer equals the FULL gross payout total).
+    //  - GENERAL (loto prize / wallet / Binance cash-out): gross when routed
+    //    non-cash ("Non-cash payouts ... stay gross"), otherwise only the
+    //    EXCESS left after netting against the charge above — the rest never
+    //    physically left the drawer, so no leg is sent for it at all.
+    //    `payoutOrigin: "GENERAL"` forces the recorder to route it 100% to
+    //    General.
+    if (systemPayoutUsd > 0) {
       legs.push({
         method: resolvedPayoutMethodUsd,
         currency_code: "USD",
-        amount: payoutUsd,
+        amount: systemPayoutUsd,
         direction: "OUT",
         kind: "PAYOUT",
+        payoutOrigin: "SYSTEM",
       });
     }
-    if (payoutLbp > 0) {
+    if (systemPayoutLbp > 0) {
       legs.push({
         method: resolvedPayoutMethodLbp,
         currency_code: "LBP",
-        amount: payoutLbp,
+        amount: systemPayoutLbp,
         direction: "OUT",
         kind: "PAYOUT",
+        payoutOrigin: "SYSTEM",
+      });
+    }
+    const generalPayoutLegUsd =
+      resolvedPayoutMethodUsd === "CASH" ? excessPayoutUsd : generalPayoutUsd;
+    const generalPayoutLegLbp =
+      resolvedPayoutMethodLbp === "CASH" ? excessPayoutLbp : generalPayoutLbp;
+    if (generalPayoutLegUsd > 0) {
+      legs.push({
+        method: resolvedPayoutMethodUsd,
+        currency_code: "USD",
+        amount: generalPayoutLegUsd,
+        direction: "OUT",
+        kind: "PAYOUT",
+        payoutOrigin: "GENERAL",
+      });
+    }
+    if (generalPayoutLegLbp > 0) {
+      legs.push({
+        method: resolvedPayoutMethodLbp,
+        currency_code: "LBP",
+        amount: generalPayoutLegLbp,
+        direction: "OUT",
+        kind: "PAYOUT",
+        payoutOrigin: "GENERAL",
       });
     }
     return legs;
   }, [
     paymentLines,
     returnLines,
-    payoutUsd,
-    payoutLbp,
+    systemPayoutUsd,
+    systemPayoutLbp,
+    generalPayoutUsd,
+    generalPayoutLbp,
+    excessPayoutUsd,
+    excessPayoutLbp,
     resolvedPayoutMethodUsd,
     resolvedPayoutMethodLbp,
   ]);
@@ -692,6 +843,9 @@ export function SessionCheckoutModal({
           `Checkout complete — ${result.itemCount} items processed`,
           "success",
         );
+        // LIRA-212 Tier A: a checkout can book a 'Session Debt' row on the
+        // client's account — let TopBar's session balance badge refresh live.
+        appEvents.emit("debt:changed");
         // No auto-print (ticket: sessions skip the auto-dialog) — show the
         // Print + Close success view instead of closing immediately.
         setCheckoutSuccess(receiptSnapshot);
@@ -955,27 +1109,30 @@ export function SessionCheckoutModal({
                 {/* MultiPaymentInput — one pooled section covering both currencies.
               Pre-seeded with one row per positive currency total, opening
               directly in split mode instead of two separate widgets.
-              Gated on the GROSS charge buckets, NOT the net total: a
-              same-currency payout must never hide the charge collection
-              (a $50 charge + $100 payout nets to -$50 and would otherwise
-              hide this widget while isPaymentValid still requires the
-              GROSS $50 — Confirm permanently disabled;
-              BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2 bug 2). */}
-                {(chargeUsd > 0 || chargeLbp > 0) && (
+              Gated on the NET charge (owner decision #11-A, 2026-09-24):
+              netChargeUsd/Lbp already excludes any OMT/Whish SYSTEM payout
+              (that box never reduces this — BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md
+              §2 bug 2's exact scenario, a same-currency SYSTEM payout hiding
+              the charge collection, still can't happen), so only a
+              General-drawer CASH payout can bring this to 0 — correctly, by
+              design: when it fully covers the charge there is nothing left
+              to collect. */}
+                {(netChargeUsd > 0 || netChargeLbp > 0) && (
                   <div className="space-y-1">
                     <MultiPaymentInput
                       key={`payment-${paymentInputKey}`}
-                      // Per-currency totals (multi-currency engine): the GROSS
-                      // charges keep their native composition, so an LBP-only
-                      // basket's prefill is rate-invariant — editing the modal rate
-                      // no longer re-derives it through a USD scalar (the T2 bug,
+                      // Per-currency totals (multi-currency engine): the NET
+                      // charge (owner decision #11-A) keeps its native
+                      // composition, so an LBP-only basket's prefill is
+                      // rate-invariant — editing the modal rate no longer
+                      // re-derives it through a USD scalar (the T2 bug,
                       // docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md MCP-4).
                       totals={[
-                        ...(chargeUsd > 0
-                          ? [{ amount: chargeUsd, currency: "USD" }]
+                        ...(netChargeUsd > 0
+                          ? [{ amount: netChargeUsd, currency: "USD" }]
                           : []),
-                        ...(chargeLbp > 0
-                          ? [{ amount: chargeLbp, currency: "LBP" }]
+                        ...(netChargeLbp > 0
+                          ? [{ amount: netChargeLbp, currency: "LBP" }]
                           : []),
                       ]}
                       // Session payments convert at the BUY side (owner decision
@@ -998,25 +1155,44 @@ export function SessionCheckoutModal({
                       initialMethod={initialMethod}
                       clientId={sessionClientId}
                       fetchClientVouchers={fetchClientVouchers}
+                      // Owner decision #11-A: suggest whole USD notes + an
+                      // LBP remainder for change (the dual-currency drawer
+                      // convention) instead of one lump-sum USD figure, so
+                      // the owner's "40$ + 10,000 LBP" example seeds itself.
+                      smartSplitOverpay
                     />
                   </div>
                 )}
 
                 {/* Payout to customer (loto prize / RECEIVE / Binance cash out) —
-              the GROSS cash-out per currency (never netted against the
-              charges), with an operator-chosen METHOD per currency
-              (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F): CASH / OMT
-              Wallet / Whish Wallet / Binance / Customer Account. Defaults to
-              the pre-existing derivation (CUSTOMER_ACCOUNT when the basket's
-              charge is already on account, else CASH — lira-098), so an
-              untouched basket behaves exactly as before. Binance cash-outs
-              live in the usdt bucket (their payout is self-posted at replay)
-              but still route through this same selectable payout leg. */}
+              the GROSS cash-out per currency, shown here for full visibility
+              regardless of what actually still needs a separate leg, with an
+              operator-chosen METHOD per currency (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md
+              §4 Phase F): CASH / OMT Wallet / Whish Wallet / Binance / Customer
+              Account. Defaults to the pre-existing derivation (CUSTOMER_ACCOUNT
+              when the basket's charge is already on account, else CASH —
+              lira-098), so an untouched basket behaves exactly as before.
+              Binance cash-outs live in the usdt bucket (their payout is
+              self-posted at replay) but still route through this same
+              selectable payout leg.
+              Owner decision #11-A (2026-09-24): a CASH-routed payout that is
+              NOT an OMT/Whish SYSTEM item (loto prize / wallet / Binance) is
+              netted against the charge above (see the "Payment" total) —
+              only the physical excess, if any, still posts as its own leg.
+              An OMT/Whish SYSTEM payout, or any non-cash payout, always
+              posts here in full, unaffected by that netting. */}
                 {(payoutUsd > 0 || payoutLbp > 0) && (
                   <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3 space-y-2">
                     <div className="text-xs font-medium text-slate-300">
                       Payout to customer
                     </div>
+                    {(cashNetEligibleUsd > 0 || cashNetEligibleLbp > 0) && (
+                      <p className="text-[11px] text-slate-400">
+                        The General-drawer portion nets against the payment
+                        below — only the physical difference is collected or
+                        handed back as change.
+                      </p>
+                    )}
                     {payoutUsd > 0 && (
                       <div className="flex items-center justify-between gap-2 text-sm">
                         <span className="text-slate-400 shrink-0">USD</span>

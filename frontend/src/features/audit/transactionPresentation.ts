@@ -130,7 +130,13 @@ export const TRANSACTION_PRESENTATION: Record<
     color: "text-violet-300",
     direction: "in",
   },
-  CUSTOM_SERVICE: { label: null, color: "text-cyan-400", direction: "in" },
+  // OWNER_NOTES_REMAINING_BUILD.md #16 — a Via-Partner custom service can now
+  // be a PAYOUT (direction "OUT" in metadata_json — see cashFlow.ts's
+  // CUSTOM_SERVICE case), so the fixed "in" answer is wrong for that row
+  // shape. Every other custom service (the overwhelming majority — no
+  // partner, For-Partner, or ordinary Via-Partner IN) still resolves to
+  // "in", exactly as before; only the new payout shape reads "out".
+  CUSTOM_SERVICE: { label: null, color: "text-cyan-400", direction: "dynamic" },
   MAINTENANCE: { label: null, color: "text-amber-400", direction: "in" },
 
   // ── Loto ──────────────────────────────────────────────────────────────
@@ -181,6 +187,14 @@ export const TRANSACTION_PRESENTATION: Record<
     label: "Hold Returned",
     color: "text-orange-300",
     direction: null,
+  },
+  // LIRA-214 (migration v183): the per-pickup reversal owner (rule 20) —
+  // voiding a HOLD_MONEY_COLLECT pickup re-credits every drawer it paid out
+  // of, so cash flows back IN.
+  HOLD_MONEY_COLLECT_VOID: {
+    label: "Hold Pickup Voided",
+    color: "text-orange-200",
+    direction: "in",
   },
 
   // ── Debt & supplier & partner ─────────────────────────────────────────

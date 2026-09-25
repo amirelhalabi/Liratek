@@ -12100,6 +12100,521 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 180,
+    name: "financial_services_receive_fee_model",
+    description:
+      "OWNER_NOTES_2026-09-21.md §2b (D1) — adds financial_services.receive_fee_model " +
+      "as a per-row cutover flag, same precedent as v150's commission_model (D3): " +
+      "0 = LEGACY (every pre-existing row, unaffected) — a RECEIVE's omt_fee/whish_fee " +
+      "is modeled as paid by the RECEIVING customer, so it nets out of both the payout " +
+      "and what the shop owes the provider (-(x - f)). 1 = CUTOVER, stamped by the " +
+      "repository's insert path only for NEW OMT/WHISH RECEIVE rows going forward — " +
+      "the provider is owed the FULL principal, undiminished by any fee: OMT never " +
+      "takes one from the customer at all (omt_fee stays informational, driving the " +
+      "commission calculation only); a Whish fee, if the operator charges one, is the " +
+      "shop's own profit, not a deduction from what Whish owes. This was a genuine " +
+      "model bug for OMT, not a preference reversal: the fee is not always the " +
+      "receiving customer's to pay, and the drawer being overstated by f while the " +
+      "provider's debt is understated by f cancel on paper, which is why no balance " +
+      "check ever caught it. Cutover only, no restatement (LIRA-095 D3 precedent) — " +
+      "every existing OMT/WHISH RECEIVE row keeps reading exactly as it was written; " +
+      "only NEW rows get the new formula. SUPPLIER_OWED_EXPR/grossOwedDelta " +
+      "(FinancialServiceRepository.ts) read this column; a row must be read with the " +
+      "formula that wrote it. Fresh installs (create_db.sql) declare the column " +
+      "DEFAULT 0 directly on the table — the safe/legacy value; only the repository's " +
+      "explicit OMT/WHISH-RECEIVE-gated stamp ever writes 1.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "financial_services")) {
+        console.log(
+          "Migration v180 skipped: 'financial_services' table not present",
+        );
+        return;
+      }
+      if (columnExists(db, "financial_services", "receive_fee_model")) {
+        console.log(
+          "Migration v180 skipped: 'financial_services.receive_fee_model' already present",
+        );
+        return;
+      }
+
+      db.exec(`
+        ALTER TABLE financial_services
+          ADD COLUMN receive_fee_model INTEGER NOT NULL DEFAULT 0;
+      `);
+
+      console.log(
+        "Migration v180: financial_services.receive_fee_model added (default 0, " +
+          "every existing row keeps reading LEGACY/net — cutover applies only to " +
+          "new OMT/WHISH RECEIVE rows going forward)",
+      );
+    },
+    down(db: Database.Database) {
+      if (!columnExists(db, "financial_services", "receive_fee_model")) {
+        console.log(
+          "Migration v180 rollback skipped: 'financial_services.receive_fee_model' not present",
+        );
+        return;
+      }
+
+      db.exec(`ALTER TABLE financial_services DROP COLUMN receive_fee_model;`);
+
+      console.log(
+        "Migration v180 rolled back: 'financial_services.receive_fee_model' dropped",
+      );
+    },
+  },
+  {
+    version: 181,
+    name: "loto_cash_prizes_voided",
+    description:
+      "OWNER_NOTES_REMAINING_BUILD.md #11-C (LIRA-201c) — a session basket " +
+      "containing a loto cash prize could never be voided/refunded: " +
+      "LOTO_CASH_PRIZE is NON_REVERSIBLE_TRANSACTION_TYPES and nothing owned " +
+      "reversing its supplier_ledger CASH_PRIZE row. TransactionRepository's " +
+      "new basket-only reversal owner (_reverseLotoCashPrize) needs a place " +
+      "to mark a voided prize so prize totals/checkpoint gathering can " +
+      "exclude it — adds loto_cash_prizes.voided (0/1) and voided_at, " +
+      "mirroring is_refunded/refunded_at's shape used elsewhere in this " +
+      "file (e.g. recharges, financial_services) rather than inventing a new " +
+      "column convention.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "loto_cash_prizes")) {
+        console.log(
+          "Migration v181 skipped: 'loto_cash_prizes' table not present",
+        );
+        return;
+      }
+      if (!columnExists(db, "loto_cash_prizes", "voided")) {
+        db.exec(
+          `ALTER TABLE loto_cash_prizes ADD COLUMN voided INTEGER NOT NULL DEFAULT 0;`,
+        );
+      }
+      if (!columnExists(db, "loto_cash_prizes", "voided_at")) {
+        db.exec(`ALTER TABLE loto_cash_prizes ADD COLUMN voided_at TEXT;`);
+      }
+      console.log(
+        "Migration v181: loto_cash_prizes.voided/voided_at added (default 0/NULL — every existing prize stays counted)",
+      );
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "loto_cash_prizes")) {
+        console.log(
+          "Migration v181 rollback skipped: 'loto_cash_prizes' table not present",
+        );
+        return;
+      }
+      if (columnExists(db, "loto_cash_prizes", "voided_at")) {
+        db.exec(`ALTER TABLE loto_cash_prizes DROP COLUMN voided_at;`);
+      }
+      if (columnExists(db, "loto_cash_prizes", "voided")) {
+        db.exec(`ALTER TABLE loto_cash_prizes DROP COLUMN voided;`);
+      }
+      console.log(
+        "Migration v181 rolled back: 'loto_cash_prizes.voided'/'voided_at' dropped",
+      );
+    },
+  },
+  {
+    version: 182,
+    name: "add_shop_line_use_recharge_type",
+    description:
+      "OWNER_NOTES_REMAINING_BUILD.md #21 (LIRA-088 case 2): adds 'SHOP_LINE_USE' " +
+      "to recharges.recharge_type CHECK. The shop-line checkbox on the Credit tab " +
+      "(TelecomForm.tsx) now covers TWO cases when the typed number matches any of " +
+      "the shop's own active carrier lines: checked (default) is the existing " +
+      "CREDIT_BUYBACK (case 1, payment OUT, added by v149); unchecked is case 2 — " +
+      "the customer used the shop's own line for a call, so it books as an ordinary " +
+      "credit sale (payment IN, no SMS fee) with recharge_type='SHOP_LINE_USE' " +
+      "instead of 'CREDIT_TRANSFER', purely so the recharge row/receipt/history read " +
+      "correctly and the SMS-fee gate (which keys off type==='CREDIT_TRANSFER') stays " +
+      "off for it. SQLite cannot ALTER a CHECK, so this recreates the table exactly " +
+      "as v149 did (which itself recreated v114's), preserving all rows + ids + " +
+      "indexes. Mirrors v149's own structure and guards.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Same defensive guard as v149 — a `recharges`-less DB has nothing to
+      // add a CHECK to (never a real upgrading install, which has had
+      // `recharges` since v1).
+      if (!tableExists(db, "recharges")) {
+        console.log("Migration v182 skipped: no 'recharges' table present");
+        return;
+      }
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS recharges_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          carrier TEXT NOT NULL,
+          recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT', 'CREDIT_BUYBACK', 'SHOP_LINE_USE')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+          amount DECIMAL(10, 2) NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          default_price_to_client REAL DEFAULT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          paid_by TEXT DEFAULT 'CASH',
+          phone_number TEXT,
+          client_id INTEGER,
+          client_name TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER DEFAULT 1,
+          edited_by TEXT DEFAULT NULL,
+          edited_at TEXT DEFAULT NULL,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          FOREIGN KEY (client_id) REFERENCES clients(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO recharges_new (
+          id, tenant_id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        )
+        SELECT
+          id, tenant_id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        FROM recharges;
+
+        DROP TABLE recharges;
+        ALTER TABLE recharges_new RENAME TO recharges;
+
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_tenant_id ON recharges(tenant_id);
+      `);
+      console.log(
+        "Migration v182: added 'SHOP_LINE_USE' to recharges.recharge_type CHECK",
+      );
+    },
+    down(db: Database.Database) {
+      // Same defensive guard as v149's down().
+      if (!tableExists(db, "recharges")) {
+        console.log(
+          "Migration v182 rollback skipped: no 'recharges' table present",
+        );
+        return;
+      }
+
+      // Restore the pre-SHOP_LINE_USE CHECK (v149's set). Throws if any
+      // SHOP_LINE_USE rows exist (expected — you can't roll back after
+      // recording shop-line-use sales).
+      db.exec(`
+        CREATE TABLE recharges_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          carrier TEXT NOT NULL,
+          recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT', 'CREDIT_BUYBACK')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+          amount DECIMAL(10, 2) NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          default_price_to_client REAL DEFAULT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          paid_by TEXT DEFAULT 'CASH',
+          phone_number TEXT,
+          client_id INTEGER,
+          client_name TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER DEFAULT 1,
+          edited_by TEXT DEFAULT NULL,
+          edited_at TEXT DEFAULT NULL,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          FOREIGN KEY (client_id) REFERENCES clients(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO recharges_old (
+          id, tenant_id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        )
+        SELECT
+          id, tenant_id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        FROM recharges;
+
+        DROP TABLE recharges;
+        ALTER TABLE recharges_old RENAME TO recharges;
+
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_tenant_id ON recharges(tenant_id);
+      `);
+      console.log(
+        "Migration v182 rolled back: removed 'SHOP_LINE_USE' from recharges.recharge_type CHECK",
+      );
+    },
+  },
+  {
+    version: 183,
+    name: "hold_money_payment_form_and_partial_pickup",
+    description:
+      "OWNER_NOTES_REMAINING_BUILD.md #24 (LIRA-214) — Hold Money is the one " +
+      "Services tab with no payment form (HoldMoneySection.tsx used two bare " +
+      "USD/LBP boxes and a one-click Collect with no method/amount). This " +
+      "migration adds the two columns the new payment-form flow needs: " +
+      "(1) hold_money.client_id (rule 11 — the client autocomplete already " +
+      "keeps name+phone but drops the resolved client, so the unified " +
+      "transaction's client_id has always read NULL for a matched client); " +
+      "(2) the hold_money_pickups table, the balance model a PARTIAL pickup " +
+      "needs. Each row is one pickup event against a hold: usd_amount/" +
+      "lbp_amount is the portion of the hold returned THIS pickup (its own " +
+      "payment legs live in `payments` keyed by transaction_id, same as every " +
+      "other money flow); a hold's remaining balance is always DERIVED live " +
+      "as hold_money.usd_amount/lbp_amount minus the SUM of this table's " +
+      "non-voided rows for that hold — never cached/duplicated on hold_money " +
+      "itself, so there is nothing to drift. is_voided/voided_by/voided_at " +
+      "are this table's OWN rule-20 reversal owner (HoldMoneyRepository." +
+      "voidPickup): voiding ONE pickup re-credits the drawer(s) its legs " +
+      "debited and lets the derived remaining balance go back up — see " +
+      "TRANSACTION_TYPES.HOLD_MONEY_COLLECT_VOID's doc comment " +
+      "(constants/transactionTypes.ts) for why this stays a dedicated, " +
+      "module-owned reversal instead of routing through the generic void " +
+      "path (HOLD_MONEY_COLLECT stays in NON_REVERSIBLE_TRANSACTION_TYPES, " +
+      "unchanged). transaction_id is nullable only for defence-in-depth " +
+      "against a future caller that inserts the row before the unified " +
+      "transaction commits in the same db.transaction() — the repository " +
+      "itself always writes both in one transaction. Both columns are " +
+      "backward compatible: client_id nullable (existing rows read NULL, " +
+      "exactly the walk-in case the create schema already tolerates), and a " +
+      "hold with zero pickup rows has a remaining balance equal to its full " +
+      "original usd_amount/lbp_amount — the exact pre-migration reading. " +
+      "electron-app/create_db.sql mirrors both (rule 10).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "hold_money")) {
+        console.log("Migration v183 skipped: 'hold_money' table not present");
+        return;
+      }
+
+      if (!columnExists(db, "hold_money", "client_id")) {
+        db.exec(`
+          ALTER TABLE hold_money ADD COLUMN client_id INTEGER REFERENCES clients(id);
+        `);
+      }
+
+      if (!tableExists(db, "hold_money_pickups")) {
+        db.exec(`
+          CREATE TABLE hold_money_pickups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER REFERENCES tenants(id),
+            hold_money_id INTEGER NOT NULL REFERENCES hold_money(id),
+            transaction_id INTEGER REFERENCES transactions(id),
+            usd_amount REAL NOT NULL DEFAULT 0,
+            lbp_amount REAL NOT NULL DEFAULT 0,
+            is_voided INTEGER NOT NULL DEFAULT 0,
+            voided_by INTEGER REFERENCES users(id),
+            voided_at DATETIME,
+            created_by INTEGER REFERENCES users(id),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_hold_money_pickups_hold_id
+            ON hold_money_pickups(hold_money_id);
+          CREATE INDEX IF NOT EXISTS idx_hold_money_pickups_transaction_id
+            ON hold_money_pickups(transaction_id);
+          CREATE INDEX IF NOT EXISTS idx_hold_money_pickups_tenant_id
+            ON hold_money_pickups(tenant_id);
+        `);
+      }
+
+      console.log(
+        "Migration v183: hold_money.client_id + hold_money_pickups added " +
+          "(partial pickup's remaining balance derives live from this table; " +
+          "every existing hold reads as fully remaining, unchanged)",
+      );
+    },
+    down(db: Database.Database) {
+      if (tableExists(db, "hold_money_pickups")) {
+        db.exec(`DROP TABLE hold_money_pickups;`);
+      }
+      if (columnExists(db, "hold_money", "client_id")) {
+        db.exec(`ALTER TABLE hold_money DROP COLUMN client_id;`);
+      }
+      console.log(
+        "Migration v183 rolled back: 'hold_money_pickups' dropped, " +
+          "'hold_money.client_id' removed",
+      );
+    },
+  },
+  {
+    version: 184,
+    name: "carrier_line_sold_ahead_days",
+    description:
+      "OWNER_NOTES_REMAINING_BUILD.md #28 (LIRA-218) — seamless cross-period " +
+      "telecom days sale. Adds carrier_lines.days_owed (INTEGER NOT NULL DEFAULT 0, " +
+      "the sold-ahead balance carrierLineValidity.ts's projectValidityExpiry now " +
+      "tracks: a DAYS sale that exceeds a line's real remaining days pins the real " +
+      "expiry at today and banks the shortfall here, instead of pushing the real " +
+      "expiry — and the line's classification — further into BURNED). Mirrors it " +
+      "with carrier_line_movements.days_owed_delta + previous_days_owed (the rule-20 " +
+      "snapshot pair for reverseMovement, same shape as the existing " +
+      "previous_validity_expires_at column) so voiding/refunding a DAYS sale or a " +
+      "recharge nets days_owed back to zero exactly, the same way validity_expires_at " +
+      "already does. Also creates carrier_line_owed_deliveries: one row per DAYS sale " +
+      "that sold ahead, tracking the customer (client_id, nullable for a walk-in) and " +
+      "how many days are still owed — the 'days still to send' list. `Mark sent` " +
+      "(CarrierLineOwedDeliveryRepository.markSent) only flips status to SENT and " +
+      "stamps sent_at/sent_by; it never re-charges or re-sells (owner: 'delivering " +
+      "never makes a second sale or a second charge'). Every existing carrier_lines " +
+      "row defaults to days_owed = 0 (unchanged reading — the sold-ahead model only " +
+      "engages the first time a sale actually overflows a line's real days), and " +
+      "every existing carrier_line_movements row defaults its new columns to 0/NULL " +
+      "(no historical movement ever touched a days_owed balance, since the column " +
+      "didn't exist yet). electron-app/create_db.sql mirrors all three (rule 10).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "carrier_lines")) {
+        console.log(
+          "Migration v184 skipped: 'carrier_lines' table not present",
+        );
+        return;
+      }
+
+      if (!columnExists(db, "carrier_lines", "days_owed")) {
+        db.exec(`
+          ALTER TABLE carrier_lines ADD COLUMN days_owed INTEGER NOT NULL DEFAULT 0;
+        `);
+      }
+
+      if (
+        tableExists(db, "carrier_line_movements") &&
+        !columnExists(db, "carrier_line_movements", "days_owed_delta")
+      ) {
+        db.exec(`
+          ALTER TABLE carrier_line_movements ADD COLUMN days_owed_delta INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE carrier_line_movements ADD COLUMN previous_days_owed INTEGER NOT NULL DEFAULT 0;
+        `);
+      }
+
+      if (!tableExists(db, "carrier_line_owed_deliveries")) {
+        db.exec(`
+          CREATE TABLE carrier_line_owed_deliveries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER REFERENCES tenants(id),
+            carrier_line_id INTEGER NOT NULL,
+            transaction_id INTEGER,
+            client_id INTEGER,
+            client_name TEXT,
+            days_owed INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SENT')),
+            sent_at DATETIME,
+            sent_by INTEGER REFERENCES users(id),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (carrier_line_id) REFERENCES carrier_lines(id) ON DELETE CASCADE,
+            FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
+            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_carrier_line_owed_deliveries_tenant_id
+            ON carrier_line_owed_deliveries(tenant_id);
+          CREATE INDEX IF NOT EXISTS idx_carrier_line_owed_deliveries_carrier_line_id
+            ON carrier_line_owed_deliveries(carrier_line_id);
+          CREATE INDEX IF NOT EXISTS idx_carrier_line_owed_deliveries_status
+            ON carrier_line_owed_deliveries(status);
+        `);
+      }
+
+      console.log(
+        "Migration v184: carrier_lines.days_owed, carrier_line_movements." +
+          "days_owed_delta/previous_days_owed and carrier_line_owed_deliveries added " +
+          "(every existing row defaults to 0/no sold-ahead balance, unchanged reading)",
+      );
+    },
+    down(db: Database.Database) {
+      if (tableExists(db, "carrier_line_owed_deliveries")) {
+        db.exec(`DROP TABLE carrier_line_owed_deliveries;`);
+      }
+      if (
+        tableExists(db, "carrier_line_movements") &&
+        columnExists(db, "carrier_line_movements", "days_owed_delta")
+      ) {
+        db.exec(`
+          ALTER TABLE carrier_line_movements DROP COLUMN days_owed_delta;
+          ALTER TABLE carrier_line_movements DROP COLUMN previous_days_owed;
+        `);
+      }
+      if (columnExists(db, "carrier_lines", "days_owed")) {
+        db.exec(`ALTER TABLE carrier_lines DROP COLUMN days_owed;`);
+      }
+      console.log(
+        "Migration v184 rolled back: 'carrier_line_owed_deliveries' dropped, " +
+          "'carrier_line_movements.days_owed_delta'/'previous_days_owed' and " +
+          "'carrier_lines.days_owed' removed",
+      );
+    },
+  },
+  {
+    version: 185,
+    name: "custom_services_payout_direction",
+    description:
+      "OWNER_NOTES_REMAINING_BUILD.md #16 (Route A, LIRA-16x) — Syria transfer OUT. " +
+      "Adds custom_services.direction ('IN' | 'OUT', DEFAULT 'IN') so a Via-Partner " +
+      "custom service can express a PAYOUT (cash leaves the General drawer to a " +
+      "local recipient, the selected partner is booked owing the shop) alongside " +
+      "the existing IN flow (customer pays the shop, the shop owes the partner) — a " +
+      "direction field rather than negative cost/price, so the existing " +
+      "cost_usd/cost_lbp/price_usd/price_lbp .min(0) validators are untouched. Every " +
+      "existing row defaults to 'IN' (byte-identical behaviour, unchanged repository " +
+      "branch). Fresh installs (create_db.sql) declare the column directly on the " +
+      "table, DEFAULT 'IN' — same shape as every other additive column in this file.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "custom_services")) {
+        console.log(
+          "Migration v185 skipped: 'custom_services' table not present",
+        );
+        return;
+      }
+      if (columnExists(db, "custom_services", "direction")) {
+        console.log(
+          "Migration v185 skipped: 'custom_services.direction' already present",
+        );
+        return;
+      }
+
+      // SQLite ALTER TABLE ADD COLUMN cannot attach a CHECK constraint —
+      // enforced at the Zod/validator layer instead (createCustomServiceSchema),
+      // same convention as every other free-text-with-a-known-vocabulary column
+      // added via ALTER in this file (e.g. v158's partner_mode used a full
+      // table rebuild for its CHECK; this column's vocabulary is validated at
+      // the application layer instead, since the table rebuild's blast radius
+      // for `custom_services` — FK targets, indexes, generated columns — isn't
+      // justified for a column nothing but the app ever writes).
+      db.exec(`
+        ALTER TABLE custom_services
+          ADD COLUMN direction TEXT NOT NULL DEFAULT 'IN';
+      `);
+
+      console.log(
+        "Migration v185: custom_services.direction added (default 'IN', every " +
+          "existing row keeps reading as the ordinary Via-Partner IN flow)",
+      );
+    },
+    down(db: Database.Database) {
+      if (!columnExists(db, "custom_services", "direction")) {
+        console.log(
+          "Migration v185 rollback skipped: 'custom_services.direction' not present",
+        );
+        return;
+      }
+
+      db.exec(`ALTER TABLE custom_services DROP COLUMN direction;`);
+
+      console.log(
+        "Migration v185 rolled back: 'custom_services.direction' dropped",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

@@ -6,6 +6,7 @@ import { audit } from "./auditHelper.js";
 import {
   PositiveIdSchema,
   VoidCheckoutGroupSchema,
+  SessionBasketReversalSchema,
   RefundLegsSchema,
   RefundUnitExtrasSchema,
   validatePayload,
@@ -205,6 +206,83 @@ export function registerTransactionHandlers(): void {
       };
     }
   });
+
+  /**
+   * LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — void every item in a
+   * customer-session basket, plus its pooled cash leg(s) and pooled debt
+   * (Session Debt / CREDIT_DEPOSIT), in ONE db transaction. Replaces the
+   * "Basket item — see admin to reverse" dead end — a bare
+   * `transactions:void`/`transactions:refund` on a session-linked row is
+   * refused by the repository guard; this is now the only legitimate way to
+   * reverse one. Mirrors `transactions:void-checkout-group` immediately
+   * above (rule 14).
+   */
+  ipcMain.handle(
+    "transactions:void-session-basket",
+    (e, data: unknown) => {
+      try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+        const v = validatePayload(SessionBasketReversalSchema, data);
+        if (!v.ok) return { success: false, error: v.error };
+        const userId = auth.userId ?? 1;
+        const result = txnService.voidSessionBasket(v.data.sessionId, userId);
+        audit(e.sender.id, {
+          action: "void",
+          entity_type: "session_basket",
+          entity_id: String(v.data.sessionId),
+          summary: `Voided session basket #${v.data.sessionId} (${result.itemCount} items)`,
+          metadata: {
+            itemCount: result.itemCount,
+            reversedTransactionIds: result.reversedTransactionIds,
+            reversalIds: result.reversalIds,
+          },
+        });
+        return { success: true, ...result };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  /** Same shape as `transactions:void-session-basket` (rule 14) but keeps
+   *  every original item ACTIVE and creates a REFUND row per item. */
+  ipcMain.handle(
+    "transactions:refund-session-basket",
+    (e, data: unknown) => {
+      try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+        const v = validatePayload(SessionBasketReversalSchema, data);
+        if (!v.ok) return { success: false, error: v.error };
+        const userId = auth.userId ?? 1;
+        const result = txnService.refundSessionBasket(
+          v.data.sessionId,
+          userId,
+        );
+        audit(e.sender.id, {
+          action: "refund",
+          entity_type: "session_basket",
+          entity_id: String(v.data.sessionId),
+          summary: `Refunded session basket #${v.data.sessionId} (${result.itemCount} items)`,
+          metadata: {
+            itemCount: result.itemCount,
+            reversedTransactionIds: result.reversedTransactionIds,
+            reversalIds: result.reversalIds,
+          },
+        });
+        return { success: true, ...result };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
 
   // ==================== ANALYTICS ====================
 

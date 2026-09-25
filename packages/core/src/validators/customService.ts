@@ -58,6 +58,29 @@ export const createCustomServiceSchema = z
     /** "FOR" (partner uses our system) or "VIA" (partner performs the
      *  service) — the two partner modes custom services support. */
     partnerMode: z.enum(["FOR", "VIA"]).optional(),
+    // OWNER_NOTES_REMAINING_BUILD.md #16 (Route A, migration v185) — a
+    // direction field rather than negative cost/price, so .min(0) above
+    // stays untouched. Omitted/"IN": the existing flow — the walk-in
+    // customer pays the shop; under partnerMode "VIA" the shop owes the
+    // partner the cost. "OUT": a PAYOUT — the shop hands cost_usd/cost_lbp
+    // to a local recipient from the General drawer, and the partner is
+    // booked owing the shop price_usd/price_lbp (the amount that "arrived"
+    // via the partner). profit_usd/profit_lbp (price - cost, stamped below
+    // exactly as for "IN") is the commission the shop keeps. Only valid
+    // under partnerMode "VIA" — see the refine below. See
+    // CustomServiceRepository.createService's `isPayout` block.
+    //
+    // Deliberately `.optional()` with NO `.default(...)`: every other
+    // `.default(...)` field in this schema (cost_usd, price_usd, paid_by,
+    // status, …) becomes REQUIRED in `CreateCustomServiceInput` (z.infer is
+    // the post-parse output type), and a dozen existing test call sites
+    // construct that type by hand, always supplying every defaulted field —
+    // adding one MORE required field would break all of them for no
+    // behavioural gain (the repository's own `data.direction ?? "IN"` /
+    // `data.direction === "OUT"` checks already treat `undefined`
+    // identically to "IN"). An optional field with no default stays
+    // optional in the output type, same as `partnerMode`/`partnerId` above.
+    direction: z.enum(["IN", "OUT"]).optional(),
     // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 FINAL SPEC: the inventory
     // path is the only one of the three (preset/inventory/free-text) that
     // must decrement stock, like a POS sale. Sent ONLY when the operator
@@ -109,6 +132,30 @@ export const createCustomServiceSchema = z
       message:
         "paid_by cannot be Customer Account on a for-partner custom service — there is no customer owing, the partner owes",
       path: ["paid_by"],
+    },
+  )
+  .refine((data) => data.direction !== "OUT" || data.partnerMode === "VIA", {
+    // OWNER_NOTES_REMAINING_BUILD.md #16: "Pay out" is Via-Partner only — a
+    // partner is ALWAYS required for a payout (mirrors `isViaPartner &&
+    // !data.partnerId` in the repository, which still enforces `partnerId`
+    // itself — this refine only pins the direction/mode pairing).
+    message:
+      "direction 'OUT' (pay out) is only valid for a Via-Partner custom service",
+    path: ["direction"],
+  })
+  .refine(
+    (data) =>
+      data.direction !== "OUT" ||
+      ((data.price_usd > 0 || data.price_lbp > 0) &&
+        (data.cost_usd > 0 || data.cost_lbp > 0)),
+    {
+      // A payout needs BOTH sides: price = what arrived via the partner
+      // (booked as the partner's debt to the shop), cost = what physically
+      // leaves the General drawer to the recipient (owner example: $100
+      // arrives, customer gets $97, $3 profit — neither figure is optional).
+      message:
+        "A payout needs both the amount that arrived (price) and the amount paid out (cost)",
+      path: ["cost_usd"],
     },
   );
 

@@ -90,6 +90,7 @@ function createSchemaWithCommissionModel(db: Database.Database): void {
       currency TEXT DEFAULT 'USD',
       commission REAL DEFAULT 0,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       omt_fee REAL,
       cost REAL DEFAULT 0,
       price REAL DEFAULT 0,
@@ -433,16 +434,24 @@ describe("LIRA-158 Phase 2a — getPendingCommissionTotals / getPendingCommissio
     const byProviderSorted = [...byProvider].sort((a, b) =>
       a.provider.localeCompare(b.provider),
     );
+    // LPAY-V7 (OWNER_NOTES_2026-09-21.md §6.5 PA-3.5 round 3) added
+    // `total_lbp` alongside `total_usd` — the LBP-currency counterpart,
+    // gated by the SAME predicate. Both fixture rows here are USD (the
+    // `currency` default), so total_lbp is legitimately 0 for each; this
+    // was a stale expected-shape omission in the test, not a code defect
+    // (OUT-OF-LANE-gate-1, LO-V14 disposition: fixed the test, not the code).
     expect(byProviderSorted).toEqual([
       {
         provider: "OMT",
         total_usd: 0,
+        total_lbp: 0,
         count: 0,
         awaiting_settlement_count: 1,
       },
       {
         provider: "WHISH",
         total_usd: 1.25,
+        total_lbp: 0,
         count: 1,
         awaiting_settlement_count: 0,
       },

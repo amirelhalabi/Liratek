@@ -111,7 +111,8 @@ function createTestDb(): Database.Database {
       paid_currency TEXT DEFAULT NULL,
       partner_id INTEGER REFERENCES partners(id),
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
-      commission_model INTEGER NOT NULL DEFAULT 0
+      commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE partner_ledger (
@@ -303,36 +304,49 @@ describe("FinancialServiceRepository — C4: app-wallet transfers move the app d
     expect(balance(db, "General", "USD")).toBeCloseTo(genBefore - 20, 2);
   });
 
-  it("OMT_APP RECEIVE with the FULL fee as commission (lira-101 fix): app +105, General −100", () => {
-    // Mirrors the WHISH_APP full-fee case below — the repo already handles
-    // this correctly for BOTH app-wallet providers via the shared isAppWallet
-    // branch; this is a coverage gap closed alongside the frontend fix, not
-    // a repo behavior change. amount=105 is the gross wallet inflow the
-    // (now-fixed) form sends for a $100 transfer + $5 fee charged on top.
+  // D1 cutover (OWNER_NOTES_2026-09-21.md §2b, matrix row 5) superseded the
+  // LIRA-101 fix this case used to prove: OMT_APP RECEIVE has no fee "for
+  // now" (owner decision) — a nonzero commission/omtFee is now rejected
+  // outright instead of being booked as shop profit. WHISH_APP is UNCHANGED
+  // (see the sibling full-fee case below) — only OMT_APP moved.
+  it("OMT_APP RECEIVE with a fee is rejected outright (D1 supersedes the lira-101 full-fee-as-commission behavior)", () => {
     const appBefore = balance(db, "OMT_App", "USD");
     const genBefore = balance(db, "General", "USD");
 
-    const { id } = repo.createTransaction({
+    expect(() =>
+      repo.createTransaction({
+        provider: "OMT_APP",
+        serviceType: "RECEIVE",
+        amount: 105,
+        currency: "USD",
+        commission: 5,
+        omtFee: 5,
+        cashoutMethod: "CASH",
+        exchangeRate: 90000,
+      }),
+    ).toThrow(/OMT RECEIVE never takes a fee from the customer/i);
+
+    // Nothing moved.
+    expect(balance(db, "OMT_App", "USD")).toBeCloseTo(appBefore, 2);
+    expect(balance(db, "General", "USD")).toBeCloseTo(genBefore, 2);
+  });
+
+  it("OMT_APP RECEIVE with NO fee is still accepted: app +100, General −100", () => {
+    const appBefore = balance(db, "OMT_App", "USD");
+    const genBefore = balance(db, "General", "USD");
+
+    repo.createTransaction({
       provider: "OMT_APP",
       serviceType: "RECEIVE",
-      amount: 105,
+      amount: 100,
       currency: "USD",
-      commission: 5, // FULL fee is shop profit
-      omtFee: 5,
+      commission: 0,
       cashoutMethod: "CASH",
       exchangeRate: 90000,
     });
 
-    expect(balance(db, "OMT_App", "USD")).toBeCloseTo(appBefore + 105, 2);
+    expect(balance(db, "OMT_App", "USD")).toBeCloseTo(appBefore + 100, 2);
     expect(balance(db, "General", "USD")).toBeCloseTo(genBefore - 100, 2);
-
-    const row = db
-      .prepare(
-        "SELECT omt_fee, commission FROM financial_services WHERE id = ?",
-      )
-      .get(id) as { omt_fee: number; commission: number };
-    expect(row.omt_fee).toBeCloseTo(5, 2);
-    expect(row.commission).toBeCloseTo(5, 2);
   });
 
   it("WHISH_APP SEND: app drawer −20, General +20", () => {

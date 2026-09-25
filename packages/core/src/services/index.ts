@@ -67,7 +67,7 @@ export {
   getSalesService,
   resetSalesService,
 } from "./SalesService.js";
-export type { SaleResult } from "./SalesService.js";
+export type { SaleResult, NetProfitWindowResult } from "./SalesService.js";
 
 // Exchange Service
 export {
@@ -219,7 +219,7 @@ export {
   getClosingService,
   resetClosingService,
 } from "./ClosingService.js";
-export type { ClosingResult } from "./ClosingService.js";
+export type { ClosingResult, DailyStatsSnapshot } from "./ClosingService.js";
 
 // Activity Service (legacy adapter — delegates to TransactionService)
 export {
@@ -335,6 +335,8 @@ export type {
   ProfitByUser,
   ProfitByClient,
   PendingProfitRow,
+  ProfitModuleDetail,
+  ProfitModuleDetailRow,
 } from "./ProfitService.js";
 
 // Voice Bot Service
@@ -377,6 +379,8 @@ export type {
   ApplyMovementResult,
   ReverseMovementResult,
   RecordUsageResult,
+  OwedDeliveryListResult,
+  MarkOwedDeliverySentResult,
 } from "./CarrierLineService.js";
 
 // Audit Service
@@ -452,6 +456,21 @@ export {
   UNGATEABLE_MODULES,
 } from "./SubscriptionService.js";
 export type { SubscriptionStatusView } from "./SubscriptionService.js";
+
+// Commissions Report Service (Profits page "Commissions" tab —
+// OWNER_NOTES_2026-09-21.md §6, lane LC)
+export {
+  CommissionsReportService,
+  getCommissionsReportService,
+  resetCommissionsReportService,
+  COMMISSION_REPORT_PROVIDERS,
+} from "./CommissionsReportService.js";
+export type {
+  CommissionsReport,
+  CommissionProviderRow,
+  CommissionReportProvider,
+  ExcludedCommissionProvider,
+} from "./CommissionsReportService.js";
 
 // Database Reset Service (LIRA-165 — Settings › Reset Data)
 export {

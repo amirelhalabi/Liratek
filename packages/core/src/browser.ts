@@ -150,6 +150,16 @@ export * from "./constants/resetTables.js";
 // above for the exact failure mode this avoids.
 export * from "./constants/omtAppCashout.js";
 
+// By Module row classification (PA-4.23 a, OWNER_NOTES_2026-09-21.md §6.9) —
+// pure string classification, no Node.js deps. Profits.tsx imports
+// `classifyProfitModuleRow` to decide whether a By Module row's expanded
+// detail renders the Revenue − Cost = Profit equation, a bare "Commission:
+// <amount>" or a bare "Profit: <amount>" line, instead of hand-rolling a
+// second per-row if/switch in the renderer (rule 14). Must be exported HERE,
+// not only from index.ts — see the telecomCredit.js note above for the exact
+// failure mode this avoids.
+export * from "./constants/profitRowClass.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";
@@ -165,3 +175,62 @@ export type { SaleRequest } from "./repositories/SalesRepository.js";
 // missing here fails at load (same failure mode as the telecomCredit.js note
 // above).
 export type { SafeSession } from "./repositories/SessionRepository.js";
+
+// Commissions Report shape (Profits page "Commissions" tab —
+// OWNER_NOTES_2026-09-21.md §6, lane LC). Type-only, so importing it from
+// CommissionsReportService.js (which imports ProfitRepository/
+// FinancialServiceRepository and is NOT otherwise browser-safe) has zero
+// runtime impact — same reasoning as the SafeSession export above. Must be
+// exported HERE too, not only from index.ts: Vite/Jest resolve
+// @liratek/core to THIS file, so a renderer import of CommissionsReport
+// missing here fails at load (same failure mode as the telecomCredit.js
+// note earlier in this file).
+export type {
+  CommissionsReport,
+  CommissionProviderRow,
+  CommissionReportProvider,
+  ExcludedCommissionProvider,
+} from "./services/CommissionsReportService.js";
+
+// Closing report's daily-stats-snapshot shape (LIRA-219, closing profit =
+// Profits page profit for the day). Type-only, so importing it from
+// ClosingService.js (which imports ProfitService.js → ProfitRepository.js
+// and is NOT otherwise browser-safe) has zero runtime impact — same
+// reasoning as the CommissionsReport export above. Must be exported HERE
+// too, not only from index.ts: Vite/Jest resolve @liratek/core to THIS
+// file, so a renderer import of DailyStatsSnapshot missing here fails at
+// load (same failure mode as the telecomCredit.js note earlier in this
+// file).
+export type { DailyStatsSnapshot } from "./services/ClosingService.js";
+
+// Dashboard "Net Profit — last 30 days" tile shape (DC-11,
+// OWNER_NOTES_2026-09-21.md §7.2; CHART-m5 verifier finding — this used to
+// be hand-typed four separate times, one per consuming file). Type-only, so
+// importing it from SalesService.js (which imports SalesRepository.js and
+// is NOT otherwise browser-safe) has zero runtime impact — same reasoning
+// as the DailyStatsSnapshot export above. Must be exported HERE too, not
+// only from index.ts: Vite/Jest resolve @liratek/core to THIS file, so a
+// renderer import of NetProfitWindowResult missing here fails at load (same
+// failure mode as the telecomCredit.js note earlier in this file).
+export type { NetProfitWindowResult } from "./services/SalesService.js";
+
+// PFU-types-1 (verifier round-1 fix) — Profits page summary/by-module
+// shapes. Type-only, so importing them from ProfitService.js (which imports
+// ProfitRepository.js and is NOT otherwise browser-safe) has zero runtime
+// impact — same reasoning as the CommissionsReport export above. Must be
+// exported HERE too, not only from index.ts: Vite/Jest resolve
+// @liratek/core to THIS file, so a renderer import of ProfitSummary/
+// ProfitByModule missing here fails at load (same failure mode as the
+// telecomCredit.js note earlier in this file).
+export type { ProfitSummary, ProfitByModule } from "./services/ProfitService.js";
+
+// PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the
+// Profits page's "Show transactions" drill-down payload. Same type-only
+// reasoning as ProfitSummary/ProfitByModule immediately above — must be
+// exported HERE too, or a renderer import of ProfitModuleDetail/
+// ProfitModuleDetailRow fails at load (Vite/Jest resolve @liratek/core to
+// THIS file).
+export type {
+  ProfitModuleDetail,
+  ProfitModuleDetailRow,
+} from "./services/ProfitService.js";

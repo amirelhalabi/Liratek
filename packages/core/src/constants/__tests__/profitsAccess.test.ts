@@ -8,6 +8,7 @@
 import {
   isProfitsUnlockLive,
   PROFITS_UNLOCK_TTL_MS,
+  canIncludeProfit,
 } from "../profitsAccess.js";
 
 describe("isProfitsUnlockLive", () => {
@@ -49,5 +50,42 @@ describe("isProfitsUnlockLive", () => {
   it("defaults `now` to Date.now() when omitted", () => {
     const unlockedAt = Date.now() - 1000;
     expect(isProfitsUnlockLive(unlockedAt)).toBe(true);
+  });
+});
+
+/**
+ * LIRA-219 (E-Q6) — the "admin OR unlocked" predicate for the closing
+ * checkpoint's profit block. Deliberately looser than `isProfitsUnlockLive`
+ * alone / `requireProfitsAccess` (the /profits page's own "everyone types
+ * the password" gate) — an admin always sees it, staff only after unlocking.
+ */
+describe("canIncludeProfit", () => {
+  it("is true for an admin who has NOT unlocked Profits", () => {
+    expect(canIncludeProfit("admin", false)).toBe(true);
+  });
+
+  it("is true for an admin who HAS unlocked Profits", () => {
+    expect(canIncludeProfit("admin", true)).toBe(true);
+  });
+
+  it("is true for staff who HAVE unlocked Profits", () => {
+    expect(canIncludeProfit("staff", true)).toBe(true);
+  });
+
+  it("is false for staff who have NOT unlocked Profits", () => {
+    expect(canIncludeProfit("staff", false)).toBe(false);
+  });
+
+  it("fails closed for an unrecognized role, even when unlocked=false", () => {
+    expect(canIncludeProfit("guest", false)).toBe(false);
+  });
+
+  it("fails closed for a null/undefined role when not unlocked", () => {
+    expect(canIncludeProfit(null, false)).toBe(false);
+    expect(canIncludeProfit(undefined, false)).toBe(false);
+  });
+
+  it("an unlocked non-admin role still passes (unlock alone is sufficient)", () => {
+    expect(canIncludeProfit("guest", true)).toBe(true);
   });
 });

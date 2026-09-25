@@ -94,6 +94,10 @@ function createTestDb(): Database.Database {
       partner_mode TEXT,
       fulfillment_status TEXT,
       fulfilled_at TEXT,
+      -- OWNER_NOTES_REMAINING_BUILD.md #16 (migration v185) — createService's
+      -- INSERT now always includes this column; a missing column here would
+      -- fail every INSERT in this file at runtime, not just the new tests.
+      direction TEXT NOT NULL DEFAULT 'IN',
       FOREIGN KEY (client_id) REFERENCES clients(id),
       FOREIGN KEY (created_by) REFERENCES users(id)
     );

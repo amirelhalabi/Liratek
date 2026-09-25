@@ -5,9 +5,24 @@
  * as the PREVIOUS UTC day (22:00). The old `getDailyStatsSnapshot` filtered with
  * `DATE(created_at) = <JS UTC today>`, so that transaction fell out of "today"
  * for the 00:00–03:00 Beirut window and the day rolled over at 03:00 local. The
- * fix uses `DATE(created_at, 'localtime') = DATE('now', 'localtime')` (the
- * convention already used by SalesRepository et al.), so the boundary row counts
- * under the LOCAL day.
+ * fix used `DATE(created_at, 'localtime') = DATE('now', 'localtime')` (the
+ * convention already used by SalesRepository et al.), so the boundary row
+ * counted under the LOCAL day.
+ *
+ * LIRA-219 rewrite (rule 24 — "rewrite, not delete"): `getDailyStatsSnapshot`
+ * was renamed to `getDailyActivityStats(day)` and dropped every profit query
+ * (profit now lives in `ClosingService`, composed from
+ * `ProfitService.getSummary` — see `ClosingService.profitParity.test.ts`).
+ * The local-business-day CONCERN this file guards is unchanged and still
+ * real: activity stats are now bound through `dateRange(col)`
+ * (`datetime(col,'localtime') >= ${day} 00:00:00 AND <= ${day} 23:59:59`,
+ * the same `'localtime'`-conversion convention as before) against an
+ * EXPLICIT `day` argument, rather than SQLite's own `DATE('now','localtime')`
+ * — so this file now computes `day` the same way the old query computed
+ * "today" and passes it in, proving the explicit-day path preserves the
+ * exact local-time bucketing the old zero-argument version had. The
+ * `totalProfitUSD` assertion the old first case carried is gone — this
+ * repository method returns no profit field any more.
  *
  * This test MUST run with TZ pinned to a non-UTC zone at PROCESS LAUNCH
  * (`TZ=Asia/Beirut jest ...`) — SQLite's `'localtime'` reads the C runtime zone
@@ -17,7 +32,8 @@
  *
  * Rule 17: proven to FAIL on the pre-fix `DATE(created_at) = <UTC today>` query
  * (boundary row excluded → salesCount 0) before the localtime change; reverted
- * and confirmed identical via git diff.
+ * and confirmed identical via git diff (unchanged by this rewrite — the
+ * underlying `'localtime'` conversion is the same, just now parameterized).
  */
 
 import Database from "better-sqlite3";
@@ -27,7 +43,7 @@ import { runWithTenant } from "../../db/tenantContext.js";
 let db: Database.Database;
 let repo: ClosingRepository;
 
-/** Minimal schema covering every table getDailyStatsSnapshot() reads. */
+/** Minimal schema covering every table getDailyActivityStats() reads. */
 function createSchema(d: Database.Database): void {
   d.exec(`
     CREATE TABLE sales (
@@ -48,89 +64,33 @@ function createSchema(d: Database.Database): void {
       amount_usd REAL, amount_lbp REAL, expense_date TEXT
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL
     , status TEXT NOT NULL DEFAULT 'active');
-    CREATE TABLE financial_services (
-      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
-      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
-      currency TEXT, commission REAL, created_at TEXT
-    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
-    CREATE TABLE recharges (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
-      currency_code TEXT, price REAL, cost REAL, created_at TEXT
-    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
-    CREATE TABLE custom_services (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
-      profit_usd REAL, status TEXT, created_at TEXT
-    , is_refunded INTEGER DEFAULT 0);
-    CREATE TABLE maintenance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
-      final_amount_usd REAL, cost_usd REAL, status TEXT, created_at TEXT,
-      is_refunded INTEGER DEFAULT 0
-    ,
-  parts_cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
-  parts_price_usd DECIMAL(10,2) NOT NULL DEFAULT 0
-);
-
-    CREATE TABLE maintenance_parts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tenant_id INTEGER DEFAULT 1,
-      maintenance_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
-      product_name TEXT NOT NULL,
-      quantity INTEGER NOT NULL,
-      unit_cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
-      unit_price_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
-      stock_restored INTEGER NOT NULL DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-
-    CREATE TABLE maintenance_status_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tenant_id INTEGER DEFAULT 1,
-      maintenance_id INTEGER NOT NULL,
-      from_status TEXT,
-      to_status TEXT NOT NULL,
-      changed_by INTEGER,
-      note TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
   `);
 }
 
-/**
- * UTC timestamp for "today-LOCAL at HH:00" — i.e. its local calendar day is
- * today but (for early hours in a positive-offset zone) its UTC day is
- * yesterday. Built inside SQLite so it uses the same zone as the queries.
- */
-function localTodayAtUtc(hour: string): string {
-  return db
-    .prepare(
-      `SELECT datetime(date('now','localtime') || ' ${hour}:00:00', 'utc') AS ts`,
-    )
-    .get() as { ts: string } extends never
-    ? string
-    : string as unknown as string;
+/** `day` computed the SAME way the old zero-argument query computed "today"
+ *  internally — `DATE('now','localtime')` — so this file's expectations
+ *  (rows near the local-midnight boundary) still exercise real local-time
+ *  bucketing rather than a fixed, possibly-stale string. */
+function todayLocalDay(): string {
+  return (db.prepare(`SELECT date('now','localtime') AS d`).get() as { d: string }).d;
 }
 
 beforeAll(() => {
-  db = new Database(":memory:");
+  const probe = new Database(":memory:");
   // Probe: the pinned zone must actually differ from UTC, or the whole test is
   // hollow (the fix and the bug would behave identically under UTC).
-  const { off } = db
+  const { off } = probe
     .prepare(
       `SELECT strftime('%s','now') - strftime('%s','now','localtime') AS off`,
     )
     .get() as { off: number };
+  probe.close();
   if (off === 0) {
     throw new Error(
       "SQLite 'localtime' == UTC — run this suite with TZ=Asia/Beirut at launch " +
         "(TZ=Asia/Beirut jest …). Offset was 0, so the local-vs-UTC assertions prove nothing.",
     );
   }
-  db.close();
 });
 
 beforeEach(() => {
@@ -145,7 +105,7 @@ afterEach(() => {
   db.close();
 });
 
-describe("ClosingRepository.getDailyStatsSnapshot — local business day", () => {
+describe("ClosingRepository.getDailyActivityStats — local business day", () => {
   it("counts a 01:00-local sale under TODAY even though its UTC day is yesterday", () => {
     // created_at = today-local 01:00 → stored as yesterday 22:00 UTC in Beirut.
     const boundaryTs = db
@@ -163,12 +123,12 @@ describe("ClosingRepository.getDailyStatsSnapshot — local business day", () =>
        VALUES (1, 1, 25, 10, 0)`,
     ).run();
 
-    const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());
+    const day = todayLocalDay();
+    const snap = runWithTenant(1, () => repo.getDailyActivityStats(day));
 
-    // Pre-fix (UTC filter) this was 0 / 0 — the sale fell under "yesterday".
+    // Pre-fix (UTC filter) this was salesCount 0 — the sale fell under "yesterday".
     expect(snap.salesCount).toBe(1);
     expect(snap.totalSalesUSD).toBe(25);
-    expect(snap.totalProfitUSD).toBeCloseTo(15, 2); // 25 − 10, fully paid
   });
 
   it("counts a 01:00-local expense under TODAY (expense_date localtime bucketing)", () => {
@@ -183,7 +143,8 @@ describe("ClosingRepository.getDailyStatsSnapshot — local business day", () =>
        VALUES (1, 7, 0, ?)`,
     ).run(boundaryTs.ts);
 
-    const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());
+    const day = todayLocalDay();
+    const snap = runWithTenant(1, () => repo.getDailyActivityStats(day));
     expect(snap.totalExpensesUSD).toBe(7);
   });
 
@@ -199,7 +160,8 @@ describe("ClosingRepository.getDailyStatsSnapshot — local business day", () =>
        VALUES (1, 99, 99, 'completed', ?)`,
     ).run(oldTs.ts);
 
-    const snap = runWithTenant(1, () => repo.getDailyStatsSnapshot());
+    const day = todayLocalDay();
+    const snap = runWithTenant(1, () => repo.getDailyActivityStats(day));
     expect(snap.salesCount).toBe(0);
     expect(snap.totalSalesUSD).toBeFalsy();
   });

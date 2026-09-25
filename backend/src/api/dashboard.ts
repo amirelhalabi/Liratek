@@ -6,6 +6,8 @@ import {
   getInventoryService,
   getRechargeService,
   getFinancialRepository,
+  dashboardChartQuerySchema,
+  netProfitWindowQuerySchema,
 } from "@liratek/core";
 
 const router = express.Router();
@@ -21,11 +23,65 @@ router.get("/stats", (_req, res) => {
 });
 
 // GET /api/dashboard/chart?type=Sales|Profit
+// DC-7 (OWNER_NOTES_2026-09-21.md §7.1): IPC-identical envelope on failure —
+// the IPC channel (`dashboard:get-profit-sales-chart`) has no try/catch of
+// its own (a thin read pass-through), so a thrown DatabaseError there
+// surfaces to the renderer as a rejected promise; here it must surface as
+// HTTP 200 with `{ success: false, error }` rather than an uncaught 500, or
+// the two transports diverge on the exact same failure. Mirrors the
+// `/drawer-balances` route's own envelope-parity fix below.
 router.get("/chart", (req, res) => {
-  const type = req.query.type === "Profit" ? "Profit" : "Sales";
-  const service = getSalesService();
-  const chart = service.getChartData(type);
-  res.json({ success: true, chart });
+  try {
+    // DC-10 (OWNER_NOTES_2026-09-21.md §7.2, rule 27): `client_day` is the
+    // BROWSER's own calendar day — `backendApi.getProfitSalesChart` always
+    // sends one (defaulted to its own `localDay()`), but a malformed/absent
+    // value degrades to the parsed `type` alone (matching the pre-existing
+    // "default to type=Sales on anything but 'Profit'" contract this route
+    // already tested) rather than 400ing a GET whose service layer has its
+    // own `clientDay()` fallback anyway.
+    const parsed = dashboardChartQuerySchema.safeParse({
+      type: req.query.type,
+      client_day: req.query.client_day,
+    });
+    const type = parsed.success
+      ? parsed.data.type
+      : req.query.type === "Profit"
+        ? "Profit"
+        : "Sales";
+    const clientDay = parsed.success ? parsed.data.client_day : undefined;
+    const service = getSalesService();
+    const chart = service.getChartData(type, clientDay);
+    res.json({ success: true, chart });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to get chart data",
+    });
+  }
+});
+
+// GET /api/dashboard/net-profit-last-30-days?client_day=YYYY-MM-DD
+// DC-11 — the "Net Profit — last 30 days" tile. Rule 19c envelope parity:
+// HTTP 200 {success:false,error} on a thrown DatabaseError, mirroring
+// /chart above and the IPC channel (no try/catch of its own).
+router.get("/net-profit-last-30-days", (req, res) => {
+  try {
+    const parsed = netProfitWindowQuerySchema.safeParse({
+      client_day: req.query.client_day,
+    });
+    const clientDay = parsed.success ? parsed.data.client_day : undefined;
+    const service = getSalesService();
+    const netProfit = service.getNetProfitLast30Days(clientDay);
+    res.json({ success: true, netProfit });
+  } catch (error) {
+    res.json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to get net profit",
+    });
+  }
 });
 
 // GET /api/dashboard/todays-sales
@@ -87,21 +143,6 @@ router.get("/recharge-stock", (_req, res) => {
   const service = getRechargeService();
   const stock = service.getStock();
   res.json({ success: true, stock });
-});
-
-// GET /api/dashboard/monthly-pl?month=YYYY-MM
-router.get("/monthly-pl", (req, res) => {
-  const month = typeof req.query.month === "string" ? req.query.month : "";
-  if (!/^\d{4}-\d{2}$/.test(month)) {
-    res
-      .status(400)
-      .json({ success: false, error: "Invalid month (expected YYYY-MM)" });
-    return;
-  }
-
-  const repo = getFinancialRepository();
-  const pl = repo.getMonthlyPL(month);
-  res.json({ success: true, pl });
 });
 
 export default router;

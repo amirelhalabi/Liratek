@@ -2,6 +2,7 @@ import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import {
   getProfitService,
   getProfitsAccessService,
+  getCommissionsReportService,
   logger,
   PROFITS_PASSWORD_SETTING_KEY,
 } from "@liratek/core";
@@ -23,6 +24,7 @@ export function registerProfitHandlers(): void {
 
   const svc = getProfitService();
   const accessSvc = getProfitsAccessService();
+  const commissionsSvc = getCommissionsReportService();
 
   // Profits password gate (frozen contract): the 7 data channels below used
   // to gate on role alone (requireAdmin). They now require a LIVE password
@@ -68,6 +70,31 @@ export function registerProfitHandlers(): void {
   ipcMain.handle("profits:pending", (e, from: string, to: string) => {
     requireProfitsGate(e);
     return svc.getPendingProfit(from, to);
+  });
+
+  // PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the
+  // By Module drill-down's "Show transactions" list. Mirrors the other 7
+  // data channels' own unvalidated `(from, to)` positional-args convention
+  // (no `validatePayload` call) — `moduleKey` is validated by
+  // `ProfitService.getModuleDetail` itself (throws for anything other than
+  // SALE/RECHARGE_<carrier> in slice 2), same shape as every sibling channel
+  // above.
+  ipcMain.handle(
+    "profits:module-detail",
+    (e, moduleKey: string, from: string, to: string) => {
+      requireProfitsGate(e);
+      return svc.getModuleDetail(moduleKey, from, to);
+    },
+  );
+
+  // Commissions tab (OWNER_NOTES_2026-09-21.md §6, lane LC) — a NEW,
+  // Profits-gated read path over FinancialServiceRepository/ProfitRepository
+  // data (PA-4.20). Mirrors the other 6 data channels' own unvalidated
+  // `(from, to)` positional-args convention — no `validatePayload` call, same
+  // as `profits:summary`/`profits:by-module`/etc. above.
+  ipcMain.handle("profits:commissions", (e, from: string, to: string) => {
+    requireProfitsGate(e);
+    return commissionsSvc.getReport(from, to);
   });
 
   // ==================== Profits password gate ====================

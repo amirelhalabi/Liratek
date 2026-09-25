@@ -75,6 +75,10 @@ export interface CustomServiceEntity {
    * this column's 'VIA' value and the `THROUGH_CUSTOM_SERVICE` ledger type
    * are two deliberately different strings. */
   partner_mode: string | null;
+  /** OWNER_NOTES_REMAINING_BUILD.md #16 (migration v185) — 'IN' (default,
+   * every pre-v185 row) is the ordinary flow; 'OUT' is a PAYOUT, valid only
+   * with `partner_mode: 'VIA'`. See `createService`'s `isPayout` block. */
+  direction: string;
   /** LIRA-155 — where this insurance-style service's paperwork currently
    * sits: 'ORDERED' | 'ISSUED' | 'RECEIVED' | 'DELIVERED', or NULL for a
    * non-insurance custom service (not fulfilment-tracked at all). See
@@ -119,7 +123,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     // "add-a-nullable-column, project-it-here" shape LIRA-154 used for
     // partner_mode just above — every existing row reads NULL for both,
     // unchanged behaviour for every non-insurance custom service.
-    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at, partner_mode, fulfillment_status, fulfilled_at";
+    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at, partner_mode, fulfillment_status, fulfilled_at, direction";
   }
 
   /**
@@ -141,12 +145,100 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         // / custom_services.created_by whenever the admin's real id isn't 1.
         const createdBy = createdByParam ?? this.resolveFallbackUserId();
 
+        // LIRA-081 (PFT-R): a "for partner" custom service takes no counter
+        // payment at all — the FULL price books to the partner's tab.
+        // Computed before the unified transaction row so the client_name
+        // stamp below can label it, mirroring Recharge/Loto.
+        //
+        // OWNER_NOTES_REMAINING_BUILD.md #16 fix-round I2: this whole block
+        // (isForPartner/isViaPartner/isPayout + their guards) is computed
+        // here, BEFORE the `custom_services` INSERT below, instead of after
+        // it (where it used to live) — so the INSERT can stamp
+        // `direction`/`paid_by` FROM `isPayout` directly rather than from
+        // raw `data.direction`/`data.paid_by`, and so an invalid
+        // direction/partner-mode combination throws before any row is
+        // written rather than after a contradictory one already exists
+        // (issue I2a: a bare `direction: "OUT"` with no `partnerMode: "VIA"`
+        // used to fall through to the ordinary IN payment branches while the
+        // column still recorded "OUT", so `custom_services.direction` and
+        // `metadata_json.direction` disagreed on the same row).
+        const isForPartner = data.partnerMode === "FOR";
+
+        // LIRA-154 — "Via partner" (owner decision D4.1): the MIRROR of
+        // "For partner". Here the PARTNER performs the service, not us: the
+        // walk-in customer still pays US, now, through the completely
+        // unforked normal payment path below (isForPartner is false, so none
+        // of the branches change) — money moves into our drawer exactly like
+        // any non-partner custom service, and shop profit is unchanged
+        // (price - cost, already stamped above). The ONLY addition is that
+        // we now owe the PARTNER the COST instead of it being a pure
+        // profit-computation input — booked once, after the normal payment
+        // branches, as a THROUGH_CUSTOM_SERVICE partner_ledger CREDIT (see
+        // below). Guarded here, before any row is written, same shape as
+        // `assertPartnerIdRequired` (moneyPosting.ts) — not reusing that
+        // helper directly because its message is hardcoded to mention `"FOR"`
+        // and widening its signature to parameterize the mode would be
+        // changing a shared interface to suit this one new caller.
+        const isViaPartner = data.partnerMode === "VIA";
+        if (isViaPartner && !data.partnerId) {
+          throw new Error('partnerId is required when partnerMode is "VIA"');
+        }
+
+        // OWNER_NOTES_REMAINING_BUILD.md #16 (Route A, migration v185) —
+        // "Pay out": the MIRROR of the Via-Partner IN flow above, not a
+        // third partner mode — same `partner_mode: 'VIA'` row, direction
+        // flips who pays whom. Here money arrived via the PARTNER (the
+        // "$100 arrives" example) and the shop hands cash to a LOCAL
+        // recipient instead of collecting from a walk-in customer:
+        //   - price_usd/price_lbp = what the partner now owes the shop
+        //     (booked below as a THROUGH_CUSTOM_SERVICE partner_ledger
+        //     DEBIT — "partner owes us" — instead of the IN flow's CREDIT).
+        //   - cost_usd/cost_lbp = what physically leaves the General drawer
+        //     to the recipient (the owner's "$97"), CASH only — the owner
+        //     was explicit that Syria never touches the Whish system
+        //     drawer, so this never reads `data.paid_by`/`data.payments`.
+        //   - profit_usd/profit_lbp stays price − cost (unchanged formula,
+        //     stamped on createTransaction below) — the commission ($3),
+        //     realized the same day.
+        // The Zod refine (`createCustomServiceSchema`) already rejects
+        // `direction: "OUT"` without `partnerMode: "VIA"` and requires both
+        // price and cost to be > 0 — this repository still repeats the
+        // partner-id guard above (isViaPartner) rather than trusting the
+        // schema alone, same defense-in-depth every other partner branch in
+        // this file uses.
+        const isPayout = isViaPartner && data.direction === "OUT";
+
+        // Fix-round I2b/I2c: same defense-in-depth the line above already
+        // gives `partnerId` — repeat the schema's two refines here too,
+        // independent of Zod, so a caller that bypasses/predates the schema
+        // (a raw repository call, an older desktop build talking to a
+        // newer core) still can't produce the contradictory row described
+        // above. Both throw BEFORE the INSERT below, so nothing partial is
+        // ever written (the whole `db.transaction(...)` callback rolls
+        // back).
+        if (data.direction === "OUT" && !isViaPartner) {
+          throw new Error(
+            'direction "OUT" (pay out) is only valid for a Via-Partner custom service',
+          );
+        }
+        if (
+          isPayout &&
+          !(
+            ((data.price_usd ?? 0) > 0 || (data.price_lbp ?? 0) > 0) &&
+            ((data.cost_usd ?? 0) > 0 || (data.cost_lbp ?? 0) > 0)
+          )
+        ) {
+          throw new Error(
+            "A payout needs both the amount that arrived (price) and the amount paid out (cost)",
+          );
+        }
+
         // 1. Insert the custom service record
         const insertService = this.db.prepare(`
           INSERT INTO custom_services (
             tenant_id, description, cost_usd, cost_lbp, price_usd, price_lbp,
-            paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, product_id, partner_mode, fulfillment_status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
+            paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, product_id, partner_mode, fulfillment_status, direction
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?)
         `);
         const serviceResult = insertService.run(
           tenantId,
@@ -155,7 +247,14 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           data.cost_lbp ?? 0,
           data.price_usd ?? 0,
           data.price_lbp ?? 0,
-          data.paid_by ?? "CASH",
+          // Fix-round I5/I2: derived from `isPayout`, not raw
+          // `data.paid_by`/`data.direction` — a payout is always CASH (the
+          // owner: "Syria never touches the Whish system drawer", so no
+          // other method is ever valid here) and its `direction` column can
+          // now only ever be "OUT" when `isPayout` is true, since the guards
+          // above already threw for every OTHER shape that could set
+          // `data.direction === "OUT"`.
+          isPayout ? "CASH" : (data.paid_by ?? "CASH"),
           data.status ?? "completed",
           data.client_id ?? null,
           data.client_name ?? null,
@@ -164,12 +263,17 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           data.category ?? null,
           createdBy,
           data.transaction_time ?? null,
-          data.product_id ?? null,
+          // Fix-round I5: a payout never consumes inventory — ignore a
+          // stray `product_id` rather than letting it silently decrement
+          // stock for an operation that isn't a sale (see the guarded stock
+          // block below).
+          isPayout ? null : (data.product_id ?? null),
           data.partnerMode ?? null,
           // LIRA-155: NULL for every non-insurance service (unchanged
           // behaviour). `fulfilled_at` is never set on create — it is only
           // ever stamped by updateFulfillmentStatus, on reaching DELIVERED.
           data.fulfillment_status ?? null,
+          isPayout ? "OUT" : "IN",
         );
         const serviceId = Number(serviceResult.lastInsertRowid);
 
@@ -186,7 +290,13 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         // service reserves nothing, same as POS ("Update Stock: ONLY IF
         // COMPLETED."). Always exactly 1 unit — see the migration's doc
         // comment for why no `quantity` column exists.
+        //
+        // Fix-round I5: `!isPayout` — a payout never decrements stock (see
+        // the `isPayout ? null : ...` write above; this check is on
+        // `data.product_id` directly rather than that already-nulled
+        // column write purely as belt-and-braces against a future reorder).
         if (
+          !isPayout &&
           data.product_id != null &&
           (data.status ?? "completed") === "completed"
         ) {
@@ -241,31 +351,9 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           });
         }
 
-        // LIRA-081 (PFT-R): a "for partner" custom service takes no counter
-        // payment at all — the FULL price books to the partner's tab.
-        // Computed before the unified transaction row so the client_name
-        // stamp below can label it, mirroring Recharge/Loto.
-        const isForPartner = data.partnerMode === "FOR";
-
-        // LIRA-154 — "Via partner" (owner decision D4.1): the MIRROR of
-        // "For partner". Here the PARTNER performs the service, not us: the
-        // walk-in customer still pays US, now, through the completely
-        // unforked normal payment path below (isForPartner is false, so none
-        // of the branches change) — money moves into our drawer exactly like
-        // any non-partner custom service, and shop profit is unchanged
-        // (price - cost, already stamped above). The ONLY addition is that
-        // we now owe the PARTNER the COST instead of it being a pure
-        // profit-computation input — booked once, after the normal payment
-        // branches, as a THROUGH_CUSTOM_SERVICE partner_ledger CREDIT (see
-        // below). Guarded here, before any row is written, same shape as
-        // `assertPartnerIdRequired` (moneyPosting.ts) — not reusing that
-        // helper directly because its message is hardcoded to mention `"FOR"`
-        // and widening its signature to parameterize the mode would be
-        // changing a shared interface to suit this one new caller.
-        const isViaPartner = data.partnerMode === "VIA";
-        if (isViaPartner && !data.partnerId) {
-          throw new Error('partnerId is required when partnerMode is "VIA"');
-        }
+        // isForPartner/isViaPartner/isPayout are computed further up (fix-
+        // round I2 — before the `custom_services` INSERT, see that block's
+        // comment for why).
 
         // Blank/whitespace-only descriptions must not produce a dangling
         // "Custom Service: " (colon, nothing after it) — degrade to the bare
@@ -283,17 +371,28 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           source_table: "custom_services",
           source_id: serviceId,
           user_id: createdBy,
-          amount_usd: data.price_usd ?? 0,
-          amount_lbp: data.price_lbp ?? 0,
+          // A payout's face amount is what physically left the drawer (the
+          // recipient's cash, cost_usd/cost_lbp) — mirrors every other
+          // payout type's convention (e.g. RechargeRepository's
+          // TELECOM_CREDIT_BUYBACK stamps amount_usd/lbp from its own
+          // payoutAmount, not the credits gained). The IN flow keeps its
+          // existing price_usd/price_lbp (what the customer paid).
+          amount_usd: isPayout ? (data.cost_usd ?? 0) : (data.price_usd ?? 0),
+          amount_lbp: isPayout ? (data.cost_lbp ?? 0) : (data.price_lbp ?? 0),
           // Margin plus any change the operator kept as profit (T3 KC-3).
+          // Fix-round I5: kept_change is ignored under isPayout — a payout
+          // collects no tender to make change from (the shop PAYS the
+          // recipient), so a stray kept_change value left over from before
+          // "Pay out" was toggled on must not inflate the commission with no
+          // matching cash behind it.
           profit_usd:
             (data.price_usd ?? 0) -
             (data.cost_usd ?? 0) +
-            (data.kept_change_usd ?? 0),
+            (isPayout ? 0 : (data.kept_change_usd ?? 0)),
           profit_lbp:
             (data.price_lbp ?? 0) -
             (data.cost_lbp ?? 0) +
-            (data.kept_change_lbp ?? 0),
+            (isPayout ? 0 : (data.kept_change_lbp ?? 0)),
           exchange_rate: data.exchange_rate,
           client_id: data.client_id ?? null,
           // Rule 11: the name/phone must reach the unified row too — a walk-in
@@ -312,7 +411,15 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             cost_lbp: data.cost_lbp ?? 0,
             price_usd: data.price_usd ?? 0,
             price_lbp: data.price_lbp ?? 0,
-            paid_by: data.paid_by ?? "CASH",
+            // A payout is always CASH/General — never whatever `paid_by`
+            // happened to carry over from before the operator toggled "Pay
+            // out" on (mirrors the isForPartner branch's own metadata
+            // override further down for the same reason).
+            paid_by: isPayout ? "CASH" : (data.paid_by ?? "CASH"),
+            // frontend/src/features/audit/cashFlow.ts's CUSTOM_SERVICE case
+            // reads this to pick the IN/OUT badge — direction alone can't be
+            // read off the type or partner_mode.
+            direction: isPayout ? "OUT" : "IN",
           },
           transaction_time: data.transaction_time,
         });
@@ -360,6 +467,65 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               tenantId: tenant,
             }),
         };
+
+        // OWNER_NOTES_REMAINING_BUILD.md #16 fix-round I3 — the payout's OUT
+        // leg(s) are synthesized here as ordinary payments[] legs (CASH,
+        // direction "OUT") and posted through the SAME leg-processing loop
+        // every other payments[] submission uses below (rule 16: ONE shared
+        // end-of-transaction loop, never a second, parallel
+        // insertPayment/upsertBalance call site — that was the pre-fix
+        // shape). CASH/General only, unconditionally — the owner was
+        // explicit ("Syria never touches the Whish system drawer"), so
+        // these synthetic legs never read `data.paid_by`/`data.payments`.
+        // The guards above already require cost_usd/cost_lbp > 0 in at
+        // least one currency; either or both are posted (mirrors the IN
+        // flow's own price-inflow branch further down, which independently
+        // posts USD then LBP).
+        // Explicitly typed as the SAME `payments[]` element type
+        // `data.payments` itself uses (not left to literal inference) so
+        // the `legs = isPayout ? payoutLegs! : data.payments!` ternary a
+        // few lines down produces ONE uniform element type — without this
+        // annotation TS would infer a union of two distinct object-literal
+        // shapes (this one has no optional `voucher_code`), and every
+        // `leg.voucher_code` access inside the shared loop below would then
+        // fail to typecheck against the member that never had the field.
+        const payoutLegs:
+          | NonNullable<CreateCustomServiceInput["payments"]>
+          | undefined = isPayout
+          ? ([
+              (data.cost_usd ?? 0) > 0
+                ? {
+                    method: "CASH",
+                    currency_code: "USD",
+                    amount: data.cost_usd!,
+                    direction: "OUT" as const,
+                  }
+                : null,
+              (data.cost_lbp ?? 0) > 0
+                ? {
+                    method: "CASH",
+                    currency_code: "LBP",
+                    amount: data.cost_lbp!,
+                    direction: "OUT" as const,
+                  }
+                : null,
+            ].filter((leg) => leg !== null) as NonNullable<
+              CreateCustomServiceInput["payments"]
+            >)
+          : undefined;
+
+        if (isPayout) {
+          // Defense in depth, same shape as the isForPartner branch's own
+          // assertNoCounterPayment call below: reject a stale
+          // data.payments/paid_by left over from before the operator
+          // toggled "Pay out" on, rather than silently ignoring it while
+          // posting the correct synthetic legs (fix-round I3).
+          assertNoCounterPayment(
+            (data.payments?.length ?? 0) > 0,
+            data.paid_by,
+            "custom service payout",
+          );
+        }
 
         if (isForPartner) {
           // LIRA-081 (PFT-R): the FULL price is diverted to the partner's
@@ -409,6 +575,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               direction: "DEBIT",
               user_id: createdBy,
               notes: noteText,
+              // Fix-round I5: an operator-backdated transaction_time (CQ-7)
+              // must reach this ledger row too — the existing IN flow had
+              // this same gap for both FOR_CUSTOM_SERVICE and
+              // THROUGH_CUSTOM_SERVICE rows, not just the payout.
+              created_at: data.transaction_time,
             });
           }
           if ((data.price_lbp ?? 0) > 0) {
@@ -422,6 +593,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               direction: "DEBIT",
               user_id: createdBy,
               notes: noteText,
+              created_at: data.transaction_time,
             });
           }
         } else if (data.deferPayment) {
@@ -431,15 +603,24 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // all. This branch is kept (instead of falling through) purely so
           // the payments[]/drawer-affecting branches below don't try to
           // collect the price a second time.
-        } else if (data.payments && data.payments.length > 0) {
+        } else if (isPayout || (data.payments && data.payments.length > 0)) {
           // Structured payment legs (rule 16): book what the customer ACTUALLY
           // handed over — split payments, pay-in-another-currency, and change.
           // Pre-fix these legs were sent by the form and silently IGNORED: the
           // repo booked paid_by × price only, so a $-paid LBP service or any
           // change never reached the books.
+          //
+          // Fix-round I3: a payout's synthetic `payoutLegs` (built above)
+          // are fed through this exact same loop instead of a second
+          // posting site — `isOut` for a payout leg is always true (they're
+          // built with `direction: "OUT"`), so the drawer-affecting branch
+          // below debits General exactly like it debits change for an
+          // ordinary sale, just labelled "(payout)" instead of "Change
+          // returned".
+          const legs = isPayout ? payoutLegs! : data.payments!;
           let debtUsd = 0;
           let debtLbp = 0;
-          for (const leg of data.payments) {
+          for (const leg of legs) {
             const amt = Math.abs(leg.amount);
             if (amt <= 0) continue;
             const isOut = leg.direction === "OUT";
@@ -491,7 +672,10 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               drawer,
               leg.currency_code,
               signed,
-              isOut ? "Change returned" : noteText,
+              // Fix-round I3: a payout leg is technically `isOut`, but
+              // "Change returned" would mislabel it — it isn't change, it's
+              // the recipient's cash.
+              isPayout ? `${noteText} (payout)` : isOut ? "Change returned" : noteText,
               createdBy,
             );
             upsertBalance.run(tenantId, drawer, leg.currency_code, signed);
@@ -615,32 +799,74 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         // decision). Ledger type is `THROUGH_CUSTOM_SERVICE` — see
         // PartnerRepository's doc comment above `CreateLedgerEntryData` for
         // why that differs from this row's own `partner_mode` value ('VIA').
+        //
+        // OWNER_NOTES_REMAINING_BUILD.md #16 — `isPayout` books the MIRROR
+        // image on the SAME `THROUGH_CUSTOM_SERVICE` ledger bucket:
+        // direction DEBIT ("partner owes us"), amount = price_usd/price_lbp
+        // (what "arrived" via the partner), not cost. `getBalanceBreakdown()`
+        // nets DEBIT − CREDIT per THROUGH_%/FOR_% bucket regardless of which
+        // direction any one row used, so reusing this ledger type (rather
+        // than inventing a second) is safe and keeps a Via-Partner service's
+        // partner-facing history in one place.
         if (isViaPartner) {
-          if ((data.cost_usd ?? 0) > 0) {
-            getPartnerRepository().addLedgerEntry({
-              partner_id: data.partnerId as number,
-              transaction_type: "THROUGH_CUSTOM_SERVICE",
-              reference_table: "custom_services",
-              reference_id: serviceId,
-              amount: data.cost_usd!,
-              currency: "USD",
-              direction: "CREDIT",
-              user_id: createdBy,
-              notes: noteText,
-            });
-          }
-          if ((data.cost_lbp ?? 0) > 0) {
-            getPartnerRepository().addLedgerEntry({
-              partner_id: data.partnerId as number,
-              transaction_type: "THROUGH_CUSTOM_SERVICE",
-              reference_table: "custom_services",
-              reference_id: serviceId,
-              amount: data.cost_lbp!,
-              currency: "LBP",
-              direction: "CREDIT",
-              user_id: createdBy,
-              notes: noteText,
-            });
+          if (isPayout) {
+            if ((data.price_usd ?? 0) > 0) {
+              getPartnerRepository().addLedgerEntry({
+                partner_id: data.partnerId as number,
+                transaction_type: "THROUGH_CUSTOM_SERVICE",
+                reference_table: "custom_services",
+                reference_id: serviceId,
+                amount: data.price_usd!,
+                currency: "USD",
+                direction: "DEBIT",
+                user_id: createdBy,
+                notes: `${noteText} (payout)`,
+                created_at: data.transaction_time,
+              });
+            }
+            if ((data.price_lbp ?? 0) > 0) {
+              getPartnerRepository().addLedgerEntry({
+                partner_id: data.partnerId as number,
+                transaction_type: "THROUGH_CUSTOM_SERVICE",
+                reference_table: "custom_services",
+                reference_id: serviceId,
+                amount: data.price_lbp!,
+                currency: "LBP",
+                direction: "DEBIT",
+                user_id: createdBy,
+                notes: `${noteText} (payout)`,
+                created_at: data.transaction_time,
+              });
+            }
+          } else {
+            if ((data.cost_usd ?? 0) > 0) {
+              getPartnerRepository().addLedgerEntry({
+                partner_id: data.partnerId as number,
+                transaction_type: "THROUGH_CUSTOM_SERVICE",
+                reference_table: "custom_services",
+                reference_id: serviceId,
+                amount: data.cost_usd!,
+                currency: "USD",
+                direction: "CREDIT",
+                user_id: createdBy,
+                notes: noteText,
+                created_at: data.transaction_time,
+              });
+            }
+            if ((data.cost_lbp ?? 0) > 0) {
+              getPartnerRepository().addLedgerEntry({
+                partner_id: data.partnerId as number,
+                transaction_type: "THROUGH_CUSTOM_SERVICE",
+                reference_table: "custom_services",
+                reference_id: serviceId,
+                amount: data.cost_lbp!,
+                currency: "LBP",
+                direction: "CREDIT",
+                user_id: createdBy,
+                notes: noteText,
+                created_at: data.transaction_time,
+              });
+            }
           }
         }
 
@@ -787,16 +1013,30 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
 
   /**
    * Get summary statistics for today's custom services.
+   *
+   * OWNER_NOTES_REMAINING_BUILD.md #16 fix-round I6 (owner decision needed —
+   * see the batch report): a payout's `price_usd`/`price_lbp` is what the
+   * PARTNER owes the shop (booked to partner_ledger), not customer-paid
+   * revenue, and its `cost_usd`/`cost_lbp` is cash leaving the drawer to a
+   * recipient, not a service cost — summing a payout row into
+   * totalPriceUsd/totalCostUsd alongside ordinary walk-in rows would
+   * overstate "today's revenue"/"today's cost" by the payout's face amounts.
+   * `totalProfitUsd`/`totalProfitLbp` are NOT excluded here — the
+   * commission a payout earns (price − cost) IS real profit realized today
+   * (owner answer #16), so it stays summed in exactly like every other
+   * service's profit. This is the minimal, conservative fix (exclude, don't
+   * sub-total by direction) pending the owner's confirmation that excluding
+   * is the wanted behaviour rather than a separate payout breakdown.
    */
   getTodaySummary(): CustomServiceSummary {
     const row = this.db
       .prepare(
         `SELECT
            COUNT(*) as count,
-           COALESCE(SUM(cost_usd), 0) as totalCostUsd,
-           COALESCE(SUM(cost_lbp), 0) as totalCostLbp,
-           COALESCE(SUM(price_usd), 0) as totalPriceUsd,
-           COALESCE(SUM(price_lbp), 0) as totalPriceLbp,
+           COALESCE(SUM(CASE WHEN direction != 'OUT' THEN cost_usd ELSE 0 END), 0) as totalCostUsd,
+           COALESCE(SUM(CASE WHEN direction != 'OUT' THEN cost_lbp ELSE 0 END), 0) as totalCostLbp,
+           COALESCE(SUM(CASE WHEN direction != 'OUT' THEN price_usd ELSE 0 END), 0) as totalPriceUsd,
+           COALESCE(SUM(CASE WHEN direction != 'OUT' THEN price_lbp ELSE 0 END), 0) as totalPriceLbp,
            COALESCE(SUM(profit_usd), 0) as totalProfitUsd,
            COALESCE(SUM(profit_lbp), 0) as totalProfitLbp
          FROM custom_services

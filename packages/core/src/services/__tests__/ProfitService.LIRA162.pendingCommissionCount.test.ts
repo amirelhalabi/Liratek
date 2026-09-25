@@ -82,6 +82,9 @@ function createSchema(d: TestDb): void {
       paid_usd REAL NOT NULL DEFAULT 0,
       paid_lbp REAL NOT NULL DEFAULT 0,
       exchange_rate_snapshot REAL NOT NULL DEFAULT 90000,
+      -- PA-3.11 (OWNER_NOTES_2026-09-21.md §6.5): see the identical comment
+      -- in ProfitService.transactionBased.test.ts.
+      discount_usd DECIMAL(10, 2) DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -121,6 +124,7 @@ function createSchema(d: TestDb): void {
       cost REAL NOT NULL DEFAULT 0,
       commission REAL NOT NULL DEFAULT 0,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       omt_fee REAL,
       payment_method_fee REAL NOT NULL DEFAULT 0,
       is_settled INTEGER NOT NULL DEFAULT 0,

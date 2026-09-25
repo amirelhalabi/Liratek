@@ -287,18 +287,25 @@ export function calculateExchange(
     const currRate = findCurrencyRate(toCurrency, rates);
     const { amountOut, rate } = convertFromUSD(amountIn, currRate, TAKE_USD);
     const profitUsd = computeLegProfitUsd(amountIn, currRate);
+    // stripFloatNoise (not rounding — owner decision #20 forbids cash
+    // rounding here): without it, forward(reverse(y)) can land a few
+    // ten-thousandths off y (e.g. 24999999.999956 instead of 25000000),
+    // which is what the "Customer Gets" box re-displays after a reverse-
+    // typed target round-trips through this forward pipeline
+    // (Exchange/index.tsx's recalculate()).
+    const cleanAmountOut = stripFloatNoise(amountOut);
     const leg: ExchangeLeg = {
       fromCurrency,
       toCurrency,
       amountIn,
-      amountOut,
+      amountOut: cleanAmountOut,
       rate,
       marketRate: currRate.market_rate,
       profitUsd,
     };
     return {
       legs: [leg],
-      totalAmountOut: amountOut,
+      totalAmountOut: cleanAmountOut,
       totalProfitUsd: profitUsd,
       viaCurrency: null,
     };
@@ -309,18 +316,19 @@ export function calculateExchange(
     const currRate = findCurrencyRate(fromCurrency, rates);
     const { amountUSD, rate } = convertToUSD(amountIn, currRate, GIVE_USD);
     const profitUsd = computeLegProfitUsd(amountIn, currRate, false);
+    const cleanAmountUsd = stripFloatNoise(amountUSD);
     const leg: ExchangeLeg = {
       fromCurrency,
       toCurrency,
       amountIn,
-      amountOut: amountUSD,
+      amountOut: cleanAmountUsd,
       rate,
       marketRate: currRate.market_rate,
       profitUsd,
     };
     return {
       legs: [leg],
-      totalAmountOut: amountUSD,
+      totalAmountOut: cleanAmountUsd,
       totalProfitUsd: profitUsd,
       viaCurrency: null,
     };
@@ -337,20 +345,24 @@ export function calculateExchange(
     fromCurrency,
     toCurrency: BASE_CURRENCY,
     amountIn,
-    amountOut: leg1Result.amountUSD,
+    amountOut: stripFloatNoise(leg1Result.amountUSD),
     rate: leg1Result.rate,
     marketRate: fromRate.market_rate,
     profitUsd: leg1ProfitUsd,
   };
 
-  // Leg 2: USD → TO (we take USD internally, give TO currency to customer)
+  // Leg 2: USD → TO (we take USD internally, give TO currency to customer).
+  // Fed from the RAW (unstripped) leg1 USD pivot, not `leg1.amountOut`
+  // above — stripping is a display/output concern only and must not
+  // perturb the value the next leg's math is built on.
   const leg2Result = convertFromUSD(leg1Result.amountUSD, toRate, TAKE_USD);
   const leg2ProfitUsd = computeLegProfitUsd(leg1Result.amountUSD, toRate);
+  const cleanLeg2AmountOut = stripFloatNoise(leg2Result.amountOut);
   const leg2: ExchangeLeg = {
     fromCurrency: BASE_CURRENCY,
     toCurrency,
     amountIn: leg1Result.amountUSD,
-    amountOut: leg2Result.amountOut,
+    amountOut: cleanLeg2AmountOut,
     rate: leg2Result.rate,
     marketRate: toRate.market_rate,
     profitUsd: leg2ProfitUsd,
@@ -359,10 +371,92 @@ export function calculateExchange(
   const totalProfitUsd = leg1ProfitUsd + leg2ProfitUsd;
   return {
     legs: [leg1, leg2],
-    totalAmountOut: leg2Result.amountOut,
+    totalAmountOut: cleanLeg2AmountOut,
     totalProfitUsd,
     viaCurrency: BASE_CURRENCY,
   };
+}
+
+/**
+ * Reverse of calculateExchange(): given the amount the customer wants to
+ * RECEIVE (targetOut, in toCurrency), return the exact amount they must
+ * hand over (in fromCurrency) — "he wants 50 EUR, how much USD does he
+ * pay?" (LIRA-213 #20, owner answer: Part A only, no rounding — the exact
+ * figure is returned, not `.toFixed()`'d, and there is no leftover to book
+ * into profit).
+ *
+ * Every step of calculateExchange() is plain multiplication/division by a
+ * rate that does not depend on the amount, so it is exactly invertible:
+ * amountIn = target ÷ (amount out for 1 unit in). This function does not
+ * duplicate that rate math (rule 14) — it reuses `convertToUSD` /
+ * `convertFromUSD` with the SAME action each forward leg used, which is
+ * their mutual inverse at a fixed action (see the module's forward/reverse
+ * proof in the exchange plan): `convertFromUSD(x, cr, A)` and
+ * `convertToUSD(y, cr, A)` are inverses of one another for any fixed `cr`
+ * and action `A`, because both derive their rate from the same
+ * `computeRate(cr, A)` call.
+ *
+ * `rates` may be a caller-adjusted `CurrencyRate[]` (e.g. the Exchange
+ * page substituting an operator rate override into `buy_rate`/`sell_rate`
+ * for the relevant currency) so overridden rates are honoured — the
+ * override is still just data fed through this same formula, never a
+ * second copy of it.
+ *
+ * @param fromCurrency Currency the customer will give (unknown amount)
+ * @param toCurrency   Currency the customer wants to receive
+ * @param targetOut    The exact amount the customer wants in toCurrency
+ * @param rates        All CurrencyRate entries (DB rates, or overridden)
+ */
+export function calculateAmountInForTarget(
+  fromCurrency: string,
+  toCurrency: string,
+  targetOut: number,
+  rates: CurrencyRate[],
+): number {
+  if (fromCurrency === toCurrency) {
+    throw new Error(`Cannot exchange a currency for itself: ${fromCurrency}`);
+  }
+  if (targetOut <= 0) {
+    throw new Error(`Target amount must be positive, got: ${targetOut}`);
+  }
+
+  // ── Direct: USD → X ── forward leg was convertFromUSD(amountIn, cr, TAKE_USD)
+  if (fromCurrency === BASE_CURRENCY) {
+    const currRate = findCurrencyRate(toCurrency, rates);
+    return stripFloatNoise(convertToUSD(targetOut, currRate, TAKE_USD).amountUSD);
+  }
+
+  // ── Direct: X → USD ── forward leg was convertToUSD(amountIn, cr, GIVE_USD)
+  if (toCurrency === BASE_CURRENCY) {
+    const currRate = findCurrencyRate(fromCurrency, rates);
+    return stripFloatNoise(convertFromUSD(targetOut, currRate, GIVE_USD).amountOut);
+  }
+
+  // ── Cross-currency: X → USD → Y ── invert leg2 first (USD → Y, TAKE_USD),
+  // recovering the USD pivot, then invert leg1 (X → USD, GIVE_USD).
+  const fromRate = findCurrencyRate(fromCurrency, rates);
+  const toRate = findCurrencyRate(toCurrency, rates);
+  const { amountUSD } = convertToUSD(targetOut, toRate, TAKE_USD);
+  return stripFloatNoise(convertFromUSD(amountUSD, fromRate, GIVE_USD).amountOut);
+}
+
+/**
+ * Strip IEEE-754 double representation noise from a computed currency
+ * amount WITHOUT rounding to the currency's cash decimals (owner answer,
+ * LIRA-213 #20: "NO rounding — show the exact figure"). A chain of
+ * multiply/divide floating-point operations can land a fraction of a
+ * billionth off the true value (e.g. `5235300.000000001` instead of
+ * `5235300`), and `calculateAmountInForTarget`'s result is both displayed
+ * verbatim (`DecimalInput` shows `String(value)` when unfocused — it does
+ * not truncate to `decimals`) and booked as-is. Rounding to 12 significant
+ * digits keeps every currency-meaningful digit (LBP amounts run into the
+ * tens of millions at most) while collapsing the noise below that, which
+ * is not "rounding" in the cash sense — it recovers the exact figure the
+ * arithmetic was already targeting.
+ */
+function stripFloatNoise(n: number): number {
+  if (!Number.isFinite(n)) return n;
+  return Number(n.toPrecision(12));
 }
 
 /**

@@ -49,6 +49,7 @@ import {
   type CarrierKey,
 } from "./CarrierLineRepository.js";
 import { getCarrierLineService } from "../services/CarrierLineService.js";
+import { getCarrierLineOwedDeliveryRepository } from "./CarrierLineOwedDeliveryRepository.js";
 import { isSameLebanesePhone } from "../utils/phoneNumber.js";
 import { getExpenseRepository } from "./ExpenseRepository.js";
 import { omtAppCashoutCommission } from "../constants/omtAppCashout.js";
@@ -101,7 +102,19 @@ export interface RechargeData {
     | "DAYS"
     | "TOP_UP"
     | "ALFA_GIFT"
-    | "CREDIT_BUYBACK";
+    | "CREDIT_BUYBACK"
+    /**
+     * Owner note #21, case 2 (migration v182): the shop-line checkbox
+     * unticked — a customer used the shop's OWN carrier line for a call
+     * (payment IN), as opposed to case 1 (`CREDIT_BUYBACK`, payment OUT).
+     * Stays in the ordinary sale body in `processRecharge` — same price/
+     * profit math as a `CREDIT_TRANSFER` credit sale, `amount` is USD face
+     * value of credits used — it only (a) skips the SMS fee (gated on
+     * `type === "CREDIT_TRANSFER"` elsewhere in this file) and (b) is
+     * re-validated server-side against the shop's own active lines (see
+     * `processRecharge`'s guard, mirroring `processCreditBuyback`'s).
+     */
+    | "SHOP_LINE_USE";
   amount: number;
   cost: number;
   price: number;
@@ -223,6 +236,7 @@ const RECHARGE_TYPE_LABELS: Record<RechargeData["type"], string> = {
   TOP_UP: "Top-up",
   ALFA_GIFT: "Gift",
   CREDIT_BUYBACK: "Credit Buy-back",
+  SHOP_LINE_USE: "Shop Line Use",
 };
 
 /**
@@ -380,7 +394,11 @@ function telecomStockLeg(args: {
     case "VOUCHER":
     case "TOP_UP":
     case "ALFA_GIFT":
+    case "SHOP_LINE_USE":
       // `amount` is USD face value — consumed from the credit stock 1:1.
+      // SHOP_LINE_USE (owner note #21 case 2) is an ordinary credit sale for
+      // this purpose — same drawer leg as CREDIT_TRANSFER, just a different
+      // `recharge_type` label and no SMS fee (gated separately).
       return {
         method: args.carrier,
         amountUsd: -Math.abs(args.amount),
@@ -405,6 +423,36 @@ function telecomStockLeg(args: {
       // dispatch is ever removed.
       return null;
   }
+}
+
+/**
+ * Owner note #21: is `phone` ANY of the shop's own active lines for
+ * `carrier` — not just the primary one? Rule 14: defined ONCE and reused by
+ * both backend re-checks that need it — `processRecharge`'s SHOP_LINE_USE
+ * guard (case 2, credits move on the line the operator has selected as
+ * primary) and `processCreditBuyback`'s own re-check (case 1). Both cases
+ * detect a shop-line match the same way; only the credit MOVEMENT (always
+ * `getPrimary()`) and the resulting money direction differ.
+ *
+ * Fix round 1 (owner-21-default-ON-is-existing-buyback / blocker
+ * buyback-recheck-primary-only): `processCreditBuyback`'s re-check used to
+ * compare against `getPrimary(carrier)` only, so typing a SECOND active
+ * line's number showed the checkbox (defaulting ON, i.e. buy-back) and then
+ * failed server-side with "does not match the shop's own line" — exactly
+ * the multi-line case the case-2 widening was built for. Widening the
+ * re-check to every active line (matching the frontend's own detection
+ * rule and the SHOP_LINE_USE guard) fixes that without changing where
+ * credits land.
+ */
+function isShopOwnLine(
+  carrier: CarrierKey,
+  phone: string | null | undefined,
+): boolean {
+  if (!phone) return false;
+  const activeLines = getCarrierLineRepository().getActiveByCarrier(carrier);
+  return activeLines.some((line) =>
+    isSameLebanesePhone(phone, line.phone_number),
+  );
 }
 
 // =============================================================================
@@ -680,6 +728,28 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     // to its own method before any of this method's sale-shaped logic runs.
     if (data.type === "CREDIT_BUYBACK") {
       return this.processCreditBuyback(data);
+    }
+
+    // Owner note #21 (case 2, migration v182): backend re-validation, same
+    // rationale as `processCreditBuyback`'s own re-check just above (rule 14
+    // — the REST route is directly callable, so a client-computed "this is
+    // the shop's own line" flag alone cannot be trusted). Uses the shared
+    // `isShopOwnLine` helper (rule 14), which compares against EVERY active
+    // line for the carrier, not just the primary one — the owner's
+    // detection rule for the checkbox is "ANY of the shop's active lines",
+    // not "the primary line" (the credit MOVEMENT still always lands on the
+    // primary line, via the unchanged generic credit-sale code a few lines
+    // below — that is what "the line selected on the MTC/Alfa page" means
+    // in practice, since the shop keeps exactly one line selected as
+    // primary at a time).
+    if (data.type === "SHOP_LINE_USE") {
+      const carrier: CarrierKey = data.provider === "MTC" ? "mtc" : "alfa";
+      if (!isShopOwnLine(carrier, data.phoneNumber)) {
+        return {
+          success: false,
+          error: `Phone number does not match any of the shop's active ${data.provider} lines — SHOP_LINE_USE requires the shop's own line`,
+        };
+      }
     }
 
     try {
@@ -1088,10 +1158,104 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
                 `Failed to apply carrier line movement: ${validityMovement.error}`,
               );
             }
+
+            // #28 (LIRA-218) — this sale sold ahead of the line's real
+            // remaining days: `days_owed_delta` is the exact sold-ahead
+            // portion the movement just banked (see
+            // CarrierLineRepository.applyMovement's sell branch). Record it
+            // on the "days still to send" list so the operator has a
+            // checklist entry once the line is recharged — the sale itself
+            // was already recorded once, above; this writes NO second sale,
+            // no second charge, no drawer/profit/validity effect (rule 20 —
+            // nothing here needs a reversal owner: voiding the DAYS sale
+            // reverses the movement, which restores days_owed through the
+            // existing generic path; this row is a standalone checklist
+            // item, not money or validity).
+            const soldAhead = validityMovement.data?.movement.days_owed_delta ?? 0;
+            if (soldAhead > 0) {
+              getCarrierLineOwedDeliveryRepository().create({
+                carrier_line_id: primaryLine.id,
+                transaction_id: txnId,
+                client_id: data.clientId ?? null,
+                // m2 fix (2026-09-24 adversarial review): the RESOLVED
+                // clientName (looked up from `clients` when only clientId
+                // was sent), not the raw `data.clientName` — otherwise a
+                // sale sent with only a clientId showed "Walk-in" on the
+                // "days still to send" list instead of the client's name.
+                client_name: clientName,
+                days_owed: soldAhead,
+              });
+            }
           } else {
             rechargeLogger.warn(
               { carrier },
               "processRecharge(DAYS): no primary carrier line configured — validity decrement skipped",
+            );
+          }
+        } else if (stockLeg) {
+          // Owner report #22 (2026-09-23): "sell credits -> check settings
+          // shop lines, the shop line ... is not affected, the amount is
+          // showing the old amount and not deduced by the sold credits —
+          // same in mtc page." A repo-wide grep before this fix found
+          // `carrier_lines` referenced NOWHERE in this method's credit-sale
+          // body — CREDIT_TRANSFER/VOUCHER/TOP_UP/ALFA_GIFT all debited the
+          // provider DRAWER above (`stockLeg`) but never the shop's OWN
+          // line's `credits` column, so Settings → Shop Lines (and the
+          // Recharge-tab compact panel) kept showing the figure the line
+          // was CREATED with forever, no matter how many credits were sold
+          // — the §0.1 sum invariant (`drawer == Σ line credits`) was never
+          // built for this path (plan §0.6 grandfathered it "until multi-
+          // line ships"; this closes that gap for both MTC and Alfa, same
+          // as the DAYS arm above closed it for validity in LIRA-113).
+          //
+          // Mirrors the DAYS arm immediately above: same primary-line
+          // lookup, same "missing primary line logs a warning and skips —
+          // the drawer leg has already posted" convention (informational
+          // side effect, not a sale precondition), same `today` passthrough,
+          // and the SAME generic, transactionId-keyed
+          // `TransactionRepository._reverseCarrierLineMovements` picks this
+          // movement up on void/refund with no new reversal code (rule 20).
+          //
+          // Credits delta = `stockLeg.amountUsd` verbatim — the EXACT figure
+          // that just left the provider drawer two lines above (one
+          // definition, rule 14; never `data.amount` re-derived, so the two
+          // can't disagree the way the pre-LIRA-113 DAYS code once did).
+          //
+          // Deliberately excludes two OTHER dollar movements that also touch
+          // this same provider drawer, so as not to double-count them here:
+          //   - The `SMS_Transfer_Fee` expense below (CREDIT_TRANSFER only)
+          //     debits this drawer via `drawer_override` for the cost of the
+          //     SMS *messages* the transfer required — a distinct real-world
+          //     cost from the credit *value* just moved, already booked once
+          //     as its own expense row. It has never updated
+          //     `carrier_lines.credits` (before or after this fix) — a
+          //     narrower, pre-existing, UN-reported gap between the drawer
+          //     and the line sum that this ticket does not attempt to close
+          //     (explicit brief: "do NOT repair existing production drift").
+          //   - `CarrierLineRepository.recordUsage` (LIRA-145,
+          //     `Line_Usage`) is a wholly separate, OPERATOR-initiated
+          //     "record consumption" flow that already writes
+          //     `carrier_lines.credits` directly; this method never calls
+          //     into it, so there is no double-write to guard against here.
+          const carrier: CarrierKey = data.provider === "MTC" ? "mtc" : "alfa";
+          const primaryLine = getCarrierLineRepository().getPrimary(carrier);
+          if (primaryLine) {
+            const creditMovement = getCarrierLineService().applyMovement({
+              carrierLineId: primaryLine.id,
+              creditsDelta: stockLeg.amountUsd,
+              reason: `${data.type}_SALE`,
+              transactionId: txnId,
+              today: data.client_day,
+            });
+            if (!creditMovement.success) {
+              throw new Error(
+                `Failed to apply carrier line movement: ${creditMovement.error}`,
+              );
+            }
+          } else {
+            rechargeLogger.warn(
+              { carrier, type: data.type },
+              "processRecharge: no primary carrier line configured — credits decrement skipped",
             );
           }
         }
@@ -1307,10 +1471,17 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
    *     ruling — this is not an open question for the next reader to
    *     re-derive or revisit.
    *   - The provider drawer is then set to `getCarrierCreditsSum(carrier)`
-   *     (§0.1) — posted as the DIFFERENCE from its current balance, as an
-   *     ordinary auditable `payments` row, so §0.6's "a NEW path does not
-   *     get the grandfather exemption" holds from day one, even if the
-   *     drawer had already drifted from the line sum before this ran.
+   *     (§0.1), in TWO ordinary auditable `payments` rows rather than one
+   *     (owner report #10, 2026-09-23 — a single "DIFFERENCE from current
+   *     balance" leg silently folded any pre-existing drift into the
+   *     customer's own buyback amount, e.g. a $9 buyback reading as +$18):
+   *     the buyback leg posts EXACTLY `credits`, and any gap still
+   *     remaining between the drawer and the line sum after that posts as
+   *     its own separately-labelled drift-correction leg. §0.6's "a NEW
+   *     path does not get the grandfather exemption" still holds from day
+   *     one — the drawer still lands on the line sum even if it had
+   *     already drifted before this ran; only the attribution between "this
+   *     sale" and "prior drift" is now split.
    *   - Cash pays out via the shared `postPayoutLegs` (moneyPosting.ts) —
    *     ordinary IN legs with no `direction` key (D7): a payout is NOT the
    *     `direction: "OUT"` change-leg marker (this method has no
@@ -1368,13 +1539,19 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       // actually be the shop's own line. Omitted entirely → the explicit
       // `type: "CREDIT_BUYBACK"` the operator chose is the authoritative
       // signal, same as every other recharge type.
-      if (
-        data.phoneNumber &&
-        !isSameLebanesePhone(data.phoneNumber, primaryLine.phone_number)
-      ) {
+      //
+      // Fix round 1 (blocker buyback-recheck-primary-only): widened from
+      // "matches the PRIMARY line only" to the shared `isShopOwnLine`
+      // helper — ANY active line, same detection rule the frontend
+      // checkbox and the SHOP_LINE_USE guard already use. Typing the
+      // shop's SECOND active line and leaving the checkbox on its default
+      // ON (= buy-back) used to be rejected here even though the checkbox
+      // showed because that line matched. The credit MOVEMENT is
+      // unaffected — it still always lands on `primaryLine` below.
+      if (data.phoneNumber && !isShopOwnLine(carrier, data.phoneNumber)) {
         return {
           success: false,
-          error: `Phone number does not match the shop's own ${data.provider} line — a buy-back must be against the shop's own line`,
+          error: `Phone number does not match any of the shop's active ${data.provider} lines — a buy-back must be against the shop's own line`,
         };
       }
 
@@ -1527,33 +1704,78 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         }
 
         // §0.1/§0.6: the drawer follows the line SUM, never the reverse — a
-        // NEW path (this one) does not get the grandfather exemption. Post
-        // the DIFFERENCE from the drawer's CURRENT balance as an ordinary
-        // leg, so drawer == Σ(active lines) holds after this transaction
-        // even if the drawer had already drifted from it beforehand.
+        // NEW path (this one) does not get the grandfather exemption.
+        //
+        // Owner report #10 (2026-09-23): "buy back 9$ from customer ... in
+        // drawer I can see +18$ credits, why double what we actually
+        // bought?" The pre-fix code posted ONE leg for the drawer's ENTIRE
+        // gap from the line sum (`targetSum - currentDrawerBalance`) but
+        // LABELLED it with only `credits` (the amount actually bought) —
+        // so a $9 buyback against a line that already carried $9 of
+        // unrecorded drift (exactly the gap #22 above now stops
+        // accumulating) posted an $18 leg under a "+9" note. The customer's
+        // own transaction silently absorbed the shop's bookkeeping backlog.
+        //
+        // Fix: split the gap into two legs. (1) The buyback leg — EXACTLY
+        // `credits`, the figure the customer actually handed over, matching
+        // what the line was just credited with above and what this
+        // transaction's own `summary`/`metadata_json.credits` have always
+        // read (neither was ever wrong — only this payments leg was). (2)
+        // Any REMAINING gap between the drawer and the line sum — pre-
+        // existing drift unrelated to this customer — posts as its OWN,
+        // separately-labelled correction leg, never folded into the
+        // buyback amount. Together the two legs still move the drawer by
+        // the exact same total the single leg used to
+        // (`targetSum - currentDrawerBalance`), so §0.1's invariant
+        // (drawer == Σ active-line credits) holds exactly as before this
+        // fix — only the ATTRIBUTION between "this sale" and "prior drift"
+        // changed, not the end balance. Both legs are ordinary `payments`
+        // rows on the same transaction, so the generic transaction-id-keyed
+        // `_reversePayments` (rule 20) reverses both on void with no new
+        // reversal code.
         const currentDrawerRow = this.db
           .prepare(
             `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = 'USD' AND tenant_id = ?`,
           )
           .get(providerDrawerName, tenantId) as { balance: number } | undefined;
         const currentDrawerBalance = currentDrawerRow?.balance ?? 0;
+
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: providerDrawerName,
+          drawerName: providerDrawerName,
+          currencyCode: "USD",
+          amount: credits,
+          note: `Credits received (buy-back): +${credits}`,
+          createdBy,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: providerDrawerName,
+          currencyCode: "USD",
+          delta: credits,
+          tenantId,
+        });
+
         const targetSum = carrierLineRepo.getCarrierCreditsSum(carrier);
-        const drawerDelta = targetSum - currentDrawerBalance;
-        if (drawerDelta !== 0) {
+        const driftDelta = targetSum - currentDrawerBalance - credits;
+        if (driftDelta !== 0) {
           insertPaymentRow(this.db, {
             transactionId: txnId,
-            method: providerDrawerName,
+            method: `${providerDrawerName}_LINE_DRIFT`,
             drawerName: providerDrawerName,
             currencyCode: "USD",
-            amount: drawerDelta,
-            note: `Credits received (buy-back): +${credits}`,
+            amount: driftDelta,
+            note: `Carrier line drift correction (pre-existing, not part of this buy-back): ${
+              driftDelta > 0 ? "+" : ""
+            }${driftDelta}`,
             createdBy,
             tenantId,
           });
           applyDrawerDelta(this.db, {
             drawerName: providerDrawerName,
             currencyCode: "USD",
-            delta: drawerDelta,
+            delta: driftDelta,
             tenantId,
           });
         }

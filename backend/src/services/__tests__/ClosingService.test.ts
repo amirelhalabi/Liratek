@@ -17,31 +17,43 @@ import {
   ClosingService,
   getClosingService,
   resetClosingService,
-  DailyStatsSnapshot,
   getClosingRepository,
 } from "@liratek/core";
 
 describe("ClosingService", () => {
   let service: ClosingService;
   let mockRepo: any;
+  // LIRA-219 — `ClosingService.getDailyStatsSnapshot` now composes activity
+  // stats (this repo) with GROSS profit from `ProfitService.getSummary`
+  // (rule 14, the ONE definition — see
+  // `packages/core/src/services/__tests__/ClosingService.profitParity.test.ts`
+  // for the real-schema coverage of that composition itself). This file
+  // stays a thin repo-delegation unit test, so profit is mocked too.
+  let mockProfitService: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
     resetClosingService();
 
     // Create mock repository matching the current ClosingRepository API
+    // (LIRA-219 renamed the profit-free activity read to
+    // `getDailyActivityStats` — the old `getDailyStatsSnapshot` name/shape,
+    // which used to carry its own profit SQL, no longer exists on the repo).
     mockRepo = {
       recalculateDrawerBalances: jest.fn(),
       getSystemExpectedBalancesDynamic: jest.fn(),
-      getDailyStatsSnapshot: jest.fn(),
+      getDailyActivityStats: jest.fn(),
       getCheckpointTimeline: jest.fn(),
       getLastCheckpointActuals: jest.fn(),
       createCheckpoint: jest.fn(),
     };
+    mockProfitService = {
+      getSummary: jest.fn(),
+    };
 
     (getClosingRepository as jest.Mock).mockReturnValue(mockRepo);
 
-    service = new ClosingService(mockRepo);
+    service = new ClosingService(mockRepo, mockProfitService);
   });
 
   // ===========================================================================
@@ -115,31 +127,62 @@ describe("ClosingService", () => {
   // ===========================================================================
 
   describe("getDailyStatsSnapshot", () => {
-    it("should return daily stats snapshot", () => {
-      const mockStats: DailyStatsSnapshot = {
-        salesCount: 25,
-        totalSalesUSD: 2500,
-        totalSalesLBP: 225000000,
-        debtPaymentsUSD: 300,
-        debtPaymentsLBP: 27000000,
-        totalExpensesUSD: 150,
-        totalExpensesLBP: 13500000,
-        totalProfitUSD: 500,
-      };
-      mockRepo.getDailyStatsSnapshot.mockReturnValue(mockStats);
+    const mockActivity = {
+      salesCount: 25,
+      totalSalesUSD: 2500,
+      totalSalesLBP: 225000000,
+      debtPaymentsUSD: 300,
+      debtPaymentsLBP: 27000000,
+      totalExpensesUSD: 150,
+      totalExpensesLBP: 13500000,
+    };
 
-      const result = service.getDailyStatsSnapshot();
+    it("with includeProfit:false (default), returns activity stats + profitHidden, never calls ProfitService", () => {
+      mockRepo.getDailyActivityStats.mockReturnValue(mockActivity);
 
-      expect(result).toEqual(mockStats);
-      expect(mockRepo.getDailyStatsSnapshot).toHaveBeenCalled();
+      const result = service.getDailyStatsSnapshot({ day: "2026-09-20" });
+
+      expect(mockRepo.getDailyActivityStats).toHaveBeenCalledWith(
+        "2026-09-20",
+      );
+      expect(mockProfitService.getSummary).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        ...mockActivity,
+        profitDay: "2026-09-20",
+        profitHidden: true,
+      });
     });
 
-    it("should return default stats on error", () => {
-      mockRepo.getDailyStatsSnapshot.mockImplementation(() => {
+    it("with includeProfit:true, composes activity + ProfitService.getSummary(day,day).totals.gross_* (rule 14)", () => {
+      mockRepo.getDailyActivityStats.mockReturnValue(mockActivity);
+      mockProfitService.getSummary.mockReturnValue({
+        totals: { gross_profit_usd: 500, gross_profit_lbp: 0 },
+        expenses: { total_usd: 150, total_lbp: 13500000 },
+      });
+
+      const result = service.getDailyStatsSnapshot(
+        { day: "2026-09-20" },
+        { includeProfit: true },
+      );
+
+      expect(mockProfitService.getSummary).toHaveBeenCalledWith(
+        "2026-09-20",
+        "2026-09-20",
+      );
+      expect(result).toEqual({
+        ...mockActivity,
+        profitDay: "2026-09-20",
+        totalProfitUSD: 500,
+        totalProfitLBP: 0,
+      });
+    });
+
+    it("returns default (zero) activity stats when the repository throws — profit stays hidden since includeProfit defaults false", () => {
+      mockRepo.getDailyActivityStats.mockImplementation(() => {
         throw new Error("Query failed");
       });
 
-      const result = service.getDailyStatsSnapshot();
+      const result = service.getDailyStatsSnapshot({ day: "2026-09-20" });
 
       expect(result).toEqual({
         salesCount: 0,
@@ -149,12 +192,32 @@ describe("ClosingService", () => {
         debtPaymentsLBP: 0,
         totalExpensesUSD: 0,
         totalExpensesLBP: 0,
-        totalProfitUSD: 0,
+        profitDay: "2026-09-20",
+        profitHidden: true,
       });
     });
 
-    it("should handle zero stats", () => {
-      const mockStats: DailyStatsSnapshot = {
+    it("E-Q7: a ProfitService.getSummary throw sets profitUnavailable, never a silent $0.00", () => {
+      mockRepo.getDailyActivityStats.mockReturnValue(mockActivity);
+      mockProfitService.getSummary.mockImplementation(() => {
+        throw new Error("profit query failed");
+      });
+
+      const result = service.getDailyStatsSnapshot(
+        { day: "2026-09-20" },
+        { includeProfit: true },
+      );
+
+      expect(result).toEqual({
+        ...mockActivity,
+        profitDay: "2026-09-20",
+        profitUnavailable: true,
+      });
+      expect(result).not.toHaveProperty("totalProfitUSD");
+    });
+
+    it("handles all-zero activity stats", () => {
+      const zeroActivity = {
         salesCount: 0,
         totalSalesUSD: 0,
         totalSalesLBP: 0,
@@ -162,13 +225,16 @@ describe("ClosingService", () => {
         debtPaymentsLBP: 0,
         totalExpensesUSD: 0,
         totalExpensesLBP: 0,
-        totalProfitUSD: 0,
       };
-      mockRepo.getDailyStatsSnapshot.mockReturnValue(mockStats);
+      mockRepo.getDailyActivityStats.mockReturnValue(zeroActivity);
 
-      const result = service.getDailyStatsSnapshot();
+      const result = service.getDailyStatsSnapshot({ day: "2026-09-20" });
 
-      expect(result).toEqual(mockStats);
+      expect(result).toEqual({
+        ...zeroActivity,
+        profitDay: "2026-09-20",
+        profitHidden: true,
+      });
     });
   });
 

@@ -19,12 +19,28 @@ type EventMap = {
   ];
   "notification:history": [history: UINotification[]];
   "sale:completed": [data?: unknown];
-  "debt:repayment": [data?: unknown];
+  // Emitted by every account/debt write (Debts-page entries, repayments,
+  // cash-outs, write-offs, credits) and by session checkout, so any listener
+  // that shows a client balance (e.g. TopBar's session badge, LIRA-212 Tier
+  // A) can refresh live. Replaces "debt:repayment", which had listeners but
+  // no emitter anywhere in frontend/src (dead code — see TopBar.tsx).
+  "debt:changed": [data?: unknown];
   "inventory:updated": [data?: unknown];
   "closing:open": [];
   "opening:open": [];
   "closing:confirmed": [];
   "closing:completed": [];
+  // #28 (LIRA-218) m1 fix — emitted after any telecom recharge submit that
+  // can move a carrier line's credits/validity/days_owed (DAYS, CREDIT_
+  // TRANSFER, CREDIT_BUYBACK, SHOP_LINE_USE). `carrier` narrows the
+  // refresh to one panel; omitted means "refresh regardless" (e.g. a
+  // dashboard-wide listener). Listeners: `CarrierLinesPanel` (its own
+  // lines + "days still to send" list) and `Recharge/index.tsx`'s own
+  // `shopLines` preview state, which otherwise only refetches when
+  // `activeProvider` itself changes — a second sale on the SAME provider
+  // tab used to read a stale `primaryLine.days_owed`/`validity_expires_at`
+  // for its pre-sale warning until the next tab switch.
+  "carrier-lines:changed": [carrier?: "alfa" | "mtc"];
 };
 
 class AppEventEmitter {

@@ -4,10 +4,22 @@
  * Verifies:
  *   - SQL query filters completed + not-fully-paid sales
  *   - SQL excludes refunded items (is_refunded = 0)
- *   - SQL respects date-range boundaries
+ *   - SQL query does NOT date-range-filter unpaid sales (PA-3.8,
+ *     OWNER_NOTES_2026-09-21.md §6.5, owner decision: "Pending means as of
+ *     now" — a receivables view, not a period report; it used to hide an
+ *     unpaid sale older than the tab's date range)
  *   - SQL joins to clients via transactions for name/phone
  *   - Totals aggregation (count, outstanding, pending profit) is correct
- *   - Error handling returns safe empty result
+ *   - Error handling RETHROWS instead of returning a fake-empty success
+ *     (PA-4.16 — a swallowed error used to be indistinguishable on screen
+ *     from a legitimately quiet period)
+ *
+ * The discount-subtraction and partner-coverage-weighting arithmetic
+ * (PA-3.3 / PA-3.2) are proven against a REAL better-sqlite3 DB, not this
+ * file's mock, in
+ * `packages/core/src/repositories/__tests__/ProfitRepository.pendingTabFixes.test.ts`
+ * — a mocked `.prepare()` can assert the SQL TEXT contains the right
+ * fragments (below) but cannot prove the arithmetic is actually correct.
  */
 
 import { resetAllMocks, mockDatabase } from "../__mocks__/better-sqlite3";
@@ -50,6 +62,22 @@ describe("ProfitService.getPendingProfit", () => {
     (globalThis as any).__LIRATEK_TEST_DB__ = mockDatabase;
     resetProfitService();
     service = new ProfitService();
+    // PA-3.7: getPendingProfit now ALSO calls getUnsettledCommissions and
+    // getDeferredProfit (both after getPendingSaleProfit). Both issue
+    // aggregate `.get()`/`.all()` queries that — in real SQLite — always
+    // return a well-shaped row/array; this mock's generic default (.get()
+    // -> undefined) does not, and getDeferredProfit dereferences its
+    // `.get()` result unconditionally. Default every `.prepare()` call
+    // (module-wide default, not per-test) to a shape every query in this
+    // file's call chain can consume; individual tests below still override
+    // the FIRST call with `mockAllReturns`/`mockImplementationOnce`, which
+    // takes precedence over this base implementation for that one call.
+    (mockDatabase.prepare as any).mockImplementation((sql: string) => ({
+      _sql: sql,
+      run: jest.fn(() => ({ changes: 0 })),
+      get: jest.fn(() => ({ profit_usd: 0, profit_lbp: 0 })),
+      all: jest.fn(() => []),
+    }));
   });
 
   // =========================================================================
@@ -69,28 +97,29 @@ describe("ProfitService.getPendingProfit", () => {
       expect(sql).toContain("< s.final_amount_usd - 0.05");
     });
 
-    it("filters by date range using created_at (in machine-local time)", () => {
+    it("PA-3.8: does NOT date-range-filter unpaid sales — 'pending' means as of now, not 'unpaid within this period'", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
       const sql = getLastPreparedSql(0);
-      // dateRange() converts the column to local wall-clock so the [from,to]
-      // window is the operator's local day, not UTC (see ProfitRepository).
-      expect(sql).toContain("datetime(s.created_at, 'localtime') >= ?");
-      expect(sql).toContain("datetime(s.created_at, 'localtime') <= ?");
+      expect(sql).not.toContain("datetime(s.created_at, 'localtime')");
     });
 
-    it("passes correct date params (from 00:00:00 to 23:59:59)", () => {
+    it("PA-3.8: binds only tenant_id params (6 total) — no date params at all", () => {
       service.getPendingProfit("2026-02-20", "2026-02-22");
 
+      // getPendingSaleProfit is still the FIRST statement getPendingProfit
+      // prepares (getUnsettledCommissions/getDeferredProfit run after it),
+      // so index 0 — not the last result — is the one under test here.
       const calls = (mockDatabase.prepare as any).mock.results;
-      const lastStmt = calls[calls.length - 1].value;
-      const allArgs = (lastStmt.all as any).mock.calls[0];
+      const firstStmt = calls[0].value;
+      const allArgs = (firstStmt.all as any).mock.calls[0];
 
-      // Multi-tenant retrofit (WP3e): every tenant-scoped join/subquery in
-      // this query binds tenant_id ahead of the date-range params, shifting
-      // fromDt/toDt from indices [0,1] to [5,6] — see
+      // Multi-tenant retrofit (WP3e) left 6 tenant_id binds (potential_profit
+      // subquery, items products join, items si predicate, transactions
+      // join, clients join, WHERE s.tenant_id) — see
       // ProfitRepository.getPendingSaleProfit's .all(...) param comments.
-      expect(allArgs[5]).toBe("2026-02-20 00:00:00");
-      expect(allArgs[6]).toBe("2026-02-22 23:59:59");
+      // No date strings anywhere in the bind list post-PA-3.8.
+      expect(allArgs).toHaveLength(6);
+      expect(allArgs.some((a: unknown) => typeof a === "string")).toBe(false);
     });
 
     it("excludes refunded items with is_refunded = 0 filter", () => {
@@ -244,19 +273,19 @@ describe("ProfitService.getPendingProfit", () => {
   // =========================================================================
 
   describe("error handling", () => {
-    it("returns safe empty result on database error", () => {
+    // PA-4.16 (OWNER_NOTES_2026-09-21.md §6.6): this used to assert the
+    // OPPOSITE — a caught error silently became a normal-shaped, all-zero
+    // SUCCESS payload, indistinguishable on screen from "no pending profit
+    // this period". It must now rethrow so the IPC handler / REST route (and
+    // ultimately the Pending tab) see a real failure.
+    it("rethrows on a database error instead of returning a fake-empty success", () => {
       (mockDatabase.prepare as any).mockImplementationOnce(() => {
         throw new Error("DB crash");
       });
 
-      const result = service.getPendingProfit("2026-02-22", "2026-02-22");
-
-      expect(result.rows).toEqual([]);
-      expect(result.totals).toEqual({
-        total_outstanding_usd: 0,
-        total_pending_profit_usd: 0,
-        count: 0,
-      });
+      expect(() =>
+        service.getPendingProfit("2026-02-22", "2026-02-22"),
+      ).toThrow("DB crash");
     });
   });
 });

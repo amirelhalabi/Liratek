@@ -1,13 +1,22 @@
 /**
  * E2E: LIRA-103 — "Today's" daily stats use the LOCAL (Beirut) day, not UTC.
  *
- * `ClosingRepository.getDailyStatsSnapshot()` sums today's figures with
+ * `ClosingRepository.getDailyStatsSnapshot()` buckets today's figures with
  * `DATE(col, 'localtime') = DATE('now', 'localtime')`. A profit-bearing row
  * booked at 01:00 Beirut is stored as the PREVIOUS UTC day (22:00). Pre-fix
  * the query used bare UTC `DATE(created_at) = <UTC today>`, so an
  * early-morning transaction dropped out of "today" until 03:00 local. This
  * drives the real IPC → @liratek/core → SQLite stack and proves a boundary
  * transaction is included in today's profit.
+ *
+ * ⚠ UPDATED FOR LIRA-219 (CLOSING_PROFIT_PARITY): `totalProfitUSD` no longer
+ * comes from `ClosingRepository`'s own recharge/commission SUMs — `ClosingService
+ * .getDailyStatsSnapshot()` now returns `ProfitService.getSummary(day, day)
+ * .totals.gross_profit_usd`, i.e. the SAME figure the Profits page shows for
+ * that local day, and only when `canIncludeProfit(role, unlocked)` is true.
+ * This spec logs in as admin, so that gate is always open and the assertion
+ * below is unaffected — only the OLD explanation of which query produces the
+ * number was stale.
  *
  * The backdated instant is built from the machine clock so its LOCAL day is
  * always today (inclusion holds on every run — the fixed behavior). It also

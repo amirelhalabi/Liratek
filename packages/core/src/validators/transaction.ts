@@ -20,6 +20,24 @@ export const voidCheckoutGroupSchema = z.object({
 export type VoidCheckoutGroupInput = z.infer<typeof voidCheckoutGroupSchema>;
 
 /**
+ * LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — the session-basket
+ * analog of `voidCheckoutGroupSchema` above: reverses every item in a
+ * customer-session basket (plus its pooled cash leg(s) and pooled debt) in
+ * ONE db transaction, replacing the "Basket item — see admin to reverse"
+ * dead end. `TransactionRepository.voidSessionBasket`/`refundSessionBasket`
+ * are the only legitimate way to reverse a session-linked row — a bare
+ * void/refund on one is refused by `_assertReversible`. Shared by BOTH
+ * transports (IPC body / REST body) — rule 14.
+ */
+export const sessionBasketReversalSchema = z.object({
+  sessionId: z.number().int().positive(),
+});
+
+export type SessionBasketReversalInput = z.infer<
+  typeof sessionBasketReversalSchema
+>;
+
+/**
  * LIRA-078 — refund tender-selection modal, method-override-only contract.
  * A single operator-chosen return leg: the drawer method that gives the
  * customer's money back, per currency. `currencyCode` is restricted to

@@ -185,6 +185,10 @@ describe("Profits — Overview, D17 deferred settlement commission", () => {
   it("points at Deferred Profit instead of vanishing when every settlement fully deferred", async () => {
     // count=0 / profit=0 — the D17 contract for a window where a cashless
     // settlement happened but nothing was recognised (everything deferred).
+    // PA-3.10: `cashless_deferred_profit_usd` is the field the pointer card
+    // now gates on — it is ALWAYS folded, undistinguished, into
+    // `client_debt_profit_usd` too (see ProfitSummary.deferred's own doc
+    // comment), so a genuine cashless deferral carries both.
     mockGetProfitSummary.mockResolvedValueOnce({
       ...baseSummary(),
       supplier_commission: { profit_usd: 0, profit_lbp: 0, count: 0 },
@@ -193,6 +197,8 @@ describe("Profits — Overview, D17 deferred settlement commission", () => {
         partner_profit_lbp: 0,
         client_debt_profit_usd: 2,
         client_debt_profit_lbp: 0,
+        cashless_deferred_profit_usd: 2,
+        cashless_deferred_profit_lbp: 0,
       },
     });
 
@@ -259,5 +265,55 @@ describe("Profits — Overview, D17 deferred settlement commission", () => {
     expect(
       screen.queryByTestId("profits-deferred-card"),
     ).not.toBeInTheDocument();
+  });
+
+  // PA-3.10 (OWNER_NOTES_2026-09-21.md §6.5) — the actual bug this batch
+  // fixes: the pointer card used to gate on `client_debt_profit_usd/_lbp`,
+  // which ALSO carries ordinary debt-pending recharge/service/loto/
+  // maintenance profit that has nothing to do with a cashless settlement.
+  // RED (pre-fix, reintroduced here to prove it): with the OLD gate
+  // (`(summary.deferred?.client_debt_profit_usd ?? 0) !== 0`), this exact
+  // fixture — client_debt_profit_usd: 2, cashless_deferred_profit_usd: 0 —
+  // rendered the "fully deferred" pointer card, wrongly implying a
+  // cashless OMT/Whish settlement was awaiting the client's repayment when
+  // none had happened at all; the 2 dollars are ordinary unpaid recharge
+  // debt. Confirmed by temporarily reverting the JSX gate to
+  // `client_debt_profit_usd`/`_lbp` and re-running this test: it failed
+  // with "Unable to find an element by: [data-testid="supplier-commission-
+  // fully-deferred"]" was NOT thrown — the element WAS found (the bug), so
+  // `.not.toBeInTheDocument()` below failed. GREEN after gating on
+  // `cashless_deferred_profit_usd`/`_lbp` alone.
+  it("PA-3.10: ordinary debt-pending profit (no cashless settlement) does NOT trigger the fully-deferred pointer", async () => {
+    mockGetProfitSummary.mockResolvedValueOnce({
+      ...baseSummary(),
+      supplier_commission: { profit_usd: 0, profit_lbp: 0, count: 0 },
+      deferred: {
+        partner_profit_usd: 0,
+        partner_profit_lbp: 0,
+        // Ordinary unpaid recharge/service/loto/maintenance debt — NOT a
+        // cashless settlement.
+        client_debt_profit_usd: 2,
+        client_debt_profit_lbp: 0,
+        cashless_deferred_profit_usd: 0,
+        cashless_deferred_profit_lbp: 0,
+      },
+    });
+
+    await renderOverview();
+
+    // The Deferred Profit card still shows the ordinary pending debt (it
+    // gates on the combined field, unchanged).
+    const deferredCard = await screen.findByTestId("profits-deferred-card");
+    expect(deferredCard.textContent).toContain("2 USD");
+
+    // But the Supplier Commission pointer must NOT claim a cashless
+    // settlement is awaiting repayment — none happened this period.
+    expect(
+      screen.queryByTestId("supplier-commission-fully-deferred"),
+    ).not.toBeInTheDocument();
+    // And the normal Supplier Commission card doesn't appear either
+    // (count 0 / profit 0 — nothing was recognised OR deferred via a
+    // settlement).
+    expect(screen.queryByText("Supplier Commission")).not.toBeInTheDocument();
   });
 });

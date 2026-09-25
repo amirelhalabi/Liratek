@@ -21,6 +21,11 @@ import {
   getCarrierLineMovementRepository,
   type CarrierLineMovementEntity,
 } from "../repositories/CarrierLineMovementRepository.js";
+import {
+  CarrierLineOwedDeliveryRepository,
+  getCarrierLineOwedDeliveryRepository,
+  type CarrierLineOwedDeliveryEntity,
+} from "../repositories/CarrierLineOwedDeliveryRepository.js";
 import { financialLogger } from "../utils/logger.js";
 
 // =============================================================================
@@ -106,6 +111,21 @@ export interface RecordUsageResult {
   error?: string;
 }
 
+/** Output of {@link CarrierLineService.getPendingOwedDeliveries} /
+ *  {@link CarrierLineService.getOwedDeliveriesForLine} (#28, LIRA-218). */
+export interface OwedDeliveryListResult {
+  success: boolean;
+  data?: CarrierLineOwedDeliveryEntity[];
+  error?: string;
+}
+
+/** Output of {@link CarrierLineService.markOwedDeliverySent} (#28, LIRA-218). */
+export interface MarkOwedDeliverySentResult {
+  success: boolean;
+  data?: CarrierLineOwedDeliveryEntity;
+  error?: string;
+}
+
 // =============================================================================
 // Service
 // =============================================================================
@@ -113,13 +133,17 @@ export interface RecordUsageResult {
 export class CarrierLineService {
   private repo: CarrierLineRepository;
   private movementRepo: CarrierLineMovementRepository;
+  private owedDeliveryRepo: CarrierLineOwedDeliveryRepository;
 
   constructor(
     repo?: CarrierLineRepository,
     movementRepo?: CarrierLineMovementRepository,
+    owedDeliveryRepo?: CarrierLineOwedDeliveryRepository,
   ) {
     this.repo = repo ?? getCarrierLineRepository();
     this.movementRepo = movementRepo ?? getCarrierLineMovementRepository();
+    this.owedDeliveryRepo =
+      owedDeliveryRepo ?? getCarrierLineOwedDeliveryRepository();
   }
 
   /** Active lines for one carrier — the Recharge-tab compact panel. */
@@ -331,10 +355,18 @@ export class CarrierLineService {
    * restores `validity_expires_at` from the movement's stored
    * `previous_validity_expires_at` verbatim (M2 fix) rather than
    * subtracting days off whatever the line's current value happens to be.
+   *
+   * `today` (optional, rule 27) forwards to the repository's own
+   * `clientDay()`-defaulted parameter — only tests need to pass it
+   * explicitly (to pin the #28 sold-ahead ceiling re-check to a fixed
+   * date); every production caller omits it and gets the request's day.
    */
-  reverseMovement(movementId: number): ReverseMovementResult {
+  reverseMovement(movementId: number, today?: string): ReverseMovementResult {
     try {
-      const data = this.repo.reverseMovement(movementId);
+      const data =
+        today !== undefined
+          ? this.repo.reverseMovement(movementId, today)
+          : this.repo.reverseMovement(movementId);
       if (!data) {
         return {
           success: false,
@@ -388,6 +420,77 @@ export class CarrierLineService {
       financialLogger.error(
         { error, data, userId },
         "Failed to record carrier line usage",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // "Days still to send" (v184 — #28, LIRA-218)
+  // ---------------------------------------------------------------------------
+
+  /** The Days tab's "days still to send" list — every PENDING delivery,
+   *  across every line, oldest first. Read-only. */
+  getPendingOwedDeliveries(): OwedDeliveryListResult {
+    try {
+      const data = this.owedDeliveryRepo.getAllPending();
+      return { success: true, data };
+    } catch (error) {
+      financialLogger.error(
+        { error },
+        "Failed to get pending carrier line owed deliveries",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /** One line's own delivery history (pending and sent). */
+  getOwedDeliveriesForLine(carrierLineId: number): OwedDeliveryListResult {
+    try {
+      const data = this.owedDeliveryRepo.getByCarrierLineId(carrierLineId);
+      return { success: true, data };
+    } catch (error) {
+      financialLogger.error(
+        { error, carrierLineId },
+        "Failed to get carrier line owed deliveries",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Record that a pending delivery's days were physically sent to the
+   * customer. Pure operational bookkeeping (see
+   * `CarrierLineOwedDeliveryRepository`'s module doc): never a second sale,
+   * never a second charge, never a `carrier_lines.days_owed` write.
+   */
+  markOwedDeliverySent(
+    deliveryId: number,
+    userId: number,
+  ): MarkOwedDeliverySentResult {
+    try {
+      const data = this.owedDeliveryRepo.markSent(deliveryId, userId);
+      if (!data) {
+        return { success: false, error: `Delivery #${deliveryId} not found` };
+      }
+      financialLogger.info(
+        { deliveryId, carrierLineId: data.carrier_line_id, userId },
+        "Carrier line owed delivery marked sent",
+      );
+      return { success: true, data };
+    } catch (error) {
+      financialLogger.error(
+        { error, deliveryId, userId },
+        "Failed to mark carrier line owed delivery sent",
       );
       return {
         success: false,

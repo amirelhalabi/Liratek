@@ -212,7 +212,13 @@ describe("SessionPaymentRepository.getSessionCashSplitContext — bug 7 (gross p
     expect(ctx.primarySystemPayoutUsd).toBe(0);
   });
 
-  it("fee-on-top RECEIVE (feeOnTopReceiveFsIds): the persisted omt_fee/whish_fee folds into the CHARGE bucket, gated by provider for the primary-system share", () => {
+  // D1 cutover (OWNER_NOTES_2026-09-21.md §2b, matrix case #4 trace): OMT
+  // system RECEIVE never takes a fee at all — this used to prove omt_fee
+  // folds into the charge bucket when gated; it now proves the OPPOSITE,
+  // which is what the owner's rule requires. WHISH (the case below) is the
+  // one that still folds in, since a Whish fee remains real collected cash
+  // (now the shop's own profit rather than a supplier-payable deduction).
+  it("fee-on-top RECEIVE (feeOnTopReceiveFsIds): OMT's persisted omt_fee is EXCLUDED from the CHARGE bucket even when gated (D1 cutover)", () => {
     const sessionId = 904;
     // A RECEIVE item whose OWN linked amount is the payout (-100), but whose
     // omt_fee (5) is fee-on-top — collected via the pooled charge legs, not
@@ -229,11 +235,43 @@ describe("SessionPaymentRepository.getSessionCashSplitContext — bug 7 (gross p
     expect(withoutGate.chargeTotalUsd).toBe(0);
     expect(withoutGate.primarySystemChargeUsd).toBe(0);
 
+    // D1 cutover: even WITH the gate (a stale/mistaken caller still listing
+    // this fsId), OMT's fee must never fold into the charge bucket.
+    const withGate = repo.getSessionCashSplitContext(sessionId, [fsId]);
+    expect(withGate.chargeTotalUsd).toBe(0);
+    expect(withGate.primarySystemChargeUsd).toBe(0);
+    // The payout side is unaffected by the gate — it's driven purely by the
+    // linked item's own (negative) amount.
+    expect(withGate.payoutTotalUsd).toBe(100);
+    expect(withGate.primarySystemPayoutUsd).toBe(100);
+  });
+
+  it("fee-on-top RECEIVE (feeOnTopReceiveFsIds): WHISH's persisted whish_fee still folds into the CHARGE bucket (D1 unchanged for WHISH)", () => {
+    const sessionId = 905;
+    // WHISH is the SECONDARY system in this fixture (shop_base_system =
+    // 'OMT') — flip it to primary locally, scoped to this test's own db, so
+    // the "gated by provider for the primary-system share" half is still
+    // provable without disturbing every other case in this file (which rely
+    // on OMT staying primary).
+    db.prepare(
+      `UPDATE system_settings SET value = 'WHISH' WHERE key_name = 'shop_base_system'`,
+    ).run();
+
+    const fsId = seedFsItem(db, sessionId, {
+      provider: "WHISH",
+      amountUsd: -100,
+    });
+    db.prepare("UPDATE financial_services SET whish_fee = 5 WHERE id = ?").run(
+      fsId,
+    );
+
+    const withoutGate = repo.getSessionCashSplitContext(sessionId, []);
+    expect(withoutGate.chargeTotalUsd).toBe(0);
+    expect(withoutGate.primarySystemChargeUsd).toBe(0);
+
     const withGate = repo.getSessionCashSplitContext(sessionId, [fsId]);
     expect(withGate.chargeTotalUsd).toBe(5);
     expect(withGate.primarySystemChargeUsd).toBe(5);
-    // The payout side is unaffected by the gate — it's driven purely by the
-    // linked item's own (negative) amount.
     expect(withGate.payoutTotalUsd).toBe(100);
     expect(withGate.primarySystemPayoutUsd).toBe(100);
   });

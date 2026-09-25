@@ -63,7 +63,8 @@ jest.mock("@liratek/core", () => {
 });
 
 jest.mock("../../session.js", () => ({
-  requireRole: jest.fn(() => ({ ok: true, userId: 7 })),
+  requireRole: jest.fn(() => ({ ok: true, userId: 7, role: "staff" })),
+  hasProfitsUnlock: jest.fn(() => false),
 }));
 
 jest.mock("../auditHelper.js", () => ({
@@ -78,7 +79,11 @@ import {
   getActivityService,
   getUserRepository,
 } from "@liratek/core";
+import { requireRole, hasProfitsUnlock } from "../../session.js";
 import { registerDatabaseHandlers } from "../dbHandlers";
+
+const mockRequireRole = requireRole as jest.Mock;
+const mockHasProfitsUnlock = hasProfitsUnlock as jest.Mock;
 
 const ipcMain = originalIpcMain as unknown as {
   handle: jest.Mock;
@@ -182,7 +187,9 @@ describe("dbHandlers IPC: Closing functionality", () => {
   });
 
   describe("closing:get-daily-stats-snapshot", () => {
-    it("delegates to ClosingService and returns the snapshot verbatim", async () => {
+    const sender = { sender: { id: 1 } };
+
+    it("forwards a {day} payload to the service verbatim (rule 23 three-way diff: schema/preload/handler all agree on {day})", async () => {
       const snapshot = {
         salesCount: 5,
         totalSalesUSD: 500,
@@ -191,20 +198,24 @@ describe("dbHandlers IPC: Closing functionality", () => {
         debtPaymentsLBP: 100000,
         totalExpensesUSD: 20,
         totalExpensesLBP: 30000,
-        totalProfitUSD: 150,
+        profitDay: "2026-09-20",
+        profitHidden: true,
       };
       mockClosingService.getDailyStatsSnapshot.mockReturnValue(snapshot);
 
       const handler = ipcMain.handle.mock.calls.find(
         (call) => call[0] === "closing:get-daily-stats-snapshot",
       )[1];
-      const result = await handler({});
+      const result = await handler(sender, { day: "2026-09-20" });
 
-      expect(mockClosingService.getDailyStatsSnapshot).toHaveBeenCalledTimes(1);
+      expect(mockClosingService.getDailyStatsSnapshot).toHaveBeenCalledWith(
+        { day: "2026-09-20" },
+        { includeProfit: false },
+      );
       expect(result).toEqual(snapshot);
     });
 
-    it("returns an all-zero snapshot verbatim when that is what the service returns (null-coalescing now lives in ClosingRepository, not the handler)", async () => {
+    it("accepts an omitted/undefined payload (the service falls back to clientDay())", async () => {
       const zeroSnapshot = {
         salesCount: 0,
         totalSalesUSD: 0,
@@ -213,16 +224,101 @@ describe("dbHandlers IPC: Closing functionality", () => {
         debtPaymentsLBP: 0,
         totalExpensesUSD: 0,
         totalExpensesLBP: 0,
-        totalProfitUSD: 0,
+        profitDay: "2026-09-24",
+        profitHidden: true,
       };
       mockClosingService.getDailyStatsSnapshot.mockReturnValue(zeroSnapshot);
 
       const handler = ipcMain.handle.mock.calls.find(
         (call) => call[0] === "closing:get-daily-stats-snapshot",
       )[1];
-      const result = await handler({});
+      const result = await handler(sender);
 
+      expect(mockClosingService.getDailyStatsSnapshot).toHaveBeenCalledWith(
+        {},
+        { includeProfit: false },
+      );
       expect(result).toEqual(zeroSnapshot);
+    });
+
+    it("rejects a malformed day payload without reaching the service", async () => {
+      const handler = ipcMain.handle.mock.calls.find(
+        (call) => call[0] === "closing:get-daily-stats-snapshot",
+      )[1];
+
+      await expect(
+        handler(sender, { day: "not-a-date" }),
+      ).rejects.toThrow(/Validation failed/);
+      expect(mockClosingService.getDailyStatsSnapshot).not.toHaveBeenCalled();
+    });
+
+    // ── E-Q6: admin-or-Profits-unlocked gate ────────────────────────────────
+    describe("E-Q6 profit gate", () => {
+      it("staff WITHOUT a live unlock -> includeProfit:false", async () => {
+        mockRequireRole.mockReturnValue({ ok: true, userId: 7, role: "staff" });
+        mockHasProfitsUnlock.mockReturnValue(false);
+        mockClosingService.getDailyStatsSnapshot.mockReturnValue({});
+
+        const handler = ipcMain.handle.mock.calls.find(
+          (call) => call[0] === "closing:get-daily-stats-snapshot",
+        )[1];
+        await handler(sender);
+
+        expect(mockClosingService.getDailyStatsSnapshot).toHaveBeenCalledWith(
+          {},
+          { includeProfit: false },
+        );
+      });
+
+      it("staff WITH a live unlock -> includeProfit:true", async () => {
+        mockRequireRole.mockReturnValue({ ok: true, userId: 7, role: "staff" });
+        mockHasProfitsUnlock.mockReturnValue(true);
+        mockClosingService.getDailyStatsSnapshot.mockReturnValue({});
+
+        const handler = ipcMain.handle.mock.calls.find(
+          (call) => call[0] === "closing:get-daily-stats-snapshot",
+        )[1];
+        await handler(sender);
+
+        expect(mockClosingService.getDailyStatsSnapshot).toHaveBeenCalledWith(
+          {},
+          { includeProfit: true },
+        );
+      });
+
+      it("admin WITHOUT a live unlock -> includeProfit:true (admin bypasses the unlock)", async () => {
+        mockRequireRole.mockReturnValue({ ok: true, userId: 3, role: "admin" });
+        mockHasProfitsUnlock.mockReturnValue(false);
+        mockClosingService.getDailyStatsSnapshot.mockReturnValue({});
+
+        const handler = ipcMain.handle.mock.calls.find(
+          (call) => call[0] === "closing:get-daily-stats-snapshot",
+        )[1];
+        await handler(sender);
+
+        expect(mockClosingService.getDailyStatsSnapshot).toHaveBeenCalledWith(
+          {},
+          { includeProfit: true },
+        );
+      });
+
+      it("no session at all -> includeProfit:false, but the activity stats are still returned (this channel keeps its historical no-role-check read access)", async () => {
+        mockRequireRole.mockReturnValue({ ok: false, error: "Not authenticated" });
+        mockHasProfitsUnlock.mockReturnValue(false);
+        const snapshot = { salesCount: 1, profitHidden: true };
+        mockClosingService.getDailyStatsSnapshot.mockReturnValue(snapshot);
+
+        const handler = ipcMain.handle.mock.calls.find(
+          (call) => call[0] === "closing:get-daily-stats-snapshot",
+        )[1];
+        const result = await handler(sender);
+
+        expect(mockClosingService.getDailyStatsSnapshot).toHaveBeenCalledWith(
+          {},
+          { includeProfit: false },
+        );
+        expect(result).toEqual(snapshot);
+      });
     });
   });
 });

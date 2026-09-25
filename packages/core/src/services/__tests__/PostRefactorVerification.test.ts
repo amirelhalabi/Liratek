@@ -263,7 +263,8 @@ function buildSchema(db: Database.Database): void {
       created_by            INTEGER,
       edited_by             TEXT,
       edited_at             TEXT,
-      commission_model      INTEGER NOT NULL DEFAULT 0
+      commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE IF NOT EXISTS suppliers (
@@ -470,7 +471,15 @@ function buildSchema(db: Database.Database): void {
       partner_mode        TEXT,
       fulfillment_status  TEXT,
       fulfilled_at        TEXT,
-      is_refunded         INTEGER DEFAULT 0
+      is_refunded         INTEGER DEFAULT 0,
+      -- v185 (OWNER_NOTES_REMAINING_BUILD.md #16, fix-round I1): the INSERT
+      -- column list grew again to always write direction — without this
+      -- column every addService() call below (including the :1074-ish real
+      -- CustomServiceService.addService round trip through
+      -- __LIRATEK_TEST_DB__) fails with "no such column: direction" before
+      -- any assertion runs, same trap the comment above already names for
+      -- v158's columns.
+      direction           TEXT NOT NULL DEFAULT 'IN'
     );
 
     -- ══════════════════════════════════════════
@@ -530,15 +539,50 @@ function buildSchema(db: Database.Database): void {
     );
 
     -- Carrier lines (shop-owned SIM lines) + their per-checkpoint count
-    -- snapshot. Needed only so getCheckpointCarrierLines()'s JOIN (called
-    -- from getCheckpointTimeline() on every checkpoint read) doesn't throw
-    -- "no such table" — no test in this file asserts carrier-line data.
+    -- snapshot. Needed so getCheckpointCarrierLines()'s JOIN (called from
+    -- getCheckpointTimeline() on every checkpoint read) doesn't throw
+    -- "no such table", AND (LIRA-198, owner #22) so a CREDIT_TRANSFER
+    -- recharge's primary-line lookup doesn't throw SQLITE_ERROR — full
+    -- production shape, no primary row seeded (the "no primary line
+    -- configured" case logs a warning and skips, same established
+    -- convention as the DAYS arm).
     CREATE TABLE IF NOT EXISTS carrier_lines (
-      tenant_id INTEGER DEFAULT 1,
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      carrier      TEXT NOT NULL,
-      phone_number TEXT NOT NULL,
-      label        TEXT
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id           INTEGER DEFAULT 1,
+      carrier             TEXT NOT NULL CHECK(carrier IN ('alfa','mtc')),
+      phone_number        TEXT NOT NULL,
+      label               TEXT,
+      credits             REAL NOT NULL DEFAULT 0,
+      validity_expires_at TEXT,
+      notes               TEXT,
+      is_active           INTEGER NOT NULL DEFAULT 1,
+      is_primary          INTEGER NOT NULL DEFAULT 0,
+      -- v184 (#28, LIRA-218): sold-ahead balance; CarrierLineRepository's
+      -- getColumns() selects this on every line read.
+      days_owed           INTEGER NOT NULL DEFAULT 0,
+      created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at          TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_carrier_lines_one_primary_per_carrier
+      ON carrier_lines(tenant_id, carrier)
+      WHERE is_primary = 1;
+
+    CREATE TABLE IF NOT EXISTS carrier_line_movements (
+      id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id                     INTEGER,
+      carrier_line_id               INTEGER NOT NULL,
+      transaction_id                INTEGER,
+      credits_delta                 REAL NOT NULL DEFAULT 0,
+      validity_days_delta           INTEGER NOT NULL DEFAULT 0,
+      previous_validity_expires_at  TEXT,
+      -- v184: the days_owed rule-20 snapshot pair CarrierLineMovementRepository.
+      -- createMovement always inserts.
+      days_owed_delta               INTEGER NOT NULL DEFAULT 0,
+      previous_days_owed            INTEGER NOT NULL DEFAULT 0,
+      reason                        TEXT NOT NULL,
+      is_reversed                   INTEGER NOT NULL DEFAULT 0,
+      created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS daily_closing_carrier_lines (
@@ -1503,17 +1547,22 @@ describe("Post-Refactor Verification", () => {
       const expenseService = new ExpenseService();
       const closingService = new ClosingService();
 
-      // ClosingRepository.getDailyStatsSnapshot() scopes expenses via
-      // `DATE(expense_date, 'localtime') = DATE('now', 'localtime')` — the
+      // ClosingService.getDailyStatsSnapshot() (LIRA-219: composes
+      // `ClosingRepository.getDailyActivityStats(day)` — bound through
+      // `dateRange(expense_date)`, i.e. `datetime(expense_date,'localtime')`
+      // between `${day} 00:00:00` and `${day} 23:59:59` — with
+      // `ProfitService` for profit) resolves `day` via `clientDay()` when no
+      // explicit `day` is passed, which falls back to `localDay()` here (no
+      // request-scoped client day in this fixed-tenant test context) — the
       // MACHINE-LOCAL calendar day. `new Date().toISOString()` is UTC, so
       // near local midnight (when the UTC and local calendar days differ,
       // e.g. after UTC midnight but before local midnight east of UTC) the
       // seeded expense_date lands on "yesterday" and the snapshot undercounts
-      // it. Ask SQLite for the SAME `date('now','localtime')` the production
-      // predicate uses (mirrors ProfitRepository.localBusinessDay.test.ts),
+      // it. Ask SQLite for the SAME `date('now','localtime')` `localDay()`
+      // resolves to (mirrors ProfitRepository.localBusinessDay.test.ts),
       // rather than re-deriving it via JS Date math, so the seed always
-      // matches the predicate it's exercised against, regardless of run time
-      // or UTC-offset sign.
+      // matches the day it's exercised against, regardless of run time or
+      // UTC-offset sign.
       const { today } = db
         .prepare(`SELECT date('now', 'localtime') AS today`)
         .get() as { today: string };

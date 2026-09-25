@@ -121,6 +121,7 @@ function createTestDb(): Database.Database {
       settled_at TEXT,
       settlement_id INTEGER,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP

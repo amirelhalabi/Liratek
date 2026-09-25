@@ -153,6 +153,7 @@ function createTestDb(): Database.Database {
       partner_id INTEGER,
       partner_mode TEXT,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at TEXT
     );

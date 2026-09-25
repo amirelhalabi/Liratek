@@ -15,6 +15,33 @@ import type {
   CreateUserInput,
   SupplierAccountLinkInput,
   TopUpFromClientInput,
+  CommissionsReport,
+  CommissionProviderRow,
+  // LIRA-219 (C.2/C.4) — the pinned closing-profit-parity contract, imported
+  // directly rather than hand-copied (rule 21). `@liratek/core` resolves to
+  // `browser.ts` for this package's build, which re-exports both type-only
+  // (rule 29).
+  DailyStatsSnapshot,
+  DailyStatsSnapshotQuery,
+  // CHART-m5 (verifier finding, round 1 of the DC-10..12 fix pass) — the
+  // "Net Profit — last 30 days" tile shape, imported directly rather than
+  // hand-copied a second time here (rule 21).
+  NetProfitWindowResult,
+  // PFU-types-1 (verifier round-1 fix) — the Profits Overview/By Module
+  // shapes, imported directly (rule 21) instead of the `Promise<any>` this
+  // adapter previously declared, which let the two transports and this
+  // interface disagree silently.
+  ProfitSummary,
+  ProfitByModule,
+  // PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the By
+  // Module drill-down's "Show transactions" payload, imported directly (rule
+  // 21), same reasoning as ProfitSummary/ProfitByModule above.
+  ProfitModuleDetail,
+  // LIRA-214 (OWNER_NOTES_REMAINING_BUILD.md #24, migration v183) — Hold
+  // Money's create/collect payloads, imported directly (rule 21) instead of
+  // a hand-typed object literal that could silently drift from the schema.
+  HoldMoneyCreateInput,
+  HoldMoneyCollectInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -28,6 +55,11 @@ export type {
   CreateUserInput,
   SupplierAccountLinkInput,
   TopUpFromClientInput,
+  CommissionsReport,
+  CommissionProviderRow,
+  DailyStatsSnapshot,
+  DailyStatsSnapshotQuery,
+  NetProfitWindowResult,
 };
 
 export type ApiUser = {
@@ -269,47 +301,9 @@ export type RechargeHistoryEntry = {
   edited_at: string | null;
 };
 
-export type MonthlyPL = {
-  month: string;
-  salesProfitUSD: number;
-  serviceCommissionsUSD: number;
-  serviceCommissionsLBP: number;
-  serviceCommissionsByCurrency: Record<string, number>;
-  expensesUSD: number;
-  expensesLBP: number;
-  netProfitUSD: number;
-  netProfitLBP: number;
-};
-
-/**
- * Closing/Checkpoint's daily reconciliation snapshot. Mirrors
- * `packages/core/src/repositories/ClosingRepository.ts`'s `DailyStatsSnapshot`
- * interface verbatim (rule 14) — this is a dual-transport read type, not a
- * second source of truth, so keep the two in sync by hand when either
- * changes.
- */
-export type DailyStatsSnapshot = {
-  salesCount: number;
-  totalSalesUSD: number;
-  totalSalesLBP: number;
-  debtPaymentsUSD: number;
-  debtPaymentsLBP: number;
-  totalExpensesUSD: number;
-  totalExpensesLBP: number;
-  totalProfitUSD: number;
-  /**
-   * LIRA-161 item 1 (see ClosingRepository.ts:104-122): loto's commission is
-   * booked ENTIRELY in LBP, so it gets its own field rather than folding into
-   * `totalProfitUSD` (which would always add exactly $0 for it). This is
-   * LOTO'S profit ONLY — every other module's LBP-denominated profit slice
-   * is excluded from BOTH totals at the repository layer today, not folded
-   * into either one. LIRA-174's rate-stamped PDF view
-   * (`frontend/src/features/closing/utils/rateStampedProfit.ts`) labels its
-   * "LBP amount" line accordingly rather than presenting this as complete
-   * LBP profit coverage.
-   */
-  totalProfitLBP?: number;
-};
+// LIRA-219 (C.2) — `DailyStatsSnapshot`/`DailyStatsSnapshotQuery` are now
+// imported directly from `@liratek/core` (see the import block above) rather
+// than hand-copied here; the old local duplicate is gone (rule 21).
 
 /**
  * LIRA-159 D2: per-provider unsettled commission rollup
@@ -555,6 +549,9 @@ export type CarrierLineEntity = {
   label: string | null;
   credits: number;
   validity_expires_at: string | null;
+  /** v184 (#28) — sold-ahead balance: days a DAYS sale promised the customer
+   *  that the line's real remaining days couldn't cover at sale time. */
+  days_owed: number;
   notes: string | null;
   is_active: number;
   /** LIRA-090 (v140): 1 if this is the primary line for its carrier.
@@ -567,6 +564,34 @@ export type CarrierLineEntity = {
 export type CarrierLineWriteResult = {
   success: boolean;
   data?: CarrierLineEntity;
+  error?: string;
+};
+
+/** v184 (#28, LIRA-218) — one "days still to send" list entry: a DAYS sale
+ *  that sold ahead of the line's real remaining days. */
+export type CarrierLineOwedDeliveryEntity = {
+  id: number;
+  carrier_line_id: number;
+  transaction_id: number | null;
+  client_id: number | null;
+  client_name: string | null;
+  days_owed: number;
+  status: "PENDING" | "SENT";
+  sent_at: string | null;
+  sent_by: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CarrierLineOwedDeliveryListResult = {
+  success: boolean;
+  data?: CarrierLineOwedDeliveryEntity[];
+  error?: string;
+};
+
+export type MarkCarrierLineOwedDeliverySentResult = {
+  success: boolean;
+  data?: CarrierLineOwedDeliveryEntity;
   error?: string;
 };
 
@@ -1160,12 +1185,20 @@ export type ApiAdapter = {
   // Dashboard
   // ---------------------------------------------------------------------------
   getDashboardStats: () => Promise<DashboardStats>;
-  getProfitSalesChart: (type: "Sales" | "Profit") => Promise<ChartDataPoint[]>;
+  getProfitSalesChart: (
+    type: "Sales" | "Profit",
+    clientDay?: string,
+  ) => Promise<ChartDataPoint[]>;
   getTodaysSales: (date?: string) => Promise<RecentSale[]>;
   getDrawerBalances: () => Promise<DrawerBalances>;
   getDebtSummary: () => Promise<any>;
   getInventoryStockStats: () => Promise<StockStats>;
-  getMonthlyPL: (month: string) => Promise<MonthlyPL>;
+  /** DC-11 (OWNER_NOTES_2026-09-21.md §7.2) — the "Net Profit — last 30
+   *  days" tile: Σ net profit over the rolling 30-day window ending on
+   *  `clientDay` (defaults to the browser's own `localDay()`). */
+  getNetProfitLast30Days: (
+    clientDay?: string,
+  ) => Promise<NetProfitWindowResult>;
   getDrawerNames: () => Promise<string[]>;
 
   // ---------------------------------------------------------------------------
@@ -1322,7 +1355,9 @@ export type ApiAdapter = {
    *  web-hosted server (which doesn't know the shop's timezone) doesn't have
    *  to guess "today". */
   hasOpeningBalanceToday: (day?: string) => Promise<boolean>;
-  getDailyStatsSnapshot: () => Promise<DailyStatsSnapshot>;
+  getDailyStatsSnapshot: (
+    input?: DailyStatsSnapshotQuery,
+  ) => Promise<DailyStatsSnapshot>;
   recalculateDrawerBalances: () => Promise<ApiResult>;
   updateDailyClosing: (
     id: number,
@@ -1511,6 +1546,12 @@ export type ApiAdapter = {
         amount: number;
         direction?: "IN" | "OUT";
       }>;
+      /** LIRA-203 (owner D18 follow-up) — pay MORE than `selections` net
+       *  to; the difference is booked as a standalone account credit,
+       *  applied manually at a later settlement (never auto-applied).
+       *  Only valid with `direction: "PAY"`. */
+      surplus_usd?: number;
+      surplus_lbp?: number;
     },
   ) => Promise<ApiResult & { id?: number }>;
   // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
@@ -1717,6 +1758,15 @@ export type ApiAdapter = {
   recordCarrierLineUsage: (
     data: CarrierLineUsagePayload,
   ) => Promise<CarrierLineUsageResult>;
+  /** v184 (#28, LIRA-218) — the "days still to send" list: every PENDING
+   *  delivery, across every line. Read-only. */
+  getPendingCarrierLineOwedDeliveries: () => Promise<CarrierLineOwedDeliveryListResult>;
+  /** v184 (#28) — mark a pending delivery as physically sent to the
+   *  customer. Pure checklist bookkeeping: no second sale, no second charge,
+   *  no `days_owed` write. */
+  markCarrierLineOwedDeliverySent: (
+    deliveryId: number,
+  ) => Promise<MarkCarrierLineOwedDeliverySentResult>;
 
   // ---------------------------------------------------------------------------
   // Mobile Service Items — admin (LIRA W6.b) + LIRA-090
@@ -1924,7 +1974,9 @@ export type ApiAdapter = {
     checkout: (data: unknown) => Promise<any>;
   };
 
-  /** Hold money — cash held in / collected out of the General drawer. */
+  /** Hold money — cash held in / collected out on the customer's behalf
+   *  (LIRA-214, migration v183: partial pickup + a real payment form on
+   *  both ends). */
   holdMoney: {
     list: (filter?: {
       status?: "held" | "collected";
@@ -1934,15 +1986,18 @@ export type ApiAdapter = {
       data?: any[];
       error?: string;
     }>;
-    create: (data: {
-      client_name: string;
-      phone_number?: string;
-      usd_amount?: number;
-      lbp_amount?: number;
-      notes?: string;
-      transaction_time?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    collect: (id: number) => Promise<{ success: boolean; error?: string }>;
+    create: (
+      data: HoldMoneyCreateInput,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    pickups: (
+      holdMoneyId: number,
+    ) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+    collect: (
+      data: HoldMoneyCollectInput,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    voidPickup: (
+      pickupId: number,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
   /** Service presets — config CRUD for custom-service templates. */
@@ -2344,6 +2399,10 @@ export type ApiAdapter = {
      *  instead. */
     partnerId?: number;
     partnerMode?: "FOR" | "VIA";
+    /** OWNER_NOTES_REMAINING_BUILD.md #16 — "OUT" is a payout (Via-Partner
+     *  only): cash leaves the General drawer to a local recipient instead
+     *  of a customer paying the shop. Omitted/"IN" is the existing flow. */
+    direction?: "IN" | "OUT";
     /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
      *  operator picked a product from the inventory SearchBar; decrements 1
      *  unit of stock. Omitted (preset/free-text) -> NULL -> no stock move. */
@@ -2423,6 +2482,26 @@ export type ApiAdapter = {
       reversalIds?: number[];
     }
   >;
+  /** LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — void/refund every
+   *  item in a customer-session basket, plus its pooled cash leg(s) and
+   *  pooled debt, in ONE transaction. Replaces the "Basket item — see
+   *  admin to reverse" dead end. Mirrors voidCheckoutGroup above (rule 14). */
+  voidSessionBasket: (sessionId: number) => Promise<
+    ApiResult & {
+      sessionId?: number;
+      itemCount?: number;
+      reversedTransactionIds?: number[];
+      reversalIds?: number[];
+    }
+  >;
+  refundSessionBasket: (sessionId: number) => Promise<
+    ApiResult & {
+      sessionId?: number;
+      itemCount?: number;
+      reversedTransactionIds?: number[];
+      reversalIds?: number[];
+    }
+  >;
   getTransactionDailySummary: (date: string) => Promise<any>;
   getDebtAging: (clientId: number) => Promise<any>;
   getOverdueDebts: () => Promise<any[]>;
@@ -2440,8 +2519,8 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   // Profits (admin analytics)
   // ---------------------------------------------------------------------------
-  getProfitSummary: (from: string, to: string) => Promise<any>;
-  getProfitByModule: (from: string, to: string) => Promise<any[]>;
+  getProfitSummary: (from: string, to: string) => Promise<ProfitSummary>;
+  getProfitByModule: (from: string, to: string) => Promise<ProfitByModule[]>;
   getProfitByDate: (from: string, to: string) => Promise<any[]>;
   getProfitByPaymentMethod: (from: string, to: string) => Promise<any[]>;
   getProfitByUser: (from: string, to: string) => Promise<any[]>;
@@ -2459,6 +2538,17 @@ export type ApiAdapter = {
     limit?: number,
   ) => Promise<any[]>;
   getPendingProfit: (from: string, to: string) => Promise<any>;
+  // PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the By
+  // Module drill-down's "Show transactions" list.
+  getProfitModuleDetail: (
+    moduleKey: string,
+    from: string,
+    to: string,
+  ) => Promise<ProfitModuleDetail>;
+  getProfitsCommissions: (
+    from: string,
+    to: string,
+  ) => Promise<CommissionsReport>;
 
   // ---------------------------------------------------------------------------
   // Loto

@@ -567,6 +567,17 @@ export interface SettleAccountRequest {
     amount: number;
     direction?: "IN" | "OUT";
   }>;
+  /**
+   * LIRA-203 (owner D18 follow-up) — pay MORE than `selections` net to; the
+   * difference is booked as a standalone account credit on the account
+   * parent, deliberately left open (never auto-applied) so a LATER
+   * settlement can tick it like any other unsettled row — see
+   * `SupplierRepository.SettleAccountData.surplus_usd`'s own doc comment
+   * for the full design. Only valid with `direction: "PAY"`; the repository
+   * rejects a nonzero value on COLLECT.
+   */
+  surplus_usd?: number;
+  surplus_lbp?: number;
 }
 
 export interface SettleAccountResult {

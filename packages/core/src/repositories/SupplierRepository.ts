@@ -657,6 +657,27 @@ export interface SettleAccountData {
     amount: number;
     direction?: "IN" | "OUT";
   }>;
+  /**
+   * LIRA-203 (owner D18 follow-up, OMT_OPEN_CREDIT_ACCOUNT_PLAN.md) — pay
+   * MORE than `selections` net to, and record the difference as a
+   * standalone account credit rather than rejecting the batch outright.
+   * `amount_usd`/`amount_lbp` above stay the EXACT rows net — this guard is
+   * untouched (D18: "the ticked rows settle EXACTLY as today"). The surplus
+   * is its OWN thing, added on top: `payments[]` must cover
+   * `amount_usd + surplus_usd` / `amount_lbp + surplus_lbp` (step 4b), and
+   * `settleAccount` writes it as its own negative `PAYMENT` `supplier_ledger`
+   * row on the account PARENT, deliberately left UNSETTLED
+   * (`settlement_id` stays NULL) so it re-enters {@link getAccountUnsettled}
+   * as a credit row the operator can tick at a LATER settlement — the exact
+   * same mixed-sign netting a `WALLET_CASHOUT` credit row already gets
+   * (§8.4), so "applying" the credit needs no new code path (D18: "applied
+   * manually", never auto-applied). Optional, defaults to 0 — every existing
+   * caller is byte-identical. Only valid with `direction: "PAY"` (rejected
+   * on COLLECT — collecting more than owed is a different, un-designed
+   * flow); must be non-negative.
+   */
+  surplus_usd?: number;
+  surplus_lbp?: number;
 }
 
 export class SupplierRepository extends BaseRepository<SupplierEntity> {
@@ -3696,6 +3717,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *    and ADDED to whatever step 6 stamped, per currency, as the
    *    settlement transaction's OWN `profit_usd`/`profit_lbp` — the ONE
    *    place this ticket recognises a cashout's deferred profit.
+   * 8. LIRA-203 (owner D18 follow-up) — when `data.surplus_usd`/
+   *    `surplus_lbp` is nonzero (PAY only), `payments[]` must ALSO cover
+   *    that surplus on top of the rows' own net (step 4b), and ONE extra
+   *    negative `PAYMENT` `supplier_ledger` row is written on the account
+   *    PARENT, link-moded onto this settlement's `transaction_id` but
+   *    deliberately left `settlement_id IS NULL` — an open credit row
+   *    `getAccountUnsettled` will surface for a LATER settlement to tick
+   *    and apply (never auto-applied). See {@link SettleAccountData
+   *    .surplus_usd}'s own doc comment for the full design and step G
+   *    below for the write.
    *
    * Third hardening round (rule 17, two reviewer-reproduced leaks closed):
    *   Finding A — OUT (change/return) legs are now rejected outright before
@@ -3972,9 +4003,34 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       );
     }
 
+    // ── LIRA-203 — overpayment surplus (owner D18 follow-up) ───────────────
+    // See `SettleAccountData.surplus_usd`'s own doc comment for the full
+    // design. Validated here, BEFORE the transaction opens, alongside every
+    // other direction/amount guard above — a bad request must never open a
+    // write transaction just to be rolled back.
+    const surplusUsd = data.surplus_usd ?? 0;
+    const surplusLbp = data.surplus_lbp ?? 0;
+    if (surplusUsd < 0 || surplusLbp < 0) {
+      throw new DatabaseError(
+        "Account settlement: surplus_usd/surplus_lbp cannot be negative",
+      );
+    }
+    const hasSurplus = surplusUsd > EPS_USD || surplusLbp > EPS_LBP;
+    if (hasSurplus && !wantsPay) {
+      throw new DatabaseError(
+        "Account settlement: an overpayment surplus is only valid when " +
+          "PAYING the account (direction: PAY) — collecting more than the " +
+          "selected rows' net is not a supported flow here",
+      );
+    }
+    // The rows' own net (validated above, UNCHANGED) plus the declared
+    // surplus — this combined figure, never `data.amount_usd`/`amount_lbp`
+    // alone, is what `payments[]` must reconcile to from here on.
+    const totalAmountUsd = data.amount_usd + surplusUsd;
+    const totalAmountLbp = data.amount_lbp + surplusLbp;
+
     const owesCash =
-      Math.abs(data.amount_usd) > EPS_USD ||
-      Math.abs(data.amount_lbp) > EPS_LBP;
+      Math.abs(totalAmountUsd) > EPS_USD || Math.abs(totalAmountLbp) > EPS_LBP;
     if (owesCash && !data.payments?.length) {
       throw new DatabaseError(
         "Account settlement requires at least one payment-method leg to move the net amount owed",
@@ -4096,12 +4152,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         }
       }
       if (
-        Math.abs(legSumUsd - data.amount_usd) > EPS_USD ||
-        Math.abs(legSumLbp - data.amount_lbp) > EPS_LBP
+        Math.abs(legSumUsd - totalAmountUsd) > EPS_USD ||
+        Math.abs(legSumLbp - totalAmountLbp) > EPS_LBP
       ) {
         throw new DatabaseError(
-          `Account settlement payment legs do not reconcile to the settled amount — ` +
-            `expected $${data.amount_usd.toFixed(2)} + ${data.amount_lbp} LBP, ` +
+          `Account settlement payment legs do not reconcile to the settled amount ` +
+            `${hasSurplus ? "(selected rows + overpayment surplus) " : ""}— ` +
+            `expected $${totalAmountUsd.toFixed(2)} + ${totalAmountLbp} LBP, ` +
             `got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP`,
         );
       }
@@ -4262,7 +4319,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           `Account Settlement: ${freshParent.name} — ${data.direction} ` +
           `$${data.amount_usd.toFixed(2)}` +
           `${data.amount_lbp ? ` + ${data.amount_lbp.toLocaleString()} LBP` : ""}` +
-          ` across ${totalMembers} member${totalMembers === 1 ? "" : "s"}`;
+          ` across ${totalMembers} member${totalMembers === 1 ? "" : "s"}` +
+          (hasSurplus
+            ? ` (+ $${surplusUsd.toFixed(2)}` +
+              `${surplusLbp ? ` / ${surplusLbp.toLocaleString()} LBP` : ""}` +
+              ` overpayment credit)`
+            : "");
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
           source_table: "supplier_ledger",
@@ -4282,6 +4344,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             entry_mode: data.entry_mode ?? "LUMP",
             cashout_commission_usd: cashoutCommission.usd,
             cashout_commission_lbp: cashoutCommission.lbp,
+            // LIRA-203 — 0/0 for every pre-existing caller, so this key is
+            // purely additive audit context, never read by any reversal or
+            // balance logic (the credit ROW itself, not this metadata, is
+            // what the account balance/queue actually reflect).
+            surplus_usd: surplusUsd,
+            surplus_lbp: surplusLbp,
             members: memberIds,
             counterparty: buildCounterpartyMetadata({
               kind: "supplier",
@@ -4480,6 +4548,47 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             tenantId,
             drawerCtx,
           });
+        }
+
+        // ── G. Overpayment surplus row (LIRA-203, owner D18 follow-up) ─────
+        // ONE standalone `supplier_ledger` row on the account PARENT
+        // (never merged into any member's own negating row from step A/C —
+        // it isn't settling anything, so it has no "member" of its own),
+        // negative (credit — same sign convention `resolveEntry` uses for
+        // "the account owes the shop"), sharing this settlement's
+        // `transaction_id` (link mode, exactly like step C) so
+        // `_reverseSupplierSettlement`'s existing
+        // `supplier_ledger WHERE transaction_id = ?` scan finds and
+        // soft-voids it for free on void/refund — no new reversal code.
+        //
+        // Deliberately NOT self-stamped with `settlement_id` (contrast the
+        // anchor/member self-stamps above): it must stay OPEN
+        // (`settlement_id IS NULL`) so `getAccountUnsettled` keeps listing
+        // it as a selectable credit row until an operator ticks it in a
+        // future settlement — that tick IS the entire "apply credit
+        // manually" mechanism (D18), reusing steps 0-3's existing
+        // mixed-sign selection/negation unchanged.
+        if (hasSurplus) {
+          const surplusNote =
+            `Overpayment credit: ${freshParent.name} — paid ` +
+            `$${surplusUsd.toFixed(2)}` +
+            `${surplusLbp ? ` + ${surplusLbp.toLocaleString()} LBP` : ""}` +
+            ` beyond the ${totalMembers} selected row${totalMembers === 1 ? "" : "s"}`;
+          this.db
+            .prepare(
+              `INSERT INTO supplier_ledger
+                 (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, tenant_id, created_at)
+               VALUES (?, 'PAYMENT', ?, ?, ?, ?, ?, ?, datetime('now'))`,
+            )
+            .run(
+              data.account_supplier_id,
+              -surplusUsd,
+              -surplusLbp,
+              surplusNote,
+              data.created_by,
+              txnId,
+              tenantId,
+            );
         }
 
         // Return the ANCHOR ledger row id — same convention as

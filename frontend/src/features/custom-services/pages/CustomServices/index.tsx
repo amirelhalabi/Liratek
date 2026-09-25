@@ -184,6 +184,14 @@ export default function CustomServices() {
     null,
   );
 
+  // OWNER_NOTES_REMAINING_BUILD.md #16 (Route A) — "Pay out": ONLY valid
+  // alongside "Via Partner" (mirrors the core Zod refine). Not a 3rd
+  // partnerMode value — a payout is still partner_mode='VIA' underneath,
+  // this just flips `direction`. Cleared whenever VIA is turned off (see the
+  // two ForPartnerToggle onChange handlers below) so it can never linger
+  // into a "none"/FOR submission.
+  const [isPayout, setIsPayout] = useState(false);
+
   // ─── Item Selector ───
   const [selectedProduct, setSelectedProduct] = useState<{
     id: number;
@@ -322,11 +330,23 @@ export default function CustomServices() {
       alert("Select a partner for this service.");
       return;
     }
+    // OWNER_NOTES_REMAINING_BUILD.md #16 — a payout needs BOTH sides
+    // (mirrors createCustomServiceSchema's refine): the amount that arrived
+    // via the partner (price) AND the amount handed to the recipient
+    // (cost). Checked BEFORE the VIA payment-leg guard below, which does not
+    // apply to a payout (it pays OUT, it never collects a leg).
+    if (isPayout && !((priceUsdVal > 0 || priceLbpVal > 0) && (costUsdVal > 0 || costLbpVal > 0))) {
+      alert(
+        "Enter both the amount that arrived (Arrived) and the amount to pay out (Paid Out).",
+      );
+      return;
+    }
     // LIRA-154 VIA submit guard: a walk-in customer is actually paying, so
     // VIA (unlike FOR) additionally requires at least one payment leg —
     // a CUSTOMER_ACCOUNT (debt) leg counts too, it's still a paymentLines
-    // entry, just settled later instead of collected now.
-    if (isViaPartner && paymentLines.length === 0) {
+    // entry, just settled later instead of collected now. A payout takes no
+    // counter leg at all (like FOR), so it's excluded here too.
+    if (isViaPartner && !isPayout && paymentLines.length === 0) {
       alert("Add at least one payment method for this service.");
       return;
     }
@@ -390,7 +410,15 @@ export default function CustomServices() {
         // with what the UI actually shows). VIA is the opposite of FOR
         // here — it's a real walk-in payment, so it forwards legs exactly
         // like the no-partner case (`!isForPartner` is true for VIA too).
-        ...(!isForPartner && (paymentLines.length > 0 || returnLegs.length > 0)
+        // OWNER_NOTES_REMAINING_BUILD.md #16: a payout (isPayout) takes no
+        // counter leg either — it PAYS the recipient, it never collects —
+        // so it's excluded here the same way FOR is; the Payment Method
+        // section isn't even rendered for it, so paymentLines/returnLegs
+        // are empty anyway, but this stays explicit rather than relying on
+        // that.
+        ...(!isForPartner &&
+        !isPayout &&
+        (paymentLines.length > 0 || returnLegs.length > 0)
           ? { payments: toSnakeLegs(paymentLines, returnLegs) }
           : {}),
         // Voucher code for the GIFT_CARD leg (custom services use one primary method)
@@ -398,14 +426,17 @@ export default function CustomServices() {
           const voucherLeg = paymentLines.find(
             (p) => p.method === "GIFT_CARD" && p.voucherCode,
           );
-          return !isForPartner && voucherLeg?.voucherCode
+          return !isForPartner && !isPayout && voucherLeg?.voucherCode
             ? { voucher_code: voucherLeg.voucherCode }
             : {};
         })(),
         // T3 keep-change: kept amounts join the service's profit stamp.
         // Applies to VIA too — profit is still price - cost regardless of
-        // who performed the service.
+        // who performed the service. Not for a payout — there is no change
+        // to keep (the shop pays out, it doesn't collect a tender to make
+        // change from).
         ...(!isForPartner &&
+        !isPayout &&
         keptChange &&
         (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
@@ -422,6 +453,11 @@ export default function CustomServices() {
         ...(partnerMode !== "none" && selectedPartnerId
           ? { partnerId: selectedPartnerId, partnerMode }
           : {}),
+        // OWNER_NOTES_REMAINING_BUILD.md #16 — omitted for every non-payout
+        // submission (the repository treats a missing `direction` as "IN"),
+        // so an upgraded desktop app talking to an un-upgraded core still
+        // round-trips the existing behaviour byte-for-byte.
+        ...(isPayout ? { direction: "OUT" as const } : {}),
       };
       if (finalClientId) payload.client_id = finalClientId;
       if (clientName.trim()) payload.client_name = clientName.trim();
@@ -452,7 +488,12 @@ export default function CustomServices() {
       // it goes THROUGH the session cart exactly like a plain service
       // (`!isForPartner` is true for VIA). Do not widen this to
       // `!hasPartnerMode` — that would wrongly bypass the session for VIA.
-      if (activeSession && !isForPartner) {
+      // OWNER_NOTES_REMAINING_BUILD.md #16: a payout (isPayout) ALSO
+      // bypasses the session, like FOR — there is no walk-in customer
+      // basket to net against (owner's #11 netted-checkout note is about
+      // cash PAID OUT of a session's own drawer, a different mechanism this
+      // ticket does not build); a payout always posts immediately.
+      if (activeSession && !isForPartner && !isPayout) {
         const amountLabel =
           priceUsdVal > 0
             ? `$${priceUsdVal.toFixed(2)}`
@@ -495,6 +536,7 @@ export default function CustomServices() {
         // reset the partner mode so it doesn't silently carry over onto
         // the next, unrelated cart line.
         setPartnerMode("none");
+        setIsPayout(false);
         setSelectedPartnerId(null);
         clearProduct();
         clearClient();
@@ -529,6 +571,7 @@ export default function CustomServices() {
         setKeptChange(null);
         setTransactionTime(undefined);
         setPartnerMode("none");
+        setIsPayout(false);
         setSelectedPartnerId(null);
         clearProduct();
         clearClient();
@@ -860,7 +903,7 @@ export default function CustomServices() {
                 <div className="p-4 rounded-xl bg-teal-400/5 border border-teal-400/20 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="block text-xs font-medium text-teal-400 uppercase tracking-wider">
-                      Cost / Price
+                      {isPayout ? "Arrived / Paid Out" : "Cost / Price"}
                     </span>
                     {/* Currency toggle */}
                     <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
@@ -897,7 +940,7 @@ export default function CustomServices() {
                         htmlFor="svc-cost"
                         className="block text-[10px] text-slate-500 mb-1 uppercase"
                       >
-                        Cost {currency}
+                        {isPayout ? `Paid Out ${currency}` : `Cost ${currency}`}
                       </label>
                       <div className="relative">
                         {currency === "USD" && (
@@ -927,7 +970,7 @@ export default function CustomServices() {
                         htmlFor="svc-price"
                         className="block text-[10px] text-slate-500 mb-1 uppercase"
                       >
-                        Price {currency}
+                        {isPayout ? `Arrived ${currency}` : `Price ${currency}`}
                       </label>
                       <div className="relative">
                         {currency === "USD" && (
@@ -971,7 +1014,8 @@ export default function CustomServices() {
                       <span
                         className={`text-sm font-bold ${profitUsd >= 0 && profitLbp >= 0 ? "text-emerald-400" : "text-red-400"}`}
                       >
-                        Profit: {formatCurrency(profitUsd, profitLbp)}
+                        {isPayout ? "Commission" : "Profit"}:{" "}
+                        {formatCurrency(profitUsd, profitLbp)}
                       </span>
                     </div>
                   )}
@@ -1078,6 +1122,7 @@ export default function CustomServices() {
                     onChange={(next) => {
                       if (next) {
                         setPartnerMode("FOR");
+                        setIsPayout(false);
                         // Clear any lingering payment state so a leftover
                         // leg from before toggling on is never submitted.
                         setPaymentLines([]);
@@ -1106,11 +1151,45 @@ export default function CustomServices() {
                       // section live and submitting, so clearing here would
                       // wipe an operator's in-progress payment lines.
                       setPartnerMode(next ? "VIA" : "none");
+                      // OWNER_NOTES_REMAINING_BUILD.md #16: "Pay out" is
+                      // ONLY valid under VIA — unchecking VIA must not leave
+                      // it stranded true for a "none"/FOR submission.
+                      if (!next) setIsPayout(false);
                     }}
                     selectedPartnerId={selectedPartnerId}
                     onPartnerChange={setSelectedPartnerId}
                     checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                   />
+                  {/* OWNER_NOTES_REMAINING_BUILD.md #16 (Route A) — "Pay
+                      out": the Syria transfer OUT. Only shown once "Via
+                      Partner" is on (the schema rejects direction "OUT"
+                      without partnerMode "VIA"); NOT its own ForPartnerToggle
+                      — the partner is already selected by the toggle above,
+                      this is a plain sub-checkbox that just flips direction. */}
+                  {isViaPartner && (
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        data-testid="custom-service-payout-toggle"
+                        checked={isPayout}
+                        onChange={(e) => {
+                          setIsPayout(e.target.checked);
+                          // A payout collects no payment legs (it PAYS the
+                          // recipient CASH from General, per owner decision)
+                          // — drop any leftover legs from before the toggle
+                          // was checked, mirroring the FOR toggle's own
+                          // clear-on-check above.
+                          if (e.target.checked) {
+                            setPaymentLines([]);
+                            setReturnLegs([]);
+                            setKeptChange(null);
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                      />
+                      <span className="text-xs text-slate-400">Pay out</span>
+                    </label>
+                  )}
                 </div>
 
                 {/* Payment Method — replaced by a notice in FOR mode only.
@@ -1128,7 +1207,11 @@ export default function CustomServices() {
                     ternary — it keeps the Payment Method section mounted
                     (a real walk-in customer is paying through it) and adds
                     an informational notice ABOVE it instead of replacing
-                    it. */}
+                    it. OWNER_NOTES_REMAINING_BUILD.md #16: "Pay out" IS a
+                    3rd branch, alongside FOR — like FOR, a payout collects
+                    no payment legs from a walk-in customer (the shop pays
+                    OUT instead), so it replaces the Payment Method section
+                    with a notice too, mirroring FOR's own shape exactly. */}
                 {isForPartner ? (
                   <ForPartnerNotice
                     testId="custom-service-partner-no-payment-notice"
@@ -1152,6 +1235,23 @@ export default function CustomServices() {
                         drawer or any other drawer.
                       </>
                     )}
+                  </ForPartnerNotice>
+                ) : isPayout ? (
+                  <ForPartnerNotice
+                    testId="custom-service-payout-notice"
+                    className="text-sm text-rose-200 bg-rose-500/10 border border-rose-500/30 rounded-xl px-4 py-4"
+                  >
+                    The partner owes the shop the full{" "}
+                    <span className="font-bold">
+                      {formatCurrency(priceUsdVal, priceLbpVal)}
+                    </span>{" "}
+                    that arrived through them, settled later on the Partners
+                    page. The shop pays the recipient{" "}
+                    <span className="font-bold">
+                      {formatCurrency(costUsdVal, costLbpVal)}
+                    </span>{" "}
+                    cash, now, from the General drawer — the difference is
+                    the shop&apos;s commission, booked as profit today.
                   </ForPartnerNotice>
                 ) : (
                   <div className="space-y-4">
@@ -1243,8 +1343,15 @@ export default function CustomServices() {
                   // the alert-based guard in handleSubmit is the source of
                   // truth (mirrors the cost/price and debt-client guards,
                   // which are alert-only too); disabling the button here
-                  // is a pre-emptive UX nicety, not a second guard.
-                  (isViaPartner && paymentLines.length === 0)
+                  // is a pre-emptive UX nicety, not a second guard. A
+                  // payout (OWNER_NOTES_REMAINING_BUILD.md #16) never needs
+                  // one — it pays out, it doesn't collect.
+                  (isViaPartner && !isPayout && paymentLines.length === 0) ||
+                  (isPayout &&
+                    !(
+                      (priceUsdVal > 0 || priceLbpVal > 0) &&
+                      (costUsdVal > 0 || costLbpVal > 0)
+                    ))
                 }
                 className="w-full py-4 mt-6 rounded-xl font-bold text-lg bg-teal-600 hover:bg-teal-500 text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -1256,7 +1363,11 @@ export default function CustomServices() {
                 ) : (
                   <>
                     <Plus size={18} />{" "}
-                    {isForPartner ? "Submit to Partner" : "Submit Service"}
+                    {isForPartner
+                      ? "Submit to Partner"
+                      : isPayout
+                        ? "Submit Payout"
+                        : "Submit Service"}
                   </>
                 )}
               </button>

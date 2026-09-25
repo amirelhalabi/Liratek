@@ -60,3 +60,26 @@ export function isProfitsUnlockLive(
   if (unlockedAt === undefined || unlockedAt === null) return false;
   return now - unlockedAt < PROFITS_UNLOCK_TTL_MS;
 }
+
+/**
+ * LIRA-219 (E-Q6) — the "may this caller see the closing checkpoint's
+ * profit block" predicate: **admin OR a live Profits unlock**, deliberately
+ * looser than `requireProfitsAccess`/`requireProfitsUnlock` (the /profits
+ * page's OWN gate, which is "everyone types the password, admin included").
+ * The two gates protect different surfaces on purpose (E-Q6 note #2: staff
+ * must not see profits on a checkpoint printout unless they unlocked
+ * /profits first; an admin always may) and must not be collapsed into one.
+ *
+ * Pure function of `(role, isUnlocked)` (rule 14 — ONE definition) so both
+ * transports can compute their own two booleans from their own session
+ * shape (IPC: `electron-app/session.ts` `hasProfitsUnlock`; REST:
+ * `backend/src/middleware/profitsUnlock.ts` `hasProfitsUnlock`) and hand
+ * them here, instead of each re-writing the `role === "admin" || isUnlocked`
+ * condition. Fail closed: an unrecognized/absent role is never "admin".
+ */
+export function canIncludeProfit(
+  role: string | null | undefined,
+  isUnlocked: boolean,
+): boolean {
+  return role === "admin" || isUnlocked;
+}

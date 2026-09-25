@@ -3,16 +3,37 @@
  * decision 2026-09-05; Lane A of
  * docs/plans/done_plans/PARTNER_PROPORTIONAL_RECOGNITION.md).
  *
- * Unlike {@link saleRecognitionWeight} (see its sibling test file), this
- * fragment owns its OWN `SELECT SUM(...)` — the partner gate and the
- * monetary column live in the SAME function body — so the conversion is
- * complete end to end, in place, with no separate caller-side wiring
- * required. This exercises the raw SQL expression directly against a
- * minimal in-memory schema (mirrors `partnerCoverageRatio.test.ts` and
- * `ProfitRepository.supplierSettlementCommission.test.ts`'s own precedent),
- * embedding the fragment in a tiny `CASE ... ELSE 0 END` wrapper rather than
- * going through the full `getByUser`/`getByClient` methods that actually
- * call it (those live far outside this lane's fenced line range).
+ * SUPERSEDED CONTRACT (found + corrected 2026-09-23, Lane LCC of
+ * OWNER_NOTES_2026-09-21.md §6, while proving `getByClient` parity — NOT one
+ * of that lane's numbered PA items, a pre-existing stale test found along the
+ * way): this file originally asserted that `supplierSettlementProfitArm`
+ * owns its OWN `SELECT SUM(sca.commission * partnerCoverageRatio(...))` for
+ * the CASHLESS branch — true on 2026-09-05, when this file was written. PA-2.5
+ * (OWNER_NOTES_2026-09-21.md §6.4, 2026-09-21) deliberately moved that
+ * computation OUT of this function: a cashless batch's commission is no
+ * longer attributed to the SETTLING transaction's own group at all — it is
+ * re-attributed to each allocation's own ORIGINATING FINANCIAL_SERVICE
+ * transaction's user/client instead, via the sibling function
+ * `reattributedSettlementCommission` (see both functions' own doc comments
+ * in ProfitRepository.ts). `supplierSettlementProfitArm`'s cashless branch
+ * now unconditionally contributes **0** — partner-ratio weighting for the
+ * cashless case happens entirely inside `reattributedSettlementCommission`,
+ * which has its own dedicated coverage:
+ * `ProfitRepository.getByClient.laneLCC.test.ts` (PA-2.5) and
+ * `ProfitRepository.cashlessSettlementDefersOnDebt.test.ts`'s "D17 Item 1"
+ * block (debt-coverage gating, end-to-end through getByUser/getByClient).
+ * This file keeps its "bills-only" and "0%/refunded -> 0" cases (still
+ * correct under the new contract by coincidence — 0% coverage and "always 0"
+ * are indistinguishable outputs) and updates every other case to assert the
+ * NEW contract (0, always, for the cashless branch) instead of the old one.
+ *
+ * A SEPARATE, genuine bug was also found and fixed in THIS file while
+ * restoring it to a runnable state: `usdResultFor`/`lbpResultFor` bound TWO
+ * values (`.get(1, txnId)`) against a query with exactly ONE `?` placeholder
+ * (`supplierSettlementProfitArm` embeds none of its own) — every test in
+ * this file threw `RangeError: Too many parameter values were provided`
+ * before ever reaching its assertion, unrelated to the stale-contract issue
+ * above and predating this session's changes entirely.
  *
  * Schema enumerated in full (the documented test-schema trap — a missing
  * table/column makes the repo swallow the SQLite error and every test looks
@@ -25,19 +46,21 @@
  *     financial_service_id, commission_usd, commission_lbp, service_type,
  *     tenant_id)` — one row per settled fs in the batch.
  *   - `partner_ledger(reference_table, reference_id, transaction_type,
- *     amount, covered_amount, tenant_id)` — the fragment's own coverage
- *     source, keyed on `financial_services`.
+ *     amount, covered_amount, tenant_id)` — kept for the bills-only fixture
+ *     (proves partner coverage is irrelevant to that branch), even though
+ *     the cashless branch no longer reads it directly.
  *   - `debt_ledger` — required by {@link allocationNotDebtPending} (a
  *     `NOT EXISTS` scan); stays empty in every fixture here (D17's debt gate
  *     is not this test's concern — `ProfitRepository.cashlessSettlementDefersOnDebt.test.ts`
  *     already covers it), but the table must exist or the query throws.
  *
- * Rule 17 (verbatim in the task report): reverting the `SELECT SUM(...)` back
- * to the pre-conversion shape (no `* partnerCoverageRatio(...)` factor, WHERE
- * gated by the old binary `notPartnerPending` instead) and re-running the
- * "50% partner coverage" test below was observed FAILING — expected `10`,
- * received `0` (the old gate excludes a 50%-covered allocation from the SUM
- * entirely, same as any other uncovered row) — before the fix was restored.
+ * Rule 17 (verbatim, this session): reverted `supplierSettlementProfitArm`'s
+ * cashless branch back to the pre-PA-2.5 shape (uncommenting a local
+ * `SELECT SUM(...) * partnerCoverageRatio(...)` in place of the current
+ * unconditional `0`) and re-ran this file's "50% partner coverage" test —
+ * FAILED as expected (`Expected: 0, Received: 10`, the OLD behavior this
+ * file now deliberately no longer wants) — before restoring the real
+ * `supplierSettlementProfitArm` and confirming this file green again.
  */
 
 import Database from "better-sqlite3";
@@ -162,7 +185,14 @@ function seedPartnerRow(
   ).run(fsId, amount, coveredAmount);
 }
 
-/** Embeds the fragment under test in a minimal wrapper query (currency = "usd"). */
+/** Embeds the fragment under test in a minimal wrapper query (currency = "usd").
+ *  Bug fix (found while proving Lane LCC's getByClient parity — unrelated to
+ *  that fix itself): `supplierSettlementProfitArm` embeds ZERO `?`
+ *  placeholders in its SQL text (it only calls `cashlessCommissionBatch`,
+ *  which embeds none either), so the query below has exactly ONE — `WHERE
+ *  t.id = ?`. `.get(1, txnId)` bound TWO values, which SQLite rejects
+ *  outright (`RangeError: Too many parameter values were provided`) — every
+ *  test in this file failed before it ever reached its own assertion. */
 function usdResultFor(db: Database.Database, txnId: number): number {
   const row = db
     .prepare(
@@ -170,7 +200,7 @@ function usdResultFor(db: Database.Database, txnId: number): number {
        FROM transactions t
        WHERE t.id = ?`,
     )
-    .get(1, txnId) as { result: number };
+    .get(txnId) as { result: number };
   return row.result;
 }
 
@@ -181,7 +211,7 @@ function lbpResultFor(db: Database.Database, txnId: number): number {
        FROM transactions t
        WHERE t.id = ?`,
     )
-    .get(1, txnId) as { result: number };
+    .get(txnId) as { result: number };
   return row.result;
 }
 
@@ -209,16 +239,16 @@ describe("supplierSettlementProfitArm — proportional partner coverage (2026-09
     expect(usdResultFor(db, txnId)).toBe(5.5);
   });
 
-  it("cashless batch, no partner_ledger row at all — full commission (ratio defaults to 1.0, same as the old gate's default pass-through)", () => {
+  it("cashless batch, no partner_ledger row at all — contributes 0 (PA-2.5: re-attributed elsewhere, not stamped here regardless of partner coverage)", () => {
     const settlementLedgerId = 501;
     const txnId = insertSettlementTxn(db, settlementLedgerId, 0);
     const fsId = insertFs(db, settlementLedgerId);
     insertAllocationUsd(db, settlementLedgerId, fsId, 20, "OMT");
 
-    expect(usdResultFor(db, txnId)).toBe(20);
+    expect(usdResultFor(db, txnId)).toBe(0);
   });
 
-  it("cashless batch, 0% partner coverage — contributes 0 (matches the old binary gate at this endpoint)", () => {
+  it("cashless batch, 0% partner coverage — contributes 0", () => {
     const settlementLedgerId = 502;
     const txnId = insertSettlementTxn(db, settlementLedgerId, 0);
     const fsId = insertFs(db, settlementLedgerId);
@@ -228,48 +258,48 @@ describe("supplierSettlementProfitArm — proportional partner coverage (2026-09
     expect(usdResultFor(db, txnId)).toBe(0);
   });
 
-  it("cashless batch, 50% partner coverage — recognises HALF the commission (the actual conversion; pre-fix this was 0)", () => {
+  it("cashless batch, 50% partner coverage — still 0 (PA-2.5: this arm no longer weighs partner coverage at all — see reattributedSettlementCommission's own dedicated coverage for the actual weighted figure)", () => {
     const settlementLedgerId = 503;
     const txnId = insertSettlementTxn(db, settlementLedgerId, 0);
     const fsId = insertFs(db, settlementLedgerId);
     insertAllocationUsd(db, settlementLedgerId, fsId, 20, "OMT");
     seedPartnerRow(db, fsId, 100, 50);
 
-    expect(usdResultFor(db, txnId)).toBeCloseTo(10, 6);
+    expect(usdResultFor(db, txnId)).toBe(0);
   });
 
-  it("cashless batch, 100% partner coverage — full commission (matches the old binary gate at this endpoint)", () => {
+  it("cashless batch, 100% partner coverage — still 0", () => {
     const settlementLedgerId = 504;
     const txnId = insertSettlementTxn(db, settlementLedgerId, 0);
     const fsId = insertFs(db, settlementLedgerId);
     insertAllocationUsd(db, settlementLedgerId, fsId, 20, "OMT");
     seedPartnerRow(db, fsId, 100, 100);
 
-    expect(usdResultFor(db, txnId)).toBe(20);
+    expect(usdResultFor(db, txnId)).toBe(0);
   });
 
-  it("aggregates multiple allocations in the SAME batch, each weighted by its OWN financial_service_id's ratio", () => {
+  it("aggregates multiple allocations in the SAME batch — still 0 regardless of how many cashless allocations the batch holds", () => {
     const settlementLedgerId = 505;
     const txnId = insertSettlementTxn(db, settlementLedgerId, 0);
 
     const fsA = insertFs(db, settlementLedgerId);
     insertAllocationUsd(db, settlementLedgerId, fsA, 20, "OMT");
-    seedPartnerRow(db, fsA, 100, 50); // 50% covered -> 10
+    seedPartnerRow(db, fsA, 100, 50);
 
     const fsB = insertFs(db, settlementLedgerId);
-    insertAllocationUsd(db, settlementLedgerId, fsB, 8, "WHISH"); // non-partner -> full 8
+    insertAllocationUsd(db, settlementLedgerId, fsB, 8, "WHISH");
 
-    expect(usdResultFor(db, txnId)).toBeCloseTo(18, 6);
+    expect(usdResultFor(db, txnId)).toBe(0);
   });
 
-  it("weights the LBP commission column identically when currency = 'lbp'", () => {
+  it("the LBP branch is identically 0 for a cashless batch when currency = 'lbp'", () => {
     const settlementLedgerId = 506;
     const txnId = insertSettlementTxn(db, settlementLedgerId, 0);
     const fsId = insertFs(db, settlementLedgerId);
     insertAllocationLbp(db, settlementLedgerId, fsId, 40000, "OMT");
-    seedPartnerRow(db, fsId, 100, 25); // 25% coverage
+    seedPartnerRow(db, fsId, 100, 25);
 
-    expect(lbpResultFor(db, txnId)).toBeCloseTo(10000, 2);
+    expect(lbpResultFor(db, txnId)).toBe(0);
   });
 
   it("a refunded fs row is still excluded (notRefunded gate untouched by this change)", () => {

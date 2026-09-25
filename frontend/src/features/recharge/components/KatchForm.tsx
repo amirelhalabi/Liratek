@@ -1124,15 +1124,29 @@ function KatchFormInner({
     const targetLine = primaryLines[carrier];
     if (!targetLine) return null;
 
+    // M7 fix (2026-09-24 adversarial review): pass the line's CURRENT
+    // days_owed balance (#28) through as the 4th arg — omitting it made
+    // this preview show the full `requestedDays` landing on the real
+    // expiry with `owedApplied` always 0, disagreeing with the server (one
+    // shared rule, rule 14, means BOTH callers read the same daysOwed
+    // input, not just the same function). Example: 210 owed, a 365-day
+    // card — the server lands at today+155; this preview used to claim
+    // today+365.
     const projection = projectValidityExpiry(
       targetLine.validity_expires_at,
       requestedDays,
+      undefined,
+      targetLine.days_owed ?? 0,
     );
     return {
       ...projection,
       requestedDays,
-      /** Days the line actually gains once the ceiling has taken its cut. */
-      appliedDays: requestedDays - projection.daysLostToCap,
+      /** Days the line actually gains ON THE REAL EXPIRY once the ceiling
+       *  has taken its cut AND any days_owed payoff has been split out —
+       *  `projection.owedApplied` is the portion that went to the debt
+       *  instead (M7). */
+      appliedDays:
+        requestedDays - projection.daysLostToCap - projection.owedApplied,
     };
   }, [selfChargeItem, primaryLines]);
 
@@ -2576,6 +2590,29 @@ function KatchFormInner({
                       a new line in Settings → Carrier Lines.
                     </p>
                   )}
+                  {/* #28/M7 — the line carries a sold-ahead debt; this
+                      charge pays part or all of it off FIRST (never
+                      refused, rule 14 — same server rule), so say so before
+                      the operator spends the card. */}
+                  {!selfChargeBlocked &&
+                    (selfChargeValidityProjection?.owedApplied ?? 0) > 0 && (
+                      <p
+                        className="text-amber-400 text-xs pt-1"
+                        data-testid="self-charge-owed-payoff-notice"
+                      >
+                        {selfChargeValidityProjection?.owedApplied} of these{" "}
+                        {selfChargeValidityProjection?.requestedDays} days go
+                        to what you already sold ahead
+                        {(selfChargeValidityProjection?.appliedDays ?? 0) >
+                        0 ? (
+                          <>
+                            , {selfChargeValidityProjection?.appliedDays} stay
+                            on the line
+                          </>
+                        ) : null}
+                        .
+                      </p>
+                    )}
                   {!selfChargeBlocked &&
                     selfChargeValidityProjection?.capped && (
                       <p

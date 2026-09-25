@@ -49,6 +49,13 @@ type TxnRow = {
   type: string;
   session_id: number | null;
   payments?: PaymentLeg[];
+  // LIRA-201b (owner note #11-B): the basket's pooled legs now live here,
+  // present on every member of a session — `payments` is always that ONE
+  // row's own legs only (empty for a member with none of its own; see
+  // TransactionRepository.ts's TransactionWithUser doc). A single-item
+  // session's one item is therefore both the sole member AND the one row
+  // that carries the pooled total.
+  session_payments?: PaymentLeg[];
 };
 
 /**
@@ -224,7 +231,10 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
 
       const recent = await w.api.transactions.getRecent(50);
       const row = recent.find((t) => t.session_id === sessionId);
-      const legs = row?.payments ?? [];
+      // LIRA-201b: the item wrote no own leg (a deferred custom-service
+      // item), so the basket's pooled legs live on `session_payments`, not
+      // `payments` — see the TxnRow field doc.
+      const legs = row?.session_payments ?? [];
 
       const usdIn = legs.find(
         (p) => p.direction === "in" && p.currency_code === "USD",
@@ -240,6 +250,7 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
         checkoutOk: checkout.success,
         checkoutError: checkout.error ?? null,
         foundRow: row != null,
+        ownPaymentsEmpty: (row?.payments ?? []).length === 0,
         usdInAmount: usdIn?.amount ?? null,
         lbpInAmount: lbpIn?.amount ?? null,
         lbpOutSigned: lbpOut?.signed_amount ?? null,
@@ -250,6 +261,10 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
     expect(result.checkoutError).toBeNull();
     expect(result.checkoutOk).toBe(true);
     expect(result.foundRow).toBe(true);
+    // LIRA-201b: the member's OWN `payments` is empty — it never inherits
+    // the basket's pooled legs anymore (that was the owner-reported
+    // duplicate-summary bug this ticket fixed).
+    expect(result.ownPaymentsEmpty).toBe(true);
 
     // Both customer IN legs are surfaced with their own currency…
     expect(result.usdInAmount).toBeCloseTo(40, 2);
@@ -312,7 +327,8 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
 
       const recent = await w.api.transactions.getRecent(50);
       const row = recent.find((t) => t.session_id === sessionId);
-      const legs = row?.payments ?? [];
+      // LIRA-201b: pooled basket legs, not the item's own (empty) legs.
+      const legs = row?.session_payments ?? [];
 
       const usdInLegs = legs.filter(
         (p) => p.direction === "in" && p.currency_code === "USD",
@@ -322,6 +338,7 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
         checkoutOk: checkout.success,
         checkoutError: checkout.error ?? null,
         foundRow: row != null,
+        ownPaymentsEmpty: (row?.payments ?? []).length === 0,
         usdInLegCount: usdInLegs.length,
         usdInSum: usdInLegs.reduce((s, p) => s + p.amount, 0),
       };
@@ -330,6 +347,9 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
     expect(result.checkoutError).toBeNull();
     expect(result.checkoutOk).toBe(true);
     expect(result.foundRow).toBe(true);
+    // LIRA-201b: own `payments` stays empty — the pooled legs live only on
+    // `session_payments`.
+    expect(result.ownPaymentsEmpty).toBe(true);
 
     // The backend preserves BOTH legs (no premature merge)…
     expect(result.usdInLegCount).toBe(2);
@@ -396,7 +416,10 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
 
       const recent = await w.api.transactions.getRecent(50);
       const row = recent.find((t) => t.session_id === sessionId);
-      const legs = row?.payments ?? [];
+      // LIRA-201b: the SEND wrote no own customer-cash leg (deferred), so
+      // the pooled basket leg lives on `session_payments` — `payments`
+      // itself is expected empty (asserted below via `ownPaymentsEmpty`).
+      const legs = row?.session_payments ?? [];
 
       const internalMethods = new Set([
         "COMMISSION",
@@ -412,6 +435,7 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
         checkoutOk: checkout.success,
         checkoutError: checkout.error ?? null,
         foundRow: row != null,
+        ownPaymentsEmpty: (row?.payments ?? []).length === 0,
         legCount: legs.length,
         onlyLeg: legs[0]
           ? {
@@ -434,6 +458,9 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
     expect(result.checkoutError).toBeNull();
     expect(result.checkoutOk).toBe(true);
     expect(result.foundRow).toBe(true);
+    // LIRA-201b: own `payments` stays empty — the pooled leg lives only on
+    // `session_payments`.
+    expect(result.ownPaymentsEmpty).toBe(true);
 
     // Exactly ONE customer-facing leg survives — the basket CASH $52 IN leg.
     expect(result.legCount).toBe(1);

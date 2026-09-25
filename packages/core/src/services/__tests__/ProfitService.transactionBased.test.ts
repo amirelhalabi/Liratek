@@ -78,6 +78,12 @@ function createSchema(d: TestDb): void {
       paid_usd REAL NOT NULL DEFAULT 0,
       paid_lbp REAL NOT NULL DEFAULT 0,
       exchange_rate_snapshot REAL NOT NULL DEFAULT 90000,
+      -- PA-3.11 (OWNER_NOTES_2026-09-21.md §6.5): ProfitService.getSummary
+      -- now also calls ProfitRepository.getPendingSaleProfit (the "unpaid
+      -- sales" Overview line), which reads this real production column
+      -- (electron-app/create_db.sql) — added here so this pre-existing
+      -- fixture keeps compiling against that query (reference_test_schema_completeness).
+      discount_usd DECIMAL(10, 2) DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -1187,5 +1193,113 @@ describe("(j) CQ-10 — counterparty discounts in the summary (D1 sign contract)
     const summary = service.getSummary(FROM, TO);
     expect(summary.discounts.usd).toBe(0);
     expect(summary.totals.gross_profit_usd).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (k) PFU-a-3 (verifier round-1 fix) — SALE row's sale_kept_change_usd/_lbp
+// is DERIVED as the residual between the ledger's own profit (getSalesProfit,
+// which SalesRepository.createSale stamps as margin + kept change) and the
+// margin-only revenue/cost pair (getSalesRevCost) — so the By Module page's
+// equation can render "revenue − cost + kept change = profit" and actually
+// add up, without a new persisted column. Uses its OWN field name
+// (`sale_kept_change_*`, not the generic `kept_change_*`) because — unlike
+// every other module — this value is already INSIDE profit_usd/profit_lbp,
+// not additive (see ProfitByModule's own doc comment on both fields).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("(k) PFU-a-3 — SALE sale_kept_change_usd/_lbp derived from the profit/margin residual", () => {
+  it("a sale with USD kept change: sale_kept_change_usd is EXACTLY profit - (revenue - cost), and revenue/cost are unchanged (margin only)", () => {
+    // 1 unit @ price 50, cost 30 → margin 20. Ledger profit is stamped 22
+    // (margin 20 + $2 kept change), matching SalesRepository.createSale's
+    // `saleProfitUsd + (sale.kept_change_usd || 0)` stamp.
+    insertSale({ id: 1, final: 50, paid: 50 });
+    insertSaleItem({ saleId: 1, qty: 1, price: 50, cost: 30 });
+    insertTxn({
+      type: "SALE",
+      sourceTable: "sales",
+      sourceId: 1,
+      profitUsd: 22,
+      amountUsd: 50,
+    });
+
+    const saleRow = service
+      .getByModule(FROM, TO)
+      .find((m) => m.module === "SALE");
+    expect(saleRow?.revenue_usd).toBe(50);
+    expect(saleRow?.cost_usd).toBe(30);
+    expect(saleRow?.profit_usd).toBe(22);
+    // The residual: 22 - (50 - 30) = 2.
+    expect(saleRow?.sale_kept_change_usd).toBe(2);
+    // Equation now holds EXACTLY: revenue - cost + kept_change = profit.
+    expect(
+      (saleRow?.revenue_usd ?? 0) -
+        (saleRow?.cost_usd ?? 0) +
+        (saleRow?.sale_kept_change_usd ?? 0),
+    ).toBe(saleRow?.profit_usd);
+  });
+
+  it("a sale with LBP kept change: sale_kept_change_lbp equals profit_lbp exactly (SALE has no LBP margin of its own — revenue_lbp/cost_lbp are always 0)", () => {
+    insertSale({ id: 1, final: 40, paid: 40 });
+    insertSaleItem({ saleId: 1, qty: 1, price: 40, cost: 25 });
+    insertTxn({
+      type: "SALE",
+      sourceTable: "sales",
+      sourceId: 1,
+      profitUsd: 15, // pure USD margin, no USD kept change
+      profitLbp: 45_000, // entirely LBP kept change
+      amountUsd: 40,
+    });
+
+    const saleRow = service
+      .getByModule(FROM, TO)
+      .find((m) => m.module === "SALE");
+    expect(saleRow?.revenue_lbp).toBe(0);
+    expect(saleRow?.cost_lbp ?? 0).toBe(0);
+    expect(saleRow?.profit_lbp).toBe(45_000);
+    expect(saleRow?.sale_kept_change_usd ?? 0).toBe(0); // no USD residual
+    expect(saleRow?.sale_kept_change_lbp).toBe(45_000);
+  });
+
+  it("a sale with NO kept change: sale_kept_change_usd/_lbp stay unset (undefined) — byte-identical to pre-fix behavior for the common case", () => {
+    insertSale({ id: 1, final: 100, paid: 100 });
+    insertSaleItem({ saleId: 1, qty: 2, price: 50, cost: 30 });
+    insertTxn({
+      type: "SALE",
+      sourceTable: "sales",
+      sourceId: 1,
+      profitUsd: 40, // exactly (100 - 60), no kept change
+      amountUsd: 100,
+    });
+
+    const saleRow = service
+      .getByModule(FROM, TO)
+      .find((m) => m.module === "SALE");
+    expect(saleRow?.profit_usd).toBe(40);
+    expect(saleRow?.sale_kept_change_usd).toBeUndefined();
+    expect(saleRow?.sale_kept_change_lbp).toBeUndefined();
+  });
+
+  it("a sale with kept change does NOT double-count in the Overview = Σ By Module reconciliation (the exact regression the field-rename fixes — sale_kept_change_* is NOT additive, unlike the generic kept_change_* fields)", () => {
+    insertSale({ id: 1, final: 50, paid: 50 });
+    insertSaleItem({ saleId: 1, qty: 1, price: 50, cost: 30 });
+    insertTxn({
+      type: "SALE",
+      sourceTable: "sales",
+      sourceId: 1,
+      profitUsd: 22, // margin 20 + $2 kept change
+      amountUsd: 50,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    const byModule = service.getByModule(FROM, TO);
+    // Same reconciliation ProfitRepository.auditBatchLO.test.ts performs:
+    // sum profit_usd + the ADDITIVE kept_change_usd (never sale_kept_change_usd,
+    // which is already inside profit_usd).
+    const moduleProfitUsd = byModule.reduce(
+      (s, r) => s + r.profit_usd + (r.kept_change_usd ?? 0),
+      0,
+    );
+    expect(moduleProfitUsd).toBeCloseTo(summary.totals.gross_profit_usd, 6);
   });
 });

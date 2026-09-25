@@ -161,6 +161,16 @@ export const supplierSettleAccountSchema = z.object({
   note: z.string().optional(),
   exchange_rate: z.number().positive().optional(),
   payments: z.array(supplierPaymentLegSchema).optional(),
+  // LIRA-203 (owner D18 follow-up) — pay MORE than `selections` net to;
+  // the difference is booked as a standalone account credit, applied
+  // manually at a later settlement (never auto-applied — see
+  // SupplierRepository.SettleAccountData's own doc comment for the full
+  // design). Optional/defaults to 0 so every existing caller is
+  // byte-identical. `amount_usd`/`amount_lbp` above stay the EXACT rows
+  // net — this field is additive, not a replacement. The repository
+  // rejects a nonzero value on direction: "COLLECT".
+  surplus_usd: z.number().nonnegative().optional(),
+  surplus_lbp: z.number().nonnegative().optional(),
 });
 
 // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set or clear a supplier's

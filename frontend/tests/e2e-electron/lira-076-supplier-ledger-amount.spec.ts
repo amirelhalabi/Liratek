@@ -20,6 +20,15 @@
  * expected delta below moves by exactly the case's own `c` (OLD -> NEW
  * called out inline).
  *
+ * RE-DERIVED A THIRD TIME 2026-09-23 — OWNER_NOTES_2026-09-21.md §2b (D1,
+ * migration v180): the RECEIVE case only. `receive_fee_model` is now stamped
+ * per row (`RECEIVE_FEE_MODEL_LEGACY`/`RECEIVE_FEE_MODEL_CUTOVER`), and every
+ * NEW OMT/WHISH RECEIVE is born CUTOVER — the provider is owed the FULL
+ * principal, no fee netted out at all, because OMT never actually takes a fee
+ * from the customer (it is informational, shown for the commission calc
+ * only). The SEND case above is UNCHANGED by this cutover — D1 only touches
+ * RECEIVE.
+ *
  * The RECEIVE case below now passes an EXPLICIT `omtFee` (it didn't before).
  * Reason: `FinancialServiceRepository`'s `resolvedProviderFee` (the `f` that
  * feeds this exact booking) reads ONLY `data.omtFee ?? 0` — it does NOT fall
@@ -154,11 +163,23 @@ test.describe("LIRA-076 (primary cash drawer model) — supplier ledger = GROSS 
     // $40 transfer (x) + an EXPLICIT $2 OMT fee (f) — explicit, not
     // auto-looked-up, because `resolvedProviderFee` (the `f` that feeds this
     // booking) reads ONLY `data.omtFee`, never the fee-table lookup (see
-    // file header). With f=2 explicit:
-    //   c = calculateCommission("INTRA", f=2) = 2 × 0.10 = 0.2 (still
-    //     auto-computed and stored, no longer subtracted here — Phase 2, D1)
-    //   ledger delta = grossOwedDelta(RECEIVE) = −(x − f) = −(40 − 2) = −38
-    //   (OLD, pre-Phase-2: −(x − f + c) = −(40 − 2 + 0.2) = −38.2)
+    // file header).
+    //
+    // D1 cutover (OWNER_NOTES_2026-09-21.md §2b, migration v180,
+    // `RECEIVE_FEE_MODEL_CUTOVER` in FinancialServiceRepository.ts): every
+    // NEW OMT/WHISH RECEIVE row is now born `receive_fee_model = 1`
+    // unconditionally, and `grossOwedDelta`/`SUPPLIER_OWED_EXPR`'s cutover
+    // branch reads that marker BEFORE the commission_model branch below it —
+    // the provider is owed the FULL principal, undiminished by any fee: OMT
+    // never actually takes one from the customer (the fee shown is
+    // informational, driving the commission calc only), so nothing is left
+    // to net out of what OMT owes.
+    //   ledger delta = grossOwedDelta(RECEIVE, receiveFeeModel=CUTOVER)
+    //                 = −principal = −|amount| = −40
+    //   (the `f=2`/commission fields still resolve and are still stored —
+    //   they just no longer reach this formula at all. Phase-2-only rows,
+    //   pre-cutover: −(x − f + c) = −(40 − 2 + 0.2) = −38.2. Pre-Phase-2
+    //   legacy: −(x − f) = −(40 − 2) = −38.)
     // The SIGN is the point: on a RECEIVE the shop paid the customer out of
     // its own drawer, so the PROVIDER now owes the shop. Booked as a signed
     // TOP_UP (never "PAYMENT", which force-negates and would silently flip
@@ -180,10 +201,12 @@ test.describe("LIRA-076 (primary cash drawer model) — supplier ledger = GROSS 
     expect(res.success).toBe(true);
 
     const after = await omtBalance(appPage);
-    // −38: the provider owes the shop (Phase 2, D1 — no commission netted).
-    // OLD -> NEW: -38.2 -> -38. Read +1.8 (fee-only) under the superseded
-    // float model and −40.4 under the pre-float model before that.
-    expect(after.usd - before.usd).toBeCloseTo(-38, 2);
+    // −40: the provider owes the shop the FULL principal, no fee netted
+    // (D1 cutover). OLD -> NEW: -38.2 -> -40 (or -38 under the older
+    // pre-Phase-2 legacy formula). Read +1.8 (fee-only) under the
+    // superseded float model and −40.4 under the pre-float model before
+    // that.
+    expect(after.usd - before.usd).toBeCloseTo(-40, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(0, 2);
   });
 });

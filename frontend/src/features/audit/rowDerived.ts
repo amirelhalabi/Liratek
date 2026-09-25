@@ -33,9 +33,27 @@ export type RowDerived = {
   commissionAmount: { usd: number; lbp: number } | null;
   /** LIRA-140: the row's money landed in a provider balance, not a till. */
   providerBalance: boolean;
+  /**
+   * LIRA-201b (owner note #11-B) — true when this row is the ONE row of its
+   * session currently chosen to carry the pooled in/out + payment detail
+   * (`../sessionGroupHeaders.ts` picks it from whichever members are
+   * actually visible, so the choice survives sorting/filtering/the fetch
+   * window). Always false for a non-session row.
+   *
+   * Unlike every other `RowDerived` field, this is NOT derived from `row`
+   * alone — the choice depends on the whole visible set, so the caller
+   * (`TransactionsViewer`) computes it and passes it in via `deriveRow`'s
+   * second argument. It is bundled onto `RowDerived` anyway so
+   * `SummaryCell`/`MethodCell` need only the one `derived` prop they
+   * already receive, not a second prop threaded through separately.
+   */
+  isGroupHeader: boolean;
 };
 
-export function deriveRow(row: TransactionRow): RowDerived {
+export function deriveRow(
+  row: TransactionRow,
+  isGroupHeader = false,
+): RowDerived {
   return {
     credit: isSupplierCredit(row.type, row.metadata_json),
     partnerSigned: isSignedPartnerType(row.type),
@@ -43,5 +61,6 @@ export function deriveRow(row: TransactionRow): RowDerived {
     splitGroup: getSplitGroupInfo(row.metadata_json),
     commissionAmount: billsOnlyCommissionAmount(row),
     providerBalance: isProviderBalanceInflow(row),
+    isGroupHeader,
   };
 }

@@ -155,6 +155,7 @@ function createTestDb(baseSystem: "OMT" | "WHISH"): Database.Database {
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
       supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at TEXT
     );

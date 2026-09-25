@@ -37,12 +37,20 @@ export const createRechargeSchema = z
     // `CREDIT_BUYBACK` (CARRIER_LINES_VALIDITY_PLAN.md Phase 6): the shop-line
     // detection flip — routed to `RechargeRepository.processCreditBuyback`
     // instead of the normal sale body. Client-submitted, unlike TOP_UP.
+    // `SHOP_LINE_USE` (owner note #21, case 2, migration v182): the OTHER
+    // shop-line flip — the checkbox is unticked, meaning the customer used
+    // the shop's own line for a call rather than selling credits back to it.
+    // Unlike CREDIT_BUYBACK this stays in the ordinary sale body (it IS an
+    // ordinary credit sale — price/profit computed the same way, cash IN),
+    // it just skips the CREDIT_TRANSFER-only SMS fee (see telecomStockLeg's
+    // exhaustive switch and the SMS-fee gate in RechargeRepository).
     type: z.enum([
       "CREDIT_TRANSFER",
       "VOUCHER",
       "DAYS",
       "ALFA_GIFT",
       "CREDIT_BUYBACK",
+      "SHOP_LINE_USE",
     ]),
     // The IPC copy's `positive()` wins over the old REST `nonnegative()`: a
     // zero-amount recharge is meaningless for every type (0 credits, 0 days,

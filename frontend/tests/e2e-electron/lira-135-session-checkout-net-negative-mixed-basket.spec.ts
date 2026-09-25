@@ -34,6 +34,14 @@
  * Rule 15: every money assertion is a DELTA snapshotted immediately before
  * the Confirm Checkout click, compared immediately after — never an
  * absolute drawer total (this suite shares one accumulating DB).
+ *
+ * UPDATED 2026-09-24 (fix-round finding #6, owner decision #11-A netted
+ * session checkout): a Binance cash-out is a General-drawer CASH payout, so
+ * it is now netting-eligible against the $50 charge — the render gate this
+ * spec guards now correctly does NOT mount MultiPaymentInput for this exact
+ * basket (net charge is $0). See the inline comment at the assertion for the
+ * updated reasoning; `SessionCheckoutModal.paymentGate.test.tsx`'s
+ * SYSTEM-payout basket (never netted) still covers the original gate.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -75,7 +83,7 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
     await closeAllActiveSessions(appPage).catch(() => {});
   });
 
-  test("$50 charge + $100 same-currency payout (net −$50): MultiPaymentInput renders, Confirm Checkout completes", async ({
+  test("$50 charge + $100 same-currency General payout (net −$50): #11-A nets the charge away, Confirm Checkout completes with no widget", async ({
     appPage,
   }) => {
     await closeAllActiveSessions(appPage);
@@ -169,24 +177,39 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
       timeout: 10_000,
     });
 
-    // THE fix under guard: pre-fix, this basket nets to −$50 and the render
-    // gate hid the widget entirely — `queryByTestId` would find nothing and
-    // Confirm would stay disabled forever. Post-fix, the gate reads the
-    // GROSS $50 charge bucket and the widget mounts.
+    // ORIGINAL fix-under-guard (LIRA-135, pre-#11-A): this basket's GROSS
+    // charge nets to −$50 and the OLD render gate hid the widget entirely —
+    // `queryByTestId` would find nothing and Confirm would stay disabled
+    // forever. The render-gate fix made it read the GROSS $50 charge bucket
+    // instead, and the widget mounted.
+    //
+    // Owner decision #11-A (2026-09-24, netted session checkout, applied
+    // AFTER this spec was written — fix-round finding #6): a Binance cash-out
+    // is a General-drawer CASH payout, so it is now netting-eligible. This
+    // basket's $50 charge is fully absorbed into the $100 payout
+    // (netCashPayoutAgainstCharge($50 charge, $100 payout) -> $0 still owed,
+    // $50 excess payout), so `netChargeUsd` — what the gate and
+    // `combinedTotalUSD` now read (never the GROSS charge, see the modal's
+    // own comment on that gate) — is 0. There is nothing left to COLLECT:
+    // MultiPaymentInput correctly does NOT mount, and Confirm is trivially
+    // enabled (`combinedTotalUSD <= 0`). This is the CORRECT #11-A behavior
+    // for a General-drawer payout, not a regression of the original
+    // render-gate fix — that fix's own guard (`SessionCheckoutModal.
+    // paymentGate.test.tsx`) already covers a SYSTEM-payout basket (never
+    // netted), which still needs and gets the widget.
     const paymentWidget = appPage.getByTestId("multi-payment-input");
-    await expect(paymentWidget).toBeVisible({ timeout: 10_000 });
+    await expect(paymentWidget).not.toBeVisible();
 
-    // The GROSS payout panel — the OTHER half of the same fix family (the
-    // payout is tracked separately from the charge, never netted away).
+    // The GROSS payout panel still shows the full $100 — payoutUsd is
+    // unaffected by netting, only the leg(s) actually sent are reduced.
     await expect(appPage.getByText("Payout to customer")).toBeVisible();
 
     const confirmBtn = appPage.getByRole("button", {
       name: "Confirm Checkout",
     });
     await expect(confirmBtn).toBeVisible();
-    // MultiPaymentInput's own single-line mount-sync effect auto-fills the
-    // seeded CASH line to the full $50 charge and notifies the parent —
-    // Confirm is enabled with ZERO extra operator interaction, exactly the
+    // No payment collection is needed (net charge is 0) — Confirm is
+    // enabled with ZERO extra operator interaction, exactly the
     // untouched-basket contract this modal promises.
     await expect(confirmBtn).toBeEnabled({ timeout: 10_000 });
 
@@ -205,10 +228,14 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
     // Money sanity (rule 15 delta, not the spec's primary ask but cheap to
     // prove once the button is finally clickable): neither item in this
     // basket is on the primary system (custom_service never is; BINANCE
-    // never equals baseSystem "OMT") — getSessionCashSplitContext resolves
-    // a 0% PCD share for both the charge and payout buckets, so the whole
-    // CASH basket (+$50 collected, −$100 paid out) settles in General:
-    // net −$50. The PCD (OMT_System) is untouched — proving no leakage.
+    // never equals baseSystem "OMT"), and Binance is a General-drawer payout
+    // (never SYSTEM, binanceCart.ts's SYSTEM_PAYOUT_MODULES), so #11-A's
+    // `payoutOrigin: "GENERAL"` forces the single $50 EXCESS leg
+    // (netCashPayoutAgainstCharge's `change`, see above) 100% to General —
+    // no charge-collection leg is sent at all, since netChargeUsd is 0. Net
+    // effect is still the same −$50 the pre-netting GROSS math produced
+    // (+$50 collected, −$100 paid out): net −$50. The PCD (OMT_System) is
+    // untouched either way — proving no leakage.
     expect(after.general - before.general).toBeCloseTo(-50, 2);
     expect(after.omtSystem - before.omtSystem).toBeCloseTo(0, 2);
     // No explicit "Close" click here: checkout already closed the session

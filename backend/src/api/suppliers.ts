@@ -440,6 +440,9 @@ router.post(
             account_supplier_id: req.body.account_supplier_id,
             direction: req.body.direction,
             count: req.body.selections.length,
+            // LIRA-203 — 0/0 when no overpayment was declared.
+            surplus_usd: req.body.surplus_usd ?? 0,
+            surplus_lbp: req.body.surplus_lbp ?? 0,
           },
         });
       }

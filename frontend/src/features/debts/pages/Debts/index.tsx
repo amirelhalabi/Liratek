@@ -40,6 +40,7 @@ import { toCamelLegs } from "@/utils/paymentUtils";
 import {
   computeRepaymentReduction,
   applyDebtDiscount,
+  resolveKeptChangeForReduction,
 } from "../../utils/repaymentReduction";
 import {
   formatPaidAmount,
@@ -190,9 +191,13 @@ export default function Debts() {
   // T3 keep-change: change the operator chose to KEEP as shop profit rather
   // than return. Excluded from the debt reduction (it is NOT the client's
   // credit) and stamped on the DEBT_REPAYMENT transaction as profit.
+  // `exactUsd`/`exactLbp` (unrounded) are what the reduction math must
+  // net out — see resolveKeptChangeForReduction's doc (owner note #8).
   const [repayKeptChange, setRepayKeptChange] = useState<{
     usd: number;
     lbp: number;
+    exactUsd?: number;
+    exactLbp?: number;
   } | null>(null);
   const [repayNote, setRepayNote] = useState("");
   const [repayTransactionTime, setRepayTransactionTime] = useState<
@@ -651,6 +656,8 @@ export default function Debts() {
         });
         if (result.success) {
           appEvents.emit("notification:show", "Cash out processed!", "success");
+          // LIRA-212 Tier A: let TopBar's session balance badge refresh live.
+          appEvents.emit("debt:changed");
           setShowRepaymentModal(false);
           setRepayPaymentLines([]);
           setRepayKeptChange(null);
@@ -697,16 +704,26 @@ export default function Debts() {
     // Kept change (T3) behaves like a return for the REDUCTION math — the
     // kept extra must not shrink the debt (it is shop profit, not client
     // credit) — but no OUT legs exist, so the drawer keeps it.
+    //
+    // `keptUsd`/`keptLbp` (rounded, for the profit stamp below) vs
+    // `keptUsdExact`/`keptLbpExact` (for the reduction math) are
+    // deliberately different figures — see resolveKeptChangeForReduction's
+    // doc. Feeding the ROUNDED figure into this cross-currency netting was
+    // owner note #8's bug (2026-09-23): a $0.06-vs-$0.0562 rounding left a
+    // client's debt short by 340 LBP after a repayment that should have
+    // cleared it exactly.
     const keptUsd = repayKeptChange?.usd ?? 0;
     const keptLbp = repayKeptChange?.lbp ?? 0;
+    const { usd: keptUsdExact, lbp: keptLbpExact } =
+      resolveKeptChangeForReduction(repayKeptChange);
     const returnedUsd =
       repayReturnLegs
         .filter((l) => l.currencyCode === "USD")
-        .reduce((s, l) => s + l.amount, 0) + keptUsd;
+        .reduce((s, l) => s + l.amount, 0) + keptUsdExact;
     const returnedLbp =
       repayReturnLegs
         .filter((l) => l.currencyCode === "LBP")
-        .reduce((s, l) => s + l.amount, 0) + keptLbp;
+        .reduce((s, l) => s + l.amount, 0) + keptLbpExact;
     // CQ-10: due passed here is the DISCOUNT-ADJUSTED remaining due, never
     // the raw dueUsd/dueLbp — see applyDebtDiscount's header comment for why
     // that seam matters (paid + discount must never be able to exceed the
@@ -787,6 +804,8 @@ export default function Debts() {
             : "Repayment processed!",
           "success",
         );
+        // LIRA-212 Tier A: let TopBar's session balance badge refresh live.
+        appEvents.emit("debt:changed");
         setShowRepaymentModal(false);
         setRepayPaymentLines([]);
         setRepayKeptChange(null);
@@ -896,6 +915,11 @@ export default function Debts() {
           logger.error("Import errors:", { errors: r.errors });
         }
         loadDebtors();
+        // Imported rows are also Debts-page account writes (reviewer finding
+        // — minor #3): if the active session's client is among them, the
+        // TopBar balance badge (LIRA-212 Tier A) must not stay stale until
+        // the next sale or manual reload.
+        appEvents.emit("debt:changed");
       } else {
         alert("Import failed: " + (result.error ?? "Unknown error"));
       }
@@ -2319,6 +2343,8 @@ export default function Debts() {
                             "Debt written off.",
                             "success",
                           );
+                          // LIRA-212 Tier A: let TopBar's session balance badge refresh live.
+                          appEvents.emit("debt:changed");
                           setShowWriteOffModal(false);
                           await loadDebtors();
                           loadHistory(selectedClient.id);
@@ -2535,6 +2561,8 @@ export default function Debts() {
                             : "Debt added successfully!",
                           "success",
                         );
+                        // LIRA-212 Tier A: let TopBar's session balance badge refresh live.
+                        appEvents.emit("debt:changed");
                         setShowCreditModal(false);
                         setCreditClientSearch("");
                         setCreditSelectedClient(null);

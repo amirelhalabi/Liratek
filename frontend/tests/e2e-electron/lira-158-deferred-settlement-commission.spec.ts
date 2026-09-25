@@ -33,14 +33,20 @@
  *      estimate still sitting on the financial_services row (LIRA-158 §1.1:
  *      OMT's `commission` column holds that estimate, untouched by the
  *      settlement-recognition cutover — D6/D3 in the parent plan).
- *   3. Assert the Supplier Commission figure does NOT move (the settlement
- *      is cashless and the client hasn't repaid — D17 defers it) while the
- *      Deferred Profit figure moves by EXACTLY the entered commission (not
- *      the estimate, and not the auto-calc-estimate-based figure either).
+ *   3. Assert the Financial Services card's "Commission (at settlement)"
+ *      figure — `financial_services.commission_at_settlement_usd/_lbp`,
+ *      PA-2.4 (OWNER_NOTES_2026-09-21.md §6.4): `supplier_commission` was
+ *      split bills-only/cashless, and this OMT SEND is cashless, so its
+ *      recognition no longer surfaces on `supplier_commission` at all — does
+ *      NOT move (the settlement is cashless and the client hasn't repaid —
+ *      D17 defers it), and that the bills-only `supplier_commission.count`
+ *      never moves either, while the Deferred Profit figure moves by
+ *      EXACTLY the entered commission (not the estimate, and not the
+ *      auto-calc-estimate-based figure either).
  *   4. Repay the client's whole debt through the real Debts page.
- *   5. Assert the deferred amount moves INTO the recognised Supplier
- *      Commission figure (and its settlement count) by the same amount, and
- *      the deferred figure gives it back up.
+ *   5. Assert the deferred amount moves INTO the recognised "Commission (at
+ *      settlement)" figure by the same amount, and the deferred figure
+ *      gives it back up.
  *
  * Every assertion is a DELTA around its own action (CLAUDE.md rule 15): the
  * suite shares ONE accumulating SQLite DB across every spec, alphabetically,
@@ -57,8 +63,8 @@
  * position.
  *
  * Both the raw `profits:summary` IPC figures (exact, unrounded) AND the REAL
- * rendered Profits page (via the `supplier-commission-usd` /
- * `deferred-client-debt-usd` test-ids this same ticket added to
+ * rendered Profits page (the "Commission (at settlement)" row's own label
+ * text, and the `deferred-client-debt-usd` test-id this ticket added to
  * `Profits.tsx`) are read, both as deltas — proving the fix at the
  * repository/service layer AND at the actual frontend rendering layer the
  * operator looks at, not just one or the other (the "layer-seam testing"
@@ -121,10 +127,20 @@ type DebtorRow = {
   total_debt_lbp: number;
 };
 type ProfitSummaryShape = {
+  // PA-2.4 (OWNER_NOTES_2026-09-21.md §6.4): `supplier_commission` is now
+  // BILLS-ONLY (Katsh/iPick). This OMT SEND is a post-cutover, cashless
+  // (model-1) settlement, so its recognised commission surfaces on
+  // `financial_services.commission_at_settlement_usd/_lbp` instead — see
+  // that field below. `supplier_commission.count` is kept here only to
+  // prove this cashless flow never leaks into the bills-only bucket.
   supplier_commission?: {
     profit_usd: number;
     profit_lbp: number;
     count: number;
+  };
+  financial_services?: {
+    commission_at_settlement_usd: number;
+    commission_at_settlement_lbp: number;
   };
   deferred?: {
     partner_profit_usd: number;
@@ -155,8 +171,8 @@ const WIDE_FROM = "2000-01-01";
 const WIDE_TO = "2100-01-01";
 
 async function getProfitFigures(page: Page): Promise<{
-  commissionUsd: number;
-  commissionCount: number;
+  commissionAtSettlementUsd: number;
+  billsOnlyCommissionCount: number;
   deferredClientDebtUsd: number;
 }> {
   // Visiting /profits and navigating away re-locks (the gate unmounts and
@@ -171,8 +187,12 @@ async function getProfitFigures(page: Page): Promise<{
       const w = window as unknown as Api;
       const summary = await w.api.profits.summary(args.from, args.to);
       return {
-        commissionUsd: summary.supplier_commission?.profit_usd ?? 0,
-        commissionCount: summary.supplier_commission?.count ?? 0,
+        // PA-2.4: the cashless (post-cutover OMT/WHISH) recognised
+        // commission this scenario is actually about.
+        commissionAtSettlementUsd:
+          summary.financial_services?.commission_at_settlement_usd ?? 0,
+        // Bills-only count — must stay untouched by this OMT/WHISH flow.
+        billsOnlyCommissionCount: summary.supplier_commission?.count ?? 0,
         deferredClientDebtUsd: summary.deferred?.client_debt_profit_usd ?? 0,
       };
     },
@@ -181,14 +201,24 @@ async function getProfitFigures(page: Page): Promise<{
 }
 
 /** Reads the SAME two figures off the REAL Profits page (Overview tab,
- *  default) via the test-ids this ticket added to Profits.tsx, so the
- *  frontend rendering layer is proven too, not just the IPC/service layer.
- *  Returns 0 when a card isn't rendered at all (e.g. a genuinely-zero
- *  figure never mounts its row) — a real value only ever needs comparing as
- *  a DELTA against another call to this same helper. */
+ *  default), so the frontend rendering layer is proven too, not just the
+ *  IPC/service layer. Returns 0 when a card/row isn't rendered at all (e.g.
+ *  a genuinely-zero figure never mounts its row) — a real value only ever
+ *  needs comparing as a DELTA against another call to this same helper.
+ *
+ *  PA-2.4: the Financial Services card's "Commission (at settlement)" row
+ *  (the cashless post-cutover commission this scenario is about) has no
+ *  test-id of its own — it is read by its row label text instead, the same
+ *  way `settleOmtRow` above locates the "Commission (USD)" input by its
+ *  label. `deferred-client-debt-usd` keeps its pre-existing test-id, but
+ *  (PA-4.7 `combinedAmountLabel`) BOTH spans can now render a combined
+ *  "$X + Y LBP" label instead of a USD-only figure — `commissionAtSettlementUsd`
+ *  reads the sibling `ProfitAmountSpans` markup, which has the same shape.
+ *  `parse()` below extracts ONLY the `$`-prefixed USD token, never the LBP
+ *  half, so a nonzero LBP amount can't get concatenated into the USD number. */
 async function readProfitsPageFigures(
   page: Page,
-): Promise<{ commissionUsd: number; deferredClientDebtUsd: number }> {
+): Promise<{ commissionAtSettlementUsd: number; deferredClientDebtUsd: number }> {
   await navigateTo(page, "/");
   await navigateTo(page, "/profits");
   await unlockProfitsPage(page);
@@ -196,15 +226,31 @@ async function readProfitsPageFigures(
     timeout: 15_000,
   });
 
+  // Reads ONLY the USD half of a possibly-combined "$X + Y LBP" label
+  // (CurrencyContext.formatAmount renders USD as `$${toLocaleString}`,
+  // including a leading "-" for a negative amount, e.g. "$-3.00"). A
+  // naive strip-everything-but-digits parse would concatenate the LBP
+  // digits into the USD figure once combinedAmountLabel/ProfitAmountSpans
+  // (PA-4.7) started rendering both currencies in one string. When the
+  // label is LBP-only (USD side is exactly 0), there is no `$` token and
+  // this correctly returns 0 for the USD figure.
   const parse = async (locator: Locator): Promise<number> => {
     if ((await locator.count()) === 0) return 0;
     const text = await locator.first().innerText();
-    const n = Number(text.replace(/[^0-9.-]/g, ""));
+    const m = text.match(/\$\s?(-?[\d,]+\.\d{2})/);
+    if (!m) return 0;
+    const n = Number(m[1].replace(/,/g, ""));
     return Number.isFinite(n) ? n : 0;
   };
 
+  // Scoped to the row's OWN value span (not a `div` `hasText` filter, which
+  // would also match every ancestor div and pull in the whole card's text).
+  const commissionAtSettlementValue = page
+    .locator('span:text-is("Commission (at settlement)")')
+    .locator("xpath=following-sibling::span[1]");
+
   return {
-    commissionUsd: await parse(page.getByTestId("supplier-commission-usd")),
+    commissionAtSettlementUsd: await parse(commissionAtSettlementValue),
     deferredClientDebtUsd: await parse(
       page.getByTestId("deferred-client-debt-usd"),
     ),
@@ -439,12 +485,14 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
     const pageAfterSettle = await readProfitsPageFigures(appPage);
 
     expect(
-      ipcAfterSettle.commissionUsd - ipcBeforeSettle.commissionUsd,
-      "recognised supplier commission must not move before the client repays",
+      ipcAfterSettle.commissionAtSettlementUsd -
+        ipcBeforeSettle.commissionAtSettlementUsd,
+      "recognised cashless (Commission at settlement) commission must not move before the client repays",
     ).toBeCloseTo(0, 2);
     expect(
-      ipcAfterSettle.commissionCount - ipcBeforeSettle.commissionCount,
-      "a fully-deferred settlement must not increment the recognised count",
+      ipcAfterSettle.billsOnlyCommissionCount -
+        ipcBeforeSettle.billsOnlyCommissionCount,
+      "PA-2.4: an OMT/WHISH cashless settlement must never move the bills-only Supplier Commission count",
     ).toBe(0);
     expect(
       ipcAfterSettle.deferredClientDebtUsd -
@@ -454,7 +502,8 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
 
     // Same deltas, read off the REAL rendered Profits page.
     expect(
-      pageAfterSettle.commissionUsd - pageBeforeSettle.commissionUsd,
+      pageAfterSettle.commissionAtSettlementUsd -
+        pageBeforeSettle.commissionAtSettlementUsd,
     ).toBeCloseTo(0, 1);
     expect(
       pageAfterSettle.deferredClientDebtUsd -
@@ -479,13 +528,15 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
     const pageAfterRepay = await readProfitsPageFigures(appPage);
 
     expect(
-      ipcAfterRepay.commissionUsd - ipcAfterSettle.commissionUsd,
+      ipcAfterRepay.commissionAtSettlementUsd -
+        ipcAfterSettle.commissionAtSettlementUsd,
       "the deferred commission must recognise once the client's debt is covered",
     ).toBeCloseTo(ENTERED_COMMISSION, 2);
     expect(
-      ipcAfterRepay.commissionCount - ipcAfterSettle.commissionCount,
-      "this settlement now contributes recognised commission — count +1",
-    ).toBe(1);
+      ipcAfterRepay.billsOnlyCommissionCount -
+        ipcAfterSettle.billsOnlyCommissionCount,
+      "PA-2.4: recognising a cashless settlement still must never move the bills-only Supplier Commission count",
+    ).toBe(0);
     expect(
       ipcAfterRepay.deferredClientDebtUsd -
         ipcAfterSettle.deferredClientDebtUsd,
@@ -493,7 +544,8 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
     ).toBeCloseTo(-ENTERED_COMMISSION, 2);
 
     expect(
-      pageAfterRepay.commissionUsd - pageAfterSettle.commissionUsd,
+      pageAfterRepay.commissionAtSettlementUsd -
+        pageAfterSettle.commissionAtSettlementUsd,
     ).toBeCloseTo(ENTERED_COMMISSION, 1);
     expect(
       pageAfterRepay.deferredClientDebtUsd -

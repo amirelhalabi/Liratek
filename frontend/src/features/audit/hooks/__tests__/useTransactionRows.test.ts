@@ -7,6 +7,15 @@
  * had no tests at all despite being a real algorithm with real edge cases
  * (under-filled windows, an exhausted table, the fetch cap). Extracting it
  * into `useTransactionRows` is what makes this file possible.
+ *
+ * The final describe block below is NEW (NOT RUN — proven at the
+ * end-of-batch gate, owner process rule, 2026-09-24 batch) — LIRA-201b
+ * (owner note #11-B): guards a regression `_attachPaymentLegs`'s fix would
+ * otherwise introduce here. Rule 17: reverting `isRowVisibleForOption`'s
+ * `cash_only` branch to read only `row.payments` (dropping the
+ * `row.session_payments` merge) must make that test FAIL — a session member
+ * with no own legs would then read as NOT cash and vanish from the
+ * "Cash only (till)" filter even though its session basket was paid in cash.
  */
 import { renderHook, waitFor } from "@testing-library/react";
 import { useTransactionRows } from "../useTransactionRows";
@@ -399,5 +408,51 @@ describe("useTransactionRows", () => {
     // stay unrestricted by type and rely on the client-side union filter.
     expect(filters.typeFilters).toBeUndefined();
     expect(result.current.rows.map((r) => r.id).sort()).toEqual([1, 2]);
+  });
+});
+
+describe("useTransactionRows — LIRA-201b: cash_only sees a session's pooled leg", () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it("a session member with NO own legs still counts as cash when the session's pooled session_payments has a CASH leg", async () => {
+    mockFetch.mockResolvedValue([
+      // No own legs at all (post-LIRA-201b, this is the normal shape for a
+      // session member other than whichever one — if any — has its own
+      // cost-flow leg): the basket's actual cash leg lives on
+      // session_payments only.
+      {
+        id: 1,
+        type: "LOTO_CASH_PRIZE",
+        created_at: "2026-09-24 10:00:00",
+        metadata_json: null,
+        session_id: 7,
+        payments: [],
+        session_payments: [
+          {
+            direction: "in",
+            amount: 50,
+            signed_amount: 50,
+            currency_code: "USD",
+            method: "CASH",
+          },
+        ],
+      },
+      // A non-session row with no cash leg — must still be excluded.
+      {
+        id: 2,
+        type: "SALE",
+        created_at: "2026-09-24 09:00:00",
+        metadata_json: null,
+        session_id: null,
+        payments: [],
+      },
+    ] as never);
+
+    const { result } = renderHook(() =>
+      useTransactionRows({ ...BASE, selectedFilters: ["Cash only (till)"] }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.rows.map((r) => r.id)).toEqual([1]);
   });
 });

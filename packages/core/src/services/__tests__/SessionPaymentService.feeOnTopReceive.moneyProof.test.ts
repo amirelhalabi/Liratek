@@ -150,6 +150,7 @@ function createTestDb(): Database.Database {
       partner_id INTEGER REFERENCES partners(id),
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER DEFAULT 0,
       refunded_at TEXT DEFAULT NULL
     );
@@ -309,8 +310,16 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances VALUES (1, 'OMT_System',   'USD', 0, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'Whish_System', 'USD', 0, CURRENT_TIMESTAMP);
 
-    INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT', 'OMT', 1);
-    INSERT INTO system_settings (key_name, value) VALUES ('shop_base_system', 'OMT');
+    -- D1 cutover (OWNER_NOTES_2026-09-21.md §2b): OMT system RECEIVE never
+    -- takes a fee at all, in a session basket exactly as everywhere else
+    -- (SessionPaymentRepository.getSessionCashSplitContext now excludes OMT
+    -- rows from the fee-fold). This fixture's own scenario — a fee-on-top
+    -- RECEIVE session item — moved to WHISH, the only system provider that
+    -- still supports it (the fee becomes shop profit instead of being netted
+    -- from the payable). WHISH is the base system so its cash routes to the
+    -- PCD, same as OMT used to.
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('WHISH', 'WHISH', 1);
+    INSERT INTO system_settings (key_name, value) VALUES ('shop_base_system', 'WHISH');
   `);
 
   return db;
@@ -373,7 +382,7 @@ function snapshot(db: Database.Database): Snapshot {
   }
   return {
     drawers,
-    supplierUsd: supplierLedgerSumUsd(db, "OMT"),
+    supplierUsd: supplierLedgerSumUsd(db, "WHISH"), // D1 cutover — see createTestDb's comment
     debtUsd: debtLedgerSumUsd(db),
   };
 }
@@ -467,12 +476,12 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
     //    row + unified transaction are created under deferPayment (fee/payout
     //    legs skipped; supplier ledger + profit stamped unconditionally).
     const { id: fsId } = finRepo.createTransaction({
-      provider: "OMT",
+      provider: "WHISH",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 1,
-      omtFee: 5,
+      commission: 0,
+      whishFee: 5,
       cashoutMethod: "CASH",
       includingFees: false,
       deferPayment: true,
@@ -509,14 +518,17 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
     const after = snapshot(db);
 
     // Both legs are 100% primary-system (the only basket contributor is this
-    // OMT RECEIVE item) so both the fee and the payout land entirely in the
-    // PCD: OMT_System +5 (fee) - 100 (payout) = -95 — IDENTICAL to
-    // receiveFeeLegs.test.ts case (a)'s implicit-leg number.
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5);
+    // WHISH RECEIVE item) so both the fee and the payout land entirely in the
+    // PCD: Whish_System +5 (fee) - 100 (payout) = -95 — IDENTICAL to
+    // receiveFeeLegs.test.ts case (a)'s implicit-leg number (D1 cutover).
+    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(-95, 5);
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
-    // Phase 2 (D1): -(x-f) = -(100-5) = -95. OLD -> NEW: -96 -> -95.
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-95, 5);
-    assertInvariant(before, after, { commission: 0 }); // OLD -> NEW: 1 -> 0
+    // D1 cutover: -x = -100 (the fee never reduces what Whish owes — it's
+    // the shop's own profit instead). OLD -> NEW: -95 -> -100.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-100, 5);
+    // Invariant RHS is now the fee itself (5) — the shop genuinely keeps it
+    // as profit. OLD -> NEW: 0 -> 5.
+    assertInvariant(before, after, { commission: 5 });
 
     // Payout/change are distinguishable in the result (no consumer mistakes
     // the $100 payout for change).
@@ -537,12 +549,12 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
     const before = snapshot(db);
 
     const { id: fsId } = finRepo.createTransaction({
-      provider: "OMT",
+      provider: "WHISH",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 1,
-      omtFee: 5,
+      commission: 0,
+      whishFee: 5,
       cashoutMethod: "CASH",
       includingFees: false,
       deferPayment: true,
@@ -576,12 +588,15 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
 
     const after = snapshot(db);
 
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5);
+    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(-100, 5);
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(5, 5);
     // Aggregate conservation still holds (money isn't lost, only misrouted
     // between PCD/General) — the invariant sums ALL drawers, so it cannot
     // see a routing bug on its own; this is exactly why the PCD-specific
     // assertions above (not just the invariant) are the regression guard.
-    assertInvariant(before, after, { commission: 0 }); // Phase 2 (D1) OLD -> NEW: 1 -> 0
+    // D1 cutover: supplierUsd owes -x=-100 regardless of where the fee
+    // physically landed; the invariant's commission term is the fee (5),
+    // kept as profit wherever it sits. OLD -> NEW: 0 -> 5.
+    assertInvariant(before, after, { commission: 5 });
   });
 });

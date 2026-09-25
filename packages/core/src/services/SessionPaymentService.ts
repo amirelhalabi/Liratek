@@ -85,6 +85,19 @@ export interface BasketPaymentLeg {
    *    CHARGE-side ratio (byte-identical to pre-Phase-F).
    */
   kind?: "PAYOUT" | "CHANGE";
+  /**
+   * Owner decision #11-A (2026-09-24, netted session checkout). Meaningful
+   * ONLY on a `kind: "PAYOUT"` leg — forces `ratioForCurrency` to 1 ("SYSTEM"
+   * — an OMT/Whish SYSTEM money-transfer-box payout, always the primary cash
+   * drawer, never netted) or 0 ("GENERAL" — a General-drawer payout: loto
+   * prize / wallet / Binance cash-out; the frontend already netted the
+   * CASH-routed portion against the charge, so only the excess reaches this
+   * leg). Absent = legacy blended session-share ratio (byte-identical to
+   * pre-#11-A payloads) — needed because that ratio is a SESSION-level
+   * constant and would otherwise mis-split a leg whose amount no longer
+   * equals the full gross payout total once part of it has been netted away.
+   */
+  payoutOrigin?: "SYSTEM" | "GENERAL";
   /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
   voucherCode?: string;
 }
@@ -212,7 +225,37 @@ function ratioForCurrency(
   ctx: SessionCashSplitContext,
   currencyCode: string,
   bucket: "charge" | "payout",
+  originHint?: "SYSTEM" | "GENERAL",
 ): number {
+  // Fix-round finding #2 (2026-09-24): a "SYSTEM" leg is the FRONTEND'S
+  // combined omt_system + whish_system payout total for this currency
+  // (binanceCart.ts's `SYSTEM_PAYOUT_MODULES` bucket has no per-provider
+  // identity — see that file's comment). It must NOT be forced 100% to the
+  // shop's own PCD (`primaryCashDrawerName(ctx.baseSystem)`): only the
+  // BASE-system's own share of the combined SYSTEM total belongs there — a
+  // non-base-system item (e.g. a Whish payout while OMT is primary) has no
+  // PCD of its own and must fall through to General, exactly as a solo
+  // non-base-system transaction already does via `resolveServiceCashDrawer`.
+  // `systemPayoutTotalUsd/Lbp` is scoped to financial_services-backed payout
+  // items ONLY (both providers, never a General-drawer loto/wallet payout —
+  // see its doc comment), so a General payout riding along in the same
+  // basket can never dilute this ratio.
+  if (bucket === "payout" && originHint === "SYSTEM") {
+    const total =
+      currencyCode === "USD"
+        ? ctx.systemPayoutTotalUsd
+        : currencyCode === "LBP"
+          ? ctx.systemPayoutTotalLbp
+          : 0;
+    const primary =
+      currencyCode === "USD"
+        ? ctx.primarySystemPayoutUsd
+        : currencyCode === "LBP"
+          ? ctx.primarySystemPayoutLbp
+          : 0;
+    return total > 0 ? primary / total : 0;
+  }
+  if (bucket === "payout" && originHint === "GENERAL") return 0;
   if (bucket === "payout") {
     if (currencyCode === "USD") {
       return ctx.payoutTotalUsd > 0
@@ -416,6 +459,7 @@ export class SessionPaymentService {
           cashSplitCtx,
           leg.currencyCode,
           isPayout ? "payout" : "charge",
+          isPayout ? leg.payoutOrigin : undefined,
         );
         const { pcdAmount, generalAmount } = splitCashLegByItemShare(
           amt,

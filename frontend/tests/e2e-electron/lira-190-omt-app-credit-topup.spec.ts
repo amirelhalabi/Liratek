@@ -266,28 +266,38 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
     expect(afterLedger - beforeLedger).toBeCloseTo(0, 2);
   });
 
-  test("void of an OMT App credit top-up is refused, and the drawer/ledger are therefore unchanged (rule 20)", async ({
+  test("void of an OMT App credit top-up SUCCEEDS, and nets the drawer + OMT account ledger back to baseline (rule 20)", async ({
     appPage,
   }) => {
-    // Verified by reading, not assumed: `TRANSACTION_TYPES.RECHARGE_TOPUP` —
-    // the type every topUpFromSupplier call produces, OMT_APP included — is
-    // a member of `NON_REVERSIBLE_TRANSACTION_TYPES`
-    // (packages/core/src/constants/transactionTypes.ts), with the documented
-    // rationale "the provider-drawer credit has no payments row either".
-    // `TransactionRepository._assertReversible` refuses ANY void of that
-    // type before any write, for iPick and Katsh exactly as much as for OMT
-    // App — this batch (LIRA-187/188/190/192) deliberately did NOT change
-    // that; making it reversible would be a cross-cutting rewrite of every
-    // top-up flow, not an OMT-App-only fix (see
-    // RechargeRepository.omtAppCredit.test.ts's own regression guard for the
-    // same finding at the repository layer).
+    // REWRITTEN 2026-09-23 for LIRA-194 (`9c0194cd`, "every top-up must be
+    // voidable", docs/plans/done_plans/LIRA-194_TOPUPS_MUST_BE_VOIDABLE.md):
+    // `TRANSACTION_TYPES.RECHARGE_TOPUP` was DELIBERATELY REMOVED from
+    // `NON_REVERSIBLE_TRANSACTION_TYPES` (see the "RECHARGE_TOPUP used to be
+    // here" note left behind in
+    // packages/core/src/constants/transactionTypes.ts) — this spec used to
+    // pin the OLD refusal, which the commit reversed on purpose, not by
+    // accident.
     //
-    // This is rule 20 option (b) — gated non-reversible with a documented
-    // correction path — not an oversight: the correction path an operator
-    // must use instead is an OPPOSITE MANUAL ENTRY on the Suppliers page
-    // (a manual debit against the OMT App supplier ledger plus the matching
-    // manual drawer adjustment), mirroring how CREDIT_CASH_IN/DEBT_CASH_OUT
-    // document their own correction path in the same constant's doc comment.
+    // `topUpFromSupplier` (RechargeRepository.ts ~:1718) now posts its dest
+    // drawer credit as a REAL `payments` row (`insertPaymentRow` +
+    // `applyDrawerDelta`, LIRA-194's "cashoutToSupplier pattern") instead of
+    // a bare balance delta, so the generic void path's `_reversePayments`
+    // can mirror it back. The `supplier_ledger` TOP_UP row is booked
+    // LINK-mode (`transaction_id: txnId`, not an `is_auto`/`source_ref_*`
+    // sibling), so it gets its OWN reversal owner:
+    // `TransactionRepository._reverseSupplierLedgerByTransactionLink`, which
+    // is explicitly gated `original.type !== "RECHARGE_TOPUP"` — a no-op for
+    // every other transaction type, called from BOTH `voidTransaction` and
+    // `refundTransaction` (rule 20's "named reversal owner" requirement,
+    // satisfied by two symmetric, narrowly-gated methods rather than one
+    // generic sweep that could reach an unrelated table).
+    //
+    // Stronger than "void succeeds" (rule 20): this test snapshots BEFORE
+    // the top-up (not before the void, per the OLD version of this test,
+    // which only proved a refused void was a no-op) and asserts the FULL
+    // create+void round trip nets the OMT_App drawer AND the OMT account
+    // ledger back to that same baseline — a void that "succeeds" but leaves
+    // a residue on either ledger is exactly the bug rule 20 exists to catch.
     //
     // Reversal proof deliberately IPC-driven (rule 20 is a repository
     // contract, not frontend arithmetic — the UI cases above already prove
@@ -321,6 +331,14 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
           ledgerNetDelta: NaN,
         });
 
+        // Snapshot the baseline BEFORE the top-up — this test proves the
+        // WHOLE create+void round trip nets to zero, not just that a void
+        // attempt is inert (that was the old, now-reversed, contract).
+        const drawersBefore = await w.api.recharge.getDrawerBalances();
+        const omtAppBefore = drawerUsd(drawersBefore, "OMT_App");
+        const accountsBefore = await w.api.suppliers.getAccountBalances();
+        const ledgerBefore = childBalUsd(accountsBefore, supplier.id);
+
         const topUp = await w.api.recharge.topUpFromSupplier({
           provider: "OMT_APP",
           amount,
@@ -340,19 +358,25 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
           return topUpFailed("topup txn not found");
         }
 
-        // Snapshot the baseline IMMEDIATELY BEFORE the void attempt (NOT
-        // before the top-up) — this test proves the REFUSED VOID moves
-        // nothing further, not that the whole round trip nets to zero. The
-        // top-up's own +amount rise is already proved by the "defaults to
-        // credit" test above; measuring from before the top-up would fold
-        // that legitimate, expected movement into "net delta" and wrongly
-        // expect it to cancel out against a void that never runs.
-        const drawersBefore = await w.api.recharge.getDrawerBalances();
-        const omtAppBefore = drawerUsd(drawersBefore, "OMT_App");
-        const accountsBefore = await w.api.suppliers.getAccountBalances();
-        const ledgerBefore = childBalUsd(accountsBefore, supplier.id);
+        // Sanity: the top-up itself actually moved both ledgers — guards
+        // against the round-trip assertion below passing vacuously because
+        // nothing happened. (The "defaults to credit" test above already
+        // proves this UI-side; this re-derives it IPC-side for THIS row.)
+        const drawersMid = await w.api.recharge.getDrawerBalances();
+        const omtAppMid = drawerUsd(drawersMid, "OMT_App");
+        const accountsMid = await w.api.suppliers.getAccountBalances();
+        const ledgerMid = childBalUsd(accountsMid, supplier.id);
+        if (
+          Math.round((omtAppMid - omtAppBefore) * 100) / 100 !== amount ||
+          Math.round((ledgerMid - ledgerBefore) * 100) / 100 !== amount
+        ) {
+          return topUpFailed(
+            `top-up did not move both ledgers by ${amount}: omtApp=${omtAppMid - omtAppBefore}, ledger=${ledgerMid - ledgerBefore}`,
+          );
+        }
 
-        // The void attempt itself — expected to be REFUSED, not to succeed.
+        // The void itself — expected to SUCCEED (LIRA-194 reversed the old
+        // refusal).
         const voidRes = await w.api.transactions.void(row.id);
 
         const drawersAfter = await w.api.recharge.getDrawerBalances();
@@ -366,12 +390,11 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
           voidSucceeded: voidRes.success === true,
           voidError: voidRes.error ?? null,
           error: null as string | null,
-          // Deltas measured across the void ATTEMPT ONLY (baseline snapshotted
-          // right before `void()`, after the top-up already landed) — since
-          // the attempt is refused before any write, both must be unchanged
-          // across that narrower window. The top-up's own full-amount rise is
-          // proved by the "defaults to credit" test above; this test only
-          // proves the refused void moves nothing further on top of it.
+          // Deltas measured across the FULL round trip — baseline snapshotted
+          // BEFORE the top-up, compared against the state after the void —
+          // so a void that "succeeds" but leaves either ledger short (or
+          // over-reversed) is caught here, not masked by measuring from a
+          // post-top-up baseline.
           omtAppNetDelta: Math.round((omtAppAfter - omtAppBefore) * 100) / 100,
           ledgerNetDelta:
             Math.round((ledgerAfter - ledgerBefore) * 100) / 100,
@@ -384,14 +407,14 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
     if (!result.found) return;
     expect(result.error).toBeNull();
     expect(result.topUpOk).toBe(true);
-    // The void is REFUSED by `_assertReversible` (RECHARGE_TOPUP is a member
-    // of NON_REVERSIBLE_TRANSACTION_TYPES) — this is the actual, deliberate
-    // behaviour this test exists to pin, not a bug.
-    expect(result.voidSucceeded).toBe(false);
-    expect(result.voidError).not.toBeNull();
-    // Nothing moved: the refused void attempt is a no-op on both the drawer
-    // and the OMT account ledger — it did not create a fresh imbalance on
-    // top of the original top-up.
+    // The void SUCCEEDS — LIRA-194 removed RECHARGE_TOPUP from
+    // NON_REVERSIBLE_TRANSACTION_TYPES and wired a real reversal owner for
+    // both the drawer payment leg and the link-mode supplier-ledger row.
+    expect(result.voidError).toBeNull();
+    expect(result.voidSucceeded).toBe(true);
+    // The full create+void round trip nets BOTH ledgers this top-up touched
+    // back to their pre-top-up baseline — not just "the void call returned
+    // success", which a partial reversal could also do.
     expect(result.omtAppNetDelta).toBeCloseTo(0, 2);
     expect(result.ledgerNetDelta).toBeCloseTo(0, 2);
   });

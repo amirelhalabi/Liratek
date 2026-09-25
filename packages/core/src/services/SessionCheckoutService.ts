@@ -54,6 +54,10 @@ export interface CheckoutPayment {
    * (SessionPaymentService) for the full note/PCD-split contract.
    */
   kind?: "PAYOUT" | "CHANGE";
+  /** Owner decision #11-A (netted session checkout) — see
+   *  `BasketPaymentLeg.payoutOrigin` (SessionPaymentService) for the full
+   *  contract. Meaningful only on a `kind: "PAYOUT"` leg. */
+  payoutOrigin?: "SYSTEM" | "GENERAL";
   voucher_code?: string;
 }
 
@@ -270,6 +274,7 @@ function checkoutPaymentsToBasketLegs(payments: CheckoutPayment[]) {
     amount: p.amount,
     direction: p.direction ?? ("IN" as const),
     kind: p.kind,
+    payoutOrigin: p.payoutOrigin,
     voucherCode: p.voucher_code,
   }));
 }

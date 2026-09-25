@@ -82,6 +82,16 @@ export const recordCarrierLineUsageSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+/**
+ * v184 (#28, LIRA-218) — mark a "days still to send" delivery as physically
+ * sent. Pure checklist bookkeeping: never a second sale, never a second
+ * charge (`CarrierLineOwedDeliveryRepository.markSent`'s only write is
+ * `status`/`sent_at`/`sent_by`).
+ */
+export const markCarrierLineOwedDeliverySentSchema = z.object({
+  deliveryId: z.number().int().positive(),
+});
+
 export type CarrierLineCreateInput = z.infer<typeof carrierLineCreateSchema>;
 export type CarrierLineUpdateInput = z.infer<typeof carrierLineUpdateSchema>;
 export type CarrierLineUpdateBalanceInput = z.infer<
@@ -89,4 +99,7 @@ export type CarrierLineUpdateBalanceInput = z.infer<
 >;
 export type RecordCarrierLineUsageInput = z.infer<
   typeof recordCarrierLineUsageSchema
+>;
+export type MarkCarrierLineOwedDeliverySentInput = z.infer<
+  typeof markCarrierLineOwedDeliverySentSchema
 >;

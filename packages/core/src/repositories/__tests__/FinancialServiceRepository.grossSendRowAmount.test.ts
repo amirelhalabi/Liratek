@@ -131,7 +131,8 @@ function createTestDb(): Database.Database {
       paid_currency TEXT DEFAULT NULL,
       partner_id INTEGER REFERENCES partners(id),
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
-      commission_model INTEGER NOT NULL DEFAULT 0
+      commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE partner_ledger (
@@ -438,6 +439,10 @@ describe("FinancialServiceRepository — D1.1 gross SEND row amount", () => {
   // handed over" language describes a SEND, not a RECEIVE).
   // ═══════════════════════════════════════════════════════════════════════
   it("(e) OMT RECEIVE with a fee: row stays the bare payout reference amount — UNCHANGED, not grossed/netted", () => {
+    // D1 cutover (OWNER_NOTES_2026-09-21.md §2b): OMT system RECEIVE never
+    // collects a fee via legs anymore (hard-rejected) — `omtFee` stays
+    // informational (drives the commission calc only), which is exactly
+    // what this case still needs: a nonzero `omtFee` with no `feePayments`.
     repo.createTransaction({
       provider: "OMT",
       serviceType: "RECEIVE",
@@ -446,7 +451,6 @@ describe("FinancialServiceRepository — D1.1 gross SEND row amount", () => {
       commission: 0,
       omtFee: 5,
       cashoutMethod: "CASH",
-      feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
       exchangeRate: 90000,
     });
 

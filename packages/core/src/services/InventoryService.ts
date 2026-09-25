@@ -40,6 +40,11 @@ import {
   generateUniqueNumericBarcode,
   suggestDuplicateBarcode,
 } from "../utils/barcode.js";
+import {
+  normalizeLineNumber,
+  isPhoneLineCategoryName,
+  isPhoneShapedTerm,
+} from "../utils/phoneNumber.js";
 import { inventoryLogger } from "../utils/logger.js";
 
 // =============================================================================
@@ -50,7 +55,7 @@ export interface ProductResult {
   success: boolean;
   id?: number;
   error?: string;
-  code?: "DUPLICATE_BARCODE";
+  code?: "DUPLICATE_BARCODE" | "INVALID_NUMBER";
   suggested_barcode?: string;
   /** Set by {@link InventoryService.deleteProduct} only, and only when the
    *  cascade actually removed something: how many IN_STOCK IMEI units went
@@ -172,9 +177,61 @@ export class InventoryService {
    * structured filters (category/supplier/added-date/cost/retail/profit%/
    * stock). All of them AND together, and with `filters` omitted the
    * result is exactly the unfiltered list every other caller expects.
+   *
+   * N13-R2-1 (fix round 2): this is the search path every real caller uses —
+   * the Inventory list (`ProductList.tsx`), POS product search
+   * (`ProductSearch.tsx`, `POS/index.tsx`) and Custom Services' product
+   * picker all call `getProducts`, via the IPC handler and REST route, NOT
+   * the dead `searchProducts` below. A phone-line number typed in a
+   * different everyday format than it was stored in ("+961 3 123 456" vs the
+   * canonical "03123456") must be found HERE, or the owner's "apply it on
+   * item create/search" (rule 14 basis) is only half true. Runs the SQL
+   * search a second time with the normalized term and merges/dedupes by id
+   * — the SQL itself stays in the repository (rule 13); this only combines
+   * two already `ORDER BY name ASC` result sets, so the merge is a plain
+   * sorted-merge, not a re-sort.
    */
   getProducts(search?: string, filters?: ProductListFilters): ProductDTO[] {
-    return this.productRepo.findAllProducts(search, filters);
+    const results = this.productRepo.findAllProducts(search, filters);
+    if (!search) return results;
+
+    const normalized = this.normalizedLookupTerm(search.trim());
+    if (!normalized) return results;
+
+    const extra = this.productRepo.findAllProducts(normalized, filters);
+    return InventoryService.mergeProductsByName(results, extra);
+  }
+
+  /**
+   * Merge two result sets that are each already ordered `name ASC`
+   * (`ProductRepository.findAllProducts`'s own ORDER BY) into one
+   * deduplicated (by id), still-`name ASC` list — a plain sorted merge, so
+   * it never needs to re-derive the SQL collation the repository already
+   * applied. `primary`'s own relative order (and which copy of a
+   * duplicate id is kept) always wins.
+   */
+  private static mergeProductsByName(
+    primary: ProductDTO[],
+    extra: ProductDTO[],
+  ): ProductDTO[] {
+    if (extra.length === 0) return primary;
+    const seen = new Set(primary.map((p) => p.id));
+    const deduped = extra.filter((p) => !seen.has(p.id));
+    if (deduped.length === 0) return primary;
+
+    const merged: ProductDTO[] = [];
+    let i = 0;
+    let j = 0;
+    while (i < primary.length && j < deduped.length) {
+      if (primary[i].name <= deduped[j].name) {
+        merged.push(primary[i++]);
+      } else {
+        merged.push(deduped[j++]);
+      }
+    }
+    while (i < primary.length) merged.push(primary[i++]);
+    while (j < deduped.length) merged.push(deduped[j++]);
+    return merged;
   }
 
   /**
@@ -197,13 +254,46 @@ export class InventoryService {
   }
 
   /**
+   * A phone-shaped search/lookup term normalized via {@link
+   * normalizeLineNumber}, or `null` when the term isn't phone-shaped
+   * ({@link isPhoneShapedTerm}) or normalizing it wouldn't change anything
+   * worth re-querying with. Shared by every lookup/search path below so a
+   * phone-line number typed in a different everyday format than it was
+   * stored in ("03 123 456" vs the canonical "03123456") is still found
+   * (LIRA-207, `OWNER_NOTES_REMAINING_BUILD.md` #13 — "apply it on item
+   * create/search"; rule 14 — one derivation, reused everywhere).
+   */
+  private normalizedLookupTerm(term: string): string | null {
+    if (!isPhoneShapedTerm(term)) return null;
+    const normalized = normalizeLineNumber(term);
+    if (!normalized || normalized === term) return null;
+    return normalized;
+  }
+
+  /**
    * Get a product by barcode
    */
   getProductByBarcode(barcode: string) {
     if (!barcode?.trim()) {
       throw new ValidationError("Barcode is required");
     }
-    return this.productRepo.findByBarcode(barcode.trim());
+    const trimmed = barcode.trim();
+    const direct = this.productRepo.findByBarcode(trimmed);
+    if (direct) return direct;
+
+    // N13-R2-2 (fix round 2): only accept the normalized-term fallback hit
+    // when the MATCHED product is actually in a lines category. Without
+    // this gate, a non-phone barcode that happens to reduce to the same
+    // digits as some unrelated lines-category number would resolve to the
+    // wrong product. A genuine direct miss stays a miss (`null`).
+    const normalized = this.normalizedLookupTerm(trimmed);
+    if (normalized) {
+      const hit = this.productRepo.findByBarcode(normalized);
+      if (hit && isPhoneLineCategoryName(hit.category)) {
+        return hit;
+      }
+    }
+    return direct;
   }
 
   /**
@@ -213,10 +303,27 @@ export class InventoryService {
     term: string,
     options?: { limit?: number; category?: string },
   ) {
-    if (!term?.trim()) {
+    const trimmed = term?.trim();
+    if (!trimmed) {
       return [];
     }
-    return this.productRepo.search(term.trim(), options);
+    const results = this.productRepo.search(trimmed, options);
+
+    const normalized = this.normalizedLookupTerm(trimmed);
+    if (normalized) {
+      const seen = new Set(results.map((p) => p.id));
+      for (const product of this.productRepo.search(normalized, options)) {
+        if (!seen.has(product.id)) {
+          results.push(product);
+          seen.add(product.id);
+        }
+      }
+      if (options?.limit) {
+        return results.slice(0, options.limit);
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -249,7 +356,20 @@ export class InventoryService {
       return null;
     }
 
-    const byBarcode = this.productRepo.findByBarcode(trimmed);
+    let byBarcode = this.productRepo.findByBarcode(trimmed);
+    if (!byBarcode) {
+      // N13-R2-2: same lines-category gate as getProductByBarcode — a scan
+      // whose normalized digits coincidentally match some NON-lines
+      // product's barcode must not silently resolve to (and auto-add) the
+      // wrong item. Only a genuine lines-category hit is accepted.
+      const normalized = this.normalizedLookupTerm(trimmed);
+      if (normalized) {
+        const hit = this.productRepo.findByBarcode(normalized);
+        if (hit && isPhoneLineCategoryName(hit.category)) {
+          byBarcode = hit;
+        }
+      }
+    }
     if (byBarcode) {
       const product = this.productRepo.findProductDtoById(byBarcode.id);
       // Defensive only — byBarcode itself just matched the same active,
@@ -300,15 +420,6 @@ export class InventoryService {
     data: CreateProductData,
     userId: number | null = null,
   ): ProductResult {
-    // Barcode behavior:
-    // - If blank, auto-generate a unique 8-digit numeric barcode.
-    // - If provided and duplicates exist, return a structured duplicate error.
-    let barcode = data.barcode?.trim() || "";
-    if (!barcode) {
-      barcode = generateUniqueNumericBarcode((code: string) =>
-        this.productRepo.barcodeExists(code),
-      );
-    }
     if (!data.name?.trim()) {
       return { success: false, error: "Product name is required" };
     }
@@ -332,8 +443,49 @@ export class InventoryService {
       };
     }
 
-    // Check for duplicate barcode
+    const categoryName = data.category.trim();
+    const categoryIsLines = isPhoneLineCategoryName(categoryName);
+
+    // Barcode behavior:
+    // - If typed AND the category is a phone-lines one, normalize FIRST
+    //   (LIRA-207, OWNER_NOTES_REMAINING_BUILD.md #13) — "03 123 456" and
+    //   "+961 3 123 456" collide with each other and with whatever was
+    //   already stored — never two "different" barcodes for the same
+    //   physical line. This MUST run before the blank-check below: an
+    //   incomplete fragment like "+961" alone normalizes to "" and must
+    //   fall through to auto-generation like any other blank input, not be
+    //   stored as a truncated string; running it in the other order also
+    //   used to let an auto-generated 8-digit barcode get re-mangled by
+    //   normalizeLineNumber after the fact. Scoped to a lines category only
+    //   (rule 14's predicate, shared with the frontend label) — never
+    //   applied to a plain barcode, which could coincidentally start with
+    //   the digits it strips.
+    // - If still blank, auto-generate a unique 8-digit numeric barcode.
+    // - If provided and duplicates exist, return a structured duplicate error.
+    let barcode = data.barcode?.trim() || "";
+    if (barcode && categoryIsLines) {
+      barcode = normalizeLineNumber(barcode);
+    }
+    if (!barcode) {
+      barcode = generateUniqueNumericBarcode((code: string) =>
+        this.productRepo.barcodeExists(code),
+      );
+    }
+
+    // Check for duplicate barcode. In a phone-lines category the "Duplicate
+    // Barcode" auto-suggestion (appending "DUP1", "DUP2", …) must NOT be
+    // offered: it produces a second product for the SAME physical number,
+    // which is exactly what the owner said must never happen — so no
+    // `suggested_barcode` is returned, and the form has nothing to build a
+    // one-click resubmit from (falls through to a plain error instead).
     if (barcode && this.productRepo.barcodeExists(barcode)) {
+      if (categoryIsLines) {
+        return {
+          success: false,
+          error: "This number is already listed",
+          code: "DUPLICATE_BARCODE",
+        };
+      }
       const suggested = suggestDuplicateBarcode(barcode, (code: string) =>
         this.productRepo.barcodeExists(code),
       );
@@ -346,7 +498,6 @@ export class InventoryService {
     }
 
     try {
-      const categoryName = data.category.trim();
       const result = this.productRepo.createProduct(
         {
           ...data,
@@ -450,9 +601,50 @@ export class InventoryService {
       };
     }
 
-    // Check for duplicate barcode (excluding this product)
-    if (data.barcode && this.productRepo.barcodeExists(data.barcode, id)) {
-      const suggested = suggestDuplicateBarcode(data.barcode, (code: string) =>
+    // LIRA-207 (OWNER_NOTES_REMAINING_BUILD.md #13) — same normalisation as
+    // `createProduct`, gated the same way. `data.category` blank means "keep
+    // the product's existing category" (see the comment below), so the
+    // effective category name for THIS gate must fall back to the stored
+    // row's category, not skip the guard just because the edit didn't touch
+    // the category field.
+    let barcode = data.barcode;
+    const explicitCategoryName = data.category?.trim();
+    const effectiveCategoryName =
+      explicitCategoryName || this.productRepo.findById(id)?.category || "";
+    const categoryIsLines = isPhoneLineCategoryName(effectiveCategoryName);
+    if (barcode?.trim() && categoryIsLines) {
+      const normalized = normalizeLineNumber(barcode);
+      // N13-R2-4 (fix round 2): unlike `createProduct`, update has no
+      // "fall through to auto-generate" escape hatch for a typed number
+      // that normalizes to '' (e.g. an isolated "+961" fragment) — writing
+      // it straight through would silently store an EMPTY barcode (and
+      // skip the duplicate check below, since `barcode` would then be
+      // falsy), and a second such edit collides on the DB's bare UNIQUE
+      // barcode index with an unhelpful generic error. Reject it here
+      // instead, before it reaches `barcodeExists`/`updateProductFull`.
+      if (!normalized) {
+        return {
+          success: false,
+          error: "Enter a full number",
+          code: "INVALID_NUMBER",
+        };
+      }
+      barcode = normalized;
+    }
+
+    // Check for duplicate barcode (excluding this product). In a
+    // phone-lines category, no "Duplicate Barcode" auto-suggestion —
+    // see the matching comment in `createProduct` (rule 14: same guard,
+    // same reason, not a second copy that can drift).
+    if (barcode && this.productRepo.barcodeExists(barcode, id)) {
+      if (categoryIsLines) {
+        return {
+          success: false,
+          error: "This number is already listed",
+          code: "DUPLICATE_BARCODE",
+        };
+      }
+      const suggested = suggestDuplicateBarcode(barcode, (code: string) =>
         this.productRepo.barcodeExists(code, id),
       );
       return {
@@ -493,14 +685,13 @@ export class InventoryService {
       // (`cost_price_usd`, `stock`, …) while this route and
       // `backendApi.updateProduct` send the IPC names (`cost_price`,
       // `stock_quantity`, …) — wiring it up means reconciling those first.
-      const categoryName = data.category?.trim();
       this.productRepo.updateProductFull(id, {
-        barcode: data.barcode,
+        barcode,
         name: data.name,
-        ...(categoryName
+        ...(explicitCategoryName
           ? {
-              category: categoryName,
-              category_id: this.resolveCategoryId(categoryName),
+              category: explicitCategoryName,
+              category_id: this.resolveCategoryId(explicitCategoryName),
             }
           : {}),
         cost_price: data.cost_price,

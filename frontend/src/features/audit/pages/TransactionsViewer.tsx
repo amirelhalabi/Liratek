@@ -9,6 +9,8 @@ import {
   voidTransaction,
   refundTransaction,
   voidCheckoutGroup,
+  voidSessionBasket,
+  refundSessionBasket,
   getSaleItems,
   getProductUnitsForSaleItems,
   type ProductUnitDto,
@@ -22,6 +24,7 @@ import {
   formatPaymentMethods,
   legMethodLabel,
   methodLegsFor,
+  sessionPooledMethodLegsFor,
   sessionVars,
 } from "../transactionDisplay";
 import {
@@ -39,6 +42,10 @@ import {
   type RowActionHandlers,
 } from "../components/TransactionCells";
 import { deriveRow } from "../rowDerived";
+import {
+  computeSessionGroupHeaders,
+  isSessionGroupHeader,
+} from "../sessionGroupHeaders";
 import {
   useTransactionRows,
   type TransactionRow,
@@ -139,6 +146,23 @@ export default function TransactionsViewer({
   // `exchange_rate` — injected into amountSortValue rather than read inside
   // it (DIP).
   const { buyRate: fallbackRate } = useSellRate();
+
+  // LIRA-201b (owner note #11-B): which row, per session, currently carries
+  // the pooled in/out + payment detail — recomputed from `filteredRows`
+  // (the same set DataTable is given as `data`, for both screen AND export)
+  // so the choice survives sorting/type-filters/the fetch window. See
+  // sessionGroupHeaders.ts's doc for why this is safe to key off id alone.
+  const sessionGroupHeaderIds = useMemo(
+    () => computeSessionGroupHeaders(filteredRows),
+    [filteredRows],
+  );
+  // m1 (fix round): delegate to the shared predicate instead of
+  // re-implementing it inline — `isSessionGroupHeader` is the SAME function
+  // `sessionGroupHeaders.test.ts` proves against.
+  const isRowGroupHeader = useCallback(
+    (row: TransactionRow) => isSessionGroupHeader(row, sessionGroupHeaderIds),
+    [sessionGroupHeaderIds],
+  );
 
   const { methods: paymentMethods, drawerAffectingMethods } =
     usePaymentMethods();
@@ -245,16 +269,19 @@ export default function TransactionsViewer({
     async (row: TransactionRow) => {
       // Session-basket rows always fall back to the plain bare-reversal
       // refund (today's exact behavior, no modal) — never gated on units.
-      // `TransactionRepository._attachPaymentLegs` lets a session member
-      // with no OWN legs inherit the basket's session-scoped legs (posted
-      // with session_id set, transaction_id NULL) for DISPLAY — but the
-      // backend's per-transaction validation (`getCustomerFacingLegs`/
-      // `_validateRefundLegOverride`, keyed on transaction_id) would see an
-      // EMPTY set for that same row and reject any override with a
-      // confusing "nothing to refund" error. Documented out of scope
-      // alongside split_group (session-basket refund-by-method-override
-      // needing an owner decision on which member "owns" the basket's legs
-      // is a follow-up, not this ticket).
+      // `row.payments` is ALWAYS this row's own legs only (LIRA-201b fix
+      // round; `TransactionRepository._attachPaymentLegs` no longer makes a
+      // legless member inherit the basket's pooled legs into `payments` —
+      // those are exposed separately as `session_payments`/
+      // `session_account_payments`, for DISPLAY only). So a session member
+      // with no OWN legs has an EMPTY `payments` set, and the backend's
+      // per-transaction validation (`getCustomerFacingLegs`/
+      // `_validateRefundLegOverride`, keyed on transaction_id) would see the
+      // same EMPTY set and reject any override with a confusing "nothing to
+      // refund" error. Documented out of scope alongside split_group
+      // (session-basket refund-by-method-override needing an owner decision
+      // on which member "owns" the basket's legs is a follow-up, not this
+      // ticket).
       if (row.session_id != null) {
         if (
           !confirm("Refund this transaction? A reversal entry will be created.")
@@ -351,7 +378,57 @@ export default function TransactionsViewer({
     [load],
   );
 
-  // One stable object for every row's ActionsCell — the four handlers are
+  /**
+   * LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — void the WHOLE
+   * customer-session basket in one transaction. Replaces the "Basket item —
+   * see admin to reverse" dead end (TransactionCells.tsx's ActionsCell).
+   * Kept change goes back to the customer and the kept-change profit is
+   * cancelled, a basket-member loto prize is soft-voided on the Loto side,
+   * and any session-scoped CREDIT_DEPOSIT is reversed — all inside the one
+   * repository transaction this call triggers.
+   */
+  const handleVoidSessionBasket = useCallback(
+    async (sessionId: number) => {
+      if (
+        !confirm(
+          `Void the entire session #${sessionId} basket? Every item's money, cost, and profit will be reversed, including any loto prize or account credit from this basket. This cannot be undone.`,
+        )
+      )
+        return;
+      try {
+        const res = await voidSessionBasket(sessionId);
+        if (res.success) load();
+        else alert(describeActionFailure(res.error, "Voiding a session basket"));
+      } catch (err) {
+        alert(describeActionFailure(err, "Voiding a session basket"));
+      }
+    },
+    [load],
+  );
+
+  /** Same shape as {@link handleVoidSessionBasket} (rule 14) but keeps
+   *  every original item ACTIVE and creates a REFUND row per item. */
+  const handleRefundSessionBasket = useCallback(
+    async (sessionId: number) => {
+      if (
+        !confirm(
+          `Refund the entire session #${sessionId} basket? Every item's money, cost, and profit will be reversed, including any loto prize or account credit from this basket. This cannot be undone.`,
+        )
+      )
+        return;
+      try {
+        const res = await refundSessionBasket(sessionId);
+        if (res.success) load();
+        else
+          alert(describeActionFailure(res.error, "Refunding a session basket"));
+      } catch (err) {
+        alert(describeActionFailure(err, "Refunding a session basket"));
+      }
+    },
+    [load],
+  );
+
+  // One stable object for every row's ActionsCell — the handlers are
   // already memoised individually, so this only re-creates when one of them
   // genuinely changes.
   const rowActionHandlers: RowActionHandlers = useMemo(
@@ -360,8 +437,17 @@ export default function TransactionsViewer({
       onVoid: handleVoid,
       onRefund: handleRefund,
       onVoidCheckoutGroup: handleVoidCheckoutGroup,
+      onVoidSessionBasket: handleVoidSessionBasket,
+      onRefundSessionBasket: handleRefundSessionBasket,
     }),
-    [handlePrintReceipt, handleVoid, handleRefund, handleVoidCheckoutGroup],
+    [
+      handlePrintReceipt,
+      handleVoid,
+      handleRefund,
+      handleVoidCheckoutGroup,
+      handleVoidSessionBasket,
+      handleRefundSessionBasket,
+    ],
   );
 
   function toggleLegExpand(rowId: number) {
@@ -383,14 +469,26 @@ export default function TransactionsViewer({
    * `billsCommissionModeLine` — LIRA-137 owner follow-up, "either method
    * picked, should appear in the payment detail" — is the ONE other reason
    * this row can have something to disclose, see its own doc comment).
+   *
+   * LIRA-201b fix round (M3): `legs` is always THIS row's own legs only,
+   * including on the session's chosen group-header row. The basket's
+   * pooled legs (when this row is that header) render in their own
+   * labelled "Session #N pooled:" section below the own legs — never
+   * merged into the same list — so the printed/exported detail matches
+   * exactly what the Summary column's own line + "Session:" line show on
+   * screen for that one row.
    */
   function buildLegDetailTr(row: TransactionRow, keySuffix: string) {
     const legs = methodLegsFor(row);
+    const isHeader = isRowGroupHeader(row);
+    const pooledLegs = isHeader ? sessionPooledMethodLegsFor(row) : [];
     const commissionAmount = billsOnlyCommissionAmount(row);
     const modeLine = commissionAmount
       ? billsCommissionModeLine(row, commissionAmount, methodLabelByCode)
       : null;
-    if (legs.length === 0 && !modeLine) return null;
+    if (legs.length === 0 && pooledLegs.length === 0 && !modeLine) {
+      return null;
+    }
     return (
       <tr
         key={`legdetail-${row.id}-${keySuffix}`}
@@ -405,11 +503,28 @@ export default function TransactionsViewer({
               <div data-testid={`commission-mode-${row.id}`}>{modeLine}</div>
             )}
             {legs.map((leg, i) => (
-              <div key={i}>
+              <div key={`own-${i}`}>
                 {leg.direction === "in" ? "In" : "Out"} —{" "}
                 {legMethodLabel(leg, methodLabelByCode)}: {formatLegAmount(leg)}
               </div>
             ))}
+            {pooledLegs.length > 0 && (
+              <div
+                data-testid={`session-legs-detail-${row.id}`}
+                className="mt-0.5 pt-0.5 border-t border-slate-800/40 text-sky-500/70"
+              >
+                <div className="font-semibold">
+                  Session #{row.session_id} pooled:
+                </div>
+                {pooledLegs.map((leg, i) => (
+                  <div key={`pooled-${i}`}>
+                    {leg.direction === "in" ? "In" : "Out"} —{" "}
+                    {legMethodLabel(leg, methodLabelByCode)}:{" "}
+                    {formatLegAmount(leg)}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </td>
       </tr>
@@ -429,7 +544,10 @@ export default function TransactionsViewer({
    * metadata ONCE for the cells that share those facts.
    */
   function buildTr(row: TransactionRow, sessionId: number | null) {
-    const derived = deriveRow(row);
+    // LIRA-201b: bundled onto `derived` (rather than a separate prop) so
+    // SummaryCell/MethodCell need only the one `derived` prop they already
+    // receive — see deriveRow's second-argument doc.
+    const derived = deriveRow(row, isRowGroupHeader(row));
     return (
       <tr
         key={row.id}
@@ -572,6 +690,9 @@ export default function TransactionsViewer({
             return row.returned_credits_usd ?? 0;
           if (key === "reverses_id") return row.reverses_id ?? 0;
           if (key === "payment_method")
+            // LIRA-201b fix round (M3): own-only, matching MethodCell's
+            // display (the pooled basket method never merges in — see
+            // methodLegsFor's doc).
             return formatPaymentMethods(methodLegsFor(row), methodLabelByCode);
           return String((row as Record<string, unknown>)[key] ?? "");
         }}

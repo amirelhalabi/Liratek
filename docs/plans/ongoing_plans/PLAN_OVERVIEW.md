@@ -20,8 +20,10 @@ The 2026-09-16 sweep checked 26 plans and found **11 of them finished and filed 
 out of `todo_plans` (which means "nothing built yet") into `ongoing_plans`.
 
 **The sweep left a real board of 17 plans** — much smaller than the folders used to suggest.
-**Now 19** — counted from the folders on 2026-09-23, not from this line's history: **13 ongoing +
-6 todo**. The sixth `todo_plans/` entry is `OWNER_NOTES_2026-09-21.md`, added 2026-09-21 and missing
+**Now 21** — counted from the folders on 2026-09-25, not from this line's history: **15 ongoing +
+6 todo**, the two new ongoing entries being `LIRA-219_CLOSING_PROFIT_PARITY.md` and
+`OWNER_NOTES_REMAINING_BUILD.md`, both implemented and unit-verified 2026-09-25, uncommitted. The
+sixth `todo_plans/` entry is `OWNER_NOTES_2026-09-21.md`, added 2026-09-21 and missing
 from this index until 2026-09-23 — which mattered, because that document declares itself HIGHEST
 PRIORITY and says it supersedes §5 below. It is now in the table and in §5.
 `OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` was archived 2026-09-21 when its confirming web run came back
@@ -43,7 +45,20 @@ D13 no-op closed). Alongside them, `electron-app/create_db.sql`'s **rule-10 brea
 fails loudly from now on. **Two owner decisions** were taken and are recorded in `OWNER_NOTES` §0.5:
 audit scope is **BROAD** (staff keep both the Transactions and the Audit Log tabs), and the row
 actions stay **visible** to staff rather than being hidden behind a role check. Nine follow-up
-tickets — **LIRA-220 … LIRA-228** — were filed out of that work; the next free ID is **LIRA-229**.
+tickets — **LIRA-220 … LIRA-228** — were filed out of that work; **LIRA-229** and **LIRA-230** came out of the 2026-09-24 Profits audit. The next free ID is **LIRA-231**.
+
+**2026-09-25 — the rest of `OWNER_NOTES_2026-09-21.md` implemented and unit-verified, still
+uncommitted.** All four money bugs (#4/#15 D1, #6, #7/LIRA-203, #8/LIRA-204, #10/LIRA-206,
+#22/LIRA-088, #26/LIRA-215, #27/LIRA-217), the Profits-page audit (§6, PA-0..PA-4, including
+**LIRA-183** and **LIRA-209**'s #29/#14-slices-1-2), the Dashboard chart/tile (§7, DC-1..DC-12), the
+widened **LIRA-219** (own plan, `LIRA-219_CLOSING_PROFIT_PARITY.md`), and the remaining notes
+(#11, #13, #16, #19-21, #24, #28, lira-141, per the new `OWNER_NOTES_REMAINING_BUILD.md`) are all
+built. Gates are green (core/backend/electron/frontend jest, typecheck, lint, schema-equivalence,
+tenant-scoping, bind-arity); desktop e2e 310/3 failed and web e2e 118/3 failed/1 skipped, with all
+6 failures being stale specs that are now fixed but await the owner's re-run. **Nothing is
+committed.** What is left of the 29 notes: #1 and #25 (customer to confirm), #5 (voice note), #17
+(parked), #14 slice 3, a single-item basket reversal, and the two follow-ups this batch filed,
+**LIRA-229** and **LIRA-230** (still TODO).
 
 Two plans were opened **and** closed on 2026-09-20 without ever outliving a day on this board:
 `REMAINING_DESKTOP_E2E_FAILURES.md` (4 desktop specs) and `LIRA-195` (4 web specs). Both were
@@ -68,10 +83,12 @@ the eleven archived plans were completed by a commit landing *days after* that p
 **Size** is the remaining work only, not the original plan. **Money** means the remaining work
 writes transactions, payments, drawers, ledgers or profit.
 
-### `ongoing_plans/` — started, unfinished (13)
+### `ongoing_plans/` — started, unfinished (15)
 
 | Plan | What's actually left | Size | Money |
 | --- | --- | --- | --- |
+| `LIRA-219_CLOSING_PROFIT_PARITY.md` 🆕 | **Implemented and unit-verified 2026-09-25** (unit/typecheck/lint green; e2e re-run of 6 fixed specs pending with the owner); not yet committed at the time of writing. Left: the owner's e2e re-run, then commit | Small (verification only) | yes |
+| `OWNER_NOTES_REMAINING_BUILD.md` 🆕 | **Implemented and unit-verified 2026-09-25** (unit/typecheck/lint green; e2e re-run of 6 fixed specs pending with the owner); not yet committed at the time of writing. Covers #11, #13, #16, #19-21, #24, #28, lira-141 from `OWNER_NOTES_2026-09-21.md`. Left: the owner's e2e re-run, then commit | Small (verification only) | yes |
 | `PRIMARY_CASH_DRAWER_PLAN.md` | Cosmetic tail only. Dead `getBalance()` closure (`DrawerTopUpRepository.ts:617`), unused `primaryCashDrawerName` import (`FinancialServiceRepository.ts:23`), ~3 JSDoc blocks still describing the withdrawn `InsufficientDrawerFundsError` as live. **Header still says "PLANNED" — it shipped long ago** | Small | no |
 | `COMMISSION_AT_SETTLEMENT_PLAN.md` | **One doc edit + one owner question.** Phase 2 shipped (`43948a35`); Phase 3 shipped in FOUR commits (`8c453764`, `8a868fe3`, `7d595c24`, `b5619433`) **except its LIRA-108-residual bullet** — `ProfitRepository.ts:2605-2608` still says the `provider IN (COMMISSION_PROVIDERS)` narrowing is *"deliberately NOT adopted … a separate owner-facing semantics question"*. Phase 4 is the `docs/COUNTERPARTY_LEDGERS.md` rewrite for the gross/at-settlement model, never done. Header corrected 2026-09-22, re-corrected 2026-09-23 | Small | no |
 | `MULTI_TENANT_IMPLEMENTATION_PLAN.md` | **WP9 only** — a browser e2e covering super-admin → provision → impersonate → tenant isolation. Everything else is live: `tenantContext.ts`, admin routes, impersonation banner, CI scoping linter | Small | yes |
@@ -90,7 +107,7 @@ writes transactions, payments, drawers, ledgers or profit.
 
 | Plan | What's there | Size | Money |
 | --- | --- | --- | --- |
-| `OWNER_NOTES_2026-09-21.md` 🔴 | **HIGHEST PRIORITY — the only document on this board describing what a human hit while running the shop.** 29 notes from the customer using the web app, triaged against source. **22 needed new tickets; 3 are now DONE** (LIRA-198/205/208, 2026-09-23), so **19 remain**, four of them money bugs nobody has reproduced yet (LIRA-204 debt settle leaves −340 LBP · LIRA-206 buy-back double-credits the drawer · LIRA-215 expenses miss Profits · LIRA-217 debts feed Profits revenue). **Two notes REVERSE decisions you confirmed in the last six weeks** (D18 and D1) and cannot be built until you say so. It declares that it supersedes §5 of this file — see §5 | Large (19 tickets) | yes |
+| `OWNER_NOTES_2026-09-21.md` 🔴 | **HIGHEST PRIORITY — the only document on this board describing what a human hit while running the shop.** 29 notes from the customer using the web app, triaged against source. **Updated 2026-09-25: implemented and unit-verified, still uncommitted.** All four money bugs, the Profits-page audit, the Dashboard chart/tile and the widened LIRA-219 are built (see the 2026-09-25 note in §0 above). What's left: #1/#25 (customer to confirm), #5 (voice note), #17 (parked), #14 slice 3, a single-item basket reversal, and follow-ups **LIRA-229**/**LIRA-230** (still TODO). It declares that it supersedes §5 of this file — see §5 | Small (6 items left, none new code) | no (money fixes already built) |
 | `LIRA-196_TENANT_DAY_BOUNDARY.md` 🆕 | **`'localtime'` is the SERVER's timezone, not the shop's.** ~43 date queries across 10 repositories say "today" and mean the server's day. On desktop that is Beirut and correct; on Fly (UTC) a Beirut shop's day rolls over at **03:00 local**, so midnight-to-3am money is attributed to the previous day — silently, never zero, never throwing. Rule 27, 4th+ instance. **Blocked on one owner decision: where does a tenant's timezone live?** | Medium | yes (reporting) |
 | `SYRIA_REMITTANCE_PLAN.md` 🆕 | Everything. A custom transfer provider that can **pay OUT** — today `useSystemDrawerFlow = isOMT \|\| isWHISH` (`FinancialServiceRepository.ts:2878`) means any other provider's RECEIVE **credits** the drawer instead of debiting it. Mostly reuse: the `ExchangeRepository` FOR-partner posting shape + the existing provider taxonomy. **6 owner decisions first** — D6 asks whether to reverse the recorded "Syria belongs in Custom Services" position | Medium | yes |
 | `OPEN_PUBLIC_SIGNUP_PLAN.md` | Everything: Turnstile (zero matches repo-wide), `pending` tenant status (CHECK still `active/suspended/archived`), verified contact email, URL invite-code prefill. The signup page it gates already shipped. **The only plan whose header is honest about being untouched** | Large | no |
@@ -356,6 +373,6 @@ Every row was checked against source. Three carry caveats:
 | `profit-audit-2026-09` | **Low** | Partially-crashed automated run; 2 of 19 findings spot-checked, the rest assumed open |
 | `WEB_PARITY_ROADMAP` | **Medium** | The 117-vs-7 spec count is a hard number, but the specs were not individually audited for shim status |
 | `SPRINT_INVENTORY_2026-08-12` | **Medium** | Proven dated, but its **18** line items (19 before LIRA-110 was struck 2026-09-22) were not each re-verified against HEAD |
-| `OWNER_NOTES_2026-09-21` | **Medium** | Its §4a ticket mapping was checked against source and 3 of its tickets have since shipped; but **none of its four money bugs has been reproduced** — their mechanisms are hypotheses, per its own §3 |
+| `OWNER_NOTES_2026-09-21` | **Medium** | Its §4a ticket mapping was checked against source. **Updated 2026-09-25:** all four money bugs and the remaining notes are now implemented and unit-verified (jest/typecheck/lint green); confidence stays Medium only because the confirming desktop/web e2e re-run (6 stale specs, now fixed) and the commit itself are still pending with the owner |
 | `COMMISSION_AT_SETTLEMENT_PLAN` | **Medium** | Phases 0-2 and three of Phase 3's five bullets are source-verified; Phase 3's LIRA-108 residual is confirmed OPEN for the provider-set half and **unverified** for the other two halves |
 | All others | **High** | Named artifact located in source, or a clean negative grep for a specific unambiguous symbol |

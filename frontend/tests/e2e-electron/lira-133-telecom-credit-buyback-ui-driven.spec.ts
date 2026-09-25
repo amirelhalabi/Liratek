@@ -318,4 +318,110 @@ test.describe("CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — telecom credit buy-bac
     expect(afterVoidCredits - beforeCredits).toBeCloseTo(0, 2);
     expect(afterVoid.generalLbp - before.generalLbp).toBeCloseTo(0, 0);
   });
+
+  /**
+   * Fix round 1 (major, issue no-e2e-case2): owner note #21 case 2 — the
+   * checkbox seeded above defaults ON (case 1, buy-back); this test
+   * UNTICKS it, driving the exact frontend↔repository seam
+   * `TelecomForm.tsx`'s `isCreditBuyback` / `Recharge/index.tsx`'s
+   * `deriveSubmittedRechargeType` compute: the same shop-line phone number,
+   * but the money direction flips (cash IN, not OUT), the submitted type
+   * becomes `SHOP_LINE_USE` instead of `CREDIT_BUYBACK`, and — unlike a
+   * plain CREDIT_TRANSFER — NO SMS_Transfer_Fee expense is booked. Rule 17:
+   * proven failing-first by temporarily dropping `&& shopLineBuyback` from
+   * `isCreditBuyback` in TelecomForm.tsx (reverted after confirming) — the
+   * "Proceed to Pay" button/`Price to Client` label assertions below would
+   * then fail (the form would stay flipped to the buy-back shape even with
+   * the box unticked).
+   */
+  test("unticking the shop-line checkbox books an ordinary credit sale (SHOP_LINE_USE): cash IN, no SMS fee, allowed in a session", async ({
+    appPage,
+  }) => {
+    const phone = `03${Date.now().toString().slice(-6)}`;
+    const CREDITS = 4.21; // distinctive — no other spec mints this face value
+    const PRICE_LBP = 378_900;
+
+    const { id: lineId, creditsBefore } = await seedPrimaryMtcLine(
+      appPage,
+      phone,
+    );
+
+    await navigateTo(appPage, "/");
+    await navigateTo(appPage, "/recharge");
+
+    const phoneInput = appPage.locator("#telecom-phone");
+    await expect(phoneInput).toBeVisible({ timeout: 15_000 });
+    await phoneInput.fill(phone);
+
+    // Checkbox is shown (shop-line match) and ON by default (case 1).
+    const checkbox = appPage.getByTestId("shop-line-buyback-checkbox");
+    await expect(checkbox).toBeVisible({ timeout: 10_000 });
+    await expect(checkbox).toBeChecked();
+
+    // ── Untick: flips to case 2 — the seam this test exists to prove ──────
+    await checkbox.uncheck();
+    await expect(appPage.getByTestId("shop-line-buyback-note")).toHaveText(
+      /charged to the customer/i,
+    );
+    await expect(appPage.getByText("Price to Client")).toBeVisible();
+    const submitBtn = appPage.getByRole("button", { name: /^Proceed to Pay$/ });
+    await expect(submitBtn).toBeVisible();
+
+    await appPage.locator("#telecom-amount").fill(String(CREDITS));
+    await appPage.locator("#telecom-price").fill(String(PRICE_LBP));
+
+    const before = await drawers(appPage);
+    const beforeCredits = await readCarrierLineCredits(appPage, lineId);
+    expect(beforeCredits).toBeCloseTo(creditsBefore, 2);
+    const beforeExpenseCount = await appPage.evaluate(async () => {
+      // `db:get-today-expenses` is a read — raw array, no {success} envelope
+      // (dual-transport doc: "Reads return the RAW IPC shape").
+      const rows = await (
+        window as unknown as {
+          api: { expenses: { getToday: () => Promise<unknown[]> } };
+        }
+      ).api.expenses.getToday();
+      return Array.isArray(rows) ? rows.length : 0;
+    });
+
+    await submitBtn.click();
+
+    // Ordinary PaymentSheet (no "Confirm Cashout" override for case 2) —
+    // default label is `Pay <amount> LBP`. Matched loosely on the LBP
+    // suffix (not the exact `.toLocaleString()` separators) so this can't
+    // drift with a locale/ICU difference between the test runner and the
+    // renderer — the SAME reason the rest of this file matches by name/
+    // identity rather than reformatting a number itself.
+    const confirmBtn = appPage.getByRole("button", {
+      name: /^Pay [\d,]+ LBP$/,
+    });
+    await expect(confirmBtn).toBeVisible({ timeout: 10_000 });
+    await confirmBtn.click();
+
+    await expect(appPage.locator("#telecom-amount")).toHaveValue("", {
+      timeout: 15_000,
+    });
+
+    const after = await drawers(appPage);
+    const afterCredits = await readCarrierLineCredits(appPage, lineId);
+    const afterExpenseCount = await appPage.evaluate(async () => {
+      const rows = await (
+        window as unknown as {
+          api: { expenses: { getToday: () => Promise<unknown[]> } };
+        }
+      ).api.expenses.getToday();
+      return Array.isArray(rows) ? rows.length : 0;
+    });
+
+    // Cash came IN (General LBP grew by the price), not out — the opposite
+    // direction from case 1's payout in the test above.
+    expect(after.generalLbp - before.generalLbp).toBeCloseTo(PRICE_LBP, 0);
+    // The PRIMARY line lost the credits — same "credits move on the
+    // selected/primary line" rule as case 1.
+    expect(afterCredits - beforeCredits).toBeCloseTo(-CREDITS, 2);
+    // No SMS_Transfer_Fee (or any other) expense — case 2 is excluded from
+    // the `type === "CREDIT_TRANSFER"` SMS gate by carrying its own
+    // SHOP_LINE_USE type.
+    expect(afterExpenseCount).toBe(beforeExpenseCount);
+  });
 });

@@ -383,11 +383,11 @@ export default function TopUpModal({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-lg bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
+        className="relative w-full max-w-lg max-h-[90vh] bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <Wallet className="text-slate-400" size={18} />
             Top Up {getProviderLabel()} Drawer
@@ -402,7 +402,7 @@ export default function TopUpModal({
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
           {isWhishTopUp && (
             <>
               {/* Sub-mode toggle: Via Partner / From Client */}
@@ -835,48 +835,48 @@ export default function TopUpModal({
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Footer Actions */}
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="flex-1 px-4 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors font-medium text-sm disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={
-                isSubmitting ||
-                !amount ||
-                parseFloat(amount) <= 0 ||
-                (isWhishTopUp
-                  ? whishMode === "partner"
-                    ? !selectedPartnerId
-                    : clientPayoutTargetInvalid ||
-                      clientPayoutPositiveLegs.length === 0
-                  : !isSupplierCredit && parseFloat(amount) > sourceBalance)
-              }
-              className={`flex-1 px-4 py-2.5 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg ${
-                isWhishTopUp && whishMode === "client"
-                  ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20"
-                  : "bg-violet-600 hover:bg-violet-500 shadow-violet-500/20"
-              }`}
-            >
-              {isSubmitting
-                ? "Processing..."
-                : isWhishTopUp
-                  ? whishMode === "partner"
-                    ? "Top Up via Partner"
-                    : "Buy Credits from Client"
-                  : isSupplierCredit
-                    ? "Confirm Supplier Credit"
-                    : "Confirm Top-Up"}
-            </button>
-          </div>
+        {/* Footer Actions */}
+        <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-slate-700/60">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="flex-1 px-4 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors font-medium text-sm disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={
+              isSubmitting ||
+              !amount ||
+              parseFloat(amount) <= 0 ||
+              (isWhishTopUp
+                ? whishMode === "partner"
+                  ? !selectedPartnerId
+                  : clientPayoutTargetInvalid ||
+                    clientPayoutPositiveLegs.length === 0
+                : !isSupplierCredit && parseFloat(amount) > sourceBalance)
+            }
+            className={`flex-1 px-4 py-2.5 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg ${
+              isWhishTopUp && whishMode === "client"
+                ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20"
+                : "bg-violet-600 hover:bg-violet-500 shadow-violet-500/20"
+            }`}
+          >
+            {isSubmitting
+              ? "Processing..."
+              : isWhishTopUp
+                ? whishMode === "partner"
+                  ? "Top Up via Partner"
+                  : "Buy Credits from Client"
+                : isSupplierCredit
+                  ? "Confirm Supplier Credit"
+                  : "Confirm Top-Up"}
+          </button>
         </div>
       </div>
     </div>

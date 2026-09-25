@@ -62,12 +62,27 @@ export type TransactionRow = {
   // being loaded on the same page/filter. See actionGating.ts.
   reversed_by_id?: number | null;
   // LIRA-064: structured payment breakdown (may be absent on legacy rows).
+  // ALWAYS this row's own legs only (LIRA-201b) — never the session
+  // basket's pooled legs; see session_payments below for those.
   payments?: TransactionPaymentLeg[];
-  // CUSTOMER_ACCOUNT settlement of a session basket, sourced from debt_ledger
-  // (never written to `payments` — see TransactionWithUser in the backend for
-  // why). Kept separate so the cash-only Summary in:/out: line is unaffected;
-  // only the Method column should read this.
+  // CUSTOMER_ACCOUNT settlement charged directly against THIS transaction
+  // (never written to `payments` — see TransactionWithUser in the backend
+  // for why). Always absent on a session-basket row — see
+  // session_account_payments below for the basket's pooled equivalent.
   account_payments?: TransactionPaymentLeg[];
+  /**
+   * LIRA-201b (owner note #11-B) — the session basket's pooled cash legs,
+   * present on EVERY row of a session that has any (not just whichever
+   * member happens to hold its own legs). `TransactionsViewer` reads this to
+   * render the pooled in/out and payment detail ONCE, on a single
+   * session-group header row picked from the currently visible members
+   * (`sessionGroupHeaders.ts`) — every other member's own `payments` stays
+   * row-scoped. Never fed into any money computation.
+   */
+  session_payments?: TransactionPaymentLeg[];
+  /** The session-basket analogue of `session_payments`, for the pooled
+   *  CUSTOMER_ACCOUNT settlement of the basket (LIRA-201b). */
+  session_account_payments?: TransactionPaymentLeg[];
   /**
    * LIRA-205 — net telecom credit returned to the shop on this transaction
    * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), in USD.
@@ -134,8 +149,18 @@ function isRowVisibleForOption(
     return false;
   }
   if (option.cash_only) {
+    // LIRA-201b: `row.payments` is now ALWAYS this row's own legs only — a
+    // session member with no own legs no longer inherits the basket's cash
+    // leg into it (see TransactionRepository._attachPaymentLegs). Whether
+    // the till was actually touched for that member's session is answered
+    // by the pooled `session_payments` instead, so it must be included here
+    // too — otherwise a cash-paid session basket would silently vanish from
+    // "Cash only (till)" for every member except whichever one the pooled
+    // leg happens to sit on (usually none, since the basket payment is
+    // posted with transaction_id NULL).
     const legs = [
       ...(row.payments ?? []),
+      ...(row.session_payments ?? []),
       ...extraCurrencyLegs(row.type, row.metadata_json),
     ];
     if (!isCashTransaction(legs)) return false;

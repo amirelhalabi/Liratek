@@ -7,6 +7,7 @@ import {
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 import { messageFrom } from "./apiError";
+import { localDay } from "@/shared/utils/localDay";
 import type {
   ProductListFilters,
   DatabaseResetPreview,
@@ -17,15 +18,26 @@ import type {
   TransactionTypeFilterInput,
   SupplierAccountLinkInput,
   TopUpFromClientInput,
+  CommissionsReport,
+  NetProfitWindowResult,
+  ProfitSummary,
+  ProfitByModule,
+  ProfitModuleDetail,
+  // LIRA-214 (migration v183) — Hold Money's create/collect payloads,
+  // derived from the core schema (rule 21) instead of a hand-typed literal.
+  HoldMoneyCreateInput,
+  HoldMoneyCollectInput,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
   OMTAnalytics,
   DailyStatsSnapshot,
+  DailyStatsSnapshotQuery,
   MaintenanceStatusHistoryRow,
   AccountBalance,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  ChartDataPoint,
 } from "@liratek/ui";
 
 export type { ProductListFilters };
@@ -1704,14 +1716,42 @@ export async function getDashboardStats() {
   );
 }
 
-export async function getProfitSalesChart(type: "Sales" | "Profit") {
+/**
+ * DC-10 (OWNER_NOTES_2026-09-21.md §7.2, rule 27): `clientDay` is the day
+ * this rolling-30-day chart window ENDS on. Defaults to the browser's own
+ * `localDay()` — the frontend's clock, not the server's (the web backend
+ * has no idea what timezone the tenant is in) — so every EXISTING caller of
+ * `getProfitSalesChart(type)` keeps working unchanged while still supplying
+ * a correct, client-derived day on both transports.
+ */
+export async function getProfitSalesChart(
+  type: "Sales" | "Profit",
+  clientDay: string = localDay(),
+): Promise<ChartDataPoint[]> {
   return ipcOrHttp(
-    async () => getElectronApi().dashboard.getProfitSalesChart(type),
+    async () =>
+      getElectronApi().dashboard.getProfitSalesChart(type, clientDay),
     async () => {
-      const qs = new URLSearchParams({ type });
-      const res = await requestJson<{ success: boolean; chart: any[] }>(
-        `/api/dashboard/chart?${qs.toString()}`,
-      );
+      const qs = new URLSearchParams({ type, client_day: clientDay });
+      const res = await requestJson<{
+        success: boolean;
+        chart: ChartDataPoint[];
+        error?: string;
+      }>(`/api/dashboard/chart?${qs.toString()}`);
+      // DC7-WEB (round-1 review, OWNER_NOTES_2026-09-21.md §7.1): the
+      // `/chart` route now returns HTTP 200 `{success:false,error}` instead
+      // of letting a thrown DatabaseError become an uncaught 500 (rule 19c
+      // envelope parity with the IPC channel, which has no try/catch of its
+      // own and simply rejects on the same failure). Returning `res.chart`
+      // unconditionally used to resolve to `undefined` on that failure —
+      // `Array.isArray` then silently skips it in Dashboard.tsx's
+      // `loadData`, so the chart widget was never flagged even though IPC
+      // rejects on the identical failure. Throwing here restores parity:
+      // both transports now reject on a chart-load failure, so DC-7's
+      // `Promise.allSettled` surfaces it the same way on desktop and web.
+      if (!res.success) {
+        throw new Error(res.error || "Failed to load chart data");
+      }
       return res.chart;
     },
   );
@@ -1766,15 +1806,28 @@ export async function getInventoryStockStats() {
   );
 }
 
-export async function getMonthlyPL(month: string) {
+/**
+ * DC-11 (OWNER_NOTES_2026-09-21.md §7.2) — the "Net Profit — last 30 days"
+ * tile. Same rule-27 default as `getProfitSalesChart` above: `clientDay`
+ * defaults to the browser's own `localDay()` so an existing no-arg caller
+ * keeps working while still supplying a correct, client-derived day.
+ */
+export async function getNetProfitLast30Days(
+  clientDay: string = localDay(),
+): Promise<NetProfitWindowResult> {
   return ipcOrHttp(
-    async () => getElectronApi().financial.getMonthlyPL(month),
+    async () => getElectronApi().dashboard.getNetProfitLast30Days(clientDay),
     async () => {
-      const qs = new URLSearchParams({ month });
-      const res = await requestJson<{ success: boolean; pl: any }>(
-        `/api/dashboard/monthly-pl?${qs.toString()}`,
-      );
-      return res.pl;
+      const qs = new URLSearchParams({ client_day: clientDay });
+      const res = await requestJson<{
+        success: boolean;
+        netProfit?: NetProfitWindowResult;
+        error?: string;
+      }>(`/api/dashboard/net-profit-last-30-days?${qs.toString()}`);
+      if (!res.success || !res.netProfit) {
+        throw new Error(res.error || "Failed to load net profit");
+      }
+      return res.netProfit;
     },
   );
 }
@@ -2336,15 +2389,34 @@ export async function hasStartingCheckpoint(): Promise<boolean> {
   }
 }
 
-export async function getDailyStatsSnapshot(): Promise<DailyStatsSnapshot> {
-  if (isElectron()) {
-    return (window as any).api.closing.getDailyStatsSnapshot();
-  }
-  const res = await requestJson<{
-    success: boolean;
-    stats: DailyStatsSnapshot;
-  }>("/api/closing/daily-stats-snapshot");
-  return res.stats;
+// LIRA-219 (C.4, rule 22): ONE payload built once — `input` — handed to
+// BOTH branches unchanged; `ipcOrHttp` is the only place that branches on
+// transport. `input` is typed as the schema's own `z.input` (rule 21), not a
+// hand-copied shape.
+export async function getDailyStatsSnapshot(
+  input?: DailyStatsSnapshotQuery,
+): Promise<DailyStatsSnapshot> {
+  return ipcOrHttp(
+    async () => getElectronApi().closing.getDailyStatsSnapshot(input),
+    async () => {
+      const qs = new URLSearchParams();
+      if (input?.day) qs.set("day", input.day);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      const res = await requestJson<{
+        success: boolean;
+        stats?: DailyStatsSnapshot;
+        error?: string;
+      }>(`/api/closing/daily-stats-snapshot${suffix}`);
+      // Rule 19c: the route answers HTTP 200 even on failure, so a failed
+      // read is a `{success:false}` body here, not a thrown HTTP error —
+      // convert it to a rejected promise so callers don't have to special-
+      // case a missing `stats` (same as every other IPC-shaped read).
+      if (!res.success || !res.stats) {
+        throw new Error(res.error ?? "Failed to get daily stats");
+      }
+      return res.stats;
+    },
+  );
 }
 
 export async function recalculateDrawerBalances(): Promise<{
@@ -2684,6 +2756,10 @@ export async function settleSupplierAccount(
       amount: number;
       direction?: "IN" | "OUT";
     }>;
+    /** LIRA-203 — pay MORE than `selections` net to; the difference is
+     *  booked as a standalone account credit (direction: "PAY" only). */
+    surplus_usd?: number;
+    surplus_lbp?: number;
   },
 ) {
   return ipcOrHttp(
@@ -3248,6 +3324,50 @@ export async function voidCheckoutGroup(
   );
 }
 
+export interface SessionBasketReversalResult {
+  success: boolean;
+  sessionId?: number;
+  itemCount?: number;
+  reversedTransactionIds?: number[];
+  reversalIds?: number[];
+  error?: string;
+}
+
+/**
+ * LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — void every item in a
+ * customer-session basket, plus its pooled cash leg(s) and pooled debt
+ * (Session Debt / CREDIT_DEPOSIT), in ONE transaction. Replaces the
+ * "Basket item — see admin to reverse" dead end — a bare
+ * `voidTransaction`/`refundTransaction` on a session-linked row is refused
+ * by the repository guard. Mirrors `voidCheckoutGroup` immediately above
+ * (rule 14).
+ */
+export async function voidSessionBasket(
+  sessionId: number,
+): Promise<SessionBasketReversalResult> {
+  if (isElectron()) {
+    return (window as any).api.transactions.voidSessionBasket(sessionId);
+  }
+  return requestJson<SessionBasketReversalResult>(
+    `/api/transactions/session-basket/${encodeURIComponent(String(sessionId))}/void`,
+    { method: "POST" },
+  );
+}
+
+/** Same shape as {@link voidSessionBasket} (rule 14) but keeps every
+ *  original item ACTIVE and creates a REFUND row per item. */
+export async function refundSessionBasket(
+  sessionId: number,
+): Promise<SessionBasketReversalResult> {
+  if (isElectron()) {
+    return (window as any).api.transactions.refundSessionBasket(sessionId);
+  }
+  return requestJson<SessionBasketReversalResult>(
+    `/api/transactions/session-basket/${encodeURIComponent(String(sessionId))}/refund`,
+    { method: "POST" },
+  );
+}
+
 export async function getTransactionDailySummary(date: string) {
   if (isElectron()) {
     return (window as any).api.transactions.dailySummary(date);
@@ -3343,12 +3463,15 @@ export async function getReportOverdueDebts() {
 
 // ==================== Profits API ====================
 
-export async function getProfitSummary(from: string, to: string) {
+export async function getProfitSummary(
+  from: string,
+  to: string,
+): Promise<ProfitSummary> {
   return ipcOrHttp(
     async () => getElectronApi().profits.summary(from, to),
     async () => {
       const qs = new URLSearchParams({ from, to });
-      const res = await requestJson<{ success: boolean; data: any }>(
+      const res = await requestJson<{ success: boolean; data: ProfitSummary }>(
         `/api/profits/summary?${qs}`,
       );
       return res.data;
@@ -3356,15 +3479,50 @@ export async function getProfitSummary(from: string, to: string) {
   );
 }
 
-export async function getProfitByModule(from: string, to: string) {
+export async function getProfitByModule(
+  from: string,
+  to: string,
+): Promise<ProfitByModule[]> {
   return ipcOrHttp(
     async () => getElectronApi().profits.byModule(from, to),
     async () => {
       const qs = new URLSearchParams({ from, to });
-      const res = await requestJson<{ success: boolean; data: any[] }>(
-        `/api/profits/by-module?${qs}`,
-      );
+      const res = await requestJson<{
+        success: boolean;
+        data: ProfitByModule[];
+      }>(`/api/profits/by-module?${qs}`);
       return res.data || [];
+    },
+  );
+}
+
+// PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the By
+// Module drill-down's "Show transactions" list.
+export async function getProfitModuleDetail(
+  moduleKey: string,
+  from: string,
+  to: string,
+): Promise<ProfitModuleDetail> {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.moduleDetail(moduleKey, from, to),
+    async () => {
+      const qs = new URLSearchParams({ module: moduleKey, from, to });
+      const res = await requestJson<{
+        success: boolean;
+        data: ProfitModuleDetail;
+        error?: string;
+      }>(`/api/profits/module-detail?${qs}`);
+      // LC-2 precedent (getProfitsCommissions, same file) — this route's
+      // query is schema-validated (a missing `module` fails it) and a
+      // module the service doesn't support yet (slice 3) throws too, both
+      // as HTTP 200 `{success:false, error}` (rule 19c), never a non-2xx
+      // requestJson would reject on its own. Throwing here lets the
+      // Profits.tsx caller's own catch block show the real reason instead
+      // of silently rendering `undefined` as an empty drill-down.
+      if (!res.success) {
+        throw new Error(res.error || "Failed to load transactions for this module.");
+      }
+      return res.data;
     },
   );
 }
@@ -3391,6 +3549,42 @@ export async function getProfitByPaymentMethod(from: string, to: string) {
         `/api/profits/by-payment-method?${qs}`,
       );
       return res.data || [];
+    },
+  );
+}
+
+// Commissions tab (OWNER_NOTES_2026-09-21.md §6, lane LC) — a NEW,
+// Profits-gated read path, separate from `getOMTAnalytics`/
+// `getSuppliersUnsettledSummary` (those keep serving the Services/Recharge
+// pages unchanged). Read — raw shape (adapter contract: reads return raw).
+export async function getProfitsCommissions(
+  from: string,
+  to: string,
+): Promise<CommissionsReport> {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.commissions(from, to),
+    async () => {
+      const qs = new URLSearchParams({ from, to });
+      const res = await requestJson<{
+        success: boolean;
+        data: CommissionsReport;
+        error?: string;
+      }>(`/api/profits/commissions?${qs}`);
+      // LC-2 (round-2 review, OWNER_NOTES_2026-09-21.md §6, lane LC): the
+      // route answers a validation failure — including an EMPTY from/to,
+      // which `commissionsReportQuerySchema`'s regex rejects rather than
+      // falling back to today() the way every other Profits route's
+      // `|| todayISO()` would have — with HTTP 200 `{success:false, error}`
+      // (rule 19c). `return res.data` used to swallow that into
+      // `setCommissionsReport(undefined)`: no error box, no loading state,
+      // a silently blank tab, defeating the PA-4.16 error state this same
+      // lane ships for every other failure mode. Throwing here lets
+      // Profits.tsx's `loadCommissions` catch block (already wired for
+      // PA-4.16) show it instead.
+      if (!res.success) {
+        throw new Error(res.error || "Failed to load commissions report");
+      }
+      return res.data;
     },
   );
 }
@@ -4437,14 +4631,7 @@ export async function holdMoneyActive() {
   );
 }
 
-export async function holdMoneyCreate(data: {
-  client_name: string;
-  phone_number?: string;
-  usd_amount?: number;
-  lbp_amount?: number;
-  notes?: string;
-  transaction_time?: string;
-}) {
+export async function holdMoneyCreate(data: HoldMoneyCreateInput) {
   return ipcOrHttp(
     async () => getElectronApi().holdMoney.create(data),
     async () =>
@@ -4455,12 +4642,39 @@ export async function holdMoneyCreate(data: {
   );
 }
 
-export async function holdMoneyCollect(id: number) {
+/** Every pickup event (voided or not) for one hold — detail view + void
+ *  action source list. */
+export async function holdMoneyPickups(holdMoneyId: number) {
   return ipcOrHttp(
-    async () => getElectronApi().holdMoney.collect(id),
+    async () => getElectronApi().holdMoney.pickups(holdMoneyId),
     async () =>
-      requestJson<{ success: boolean; error?: string }>(
-        `/api/hold-money/${id}/collect`,
+      requestJson<{ success: boolean; data?: any[]; error?: string }>(
+        `/api/hold-money/${holdMoneyId}/pickups`,
+      ),
+  );
+}
+
+/** LIRA-214 (migration v183) — collect part or all of a hold. Omitting
+ *  usd_amount/lbp_amount defaults each to the hold's full remaining
+ *  balance in that currency. */
+export async function holdMoneyCollect(data: HoldMoneyCollectInput) {
+  return ipcOrHttp(
+    async () => getElectronApi().holdMoney.collect(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/hold-money/${data.id}/collect`,
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+/** Void (reverse) one pickup event — the rule-20 reversal owner. */
+export async function holdMoneyVoidPickup(pickupId: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().holdMoney.voidPickup(pickupId),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/hold-money/pickups/${pickupId}/void`,
         { method: "POST" },
       ),
   );
@@ -5533,6 +5747,10 @@ export async function addCustomService(data: {
   /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
    *  service and we owe them the cost instead. */
   partnerMode?: "FOR" | "VIA";
+  /** OWNER_NOTES_REMAINING_BUILD.md #16 — "OUT" is a payout (Via-Partner
+   *  only): cash leaves the General drawer to a local recipient instead of
+   *  a customer paying the shop. Omitted/"IN" is the existing flow. */
+  direction?: "IN" | "OUT";
   /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
    *  operator picked a product from the inventory SearchBar; decrements 1
    *  unit of stock. Omitted (preset/free-text) -> NULL -> no stock movement. */
@@ -6457,6 +6675,9 @@ export type CarrierLineEntity = {
   label: string | null;
   credits: number;
   validity_expires_at: string | null;
+  /** v184 (#28) — sold-ahead balance: days a DAYS sale promised the customer
+   *  that the line's real remaining days couldn't cover at sale time. */
+  days_owed: number;
   notes: string | null;
   is_active: number;
   /** LIRA-090 (v140): 1 if this is the primary line for its carrier.
@@ -6470,6 +6691,21 @@ export type CarrierLineWriteResult = {
   success: boolean;
   data?: CarrierLineEntity;
   error?: string;
+};
+
+/** v184 (#28, LIRA-218) — one "days still to send" list entry. */
+export type CarrierLineOwedDeliveryEntity = {
+  id: number;
+  carrier_line_id: number;
+  transaction_id: number | null;
+  client_id: number | null;
+  client_name: string | null;
+  days_owed: number;
+  status: "PENDING" | "SENT";
+  sent_at: string | null;
+  sent_by: number | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export async function getActiveCarrierLines(
@@ -6649,6 +6885,50 @@ export async function recordCarrierLineUsage(
         method: "POST",
         body: data,
       }),
+  );
+}
+
+/** v184 (#28, LIRA-218) — envelope for {@link getPendingCarrierLineOwedDeliveries}. */
+export type CarrierLineOwedDeliveryListResult = {
+  success: boolean;
+  data?: CarrierLineOwedDeliveryEntity[];
+  error?: string;
+};
+
+/** v184 (#28) — envelope for {@link markCarrierLineOwedDeliverySent}. */
+export type MarkCarrierLineOwedDeliverySentResult = {
+  success: boolean;
+  data?: CarrierLineOwedDeliveryEntity;
+  error?: string;
+};
+
+/** v184 (#28, LIRA-218): the "days still to send" list — every PENDING
+ *  delivery, across every line. Read-only, no role gate. */
+export async function getPendingCarrierLineOwedDeliveries(): Promise<CarrierLineOwedDeliveryListResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().carrierLines.getOwedDeliveriesPending(),
+    async () =>
+      requestJson<CarrierLineOwedDeliveryListResult>(
+        `/api/carrier-lines/owed-deliveries/pending`,
+      ),
+  );
+}
+
+/** v184 (#28): mark a pending delivery as physically sent to the customer.
+ *  Pure checklist bookkeeping — no second sale, no second charge, no
+ *  `carrier_lines.days_owed` write (see
+ *  `CarrierLineOwedDeliveryRepository`'s module doc). */
+export async function markCarrierLineOwedDeliverySent(
+  deliveryId: number,
+): Promise<MarkCarrierLineOwedDeliverySentResult> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().carrierLines.markOwedDeliverySent({ deliveryId }),
+    async () =>
+      requestJson<MarkCarrierLineOwedDeliverySentResult>(
+        `/api/carrier-lines/owed-deliveries/${deliveryId}/mark-sent`,
+        { method: "POST" },
+      ),
   );
 }
 

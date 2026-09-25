@@ -39,7 +39,7 @@
  * - RESET_PARTIAL_TABLES (1): `suppliers` — only ad-hoc (non-system,
  *   non-module) suppliers are deleted. See `SUPPLIER_KEEP_PREDICATE` below
  *   for why `is_system` alone is the wrong gate.
- * - RESET_WIPE_TABLES (53): every other tenant-owned operational table —
+ * - RESET_WIPE_TABLES (55): every other tenant-owned operational table —
  *   transactions, payments, drawer movements, ledgers, catalogs, contacts —
  *   deleted outright, tenant-scoped.
  *
@@ -101,10 +101,11 @@ export const RESET_RESEED_TABLES: readonly string[] = [
 /** WIPE PARTIAL (1) — see `SUPPLIER_KEEP_PREDICATE`. */
 export const RESET_PARTIAL_TABLES: readonly string[] = ["suppliers"];
 
-/** WIPE — full delete, tenant-scoped (53). */
+/** WIPE — full delete, tenant-scoped (55). */
 export const RESET_WIPE_TABLES: readonly string[] = [
   "audit_log",
   "carrier_line_movements",
+  "carrier_line_owed_deliveries",
   "carrier_lines",
   "clients",
   "custom_services",
@@ -124,6 +125,7 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "expenses",
   "financial_services",
   "hold_money",
+  "hold_money_pickups",
   "item_costs",
   "loto_cash_prizes",
   "loto_checkpoints",

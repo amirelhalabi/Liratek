@@ -18,6 +18,8 @@ import {
   lotoCheckpointsSettleBatchSchema,
   sessionCheckoutSchema,
   holdMoneyCreateSchema,
+  holdMoneyCollectSchema,
+  holdMoneyVoidPickupSchema,
   debtCashOutSchema,
   debtAccountEntrySchema,
   addRepaymentSchema,
@@ -44,11 +46,13 @@ import {
   batchUpdateProductsSchema,
   type BatchUpdateProductsInput,
   voidCheckoutGroupSchema,
+  sessionBasketReversalSchema,
   refundLegsSchema,
   carrierLineCreateSchema,
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
   recordCarrierLineUsageSchema,
+  markCarrierLineOwedDeliverySentSchema,
   mobileServiceItemUpdateSchema,
   mobileServiceItemCreateSchema,
   mobileServiceItemSeedSchema,
@@ -84,11 +88,13 @@ import {
   type StockAdjustInput,
   type ProductListFilters,
   type VoidCheckoutGroupInput,
+  type SessionBasketReversalInput,
   type RefundLegsInput,
   type CarrierLineCreateInput,
   type CarrierLineUpdateInput,
   type CarrierLineUpdateBalanceInput,
   type RecordCarrierLineUsageInput,
+  type MarkCarrierLineOwedDeliverySentInput,
   type MobileServiceItemUpdateInput,
   type MobileServiceItemCreateInput,
   type VoucherCreateInput,
@@ -98,6 +104,8 @@ import {
   type DebtUseCreditInput,
   type DebtWriteOffInput,
   type HoldMoneyCreateInput,
+  type HoldMoneyCollectInput,
+  type HoldMoneyVoidPickupInput,
   type SaleProcessInput,
   type LotoSellInput,
   type LotoCashPrizeInput,
@@ -195,6 +203,23 @@ import {
   type SetUserPasswordInput,
   type SetUserActiveInput,
   type SetUserRoleInput,
+  // DC-10/DC-11 dashboard chart + net-profit-tile query validation
+  // (OWNER_NOTES_2026-09-21.md §7.2) — shared with the REST routes via
+  // packages/core/src/validators/dashboard.ts (rule 14/19b).
+  dashboardChartQuerySchema,
+  netProfitWindowQuerySchema,
+  type DashboardChartQueryInput,
+  type NetProfitWindowQueryInput,
+  // LIRA-219 (C.4) — the closing checkpoint's daily-stats-snapshot query,
+  // shared with the REST route via packages/core/src/validators/closing.ts
+  // (rule 14/19b).
+  dailyStatsSnapshotQuerySchema,
+  type DailyStatsSnapshotQuery,
+  // D1 (OWNER_NOTES_2026-09-21.md §2b) — the OMT-RECEIVE-never-takes-a-fee
+  // rejection message, shared (rule 14) with FinancialServiceRepository's own
+  // guard via packages/core/src/validators/financial.ts. Reused below so this
+  // LOCAL duplicate schema's blanket D1 refine speaks with the same voice.
+  OMT_RECEIVE_NO_FEE_MESSAGE,
 } from "@liratek/core";
 
 // =============================================================================
@@ -210,6 +235,20 @@ export const SaleProcessSchema =
   saleProcessSchema as unknown as z.ZodSchema<SaleProcessInput>;
 
 export const SaleRefundSchema = z.number().int().positive();
+
+// DC-10/DC-11 (OWNER_NOTES_2026-09-21.md §7.2): the dashboard chart's
+// "Profit" series and the "Net Profit — last 30 days" tile both read a
+// rolling 30-day window ending on the CLIENT's own calendar day (rule 27).
+// Cast bridges the zod major mismatch, same as SaleProcessSchema above.
+export const DashboardChartQuerySchema =
+  dashboardChartQuerySchema as unknown as z.ZodSchema<DashboardChartQueryInput>;
+export const NetProfitWindowQuerySchema =
+  netProfitWindowQuerySchema as unknown as z.ZodSchema<NetProfitWindowQueryInput>;
+
+// LIRA-219 (C.4) — `closing:get-daily-stats-snapshot`'s optional `{day}`
+// payload. Cast bridges the zod major mismatch, same as the schemas above.
+export const DailyStatsSnapshotQuerySchema =
+  dailyStatsSnapshotQuerySchema as unknown as z.ZodSchema<DailyStatsSnapshotQuery>;
 
 // =============================================================================
 // Inventory
@@ -658,6 +697,41 @@ export const FinancialServiceSchema = z
   })
   .refine(
     (data) => {
+      // D1 (OWNER_NOTES_2026-09-21.md §2b, owner decision 2026-09-25) —
+      // LOCAL mirror of the core createFinancialServiceSchema's own D1
+      // refine (rule 14/19b: keep in sync with
+      // packages/core/src/validators/financial.ts). Kept FIRST in this
+      // chain, same reasoning as the core copy: an OMT/OMT_APP RECEIVE with
+      // a fee also matches the partner/zero-fee refines below, and
+      // validatePayload surfaces every issue joined together, but this one
+      // is the correct diagnosis and must not be crowded out. OMT_APP's fee
+      // travels in `commission` (not `omtFee`), so it ALSO rejects a nonzero
+      // `commission` — OMT's own `commission` is auto-derived bookkeeping
+      // and stays allowed.
+      const isOmtSystemReceive =
+        data.provider === "OMT" && data.serviceType === "RECEIVE";
+      const isOmtAppReceive =
+        data.provider === "OMT_APP" && data.serviceType === "RECEIVE";
+      if (!isOmtSystemReceive && !isOmtAppReceive) {
+        return true;
+      }
+      const hasFeeCollectionShape =
+        data.includingFees === true ||
+        (data.feePayments && data.feePayments.length > 0);
+      const hasAppWalletFee =
+        isOmtAppReceive && Math.abs(data.commission ?? 0) > 0;
+      if (hasFeeCollectionShape || hasAppWalletFee) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: OMT_RECEIVE_NO_FEE_MESSAGE,
+      path: ["feePayments"],
+    },
+  )
+  .refine(
+    (data) => {
       // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.4: feePayments is fee-on-top
       // RECEIVE only. `includingFees: true` nets the fee out of the payout
       // instead — there is nothing left for a separate fee leg to collect.
@@ -815,6 +889,12 @@ export const PositiveIdSchema = z.number().int().positive();
 export const VoidCheckoutGroupSchema =
   voidCheckoutGroupSchema as unknown as z.ZodSchema<VoidCheckoutGroupInput>;
 
+// LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — the session-basket
+// whole-void/refund contract, same shared-schema shape as
+// VoidCheckoutGroupSchema immediately above (rule 14).
+export const SessionBasketReversalSchema =
+  sessionBasketReversalSchema as unknown as z.ZodSchema<SessionBasketReversalInput>;
+
 // LIRA-078: operator-chosen refund return legs (method override). Shared with
 // the REST route the same way — packages/core/src/validators/transaction.ts,
 // rule 14. Validated only when present — a plain refund (no legs) never
@@ -853,6 +933,9 @@ export const CarrierLineUpdateBalanceSchema =
 // (rule 14). Same cast bridge as its siblings above.
 export const RecordCarrierLineUsageSchema =
   recordCarrierLineUsageSchema as unknown as z.ZodSchema<RecordCarrierLineUsageInput>;
+// v184 (#28, LIRA-218) — "days still to send" Mark Sent. Same cast bridge.
+export const MarkCarrierLineOwedDeliverySentSchema =
+  markCarrierLineOwedDeliverySentSchema as unknown as z.ZodSchema<MarkCarrierLineOwedDeliverySentInput>;
 export const MobileServiceItemUpdateSchema =
   mobileServiceItemUpdateSchema as unknown as z.ZodSchema<MobileServiceItemUpdateInput>;
 // LIRA-090: create path now has a schema (none existed before this ticket).
@@ -883,7 +966,8 @@ export const MobileServiceItemSeedSchema =
 // Custom Services
 // =============================================================================
 
-export const CustomServiceCreateSchema = z.object({
+export const CustomServiceCreateSchema = z
+  .object({
   description: z.string().min(1, "Description is required"),
   cost_usd: z.coerce.number().nonnegative().default(0),
   cost_lbp: z.coerce.number().nonnegative().default(0),
@@ -922,13 +1006,48 @@ export const CustomServiceCreateSchema = z.object({
   // the partner the cost). Kept in sync with the core createCustomServiceSchema
   // enum — same rule-14 local-duplicate trap noted above.
   partnerMode: z.enum(["FOR", "VIA"]).optional(),
+  // OWNER_NOTES_REMAINING_BUILD.md #16 (migration v185) — LOCAL duplicate of
+  // the core createCustomServiceSchema field (same rule-14 trap): "OUT" is a
+  // payout (Via-Partner only), see CustomServiceRepository's `isPayout`
+  // block. Omitting this here would silently strip `direction` on the
+  // desktop path and every submission would fall back to "IN". No
+  // `.default("IN")` — matches the core schema's own reasoning (kept
+  // truly optional so its inferred output type stays optional too).
+  direction: z.enum(["IN", "OUT"]).optional(),
   // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — LOCAL duplicate of the
   // core createCustomServiceSchema field (same rule-14 trap): an
   // inventory-backed service must decrement stock like a POS sale; omitting
   // this here would silently strip product_id on the desktop path and the
   // repository would never learn a product was involved.
   product_id: z.coerce.number().int().positive().optional(),
-});
+  })
+  // OWNER_NOTES_REMAINING_BUILD.md #16 (fix-round I2) — these two refines
+  // used to exist ONLY on the core `createCustomServiceSchema`, which REST
+  // validates against. Desktop validated with this LOCAL duplicate schema,
+  // which had the `direction` key but neither refine, so a direction:"OUT"
+  // submission with no partnerMode "VIA" (or with price/cost missing) sailed
+  // through IPC validation and reached `CustomServiceRepository.createService`
+  // unchecked — the repository's own defense-in-depth guards now reject it
+  // too, but the edge (rule 19) should reject it identically on both
+  // transports, not just on REST. Verbatim copies of the core schema's two
+  // refines (same rule-14 local-duplicate trap every other field in this
+  // schema already carries a comment for).
+  .refine((data) => data.direction !== "OUT" || data.partnerMode === "VIA", {
+    message:
+      "direction 'OUT' (pay out) is only valid for a Via-Partner custom service",
+    path: ["direction"],
+  })
+  .refine(
+    (data) =>
+      data.direction !== "OUT" ||
+      ((data.price_usd > 0 || data.price_lbp > 0) &&
+        (data.cost_usd > 0 || data.cost_lbp > 0)),
+    {
+      message:
+        "A payout needs both the amount that arrived (price) and the amount paid out (cost)",
+      path: ["cost_usd"],
+    },
+  );
 
 // LIRA-155 — advance an existing custom service's fulfilment status
 // (ORDERED -> ISSUED -> RECEIVED -> DELIVERED). Lifted from
@@ -950,6 +1069,13 @@ export const CustomServiceUpdateFulfillmentSchema =
 // zod-major mismatch (core=zod4, this workspace=zod3); runtime API identical.
 export const HoldMoneyCreateSchema =
   holdMoneyCreateSchema as unknown as z.ZodSchema<HoldMoneyCreateInput>;
+
+// LIRA-214 (migration v183) — pickup (collect) and pickup-void, same
+// lift-and-cast pattern as HoldMoneyCreateSchema above (rule 14).
+export const HoldMoneyCollectSchema =
+  holdMoneyCollectSchema as unknown as z.ZodSchema<HoldMoneyCollectInput>;
+export const HoldMoneyVoidPickupSchema =
+  holdMoneyVoidPickupSchema as unknown as z.ZodSchema<HoldMoneyVoidPickupInput>;
 
 // =============================================================================
 // Drawer Top-Up

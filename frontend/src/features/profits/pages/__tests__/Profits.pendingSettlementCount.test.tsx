@@ -17,7 +17,7 @@
  * repo (a props-level assertion on a helper alone would not catch it).
  *
  * Also covers the companion display fix in the "Commissions" tab's
- * "Provider Performance (Today)" table: Phase 2a made the per-provider
+ * "Provider Performance" table: Phase 2a made the per-provider
  * `commission` figure commission_model=0-only while `count` stayed
  * unrestricted, so an all-model-1 provider used to render "10 / $0.00" —
  * indistinguishable from ten transactions that genuinely earned nothing.
@@ -41,13 +41,17 @@ import Profits from "../Profits";
 // ---------------------------------------------------------------------------
 
 const mockGetProfitByPaymentMethod = jest.fn();
+// Guard (rule 24): the Commissions tab must never call these again — they
+// keep serving Services/Recharge only (PA-4.20).
 const mockGetOMTAnalytics = jest.fn();
 const mockGetUnsettledSummary = jest.fn();
+const mockGetProfitsCommissions = jest.fn();
 
 const mockApi = {
   getProfitByPaymentMethod: mockGetProfitByPaymentMethod,
   getOMTAnalytics: mockGetOMTAnalytics,
   getUnsettledSummary: mockGetUnsettledSummary,
+  getProfitsCommissions: mockGetProfitsCommissions,
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -88,10 +92,11 @@ async function renderPage() {
   return utils;
 }
 
-/** Find a "By Payment Method" row by a substring of its method label, and
- *  return its <td> cells in column order. Avoids screen.getByText on the
- *  method cell, which would ambiguously match both the <td> and its
- *  wrapping <div> (both share the same textContent). */
+/** Find a "Cash intake by method" row (PA-4.15 rename; internal tab key
+ *  unchanged) by a substring of its method label, and return its <td> cells
+ *  in column order. Avoids screen.getByText on the method cell, which would
+ *  ambiguously match both the <td> and its wrapping <div> (both share the
+ *  same textContent). */
 function paymentRowCells(
   container: HTMLElement,
   methodSubstring: string,
@@ -150,7 +155,7 @@ describe("Profits — By Payment Method tab, D15 pending-settlement count", () =
     ]);
 
     const { container } = await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /by payment method/i }));
+    fireEvent.click(screen.getByRole("button", { name: /cash intake by method/i }));
     await waitFor(() =>
       expect(mockGetProfitByPaymentMethod).toHaveBeenCalledTimes(1),
     );
@@ -181,14 +186,18 @@ describe("Profits — By Payment Method tab, D15 pending-settlement count", () =
     ]);
 
     const { container } = await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /by payment method/i }));
+    fireEvent.click(screen.getByRole("button", { name: /cash intake by method/i }));
     await waitFor(() =>
       expect(mockGetProfitByPaymentMethod).toHaveBeenCalledTimes(1),
     );
     await screen.findByText(/Commission Pending Settlement/);
 
     const cells = paymentRowCells(container, "Commission Pending Settlement");
-    expect(cells[1].textContent).toContain("$12.5000");
+    // LPAY-R3-6 (round-3 review): 2 decimals now, matching every other
+    // dollar figure on this tab — this pinned the pre-fix 4-decimal display
+    // ("$12.5000"), which the review named as a display defect to fix.
+    expect(cells[1].textContent).toContain("$12.50");
+    expect(cells[1].textContent).not.toContain("$12.5000");
     expect(cells[1].textContent).toContain(
       "2 transactions awaiting settlement",
     );
@@ -211,64 +220,107 @@ describe("Profits — By Payment Method tab, D15 pending-settlement count", () =
     ]);
 
     const { container } = await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /by payment method/i }));
+    fireEvent.click(screen.getByRole("button", { name: /cash intake by method/i }));
     await waitFor(() =>
       expect(mockGetProfitByPaymentMethod).toHaveBeenCalledTimes(1),
     );
     await screen.findByText(/Commission Pending Settlement/);
 
     const cells = paymentRowCells(container, "Commission Pending Settlement");
-    expect(cells[1].textContent).toContain("$5.0000");
+    // LPAY-R3-6: 2 decimals — see the identical note on the mixed-period
+    // case above.
+    expect(cells[1].textContent).toContain("$5.00");
+    expect(cells[1].textContent).not.toContain("$5.0000");
     expect(cells[1].textContent).not.toContain("awaiting settlement");
     // total_lbp stays 0 by design and pending_commission_lbp is 0 here too.
     expect(cells[2].textContent?.trim()).toBe("—");
   });
 });
 
-describe("Profits — Commissions tab, Provider Performance (Today) honesty fix", () => {
+describe("Profits — Commissions tab, Provider Performance honesty fix", () => {
+  // UPDATED (OWNER_NOTES_2026-09-21.md §6, lane LC): the Commissions tab no
+  // longer calls api.getOMTAnalytics()/api.getUnsettledSummary() (those keep
+  // serving Services/Recharge, unchanged) — it calls the Profits-gated
+  // api.getProfitsCommissions(from, to), returning ONE merged
+  // CommissionsReport. Rewritten to that shape (rule 24); the LIRA-163
+  // guarantee under test — a count, never a fabricated dollar — is
+  // unchanged. Fuller coverage of this exact behaviour now lives in
+  // Profits.commissionsAnalyticsAwaitingSettlement.test.tsx; this case stays
+  // here too since it was written test-first against this exact 3-provider
+  // fixture.
   it("labels a zero-realized-but-active provider as awaiting settlement, not $0.00", async () => {
-    mockGetOMTAnalytics.mockResolvedValueOnce({
-      today: { commission: 3.5, pending_commission: 0, count: 15 },
-      month: { commission: 3.5, pending_commission: 0, count: 15 },
+    mockGetProfitsCommissions.mockResolvedValueOnce({
+      from: "2026-09-01",
+      to: "2026-09-30",
+      realized_usd: 3.5,
+      realized_lbp: 0,
+      revenue_usd: 35,
+      revenue_lbp: 0,
+      pending_usd: 0,
+      pending_lbp: 0,
+      total_owed_usd: 0,
+      total_owed_lbp: 0,
+      awaiting_settlement_count: 10,
+      bill_count: 0,
       byProvider: [
-        // All-model-1 traffic today: count is unrestricted, commission is
-        // commission_model=0-only (LIRA-158 Phase 2a) — reads as "10 / $0.00"
-        // pre-fix. LIRA-163: awaiting_settlement_count now states the model-1
-        // count outright instead of it being guessed from commission===0.
+        // All-model-1 traffic in period: count is unrestricted, realized is
+        // 0 (no legacy embedded commission and nothing settled yet) — reads
+        // as "10 / $0.00" pre-fix. LIRA-163: awaiting_settlement_count states
+        // the model-1 count outright instead of it being guessed from
+        // realized===0.
         {
           provider: "OMT",
-          commission: 0,
-          currency: "USD",
+          realized_usd: 0,
+          realized_lbp: 0,
+          revenue_usd: 0,
+          revenue_lbp: 0,
           count: 10,
+          pending_usd: 0,
+          pending_lbp: 0,
+          total_owed_usd: 0,
+          total_owed_lbp: 0,
           awaiting_settlement_count: 10,
+          bill_count: 0,
         },
         // A provider that did realize commission — must render unchanged.
         {
           provider: "WHISH",
-          commission: 3.5,
-          currency: "USD",
+          realized_usd: 3.5,
+          realized_lbp: 0,
+          revenue_usd: 35,
+          revenue_lbp: 0,
           count: 5,
+          pending_usd: 0,
+          pending_lbp: 0,
+          total_owed_usd: 0,
+          total_owed_lbp: 0,
           awaiting_settlement_count: 0,
+          bill_count: 0,
         },
         // A provider with genuinely no activity — must still read "$0.00".
-        // (Pre-LIRA-163 this relied on `count === 0` to escape the
-        // commission===0 heuristic; now it's simply awaiting_settlement_count
-        // being 0, the real signal.)
         {
           provider: "BINANCE",
-          commission: 0,
-          currency: "USD",
+          realized_usd: 0,
+          realized_lbp: 0,
+          revenue_usd: 0,
+          revenue_lbp: 0,
           count: 0,
+          pending_usd: 0,
+          pending_lbp: 0,
+          total_owed_usd: 0,
+          total_owed_lbp: 0,
           awaiting_settlement_count: 0,
+          bill_count: 0,
         },
       ],
     });
-    mockGetUnsettledSummary.mockResolvedValueOnce([]);
 
     const { container } = await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /commissions/i }));
-    await waitFor(() => expect(mockGetOMTAnalytics).toHaveBeenCalledTimes(1));
-    await screen.findByText("Provider Performance (Today)");
+    await waitFor(() =>
+      expect(mockGetProfitsCommissions).toHaveBeenCalledTimes(1),
+    );
+    await screen.findByText(/Provider Performance/);
     await waitFor(() =>
       expect(providerRowCells(container, "OMT")).toBeTruthy(),
     );
@@ -280,12 +332,12 @@ describe("Profits — Commissions tab, Provider Performance (Today) honesty fix"
     expect(omtCells[4].textContent).toContain("Awaiting Settlement");
 
     const whishCells = providerRowCells(container, "WHISH");
-    expect(whishCells[2].textContent).toContain("$3.5000");
+    expect(whishCells[2].textContent).toContain("3.5 USD");
     expect(whishCells[4].textContent).toContain("Settled");
 
     const binanceCells = providerRowCells(container, "BINANCE");
     expect(binanceCells[1].textContent).toBe("0");
-    expect(binanceCells[2].textContent).toContain("$0.00");
+    expect(binanceCells[2].textContent).toContain("0 USD");
     expect(binanceCells[4].textContent?.trim()).toBe("—");
   });
 });

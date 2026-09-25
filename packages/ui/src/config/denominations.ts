@@ -60,6 +60,20 @@ export function roundToNearestDenomination(
 }
 
 /**
+ * Floating-point epsilon subtracted before `Math.ceil` in both round-up
+ * helpers below (fix-round finding #7, 2026-09-24). A value that is
+ * MATHEMATICALLY an exact multiple of the denomination can still arrive as
+ * e.g. `10000.000000000002` after a chain of `float × rate` conversions (the
+ * session-checkout LBP-remainder seed is exactly this: `fractionUSD *
+ * effectiveRate`) — without this tolerance `Math.ceil` bumps a value that
+ * should round to itself up to the NEXT denomination instead (10,000 ->
+ * 15,000), overstating the change owed. Small enough to never affect a
+ * genuinely-not-a-multiple amount (LBP's smallest unit here is whole lira,
+ * far larger than 1e-6).
+ */
+const ROUND_UP_EPSILON = 1e-6;
+
+/**
  * Round LBP amount up to nearest payable bill
  * Example: 57,380 -> 60,000 (rounds up to 10,000 + 50,000 combination)
  */
@@ -67,7 +81,7 @@ export function roundLBPUp(amount: number): number {
   if (amount <= 0) return 0;
 
   // Round up to nearest 5,000 (smallest denomination)
-  return Math.ceil(amount / 5000) * 5000;
+  return Math.ceil(amount / 5000 - ROUND_UP_EPSILON) * 5000;
 }
 
 /**
@@ -78,5 +92,5 @@ export function roundUSDUp(amount: number): number {
   if (amount <= 0) return 0;
 
   // Round up to nearest $1 (smallest denomination)
-  return Math.ceil(amount);
+  return Math.ceil(amount - ROUND_UP_EPSILON);
 }

@@ -1002,6 +1002,10 @@ export class LotoService {
     deferPayment?: boolean;
     /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
     exchange_rate?: number;
+    /** LIRA-201c (rule 11) — the session's resolved client id, injected into
+     *  every basket item's formData by SessionCheckoutService. Standalone
+     *  (non-session) callers correctly omit it. */
+    clientId?: number;
   }): LotoCashPrize {
     try {
       if (!data.prize_amount || data.prize_amount <= 0) {
@@ -1015,6 +1019,7 @@ export class LotoService {
         userId: data.userId,
         deferPayment: data.deferPayment,
         exchange_rate: data.exchange_rate,
+        clientId: data.clientId,
       };
 
       const prize = this.cashPrizeRepo.createCashPrize(prizeData);

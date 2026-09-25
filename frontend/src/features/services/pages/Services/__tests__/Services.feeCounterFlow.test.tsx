@@ -1,27 +1,33 @@
 /** @jest-environment jsdom */
 
 /**
- * Services page — BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C wiring.
+ * Services page — OMT system RECEIVE fee handling.
  *
- * An OMT/WHISH system RECEIVE with a fee-on-top (`includingFees` false, fee
- * > 0), outside a session, now passes a `counterFlow` config to
- * MultiPaymentInput so the operator can choose how the customer pays the
- * fee back. This test drives the PAGE'S wiring only (not MultiPaymentInput's
- * own seeding behavior — that is covered by MultiPaymentInput.test.tsx): the
- * MultiPaymentInput stub below exposes a button that fires
- * `counterFlow.onChange` exactly as the real component's mount-seeding
- * effect would (one CASH line at the resolved fee), and the test asserts the
- * Services page turns that into `feePayments` on the IPC payload.
+ * D1 (owner decision, OWNER_NOTES_2026-09-21.md §2b, 2026-09-23): "OMT system
+ * RECEIVE — no fee is taken from the customer; the fee is always shown (so
+ * the shop sees how it was calculated and what the commission is) but never
+ * affects the drawer." Concretely: the fee is informational only — no
+ * fee-on-top / fee-included choice, no drawer leg, no counter-flow fee
+ * collection.
  *
- * Three assertions (rule 7 — mapped 1:1 to the task's three bullet points):
- *   (a) OMT RECEIVE $100, fee $5, fee-on-top, non-session →
- *       payload.feePayments === [{ method: CASH, currencyCode: USD, amount: 5 }]
- *   (b) same, but includingFees checked → NO feePayments key at all
- *   (c) same, but inside an active session → NO feePayments key at all
+ * This SUPERSEDES the file's original scope, which drove the on-top/deducted
+ * fee-collection mechanism for an OMT RECEIVE (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md
+ * §4 Phase C). That mechanism still exists, but D1 moves it to WHISH system
+ * RECEIVE instead — see Services.whishReceiveFee.test.tsx for its coverage
+ * (including the §10.3 hasClient gate tests that used to live here).
  *
- * Proven failing-first (rule 17): before this wiring existed, `apiPayload`
- * never carried a `feePayments` field under any condition — assertion (a)
- * fails on the pre-fix code (captured below via `git stash`).
+ * Actually run 2026-09-23: with the D1 gates in Services/index.tsx
+ * temporarily reverted (showFeeCounterFlow/feeCounterFlowActive's
+ * `provider === "WHISH"` clauses removed, the "Including Fees Checkbox"
+ * render gate restored to `provider !== "WHISH"`, and the `includingFees`
+ * payload override dropped back to the bare state value), `npx jest
+ * Services.feeCounterFlow.test.tsx` FAILED the first test — "OMT RECEIVE
+ * $100 with a fee typed..." — with `expect(element).not.toBeInTheDocument()`
+ * finding `<button data-testid="mpi-seed-counter-flow" />` still rendered
+ * (the counter-flow section had reopened for OMT). The other 3 tests still
+ * passed even on the reverted code (they exercise session/for-partner paths
+ * that were already gated `!activeSession`/`!forPartner` before D1). Reverting
+ * the revert and re-running: 4/4 GREEN.
  */
 
 import { useEffect } from "react";
@@ -48,8 +54,8 @@ const mockAddToCart = jest.fn();
 // (~line 549) resets sender/receiver name+phone to "" whenever `serviceType`/
 // `activeSession`/`loadData` change identity. A fresh `useApi()` object each
 // render would make `loadData` (and so that effect) re-fire on every
-// keystroke, silently wiping whatever the §10.3 hasClient tests below just
-// typed into the receiver name/phone fields before the assertion ever runs.
+// keystroke, silently wiping whatever the tests below just typed into the
+// receiver name/phone fields before the assertion ever runs.
 const mockApi = {
   getOMTHistory: mockGetOMTHistory,
   getOMTAnalytics: mockGetOMTAnalytics,
@@ -73,12 +79,11 @@ jest.mock("@liratek/ui", () => ({
   useApi: () => mockApi,
   // Stub exposing exactly the callback surface the page wires: the main
   // onChange/onReturnChange (unused here) plus — when the page supplies a
-  // `counterFlow` config — a button that fires ITS onChange with one CASH
-  // line at the full totalAmount, mirroring the real component's
-  // mount-seeding effect (covered in full by MultiPaymentInput.test.tsx).
-  // Also surfaces `counterFlow.hasClient` as text so tests can assert on the
-  // CUSTOMER_ACCOUNT gate (§10.3: must be name-AND-phone, not name-OR-phone)
-  // without reaching into the real MultiPaymentInput/PaymentSheet internals.
+  // `counterFlow` config — a button that fires ITS onChange, mirroring the
+  // real component's mount-seeding effect (covered in full by
+  // MultiPaymentInput.test.tsx). For an OMT RECEIVE, D1 means `counterFlow`
+  // is never passed at all — so this button never renders, and the "not in
+  // the document" assertions below are the actual test.
   MultiPaymentInput: ({
     counterFlow,
   }: {
@@ -210,9 +215,9 @@ jest.mock("@/shared/components/TransactionTimeOverride", () => ({
   TransactionTimeOverride: () => null,
 }));
 
-// A working (non-null) stub — needed for the §10.3 hasClient tests below,
-// which type into the receiver name/phone fields. Mirrors the real
-// component's controlled-input contract (value/onChange(value: string)).
+// A working (non-null) stub — needed for tests that type into the receiver
+// name/phone fields. Mirrors the real component's controlled-input contract
+// (value/onChange(value: string)).
 jest.mock("@/shared/components/ClientAutocompleteInput", () => ({
   ClientAutocompleteInput: ({
     id,
@@ -236,11 +241,11 @@ jest.mock("@/shared/components/ClientAutocompleteInput", () => ({
 
 // The THROUGH-mode selector (`systemFilter="WHISH"`, ~line 1412) never
 // mounts in this test file — provider stays "OMT" throughout — so a single
-// mock behavior is safe for both usages. For the §6bis finding-1 "For
-// Partner" test we need `forPartnerId` to become non-null (the real
-// component's `autoSelectSingle` would do this against a single-partner
-// list; here we just fire `onSelect` unconditionally on mount to drive a
-// full submit and inspect the resulting payload).
+// mock behavior is safe for both usages. For the "For Partner" test we need
+// `forPartnerId` to become non-null (the real component's `autoSelectSingle`
+// would do this against a single-partner list; here we just fire `onSelect`
+// unconditionally on mount to drive a full submit and inspect the resulting
+// payload).
 jest.mock("@/features/partners/components/PartnerSelector", () => ({
   PartnerSelector: ({
     onSelect,
@@ -285,14 +290,14 @@ function switchToOmtReceive() {
   fireEvent.click(omtReceiveButton!);
 }
 
-describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C)", () => {
+describe("Services page — OMT system RECEIVE fee is informational only (D1, 2026-09-23)", () => {
   beforeEach(() => {
     mockActiveSession = null;
     mockAddOMTTransaction.mockClear();
     mockAddToCart.mockClear();
   });
 
-  it("OMT RECEIVE $100, fee $5, fee-on-top, non-session → feePayments carries the seeded CASH leg", async () => {
+  it("OMT RECEIVE $100 with a fee typed: no counter-flow section, no Including-Fees toggle, payload carries omtFee but never feePayments/includingFees:true", async () => {
     await renderPage();
     switchToOmtReceive();
 
@@ -305,41 +310,12 @@ describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYME
       { target: { value: "5" } },
     );
 
-    // Simulate MultiPaymentInput's mount-seeding effect for the counter-flow
-    // section (real behavior proven in MultiPaymentInput.test.tsx).
-    fireEvent.click(screen.getByTestId("mpi-seed-counter-flow"));
-
-    fireEvent.click(screen.getByRole("button", { name: /Record Receive/i }));
-
-    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
-
-    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
-      string,
-      unknown
-    >;
-    expect(payload.feePayments).toEqual([
-      { method: "CASH", currencyCode: "USD", amount: 5 },
-    ]);
-  });
-
-  it("includingFees checked → NO feePayments field (fee is netted into the payout, not collected separately)", async () => {
-    await renderPage();
-    switchToOmtReceive();
-
-    fireEvent.change(
-      document.getElementById("service-amount") as HTMLInputElement,
-      { target: { value: "100" } },
-    );
-    fireEvent.change(
-      document.getElementById("service-omt-fee") as HTMLInputElement,
-      { target: { value: "5" } },
-    );
-    fireEvent.click(screen.getByTestId("service-including-fees-toggle"));
-
-    // The counter-flow section must not even render once includingFees is
-    // checked — showFeeCounterFlow requires !includingFees.
+    // Neither fee-collection affordance exists for OMT RECEIVE any more.
     expect(
       screen.queryByTestId("mpi-seed-counter-flow"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("service-including-fees-toggle"),
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Record Receive/i }));
@@ -350,10 +326,48 @@ describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYME
       string,
       unknown
     >;
+    expect(payload.omtFee).toBe(5);
+    expect(payload.includingFees).toBe(false);
     expect(payload).not.toHaveProperty("feePayments");
   });
 
-  it("active session → NO feePayments field (session RECEIVE fee collection isn't wired yet, §2 bug 1)", async () => {
+  it("OMT RECEIVE with the fee left EMPTY (CASH_TO_BUSINESS, no tier auto-lookup) still submits — closes owner note #6", async () => {
+    // Owner note #6, verbatim: "omt receive 40$, cash to business no fee. i
+    // can see omt fee is required for this service type." CASH_TO_BUSINESS
+    // has no entry in lookupOmtFee's tier tables (INTRA/WESTERN_UNION only),
+    // so leaving the fee input untouched resolves omtFee to `undefined` —
+    // exactly the "no fee entered, no fee known" case the note complains
+    // about. This must not block submission.
+    await renderPage();
+    switchToOmtReceive();
+
+    // The mocked <Select> (the "OMT Service" dropdown) is the only <select>
+    // on the page — MultiPaymentInput/payment-method pickers are stubbed out
+    // above, so there's no ambiguity to disambiguate by id/label.
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "CASH_TO_BUSINESS" },
+    });
+    fireEvent.change(
+      document.getElementById("service-amount") as HTMLInputElement,
+      { target: { value: "40" } },
+    );
+    // service-omt-fee is deliberately left untouched (empty).
+
+    fireEvent.click(screen.getByRole("button", { name: /Record Receive/i }));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).not.toHaveProperty("omtFee");
+    expect(payload.includingFees).toBe(false);
+    expect(payload).not.toHaveProperty("feePayments");
+    expect(payload.amount).toBe(40);
+  });
+
+  it("active session: cart formData carries no feePayments and includingFees:false", async () => {
     mockActiveSession = {
       id: 1,
       customer_name: "Jane Doe",
@@ -366,9 +380,11 @@ describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYME
       document.getElementById("service-amount") as HTMLInputElement,
       { target: { value: "100" } },
     );
+    fireEvent.change(
+      document.getElementById("service-omt-fee") as HTMLInputElement,
+      { target: { value: "5" } },
+    );
 
-    // The fee UI (and so the counter-flow section) is hidden entirely inside
-    // an active RECEIVE session.
     expect(
       screen.queryByTestId("mpi-seed-counter-flow"),
     ).not.toBeInTheDocument();
@@ -381,9 +397,11 @@ describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYME
       formData: Record<string, unknown>;
     };
     expect(cartItem.formData).not.toHaveProperty("feePayments");
+    expect(cartItem.formData.includingFees).toBe(false);
+    expect(cartItem.formData.omtFee).toBe(5);
   });
 
-  it('"For Partner" toggle ON → counter-flow section hidden and no feePayments sent (§6bis finding 1)', async () => {
+  it('"For Partner" toggle ON: still no feePayments/includingFees:true', async () => {
     await renderPage();
     switchToOmtReceive();
 
@@ -398,14 +416,10 @@ describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYME
 
     // Turn "For Partner" on — the stubbed PartnerSelector fires onSelect(1)
     // on mount, so `forPartnerId` becomes non-null and the submit-blocking
-    // "select a partner" validation (~line 793) does not stop us short of
-    // the real bug surface: a FOR-partner RECEIVE reaching addOMTTransaction.
+    // "select a partner" validation does not stop us short of the real bug
+    // surface: a FOR-partner OMT RECEIVE reaching addOMTTransaction.
     fireEvent.click(screen.getByRole("checkbox", { name: /For Partner/i }));
 
-    // §6bis finding 1: the toggle alone — before/regardless of which partner
-    // ends up selected — must hide the fee counter-flow section, since a
-    // FOR-partner RECEIVE has no walk-in fee to collect (PFT-3b no-booking
-    // dispatch).
     expect(
       screen.queryByTestId("mpi-seed-counter-flow"),
     ).not.toBeInTheDocument();
@@ -418,76 +432,10 @@ describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYME
       string,
       unknown
     >;
-    // Confirms this really is the FOR-partner path (not an accidental no-op)
-    // and that it carries no feePayments key at all — not an empty array,
-    // absent entirely, matching the legacy no-legs contract the repository
-    // expects for this dispatch.
+    // Confirms this really is the FOR-partner path (not an accidental no-op).
     expect(payload.partnerMode).toBe("FOR");
     expect(payload.partnerId).toBe(1);
     expect(payload).not.toHaveProperty("feePayments");
-  });
-
-  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.3: the counter-flow's CUSTOMER_ACCOUNT
-  // gate must use the canonical name-AND-phone rule (`canChargeToCustomerAccount`),
-  // not the one-off name-OR-phone check it shipped with. Proven failing-first
-  // (rule 17): reverting the fix's line to `!!receiverName || !!receiverPhone`
-  // turns the first two assertions below green→red (they'd read "true" instead
-  // of "false"), confirming the test exercises the exact regressed predicate.
-  describe("counter-flow hasClient gate (§10.3 — name-AND-phone, not name-OR-phone)", () => {
-    async function setUpReceiveWithFee() {
-      await renderPage();
-      switchToOmtReceive();
-      fireEvent.change(
-        document.getElementById("service-amount") as HTMLInputElement,
-        { target: { value: "100" } },
-      );
-      fireEvent.change(
-        document.getElementById("service-omt-fee") as HTMLInputElement,
-        { target: { value: "5" } },
-      );
-    }
-
-    it("receiver name only (no phone) → hasClient is false", async () => {
-      await setUpReceiveWithFee();
-
-      fireEvent.change(
-        document.getElementById("service-receiver-name") as HTMLInputElement,
-        { target: { value: "Jane Doe" } },
-      );
-
-      expect(screen.getByTestId("counter-flow-has-client")).toHaveTextContent(
-        "false",
-      );
-    });
-
-    it("receiver phone only (no name) → hasClient is false", async () => {
-      await setUpReceiveWithFee();
-
-      fireEvent.change(
-        document.getElementById("service-receiver-phone") as HTMLInputElement,
-        { target: { value: "70111222" } },
-      );
-
-      expect(screen.getByTestId("counter-flow-has-client")).toHaveTextContent(
-        "false",
-      );
-    });
-
-    it("receiver name AND phone → hasClient is true", async () => {
-      await setUpReceiveWithFee();
-
-      fireEvent.change(
-        document.getElementById("service-receiver-name") as HTMLInputElement,
-        { target: { value: "Jane Doe" } },
-      );
-      fireEvent.change(
-        document.getElementById("service-receiver-phone") as HTMLInputElement,
-        { target: { value: "70111222" } },
-      );
-
-      expect(screen.getByTestId("counter-flow-has-client")).toHaveTextContent(
-        "true",
-      );
-    });
+    expect(payload.includingFees).toBe(false);
   });
 });

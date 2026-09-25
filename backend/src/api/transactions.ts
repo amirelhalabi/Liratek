@@ -342,6 +342,85 @@ router.post(
   },
 );
 
+// POST /api/transactions/session-basket/:sessionId/void
+// LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C): void every item in a
+// customer-session basket, plus its pooled cash leg(s) and pooled debt
+// (Session Debt / CREDIT_DEPOSIT), in ONE transaction. Replaces the
+// "Basket item — see admin to reverse" dead end — a bare void/refund on a
+// session-linked row is refused by the repository guard. Numeric-param
+// convention matches /:id/void above (plain parseInt + NaN guard) rather
+// than validateParams — sessionId is a bare positive int, same as :id.
+router.post(
+  "/session-basket/:sessionId/void",
+  requireAuth,
+  requireRole(["admin"]),
+  async (req: AuthRequest, res) => {
+    try {
+      const sessionId = parseInt(req.params.sessionId, 10);
+      if (!Number.isInteger(sessionId) || sessionId <= 0) {
+        res.status(400).json({ success: false, error: "Invalid sessionId" });
+        return;
+      }
+      const userId = req.user?.userId ?? 1;
+      const txnService = getTransactionService();
+      const result = txnService.voidSessionBasket(sessionId, userId);
+      // Mirrors transactionHandlers.ts's void-session-basket audit
+      // (void/session_basket) — reaching here means it committed.
+      auditRest(req, {
+        action: "void",
+        entity_type: "session_basket",
+        entity_id: String(sessionId),
+        summary: `Voided session basket #${sessionId} (${result.itemCount} items)`,
+        metadata: {
+          itemCount: result.itemCount,
+          reversedTransactionIds: result.reversedTransactionIds,
+          reversalIds: result.reversalIds,
+        },
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      logger.error({ error }, "Void session basket error");
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  },
+);
+
+// POST /api/transactions/session-basket/:sessionId/refund
+// Same shape as /session-basket/:sessionId/void above (rule 14) but keeps
+// every original item ACTIVE and creates a REFUND row per item.
+router.post(
+  "/session-basket/:sessionId/refund",
+  requireAuth,
+  requireRole(["admin"]),
+  async (req: AuthRequest, res) => {
+    try {
+      const sessionId = parseInt(req.params.sessionId, 10);
+      if (!Number.isInteger(sessionId) || sessionId <= 0) {
+        res.status(400).json({ success: false, error: "Invalid sessionId" });
+        return;
+      }
+      const userId = req.user?.userId ?? 1;
+      const txnService = getTransactionService();
+      const result = txnService.refundSessionBasket(sessionId, userId);
+      auditRest(req, {
+        action: "refund",
+        entity_type: "session_basket",
+        entity_id: String(sessionId),
+        summary: `Refunded session basket #${sessionId} (${result.itemCount} items)`,
+        metadata: {
+          itemCount: result.itemCount,
+          reversedTransactionIds: result.reversedTransactionIds,
+          reversalIds: result.reversalIds,
+        },
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      logger.error({ error }, "Refund session basket error");
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  },
+);
+
 // GET /api/transactions/analytics/daily-summary?date=2025-01-15
 router.get("/analytics/daily-summary", requireAuth, async (req, res) => {
   try {

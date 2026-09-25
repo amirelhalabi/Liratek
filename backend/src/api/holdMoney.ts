@@ -13,7 +13,11 @@ import express from "express";
 import {
   getHoldMoneyService,
   holdMoneyCreateSchema,
+  holdMoneyCollectSchema,
+  holdMoneyVoidPickupSchema,
   type HoldMoneyCreateInput,
+  type HoldMoneyCollectInput,
+  type HoldMoneyVoidPickupInput,
   type HoldMoneyStatus,
 } from "@liratek/core";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
@@ -38,6 +42,25 @@ type SafeParseable<T> = {
 };
 const createSchema =
   holdMoneyCreateSchema as unknown as SafeParseable<HoldMoneyCreateInput>;
+// LIRA-214 (migration v183) — pickup (collect) and pickup-void.
+const collectSchema =
+  holdMoneyCollectSchema as unknown as SafeParseable<HoldMoneyCollectInput>;
+const voidPickupSchema =
+  holdMoneyVoidPickupSchema as unknown as SafeParseable<HoldMoneyVoidPickupInput>;
+
+function parseOrFail<T>(
+  schema: SafeParseable<T>,
+  body: unknown,
+): { ok: true; data: T } | { ok: false; error: string } {
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    const msg = parsed.error.issues
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ");
+    return { ok: false, error: `Validation failed: ${msg}` };
+  }
+  return { ok: true, data: parsed.data };
+}
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error";
@@ -96,7 +119,24 @@ router.post("/", writeGate, (req, res) => {
   }
 });
 
-// POST /api/hold-money/:id/collect — return a hold (cash out ← General)
+// GET /api/hold-money/:id/pickups — every pickup event (voided or not) for
+// one hold (detail view + void action source list).
+router.get("/:id/pickups", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.json({ success: false, error: "Invalid id" });
+      return;
+    }
+    res.json({ success: true, data: getHoldMoneyService().getPickups(id) });
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
+// POST /api/hold-money/:id/collect — return part or all of a hold
+// (LIRA-214, migration v183: now a validated body — payment legs + optional
+// partial amounts — not a bare id).
 router.post("/:id/collect", writeGate, (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -104,7 +144,15 @@ router.post("/:id/collect", writeGate, (req, res) => {
       res.json({ success: false, error: "Invalid id" });
       return;
     }
-    const result = getHoldMoneyService().collectHold(id, req.user!.userId);
+    const parsed = parseOrFail(collectSchema, { ...req.body, id });
+    if (!parsed.ok) {
+      res.json({ success: false, error: parsed.error });
+      return;
+    }
+    const result = getHoldMoneyService().collectHold(
+      parsed.data,
+      req.user!.userId,
+    );
     if (result.success) {
       // Mirrors holdMoneyHandlers.ts's hold-money:collect audit.
       auditRest(req, {
@@ -112,6 +160,38 @@ router.post("/:id/collect", writeGate, (req, res) => {
         entity_type: "hold_money",
         entity_id: String(id),
         summary: `Collected hold #${id}`,
+        metadata: {
+          usd_amount: parsed.data.usd_amount,
+          lbp_amount: parsed.data.lbp_amount,
+        },
+      });
+    }
+    res.json(result);
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
+// POST /api/hold-money/pickups/:pickupId/void — rule-20 reversal owner for
+// one pickup event recorded in error.
+router.post("/pickups/:pickupId/void", writeGate, (req, res) => {
+  try {
+    const pickupId = Number(req.params.pickupId);
+    const parsed = parseOrFail(voidPickupSchema, { pickup_id: pickupId });
+    if (!parsed.ok) {
+      res.json({ success: false, error: parsed.error });
+      return;
+    }
+    const result = getHoldMoneyService().voidPickup(
+      parsed.data.pickup_id,
+      req.user!.userId,
+    );
+    if (result.success) {
+      auditRest(req, {
+        action: "void",
+        entity_type: "hold_money_pickup",
+        entity_id: String(pickupId),
+        summary: `Voided hold pickup #${pickupId}`,
       });
     }
     res.json(result);

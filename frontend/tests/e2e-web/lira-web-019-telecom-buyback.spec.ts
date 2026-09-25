@@ -27,6 +27,16 @@
  * split-leg payout should either 400 at the Zod layer or silently fall into
  * the legacy single-method fallback, moving the wrong drawer by the wrong
  * amount). Revert after confirming.
+ *
+ * Fix round 1 (major, issue no-e2e-case2): tests (d)/(e) added — owner note
+ * #21 case 2 (LIRA-088, migration v182), `SHOP_LINE_USE`, over REST. Also
+ * NOT YET RUN. (d) is a guard once shown failing against the pre-fix code by
+ * temporarily reverting the `isShopOwnLine`-gated `SHOP_LINE_USE` branch in
+ * `RechargeRepository.processRecharge` back to falling through to the
+ * ordinary CREDIT_TRANSFER-shaped body with no type distinction — the
+ * SMS-expense-count assertion would then fail. (e)'s rejection is guarded by
+ * reverting the same guard entirely (the call would then succeed against an
+ * arbitrary phone number).
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -144,6 +154,17 @@ async function primaryMtcCredits(
   ).json();
   expect(r.success, JSON.stringify(r)).toBeTruthy();
   return r.data.credits as number;
+}
+
+async function todayExpenseCount(
+  page: Page,
+  headers: Record<string, string>,
+): Promise<number> {
+  const r = await (
+    await page.request.get(`${BACKEND_URL}/api/expenses/today`, { headers })
+  ).json();
+  expect(r.success, JSON.stringify(r)).toBeTruthy();
+  return (r.expenses ?? []).length as number;
 }
 
 test.describe("Telecom credit buy-back over REST (CARRIER_LINES_VALIDITY_PLAN.md Phase 6)", () => {
@@ -298,5 +319,124 @@ test.describe("Telecom credit buy-back over REST (CARRIER_LINES_VALIDITY_PLAN.md
     // `success` envelope at this layer (matches the middleware's existing,
     // pre-Phase-6 shape; not something this plan changes).
     expect(res.status()).toBe(403);
+  });
+
+  /**
+   * Fix round 1 (major, issue no-e2e-case2) — owner note #21 case 2
+   * (LIRA-088, migration v182), proven over REST. `SHOP_LINE_USE` reuses
+   * the ordinary (non-buy-back) `processRecharge` sale body, so unlike (a)
+   * above this is cash IN, credits still land on the PRIMARY line, and NO
+   * SMS_Transfer_Fee expense is booked (the SMS gate is
+   * `type === "CREDIT_TRANSFER"` only).
+   */
+  test("(d) SHOP_LINE_USE books cash IN, decrements the primary line, and books no SMS expense", async ({
+    page,
+  }) => {
+    await loginAsAdmin(page);
+    const adminToken = await page.evaluate(() =>
+      localStorage.getItem("liratek.jwt"),
+    );
+    const headers = { Authorization: `Bearer ${adminToken}` };
+
+    const phone = `03${Date.now().toString().slice(-6)}`;
+    const created = await (
+      await page.request.post(`${BACKEND_URL}/api/carrier-lines`, {
+        headers,
+        data: { carrier: "mtc", phone_number: phone, credits: 20 },
+      })
+    ).json();
+    expect(created.success, JSON.stringify(created)).toBeTruthy();
+    const lineId = created.data.id as number;
+    const setPrimary = await (
+      await page.request.put(
+        `${BACKEND_URL}/api/carrier-lines/${lineId}/set-primary`,
+        { headers },
+      )
+    ).json();
+    expect(setPrimary.success, JSON.stringify(setPrimary)).toBeTruthy();
+
+    const before = {
+      d: await drawers(page, headers),
+      credits: await primaryMtcCredits(page, headers),
+      expenseCount: await todayExpenseCount(page, headers),
+    };
+
+    const CREDITS = 6.5;
+    const PRICE_LBP = 585_000;
+
+    const res = await (
+      await page.request.post(`${BACKEND_URL}/api/recharge/process`, {
+        headers,
+        data: {
+          provider: "MTC",
+          type: "SHOP_LINE_USE",
+          amount: CREDITS,
+          cost: CREDITS * 85_000,
+          price: PRICE_LBP,
+          currency: "LBP",
+          phoneNumber: phone,
+          payments: [
+            { method: "CASH", currencyCode: "LBP", amount: PRICE_LBP },
+          ],
+        },
+      })
+    ).json();
+    expect(res.success, JSON.stringify(res)).toBeTruthy();
+
+    const after = {
+      d: await drawers(page, headers),
+      credits: await primaryMtcCredits(page, headers),
+      expenseCount: await todayExpenseCount(page, headers),
+    };
+
+    // Cash IN (opposite sign from case 1's payout in test (a) above).
+    expect(after.d.generalLbp - before.d.generalLbp).toBeCloseTo(
+      PRICE_LBP,
+      0,
+    );
+    expect(after.credits - before.credits).toBeCloseTo(-CREDITS, 2);
+    expect(after.expenseCount).toBe(before.expenseCount);
+  });
+
+  /**
+   * Fix round 1 companion to (d): the server-side re-check
+   * (`isShopOwnLine`, mirroring `processCreditBuyback`'s own) rejects a
+   * SHOP_LINE_USE whose phone number is NOT one of the shop's active
+   * lines — proves a direct REST caller cannot sell credits with no SMS fee
+   * against an arbitrary walk-in number just by choosing this type.
+   */
+  test("(e) SHOP_LINE_USE rejects a phone number that isn't a shop line", async ({
+    page,
+  }) => {
+    await loginAsAdmin(page);
+    const adminToken = await page.evaluate(() =>
+      localStorage.getItem("liratek.jwt"),
+    );
+    const headers = { Authorization: `Bearer ${adminToken}` };
+
+    const before = await drawers(page, headers);
+
+    const res = await (
+      await page.request.post(`${BACKEND_URL}/api/recharge/process`, {
+        headers,
+        data: {
+          provider: "MTC",
+          type: "SHOP_LINE_USE",
+          amount: 3,
+          cost: 3 * 85_000,
+          price: 270_000,
+          currency: "LBP",
+          phoneNumber: "70999999",
+          payments: [
+            { method: "CASH", currencyCode: "LBP", amount: 270_000 },
+          ],
+        },
+      })
+    ).json();
+    expect(res.success).toBe(false);
+    expect(res.error as string).toMatch(/shop's active/i);
+
+    const after = await drawers(page, headers);
+    expect(after.generalLbp - before.generalLbp).toBeCloseTo(0, 0);
   });
 });

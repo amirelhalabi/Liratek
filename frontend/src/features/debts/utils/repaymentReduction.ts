@@ -32,6 +32,50 @@ export interface RepaymentReductionInput {
   rate: number;
 }
 
+/**
+ * KeptChangeReport
+ *
+ * What MultiPaymentInput's `onKeptChange` reports when keep-change (T3) is
+ * on. `usd`/`lbp` are ROUNDED to each currency's display precision (USD
+ * cents, LBP whole units) — correct for showing "$0.06 kept" in the UI.
+ * `exactUsd`/`exactLbp` carry the UNROUNDED excess `allocatePayments`
+ * actually computed.
+ */
+export interface KeptChangeReport {
+  usd: number;
+  lbp: number;
+  exactUsd?: number;
+  exactLbp?: number;
+}
+
+/**
+ * resolveKeptChangeForReduction
+ *
+ * Which figure a debt reduction NETS OUT of the customer's tender (see
+ * computeRepaymentReduction's header) must be the EXACT kept amount, never
+ * the currency-rounded DISPLAY figure `usd`/`lbp`. Keep-change with T3 on
+ * never crosses a drawer boundary — nothing is physically handed back — so
+ * there is no reason to round it to a "handable" denomination first, and
+ * doing so before converting the remainder at the day's rate manufactures a
+ * residual: owner note #8 (2026-09-23) — a $0.06-vs-$0.0561... rounding on
+ * a kept-change repayment left a client's debt short by 340 LBP after a
+ * payment that should have cleared it exactly (see
+ * repaymentReduction.keptChangeComposition.test.ts for the failing-first
+ * proof against the pre-fix rounded-only version of this function).
+ *
+ * Falls back to the rounded figure when the exact one is unavailable
+ * (defensive — e.g. an older/mocked caller that only ever set `usd`/`lbp`).
+ */
+export function resolveKeptChangeForReduction(
+  kept: KeptChangeReport | null,
+): { usd: number; lbp: number } {
+  if (!kept) return { usd: 0, lbp: 0 };
+  return {
+    usd: kept.exactUsd ?? kept.usd,
+    lbp: kept.exactLbp ?? kept.lbp,
+  };
+}
+
 export function computeRepaymentReduction({
   paidUsd,
   paidLbp,

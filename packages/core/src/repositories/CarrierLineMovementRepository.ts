@@ -47,6 +47,18 @@ export interface CarrierLineMovementEntity {
    *  is a legitimate stored value (the line genuinely had no expiry before
    *  this movement) — not a sentinel for "not tracked". */
   previous_validity_expires_at: string | null;
+  /** v184 (#28, LIRA-218) — the sold-ahead-days rule-20 snapshot pair,
+   *  parallel to `previous_validity_expires_at` above. `days_owed_delta` is
+   *  the EXACT change this movement applied to the line's `days_owed`
+   *  balance (positive for a sell that banked sold-ahead days, negative for
+   *  a charge that paid the balance down) — days_owed has no grace-rebase
+   *  or 365-day-ceiling rule the way validity does, so it is never lossy,
+   *  and `reverseMovement` undoes it by plain arithmetic (`current -
+   *  days_owed_delta`) rather than a snapshot restore. `previous_days_owed`
+   *  is carried for audit/symmetry with the validity column but is not what
+   *  reversal keys off. */
+  days_owed_delta: number;
+  previous_days_owed: number;
   reason: string;
   is_reversed: number;
   created_at: string;
@@ -60,6 +72,10 @@ export interface CreateCarrierLineMovementData {
   validity_days_delta?: number;
   /** See {@link CarrierLineMovementEntity.previous_validity_expires_at}. */
   previous_validity_expires_at?: string | null;
+  /** See {@link CarrierLineMovementEntity.days_owed_delta}. */
+  days_owed_delta?: number;
+  /** See {@link CarrierLineMovementEntity.previous_days_owed}. */
+  previous_days_owed?: number;
   reason: string;
 }
 
@@ -73,7 +89,7 @@ export class CarrierLineMovementRepository extends BaseRepository<CarrierLineMov
   }
 
   protected getColumns(): string {
-    return "id, carrier_line_id, transaction_id, credits_delta, validity_days_delta, previous_validity_expires_at, reason, is_reversed, created_at, updated_at";
+    return "id, carrier_line_id, transaction_id, credits_delta, validity_days_delta, previous_validity_expires_at, days_owed_delta, previous_days_owed, reason, is_reversed, created_at, updated_at";
   }
 
   getById(id: number): CarrierLineMovementEntity | null {
@@ -134,8 +150,8 @@ export class CarrierLineMovementRepository extends BaseRepository<CarrierLineMov
   ): CarrierLineMovementEntity {
     const stmt = this.db.prepare(`
       INSERT INTO carrier_line_movements
-        (tenant_id, carrier_line_id, transaction_id, credits_delta, validity_days_delta, previous_validity_expires_at, reason, is_reversed, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        (tenant_id, carrier_line_id, transaction_id, credits_delta, validity_days_delta, previous_validity_expires_at, days_owed_delta, previous_days_owed, reason, is_reversed, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `);
     const result = stmt.run(
       getCurrentTenantId(),
@@ -144,6 +160,8 @@ export class CarrierLineMovementRepository extends BaseRepository<CarrierLineMov
       data.credits_delta ?? 0,
       data.validity_days_delta ?? 0,
       data.previous_validity_expires_at ?? null,
+      data.days_owed_delta ?? 0,
+      data.previous_days_owed ?? 0,
       data.reason,
     );
     return this.getById(result.lastInsertRowid as number)!;

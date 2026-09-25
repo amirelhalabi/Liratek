@@ -17,6 +17,8 @@
  * change a read to return the envelope instead of the raw array.
  */
 
+export {}; // module scope: keeps helpers like okJson file-local (TS2393)
+
 // Named distinctly from the identical helper in backendApi.sessions.dualmode.test.ts
 // and backendApi.lotoCheckpoints.dualmode.test.ts: none of these test files have a
 // top-level import/export, so TypeScript treats each as a global script rather than

@@ -3,6 +3,9 @@
  *
  * Tests the universal formula, conversions, profit calculations,
  * and the master calculateExchange() for all currency pairs.
+ *
+ * NOT RUN — proven at the end-of-batch gate (LIRA-213 #20 batch — the
+ * `calculateAmountInForTarget` describe block below is new in this change).
  */
 
 import {
@@ -12,6 +15,7 @@ import {
   computeLegProfitUsd,
   computeOverrideLegProfitUsd,
   calculateExchange,
+  calculateAmountInForTarget,
   getDisplayRate,
   findCurrencyRate,
   GIVE_USD,
@@ -403,5 +407,149 @@ describe("computeOverrideLegProfitUsd", () => {
     const profit = computeOverrideLegProfitUsd(marketOut, actualOut, lbp);
     expect(profit).toBeCloseTo(25000 / 89500, 10);
     expect(profit).toBeGreaterThan(0);
+  });
+});
+
+// ─── calculateAmountInForTarget — LIRA-213 #20 ────────────────────────────────
+// "The customer wants 50 EUR — how much USD does he pay?" — the reverse of
+// calculateExchange(). Owner answer: no rounding, exact figure, honour rate
+// overrides (a caller-adjusted rates[] is just data — see the worked examples
+// in OWNER_NOTES_REMAINING_BUILD.md #20).
+
+describe("calculateAmountInForTarget — worked examples from the owner's note", () => {
+  it("customer wants 50 EUR and pays USD, EUR sell 1.20 → exactly $60.00", () => {
+    const amountIn = calculateAmountInForTarget("USD", "EUR", 50, mockRates);
+    expect(amountIn).toBeCloseTo(60, 10);
+    // and forward from that exact amount gives back exactly 50 EUR
+    const fwd = calculateExchange("USD", "EUR", amountIn, mockRates);
+    expect(fwd.totalAmountOut).toBeCloseTo(50, 10);
+  });
+
+  it("customer wants 5,000,000 LBP and pays USD, LBP buy 89,000 → exactly $56.1797752...", () => {
+    const amountIn = calculateAmountInForTarget(
+      "USD",
+      "LBP",
+      5000000,
+      mockRates,
+    );
+    expect(amountIn).toBeCloseTo(5000000 / 89000, 10);
+    const fwd = calculateExchange("USD", "LBP", amountIn, mockRates);
+    expect(fwd.totalAmountOut).toBeCloseTo(5000000, 6);
+  });
+
+  it("customer wants 50 EUR and pays LBP (cross, EUR sell 1.1634) → exactly 5,235,300 LBP", () => {
+    const crossRates: CurrencyRate[] = [
+      lbp,
+      { ...eur, sell_rate: 1.1634 },
+    ];
+    const amountIn = calculateAmountInForTarget(
+      "LBP",
+      "EUR",
+      50,
+      crossRates,
+    );
+    // FIX ROUND finding "float-noise-shown-as-exact" — this is the owner's
+    // own worked example. `toBe` (not `toBeCloseTo`) on purpose: the reverse
+    // chain (convertToUSD then convertFromUSD, two independent float
+    // multiplications) is not guaranteed by IEEE-754 to land on the exact
+    // integer even though the true value is exact — `calculateAmountInForTarget`
+    // strips that representation noise (`stripFloatNoise`, 12 significant
+    // digits) without rounding to LBP's cash decimals, so the figure the
+    // "You Receive"/target boxes display and the payload books is the exact
+    // 5,235,300, never a `5235299.999999999`-shaped artifact.
+    expect(amountIn).toBe(5235300);
+    const fwd = calculateExchange("LBP", "EUR", amountIn, crossRates);
+    expect(fwd.totalAmountOut).toBeCloseTo(50, 8);
+  });
+
+  it("strips genuine IEEE-754 noise from the reverse chain (not merely a coincidentally-exact rate)", () => {
+    // Unlike the 1.1634 example above (which happens to land exact in
+    // doubles), this EUR sell rate makes the UNMODIFIED
+    // `targetOut * sellRate * lbpSellRate` chain produce
+    // 4547699.999999999 in plain JS float arithmetic — verified directly:
+    // `50 * 1.0106 * 90000 === 4547699.999999999`, one ULP below the true
+    // 4,547,700. `calculateAmountInForTarget` must still return the exact
+    // integer.
+    const noisyRates: CurrencyRate[] = [lbp, { ...eur, sell_rate: 1.0106 }];
+    const amountIn = calculateAmountInForTarget("LBP", "EUR", 50, noisyRates);
+    expect(amountIn).toBe(4547700);
+  });
+});
+
+describe("calculateAmountInForTarget — reverse(forward(x)) = x, every direction", () => {
+  const directions: Array<[string, string]> = [
+    ["USD", "LBP"],
+    ["LBP", "USD"],
+    ["USD", "EUR"],
+    ["EUR", "USD"],
+  ];
+
+  test.each(directions)(
+    "%s→%s: reverse(forward(x)) = x",
+    (from, to) => {
+      const x = 137.4321;
+      const forward = calculateExchange(from, to, x, mockRates);
+      const back = calculateAmountInForTarget(
+        from,
+        to,
+        forward.totalAmountOut,
+        mockRates,
+      );
+      expect(back).toBeCloseTo(x, 8);
+    },
+  );
+
+  it("cross pair EUR→LBP: reverse(forward(x)) = x", () => {
+    const x = 42.5;
+    const forward = calculateExchange("EUR", "LBP", x, mockRates);
+    const back = calculateAmountInForTarget(
+      "EUR",
+      "LBP",
+      forward.totalAmountOut,
+      mockRates,
+    );
+    expect(back).toBeCloseTo(x, 6);
+  });
+
+  it("cross pair LBP→EUR: reverse(forward(x)) = x", () => {
+    const x = 3_250_000;
+    const forward = calculateExchange("LBP", "EUR", x, mockRates);
+    const back = calculateAmountInForTarget(
+      "LBP",
+      "EUR",
+      forward.totalAmountOut,
+      mockRates,
+    );
+    expect(back).toBeCloseTo(x, 4);
+  });
+
+  it("forward(reverse(y)) = y — the direction the page actually drives", () => {
+    const y = 25_000_000; // customer wants 25M LBP
+    const amountIn = calculateAmountInForTarget("USD", "LBP", y, mockRates);
+    const forward = calculateExchange("USD", "LBP", amountIn, mockRates);
+    expect(forward.totalAmountOut).toBeCloseTo(y, 6);
+  });
+});
+
+describe("calculateAmountInForTarget — errors and edge cases", () => {
+  it("throws for same-currency exchange", () => {
+    expect(() =>
+      calculateAmountInForTarget("USD", "USD", 10, mockRates),
+    ).toThrow(/itself/);
+  });
+
+  it("throws for a non-positive target", () => {
+    expect(() =>
+      calculateAmountInForTarget("USD", "LBP", 0, mockRates),
+    ).toThrow(/positive/);
+    expect(() =>
+      calculateAmountInForTarget("USD", "LBP", -5, mockRates),
+    ).toThrow(/positive/);
+  });
+
+  it("throws for an unknown currency (findCurrencyRate)", () => {
+    expect(() =>
+      calculateAmountInForTarget("USD", "GBP", 10, mockRates),
+    ).toThrow(/No exchange rate found/);
   });
 });

@@ -11,7 +11,10 @@
  * `payoutUsd` collapse to 0 and `chargeUsd` go negative; revert to pass.
  */
 
-import { splitBasketCashSides } from "../binanceCart";
+import {
+  netCashPayoutAgainstCharge,
+  splitBasketCashSides,
+} from "../binanceCart";
 import type { CartItem } from "../../types/cart";
 
 type Split = Pick<CartItem, "module" | "amount" | "currency">;
@@ -94,7 +97,143 @@ describe("splitBasketCashSides", () => {
       chargeLbp: 0,
       payoutUsd: 0,
       payoutLbp: 0,
+      systemPayoutUsd: 0,
+      systemPayoutLbp: 0,
+      // Fix-round finding (2026-09-24, this batch): systemChargeUsd/Lbp
+      // (fix-round finding #3's netting-base fields) are part of the same
+      // return object — omitting them here would fail this `toEqual` against
+      // the real implementation, which always returns all 8 keys.
+      systemChargeUsd: 0,
+      systemChargeLbp: 0,
     });
+  });
+});
+
+describe("splitBasketCashSides — systemPayoutUsd/systemPayoutLbp (owner decision #11-A)", () => {
+  const omtSystemReceive = (payout: number, currency: "USD" | "LBP"): Split => ({
+    module: "omt_system",
+    amount: -payout,
+    currency,
+  });
+  const whishSystemReceive = (
+    payout: number,
+    currency: "USD" | "LBP",
+  ): Split => ({
+    module: "whish_system",
+    amount: -payout,
+    currency,
+  });
+  const lotoPrize = (payout: number): Split => ({
+    module: "loto_prize",
+    amount: -payout,
+    currency: "LBP",
+  });
+
+  it("tags an OMT/Whish SYSTEM RECEIVE's payout as systemPayout — never a loto prize or Binance cash-out", () => {
+    const result = splitBasketCashSides([
+      omtSystemReceive(100, "USD"),
+      binanceReceive(20),
+      lotoPrize(400_000),
+    ]);
+
+    expect(result.payoutUsd).toBe(120);
+    expect(result.systemPayoutUsd).toBe(100);
+    expect(result.payoutLbp).toBe(400_000);
+    expect(result.systemPayoutLbp).toBe(0);
+  });
+
+  it("sums multiple system-payout items and keeps WHISH separate by currency", () => {
+    const result = splitBasketCashSides([
+      omtSystemReceive(50, "USD"),
+      whishSystemReceive(1_000_000, "LBP"),
+    ]);
+
+    expect(result.systemPayoutUsd).toBe(50);
+    expect(result.systemPayoutLbp).toBe(1_000_000);
+    expect(result.payoutUsd).toBe(50);
+    expect(result.payoutLbp).toBe(1_000_000);
+  });
+
+  it("a charge (positive) SYSTEM item never contributes to systemPayout", () => {
+    const result = splitBasketCashSides([
+      { module: "omt_system", amount: 100, currency: "USD" },
+    ]);
+
+    expect(result.systemPayoutUsd).toBe(0);
+    expect(result.payoutUsd).toBe(0);
+  });
+});
+
+describe("netCashPayoutAgainstCharge (owner decision #11-A — netted session checkout)", () => {
+  // Rule 17: proven to FAIL on the pre-#11-A GROSS behavior — a caller that
+  // simply sends chargeLbp (1,280,000) as the total-to-collect and the full
+  // 400,000 LBP prize as a separate OUT leg records a 400,000 LBP drawer
+  // debit that never physically happened (only 10,000 LBP + $40 physically
+  // left the drawer as change on a $50 tender) — the exact 390,000 LBP gap
+  // this function exists to close. Reverting the caller to that GROSS
+  // behavior (skip this function, keep the old two-bucket construction) is
+  // what fails the owner's arithmetic below.
+  it("owner's worked example: 1,280,000 LBP charge netted against a 400,000 LBP prize leaves 880,000 LBP owed, no excess payout", () => {
+    const result = netCashPayoutAgainstCharge({
+      chargeUsd: 0,
+      chargeLbp: 1_280_000,
+      cashPayoutUsd: 0,
+      cashPayoutLbp: 400_000,
+      rate: 89_000,
+    });
+
+    expect(result.netChargeUsd).toBe(0);
+    expect(result.netChargeLbp).toBe(880_000);
+    expect(result.excessPayoutUsd).toBe(0);
+    expect(result.excessPayoutLbp).toBe(0);
+  });
+
+  it("a payout bigger than the charge leaves the excess as a real payout, never a negative charge", () => {
+    // $30 charge, $50 CASH payout (e.g. a Binance cash-out bigger than the
+    // basket) -> $20 excess still has to leave the drawer as a real leg.
+    const result = netCashPayoutAgainstCharge({
+      chargeUsd: 30,
+      chargeLbp: 0,
+      cashPayoutUsd: 50,
+      cashPayoutLbp: 0,
+      rate: 89_000,
+    });
+
+    expect(result.netChargeUsd).toBe(0);
+    expect(result.excessPayoutUsd).toBe(20);
+  });
+
+  it("no netting-eligible payout passes the charge straight through unchanged", () => {
+    const result = netCashPayoutAgainstCharge({
+      chargeUsd: 10,
+      chargeLbp: 500_000,
+      cashPayoutUsd: 0,
+      cashPayoutLbp: 0,
+      rate: 89_000,
+    });
+
+    expect(result.netChargeUsd).toBe(10);
+    expect(result.netChargeLbp).toBe(500_000);
+    expect(result.excessPayoutUsd).toBe(0);
+    expect(result.excessPayoutLbp).toBe(0);
+  });
+
+  it("cross-currency: a payout in one currency nets against a charge in the other, via the rate", () => {
+    // No USD charge, but a $10 USD payout and an LBP charge -> the USD
+    // payout's value converts into the LBP charge via spillover.
+    const result = netCashPayoutAgainstCharge({
+      chargeUsd: 0,
+      chargeLbp: 1_000_000,
+      cashPayoutUsd: 10,
+      cashPayoutLbp: 0,
+      rate: 89_000,
+    });
+
+    // $10 -> 890,000 LBP; remaining LBP charge = 1,000,000 - 890,000 = 110,000.
+    expect(result.netChargeUsd).toBe(0);
+    expect(result.netChargeLbp).toBe(110_000);
+    expect(result.excessPayoutUsd).toBe(0);
+    expect(result.excessPayoutLbp).toBe(0);
   });
 });
 

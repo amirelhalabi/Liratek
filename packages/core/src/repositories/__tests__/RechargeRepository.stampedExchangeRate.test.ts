@@ -167,6 +167,46 @@ describe("RechargeRepository — SEND stamps the tendered rate", () => {
         PRIMARY KEY (tenant_id, drawer_name, currency_code)
       );
 
+      -- LIRA-198 (owner #22): a CREDIT_TRANSFER sale now looks up the shop's
+      -- primary carrier line — table must exist (every real schema has it
+      -- unconditionally since v140), even though this schema never seeds a
+      -- row (the "no primary line" case logs a warning and skips, same
+      -- established convention as the DAYS arm).
+      CREATE TABLE carrier_lines (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id           INTEGER DEFAULT 1,
+        carrier             TEXT NOT NULL CHECK(carrier IN ('alfa','mtc')),
+        phone_number        TEXT NOT NULL,
+        label               TEXT,
+        credits             REAL NOT NULL DEFAULT 0,
+        validity_expires_at TEXT,
+        days_owed           INTEGER NOT NULL DEFAULT 0,
+        notes               TEXT,
+        is_active           INTEGER NOT NULL DEFAULT 1,
+        is_primary          INTEGER NOT NULL DEFAULT 0,
+        created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at          TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX idx_carrier_lines_one_primary_per_carrier
+        ON carrier_lines(tenant_id, carrier)
+        WHERE is_primary = 1;
+
+      CREATE TABLE carrier_line_movements (
+        id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id                     INTEGER,
+        carrier_line_id               INTEGER NOT NULL,
+        transaction_id                INTEGER,
+        credits_delta                 REAL NOT NULL DEFAULT 0,
+        validity_days_delta           INTEGER NOT NULL DEFAULT 0,
+        previous_validity_expires_at  TEXT,
+        days_owed_delta               INTEGER NOT NULL DEFAULT 0,
+        previous_days_owed            INTEGER NOT NULL DEFAULT 0,
+        reason                        TEXT NOT NULL,
+        is_reversed                   INTEGER NOT NULL DEFAULT 0,
+        created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE clients (
         tenant_id INTEGER DEFAULT 1,
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -332,6 +372,7 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
         label TEXT,
         credits REAL NOT NULL DEFAULT 0,
         validity_expires_at TEXT,
+        days_owed INTEGER NOT NULL DEFAULT 0,
         notes TEXT,
         is_active INTEGER NOT NULL DEFAULT 1,
         is_primary INTEGER NOT NULL DEFAULT 0,
@@ -350,6 +391,8 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
         credits_delta REAL NOT NULL DEFAULT 0,
         validity_days_delta INTEGER NOT NULL DEFAULT 0,
         previous_validity_expires_at TEXT,
+        days_owed_delta INTEGER NOT NULL DEFAULT 0,
+        previous_days_owed INTEGER NOT NULL DEFAULT 0,
         reason TEXT NOT NULL,
         is_reversed INTEGER NOT NULL DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

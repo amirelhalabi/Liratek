@@ -1,6 +1,17 @@
 import {
   buildRateStampedProfitLines,
   formatRateStampedProfitBlock,
+  buildNetProfitLines,
+  formatNetProfitBlock,
+  formatProfitAsOfLine,
+  GROSS_PROFIT_USD_LABEL,
+  GROSS_PROFIT_LBP_LABEL,
+  GROSS_PROFIT_TOTAL_USD_LABEL,
+  GROSS_PROFIT_TOTAL_LBP_LABEL,
+  NET_PROFIT_USD_LABEL,
+  NET_PROFIT_LBP_LABEL,
+  PROFIT_HIDDEN_LABEL,
+  PROFIT_UNAVAILABLE_LABEL,
 } from "../rateStampedProfit";
 
 /**
@@ -77,16 +88,29 @@ describe("formatRateStampedProfitBlock", () => {
     );
     const block = formatRateStampedProfitBlock(lines);
     const rows = block.split("\n");
+    // LIRA-219 C.6: the block now sources totalProfitLBP from
+    // ClosingService.getDailyStatsSnapshot() -> ProfitService.getSummary,
+    // i.e. every module's LBP gross profit, not loto's alone — so the old
+    // "(Loto only)" qualifier and the bare "Profit -" prefix are gone.
+    // Labels are asserted via the module's own exported constants (rule 24),
+    // never hand-typed here.
 
     expect(rows).toHaveLength(4);
-    expect(block).toContain("USD amount: $100.00");
-    expect(block).toContain("LBP amount (Loto only): 900,000 LBP");
-    expect(block).toContain("Total (USD) @ 90,000 (sell rate): $110.00");
-    expect(block).toContain("Total (LBP) @ 90,000 (sell rate): 9,900,000 LBP");
+    expect(block).toContain(`${GROSS_PROFIT_USD_LABEL}: $100.00`);
+    expect(block).toContain(`${GROSS_PROFIT_LBP_LABEL}: 900,000 LBP`);
+    expect(block).toContain(
+      `${GROSS_PROFIT_TOTAL_USD_LABEL} @ 90,000 (sell rate): $110.00`,
+    );
+    expect(block).toContain(
+      `${GROSS_PROFIT_TOTAL_LBP_LABEL} @ 90,000 (sell rate): 9,900,000 LBP`,
+    );
+    // The old loto-only qualifier and the bare "Profit -" prefix must be gone.
+    expect(block).not.toContain("(Loto only)");
+    expect(block).not.toMatch(/^ {2}Profit -/m);
 
     // The two native lines must NOT carry a rate annotation.
-    const usdLine = rows.find((r) => r.includes("USD amount"))!;
-    const lbpLine = rows.find((r) => r.includes("LBP amount"))!;
+    const usdLine = rows.find((r) => r.includes(GROSS_PROFIT_USD_LABEL))!;
+    const lbpLine = rows.find((r) => r.includes(GROSS_PROFIT_LBP_LABEL))!;
     expect(usdLine).not.toContain("@");
     expect(lbpLine).not.toContain("@");
   });
@@ -141,5 +165,92 @@ describe("formatRateStampedProfitBlock", () => {
    */
   it("[rule 17 marker] the rate-printed assertion above is the one proven against the reintroduced defect", () => {
     expect(true).toBe(true);
+  });
+});
+
+/**
+ * LIRA-219 E-Q1 — the PDF's "Net profit = gross − expenses" line, printed
+ * per currency (no combined/converted net total — matches the Profits
+ * headline card's PA-4.22 "no combined ≈ line" decision, note #3
+ * 2026-09-24). Pure arithmetic, no rate involved.
+ */
+describe("buildNetProfitLines", () => {
+  it("subtracts expenses from gross profit independently per currency", () => {
+    const lines = buildNetProfitLines(300, 2_805_000, 50, 75_000);
+    expect(lines.netUsd).toBe(250);
+    expect(lines.netLbp).toBe(2_730_000);
+  });
+
+  it("allows a negative net (a loss day) without clamping to 0", () => {
+    const lines = buildNetProfitLines(10, 0, 50, 0);
+    expect(lines.netUsd).toBe(-40);
+  });
+
+  it("coerces non-finite inputs to 0 rather than propagating NaN", () => {
+    const lines = buildNetProfitLines(NaN, Infinity, 5, 5);
+    expect(Number.isNaN(lines.netUsd)).toBe(false);
+    expect(Number.isFinite(lines.netLbp)).toBe(true);
+  });
+});
+
+describe("formatNetProfitBlock", () => {
+  it("renders one USD line and one LBP line, each carrying no rate annotation", () => {
+    const lines = buildNetProfitLines(300, 2_805_000, 50, 75_000);
+    const block = formatNetProfitBlock(lines);
+    const rows = block.split("\n");
+    expect(rows).toHaveLength(2);
+    expect(block).toContain(`${NET_PROFIT_USD_LABEL}: $250.00`);
+    expect(block).toContain(`${NET_PROFIT_LBP_LABEL}: 2,730,000 LBP`);
+    expect(block).not.toContain("@");
+  });
+
+  it("renders a negative net with its sign, not a fabricated absolute value", () => {
+    const lines = buildNetProfitLines(10, 0, 50, 0);
+    const block = formatNetProfitBlock(lines);
+    expect(block).toContain(`${NET_PROFIT_USD_LABEL}: $-40.00`);
+  });
+});
+
+/**
+ * LIRA-219 E-Q3 — "Profit as of HH:MM — later repayments/refunds update
+ * this day on the Profits page" (owner answers table, which overrides
+ * section (E) of the design doc). Time comes from an injected `now: Date`
+ * (DIP) — never read from inside this module.
+ */
+describe("formatProfitAsOfLine", () => {
+  it("renders zero-padded HH:MM from the injected clock", () => {
+    const line = formatProfitAsOfLine(new Date(2026, 8, 24, 9, 5));
+    expect(line).toContain("09:05");
+    expect(line).toContain(
+      "later repayments/refunds update this day on the Profits page",
+    );
+  });
+
+  it("zero-pads a midnight hour and minute", () => {
+    const line = formatProfitAsOfLine(new Date(2026, 8, 24, 0, 0));
+    expect(line).toContain("00:00");
+  });
+
+  it("does not truncate a two-digit hour/minute", () => {
+    const line = formatProfitAsOfLine(new Date(2026, 8, 24, 23, 59));
+    expect(line).toContain("23:59");
+  });
+});
+
+/**
+ * LIRA-219 E-Q6/E-Q7 — the exact strings the owner answers table quotes
+ * verbatim for the gated/failed-read cases. Asserted as constants (rule 24)
+ * so `closingReportGenerator.ts` and this suite can never drift apart on
+ * the wording.
+ */
+describe("hidden/unavailable profit labels", () => {
+  it("PROFIT_HIDDEN_LABEL matches the owner's exact wording (E-Q6)", () => {
+    expect(PROFIT_HIDDEN_LABEL).toBe(
+      "Profit: hidden — unlock the Profits page to include it",
+    );
+  });
+
+  it("PROFIT_UNAVAILABLE_LABEL prints 'unavailable', never a fabricated $0.00 (E-Q7/C.6)", () => {
+    expect(PROFIT_UNAVAILABLE_LABEL).toBe("Gross profit: unavailable");
   });
 });

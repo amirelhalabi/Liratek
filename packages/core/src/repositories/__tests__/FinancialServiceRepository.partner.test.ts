@@ -146,7 +146,8 @@ function createTestDb(): Database.Database {
       paid_currency         TEXT DEFAULT NULL,
       partner_id            INTEGER REFERENCES partners(id),
       partner_mode          TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
-      commission_model      INTEGER NOT NULL DEFAULT 0,
+      commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       -- v68: required by TransactionRepository._markSourceRefunded, which
       -- every void/refund of a financial_services-sourced transaction hits
       -- unconditionally (task B/void proof needs a real void to complete).
@@ -675,17 +676,18 @@ describe("FinancialServiceRepository — partner mode", () => {
           partnerMode: "FOR",
         });
 
-        // grossOwedDelta(RECEIVE) = -(x - f) = -(100 - 5) = -95 as of
-        // COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 2 (D1, shipped
-        // 2026-08-29) — the shop's commission is no longer netted out of the
-        // supplier payable; it settles separately. `commission: 0.5` is
-        // still stored on the row as an at-settlement estimate, just not
-        // subtracted here. OLD -> NEW: -95.5 -> -95 (PRIMARY_CASH_DRAWER_PLAN
-        // .md §8.3's pre-Phase-2 worked example, x=100/f=5/c=0.5, booked -95.5).
+        // grossOwedDelta(RECEIVE) = -x = -100 as of OWNER_NOTES_2026-09-21.md
+        // §2b (D1 cutover, shipped) — the FOR-partner branch's own comment
+        // ("Full amount, no fee") already said OMT takes no fee here; the
+        // supplier ledger now agrees with it. `commission: 0.5` is still
+        // stored on the row as an at-settlement estimate, just not
+        // subtracted here (unchanged by D1). OLD -> NEW: -95 -> -100 (Phase 2
+        // D1 booked -(x-f) = -95; this trace fixed the FOR-partner site,
+        // which used to disagree with its own "no fee" comment).
         const entries = ledgerRowsForSupplier(db, omtId);
         expect(entries).toHaveLength(1);
         expect(entries[0].entry_type).toBe("TOP_UP"); // never PAYMENT — addLedgerEntry force-negates only PAYMENT
-        expect(entries[0].amount_usd).toBeCloseTo(-95, 2);
+        expect(entries[0].amount_usd).toBeCloseTo(-100, 2);
         expect(entries[0].amount_lbp).toBe(0);
         // Tenant-scoped: booked under initFixedTenantContext(1) — must carry
         // that tenant, not a default/null/other tenant's row.
@@ -725,15 +727,15 @@ describe("FinancialServiceRepository — partner mode", () => {
           partnerMode: "FOR",
         });
 
-        // grossOwedDelta(RECEIVE) = -(x - f) as of Phase 2 (D1) — commission
-        // no longer netted here:
-        //                         = -(1,000,000 - 50,000) = -950,000.
-        // OLD -> NEW: -955,000 -> -950,000 (pre-Phase-2 also subtracted
-        // c=5,000).
+        // grossOwedDelta(RECEIVE) = -x as of D1 cutover (OWNER_NOTES_2026-09-
+        // 21.md §2b) — the fee never reduces what OMT owes here:
+        //                         = -1,000,000.
+        // OLD -> NEW: -950,000 -> -1,000,000 (Phase 2 D1 booked -(x-f); this
+        // trace fixed the FOR-partner site to match its own "no fee" comment).
         const entries = ledgerRowsForSupplier(db, omtId);
         expect(entries).toHaveLength(1);
         expect(entries[0].entry_type).toBe("TOP_UP");
-        expect(entries[0].amount_lbp).toBeCloseTo(-950_000, 2);
+        expect(entries[0].amount_lbp).toBeCloseTo(-1_000_000, 2);
         // Currency-column routing: an LBP transaction must not also post to
         // amount_usd (the two columns are mutually exclusive per row, never
         // "the same figure twice").
@@ -757,10 +759,10 @@ describe("FinancialServiceRepository — partner mode", () => {
         });
 
         // Sanity: the entry exists and books the gross amount before void.
-        // Phase 2 (D1): -(x-f) = -(100-5) = -95 (OLD -> NEW: -95.5 -> -95,
-        // commission 0.5 no longer netted here — see the dedicated test above).
+        // D1 cutover: -x = -100 (OLD -> NEW: -95 -> -100 — see the dedicated
+        // test above for the full trace).
         const balanceBefore = getSupplierRepository().getSupplierBalance(omtId);
-        expect(balanceBefore.balance_usd).toBeCloseTo(-95, 2);
+        expect(balanceBefore.balance_usd).toBeCloseTo(-100, 2);
 
         const parentTxn = getTransactionRepository().getBySourceId(
           "financial_services",

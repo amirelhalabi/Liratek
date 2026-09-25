@@ -44,6 +44,7 @@ function makeDb(): Database.Database {
       price REAL DEFAULT 0,
       commission REAL DEFAULT 0,
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       is_settled INTEGER NOT NULL DEFAULT 1,
       is_refunded INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP

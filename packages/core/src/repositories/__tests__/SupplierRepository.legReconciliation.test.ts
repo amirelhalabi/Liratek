@@ -115,6 +115,7 @@ function createTestDb(): Database.Database {
       partner_id INTEGER,
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
       commission_model INTEGER NOT NULL DEFAULT 0,
+      receive_fee_model INTEGER NOT NULL DEFAULT 0,
       tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);

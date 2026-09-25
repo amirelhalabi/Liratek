@@ -1,6 +1,10 @@
 /** @jest-environment jsdom */
 
 /**
+ * NOT RUN — proven at the end-of-batch gate. `buildProps` updated for owner
+ * note #21 (migration v182): TelecomForm now also requires `shopLineBuyback`/
+ * `setShopLineBuyback`.
+ *
  * LIRA-109 — TelecomForm's `onUpdateMetadata` handler (passed to the History
  * modal's inline edit feature, ~TelecomForm.tsx:1198) must go through the
  * dual-mode adapter (`useApi().updateRechargeMetadata`), never a raw
@@ -54,6 +58,15 @@ const mockApi = {
   getAllSettings: mockGetAllSettings,
   getActiveCarrierLines: mockGetActiveCarrierLines,
   updateRechargeMetadata: mockUpdateRechargeMetadata,
+  // m6 fix (2026-09-24 adversarial review): CarrierLinesPanel (rendered
+  // alongside TelecomForm in this harness) calls this unconditionally on
+  // mount — without it the call throws a TypeError ("not a function").
+  getPendingCarrierLineOwedDeliveries: jest
+    .fn()
+    .mockResolvedValue({ success: true, data: [] }),
+  markCarrierLineOwedDeliverySent: jest
+    .fn()
+    .mockResolvedValue({ success: true, data: null }),
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -155,7 +168,13 @@ function buildProps(
     telecomDaysCostUsd: "",
     setTelecomDaysCostUsd: jest.fn(),
     isShopLineMatch: false,
+    // Owner note #21 (migration v182): irrelevant while isShopLineMatch is
+    // false, but required by the prop type.
+    shopLineBuyback: true,
+    setShopLineBuyback: jest.fn(),
     onRefreshHistory: jest.fn(),
+    // #28 (LIRA-218) — no primary line by default; required by the prop type.
+    primaryLine: null,
     ...overrides,
   };
 }
