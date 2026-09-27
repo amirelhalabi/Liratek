@@ -4,10 +4,13 @@
  * Under the one-unit-per-line rule (`processSale` requires `quantity === 1`
  * for any unit-tracked line), refunding a unit-tracked `sale_items` row
  * always has exactly one linked `product_units` row to flip back to
- * IN_STOCK — no extras here; the phone-refund UI's defective/warranty-
- * override flagging lives only on the Transactions-page WHOLE-refund flow
- * (owner decision 2026-07-04), covered separately in
- * TransactionRepository.productUnitsReversal.test.ts.
+ * IN_STOCK — no extras in THIS file's cases (they cover the flip itself,
+ * with no `unitExtras` passed). The phone-refund UI's defective/warranty-
+ * override flagging originally lived only on the Transactions-page
+ * WHOLE-refund flow (owner decision 2026-07-04, covered in
+ * TransactionRepository.productUnitsReversal.test.ts); the 2026-09-26 owner
+ * decision extended it to THIS per-item path too via `refundSaleItem`'s own
+ * `unitExtras` param — see SalesRepository.refundUnitExtras.test.ts.
  *
  * 2026-08-26 update: the second case here used to run a per-item refund and
  * then a WHOLE-sale `refundTransaction` on the same sale. That sequence is now

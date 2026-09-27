@@ -20,9 +20,21 @@ import {
   MODULE_DEBT_TRANSACTION_TYPES,
   NON_REVERSIBLE_TRANSACTION_TYPES,
   SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES,
+  SESSION_ITEM_REFUND_CREDIT_TYPE,
+  SESSION_ITEM_REFUND_LINK_TYPE,
+  SESSION_ITEM_REFUNDABLE_TYPES,
+  TRANSACTION_TYPES,
   type TransactionStatus,
   type TransactionType,
 } from "../constants/transactionTypes.js";
+import {
+  REFUND_LEG_AMOUNT_EPSILON,
+  REFUND_VALUE_TOLERANCE_USD,
+} from "../constants/refundTolerance.js";
+import {
+  isSessionPayoutMember,
+  type SessionPayoutMemberCandidate,
+} from "../constants/sessionPayoutMember.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
 import {
@@ -49,13 +61,44 @@ import { getProductUnitRepository } from "./ProductUnitRepository.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { restoreMaintenanceJobParts } from "./maintenancePartsStock.js";
 import type { TransactionTypeFilterInput } from "../validators/transaction.js";
+// LIRA-232 phase 1 — refundSessionBasketItem's SALE branch reuses
+// SalesRepository's per-line item reversal (rule 14). Both files already
+// reference each other's singleton getters lazily (SalesRepository imports
+// getTransactionRepository from THIS file), so this import cycle is safe:
+// neither getter is invoked at module-evaluation time, only from inside a
+// method body once both modules have finished loading — the same pattern
+// already used for FinancialServiceRepository above.
+import { getSalesRepository } from "./SalesRepository.js";
+// LIRA-232 phase 1 (adversarial-review fix, finding #6) — the client's
+// CURRENT total balance (`getClientBalance`, a plain SUM(amount_usd)/
+// SUM(amount_lbp) across every debt_ledger row) is the one existing,
+// rule-14-correct way to know "how much of this account charge has ALREADY
+// been repaid" — 'Session Debt' rows never get FIFO `covered_*` coverage
+// (DebtRepository._coverServiceDebtsFIFO's whitelist excludes 'Session
+// Debt' by design), so re-deriving that from `covered_*` (the pre-fix
+// approach) always read the gross charge, repayment or not. Same safe
+// circular-import pattern as the `SalesRepository` import above: DebtRepository
+// imports `getTransactionRepository` at its own top level, and neither class
+// touches the other's import at module-evaluation time, only from inside a
+// method body.
+import { getDebtRepository } from "./DebtRepository.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
 // 'Refund Reversal' rows, which cancel debt and belong to a refund/void
 // transaction that already shows its own real method. Defined once and reused
 // by every account-leg reconstruction query (rule 14).
-const ACCOUNT_CHARGE_PREDICATE = "transaction_type <> 'Refund Reversal'";
+//
+// Finding #11 (adversarial review, LIRA-232) — `SESSION_ITEM_REFUND_CREDIT_TYPE`
+// ('Session Item Refund') is excluded for the SAME reason as 'Refund
+// Reversal': it is a credit belonging to a REFUND transaction that shows its
+// own real method, not a fresh charge on the session group. Before this
+// exclusion it passed the predicate (a different string from 'Refund
+// Reversal') and surfaced as a spurious "Customer Account" OUT leg on the
+// whole session group, while the REFUND row it actually belongs to showed no
+// legs at all. See `_attachPaymentLegs`'s dedicated per-transaction lookup
+// (`sessionItemRefundCreditLegsByTxn`) for where it's re-attached correctly.
+const ACCOUNT_CHARGE_PREDICATE = `transaction_type NOT IN ('Refund Reversal', '${SESSION_ITEM_REFUND_CREDIT_TYPE}')`;
 
 // LIRA-115: the `payments.note` stamped on a session basket's pooled-leg
 // reversal (`_reverseSessionPooledPayments`) — reused (rule 14) both to write
@@ -66,6 +109,31 @@ const ACCOUNT_CHARGE_PREDICATE = "transaction_type <> 'Refund Reversal'";
 // basket already been voided/refunded" predicate `_assertSessionBasketReversible`
 // uses, instead of hand-copying the literal note string a second time (rule 14).
 export const SESSION_BASKET_REVERSAL_NOTE = "Basket reversal";
+
+// Coordinator follow-up (2026-09-27) — the ONE message
+// `voidSessionBasket`/`refundSessionBasket`'s up-front
+// `isSessionBasketFullyRefunded` guard throws (rule 14), so IPC and REST
+// surface byte-identical text in the normal `{ success: false, error }`
+// envelope (both transports forward `error.message` verbatim).
+export const SESSION_BASKET_ALREADY_FULLY_REFUNDED_MESSAGE =
+  "Everything in this basket has already been refunded item by item — there is nothing left to refund.";
+
+// Coordinator follow-up (2026-09-28, N+1 fix) — SQLite's bound-parameter
+// ceiling (older builds cap at 999) means a `session_id IN (...)` built from
+// an unbounded page's worth of distinct sessions must be split into
+// batches. This is the ONE chunk size every batched session-flag query
+// below shares (rule 14), so they can never split a caller's id list
+// differently from one another.
+const SESSION_BATCH_CHUNK_SIZE = 400;
+
+function chunkIds<T>(ids: T[], size: number): T[][] {
+  if (ids.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    chunks.push(ids.slice(i, i + size));
+  }
+  return chunks;
+}
 
 // =============================================================================
 // Types
@@ -325,7 +393,11 @@ function customerCashLegSql(a: string): string {
  * ONE predicate, reused by both the validation net and the `_reversePayments`
  * skip-set below, never copy-pasted).
  */
-function isOverridableLeg(p: {
+// Exported (LIRA-231 — rule 14) so SalesRepository's POS per-item refund
+// override can gate its own "which legs does the operator's choice replace"
+// decision with the EXACT same predicate this file's whole-transaction
+// override uses, instead of re-deriving it.
+export function isOverridableLeg(p: {
   method: string;
   drawer_name: string;
   currency_code: string;
@@ -333,6 +405,322 @@ function isOverridableLeg(p: {
   note: string | null;
 }): boolean {
   return !isInternalLegJs(p) && isDrawerAffectingMethod(p.method);
+}
+
+/**
+ * LIRA-231 (rule 14): convert raw `payments` rows into the structured
+ * `TransactionPaymentLeg[]` shape RefundMethodModal consumes, filtering out
+ * internal (non-customer) legs via `isInternalLegJs` — the SAME filter
+ * `getRecent`'s own leg-attachment (`toLeg`) and `getCustomerFacingLegs` use.
+ * `scale` lets a caller pre-shrink every leg to a PROPORTIONAL share (e.g. one
+ * sale item's fraction of the whole sale) without duplicating the pro-rata
+ * math here — the caller computes the ratio, this function only applies it
+ * uniformly to every leg's signed amount.
+ */
+export function paymentRowsToLegs(
+  rows: Array<{
+    method: string;
+    drawer_name: string;
+    currency_code: string;
+    amount: number;
+    note: string | null;
+  }>,
+  scale = 1,
+): TransactionPaymentLeg[] {
+  const legs: TransactionPaymentLeg[] = [];
+  for (const p of rows) {
+    if (isInternalLegJs(p)) continue;
+    const signedAmount = p.amount * scale;
+    legs.push({
+      direction: signedAmount < 0 ? "out" : "in",
+      amount: Math.abs(signedAmount),
+      signed_amount: signedAmount,
+      currency_code: p.currency_code,
+      method: p.method,
+      ...(p.drawer_name ? { drawer_name: p.drawer_name } : {}),
+    });
+  }
+  return legs;
+}
+
+/**
+ * LIRA-236 — the day's fallback LBP rate (`exchange_rates.buy_rate`, else
+ * `market_rate`), used whenever nothing more specific is available: a
+ * session basket with no typed rate and no member-recorded rate
+ * (`TransactionRepository._crossCurrencyRateForBasket`'s last resort), or
+ * any refund preview's `bookedRateSource: "fallback"`
+ * (`resolveBookedRate` below). Rule 14 — the ONE place any of them reads
+ * the day's rate from. A free function (not just a private method) so
+ * `SalesRepository.getItemRefundPreview` can reach it too, via
+ * `resolveBookedRate`, without a cross-repository private-method reach-in.
+ */
+export function dayRateFallback(): number | null {
+  try {
+    const rate = getRateRepository().findByCode("LBP");
+    if (rate?.buy_rate && rate.buy_rate > 0) return rate.buy_rate;
+    if (rate?.market_rate && rate.market_rate > 0) return rate.market_rate;
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+/**
+ * LIRA-236 — the default booked rate for ANY refund preview: the thing
+ * being refunded's OWN recorded rate when it has one (source "sale" for a
+ * SALE transaction — `sales.exchange_rate_snapshot`, stamped onto
+ * `transactions.exchange_rate` at creation, so reading the transaction row
+ * is reading the sale's own snapshot; source "transaction" for any other
+ * transaction type that recorded a rate), else the day's fallback rate
+ * (source "fallback", never a hard-coded guess). Rule 14 — the ONE place
+ * `TransactionRepository.getSaleRefundPreview`/`getRefundBookedRate`/
+ * `getSessionItemRefundPreview` (via `_bookedRateFor`, which delegates
+ * here) AND `SalesRepository.getItemRefundPreview` all derive
+ * `bookedRate`/`bookedRateSource` from.
+ */
+export function resolveBookedRate(
+  recordedRate: number | null | undefined,
+  sourceIfPresent: "sale" | "transaction",
+): { bookedRate: number; bookedRateSource: "sale" | "transaction" | "fallback" } {
+  if (recordedRate != null && recordedRate > 0) {
+    return { bookedRate: recordedRate, bookedRateSource: sourceIfPresent };
+  }
+  return { bookedRate: dayRateFallback() ?? 0, bookedRateSource: "fallback" };
+}
+
+/**
+ * ONE definition (rule 14) of "signed net customer-facing total per
+ * currency, summed over overridable legs" — free-function counterpart to
+ * `TransactionRepository._overridableNetByCurrency` (which now delegates
+ * here), also consumed directly by SalesRepository's per-item refund
+ * override so both refund paths compute the same shape the same way.
+ */
+export function overridableNetByCurrency(
+  rows: Array<{
+    method: string;
+    drawer_name: string;
+    currency_code: string;
+    amount: number;
+    note: string | null;
+  }>,
+): Record<string, number> {
+  const net: Record<string, number> = {};
+  for (const p of rows) {
+    if (!isOverridableLeg(p)) continue;
+    net[p.currency_code] = (net[p.currency_code] ?? 0) + p.amount;
+  }
+  return net;
+}
+
+/**
+ * F14 (round-3 review, defensive) — the ONE gate (rule 14) for "is this a
+ * usable cashier-typed/booked exchange rate" wherever a rate first enters
+ * this repository's cross-currency refund math (`refundLegReversalSign`,
+ * `validateRefundLegOverrideAmounts`, `_planSessionItemRefund`'s
+ * `effectiveRate`). Mirrors `_crossCurrencyRateForBasket`'s existing
+ * `Number.isFinite` guard (LIRA-236 §9b item 12) rather than inventing a
+ * second convention — `rate > 0` ALONE lets `Infinity` through (`Infinity >
+ * 0` is `true`), and `1 / Infinity` silently prices every LBP amount, on
+ * EITHER side of a comparison, at exactly $0 — collapsing an 8,000,000 LBP
+ * original and an unrelated 3,000,000 LBP override to "$0 vs $0" and wrongly
+ * accepting the mismatch, or flipping `refundLegReversalSign`'s direction by
+ * dropping the LBP leg from the overall-value sum entirely. Every
+ * transport-facing schema already rejects a non-finite/non-positive rate
+ * (`refundExchangeRateSchema`'s `.positive().finite()`), so this is
+ * belt-and-suspenders for a caller that reaches the repository directly
+ * (an internal caller, a test, a future direct call) — not a new UI-facing
+ * validation.
+ */
+function isUsableRefundExchangeRate(
+  rate: number | null | undefined,
+): rate is number {
+  return rate != null && Number.isFinite(rate) && rate > 0;
+}
+
+/**
+ * ONE definition (rule 14) of "which direction does a refund-override leg
+ * post in" — shared by `TransactionRepository._reversePayments` and
+ * `SalesRepository._applySaleItemMoneyBack`, replacing each file's own
+ * `originalNet < 0 ? 1 : -1` copy (F1, round-3 review, corrected after a
+ * coordinator review of the first fix — see below).
+ *
+ * `exchangeRate` OMITTED (today's per-currency exact-match refund, legs only
+ * ever refund in the SAME currency they were paid in): byte-identical to
+ * before this fix — the sign comes from THIS currency's own net, defaulting
+ * to -1 when there is nothing recorded for it (a currency with a truly zero
+ * net can only be reached by an override leg of amount 0, which the
+ * validator already rejects).
+ *
+ * `exchangeRate` GIVEN (LIRA-236 cross-currency refund) — THE RULE: a refund
+ * moves money in exactly ONE direction, the reversal of the ORIGINAL's
+ * OVERALL signed value — never a per-currency sign. A money-in original
+ * (sale, SEND, the customer's side of an exchange: overall value > 0) posts
+ * EVERY refund leg OUT (a drawer debit), whatever currency that leg is in. A
+ * payout original (a RECEIVE cash-out, a prize: overall value < 0) posts
+ * EVERY leg IN. "Overall value" is the SAME USD-equivalent number
+ * `validateRefundLegOverrideAmounts`'s value branch computes and compares
+ * against (Σ every currency's signed net, converted at the cashier's typed
+ * rate) — one shared number, one shared sign, for every leg regardless of
+ * its own currency.
+ *
+ * This is NOT "this currency's own net, falling back to the overall sign
+ * only when that net is 0" — that per-currency-first version was the
+ * ORIGINAL (wrong) draft of this fix and reproduces the exact bug it was
+ * meant to close: a $90 sale tendered as $100 cash + a 895,000 LBP change
+ * leg has an LBP net of -895,000 in isolation (money already went OUT as
+ * change), even though the sale as a WHOLE was a net $90 customer payment
+ * IN — a refund posted entirely in LBP, signed by that per-currency net,
+ * would ADD to the drawer instead of subtracting. Always taking the OVERALL
+ * sign fixes it: LBP has no special case here, it just follows the same
+ * direction as every other currency.
+ *
+ * Falls back to this currency's own net only when the overall value is
+ * exactly 0 (a fully offsetting original, e.g. an even-rate EXCHANGE — see
+ * that function's refund tests, where any nonzero override is rejected by
+ * the validator before direction even matters) or no usable rate was
+ * supplied at all.
+ */
+export function refundLegReversalSign(
+  originalNetByCurrency: Record<string, number>,
+  currency: string,
+  exchangeRate?: number,
+): 1 | -1 {
+  if (isUsableRefundExchangeRate(exchangeRate)) {
+    let totalValueUsd = 0;
+    for (const [curr, net] of Object.entries(originalNetByCurrency)) {
+      const toUsd = curr === "LBP" ? 1 / exchangeRate : 1;
+      totalValueUsd += net * toUsd;
+    }
+    if (totalValueUsd !== 0) return totalValueUsd < 0 ? 1 : -1;
+  }
+  const ownNet = originalNetByCurrency[currency] ?? 0;
+  return ownNet < 0 ? 1 : -1;
+}
+
+/**
+ * ONE definition (rule 14) of "does this set of operator-chosen refund legs
+ * reproduce the given per-currency net" — shared by TransactionRepository's
+ * whole-transaction refund override (`_validateRefundLegOverride`, fed the
+ * transaction's own net), SalesRepository's per-item refund override (fed
+ * the item's PROPORTIONAL share of the sale's net), and
+ * `refundSessionBasketItem`'s money-back remainder check. `entityId` is only
+ * used to annotate the thrown error.
+ *
+ * LIRA-236 — `exchangeRate` (LBP per 1 USD) is optional and changes HOW the
+ * legs are checked, never WHICH legs are allowed per-leg (every per-leg rule
+ * below — positive amount, USD/LBP only, active drawer-affecting method —
+ * applies identically either way):
+ *   - OMITTED: today's exact behavior, unchanged — per CURRENCY, the legs'
+ *     total must equal that currency's own original net within
+ *     `REFUND_LEG_AMOUNT_EPSILON`. A currency with legs but no original net
+ *     (or vice versa) fails this per-currency check, which is what made a
+ *     cross-currency refund (USD sale, LBP legs) impossible before this
+ *     rate existed to convert between them.
+ *   - GIVEN: checked by TOTAL VALUE instead — every amount (both the
+ *     original net and the legs) is converted to a USD-equivalent
+ *     (`usd + lbp / exchangeRate`) and summed across ALL currencies into
+ *     ONE number on each side, compared within `REFUND_VALUE_TOLERANCE_USD`.
+ *     This is deliberately not "convert one currency then still check each
+ *     currency separately" — the whole point (REFUND_EXCHANGE_RATE_PLAN.md
+ *     §1) is a $50 item refundable as $20 + the rest in LBP, or all LBP, or
+ *     any other mix whose VALUE at the typed rate matches.
+ */
+export function validateRefundLegOverrideAmounts(
+  originalNetByCurrency: Record<string, number>,
+  refundLegs: RefundLegOverride[],
+  entityId: number,
+  exchangeRate?: number,
+): void {
+  const EPSILON = REFUND_LEG_AMOUNT_EPSILON;
+
+  const paymentMethodRepo = getPaymentMethodRepository();
+  const overrideNet: Record<string, number> = {};
+  for (const leg of refundLegs) {
+    if (!(leg.amount > 0)) {
+      throw new DatabaseError(
+        `Refund method override: leg amount must be greater than 0 (got ${leg.amount} ${leg.currencyCode})`,
+        { entityId },
+      );
+    }
+    if (!CUSTOMER_CASH_CURRENCIES.has(leg.currencyCode)) {
+      throw new DatabaseError(
+        `Refund method override: currency "${leg.currencyCode}" is not a supported refund currency (USD or LBP)`,
+        { entityId },
+      );
+    }
+    const pm = paymentMethodRepo.getByCode(leg.method);
+    if (!pm || pm.is_active !== 1 || pm.affects_drawer !== 1) {
+      throw new DatabaseError(
+        `Refund method override: "${leg.method}" is not an active, drawer-affecting payment method`,
+        { entityId },
+      );
+    }
+    overrideNet[leg.currencyCode] =
+      (overrideNet[leg.currencyCode] ?? 0) + leg.amount;
+  }
+
+  const currencies = new Set([
+    ...Object.keys(originalNetByCurrency),
+    ...Object.keys(overrideNet),
+  ]);
+  if (currencies.size === 0) {
+    throw new DatabaseError(
+      "Refund method override: this transaction has no customer-facing payment to refund",
+      { entityId },
+    );
+  }
+
+  if (isUsableRefundExchangeRate(exchangeRate)) {
+    // Value-based check — ONE USD-equivalent number per side, summed across
+    // every currency (LIRA-236). `originalNetByCurrency` is SIGNED (see the
+    // per-currency branch's own comment below for why) — the signed nets
+    // are summed FIRST and only THEN taken as one absolute value
+    // (`originalValueUsd`), never `Math.abs`'d per currency and summed
+    // after. A mixed-currency original (e.g. a $100 USD payment with a
+    // 895,000 LBP change leg — net USD +100, net LBP -895,000) has a real
+    // customer-facing value of $90 (100 - 10), not $110
+    // (|100| + |-895000/89500|): summing the absolute values per currency
+    // double-counts the change leg as if it were a SECOND payment instead
+    // of a partial giveback of the first, rejecting the correct $90 refund
+    // and wrongly accepting a $110 one (F1, round-3 review). The override
+    // side stays a sum of positive magnitudes — every `RefundLegOverride`
+    // amount is already validated `> 0` above, so there is no sign to lose
+    // there.
+    let originalNetValueUsd = 0;
+    let overrideValueUsd = 0;
+    for (const currency of currencies) {
+      const original = originalNetByCurrency[currency] ?? 0;
+      const override = overrideNet[currency] ?? 0;
+      const toUsd = currency === "LBP" ? 1 / exchangeRate : 1;
+      originalNetValueUsd += original * toUsd;
+      overrideValueUsd += override * toUsd;
+    }
+    const originalValueUsd = Math.abs(originalNetValueUsd);
+    if (Math.abs(originalValueUsd - overrideValueUsd) > REFUND_VALUE_TOLERANCE_USD) {
+      throw new DatabaseError(
+        `Refund method override: refund legs do not match the original payment's value at rate ${exchangeRate} — ` +
+          `original value $${originalValueUsd.toFixed(2)}, refund legs value $${overrideValueUsd.toFixed(2)}`,
+        { entityId },
+      );
+    }
+    return;
+  }
+
+  for (const currency of currencies) {
+    // Magnitude comparison — see `_validateRefundLegOverride`'s doc comment
+    // for why `originalNetByCurrency` is signed while the override is always
+    // a positive magnitude sum.
+    const original = Math.abs(originalNetByCurrency[currency] ?? 0);
+    const override = overrideNet[currency] ?? 0;
+    const epsilon = EPSILON[currency] ?? 0.01;
+    if (Math.abs(original - override) > epsilon) {
+      throw new DatabaseError(
+        `Refund method override: ${currency} totals do not match the original payment — ` +
+          `original ${original}, refund legs total ${override}`,
+        { entityId },
+      );
+    }
+  }
 }
 
 /**
@@ -369,6 +757,36 @@ export interface RefundUnitExtra {
   unit_id: number;
   is_defective?: boolean;
   warranty_override_until?: string | null;
+}
+
+/**
+ * ONE definition (rule 14) of "does every `unit_id` in this refund's
+ * `unitExtras` belong to the linked-unit set it's being checked against" —
+ * free-function counterpart to `TransactionRepository._validateRefundUnitExtras`
+ * (which now delegates here), also consumed directly by
+ * `SalesRepository.refundSaleItem`'s per-item override, which checks against
+ * THAT SALE ITEM's own linked units only (never the whole sale's — a unit
+ * belonging to a sibling line on the same sale must still be rejected).
+ * Throws BEFORE any unit is flipped — an id outside `linkedUnitIds` is
+ * operator error, not data to half-apply, same discipline as
+ * `validateRefundLegOverrideAmounts`. `entityId`/`entityLabel` only shape the
+ * thrown message (e.g. "... is not linked to sale #12" vs "... is not linked
+ * to sale item #34").
+ */
+export function validateRefundUnitExtras(
+  linkedUnitIds: Set<number>,
+  unitExtras: RefundUnitExtra[],
+  entityId: number,
+  entityLabel: string,
+): void {
+  for (const extra of unitExtras) {
+    if (!linkedUnitIds.has(extra.unit_id)) {
+      throw new DatabaseError(
+        `Refund unit extras: product unit #${extra.unit_id} is not linked to ${entityLabel} #${entityId}`,
+        { entityId },
+      );
+    }
+  }
 }
 
 /** One row of the D1 currency in/out by-date report. */
@@ -571,6 +989,30 @@ export interface TransactionWithUser extends TransactionEntity {
    * writes, so the original keeps its history and the reversal shows -N.
    */
   returned_credits_usd?: number;
+  /**
+   * LIRA-236 follow-up (2026-09-27 review) — true when THIS row is a
+   * session-basket member that was netted as a payout at checkout (a loto
+   * cash prize, a wallet/Binance cash-out, a negative-amount custom-service
+   * payout) — i.e. `refundSessionBasketItem`/`getSessionItemRefundPreview`
+   * would refuse the WHOLE basket this row belongs to
+   * (`_assertNoNettedPayoutMembers`). Computed by `getRecent()` with the
+   * shared `isSessionPayoutMember` predicate fed this member's
+   * CUSTOMER-SIDE `customer_session_transactions` amount (see that method's
+   * own doc for why, never the amount columns on THIS interface). Always
+   * `false` for a non-session row (`session_id` null).
+   */
+  is_session_payout: boolean;
+  /**
+   * Coordinator follow-up (2026-09-27) — true when THIS row belongs to a
+   * session basket where EVERY member has already been reversed (item by
+   * item, or by an earlier whole-member refund/void) — i.e.
+   * `voidSessionBasket`/`refundSessionBasket` would now refuse the basket
+   * with "nothing left to refund" (`isSessionBasketFullyRefunded`'s own
+   * doc). Computed ONCE per distinct `session_id` present in a `getRecent()`
+   * page (never per row, never re-derived in SQL) and stamped onto every
+   * row of that session. Always `false` for a non-session row.
+   */
+  session_fully_refunded: boolean;
 }
 
 export interface DebtAgingBuckets {
@@ -622,6 +1064,95 @@ export interface SessionBasketReversalResult {
   /** Reversal (VOID or REFUND) transaction ids created, one per entry in
    *  reversedTransactionIds. */
   reversalIds: number[];
+}
+
+/**
+ * LIRA-232 phase 1 — read-only result of `TransactionRepository
+ * .getSessionItemRefundPreview` (SESSION_ITEM_REFUND_PLAN.md §3's "expose a
+ * read-only preview for the UI"). Post-adversarial-review rewrite (rule 27 —
+ * every amount is a USD/LBP PAIR, never a single amount+currency tag): a
+ * session-basket item can be dual-currency (a custom service priced $10 +
+ * 450,000 LBP; a basket paid in a DIFFERENT currency mix than the item's
+ * own), so `itemAmount`/`itemCurrency` (a single tagged value) silently
+ * dropped whichever currency lost the tag-pick — see
+ * SESSION_ITEM_REFUND_PLAN adversarial findings #2/#3.
+ * `itemAmountUsd`/`itemAmountLbp` is A, split by currency; `accountReduction*`
+ * is how much of the basket's outstanding 'Session Debt' this refund
+ * actually cancels (capped by the client's CURRENT balance — finding #6);
+ * `remainderUsd`/`remainderLbp` is R, split by currency — the part handed
+ * back as cash, itself composed of (a) any already-repaid slice of the
+ * account-attributed amount (finding #6) and (b) the basket's own pooled-IN
+ * currency MIX applied to whatever was never attributed to the account at
+ * all (finding #2's cross-currency fix); `defaultLegs` is the pre-fill a
+ * transport can show editable, matching what `refundSessionBasketItem`
+ * itself posts when the caller sends no `refundLegs` override.
+ */
+export interface SessionItemRefundPreview {
+  itemAmountUsd: number;
+  itemAmountLbp: number;
+  accountReductionUsd: number;
+  accountReductionLbp: number;
+  remainderUsd: number;
+  remainderLbp: number;
+  defaultLegs: TransactionPaymentLeg[];
+  /** Round-2 finding #10 (LOW) — the display name of the client the
+   *  account reduction ACTUALLY lands on (the basket's own 'Session Debt'
+   *  client, `debtClientId` — see finding #10's own doc on
+   *  `_planSessionItemRefund`), which can differ from the refunded item's
+   *  own buyer inside a basket. Only present when there IS an account
+   *  reduction to name a client for. */
+  accountClientName?: string;
+  /** LIRA-236 — the default rate the popup shows: the refunded member's own
+   *  recorded rate (or, when the caller's own request already carried an
+   *  `exchangeRate`, that value — see `_planSessionItemRefund`'s
+   *  `bookedRate` doc), else the day's fallback. Every `accountReduction*`/
+   *  `remainder*` figure above was computed at THIS rate (or the caller's
+   *  own typed one, when given). */
+  bookedRate: number;
+  bookedRateSource: "sale" | "transaction" | "fallback";
+}
+
+/** LIRA-232 phase 1 — `TransactionRepository.refundSessionBasketItem`'s
+ *  payload. `saleItemId`/`quantity` are required together and only valid
+ *  for a SALE member; omitting `saleItemId` on a SALE member refunds every
+ *  remaining line in one operation (owner answer Q2). `unitExtras` (owner
+ *  decision 2026-09-26) is the SAME "Returned phones" defective/warranty
+ *  override shape `refundSaleItem` accepts — forwarded verbatim to
+ *  `SalesRepository.applySaleItemReversalForSession` for a SALE member; a
+ *  no-op for every other member type. */
+export interface RefundSessionBasketItemInput {
+  sessionId: number;
+  transactionId: number;
+  saleItemId?: number;
+  quantity?: number;
+  refundLegs?: RefundLegOverride[];
+  unitExtras?: RefundUnitExtra[];
+  userId: number;
+  /** Rule 27 — reserved for a future day-dependent read in this flow;
+   *  nothing here currently reads the clock, but the field is accepted so a
+   *  caller can always supply it without a type error. */
+  clientDay?: string;
+  /** LIRA-236 — the cashier-typed exchange rate (LBP per 1 USD), driving
+   *  BOTH the account-first cross-currency step and `refundLegs`' value-based
+   *  validation. Omitted: the refunded member's own booked rate, else the
+   *  day's fallback (`getSessionItemRefundPreview`'s `bookedRate`). */
+  exchangeRate?: number;
+}
+
+/** See `SessionItemRefundPreview`'s doc for why every amount below is a
+ *  USD/LBP pair (post-review rewrite — `itemAmount`/`itemCurrency`/
+ *  `remainderAmount` no longer exist). */
+export interface RefundSessionBasketItemResult {
+  refundTransactionId: number;
+  sessionId: number;
+  memberTransactionId: number;
+  itemAmountUsd: number;
+  itemAmountLbp: number;
+  accountReductionUsd: number;
+  accountReductionLbp: number;
+  remainderUsd: number;
+  remainderLbp: number;
+  legs: TransactionPaymentLeg[];
 }
 
 // =============================================================================
@@ -716,6 +1247,71 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
 
     return result.lastInsertRowid as number;
+  }
+
+  /**
+   * LIRA-229 — update the mutable fields of an EXISTING ACTIVE, non-reversal
+   * transaction row in place, instead of writing a new one. A POS sale's
+   * `transactions` row is written exactly once, when the sale becomes
+   * `completed` (see the `status === "completed"` gate in
+   * `SalesRepository.processSale`) — a draft never reaches this at all.
+   * This method exists only to keep that "exactly once" true if
+   * `processSale` is ever called AGAIN with `status: "completed"` for a
+   * sale that already has one (a retry/double-submit): `processSale` looks
+   * up its own anchor row by `source_table`/`source_id`
+   * (`getActiveSaleTransactionId`) and calls this instead of
+   * `createTransaction` when it already exists. Never touches `type`,
+   * `source_table`, `source_id`, `status`, or `created_at` — the row's
+   * identity, ACTIVE status and original timestamp stay fixed; only its
+   * content changes. Guarded by `status = 'ACTIVE'` so this can never
+   * mutate an already VOIDED row or a void's negated reversal row.
+   */
+  updateTransactionCore(
+    id: number,
+    data: Omit<
+      CreateTransactionInput,
+      "source_table" | "source_id" | "type" | "transaction_time"
+    >,
+  ): void {
+    if (!data.summary || data.summary.trim() === "") {
+      throw new Error(
+        `Transaction summary must be non-empty (updating id=${id})`,
+      );
+    }
+    if (data.client_phone && !data.client_name) {
+      throw new Error(`client_phone requires client_name (updating id=${id})`);
+    }
+
+    const exchangeRate =
+      data.exchange_rate !== undefined
+        ? data.exchange_rate
+        : this.snapshotExchangeRate();
+
+    const metadataStr = data.metadata_json
+      ? JSON.stringify(data.metadata_json)
+      : null;
+
+    this.execute(
+      `UPDATE transactions SET
+         user_id = ?, amount_usd = ?, amount_lbp = ?, profit_usd = ?, profit_lbp = ?,
+         exchange_rate = ?, client_id = ?, client_name = ?, client_phone = ?,
+         summary = ?, metadata_json = ?, device_id = ?
+       WHERE id = ? AND tenant_id = ? AND status = 'ACTIVE'`,
+      data.user_id,
+      data.amount_usd ?? 0,
+      data.amount_lbp ?? 0,
+      data.profit_usd ?? 0,
+      data.profit_lbp ?? 0,
+      exchangeRate ?? null,
+      data.client_id ?? null,
+      data.client_name ?? null,
+      data.client_phone ?? null,
+      data.summary ?? null,
+      metadataStr,
+      data.device_id ?? null,
+      id,
+      getCurrentTenantId(),
+    );
   }
 
   /**
@@ -874,7 +1470,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     params.push(limit);
 
-    const rows = this.query<TransactionWithUser>(
+    const rawRows = this.query<
+      TransactionWithUser & {
+        cst_amount_usd: number | null;
+        cst_amount_lbp: number | null;
+      }
+    >(
       `SELECT t.id, t.type, t.status, t.source_table, t.source_id,
               t.user_id, t.amount_usd, t.amount_lbp, t.profit_usd, t.profit_lbp,
               t.exchange_rate,
@@ -884,6 +1485,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               u.username,
               COALESCE(t.client_name, c.full_name) AS client_name,
               cst.session_id AS session_id,
+              cst.amount_usd AS cst_amount_usd,
+              cst.amount_lbp AS cst_amount_lbp,
               (SELECT r.id FROM transactions r
                 WHERE r.reverses_id = t.id
                   AND r.type = 'REFUND'
@@ -902,6 +1505,70 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       tenantId,
       ...params,
     );
+
+    // LIRA-236 follow-up (2026-09-27 review) — `is_session_payout`, computed
+    // HERE in TypeScript with the ONE shared `isSessionPayoutMember`
+    // predicate (rule 14 — the exact same one
+    // `_assertNoNettedPayoutMembers`/`_planSessionItemRefund` use to REFUSE a
+    // session item refund on a basket that contains a netted payout), never
+    // re-derived in SQL. Fed the member's CUSTOMER-SIDE `cst.amount_usd/lbp`
+    // — never `t.amount_usd/lbp` — for the same reason
+    // `_assertNoNettedPayoutMembers` reads `cst`: a FINANCIAL_SERVICE RECEIVE
+    // payout's own unified `transactions` row carries the POSITIVE transfer
+    // amount; only the pooled `customer_session_transactions` row carries
+    // the negative customer-side payout sign. A non-session row (no `cst`
+    // match, `session_id` null) always reads false.
+    const rowsWithPayoutFlag = rawRows.map((row) => {
+      const { cst_amount_usd, cst_amount_lbp, ...rest } = row;
+      const payoutCandidate: SessionPayoutMemberCandidate = {
+        type: row.type,
+        amount_usd: cst_amount_usd ?? 0,
+        amount_lbp: cst_amount_lbp ?? 0,
+        status: row.status,
+        reverses_id: row.reverses_id,
+      };
+      // F4/F6 (round-3 review) — the SAME `_isNettedSessionPayoutMember`
+      // predicate `_assertNoNettedPayoutMembers` refuses on (rule 14), so
+      // this flag and that guard can never disagree about which payout
+      // hides the "Refund item" button. Short-circuits on the cheap sign
+      // check FIRST (`isSessionPayoutMember`, no DB access) before the
+      // FINANCIAL_SERVICE provider lookup — the overwhelming majority of
+      // rows in any page are not payouts at all.
+      const isSessionPayout =
+        row.session_id != null && isSessionPayoutMember(payoutCandidate);
+      return {
+        ...rest,
+        is_session_payout:
+          isSessionPayout &&
+          this._isNettedSessionPayoutMember(payoutCandidate, row.id),
+      };
+    });
+
+    // Coordinator follow-up (2026-09-27, batched 2026-09-28 — N+1 fix) —
+    // `session_fully_refunded`, computed for every DISTINCT session present
+    // on this page in a small, constant number of set-based queries
+    // (`isSessionBasketFullyRefundedBatch`, rule 14 — the SAME predicate the
+    // void/refund guards use via `isSessionBasketFullyRefunded`, which is
+    // now itself defined in terms of this batch call), then stamped onto
+    // every row of that session. A page of up to 5,000 rows across up to
+    // 250 fully-refunded sessions used to cost ~1,750 extra one-off
+    // per-session queries; this costs a handful regardless of page size.
+    const distinctSessionIds = Array.from(
+      new Set(
+        rowsWithPayoutFlag
+          .map((r) => r.session_id)
+          .filter((id): id is number => id != null),
+      ),
+    );
+    const fullyRefundedBySession =
+      this.isSessionBasketFullyRefundedBatch(distinctSessionIds);
+    const rows: TransactionWithUser[] = rowsWithPayoutFlag.map((row) => ({
+      ...row,
+      session_fully_refunded:
+        row.session_id != null
+          ? (fullyRefundedBySession.get(row.session_id) ?? false)
+          : false,
+    }));
 
     return this._attachPaymentLegs(rows);
   }
@@ -1116,6 +1783,32 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       accountLegsByTxn.set(d.transaction_id, legs);
     }
 
+    // Finding #11 — the 'Session Item Refund' credit (`ACCOUNT_CHARGE_
+    // PREDICATE` now excludes it from the session-group query above) belongs
+    // to its OWN REFUND transaction (`debt_ledger.transaction_id` = the
+    // refund's id), not the whole session group — re-attach it there, same
+    // shape as `accountLegsByTxn` above but keyed regardless of `session_id`
+    // (the credit row always carries both).
+    const creditRows = this.query<{
+      transaction_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+    }>(
+      `SELECT transaction_id, amount_usd, amount_lbp
+       FROM debt_ledger
+       WHERE transaction_id IN (${placeholders})
+         AND transaction_type = ?
+         AND tenant_id = ?`,
+      ...ids,
+      SESSION_ITEM_REFUND_CREDIT_TYPE,
+      tenantId,
+    );
+    for (const d of creditRows) {
+      const legs = accountLegsByTxn.get(d.transaction_id) ?? [];
+      legs.push(...debtToAccountLegs(d.amount_usd, d.amount_lbp));
+      accountLegsByTxn.set(d.transaction_id, legs);
+    }
+
     for (const row of rows) {
       // LIRA-201b: `payments` is always this row's OWN legs only — never the
       // basket's pooled legs (that duplicated the same in/out on every
@@ -1135,6 +1828,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         const basketAccountLegs = accountLegsBySession.get(row.session_id);
         if (basketAccountLegs && basketAccountLegs.length > 0) {
           row.session_account_payments = basketAccountLegs;
+        }
+        // Finding #11 — a session-linked row can STILL own a per-transaction
+        // account leg: specifically, a `refundSessionBasketItem` REFUND row
+        // carrying its own 'Session Item Refund' credit (`creditRows` above).
+        // Attached as `account_payments` (the row's OWN leg), never
+        // `session_account_payments` (the whole group's pooled legs) — this
+        // is what actually shows the credit on the REFUND row itself instead
+        // of the session group.
+        const ownAccountLegs = accountLegsByTxn.get(row.id);
+        if (ownAccountLegs && ownAccountLegs.length > 0) {
+          row.account_payments = ownAccountLegs;
         }
       } else {
         const accountLegs = accountLegsByTxn.get(row.id);
@@ -1168,6 +1872,37 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       sourceId,
       getCurrentTenantId(),
     );
+  }
+
+  /**
+   * LIRA-229 — the id of a sale's own live SALE transaction row (the one
+   * `SalesRepository.processSale` should UPDATE, via `updateTransactionCore`,
+   * on a completion retry instead of inserting a second one), or null if
+   * none exists yet — which is the case for a draft, and for a sale being
+   * completed for the first time.
+   *
+   * Deliberately narrower than `getBySourceId` above: that method returns
+   * the most-recently-created ACTIVE row for a source, which — once a sale
+   * has been voided — is the void's own negated REFUND-shaped SALE
+   * reversal row (still `type = 'SALE'`, ACTIVE, `reverses_id` set; see
+   * `isVoidReversalRow`'s doc comment in ProfitRepository.ts). Reusing
+   * `getBySourceId` here would let a later completion retry silently
+   * overwrite that historical reversal record. `reverses_id IS NULL`
+   * excludes it, so a retry attempted against an already-voided sale
+   * correctly falls back to INSERTing a fresh row instead (defensive; not
+   * a path any current caller reaches, since a voided sale is never
+   * resubmitted).
+   */
+  getActiveSaleTransactionId(saleId: number): number | null {
+    const row = this.queryOne<{ id: number }>(
+      `SELECT id FROM transactions
+       WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'
+         AND status = 'ACTIVE' AND reverses_id IS NULL AND tenant_id = ?
+       ORDER BY id DESC LIMIT 1`,
+      saleId,
+      getCurrentTenantId(),
+    );
+    return row ? row.id : null;
   }
 
   /**
@@ -1338,11 +2073,28 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   ): SessionBasketReversalResult {
     const tenantId = getCurrentTenantId();
     this._assertSessionBasketReversible(sessionId);
+    // Coordinator follow-up (2026-09-27) — refuse up front (nothing
+    // written) when every member was already refunded item by item; see
+    // `isSessionBasketFullyRefunded`'s own doc.
+    if (this.isSessionBasketFullyRefunded(sessionId)) {
+      throw new BusinessRuleError(SESSION_BASKET_ALREADY_FULLY_REFUNDED_MESSAGE);
+    }
+    // Finding #4 (BLOCKER, adversarial review) — `cst.transaction_type =
+    // 'session_item_refund'` rows are NOT basket members to reverse; they
+    // only LINK a prior `refundSessionBasketItem` call's own REFUND
+    // transaction into the session group for display (§5). Before this
+    // exclusion, that REFUND row's own `unified_transaction_id` was fetched
+    // as an "item" here too and handed to `_voidTransactionInternal`, which
+    // throws "REFUND transactions cannot be voided" (REFUND is
+    // NON_REVERSIBLE and never session-bypassable) — making the WHOLE
+    // basket permanently unreversable after even one item refund. See
+    // `refundSessionBasket`'s identical fix immediately below for the twin
+    // case (refund instead of void).
     const items = this.query<{ id: number; status: TransactionStatus }>(
       `SELECT t.id AS id, t.status AS status
        FROM customer_session_transactions cst
        JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = ?
-       WHERE cst.session_id = ? AND cst.tenant_id = ?
+       WHERE cst.session_id = ? AND cst.tenant_id = ? AND cst.transaction_type <> 'session_item_refund'
        ORDER BY cst.id ASC`,
       tenantId,
       sessionId,
@@ -1395,11 +2147,27 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   ): SessionBasketReversalResult {
     const tenantId = getCurrentTenantId();
     this._assertSessionBasketReversible(sessionId);
+    // Coordinator follow-up (2026-09-27) — refuse up front (nothing
+    // written) when every member was already refunded item by item; see
+    // `isSessionBasketFullyRefunded`'s own doc.
+    if (this.isSessionBasketFullyRefunded(sessionId)) {
+      throw new BusinessRuleError(SESSION_BASKET_ALREADY_FULLY_REFUNDED_MESSAGE);
+    }
+    // Finding #4 (BLOCKER) — see `voidSessionBasket`'s identical exclusion
+    // above: a 'session_item_refund' cst row links a PRIOR item refund's own
+    // REFUND transaction into the session group; it is not a basket member
+    // to reverse a second time. For a non-SALE member this row's REFUND
+    // falls through to the generic branch below and throws "REFUND
+    // transactions cannot be voided or refunded" before this fix (a SALE
+    // member's REFUND happened to be masked by the `source_table === 'sales'`
+    // branch's own remaining-lines check, which is why this bug was
+    // invisible on the SALE-only fixture and only surfaced on
+    // recharge/custom-service members).
     const items = this.query<{ id: number; status: TransactionStatus }>(
       `SELECT t.id AS id, t.status AS status
        FROM customer_session_transactions cst
        JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = ?
-       WHERE cst.session_id = ? AND cst.tenant_id = ?
+       WHERE cst.session_id = ? AND cst.tenant_id = ? AND cst.transaction_type <> 'session_item_refund'
        ORDER BY cst.id ASC`,
       tenantId,
       sessionId,
@@ -1423,6 +2191,40 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           tenantId,
         );
         if (alreadyRefunded) continue;
+
+        // LIRA-232 (Q1, SESSION_ITEM_REFUND_PLAN.md §9) — a SALE member that
+        // was PARTIALLY reversed by a prior `refundSessionBasketItem` call
+        // has `sale_items.refunded_quantity` set on some lines but the
+        // member's OWN transaction is still ACTIVE with no `reverses_id`
+        // pointing at it (item refunds never touch the member itself, only
+        // its lines) — a bare `_refundTransactionInternal` on it would hit
+        // `_assertNoPartialItemRefunds` and throw. Detect that state and
+        // refund ONLY the remaining lines instead of the whole transaction.
+        const original = this.findById(item.id);
+        if (
+          original &&
+          original.source_table === "sales" &&
+          original.source_id != null
+        ) {
+          const state = this._saleItemRefundState(original.source_id);
+          if (state.touched > 0) {
+            if (state.remaining === 0) {
+              // Every line already refunded item-by-item — nothing left on
+              // this member; it contributes no NEW reversal to this call.
+              continue;
+            }
+            const refundId = this._reverseRemainingSaleLines(
+              original.source_id,
+              item.id,
+              sessionId,
+              userId,
+            );
+            reversedTransactionIds.push(item.id);
+            reversalIds.push(refundId);
+            continue;
+          }
+        }
+
         const refundId = this._refundTransactionInternal(item.id, userId, {
           allowSessionMember: true,
         });
@@ -1438,6 +2240,130 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         reversalIds,
       };
     });
+  }
+
+  /** Q1 helper — `{ touched, remaining }` line counts for a sale, reusing
+   *  the SAME predicates `_assertNoPartialItemRefunds` uses (rule 14),
+   *  so `refundSessionBasket`'s partial-refund detection can never drift
+   *  from what that guard considers "already touched by an item refund". */
+  private _saleItemRefundState(saleId: number): {
+    touched: number;
+    remaining: number;
+  } {
+    const counts = this.queryOne<{
+      touched: number | null;
+      remaining: number | null;
+    }>(
+      `SELECT
+         SUM(CASE WHEN ${TransactionRepository.SALE_ITEM_REFUND_TOUCHED} THEN 1 ELSE 0 END) AS touched,
+         SUM(CASE WHEN ${TransactionRepository.SALE_ITEM_HAS_REFUNDABLE_REMAINDER} THEN 1 ELSE 0 END) AS remaining
+       FROM sale_items
+       WHERE sale_id = ? AND tenant_id = ?`,
+      saleId,
+      getCurrentTenantId(),
+    );
+    return { touched: counts?.touched ?? 0, remaining: counts?.remaining ?? 0 };
+  }
+
+  /**
+   * Q1 (SESSION_ITEM_REFUND_PLAN.md §9) — refund ONLY the sale lines a prior
+   * `refundSessionBasketItem` call left untouched, for `refundSessionBasket`'s
+   * whole-basket loop. Mirrors `refundSessionBasketItem`'s own SALE branch
+   * (ONE aggregate REFUND row, per-line item reversal via
+   * `SalesRepository.applySaleItemReversalForSession`) but does NOT do
+   * account-first or post money-back legs — the whole-basket caller's own
+   * `_cancelSessionDebt`/`_reverseSessionPooledPayments` own the basket's
+   * remaining money for every member alike, item or not.
+   */
+  private _reverseRemainingSaleLines(
+    saleId: number,
+    memberTransactionId: number,
+    sessionId: number,
+    userId: number,
+  ): number {
+    const tenantId = getCurrentTenantId();
+    const salesRepo = getSalesRepository();
+    const remainingRows = this.query<{
+      id: number;
+      quantity: number;
+      refunded_quantity: number | null;
+    }>(
+      `SELECT id, quantity, refunded_quantity FROM sale_items
+       WHERE sale_id = ? AND tenant_id = ? AND (quantity - COALESCE(refunded_quantity, 0)) > 0`,
+      saleId,
+      tenantId,
+    );
+    const original = this.findById(memberTransactionId);
+    if (!original) {
+      throw new NotFoundError("transactions", memberTransactionId);
+    }
+
+    const lines = remainingRows.map((row) => {
+      const qty = row.quantity - (row.refunded_quantity ?? 0);
+      const preview = salesRepo.previewSaleItemRefundAmount({
+        saleId,
+        saleItemId: row.id,
+        refundQuantity: qty,
+      });
+      return {
+        saleItemId: row.id,
+        quantity: qty,
+        amountUsd: preview.refundAmountUsd,
+        profitUsd: preview.refundProfitUsd,
+        clientId: preview.clientId,
+      };
+    });
+    const totalAmount = lines.reduce((sum, l) => sum + l.amountUsd, 0);
+    const totalProfit = lines.reduce((sum, l) => sum + l.profitUsd, 0);
+    const clientId =
+      lines.find((l) => l.clientId != null)?.clientId ?? original.client_id;
+
+    const refundTxnId = this.createTransaction({
+      type: TRANSACTION_TYPES.REFUND,
+      source_table: "sales",
+      source_id: saleId,
+      user_id: userId,
+      amount_usd: -totalAmount,
+      amount_lbp: 0,
+      profit_usd: -totalProfit,
+      profit_lbp: 0,
+      exchange_rate: original.exchange_rate,
+      client_id: clientId,
+      summary: `SESSION BASKET REFUND (remaining lines): Sale #${saleId}`,
+      metadata_json: {
+        refundType: "sessionItem",
+        sessionId,
+        memberTransactionId,
+        saleItemIds: lines.map((l) => l.saleItemId),
+      },
+      device_id: original.device_id ?? undefined,
+    });
+
+    for (const line of lines) {
+      salesRepo.applySaleItemReversalForSession({
+        saleId,
+        saleItemId: line.saleItemId,
+        refundQuantity: line.quantity,
+        userId,
+        refundTxnId,
+      });
+    }
+
+    this.execute(
+      `INSERT INTO customer_session_transactions
+         (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp)
+       VALUES (?, ?, 'session_item_refund', ?, ?, ?, ?, ?, ?)`,
+      tenantId,
+      sessionId,
+      saleId,
+      refundTxnId,
+      -totalAmount,
+      0,
+      -totalProfit,
+      0,
+    );
+
+    return refundTxnId;
   }
 
   /**
@@ -1495,6 +2421,70 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * rows unconditionally, so this reversal leg surfaces on its own date
    * exactly like the original leg did on its date — no report changes needed.
    */
+  /**
+   * Round-3 adversarial review, finding #6 (LOW) — rule 14: the ONE
+   * proportional-split allocator every money-producing site in this class
+   * uses. Splits `total` (rounded to `unit` first) across `weights` in
+   * proportion, rounding every share to `unit` except the LAST, which
+   * absorbs whatever rounding remainder is left over — guaranteeing the
+   * allocated shares sum to EXACTLY `total`, never off by a fraction of a
+   * cent/LBP the way independently rounding each share left it. Measured
+   * pre-fix (`_reverseSessionPooledPayments`): 3 equal pooled LBP legs
+   * splitting an already-returned 890,000 LBP independently rounded to
+   * 296,667 each — summing to 890,001, one LBP too many.
+   *
+   * Round-4 review, finding L3 — the ORIGINAL algorithm ("round every share
+   * except the last independently, then force the last share to absorb
+   * whatever is left") could drive that LAST share NEGATIVE once uneven
+   * weights made the earlier shares' independent rounding overshoot the
+   * total (measured: `(0.02, [25,25,25,2.5], 0.01)` → the first three legs
+   * each round UP to 0.01 (0.03 total, already more than 0.02), leaving the
+   * last leg `0.02 - 0.03 = -0.01`; `(2, [1,1,1,0.1], 1)` → `[1,1,1,-1]`).
+   * A negative refund leg is not a rounding nit, it is money moving the
+   * wrong way. Replaced with the largest-remainder method (Hamilton
+   * apportionment): every share is FLOORED to whole units first (never
+   * negative, since every weight/total here is non-negative), then the few
+   * leftover units are handed out ONE AT A TIME to the shares with the
+   * largest fractional remainder until the sum matches exactly — this can
+   * never push any individual share below its floor, so it can never go
+   * negative, for any number of legs (not just the 3-leg case the original
+   * "last one absorbs it" approach happened to work for).
+   */
+  private _allocateExact(
+    total: number,
+    weights: number[],
+    unit: number,
+  ): number[] {
+    const roundedTotal = this._roundToUnit(total, unit);
+    const sumWeights = weights.reduce((a, b) => a + b, 0);
+    if (weights.length === 0 || !(sumWeights > 0) || !(roundedTotal > 0)) {
+      return weights.map(() => 0);
+    }
+    const totalUnits = Math.round(roundedTotal / unit);
+    const rawUnits = weights.map((w) => (roundedTotal * (w / sumWeights)) / unit);
+    const floorUnits = rawUnits.map((r) => Math.floor(r));
+    const allocatedUnits = floorUnits.reduce((a, b) => a + b, 0);
+    let leftoverUnits = totalUnits - allocatedUnits;
+    const shareUnits = [...floorUnits];
+    const byRemainderDesc = rawUnits
+      .map((r, i) => ({ i, frac: r - floorUnits[i] }))
+      .sort((a, b) => b.frac - a.frac);
+    for (const { i } of byRemainderDesc) {
+      if (leftoverUnits <= 0) break;
+      shareUnits[i] += 1;
+      leftoverUnits -= 1;
+    }
+    return shareUnits.map((u) => this._roundToUnit(u * unit, unit));
+  }
+
+  /** Rule 14 — the ONE "round to the nearest cent (USD) / whole LBP" helper
+   *  every money-producing site in this class uses, so "round LBP to whole
+   *  LBP and USD to cents at every money-producing site" (round-3 finding
+   *  #6) is one function, not a hand-copied `Math.round(x*100)/100`. */
+  private _roundToUnit(amount: number, unit: number): number {
+    return Math.round(amount / unit) * unit;
+  }
+
   private _reverseSessionPooledPayments(
     sessionId: number,
     userId: number,
@@ -1512,8 +2502,84 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       tenantId,
     );
 
+    // LIRA-232 (Q1, SESSION_ITEM_REFUND_PLAN.md §9) — a prior
+    // `refundSessionBasketItem` call already handed some money back through
+    // its OWN legs (`transaction_id` = that refund's id, linked to this
+    // session via `customer_session_transactions.transaction_type =
+    // 'session_item_refund'`). Reversing the FULL pooled IN leg here on top
+    // of that would double-refund exactly what those legs already returned.
+    // Subtract it, per currency, from the POSITIVE (IN) pooled legs only —
+    // an OUT (change-given) pooled leg's reversal is unrelated to what an
+    // item refund handed back.
+    //
+    // Round-2 finding #1 (BLOCKER) — "already returned" must be ONLY the
+    // pool-attributed share of a prior item refund's money-back legs
+    // (`poolSplitUsd`/`poolSplitLbp`, persisted on the REFUND row's own
+    // metadata_json), never the FULL posted leg amount: a prior refund's
+    // legs are `poolSplit` (genuinely from this pool) PLUS, separately,
+    // `repaidBack{Usd,Lbp}` — a REAL cash repayment the customer made after
+    // checkout, merged into the SAME posted leg for convenience but never
+    // sourced from this basket's pool at all. Summing the raw negative leg
+    // (the pre-fix query, now removed) double-counted the repaid-back part
+    // as "already handled by the pool", under-reversing the pool by exactly
+    // that amount and stranding it in the drawer — see this file's
+    // "round-2 finding #1" test for the measured $40 stuck in General.
+    const alreadyReturned = this._priorSessionItemRefundPoolAttributed(sessionId);
+    const alreadyReturnedByCurrency: Record<string, number> = {
+      USD: alreadyReturned.usd,
+      LBP: alreadyReturned.lbp,
+    };
+
+    // Round-3 finding #6 (LOW) — group the POSITIVE (IN) legs by currency
+    // and allocate each currency's "already returned" figure across them
+    // via `_allocateExact` (last-leg-absorbs), so the sum across a
+    // currency's legs matches `already` EXACTLY — never off by a fraction
+    // of a cent/LBP the way an independent `Math.round` per leg left it
+    // (measured: two LBP legs off by ±0.296; three equal legs summing to
+    // 890,001 instead of 890,000).
+    type Leg = (typeof legs)[number];
+    const positiveLegsByCurrency = new Map<string, Leg[]>();
     for (const p of legs) {
-      const negatedAmount = -p.amount;
+      if (p.amount > 0) {
+        const arr = positiveLegsByCurrency.get(p.currency_code) ?? [];
+        arr.push(p);
+        positiveLegsByCurrency.set(p.currency_code, arr);
+      }
+    }
+    const reduceByForLeg = new Map<Leg, number>();
+    for (const [currency, group] of positiveLegsByCurrency) {
+      const total = group.reduce((sum, p) => sum + p.amount, 0);
+      const already = Math.min(alreadyReturnedByCurrency[currency] ?? 0, total);
+      if (!(already > 0)) continue;
+      const unit = currency === "LBP" ? 1 : 0.01;
+      const shares = this._allocateExact(
+        already,
+        group.map((p) => p.amount),
+        unit,
+      );
+      group.forEach((p, i) => reduceByForLeg.set(p, shares[i]));
+    }
+
+    for (const p of legs) {
+      const unit = p.currency_code === "LBP" ? 1 : 0.01;
+      const reduceBy = p.amount > 0 ? (reduceByForLeg.get(p) ?? 0) : 0;
+      // LIRA-236 integration-gap round-4 L2 (coordinator, 2026-09-27) —
+      // `_roundToUnit` rounded even when `reduceBy` is 0 (no prior item
+      // refund touched this leg at all), so a sub-cent-drifted pooled
+      // amount (e.g. $33.335, from a currency-converted split) reversed as
+      // -33.34 instead of -33.335 — 0.005 MORE than was ever paid in,
+      // leaving the drawer negative by that amount after a whole-basket
+      // refund that should net to exactly 0. Rounding only matters when
+      // SUBTRACTING `reduceBy` (that arithmetic can itself introduce a
+      // sub-unit remainder); with nothing subtracted, reverse the leg's
+      // exact stored amount, unrounded.
+      const negatedAmount =
+        reduceBy > 0 ? -this._roundToUnit(p.amount - reduceBy, unit) : -p.amount;
+      // Round-3 finding #7 (LOW) — never write a zero-amount reversal leg —
+      // a pooled leg an item refund already fully consumed has nothing
+      // left to reverse (the pre-fix code always wrote a 0-amount 'Basket
+      // reversal' payments row for it).
+      if (Math.abs(negatedAmount) < unit / 2) continue;
       insertPaymentRow(this.db, {
         sessionId,
         method: p.method,
@@ -1566,22 +2632,129 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       client_id: number;
       amount_usd: number;
       amount_lbp: number;
+      transaction_type: string;
+      covered_usd: number;
+      covered_lbp: number;
     }>(
-      `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger
+      `SELECT id, client_id, amount_usd, amount_lbp, transaction_type,
+              COALESCE(covered_usd, 0) AS covered_usd, COALESCE(covered_lbp, 0) AS covered_lbp
+       FROM debt_ledger
        WHERE session_id = ? AND transaction_id IS NULL
          AND transaction_type IN ('Session Debt', 'CREDIT_DEPOSIT')
-         AND tenant_id = ?`,
+         AND tenant_id = ?
+       ORDER BY id ASC`,
       sessionId,
       tenantId,
     );
+    if (debts.length === 0) return;
 
-    const insertReversal = this.db.prepare(`
-      INSERT INTO debt_ledger (
+    // LIRA-232 (Q1 — SESSION_ITEM_REFUND_PLAN.md §9), adversarial-review
+    // rewrite (finding #6, then a coordinator follow-up fix): a whole-basket
+    // reversal that runs AFTER one or more `refundSessionBasketItem` calls
+    // must cancel only what's STILL attributable to the account side, not
+    // the ORIGINAL gross charge. `covered_usd`/`covered_lbp` is NOT that
+    // figure — FIFO repayment coverage never populates it for 'Session Debt'
+    // rows at all (see `_priorSessionItemRefundAccountAttributed`'s doc) —
+    // so the pre-fix `d.amount_usd - d.covered_usd` always read the gross
+    // charge whether or not the customer had repaid any of it.
+    //
+    // The fix is `cancel = max(0, grossCharge − Σ prior item refunds'
+    // A_account)` per currency — nothing more. A client-balance CAP on top
+    // of this (an earlier version of this fix) is wrong and was removed: it
+    // ran even with ZERO prior item refunds, so a basket charged $100,
+    // then genuinely repaid $70 (a real 'Repayment' row against the
+    // CLIENT — see DebtRepository.addRepayment), had its whole-basket
+    // reversal cancel only min($100, currentBalance=$30) = $30 instead of
+    // the full $100 — the customer's $70 repayment vanished instead of
+    // surviving as a store credit (balance ended at $0, not the correct
+    // −$70). It also read the client's TOTAL balance across every OTHER
+    // debt they have, coupling this session's reversal to unrelated debt.
+    //
+    // Subtracting A_account (not the smaller, balance-capped credit) is
+    // what already prevents over-cancellation for the compound case: an
+    // item refund's own credit is itself capped by the balance AT THAT
+    // MOMENT (`_planSessionItemRefund`'s `accountReductionUsd/Lbp`, kept
+    // as-is — that cap is correct and untouched by this fix, since it sizes
+    // ONE item's own credit against real money, not this method's
+    // grosscharge-minus-attribution subtraction). Worked example: $100
+    // charged, $70 repaid, item A ($50) refunded first — its OWN credit is
+    // capped at $30 (balance at that moment), cash-back $20, A_account $50.
+    // The later whole-basket reversal then cancels $100 − $50 = $50 more,
+    // unconditionally — ending balance $100 − $70 − $30 − $50 = −$50 (a
+    // store credit), and the customer's $70 repayment nets exactly to
+    // $20 cash + $50 credit. 'CREDIT_DEPOSIT' rows are untouched by item
+    // refunds (no A_account concept) and cancel in full, as before.
+    const priorAccountAttributed =
+      this._priorSessionItemRefundAccountAttributed(sessionId);
+
+    // Round-3 adversarial review, finding #5 (LOW) — restore the STAGED
+    // shape (`git show :packages/core/src/repositories/TransactionRepository.ts`,
+    // pre-LIRA-232): ONE 'Refund Reversal' row per ORIGINAL debt_ledger ROW,
+    // each with THAT row's own `client_id` — not one combined row per TYPE
+    // using `debts[0].client_id` for every row regardless of whose it was.
+    // Measured: a basket with two CUSTOMER_ACCOUNT OUT legs (two
+    // CREDIT_DEPOSIT rows) wrote only 2 reversal rows total (1 Session Debt
+    // + 1 combined CREDIT_DEPOSIT) instead of 3. The round-2 finding #4 fix
+    // (below) still applies — a row is written even when its own net is 0,
+    // since the row itself, not its amount, is the idempotency marker — but
+    // per ROW now, not per TYPE.
+    //
+    // The A_account attribution (finding #6/round-2) still applies ONLY to
+    // 'Session Debt' rows, distributed across them IN ORDER (lowest id
+    // first) — a basket can have more than one 'Session Debt' row (e.g. two
+    // separate CUSTOMER_ACCOUNT charges recorded in two basket-payment
+    // calls), and a prior item refund's attribution must be consumed from
+    // the EARLIEST charge first, mirroring how `_clientBalanceBeforeRow`
+    // already treats id order as booking order. 'CREDIT_DEPOSIT' rows are
+    // untouched by item refunds (no A_account concept) and cancel in full,
+    // per row, as before.
+    const sessionDebtRows = debts
+      .filter((d) => d.transaction_type === "Session Debt")
+      .sort((a, b) => a.id - b.id);
+    const creditDepositRows = debts.filter(
+      (d) => d.transaction_type !== "Session Debt",
+    );
+
+    const insertReversal = this.db.prepare(
+      `INSERT INTO debt_ledger (
         client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id, note, created_by, tenant_id
-      ) VALUES (?, 'Refund Reversal', ?, ?, NULL, ?, 'Debt cancelled by session basket void/refund', ?, ?)
-    `);
+      ) VALUES (?, 'Refund Reversal', ?, ?, NULL, ?, 'Debt cancelled by session basket void/refund', ?, ?)`,
+    );
 
-    for (const d of debts) {
+    // The invariant, now applied per row: cancel exactly what's still
+    // attributable to the account side, no more and no less — never capped
+    // by the client's current balance (see the doc above this method's
+    // signature for why that cap was wrong). Subtracting A_account (not a
+    // smaller, already-balance-capped credit) is what keeps this correct
+    // across any number of prior item refunds and any amount of real
+    // repayment, without reading the client's balance at all.
+    let remainingAttributedUsd = priorAccountAttributed.usd;
+    let remainingAttributedLbp = priorAccountAttributed.lbp;
+    for (const d of sessionDebtRows) {
+      const takeUsd = Math.min(d.amount_usd, remainingAttributedUsd);
+      const takeLbp = Math.min(d.amount_lbp, remainingAttributedLbp);
+      remainingAttributedUsd -= takeUsd;
+      remainingAttributedLbp -= takeLbp;
+      // Round-4 review, finding L1 — round at the money-producing boundary
+      // (rule 14's existing discipline throughout this class): an unrounded
+      // `d.amount_usd - takeUsd` can carry IEEE-754 dust (measured:
+      // 10.10 + 20.20 charged on account nets to -3.552713678800501e-15
+      // instead of exactly 0), which `findClientHistory`'s exact `= 0`
+      // filter (below) then fails to recognize as a zero-amount row.
+      const netUsd = this._roundToUnit(Math.max(0, d.amount_usd - takeUsd), 0.01);
+      const netLbp = this._roundToUnit(Math.max(0, d.amount_lbp - takeLbp), 1);
+      // Written even when this row's own net is 0 (fully attributed away by
+      // prior item refunds) — the row itself is the idempotency marker.
+      insertReversal.run(
+        d.client_id,
+        -netUsd,
+        -netLbp,
+        sessionId,
+        userId,
+        tenantId,
+      );
+    }
+    for (const d of creditDepositRows) {
       insertReversal.run(
         d.client_id,
         -d.amount_usd,
@@ -1591,6 +2764,2003 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         tenantId,
       );
     }
+  }
+
+  // ===========================================================================
+  // LIRA-232 phase 1 — refundSessionBasketItem (SESSION_ITEM_REFUND_PLAN.md)
+  // ===========================================================================
+
+  /**
+   * Server-side "day's BUY rate" for a cross-currency account-reduction
+   * (Q3 — SESSION_ITEM_REFUND_PLAN.md §9): the SAME `exchange_rates.buy_rate`
+   * column session payments already read (RateRepository — rule 14, no new
+   * rate source). Fails soft to `market_rate`. Adversarial-review fix
+   * (finding #11): NEVER silently guesses a hardcoded rate — a missing/
+   * unreadable rate row returns `null`, and the ONE caller that actually
+   * needs a cross-currency conversion (`_requireBuyRate`) refuses the
+   * refund outright instead of moving money at a made-up number. A refund
+   * that never needs to cross currencies (same-currency account reduction,
+   * or a basket whose pool is already in the item's own currency) never
+   * calls `_requireBuyRate` and is completely unaffected by a missing rate
+   * row.
+   *
+   * Round-3 adversarial review, finding #8 (owner question, NOT
+   * implemented — the owner has not yet answered which rate a fully
+   * item-by-item basket refund should use) — renamed from `_resolveBuyRate`
+   * and takes `sessionId` (currently unused) so EVERY caller in this class
+   * already goes through the ONE function the owner's answer would change,
+   * with no call-site rewrite needed later. Today this still returns "the
+   * day's rate" regardless of the basket. If the owner instead wants "the
+   * basket's OWN booked rate", it is derivable without a new column: for a
+   * basket with a `debt_ledger` 'Session Debt' row, `amount_lbp /
+   * amount_usd` on that ROW (when both are nonzero) is the rate the
+   * account-side charge was booked at; for a pooled-cash-only basket, the
+   * ratio of the pooled LBP IN legs to the pooled USD IN legs, scaled by
+   * each item's own USD value at sale time (`sale_items.sold_price_usd` /
+   * the custom-service or recharge amount pair), approximates it — neither
+   * is exact when a basket mixes several rates across its own items, which
+   * is exactly the residue case the finding describes (an LBP-account
+   * basket still owing 140,000 LBP; a mixed pool returning $19.82 +
+   * 7,135,857 LBP instead of $20 + 7,200,000).
+   *
+   * SETTLED 2026-09-27 by LIRA-236 (REFUND_EXCHANGE_RATE_PLAN.md, owner
+   * decision 2) — `preferredRate` is `_planSessionItemRefund`'s already-
+   * resolved "the cashier's typed rate, else the refunded member's own
+   * booked rate" (SESSION_ITEM_REFUND_PLAN.md §9b item 12's answer). When
+   * given (and positive/finite), it wins outright — the day's rate below is
+   * now ONLY the last-resort fallback for when NEITHER exists (nothing
+   * recorded on the member AND the cashier hasn't typed one yet, e.g. the
+   * read-only preview's very first render). This is still the ONE function
+   * every call site in this class goes through for a session's
+   * cross-currency rate (`_requireBuyRate`, `_splitAcrossPoolCurrencyMix`),
+   * so resolving it here once — never re-derived per call site — is what
+   * makes "the rate the popup shows" and "the rate the write actually
+   * applies" provably the same number.
+   */
+  private _crossCurrencyRateForBasket(
+    sessionId: number,
+    preferredRate?: number | null,
+  ): number | null {
+    void sessionId;
+    if (preferredRate != null && preferredRate > 0 && Number.isFinite(preferredRate)) {
+      return preferredRate;
+    }
+    return this._dayRateFallback();
+  }
+
+  /** Delegates to the free `dayRateFallback` function below (rule 14 — see
+   *  that function's own doc for why it's a free function, not just a
+   *  private method). */
+  private _dayRateFallback(): number | null {
+    return dayRateFallback();
+  }
+
+  /** Finding #11 — the throwing counterpart of `_crossCurrencyRateForBasket`,
+   *  called only at the exact point a cross-currency conversion is about to
+   *  happen. Refuses with a clear, actionable message rather than silently
+   *  defaulting to a guessed rate (the pre-fix behavior — a hardcoded
+   *  89500 — could move money at a rate nobody set). LIRA-236 —
+   *  `preferredRate` threads through to `_crossCurrencyRateForBasket`. */
+  private _requireBuyRate(sessionId: number, preferredRate?: number | null): number {
+    const rate = this._crossCurrencyRateForBasket(sessionId, preferredRate);
+    if (!rate || !(rate > 0)) {
+      throw new DatabaseError(
+        "Set the LBP exchange rate first — this refund needs to convert between USD and LBP.",
+      );
+    }
+    return rate;
+  }
+
+  /**
+   * LIRA-236 — the default booked rate for a refund preview (rule 14: this
+   * class's own instance method delegates to the free `resolveBookedRate`
+   * function below, the SAME shape `_overridableNetByCurrency` uses for
+   * `overridableNetByCurrency` — one implementation, reachable both as a
+   * method here and as a standalone import for `SalesRepository
+   * .getItemRefundPreview`, which has no access to this class's private
+   * `_dayRateFallback`).
+   */
+  private _bookedRateFor(
+    recordedRate: number | null | undefined,
+    sourceIfPresent: "sale" | "transaction",
+  ): { bookedRate: number; bookedRateSource: "sale" | "transaction" | "fallback" } {
+    return resolveBookedRate(recordedRate, sourceIfPresent);
+  }
+
+  /** F3 (round-3 review) — a SALE member's checkout rate: `sales
+   *  .exchange_rate_snapshot`, back-filled by `SalesRepository.markSalePaid`
+   *  with the rate the basket was ACTUALLY paid at (never the cart-time
+   *  `transactions.exchange_rate`). `null` when the sale row is missing or
+   *  the snapshot was never set (e.g. a non-session sale reaching this path
+   *  by accident) — the caller falls back to `transactions.exchange_rate`. */
+  private _saleExchangeRateSnapshot(saleId: number): number | null {
+    const row = this.queryOne<{ exchange_rate_snapshot: number | null }>(
+      `SELECT exchange_rate_snapshot FROM sales WHERE id = ? AND tenant_id = ?`,
+      saleId,
+      getCurrentTenantId(),
+    );
+    return row?.exchange_rate_snapshot ?? null;
+  }
+
+  /** This session basket's pooled IN legs in ONE currency (drawer-affecting
+   *  only — CUSTOMER_ACCOUNT/GIFT_CARD legs are not "cash to hand back" and
+   *  are excluded), used to proportion a default money-back leg split. */
+  private _sessionPooledInLegs(
+    sessionId: number,
+    currency: string,
+  ): Array<{ method: string; drawer_name: string; amount: number }> {
+    const tenantId = getCurrentTenantId();
+    const rows = this.query<{
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    }>(
+      `SELECT method, drawer_name, currency_code, amount FROM payments
+       WHERE session_id = ? AND transaction_id IS NULL AND currency_code = ? AND amount > 0 AND tenant_id = ?`,
+      sessionId,
+      currency,
+      tenantId,
+    );
+    return rows
+      .filter((p) => isDrawerAffectingMethod(p.method))
+      .map((p) => ({
+        method: p.method,
+        drawer_name: p.drawer_name,
+        amount: p.amount,
+      }));
+  }
+
+  /**
+   * Default money-back legs for `remainderAmount` (R), proportional to the
+   * basket's own pooled IN legs in the SAME currency (SESSION_ITEM_REFUND_
+   * PLAN.md §3: "pre-filled from the basket's pooled IN legs, in proportion
+   * to R"). Falls back to a single generic CASH/General leg when the basket
+   * has no pooled IN leg in R's currency (e.g. an LBP-priced item refunded
+   * out of an all-USD-cash basket) — a documented simplification (rule 14
+   * keeps this the ONE place either the preview or the real write computes
+   * a default, never two copies).
+   */
+  private _defaultSessionRefundLegs(
+    sessionId: number,
+    remainderAmount: number,
+    currency: "USD" | "LBP",
+  ): TransactionPaymentLeg[] {
+    if (!(remainderAmount > 0)) return [];
+    const pooled = this._sessionPooledInLegs(sessionId, currency);
+    const total = pooled.reduce((sum, p) => sum + p.amount, 0);
+    if (!(total > 0)) {
+      const drawerName = paymentMethodToDrawerName("CASH");
+      return [
+        {
+          direction: "out",
+          amount: remainderAmount,
+          signed_amount: -remainderAmount,
+          currency_code: currency,
+          method: "CASH",
+          drawer_name: drawerName,
+        },
+      ];
+    }
+    // Round-2 finding #9 (LOW) — LBP has no sub-lira; round-3 finding #6
+    // (LOW) widens it to "every proportional split sums EXACTLY to its
+    // total" (LBP whole, USD to cents) via the shared `_allocateExact`
+    // allocator (last-leg-absorbs) — independently rounding each leg could
+    // over/under-shoot `remainderAmount` by a fraction of a unit once ≥2
+    // pooled legs are involved.
+    const unit = currency === "LBP" ? 1 : 0.01;
+    const shares = this._allocateExact(
+      remainderAmount,
+      pooled.map((p) => p.amount),
+      unit,
+    );
+    return pooled
+      .map((p, i) => {
+        const amount = shares[i];
+        return {
+          direction: "out" as const,
+          amount,
+          signed_amount: -amount,
+          currency_code: currency,
+          method: p.method,
+          drawer_name: p.drawer_name,
+        };
+      })
+      .filter((l) => l.amount > (currency === "LBP" ? 0 : 0.0001));
+  }
+
+  /**
+   * Adversarial-review fix (finding #2, BLOCKER — cross-currency double
+   * refund). The part of an item's remainder that was never attributed to
+   * the account charge (`refundSessionBasketItem`'s "pool-attributed"
+   * amount, whatever the item's OWN currency) must be handed back in
+   * whatever currency the basket ACTUALLY collected, not the item's own
+   * currency: cash-back used to always post in the item's currency
+   * regardless of what the customer tendered, so a $100 item refunded out
+   * of an all-LBP-paid basket posted a USD cash-back leg the basket never
+   * received — and the later whole-basket reversal, which only nets
+   * "already returned" PER CURRENCY, then reversed the FULL LBP pool on
+   * top, losing $50 from the USD drawer with nothing to show for it.
+   *
+   * Splits `usdEquivAmount` (already converted to a common USD-equivalent
+   * unit by the caller) across the basket's pooled IN legs' currency MIX,
+   * proportional to each currency's value converted at the day's buy rate
+   * — the SAME buy-rate rule Q3 already established for account-first
+   * cross-currency conversion (rule 14, one conversion rate, reused). Falls
+   * back to `preferredCurrency` (the item's own native currency) when the
+   * pool has no IN legs in EITHER currency at all — matches
+   * `_defaultSessionRefundLegs`'s existing no-pool fallback exactly, so a
+   * basket paid entirely in non-drawer-affecting legs (e.g. a voucher) is
+   * unaffected.
+   */
+  private _splitAcrossPoolCurrencyMix(
+    sessionId: number,
+    usdEquivAmount: number,
+    preferredCurrency: "USD" | "LBP",
+    preferredRate?: number | null,
+  ): { usd: number; lbp: number } {
+    if (!(usdEquivAmount > 0.005)) return { usd: 0, lbp: 0 };
+    const pooledUsd = this._sessionPooledInLegs(sessionId, "USD");
+    const pooledLbp = this._sessionPooledInLegs(sessionId, "LBP");
+    const totalUsd = pooledUsd.reduce((sum, p) => sum + p.amount, 0);
+    const totalLbpRaw = pooledLbp.reduce((sum, p) => sum + p.amount, 0);
+    const noPool = totalUsd <= 0 && totalLbpRaw <= 0;
+    // Round-3 finding #3 (MEDIUM, cumulative over-refund) — the CAP below
+    // must never re-apply against the GROSS pool on every call. `available*`
+    // is `poolNet* − Σ prior poolSplit*`: poolNet subtracts any pooled OUT
+    // (change/return) leg first (never just the gross IN total — a basket
+    // that already gave cash back has that much less to hand out again),
+    // then subtracts every EARLIER `refundSessionBasketItem` call's own
+    // `poolSplit` (persisted on that call's REFUND row, read back via
+    // `_priorSessionItemRefundPoolAttributed`, rule 14 — the SAME reader
+    // `_reverseSessionPooledPayments` already uses for its own "already
+    // returned" figure). Measured pre-fix: a $10+450,000 LBP custom service
+    // ($15.056 pool share) followed by a $5 sale, both capped against the
+    // SAME gross $20 pool independently, handed back $20.056 total — $0.056
+    // more than the pool ever held.
+    const priorPoolSplit = this._priorSessionItemRefundPoolAttributed(sessionId);
+    const poolNetUsd =
+      totalUsd - this._sessionPooledOutLegsTotal(sessionId, "USD");
+    const poolNetLbp =
+      totalLbpRaw - this._sessionPooledOutLegsTotal(sessionId, "LBP");
+    const availableUsd = Math.max(0, poolNetUsd - priorPoolSplit.usd);
+    const availableLbp = Math.max(0, poolNetLbp - priorPoolSplit.lbp);
+    // Pure single-currency pool (the overwhelmingly common case, and every
+    // existing test's fixture): no conversion needed at all, so a missing
+    // exchange rate can never block a refund it doesn't actually require.
+    if (noPool || (totalLbpRaw <= 0 && totalUsd > 0)) {
+      if (noPool) {
+        // F3 (round-3 review) — "cap the no-pool branch": a basket with NO
+        // pooled drawer-affecting cash leg in EITHER currency has, by
+        // definition, no cash of its own to hand back for whatever part of
+        // an item the account charge didn't cover. This used to convert
+        // `usdEquivAmount` at the buy rate and hand it out of General
+        // regardless — measured: a $10-USD-charged, $10+450,000-LBP
+        // CUSTOM_SERVICE item (the LBP side never charged to anything, no
+        // pooled cash at all) paid out ~$5.06 cash from a basket that never
+        // held a single dollar. The ONLY money that can legitimately come
+        // back as cash from a no-pool basket is a genuine post-charge
+        // repayment, and that is handled entirely separately by
+        // `repaidBackUsd`/`repaidBackLbp` (`_repaidBackLegs`) in
+        // `_planSessionItemRefund` — never through this pool-mix split.
+        return { usd: 0, lbp: 0 };
+      }
+      // Round-2 finding #8 (LOW, BLOCKER-adjacent) — a USD-only pool: never
+      // hand back more than the pool actually holds. A dual-currency
+      // item's leftover LBP portion, converted here at the buy rate, is
+      // not guaranteed to equal what the checkout actually collected in
+      // cash for it (the cashier tenders whatever amount was handed over,
+      // not necessarily this rate's exact equivalent) — measured: a $10 +
+      // 450,000 LBP item refunded from an all-USD $15 pool asked for
+      // $15.056, $0.056 more than the pool (and the drawer) ever received.
+      // Capping to the pool's own total is "the conversion that cannot
+      // over-refund" (never redistributed to the other currency, which
+      // would just reintroduce the same questionable rate). Round-3
+      // finding #3 tightens the cap from the gross pool to what's actually
+      // still available after every prior item refund's own share.
+      return {
+        usd: this._roundToUnit(Math.min(usdEquivAmount, availableUsd), 0.01),
+        lbp: 0,
+      };
+    }
+    if (totalUsd <= 0 && totalLbpRaw > 0) {
+      return {
+        usd: 0,
+        lbp: Math.min(
+          Math.round(usdEquivAmount * this._requireBuyRate(sessionId, preferredRate)),
+          availableLbp,
+        ),
+      };
+    }
+    // Mixed pool (both currencies present) — the buy rate is required to
+    // compare them on one scale (finding #11: never guessed).
+    //
+    // Round-4 review, finding MEDIUM-3 — TWO fixes to the pre-fix version:
+    //   (a) the MIX ratio is now the basket's NET mix (pooled IN minus
+    //       CHANGE already given back in that currency — `poolNetUsd`/
+    //       `poolNetLbp`, computed above via `_sessionPooledOutLegsTotal`,
+    //       which HIGH-1's fix restricted to change-only, never a payout).
+    //       Using the GROSS tender (the pre-fix `totalUsd`/`totalLbpRaw`)
+    //       skewed the ratio toward whichever currency the CHANGE happened
+    //       to come out of, shorting the customer in the other one.
+    //   (b) whichever side's own availability CAP binds now pushes its
+    //       shortfall to the OTHER side (bounded by that side's own
+    //       remaining headroom) instead of silently dropping it — the
+    //       pre-fix code only ever fed the USD cap's leftover forward into
+    //       the LBP calc (computed second); the LBP cap, computed last, had
+    //       nowhere left to push its own leftover back to USD.
+    // Measured pre-fix (reviewer's exact repro): lines $60+$40, tendered
+    // $50 USD + 4,895,000 LBP, 445,000 LBP change given, rate 89,000 —
+    // refunding both lines returned $47.62 + 4,450,000 LBP, $2.38 short.
+    // With both fixes, the same scenario nets to exactly $50 + 4,450,000
+    // LBP (the customer's own outstanding IN, exactly).
+    const buyRate = this._requireBuyRate(sessionId, preferredRate);
+    const netMixUsd = Math.max(0, poolNetUsd);
+    const netMixLbp = Math.max(0, poolNetLbp);
+    const netMixUsdEquiv = netMixUsd + netMixLbp / buyRate;
+    const usdShare = netMixUsdEquiv > 0 ? netMixUsd / netMixUsdEquiv : 1;
+    let usd = Math.min(usdEquivAmount * usdShare, availableUsd);
+    const lbpWanted = Math.round((usdEquivAmount - usd) * buyRate);
+    const lbp = Math.min(lbpWanted, availableLbp);
+    if (lbp < lbpWanted) {
+      // The LBP side's own cap bound — push the shortfall back to USD,
+      // bounded by USD's own remaining headroom (never over-refund).
+      const shortfallUsdEquiv = (lbpWanted - lbp) / buyRate;
+      usd = Math.min(usd + shortfallUsdEquiv, availableUsd);
+    }
+    // Round the USD side to cents for the RETURN value only — the
+    // unrounded `usd` above still feeds the LBP-leftover calc so the two
+    // currencies stay consistent with each other.
+    return { usd: this._roundToUnit(usd, 0.01), lbp };
+  }
+
+  /** Round-3 finding #3 — the pooled OUT (change-given/return) leg total for
+   *  ONE currency, the counterpart of `_sessionPooledInLegs` (which only
+   *  ever reads `amount > 0`). Used to derive `poolNet` (IN minus OUT) so
+   *  `_splitAcrossPoolCurrencyMix`'s availability cap is never overstated by
+   *  cash the basket already gave back at checkout.
+   *
+   *  Round-4 review, finding HIGH-2 — restricted to CHANGE legs only
+   *  (`payments.note` starting with `SessionPaymentService`'s own
+   *  `"Basket change returned"` marker — see that service's `outNote`
+   *  discriminator, rule 14: the ONE place that distinguishes a change leg
+   *  from a payout leg, both written the same way as a negative pooled
+   *  leg). A NON-netted payout (`"Basket payout to customer"`, e.g. an OMT
+   *  SYSTEM RECEIVE under #11-A, never netted against the basket's items)
+   *  is NOT cash "already given back" for THIS purpose — it is a separate
+   *  flow that happens to share the pooled-legs table. Counting it here
+   *  shrank an item refund's available cash-back by the payout's own
+   *  amount (measured pre-fix: a $100 sale + an un-netted $60 payout made
+   *  an item refund return only $40 instead of the full $100). */
+  /**
+   * Coordinator follow-up (2026-09-28, N+1 fix) — batched across MANY
+   * sessions in a small, constant number of `session_id IN (...)` queries
+   * (chunked at `SESSION_BATCH_CHUNK_SIZE`), keyed by `"<sessionId>::
+   * <currency>"`. `_sessionPooledOutLegsTotal` (the single-session reader
+   * every other caller of this predicate still uses) is now defined in
+   * terms of this batch (rule 14) instead of holding a second copy of the
+   * same query.
+   */
+  private _sessionPooledOutLegsTotalBatch(
+    sessionIds: number[],
+    tenantId: number,
+  ): Map<string, number> {
+    const result = new Map<string, number>();
+    for (const chunk of chunkIds(sessionIds, SESSION_BATCH_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const rows = this.query<{
+        session_id: number;
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>(
+        `SELECT session_id, method, currency_code, amount FROM payments
+         WHERE session_id IN (${placeholders}) AND transaction_id IS NULL AND amount < 0
+           AND note LIKE 'Basket change returned%' AND tenant_id = ?`,
+        ...chunk,
+        tenantId,
+      );
+      for (const row of rows) {
+        if (!isDrawerAffectingMethod(row.method)) continue;
+        const key = `${row.session_id}::${row.currency_code}`;
+        result.set(key, (result.get(key) ?? 0) + Math.abs(row.amount));
+      }
+    }
+    return result;
+  }
+
+  private _sessionPooledOutLegsTotal(
+    sessionId: number,
+    currency: "USD" | "LBP",
+  ): number {
+    const tenantId = getCurrentTenantId();
+    return (
+      this._sessionPooledOutLegsTotalBatch([sessionId], tenantId).get(
+        `${sessionId}::${currency}`,
+      ) ?? 0
+    );
+  }
+
+  /** Combines the default legs from two independent sources (the pool-mix
+   *  split and the flat "repaid-account cash-back" leg, finding #6) into
+   *  one array, summing amounts for any (method, drawer, currency) that
+   *  appears in both rather than posting two separate rows for the same
+   *  drawer leg. */
+  private _mergeLegs(
+    legGroups: TransactionPaymentLeg[][],
+  ): TransactionPaymentLeg[] {
+    const byKey = new Map<string, TransactionPaymentLeg>();
+    for (const legs of legGroups) {
+      for (const leg of legs) {
+        const key = `${leg.method}::${leg.drawer_name ?? ""}::${leg.currency_code}`;
+        const existing = byKey.get(key);
+        if (existing) {
+          existing.amount += leg.amount;
+          existing.signed_amount += leg.signed_amount;
+        } else {
+          byKey.set(key, { ...leg });
+        }
+      }
+    }
+    return [...byKey.values()].filter((l) => l.amount > 0.0001);
+  }
+
+  /**
+   * Finding #6 (HIGH) — "account first" ignores repayments. A basket's
+   * 'Session Debt' charge never gets `covered_usd`/`covered_lbp` from a real
+   * repayment (`DebtRepository`'s FIFO coverage sweep excludes 'Session
+   * Debt' by design — repayments net the CLIENT's total balance instead, via
+   * a separate negative 'Repayment' row), so the gross charge alone is the
+   * wrong "how much of this basket is still unpaid" figure once ANY of it
+   * has been repaid OR already reduced by a prior item refund.
+   *
+   * `basketChargeRemaining[c] = grossCharge[c] − Σ prior item refunds'
+   * A_account[c]` is the correct "still attributable to the account side"
+   * figure; A_account per prior refund isn't reconstructable from the credit
+   * row alone (the credit can be SMALLER than A_account when a repayment had
+   * already covered part of it), so each `refundSessionBasketItem` call
+   * persists its own `accountAttributedUsd`/`accountAttributedLbp` onto the
+   * REFUND transaction's `metadata_json` (see `refundSessionBasketItem`'s
+   * write), and this reads every prior one back for the session, summed.
+   */
+  /**
+   * Round-2 finding #5 — this client's net debt_ledger balance from every
+   * row with an id STRICTLY BEFORE `beforeRowId` (the basket's own
+   * 'Session Debt' row) — i.e. "what this client owed/was owed the instant
+   * before this basket's charge was booked". Same sign convention as
+   * `DebtRepository.getClientBalance` (positive = owed BY the client,
+   * negative = a credit the shop owes them). Id ordering (not `created_at`,
+   * which is second-granular and ties within one checkout) is what keeps
+   * this correct for same-checkout rows (e.g. a CREDIT_DEPOSIT written just
+   * before the Session Debt charge in the same db.transaction) while still
+   * excluding a LATER real repayment, which always gets a higher id.
+   */
+  private _clientBalanceBeforeRow(
+    clientId: number,
+    beforeRowId: number,
+  ): { usd: number; lbp: number } {
+    const tenantId = getCurrentTenantId();
+    const row = this.queryOne<{ usd: number | null; lbp: number | null }>(
+      `SELECT COALESCE(SUM(amount_usd), 0) AS usd, COALESCE(SUM(amount_lbp), 0) AS lbp
+       FROM debt_ledger WHERE client_id = ? AND id < ? AND tenant_id = ?`,
+      clientId,
+      beforeRowId,
+      tenantId,
+    );
+    return { usd: row?.usd ?? 0, lbp: row?.lbp ?? 0 };
+  }
+
+  private _priorSessionItemRefundAccountAttributed(sessionId: number): {
+    usd: number;
+    lbp: number;
+  } {
+    return this._sumPriorSessionItemRefundMeta(
+      sessionId,
+      "accountAttributedUsd",
+      "accountAttributedLbp",
+    );
+  }
+
+  /**
+   * Round-2 finding #1 (BLOCKER) — the counterpart of
+   * `_priorSessionItemRefundAccountAttributed` for the POOL-attributed part
+   * of every prior `refundSessionBasketItem` call on this session (persisted
+   * as `poolSplitUsd`/`poolSplitLbp`, see `refundSessionBasketItem`'s write).
+   *
+   * `_reverseSessionPooledPayments` used to derive "already returned from
+   * the pool" by summing the FULL negative leg amount of every prior item
+   * refund — but a prior refund's money-back legs are the SUM of TWO
+   * different sources merged into one posted amount (`_planDefaultLegs`):
+   * the genuinely pool-attributed share (`poolSplit`) AND, separately, any
+   * `repaidBack{Usd,Lbp}` — money the customer had ALREADY repaid in cash
+   * (via a real `DebtRepository.addRepayment`) that never came out of this
+   * basket's own pooled leg at all. Treating BOTH as "already returned from
+   * the pool" over-credited the pool reversal by exactly the repaid-back
+   * portion, permanently stranding that money in the drawer once the rest
+   * of the basket was later whole-refunded (measured: a $40 real repayment
+   * handed back via one item's refund never made it out of General on the
+   * follow-up whole-basket call — see this file's "round-2 finding #1"
+   * test). Reading ONLY `poolSplit{Usd,Lbp}` back here fixes that at the
+   * source: it is the ONE figure that means "this much of THIS pool's own
+   * cash was already handed back", nothing else.
+   */
+  private _priorSessionItemRefundPoolAttributed(sessionId: number): {
+    usd: number;
+    lbp: number;
+  } {
+    return this._sumPriorSessionItemRefundMeta(
+      sessionId,
+      "poolSplitUsd",
+      "poolSplitLbp",
+    );
+  }
+
+  /**
+   * Round-3 adversarial review, finding #4 (MEDIUM) — the counterpart of
+   * `_priorSessionItemRefundAccountAttributed`/`*PoolAttributed` for the
+   * PRE-EXISTING-credit bucket `_planSessionItemRefund`'s `availableUsd/Lbp`
+   * draws from (`max(0, -balanceBeforeThisCharge)`, round-2 finding #5).
+   * That bucket is a FIXED figure per basket (the client's balance the
+   * instant before this basket's own charge existed) — every item refund on
+   * the SAME basket that re-read it fresh, without subtracting what an
+   * EARLIER item refund already drew from it, could reuse the SAME $60 of
+   * pre-existing credit twice. Reading back `restoredFromPreexistingCredit
+   * Usd/Lbp` (persisted on each REFUND row's own metadata_json, the SAME
+   * pattern the pool/account attribution readers already use) fixes it at
+   * the source. Measured: $60 pre-existing credit, two $50 items charged to
+   * account, $40 real repayment — refunding both items independently
+   * treated the $60 bucket as available TWICE, reducing the account by
+   * $100 total (should be $60) and handing back $0 cash (should be $40).
+   */
+  private _priorSessionItemRefundPreexistingCreditUsed(sessionId: number): {
+    usd: number;
+    lbp: number;
+  } {
+    return this._sumPriorSessionItemRefundMeta(
+      sessionId,
+      "restoredFromPreexistingCreditUsd",
+      "restoredFromPreexistingCreditLbp",
+    );
+  }
+
+  /**
+   * Coordinator follow-up (2026-09-28, N+1 fix) — the batched counterpart of
+   * `_sumPriorSessionItemRefundMeta`, covering MANY sessions in a small,
+   * constant number of `session_id IN (...)` queries (chunked at
+   * `SESSION_BATCH_CHUNK_SIZE`). `_sumPriorSessionItemRefundMeta` — the ONE
+   * query behind every `_priorSessionItemRefund*Attributed` reader — is now
+   * defined in terms of this batch (rule 14) instead of holding a second
+   * copy of the same query. Malformed/legacy/missing metadata contributes 0
+   * (fail-soft — never blocks a refund), matching every other
+   * metadata_json read in this file.
+   */
+  private _sumPriorSessionItemRefundMetaBatch(
+    sessionIds: number[],
+    usdKey: string,
+    lbpKey: string,
+    tenantId: number,
+  ): Map<number, { usd: number; lbp: number }> {
+    const result = new Map<number, { usd: number; lbp: number }>();
+    for (const sessionId of sessionIds) {
+      result.set(sessionId, { usd: 0, lbp: 0 });
+    }
+    for (const chunk of chunkIds(sessionIds, SESSION_BATCH_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const rows = this.query<{
+        session_id: number;
+        metadata_json: string | null;
+      }>(
+        `SELECT cst.session_id AS session_id, t.metadata_json AS metadata_json
+         FROM customer_session_transactions cst
+         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+         WHERE cst.session_id IN (${placeholders}) AND cst.transaction_type = 'session_item_refund' AND cst.tenant_id = ?`,
+        ...chunk,
+        tenantId,
+      );
+      for (const row of rows) {
+        const acc = result.get(row.session_id);
+        if (!acc || !row.metadata_json) continue;
+        try {
+          const meta = JSON.parse(row.metadata_json) as Record<string, number | undefined>;
+          acc.usd += meta[usdKey] ?? 0;
+          acc.lbp += meta[lbpKey] ?? 0;
+        } catch {
+          // Malformed/legacy metadata — contributes nothing rather than
+          // blocking the refund (same fail-soft discipline as every other
+          // metadata_json read in this file).
+        }
+      }
+    }
+    return result;
+  }
+
+  private _sumPriorSessionItemRefundMeta(
+    sessionId: number,
+    usdKey: string,
+    lbpKey: string,
+  ): { usd: number; lbp: number } {
+    const tenantId = getCurrentTenantId();
+    return (
+      this._sumPriorSessionItemRefundMetaBatch(
+        [sessionId],
+        usdKey,
+        lbpKey,
+        tenantId,
+      ).get(sessionId) ?? { usd: 0, lbp: 0 }
+    );
+  }
+
+  /**
+   * Round-3 adversarial review, finding #2 (HIGH) — refuses an item refund
+   * outright when this session basket contains ANY other member whose own
+   * net effect is a payout (a loto cash prize, a wallet/Binance/
+   * FINANCIAL_SERVICE cash-out, a negative-amount custom-service payout) —
+   * the SAME predicate step 4a already applies to the member being
+   * refunded itself, reused here across EVERY member instead of just the
+   * one requested.
+   *
+   * Coordinator follow-up (2026-09-27) — the decision "is this member a
+   * payout" is now `isSessionPayoutMember` (`constants/sessionPayoutMember
+   * .js`, rule 14), a pure/browser-safe function shared with the frontend's
+   * OWN session-group derivation, instead of a second hand-written copy of
+   * the same rule. It is why this query still selects (and does not filter
+   * out in SQL) the REFUND row a prior item refund's own
+   * 'session_item_refund' link points at: that row's `type` is 'REFUND',
+   * which `isSessionPayoutMember` excludes ON ITS OWN — the SQL
+   * `cst.transaction_type <> ?` filter below is a cheap pre-filter, not the
+   * source of truth, so the two can never drift into disagreeing about a
+   * REFUND row. This is the exact bug the frontend's OWN ad-hoc version of
+   * this check had: testing `amount_usd < 0 || amount_lbp < 0` over every
+   * session-group row (including the REFUND row `refundSessionBasketItem`
+   * itself just wrote, always negative) made the whole basket look like a
+   * "payout basket" after the FIRST item refund, hiding "Refund item" for
+   * every remaining item.
+   */
+  private _assertNoNettedPayoutMembers(sessionId: number): void {
+    const tenantId = getCurrentTenantId();
+    // Round-4 review, finding HIGH-1 — `amount_usd`/`amount_lbp` come from
+    // `cst` (customer_session_transactions), the member's own CUSTOMER-SIDE
+    // signed amount, not `t.amount_usd/lbp` (the unified transactions row) —
+    // see the `membership` query in `_planSessionItemRefund` (this same
+    // predicate's other caller) for why: a FINANCIAL_SERVICE RECEIVE's own
+    // `transactions` row carries the POSITIVE transfer amount (0/0 for
+    // USDT/Binance pre-F4 — see `_isNettedSessionPayoutMember`'s doc), so
+    // the pre-fix version of this query — reading `t.amount_usd/lbp` —
+    // never saw a netted wallet/Binance cash-out as a payout at all.
+    // `t.type`/`t.status`/`t.reverses_id`/`t.id` are still read from
+    // `transactions`, which owns those fields.
+    const candidates = this.query<{
+      type: string;
+      amount_usd: number;
+      amount_lbp: number;
+      status: string;
+      reverses_id: number | null;
+      unified_transaction_id: number;
+    }>(
+      `SELECT t.type AS type, cst.amount_usd AS amount_usd, cst.amount_lbp AS amount_lbp,
+              t.status AS status, t.reverses_id AS reverses_id, t.id AS unified_transaction_id
+       FROM customer_session_transactions cst
+       JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+       WHERE cst.session_id = ? AND cst.tenant_id = ?
+         AND cst.transaction_type <> ?`,
+      sessionId,
+      tenantId,
+      SESSION_ITEM_REFUND_LINK_TYPE,
+    );
+    const payout = candidates.find((c) =>
+      this._isNettedSessionPayoutMember(c, c.unified_transaction_id),
+    );
+    if (payout) {
+      throw new DatabaseError(
+        `This basket includes a payout (${payout.type}) that was netted against its items — refund the whole basket instead.`,
+        { entityId: sessionId },
+      );
+    }
+  }
+
+  /**
+   * F4/F6 (round-3 review) — ONE shared predicate (rule 14) for "is this
+   * session-basket payout member NETTED against the basket's other items"
+   * (decision 10: can only be undone by the whole-basket reversal) vs
+   * backed by its OWN full pooled leg (an item refund on some OTHER member
+   * still prices correctly). Reused by `_assertNoNettedPayoutMembers` (the
+   * write-path guard) and `getRecent`'s `is_session_payout` (the SAME flag
+   * that hides the frontend's "Refund item" button) — never two copies.
+   *
+   * `isSessionPayoutMember` alone only answers "is this a payout AT ALL"
+   * from sign — necessary but not sufficient. Decision 10's own list
+   * ("a loto prize, a wallet or Binance cash-out, or a custom-service
+   * payout") is netted; a financial-service RECEIVE routed to the shop's
+   * OWN primary cash drawer is NOT — it always posts its own full "Basket
+   * payout to customer" pooled leg (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4
+   * decision #11-A: a `payoutOrigin: "SYSTEM"` leg is "always the primary
+   * cash drawer, never netted"), so nothing was netted against another
+   * item. Reuses `_financialServiceCashDrawerCtx`'s EXACT eligibility
+   * check (`provider === baseSystem`) — the SAME test `resolveServiceCashDrawer`
+   * uses to route the real money in the first place (rule 14) — rather
+   * than re-deriving a second "is this the primary system" rule that could
+   * drift from it. A non-FINANCIAL_SERVICE payout (LOTO_CASH_PRIZE, a
+   * negative-amount CUSTOM_SERVICE) has no such drawer to land in at all
+   * and is always netted.
+   */
+  private _isNettedSessionPayoutMember(
+    candidate: SessionPayoutMemberCandidate,
+    unifiedTransactionId: number,
+  ): boolean {
+    if (!isSessionPayoutMember(candidate)) return false;
+    const ctx = this._financialServiceCashDrawerCtx(unifiedTransactionId);
+    if (!ctx) return true;
+    return ctx.provider !== ctx.baseSystem;
+  }
+
+  /**
+   * Coordinator follow-up (2026-09-27) — once every item in a session basket
+   * has been refunded ONE BY ONE (`refundSessionBasketItem`), "Refund
+   * basket"/"Void basket" could still be clicked: it succeeded as a no-op
+   * (nothing left to reverse, so the item loop below does nothing) but still
+   * looked like a real action. This is the ONE predicate (rule 14) for "is
+   * there truly nothing left for the whole-basket call to do" — shared by
+   * the `voidSessionBasket`/`refundSessionBasket` up-front guard below AND
+   * `getRecent`'s `session_fully_refunded` field.
+   *
+   * THREE things must all hold — member-reversedness alone is NOT enough
+   * (round-3 finding #6/#7's own fixtures, kept green rather than "fixed"
+   * out of existence, are the proof: a basket over-paid beyond its items'
+   * value, or one whose account debt hasn't yet had its idempotency marker
+   * written, both still have a REAL action left for the whole-basket call):
+   *
+   *  1. Every member is reversed — see `_isSessionBasketMemberReversedBatch`.
+   *  2. Every pooled CASH leg (`payments`, `transaction_id IS NULL`) is
+   *     fully attributed to a prior item refund's money-back share
+   *     (`_sumPriorSessionItemRefundMetaBatch`, keyed on
+   *     `poolSplitUsd`/`poolSplitLbp`) — an item refund is CAPPED at its own
+   *     item's value, so a basket paid MORE than its items were worth
+   *     (change, a rounding pad, …) can still have real drawer money
+   *     sitting in the pool after every item is individually refunded;
+   *     only the whole-basket call can return it.
+   *  3. NO qualifying `debt_ledger` row ('Session Debt'/'CREDIT_DEPOSIT',
+   *     `transaction_id IS NULL`) exists for this session. `_cancelSessionDebt`
+   *     writes ONE 'Refund Reversal' marker PER such row even when its net
+   *     is $0 (round-3 finding #5 — "the row itself, not its amount, is the
+   *     idempotency marker" — other readers, e.g. `ProfitRepository
+   *     .getPaymentMethodRows`'s LPAY-V1 exclusion, key on that marker's
+   *     existence), and `refundSessionBasketItem` never writes it — only
+   *     the whole-basket call does, exactly once (a second call is already
+   *     refused by `_assertSessionBasketReversible` once that marker
+   *     exists). So a basket with such a row ALWAYS has one real,
+   *     first-time action pending until the whole-basket call runs.
+   *
+   * Coordinator follow-up (2026-09-28, N+1 fix) — computes this predicate
+   * for MANY sessions at once, in a small, constant number of set-based
+   * `session_id IN (...)` queries (chunked at `SESSION_BATCH_CHUNK_SIZE`)
+   * instead of the fixed handful of queries this used to run PER session.
+   * A `getRecent()` page of up to 5,000 rows across up to 250 distinct
+   * fully-refunded sessions used to cost ~1,750 extra one-off queries
+   * (~156ms measured); this costs a small constant number regardless of
+   * how many sessions are on the page. `isSessionBasketFullyRefunded`
+   * below is now DEFINED IN TERMS OF this batch (`.get([sessionId])`,
+   * rule 14), so the single-session void/refund guards and `getRecent`'s
+   * batched flag can never disagree about the same session.
+   */
+  isSessionBasketFullyRefundedBatch(
+    sessionIds: number[],
+  ): Map<number, boolean> {
+    const result = new Map<number, boolean>();
+    const uniqueIds = Array.from(new Set(sessionIds));
+    if (uniqueIds.length === 0) return result;
+    const tenantId = getCurrentTenantId();
+
+    // 1. Every session's basket members (excludes the item-refund LINK
+    //    rows — same predicate the single-session query always used).
+    type MemberRow = {
+      session_id: number;
+      id: number;
+      status: TransactionStatus;
+      source_table: string;
+      source_id: number | null;
+    };
+    const membersBySession = new Map<number, MemberRow[]>();
+    for (const chunk of chunkIds(uniqueIds, SESSION_BATCH_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const rows = this.query<MemberRow>(
+        `SELECT cst.session_id AS session_id, t.id AS id, t.status AS status,
+                t.source_table AS source_table, t.source_id AS source_id
+         FROM customer_session_transactions cst
+         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+         WHERE cst.session_id IN (${placeholders}) AND cst.tenant_id = ? AND cst.transaction_type <> ?`,
+        ...chunk,
+        tenantId,
+        SESSION_ITEM_REFUND_LINK_TYPE,
+      );
+      for (const row of rows) {
+        const list = membersBySession.get(row.session_id) ?? [];
+        list.push(row);
+        membersBySession.set(row.session_id, list);
+      }
+    }
+
+    // A session with no basket members at all reads as NOT fully refunded
+    // (same as the single-session path's `members.length === 0` check).
+    const activeSessionIds: number[] = [];
+    for (const sid of uniqueIds) {
+      if ((membersBySession.get(sid)?.length ?? 0) > 0) {
+        activeSessionIds.push(sid);
+      } else {
+        result.set(sid, false);
+      }
+    }
+    if (activeSessionIds.length === 0) return result;
+
+    // 2. #1 — "is every member reversed", one batched pass over every
+    //    member of every still-live session.
+    const allMembers = activeSessionIds.flatMap(
+      (sid) => membersBySession.get(sid)!,
+    );
+    const reversedByMemberId = this._isSessionBasketMemberReversedBatch(
+      allMembers,
+      tenantId,
+    );
+    const candidateIds: number[] = [];
+    for (const sid of activeSessionIds) {
+      const members = membersBySession.get(sid)!;
+      if (members.every((m) => reversedByMemberId.get(m.id) === true)) {
+        candidateIds.push(sid);
+      } else {
+        result.set(sid, false);
+      }
+    }
+    if (candidateIds.length === 0) return result;
+
+    // 3. #3 — a pending debt-ledger marker is a real, first-time action.
+    const pendingDebtSessions = new Set<number>();
+    for (const chunk of chunkIds(candidateIds, SESSION_BATCH_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const rows = this.query<{ session_id: number }>(
+        `SELECT DISTINCT session_id FROM debt_ledger
+         WHERE session_id IN (${placeholders}) AND transaction_id IS NULL
+           AND transaction_type IN ('Session Debt', 'CREDIT_DEPOSIT')
+           AND tenant_id = ?`,
+        ...chunk,
+        tenantId,
+      );
+      for (const row of rows) pendingDebtSessions.add(row.session_id);
+    }
+    const noDebtIds: number[] = [];
+    for (const sid of candidateIds) {
+      if (pendingDebtSessions.has(sid)) {
+        result.set(sid, false);
+      } else {
+        noDebtIds.push(sid);
+      }
+    }
+    if (noDebtIds.length === 0) return result;
+
+    // 4. #2 — the pooled cash legs, batched, then the same "net positive by
+    //    currency" reduction the single-session path always did (F5,
+    //    round-3 review: NET pool per currency — gross IN minus any pooled
+    //    CHANGE/OUT leg — never the gross IN total alone).
+    const pooledLegsBySession = new Map<
+      number,
+      Array<{ currency_code: string; amount: number }>
+    >();
+    for (const chunk of chunkIds(noDebtIds, SESSION_BATCH_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const rows = this.query<{
+        session_id: number;
+        currency_code: string;
+        amount: number;
+      }>(
+        `SELECT session_id, currency_code, amount FROM payments
+         WHERE session_id IN (${placeholders}) AND transaction_id IS NULL AND tenant_id = ?`,
+        ...chunk,
+        tenantId,
+      );
+      for (const row of rows) {
+        const list = pooledLegsBySession.get(row.session_id) ?? [];
+        list.push(row);
+        pooledLegsBySession.set(row.session_id, list);
+      }
+    }
+
+    const positiveByCurrencyBySession = new Map<
+      number,
+      Map<string, number>
+    >();
+    const needsPositiveCheckIds: number[] = [];
+    for (const sid of noDebtIds) {
+      const legs = pooledLegsBySession.get(sid) ?? [];
+      const positiveByCurrency = new Map<string, number>();
+      for (const leg of legs) {
+        if (leg.amount > 0) {
+          positiveByCurrency.set(
+            leg.currency_code,
+            (positiveByCurrency.get(leg.currency_code) ?? 0) + leg.amount,
+          );
+        }
+      }
+      if (positiveByCurrency.size === 0) {
+        result.set(sid, true);
+      } else {
+        positiveByCurrencyBySession.set(sid, positiveByCurrency);
+        needsPositiveCheckIds.push(sid);
+      }
+    }
+    if (needsPositiveCheckIds.length === 0) return result;
+
+    const outLegTotals = this._sessionPooledOutLegsTotalBatch(
+      needsPositiveCheckIds,
+      tenantId,
+    );
+    const priorPoolAttributed = this._sumPriorSessionItemRefundMetaBatch(
+      needsPositiveCheckIds,
+      "poolSplitUsd",
+      "poolSplitLbp",
+      tenantId,
+    );
+
+    for (const sid of needsPositiveCheckIds) {
+      const positiveByCurrency = positiveByCurrencyBySession.get(sid)!;
+      const alreadyReturned = priorPoolAttributed.get(sid) ?? {
+        usd: 0,
+        lbp: 0,
+      };
+      const alreadyReturnedByCurrency: Record<string, number> = {
+        USD: alreadyReturned.usd,
+        LBP: alreadyReturned.lbp,
+      };
+      let fully = true;
+      for (const [currency, total] of positiveByCurrency) {
+        const unit = currency === "LBP" ? 1 : 0.01;
+        const outTotal = outLegTotals.get(`${sid}::${currency}`) ?? 0;
+        const netTotal = total - outTotal;
+        const remaining = netTotal - (alreadyReturnedByCurrency[currency] ?? 0);
+        if (remaining > unit / 2) {
+          fully = false;
+          break;
+        }
+      }
+      result.set(sid, fully);
+    }
+
+    return result;
+  }
+
+  isSessionBasketFullyRefunded(sessionId: number): boolean {
+    return (
+      this.isSessionBasketFullyRefundedBatch([sessionId]).get(sessionId) ??
+      false
+    );
+  }
+
+  /**
+   * Coordinator follow-up (2026-09-28, N+1 fix) — the batched counterpart
+   * of `_isSessionBasketMemberReversed`, covering MANY members (from
+   * possibly many different sessions) in a small, constant number of
+   * `IN (...)` queries. `_isSessionBasketMemberReversed` is now defined in
+   * terms of this batch (rule 14) instead of holding a second copy of the
+   * same two queries.
+   */
+  private _isSessionBasketMemberReversedBatch(
+    members: Array<{
+      id: number;
+      status: TransactionStatus;
+      source_table: string;
+      source_id: number | null;
+    }>,
+    tenantId: number,
+  ): Map<number, boolean> {
+    const result = new Map<number, boolean>();
+    const needsRefundCheck: typeof members = [];
+    for (const member of members) {
+      if (member.status === "VOIDED") {
+        result.set(member.id, true);
+      } else {
+        needsRefundCheck.push(member);
+      }
+    }
+    if (needsRefundCheck.length === 0) return result;
+
+    const memberIds = needsRefundCheck.map((m) => m.id);
+    const reversedIds = new Set<number>();
+    for (const chunk of chunkIds(memberIds, SESSION_BATCH_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const rows = this.query<{ reverses_id: number }>(
+        `SELECT reverses_id FROM transactions
+         WHERE reverses_id IN (${placeholders}) AND type = 'REFUND' AND tenant_id = ?`,
+        ...chunk,
+        tenantId,
+      );
+      for (const row of rows) reversedIds.add(row.reverses_id);
+    }
+
+    const needsSaleCheck: typeof members = [];
+    for (const member of needsRefundCheck) {
+      if (reversedIds.has(member.id)) {
+        result.set(member.id, true);
+      } else if (member.source_table === "sales" && member.source_id != null) {
+        needsSaleCheck.push(member);
+      } else {
+        result.set(member.id, false);
+      }
+    }
+    if (needsSaleCheck.length === 0) return result;
+
+    // Same aggregate `_saleItemRefundState` relies on (its `remaining`
+    // column only), grouped across every distinct sale in one query.
+    const saleIds = Array.from(
+      new Set(needsSaleCheck.map((m) => m.source_id!)),
+    );
+    const remainingBySale = new Map<number, number>();
+    for (const chunk of chunkIds(saleIds, SESSION_BATCH_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => "?").join(", ");
+      const rows = this.query<{ sale_id: number; remaining: number | null }>(
+        `SELECT sale_id,
+                SUM(CASE WHEN ${TransactionRepository.SALE_ITEM_HAS_REFUNDABLE_REMAINDER} THEN 1 ELSE 0 END) AS remaining
+         FROM sale_items
+         WHERE sale_id IN (${placeholders}) AND tenant_id = ?
+         GROUP BY sale_id`,
+        ...chunk,
+        tenantId,
+      );
+      for (const row of rows) remainingBySale.set(row.sale_id, row.remaining ?? 0);
+    }
+    for (const member of needsSaleCheck) {
+      const remaining = remainingBySale.get(member.source_id!) ?? 0;
+      result.set(member.id, remaining === 0);
+    }
+    return result;
+  }
+
+  private _isSessionBasketMemberReversed(
+    member: {
+      id: number;
+      status: TransactionStatus;
+      source_table: string;
+      source_id: number | null;
+    },
+    tenantId: number,
+  ): boolean {
+    return (
+      this._isSessionBasketMemberReversedBatch([member], tenantId).get(
+        member.id,
+      ) ?? false
+    );
+  }
+
+  /**
+   * Read-only planning shared by `getSessionItemRefundPreview` and
+   * `refundSessionBasketItem` (rule 14 — one computation, one set of guards,
+   * never re-derived). Performs EVERY guard and EVERY amount/account/leg
+   * computation with NO writes, so a thrown error here never leaves a
+   * partial write behind (same discipline as `_validateRefundLegOverride`).
+   */
+  private _planSessionItemRefund(input: {
+    sessionId: number;
+    transactionId: number;
+    saleItemId?: number;
+    quantity?: number;
+    /** LIRA-236 — the cashier-typed rate, when given. Drives BOTH the
+     *  account-first cross-currency step and the default legs' pool-mix
+     *  conversion (`_crossCurrencyRateForBasket`'s doc). */
+    exchangeRate?: number;
+  }): {
+    original: TransactionEntity;
+    isSaleMember: boolean;
+    saleId: number | null;
+    /** LIRA-236 — the default rate the popup shows: the typed rate (if this
+     *  call was given one) else the refunded member's own recorded rate,
+     *  else the day's fallback. */
+    bookedRate: number;
+    bookedRateSource: "sale" | "transaction" | "fallback";
+    /** LIRA-236 — the rate actually used by THIS plan's own cross-currency
+     *  math (identical to `bookedRate` unless a caller passed a DIFFERENT
+     *  `exchangeRate` than what `bookedRate` would default to — which never
+     *  happens today, since `bookedRate` IS `input.exchangeRate` when given;
+     *  kept as its own field so a future caller can distinguish "what the
+     *  popup shows by default" from "what this specific call applied"). */
+    effectiveRate: number;
+    lines: Array<{
+      saleItemId: number;
+      quantity: number;
+      amountUsd: number;
+      profitUsd: number;
+    }>;
+    clientId: number | null;
+    /** Finding #10 — the client the 'Session Debt' row was actually charged
+     *  to; the credit row must use THIS, never `clientId` (the item's own
+     *  buyer). */
+    debtClientId: number | null;
+    itemAmountUsd: number;
+    itemAmountLbp: number;
+    nativeCurrency: "USD" | "LBP";
+    /** A_account per currency — persisted onto the REFUND row's
+     *  metadata_json so a LATER item refund on the same basket can
+     *  reconstruct `basketChargeRemaining` (finding #6). */
+    accountAttributedUsd: number;
+    accountAttributedLbp: number;
+    accountReductionUsd: number;
+    accountReductionLbp: number;
+    repaidBackUsd: number;
+    repaidBackLbp: number;
+    /** Round-3 finding #4 — how much of THIS call's own accountReduction
+     *  drew from the pre-existing-credit bucket; persisted onto the REFUND
+     *  row's metadata_json so a LATER item refund on the same basket never
+     *  re-counts it (see `_priorSessionItemRefundPreexistingCreditUsed`). */
+    restoredFromPreexistingCreditUsd: number;
+    restoredFromPreexistingCreditLbp: number;
+    poolSplit: { usd: number; lbp: number };
+    remainderUsd: number;
+    remainderLbp: number;
+  } {
+    const tenantId = getCurrentTenantId();
+    const { sessionId, transactionId } = input;
+
+    // 1. The member belongs to the session.
+    //
+    // Round-4 review, finding HIGH-1 — `amount_usd`/`amount_lbp` are read
+    // from THIS row (customer_session_transactions), not `transactions`,
+    // because a FINANCIAL_SERVICE RECEIVE's own unified `transactions` row
+    // carries the POSITIVE transfer amount (or 0/0 for a USDT/Binance leg —
+    // `FinancialServiceRepository.ts`), never the NEGATIVE customer-side
+    // payout sign checkout stamps onto the basket link
+    // (`item.amount = -60`). Reading `transactions.amount_*` here (the
+    // pre-fix behavior) made `isSessionPayoutMember` blind to any netted
+    // wallet/Binance cash-out — see step 4a and
+    // `_assertNoNettedPayoutMembers` below, which share this SAME
+    // customer-side-amount source (rule 14).
+    const membership = this.queryOne<{
+      id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      /** F3 (round-3 review) — the rate THIS member's basket was actually
+       *  checked out at (migration v186), read alongside the membership row
+       *  since both come from the same `customer_session_transactions` id. */
+      paid_exchange_rate: number | null;
+    }>(
+      `SELECT id, amount_usd, amount_lbp, paid_exchange_rate FROM customer_session_transactions
+       WHERE session_id = ? AND unified_transaction_id = ? AND tenant_id = ?`,
+      sessionId,
+      transactionId,
+      tenantId,
+    );
+    if (!membership) {
+      throw new DatabaseError(
+        `Transaction #${transactionId} is not a member of session basket #${sessionId}`,
+        { entityId: transactionId },
+      );
+    }
+
+    // 2. The basket hasn't been whole-reversed.
+    this._assertSessionBasketReversible(sessionId);
+
+    const original = this.findById(transactionId);
+    if (!original) {
+      throw new NotFoundError("transactions", transactionId);
+    }
+    if (original.status === "VOIDED") {
+      throw new DatabaseError("This item has already been voided", {
+        entityId: transactionId,
+      });
+    }
+
+    // 3. Reuse the generic gate — same session-member bypass the
+    // whole-basket path uses (a LOTO_CASH_PRIZE/KEPT_CHANGE member would
+    // pass THIS gate, but is refused next by the sold-item whitelist below,
+    // matching the owner's wording exactly instead of the generic message).
+    this._assertReversible(original, { allowSessionMember: true });
+
+    // 4. Only a SOLD item — never a payout, prize or kept-change member
+    // (owner decision #4).
+    if (!SESSION_ITEM_REFUNDABLE_TYPES.has(original.type)) {
+      throw new DatabaseError(
+        `${original.type} cannot be refunded on its own from a session basket — only sold items ` +
+          `(products, services, recharges) can be; payouts and kept change are undone by the ` +
+          `whole-basket reversal.`,
+        { entityId: transactionId },
+      );
+    }
+
+    const isSaleMember =
+      original.source_table === "sales" && original.type === TRANSACTION_TYPES.SALE;
+    if (input.saleItemId != null && !isSaleMember) {
+      throw new DatabaseError("saleItemId is only valid for a SALE member", {
+        entityId: transactionId,
+      });
+    }
+
+    // LIRA-236 (REFUND_EXCHANGE_RATE_PLAN.md §3, SESSION_ITEM_REFUND_PLAN.md
+    // §9b item 12) — resolve the rate this refund's cross-currency math
+    // uses, ONCE, before any of it runs: the cashier's typed rate when
+    // given, else the rate the BASKET was actually checked out/paid at
+    // (never `transactions.exchange_rate`, the rate stamped on the item at
+    // CART-creation time — round-3 review finding F3: the two can
+    // legitimately differ when the shop's rate moves between adding an item
+    // to a basket and finally checking it out). A SALE member's checkout
+    // rate is `sales.exchange_rate_snapshot` (back-filled by
+    // `SalesRepository.markSalePaid` — source "sale"); every other member
+    // type reads it from `customer_session_transactions.paid_exchange_rate`
+    // (migration v186, stamped by `SessionPaymentService.recordBasketPayment`
+    // — source "transaction"). Either falls back to
+    // `transactions.exchange_rate` when unset (a pre-migration row, or a
+    // member whose basket was never actually settled through
+    // `recordBasketPayment` — defensive, not the expected path), then to the
+    // day's fallback rate (source "fallback", never a hard-coded guess).
+    // `bookedRate` is what the refund preview/popup DEFAULTS to;
+    // `effectiveRate` is what THIS call actually applies — identical unless
+    // a future caller ever wants them to diverge (see the return type's own
+    // doc).
+    const checkoutRate = isSaleMember
+      ? this._saleExchangeRateSnapshot(original.source_id) ?? original.exchange_rate
+      : membership.paid_exchange_rate ?? original.exchange_rate;
+    const { bookedRate, bookedRateSource } = this._bookedRateFor(
+      checkoutRate,
+      isSaleMember ? "sale" : "transaction",
+    );
+    // F14 (round-3 review, defensive) — same shared gate `refundLegReversalSign`/
+    // `validateRefundLegOverrideAmounts` use, so a non-finite typed rate
+    // never becomes `effectiveRate` in the first place (it would otherwise
+    // still be caught downstream by those two functions' own guard, but
+    // resolving it here too keeps `effectiveRate` — which is also stamped
+    // into the refund row's metadata_json, F12 — honest for audit purposes).
+    const effectiveRate = isUsableRefundExchangeRate(input.exchangeRate)
+      ? input.exchangeRate
+      : bookedRate;
+
+    // 4a. Finding #11 (adversarial review) — refuse a member whose net
+    // effect is a PAYOUT (direction OUT), even though its type is in
+    // `SESSION_ITEM_REFUNDABLE_TYPES`. A custom service booked as a payout
+    // (a negative amount) was never "sold" to the customer — that is not
+    // this flow's business (owner decision #4: only sold items). A SALE
+    // member's amount is always positive by construction, so this only
+    // ever fires for a CUSTOM_SERVICE/RECHARGE/FINANCIAL_SERVICE member.
+    //
+    // Round-4 review, finding HIGH-1 — uses the SAME shared predicate
+    // (`isSessionPayoutMember`) and the SAME customer-side amount source
+    // (`membership.amount_usd/lbp`, the cst row) as
+    // `_assertNoNettedPayoutMembers` below, rather than a second hand-copy
+    // of "is this a payout" that only ever looked at `transactions.amount_*`
+    // — see the `membership` query's own doc for why that missed a netted
+    // wallet/Binance cash-out.
+    if (
+      !isSaleMember &&
+      isSessionPayoutMember({
+        type: original.type,
+        amount_usd: membership.amount_usd,
+        amount_lbp: membership.amount_lbp,
+        status: original.status,
+        reverses_id: original.reverses_id,
+      })
+    ) {
+      throw new DatabaseError(
+        `${original.type} is a payout, not a sold item — it cannot be refunded on its own from a session basket.`,
+        { entityId: transactionId },
+      );
+    }
+
+    // 4b. Round-3 adversarial review, finding #2 (HIGH) — refuse ANY item
+    // refund when the basket contains a payout member ELSEWHERE (not just
+    // when the member BEING refunded is one, which 4a above already
+    // covers). `SessionCheckoutModal` nets a General payout (loto prize,
+    // wallet/Binance cash-out, a custom-service payout, …) against the
+    // basket's OTHER items at checkout, so the pooled IN legs are smaller
+    // than the items' own value — refunding one item against that short
+    // pool (`_splitAcrossPoolCurrencyMix`'s per-currency cap) hands back
+    // LESS than the item is worth, because the pool never held the netted
+    // portion to begin with. Orchestrator decision (owner not yet asked):
+    // since the payout was netted against every item, undoing one item in
+    // isolation can't be priced correctly — only the whole-basket reversal
+    // (which also undoes the payout) can.
+    this._assertNoNettedPayoutMembers(sessionId);
+
+    // 5. Double-refund guard for the non-SALE (whole-member) branch — the
+    // SALE branch gets its own per-line cap from `previewSaleItemRefundAmount`
+    // (refunded_quantity), which this generic reverses_id check cannot see.
+    if (!isSaleMember) {
+      const existing = this.queryOne<{ id: number }>(
+        `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND' AND status = 'ACTIVE' AND tenant_id = ?`,
+        transactionId,
+        tenantId,
+      );
+      if (existing) {
+        throw new DatabaseError("This item has already been refunded", {
+          entityId: transactionId,
+        });
+      }
+    }
+
+    const salesRepo = getSalesRepository();
+    const lines: Array<{
+      saleItemId: number;
+      quantity: number;
+      amountUsd: number;
+      profitUsd: number;
+    }> = [];
+    let clientId: number | null = original.client_id;
+    let saleId: number | null = null;
+    // Adversarial-review rewrite (findings #2/#3) — the item's own amount is
+    // now a PAIR, never a single tagged amount+currency. A SALE member is
+    // always USD-only (sold_price_usd); a CUSTOM_SERVICE/RECHARGE member can
+    // be dual-currency (e.g. $10 + 450,000 LBP), and the old single-tag
+    // logic (`amount_lbp !== 0 && amount_usd === 0 ? LBP : USD`) silently
+    // dropped whichever side lost the pick — see finding #3's measured case
+    // (a $10 + 450,000 LBP custom service left 450,000 LBP owed forever).
+    let itemAmountUsd = 0;
+    let itemAmountLbp = 0;
+
+    if (isSaleMember) {
+      saleId = original.source_id;
+      if (input.saleItemId != null) {
+        if (!(input.quantity != null && input.quantity > 0)) {
+          throw new DatabaseError(
+            "quantity is required and must be greater than 0 when saleItemId is given",
+            { entityId: transactionId },
+          );
+        }
+        const preview = salesRepo.previewSaleItemRefundAmount({
+          saleId,
+          saleItemId: input.saleItemId,
+          refundQuantity: input.quantity,
+        });
+        clientId = preview.clientId ?? clientId;
+        lines.push({
+          saleItemId: input.saleItemId,
+          quantity: input.quantity,
+          amountUsd: preview.refundAmountUsd,
+          profitUsd: preview.refundProfitUsd,
+        });
+      } else {
+        // Q2 (owner answer) — saleItemId omitted: every remaining line, in
+        // full, in ONE operation.
+        const remainingRows = this.query<{
+          id: number;
+          quantity: number;
+          refunded_quantity: number | null;
+        }>(
+          `SELECT id, quantity, refunded_quantity FROM sale_items
+           WHERE sale_id = ? AND tenant_id = ? AND (quantity - COALESCE(refunded_quantity, 0)) > 0`,
+          saleId,
+          tenantId,
+        );
+        if (remainingRows.length === 0) {
+          throw new DatabaseError("Nothing remains to refund on this sale", {
+            entityId: transactionId,
+          });
+        }
+        for (const row of remainingRows) {
+          const remainingQty = row.quantity - (row.refunded_quantity ?? 0);
+          const preview = salesRepo.previewSaleItemRefundAmount({
+            saleId,
+            saleItemId: row.id,
+            refundQuantity: remainingQty,
+          });
+          clientId = preview.clientId ?? clientId;
+          lines.push({
+            saleItemId: row.id,
+            quantity: remainingQty,
+            amountUsd: preview.refundAmountUsd,
+            profitUsd: preview.refundProfitUsd,
+          });
+        }
+      }
+      itemAmountUsd = lines.reduce((sum, l) => sum + l.amountUsd, 0);
+      itemAmountLbp = 0; // sale lines are always sold_price_usd
+    } else {
+      itemAmountUsd = Math.abs(original.amount_usd);
+      itemAmountLbp = Math.abs(original.amount_lbp);
+    }
+    // The item's own native currency — used ONLY as the no-pool fallback
+    // currency for `_splitAcrossPoolCurrencyMix` (finding #2), never again
+    // for the amount itself.
+    const nativeCurrency: "USD" | "LBP" =
+      itemAmountLbp > 0 && itemAmountUsd === 0 ? "LBP" : "USD";
+
+    // 6. Account first (findings #2/#3/#6/#10, adversarial-review rewrite).
+    //
+    // `basketChargeRemaining[c]` = the basket's GROSS 'Session Debt' charge
+    // in currency c, minus every PRIOR item refund's own A_account[c] (never
+    // minus `covered_*`, which FIFO repayment coverage never populates for
+    // 'Session Debt' rows at all — finding #6's root cause). This is "how
+    // much of the basket's account-paid side is still unclaimed by an item".
+    const sessionDebtRows = this.query<{
+      id: number;
+      client_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+    }>(
+      `SELECT id, client_id, amount_usd, amount_lbp
+       FROM debt_ledger
+       WHERE session_id = ? AND transaction_id IS NULL AND transaction_type = 'Session Debt' AND tenant_id = ?`,
+      sessionId,
+      tenantId,
+    );
+    let grossChargeUsd = 0;
+    let grossChargeLbp = 0;
+    // Finding #10 — the credit belongs to the client the 'Session Debt' row
+    // was actually CHARGED to, which can differ from `clientId` (the item's
+    // own buyer, e.g. a sale line rung up under client A inside a basket
+    // whose account charge is on client B).
+    let debtClientId: number | null = null;
+    // Round-2 finding #5 — the LOWEST id among this basket's own 'Session
+    // Debt' row(s): the boundary `_clientBalanceBeforeRow` reads "this
+    // client's balance as it stood immediately before THIS charge" from.
+    let sessionDebtRowId: number | null = null;
+    for (const r of sessionDebtRows) {
+      grossChargeUsd += r.amount_usd;
+      grossChargeLbp += r.amount_lbp;
+      debtClientId = debtClientId ?? r.client_id;
+      sessionDebtRowId =
+        sessionDebtRowId == null ? r.id : Math.min(sessionDebtRowId, r.id);
+    }
+    debtClientId = debtClientId ?? clientId;
+
+    const priorAccountAttributed =
+      this._priorSessionItemRefundAccountAttributed(sessionId);
+    const basketChargeRemainingUsd = Math.max(
+      0,
+      grossChargeUsd - priorAccountAttributed.usd,
+    );
+    const basketChargeRemainingLbp = Math.max(
+      0,
+      grossChargeLbp - priorAccountAttributed.lbp,
+    );
+
+    // A_account[c] — same-currency attribution first, then a cross-currency
+    // step (Q3's buy-rate rule) if the item still has leftover in one
+    // currency while the OTHER currency's charge remainder is nonzero.
+    let accountAttributedUsd = Math.min(itemAmountUsd, basketChargeRemainingUsd);
+    let accountAttributedLbp = Math.min(itemAmountLbp, basketChargeRemainingLbp);
+    let leftoverItemUsd = itemAmountUsd - accountAttributedUsd;
+    let leftoverItemLbp = itemAmountLbp - accountAttributedLbp;
+    let leftoverChargeUsd = basketChargeRemainingUsd - accountAttributedUsd;
+    let leftoverChargeLbp = basketChargeRemainingLbp - accountAttributedLbp;
+    if (leftoverItemUsd > 0.005 && leftoverChargeLbp > 1) {
+      const buyRate = this._requireBuyRate(sessionId, effectiveRate);
+      // Round-3 finding #6 (LOW) — round the LBP side of a cross-currency
+      // conversion at the moment it's produced; an unrounded `take` here
+      // fed straight into `accountAttributedLbp`, which then fed the
+      // account-reduction credit row as fractional LBP (measured:
+      // -4,153,333.333 LBP credit rows and ledger dust).
+      const take = this._roundToUnit(
+        Math.min(leftoverItemUsd * buyRate, leftoverChargeLbp),
+        1,
+      );
+      accountAttributedLbp += take;
+      leftoverItemUsd -= take / buyRate;
+      leftoverChargeLbp -= take;
+    }
+    if (leftoverItemLbp > 1 && leftoverChargeUsd > 0.005) {
+      const buyRate = this._requireBuyRate(sessionId, effectiveRate);
+      const take = this._roundToUnit(
+        Math.min(leftoverItemLbp / buyRate, leftoverChargeUsd),
+        0.01,
+      );
+      accountAttributedUsd += take;
+      leftoverItemLbp -= take * buyRate;
+      leftoverChargeUsd -= take;
+    }
+
+    // credit[c] = how much of A_account[c] is still "unpaid in real cash"
+    // and so must reduce the account rather than be handed back as cash.
+    // Round-2 finding #5 (MEDIUM) — the PRE-FIX cap, `min(A_account,
+    // max(0, balance_now))`, treated ANY negative current balance as "this
+    // was already repaid" and refunded it as cash — but a negative balance
+    // is just as often PRE-EXISTING store credit (a gift card, an earlier
+    // overpayment) that never involved this basket's own charge at all.
+    // Handing that back as cash turns store credit into cash the shop
+    // never should have released. The fix separates the two:
+    //   `available[c] = max(0, balance_now[c])                    // still genuinely owed
+    //                 + max(0, -balanceBeforeThisCharge[c])`        // pre-existing credit
+    // — `balanceBeforeThisCharge` is this client's own balance from EVERY
+    // debt_ledger row with a LOWER id than this basket's own 'Session Debt'
+    // row (rows from the SAME checkout, e.g. a same-basket CREDIT_DEPOSIT,
+    // are written before it — see SessionPaymentService's write order —
+    // and so are correctly folded in as "pre-existing", not as a
+    // repayment). Only the REMAINDER — a real repayment credited AFTER
+    // this charge existed — ever becomes cash (`repaidBack` below).
+    // Worked-example proof (this file's "round-2 finding #5" tests):
+    //   - pre-existing $200 credit, $100 charged, $50 item refund:
+    //     balance_now = -100, balanceBefore = -200 →
+    //     available = 0 + 200 = 200 → credit $50, cash $0.
+    //   - $200 unrelated debt owed BEFORE this basket, $100 charged, $70
+    //     repaid, $50 item refund: balance_now = 230, balanceBefore = 200
+    //     → available = 230 + 0 = 230 → credit $50, cash $0.
+    //   - worked example 4 (SESSION_ITEM_REFUND_PLAN.md §3): no prior
+    //     debt, $100 charged, $70 repaid, $50 item refund: balance_now =
+    //     30, balanceBefore = 0 → available = 30 → credit $30, cash $20
+    //     (unchanged — this is the EXISTING "partly repaid debt" test).
+    const clientBalance = debtClientId
+      ? getDebtRepository().getClientBalance(debtClientId)
+      : { balance_usd: 0, balance_lbp: 0 };
+    const balanceBefore =
+      debtClientId != null && sessionDebtRowId != null
+        ? this._clientBalanceBeforeRow(debtClientId, sessionDebtRowId)
+        : { usd: 0, lbp: 0 };
+    // Round-3 finding #4 (MEDIUM) — the pre-existing-credit bucket
+    // (`max(0, -balanceBefore)`) is a FIXED amount for the whole basket, not
+    // a per-call re-read: subtract every EARLIER item refund's own draw on
+    // it (`priorRestoredPreexisting`, see that reader's doc) before using it
+    // here, so two item refunds on the same basket can never both treat the
+    // SAME pre-existing credit as available.
+    const priorRestoredPreexisting =
+      this._priorSessionItemRefundPreexistingCreditUsed(sessionId);
+    const stillOwedBucketUsd = Math.max(0, clientBalance.balance_usd);
+    const stillOwedBucketLbp = Math.max(0, clientBalance.balance_lbp);
+    const preexistingBucketUsd = Math.max(
+      0,
+      Math.max(0, -balanceBefore.usd) - priorRestoredPreexisting.usd,
+    );
+    const preexistingBucketLbp = Math.max(
+      0,
+      Math.max(0, -balanceBefore.lbp) - priorRestoredPreexisting.lbp,
+    );
+    const availableUsd = stillOwedBucketUsd + preexistingBucketUsd;
+    const availableLbp = stillOwedBucketLbp + preexistingBucketLbp;
+    // Round-3 finding #6 (LOW) — round to whole LBP / whole cents at THIS
+    // money-producing site too (the account-reduction credit row and the
+    // repaid-back cash leg both read straight off these two values).
+    const accountReductionUsd = this._roundToUnit(
+      Math.min(accountAttributedUsd, availableUsd),
+      0.01,
+    );
+    const accountReductionLbp = this._roundToUnit(
+      Math.min(accountAttributedLbp, availableLbp),
+      1,
+    );
+    const repaidBackUsd = Math.max(0, accountAttributedUsd - accountReductionUsd);
+    const repaidBackLbp = Math.max(0, accountAttributedLbp - accountReductionLbp);
+    // How much of THIS call's own accountReduction drew from the
+    // pre-existing bucket specifically (consumption order: the genuinely
+    // still-owed bucket first, then pre-existing) — persisted so a LATER
+    // item refund on the same basket can subtract it via
+    // `_priorSessionItemRefundPreexistingCreditUsed` above.
+    const restoredFromPreexistingCreditUsd = Math.min(
+      Math.max(0, accountReductionUsd - stillOwedBucketUsd),
+      preexistingBucketUsd,
+    );
+    const restoredFromPreexistingCreditLbp = Math.min(
+      Math.max(0, accountReductionLbp - stillOwedBucketLbp),
+      preexistingBucketLbp,
+    );
+
+    // The part of the item never attributed to the account at all — this is
+    // what finding #2's pool-currency-mix split applies to. Combined into a
+    // single USD-equivalent figure so ONE split call can allocate it across
+    // whatever the basket's pool actually holds, then converted back.
+    const poolAttributedUsdEquiv =
+      leftoverItemUsd +
+      (leftoverItemLbp > 1
+        ? leftoverItemLbp / this._requireBuyRate(sessionId, effectiveRate)
+        : 0);
+    const poolSplit = this._splitAcrossPoolCurrencyMix(
+      sessionId,
+      poolAttributedUsdEquiv,
+      nativeCurrency,
+      effectiveRate,
+    );
+
+    // Finding #11 (dust legs) — floor a sub-cent/sub-LBP remainder to
+    // exactly 0 rather than posting a leg (and requiring the operator's
+    // override to match) for an amount too small to be real money. Same
+    // 0.005 USD / 1 LBP thresholds already used pervasively throughout this
+    // class (e.g. `_cancelSessionDebt`, the account-first step above) —
+    // not a new magic number.
+    const remainderUsdRaw = repaidBackUsd + poolSplit.usd;
+    // Round-2 finding #9 (LOW) — round to a whole LBP at this final
+    // boundary too (belt-and-suspenders on top of `poolSplit.lbp` already
+    // being rounded at its own source): `repaidBackLbp` alone can still
+    // carry fractional LBP from the cross-currency account-attribution
+    // step above (`take = leftoverItemUsd * buyRate`), and there is no
+    // sub-lira anywhere in this app's LBP figures.
+    const remainderLbpRaw = Math.round(repaidBackLbp + poolSplit.lbp);
+    const remainderUsd = remainderUsdRaw > 0.005 ? remainderUsdRaw : 0;
+    const remainderLbp = remainderLbpRaw > 1 ? remainderLbpRaw : 0;
+
+    return {
+      original,
+      isSaleMember,
+      saleId,
+      bookedRate,
+      bookedRateSource,
+      effectiveRate,
+      lines,
+      clientId,
+      debtClientId,
+      itemAmountUsd,
+      itemAmountLbp,
+      nativeCurrency,
+      accountAttributedUsd,
+      accountAttributedLbp,
+      accountReductionUsd,
+      accountReductionLbp,
+      repaidBackUsd,
+      repaidBackLbp,
+      restoredFromPreexistingCreditUsd,
+      restoredFromPreexistingCreditLbp,
+      poolSplit,
+      remainderUsd,
+      remainderLbp,
+    };
+  }
+
+  /**
+   * Finding #6 — a flat CASH/General leg for money that is NOT the pool's
+   * own cash but the CLIENT's already-repaid account money being handed
+   * back (`repaidBack{Usd,Lbp}`): it never came out of this basket's pool,
+   * so proportioning it across the pool's drawer mix (like
+   * `_splitAcrossPoolCurrencyMix` does for the genuinely pool-attributed
+   * remainder) would be attributing it to the wrong source. `CASH` /
+   * `paymentMethodToDrawerName("CASH")` is the SAME default
+   * `_defaultSessionRefundLegs`'s own no-pool fallback already uses (rule
+   * 14 — one "default cash drawer" constant, not a second literal).
+   */
+  private _repaidBackLegs(
+    usd: number,
+    lbp: number,
+  ): TransactionPaymentLeg[] {
+    const drawerName = paymentMethodToDrawerName("CASH");
+    const legs: TransactionPaymentLeg[] = [];
+    if (usd > 0.005) {
+      // Round-3 finding #6 (LOW) — round to whole cents; `usd` here is
+      // `repaidBackUsd`, itself now rounded at its own source (see
+      // `_planSessionItemRefund`), but rounding again at the leg-writing
+      // site too keeps this function correct even if a future caller feeds
+      // it an unrounded figure.
+      const roundedUsd = this._roundToUnit(usd, 0.01);
+      legs.push({
+        direction: "out",
+        amount: roundedUsd,
+        signed_amount: -roundedUsd,
+        currency_code: "USD",
+        method: "CASH",
+        drawer_name: drawerName,
+      });
+    }
+    if (lbp > 1) {
+      // Round-2 finding #9 (LOW) — no sub-lira.
+      const roundedLbp = this._roundToUnit(lbp, 1);
+      legs.push({
+        direction: "out",
+        amount: roundedLbp,
+        signed_amount: -roundedLbp,
+        currency_code: "LBP",
+        method: "CASH",
+        drawer_name: drawerName,
+      });
+    }
+    return legs;
+  }
+
+  /** The FULL default money-back leg set for a plan (rule 14 — the ONE place
+   *  either the preview or the real write computes it): the pool-mix split
+   *  (finding #2) plus the flat repaid-account cash-back (finding #6),
+   *  merged so a shared drawer leg posts as one row. */
+  private _planDefaultLegs(
+    sessionId: number,
+    plan: ReturnType<TransactionRepository["_planSessionItemRefund"]>,
+  ): TransactionPaymentLeg[] {
+    return this._mergeLegs([
+      this._defaultSessionRefundLegs(sessionId, plan.poolSplit.usd, "USD"),
+      this._defaultSessionRefundLegs(sessionId, plan.poolSplit.lbp, "LBP"),
+      this._repaidBackLegs(plan.repaidBackUsd, plan.repaidBackLbp),
+    ]);
+  }
+
+  /**
+   * LIRA-232 phase 1 — read-only preview: the account reduction (amount +
+   * currency split) and the default pre-filled money-back legs, WITHOUT
+   * writing anything. Mirrors LIRA-231's `getSaleRefundPreview` shape.
+   */
+  getSessionItemRefundPreview(input: {
+    sessionId: number;
+    transactionId: number;
+    saleItemId?: number;
+    quantity?: number;
+    /** LIRA-236 — when given, the account reduction and remainder above are
+     *  computed at THIS rate instead of the member's own booked rate. */
+    exchangeRate?: number;
+  }): SessionItemRefundPreview {
+    const plan = this._planSessionItemRefund(input);
+    // Round-2 finding #10 — the account-reduction message the UI shows
+    // must name the CHARGED client (`plan.debtClientId`), not the item's
+    // own buyer (`plan.clientId`, which the UI otherwise defaults to and
+    // can differ inside a basket — see finding #10's own doc comment on
+    // `_planSessionItemRefund` for the exact scenario).
+    const hasAccountReduction =
+      plan.accountReductionUsd > 0.0001 || plan.accountReductionLbp > 0.0001;
+    // A minimal direct read (not `ClientRepository.findById`) — this is a
+    // single display-only field, and pulling in that repository's full
+    // column set here would couple this read to columns this method has no
+    // other reason to depend on.
+    const accountClientName =
+      hasAccountReduction && plan.debtClientId != null
+        ? this.queryOne<{ full_name: string }>(
+            `SELECT full_name FROM clients WHERE id = ? AND tenant_id = ?`,
+            plan.debtClientId,
+            getCurrentTenantId(),
+          )?.full_name
+        : undefined;
+    return {
+      itemAmountUsd: plan.itemAmountUsd,
+      itemAmountLbp: plan.itemAmountLbp,
+      accountReductionUsd: plan.accountReductionUsd,
+      accountReductionLbp: plan.accountReductionLbp,
+      remainderUsd: plan.remainderUsd,
+      remainderLbp: plan.remainderLbp,
+      defaultLegs: this._planDefaultLegs(input.sessionId, plan),
+      bookedRate: plan.bookedRate,
+      bookedRateSource: plan.bookedRateSource,
+      ...(accountClientName ? { accountClientName } : {}),
+    };
+  }
+
+  /**
+   * LIRA-232 phase 1 — refund ONE (or, with `saleItemId` omitted on a SALE
+   * member, every remaining) line of a session-basket item, in ONE db
+   * transaction (SESSION_ITEM_REFUND_PLAN.md §3):
+   *   1. ITEM side — reuses `SalesRepository.applySaleItemReversalForSession`
+   *      for a SALE member (per-line: stock, batches, units,
+   *      refunded_quantity, the line's own 'Sale Debt' cancel), or
+   *      `_createRefundRow` + `_applyGenericItemReversal` for a
+   *      RECHARGE/CUSTOM_SERVICE member (whole-row: profit/source reversal,
+   *      the same generic machinery `refundTransaction` uses, minus its
+   *      MONEY step). Never `_reversePayments` — a session member's own
+   *      `payments` rows are empty; money lives on the basket's pooled leg.
+   *   2. ACCOUNT FIRST — reduces the basket's outstanding 'Session Debt' by
+   *      min(A, D), writing ONE `SESSION_ITEM_REFUND_CREDIT_TYPE` credit
+   *      linked to BOTH the session and this REFUND transaction (never the
+   *      'Refund Reversal' shape — see that constant's doc for why).
+   *   3. MONEY BACK — posts the remainder R as OUT legs (the caller's
+   *      confirmed `refundLegs`, exact-matched against R via the existing
+   *      `validateRefundLegOverrideAmounts`, or the proportional default)
+   *      through drawer_balances, `transaction_id` = this REFUND id (never
+   *      pooled) so they read as the refund's own legs, not the basket's.
+   *   4. Links the REFUND transaction into the session
+   *      (`customer_session_transactions`) so it shows in the session group
+   *      and the Debts basket view.
+   */
+  refundSessionBasketItem(
+    input: RefundSessionBasketItemInput,
+  ): RefundSessionBasketItemResult {
+    const tenantId = getCurrentTenantId();
+    const { sessionId, transactionId, userId } = input;
+
+    const plan = this._planSessionItemRefund(input);
+    const {
+      original,
+      isSaleMember,
+      saleId,
+      effectiveRate,
+      lines,
+      clientId,
+      debtClientId,
+      itemAmountUsd,
+      itemAmountLbp,
+      accountAttributedUsd,
+      accountAttributedLbp,
+      accountReductionUsd,
+      accountReductionLbp,
+      restoredFromPreexistingCreditUsd,
+      restoredFromPreexistingCreditLbp,
+      remainderUsd,
+      remainderLbp,
+      poolSplit,
+    } = plan;
+
+    // Validate the operator's chosen return leg(s), if any, BEFORE any row
+    // is written — same discipline as every other refund-override path.
+    // Post-review rewrite (finding #2/#3): validated PER CURRENCY against
+    // BOTH remainderUsd and remainderLbp, never a single tagged amount.
+    // LIRA-236 — `effectiveRate` (the caller's typed rate, else the
+    // member's own booked rate, else the day's fallback — see
+    // `_planSessionItemRefund`) makes this a VALUE-based check, so the
+    // cashier can hand back the remainder in a different currency mix than
+    // `remainderUsd`/`remainderLbp`'s own split.
+    const refundLegs = input.refundLegs;
+    const hasOverride = !!refundLegs && refundLegs.length > 0;
+    if (hasOverride) {
+      validateRefundLegOverrideAmounts(
+        { USD: remainderUsd, LBP: remainderLbp },
+        refundLegs!,
+        transactionId,
+        effectiveRate,
+      );
+    }
+
+    return this.transaction(() => {
+      let refundTxnId: number;
+      // Finding #6 — every writer of this REFUND row stamps its OWN
+      // account-attributed pair into metadata_json so a later item refund
+      // on the SAME basket can reconstruct `basketChargeRemaining`
+      // (`_priorSessionItemRefundAccountAttributed`). Round-2 finding #1 —
+      // ALSO stamps its own pool-attributed pair (`poolSplit`), the SAME
+      // way, so a later whole-basket reversal's `_reverseSessionPooledPayments`
+      // can tell "already returned from THIS pool" apart from money that
+      // came from a real repayment instead (`_priorSessionItemRefundPoolAttributed`).
+      // Round-3 finding #4 — ALSO stamps how much of THIS call's own
+      // account reduction drew from the pre-existing-credit bucket, so a
+      // later item refund on the same basket never re-counts it (see
+      // `_priorSessionItemRefundPreexistingCreditUsed`).
+      const accountAttributionMeta = {
+        accountAttributedUsd,
+        accountAttributedLbp,
+        poolSplitUsd: poolSplit.usd,
+        poolSplitLbp: poolSplit.lbp,
+        restoredFromPreexistingCreditUsd,
+        restoredFromPreexistingCreditLbp,
+        // LIRA-236, contract item 6 — the rate THIS refund actually used
+        // (the caller's typed rate, else the member's own booked rate, else
+        // the day's fallback — `_planSessionItemRefund`'s `effectiveRate`).
+        exchangeRate: effectiveRate,
+      };
+
+      if (isSaleMember) {
+        const saleItemIds = lines.map((l) => l.saleItemId).join(", ");
+        refundTxnId = this.createTransaction({
+          type: TRANSACTION_TYPES.REFUND,
+          source_table: original.source_table,
+          source_id: original.source_id,
+          user_id: userId,
+          amount_usd: -itemAmountUsd,
+          amount_lbp: -itemAmountLbp,
+          profit_usd: -lines.reduce((sum, l) => sum + l.profitUsd, 0),
+          profit_lbp: 0,
+          exchange_rate: original.exchange_rate,
+          client_id: clientId,
+          summary:
+            lines.length === 1
+              ? `SESSION ITEM REFUND: ${lines[0].quantity}x sale item #${lines[0].saleItemId} from Sale #${saleId}`
+              : `SESSION ITEM REFUND: sale items [${saleItemIds}] from Sale #${saleId}`,
+          metadata_json: {
+            refundType: "sessionItem",
+            sessionId,
+            memberTransactionId: transactionId,
+            saleItemIds: lines.map((l) => l.saleItemId),
+            ...accountAttributionMeta,
+          },
+          device_id: original.device_id ?? undefined,
+        });
+        // Round-2 finding #3 (HIGH) — route the shared `unitExtras` array
+        // to the line each unit actually belongs to, ONCE, before the
+        // per-line loop (rule 14 — `SalesRepository.routeUnitExtrasByLine`,
+        // one grouping query, not a re-derivation per line). Without this,
+        // `applySaleItemReversalForSession`'s own per-line validation
+        // rejected a unit linked to a DIFFERENT line in the same multi-line
+        // refund (Q2's "every remaining line, in ONE operation").
+        const unitExtrasByLine = input.unitExtras
+          ? getSalesRepository().routeUnitExtrasByLine(
+              lines.map((l) => l.saleItemId),
+              input.unitExtras,
+            )
+          : undefined;
+        for (const line of lines) {
+          getSalesRepository().applySaleItemReversalForSession({
+            saleId: saleId!,
+            saleItemId: line.saleItemId,
+            refundQuantity: line.quantity,
+            userId,
+            refundTxnId,
+            // 2026-09-26 owner decision (NEW API CONTRACT) — the "Returned
+            // phones" defective/warranty override applies on every refund
+            // path, including this one. Validated per-line against THIS
+            // line's own linked units inside applySaleItemReversalForSession
+            // itself (rule 14 — one validator, `validateRefundUnitExtras`).
+            unitExtras: unitExtrasByLine?.get(line.saleItemId),
+          });
+        }
+      } else {
+        refundTxnId = this._createRefundRow(
+          original,
+          transactionId,
+          userId,
+          {
+            refundType: "sessionItem",
+            sessionId,
+            memberTransactionId: transactionId,
+            ...accountAttributionMeta,
+          },
+        );
+        this._applyGenericItemReversal(
+          original,
+          transactionId,
+          refundTxnId,
+          userId,
+        );
+        // Finding #5 (BLOCKER) — reverse the MEMBER'S OWN `payments` rows
+        // (the recharge's telecom stock leg / the FINANCIAL_SERVICE crypto
+        // leg — system legs written on the member's own transaction_id even
+        // under deferPayment; see RechargeRepository.processRecharge's
+        // stockLeg write and FinancialServiceRepository's Binance debit).
+        // These are NEVER customer-facing (deferPayment skips the
+        // customer-cash step entirely — that lives on the session's pooled
+        // leg, reversed separately below), so mirroring them here can never
+        // double-count against the account-first/money-back steps. Omitting
+        // this call (the pre-fix state) left the provider/crypto drawer
+        // permanently short after an item refund — see this repository's
+        // test file for the measured MTC-drawer proof.
+        this._reversePayments(transactionId, refundTxnId, userId);
+      }
+
+      // Link the REFUND into the session so it shows in the session group
+      // and the Debts basket view (SESSION_ITEM_REFUND_PLAN.md §5).
+      this.execute(
+        `INSERT INTO customer_session_transactions
+           (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp)
+         VALUES (?, ?, 'session_item_refund', ?, ?, ?, ?, ?, ?)`,
+        tenantId,
+        sessionId,
+        original.source_id,
+        refundTxnId,
+        -itemAmountUsd,
+        -itemAmountLbp,
+        isSaleMember ? -lines.reduce((sum, l) => sum + l.profitUsd, 0) : -original.profit_usd,
+        isSaleMember ? 0 : -original.profit_lbp,
+      );
+
+      // ACCOUNT FIRST — finding #10: credited to `debtClientId` (the client
+      // the 'Session Debt' row was actually charged to), never `clientId`
+      // (the item's own buyer, which can differ inside a basket).
+      if (accountReductionUsd > 0.0001 || accountReductionLbp > 0.0001) {
+        this.execute(
+          `INSERT INTO debt_ledger (
+             client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id, note, created_by, tenant_id
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          debtClientId,
+          SESSION_ITEM_REFUND_CREDIT_TYPE,
+          -accountReductionUsd,
+          -accountReductionLbp,
+          refundTxnId,
+          sessionId,
+          `Session #${sessionId} basket item refund — account reduced`,
+          userId,
+          tenantId,
+        );
+      }
+
+      // MONEY BACK — findings #2/#6: per-currency remainder, the operator's
+      // override or the merged (pool-mix + repaid-account) default.
+      const legsToPost: TransactionPaymentLeg[] = hasOverride
+        ? refundLegs!.map((leg) => ({
+            direction: "out" as const,
+            amount: leg.amount,
+            signed_amount: -leg.amount,
+            currency_code: leg.currencyCode,
+            method: leg.method,
+            drawer_name: paymentMethodToDrawerName(leg.method),
+          }))
+        : this._planDefaultLegs(sessionId, plan);
+
+      for (const leg of legsToPost) {
+        insertPaymentRow(this.db, {
+          transactionId: refundTxnId,
+          method: leg.method,
+          drawerName: leg.drawer_name ?? paymentMethodToDrawerName(leg.method),
+          currencyCode: leg.currency_code,
+          amount: leg.signed_amount,
+          note: "Session item refund",
+          createdBy: userId,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: leg.drawer_name ?? paymentMethodToDrawerName(leg.method),
+          currencyCode: leg.currency_code,
+          delta: leg.signed_amount,
+          tenantId,
+        });
+      }
+
+      return {
+        refundTransactionId: refundTxnId,
+        sessionId,
+        memberTransactionId: transactionId,
+        itemAmountUsd,
+        itemAmountLbp,
+        accountReductionUsd,
+        accountReductionLbp,
+        remainderUsd,
+        remainderLbp,
+        legs: legsToPost,
+      };
+    });
   }
 
   private _voidTransactionInternal(
@@ -1764,10 +4934,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       this._reverseCarrierLineMovements(original);
 
       // 5e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied to
-      // this SALE back to IN_STOCK. Void never carries flag extras (the
-      // phone-refund UI's defective/warranty-override flagging lives only on
-      // the refund path, owner decision 2026-07-04). No-op for every
-      // non-SALE transaction, or when product_units doesn't exist.
+      // this SALE back to IN_STOCK. Void never carries flag extras — the
+      // phone-refund UI's defective/warranty-override flagging is REFUND-only
+      // (owner decision 2026-07-04; extended 2026-09-26 to every refund path:
+      // Transactions page whole-refund, POS whole-sale refund, POS per-item
+      // refund — never void, on any of them). No-op for every non-SALE
+      // transaction, or when product_units doesn't exist.
       this._reverseProductUnits(original);
 
       // 6. If SALE: cancel sale, restore stock
@@ -1825,9 +4997,37 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    */
   /**
    * Refund a sale by its sale ID (looks up the corresponding transaction).
-   * This is the entry point from the POS / SaleDetailModal.
+   * This is the entry point from the POS / SaleDetailModal — the WHOLE-sale
+   * "Refund Sale" button.
+   *
+   * LIRA-231: `opts.refundLegs` gives this the SAME operator-chosen
+   * return-method override contract the Transactions page uses
+   * (`refundTransaction`'s LIRA-078 `refundLegs`) — no override reproduces
+   * today's exact mirror-verbatim reversal (rule 14, one code path).
+   *
+   * 2026-09-26 owner decision: `opts.refundUnitExtras` rides alongside it,
+   * forwarded verbatim to `refundTransaction` — the SAME "Returned phones"
+   * per-unit defective/warranty-override flagging the Transactions page's
+   * whole-refund flow has always had, now also reachable from the POS
+   * "Refund Sale" button.
+   *
+   * A session-basket sale is refused HERE, before `refundTransaction` (and
+   * therefore `_assertReversible`) ever runs — same detection
+   * (`isTransactionSessionLinked`), but with the POS-specific wording the
+   * owner asked for instead of `_assertReversible`'s generic "session basket
+   * #N" message (that message stays as-is for the Transactions page's own
+   * bare-refund attempt).
    */
-  refundBySaleId(saleId: number, userId: number): number {
+  refundBySaleId(
+    saleId: number,
+    userId: number,
+    opts?: {
+      refundLegs?: RefundLegOverride[];
+      refundUnitExtras?: RefundUnitExtra[];
+      /** LIRA-236 — see `refundTransaction`'s own doc. */
+      exchangeRate?: number;
+    },
+  ): number {
     const txn = this.queryOne<{ id: number }>(
       `SELECT id FROM transactions
        WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?
@@ -1840,7 +5040,64 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         entityId: saleId,
       });
     }
-    return this.refundTransaction(txn.id, userId);
+    if (this.isTransactionSessionLinked(txn.id)) {
+      throw new DatabaseError(
+        "This sale was paid through a customer session — refund it from the session basket.",
+        { entityId: saleId },
+      );
+    }
+    return this.refundTransaction(txn.id, userId, {
+      refundLegs: opts?.refundLegs,
+      refundUnitExtras: opts?.refundUnitExtras,
+      exchangeRate: opts?.exchangeRate,
+    });
+  }
+
+  /**
+   * LIRA-231 — POS refund preview: the WHOLE sale's own customer-facing
+   * payment legs (`TransactionPaymentLeg[]`, the SAME shape RefundMethodModal
+   * already consumes on the Transactions page) plus whether the sale is
+   * session-linked. Read-only counterpart to `refundBySaleId`'s guard —
+   * SaleDetailModal calls this to pre-fill/pre-flight the "Refund Sale"
+   * button before opening RefundMethodModal.
+   *
+   * Round-2 finding #11 — also carries `sessionId`/`sessionTransactionId`
+   * for a session-linked sale, so the UI can hand them straight to
+   * `refundSessionBasketItem` without a second lookup. `sessionTransactionId`
+   * is `txnId` itself, resolved via `getActiveSaleTransactionId` — which
+   * filters `type = 'SALE' AND reverses_id IS NULL`, so it keeps resolving
+   * to the SALE's own unified row even after a prior item refund has
+   * written an ACTIVE REFUND row for the same sale (a "newest active row by
+   * source_id" lookup would wrongly return THAT instead — the exact bug
+   * this finding named as a HIGH finding elsewhere in this same round).
+   */
+  getSaleRefundPreview(saleId: number): {
+    legs: TransactionPaymentLeg[];
+    sessionLinked: boolean;
+    sessionId?: number;
+    sessionTransactionId?: number;
+    /** LIRA-236 — the default rate the refund popup shows: this sale's own
+     *  `exchange_rate_snapshot` (source "sale"), else the day's fallback. */
+    bookedRate: number;
+    bookedRateSource: "sale" | "transaction" | "fallback";
+  } {
+    const txnId = this.getActiveSaleTransactionId(saleId);
+    if (txnId == null) {
+      throw new NotFoundError("SALE transaction for sale", saleId);
+    }
+    const linkage = this.getSessionLinkage(txnId);
+    const original = this.findById(txnId);
+    const { bookedRate, bookedRateSource } = this._bookedRateFor(
+      original?.exchange_rate,
+      "sale",
+    );
+    return {
+      legs: paymentRowsToLegs(this.getPaymentsByTransactionId(txnId)),
+      sessionLinked: linkage != null,
+      ...(linkage ?? {}),
+      bookedRate,
+      bookedRateSource,
+    };
   }
 
   refundTransaction(
@@ -1852,11 +5109,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
        *  override flags, applied to the SAME sale being refunded as the
        *  units flip back to IN_STOCK. See `_reverseProductUnits`. */
       refundUnitExtras?: RefundUnitExtra[];
+      /** LIRA-236 — see `_refundTransactionInternal`'s own doc. */
+      exchangeRate?: number;
     },
   ): number {
     return this._refundTransactionInternal(id, userId, {
       refundLegs: opts?.refundLegs,
       refundUnitExtras: opts?.refundUnitExtras,
+      exchangeRate: opts?.exchangeRate,
     });
   }
 
@@ -1875,6 +5135,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       refundLegs?: RefundLegOverride[];
       refundUnitExtras?: RefundUnitExtra[];
       allowSessionMember?: boolean;
+      /** LIRA-236 — the cashier-typed exchange rate (LBP per 1 USD) driving
+       *  BOTH `refundLegs`' value-based validation (cross-currency legs) and
+       *  the audit stamp on the REFUND row's own metadata_json. Omitted:
+       *  today's per-currency exact-match behavior, unchanged. */
+      exchangeRate?: number;
     },
   ): number {
     const original = this.findById(id);
@@ -1930,147 +5195,263 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // scripted callers, tests) unchanged.
     const refundLegs = opts.refundLegs;
     if (refundLegs && refundLegs.length > 0) {
-      this._validateRefundLegOverride(id, refundLegs);
+      this._validateRefundLegOverride(id, refundLegs, opts.exchangeRate);
     }
 
     return this.transaction(() => {
-      // 1. Create refund transaction row. The refund carries NEGATED profit:
-      // the original stays ACTIVE (profit queries sum SALE + REFUND rows), so
-      // without the negative stamp a refunded transaction keeps its full
-      // profit forever.
-      const result = this.execute(
-        `INSERT INTO transactions
-          (type, status, source_table, source_id, user_id,
-           amount_usd, amount_lbp, exchange_rate, profit_usd, profit_lbp,
-           client_id, reverses_id, summary, metadata_json, device_id, tenant_id)
-         VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        original.source_table,
-        original.source_id,
-        userId,
-        -original.amount_usd,
-        -original.amount_lbp,
-        original.exchange_rate,
-        -original.profit_usd,
-        -original.profit_lbp,
-        original.client_id,
+      const refundId = this._reverseTransactionItemEffects(
+        original,
         id,
-        `REFUND: ${original.summary ?? original.type}`,
-        original.metadata_json,
-        original.device_id,
-        tenantId,
+        userId,
+        {
+          refundUnitExtras: opts.refundUnitExtras,
+          exchangeRate: opts.exchangeRate,
+        },
       );
 
-      const refundId = result.lastInsertRowid as number;
-
-      // 2. Reverse drawer balances — negate every payment from the original.
-      // LIRA-078: when refundLegs is present, the customer-facing legs are
-      // replaced by the operator's chosen return method(s) instead of being
-      // mirrored verbatim; every other (internal bookkeeping) leg still
-      // mirrors exactly as before — see _reversePayments.
-      this._reversePayments(id, refundId, userId, refundLegs);
-
-      // 3. Mark source module record as refunded
-      this._markSourceRefunded(original.source_table, original.source_id);
-
-      // 4. Cancel any module-charge debt booked against this transaction —
-      // every account-charged flow (sale, recharge, financial/custom service,
-      // maintenance), not just sales. No-op when nothing matches.
-      this._cancelDebt(id, userId);
-
-      // 4a. D3 (COUNTERPARTY_CONSOLIDATION_PLAN.md) — if the transaction
-      // being refunded IS a DEBT_REPAYMENT itself, restore the debt the
-      // repayment paid down and unwind the FIFO coverage it applied. No-op
-      // for every other transaction type.
-      this._restoreRepaymentDebt(original, userId);
-
-      // 4b. Reverse any partner_ledger rows tied to this transaction
-      // (PFT-2, rule 20) — type-agnostic, so this also fixes the
-      // pre-existing FOR_OMT/THROUGH_* refund gap uniformly.
-      this._reversePartnerLedger(original, userId, "refund");
-
-      // 4c. LIRA-091 — cascade-void any auto supplier-ledger sibling this
-      // transaction's own event created. See voidTransaction's identical step.
-      this._cascadeSupplierSiblingVoid(original, userId);
-
-      // 4c2. Owner decision 2026-09-06, rule 20 — cascade-void the auto SMS
-      // transfer fee expense sibling. See voidTransaction's identical step.
-      this._cascadeExpenseSiblingVoid(original, userId);
-
-      // 4d. LIRA-085 — PARTNER_SETTLEMENT/PARTNER_PAYMENT ledger + coverage
-      // restore. See voidTransaction's identical step.
-      this._reversePartnerSettlementLedger(original, userId);
-
-      // 4e. LIRA-085 — SUPPLIER_SETTLEMENT commission/ledger/fs-stamp
-      // restore. See voidTransaction's identical step.
-      this._reverseSupplierSettlement(original, userId);
-
-      // 4e1. SUPPLIER_STOCK_INTAKE_PLAN.md, rule 20 — SUPPLIER_STOCK_INTAKE
-      // batch delete (refuses if already sold) + stock takeback. See
-      // voidTransaction's identical step.
-      this._reverseSupplierStockIntake(original);
-
-      // 4e2. EXCHANGE_LOT_SETTLEMENT.md rule 20 — EXCHANGE lot restore/void.
-      // See voidTransaction's identical step.
-      this._reverseExchangeLotEffects(original);
-
-      // 4f. Rule 20 — LOTO ticket TOP_UP soft-void + checkpoint delta-adjust.
-      // See voidTransaction's identical step.
-      this._reverseLotoSupplierLedger(original);
-
-      // 4f1. LIRA-201c, rule 20 — LOTO_CASH_PRIZE basket member: supplier
-      // CASH_PRIZE soft-void + voided flag + checkpoint delta-adjust. See
-      // voidTransaction's identical step.
-      this._reverseLotoCashPrize(original);
-
-      // 4f2. LIRA-194, rule 20 — RECHARGE_TOPUP (topUpFromSupplier) link-mode
-      // supplier_ledger soft-void. See voidTransaction's identical step.
-      this._reverseSupplierLedgerByTransactionLink(original);
-
-      // 4g. LIRA-090 §8, rule 20 — carrier_line_movements reversal. See
-      // voidTransaction's identical step.
-      this._reverseCarrierLineMovements(original);
-
-      // 4e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied
-      // to this SALE back to IN_STOCK, applying the operator's chosen
-      // defective/warranty-override flags (`opts.refundUnitExtras`) at the
-      // same time. See voidTransaction's identical step (which never passes
-      // extras). No-op for every non-SALE transaction.
-      this._reverseProductUnits(original, opts.refundUnitExtras);
-
-      // 5. If SALE: mark sale & items as refunded, restore stock
-      if (original.source_table === "sales" && original.source_id) {
-        this.execute(
-          `UPDATE sales SET status = 'refunded' WHERE id = ? AND tenant_id = ?`,
-          original.source_id,
-          tenantId,
-        );
-        this.execute(
-          `UPDATE sale_items SET is_refunded = 1 WHERE sale_id = ? AND tenant_id = ?`,
-          original.source_id,
-          tenantId,
-        );
-        this._restoreStock(original.source_id);
-      }
-
-      // 5a. Rule 20 — same custom-service stock restore as voidTransaction's
-      // identical step. See that step's doc for why this lives here rather
-      // than in CustomServiceRepository.
-      if (original.source_table === "custom_services" && original.source_id) {
-        this._restoreCustomServiceStock(original.source_id);
-      }
-
-      // 5b. LIRA-176 phase 4, rule 20 — same maintenance-parts stock restore
-      // as voidTransaction's identical step. See that step's doc for why
-      // this lives here rather than in the maintenance module.
-      if (original.source_table === "maintenance" && original.source_id) {
-        this._restoreMaintenancePartsStock(original.source_id);
-      }
-
-      // 6. Supplier payment: un-apply the FIFO purchase coverage
-      this._unapplySupplierPurchaseCoverage(original);
+      // MONEY side — reverse drawer balances (negate every payment from the
+      // original). LIRA-078: when refundLegs is present, the customer-facing
+      // legs are replaced by the operator's chosen return method(s) instead
+      // of being mirrored verbatim; every other (internal bookkeeping) leg
+      // still mirrors exactly as before — see _reversePayments. Kept OUT of
+      // `_reverseTransactionItemEffects` (LIRA-232 phase 1, rule 14) so
+      // `refundSessionBasketItem` can reuse the ITEM side only and route
+      // money back through the session's own account-first + leg logic.
+      this._reversePayments(
+        id,
+        refundId,
+        userId,
+        refundLegs,
+        opts.exchangeRate,
+      );
 
       return refundId;
     });
+  }
+
+  /**
+   * LIRA-232 phase 1 (rule 14): the ITEM side of a generic transaction
+   * refund — everything `_refundTransactionInternal` used to do EXCEPT
+   * reversing the original's own `payments` rows (`_reversePayments`, the
+   * MONEY side). Creates the REFUND row (negated amount/profit, `reverses_id`
+   * set), marks the source module record refunded, cancels any module-charge
+   * debt/repayment/partner/supplier/loto/carrier-line/product-unit side
+   * effect this transaction's own creation wrote (rule 20, unchanged from the
+   * pre-split method), and marks a SALE/custom-service/maintenance source
+   * refunded + restores its stock.
+   *
+   * Must run inside the caller's db.transaction(); opens none of its own.
+   * Reused by `_refundTransactionInternal` (the public `refundTransaction`/
+   * `refundBySaleId` path, which follows this with `_reversePayments`) and by
+   * `refundSessionBasketItem` (a non-SALE session member, which follows this
+   * with the session's own account-first + leg-override money path instead —
+   * a session-linked FINANCIAL_SERVICE/RECHARGE/CUSTOM_SERVICE member's own
+   * `payments` rows are empty, exactly like a session-linked SALE's, so
+   * skipping `_reversePayments` here is a no-op difference in practice, not
+   * just an architectural one).
+   */
+  /**
+   * LIRA-232 phase 1 (rule 14): the row-creation half of a generic
+   * transaction refund — a 1:1 negated mirror of `original`, linked via
+   * `reverses_id`. Split out of `_reverseTransactionItemEffects` so
+   * `refundSessionBasketItem`'s non-SALE branch can create ONE refund row
+   * and then apply the rest of the item-side reversal onto it, without a
+   * second caller (the SALE branch, which sums MULTIPLE lines into one
+   * aggregate row) ever risking a duplicate INSERT.
+   */
+  private _createRefundRow(
+    original: TransactionEntity,
+    id: number,
+    userId: number,
+    /** LIRA-232 phase 1 (finding #6) — `refundSessionBasketItem`'s non-SALE
+     *  branch merges `accountAttributedUsd`/`accountAttributedLbp` (and its
+     *  own session-refund tag) into the refund row's own metadata_json, on
+     *  top of whatever `original.metadata_json` already carried, so a LATER
+     *  item refund on the same basket can recover it (see
+     *  `_priorSessionItemRefundAccountAttributed`). Every other caller
+     *  (the public refund path) omits this and gets byte-identical
+     *  behavior to before this parameter existed. */
+    extraMetadata?: Record<string, unknown>,
+  ): number {
+    const tenantId = getCurrentTenantId();
+    let metadataStr = original.metadata_json;
+    if (extraMetadata) {
+      let base: Record<string, unknown> = {};
+      if (original.metadata_json) {
+        try {
+          base = JSON.parse(original.metadata_json) as Record<string, unknown>;
+        } catch {
+          base = {};
+        }
+      }
+      metadataStr = JSON.stringify({ ...base, ...extraMetadata });
+    }
+    // The refund carries NEGATED profit: the original stays ACTIVE (profit
+    // queries sum SALE + REFUND rows), so without the negative stamp a
+    // refunded transaction keeps its full profit forever.
+    const result = this.execute(
+      `INSERT INTO transactions
+        (type, status, source_table, source_id, user_id,
+         amount_usd, amount_lbp, exchange_rate, profit_usd, profit_lbp,
+         client_id, reverses_id, summary, metadata_json, device_id, tenant_id)
+       VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      original.source_table,
+      original.source_id,
+      userId,
+      -original.amount_usd,
+      -original.amount_lbp,
+      original.exchange_rate,
+      -original.profit_usd,
+      -original.profit_lbp,
+      original.client_id,
+      id,
+      `REFUND: ${original.summary ?? original.type}`,
+      metadataStr,
+      original.device_id,
+      tenantId,
+    );
+    return result.lastInsertRowid as number;
+  }
+
+  private _reverseTransactionItemEffects(
+    original: TransactionEntity,
+    id: number,
+    userId: number,
+    opts: { refundUnitExtras?: RefundUnitExtra[]; exchangeRate?: number } = {},
+  ): number {
+    // LIRA-236, contract item 6 — every REFUND row records the rate it used
+    // in metadata_json, even when the refund never actually needed to
+    // convert currencies (the popup always shows/sends a rate, so this is
+    // audit provenance, not a conditional "only when a conversion
+    // happened" stamp). F12 (round-3 review) — this must be the rate that
+    // ACTUALLY drove the refund's math even when the cashier never typed
+    // an override: the booked rate (`original.exchange_rate`, what the
+    // popup defaulted to and what the per-currency exact-match path
+    // implicitly used), not just the typed one. Omitted entirely only when
+    // neither exists (a very old row with no recorded rate at all).
+    const rateUsed = opts.exchangeRate ?? original.exchange_rate ?? undefined;
+    const extraMetadata = rateUsed != null ? { exchangeRate: rateUsed } : undefined;
+    const refundId = this._createRefundRow(original, id, userId, extraMetadata);
+    this._applyGenericItemReversal(original, id, refundId, userId, opts);
+    return refundId;
+  }
+
+  /**
+   * LIRA-232 phase 1 (rule 14): everything `_reverseTransactionItemEffects`
+   * does AFTER creating the refund row — split out so `refundSessionBasketItem`
+   * can reuse it for a non-SALE session member (recharge/custom service)
+   * against a refund row IT already created (and will NOT follow with
+   * `_reversePayments` — money for a session member goes through the
+   * session's own account-first + leg logic instead).
+   */
+  private _applyGenericItemReversal(
+    original: TransactionEntity,
+    id: number,
+    refundId: number,
+    userId: number,
+    opts: { refundUnitExtras?: RefundUnitExtra[] } = {},
+  ): void {
+    const tenantId = getCurrentTenantId();
+
+    // 3. Mark source module record as refunded
+    this._markSourceRefunded(original.source_table, original.source_id);
+
+    // 4. Cancel any module-charge debt booked against this transaction —
+    // every account-charged flow (sale, recharge, financial/custom service,
+    // maintenance), not just sales. No-op when nothing matches.
+    this._cancelDebt(id, userId);
+
+    // 4a. D3 (COUNTERPARTY_CONSOLIDATION_PLAN.md) — if the transaction
+    // being refunded IS a DEBT_REPAYMENT itself, restore the debt the
+    // repayment paid down and unwind the FIFO coverage it applied. No-op
+    // for every other transaction type.
+    this._restoreRepaymentDebt(original, userId);
+
+    // 4b. Reverse any partner_ledger rows tied to this transaction
+    // (PFT-2, rule 20) — type-agnostic, so this also fixes the
+    // pre-existing FOR_OMT/THROUGH_* refund gap uniformly.
+    this._reversePartnerLedger(original, userId, "refund");
+
+    // 4c. LIRA-091 — cascade-void any auto supplier-ledger sibling this
+    // transaction's own event created. See voidTransaction's identical step.
+    this._cascadeSupplierSiblingVoid(original, userId);
+
+    // 4c2. Owner decision 2026-09-06, rule 20 — cascade-void the auto SMS
+    // transfer fee expense sibling. See voidTransaction's identical step.
+    this._cascadeExpenseSiblingVoid(original, userId);
+
+    // 4d. LIRA-085 — PARTNER_SETTLEMENT/PARTNER_PAYMENT ledger + coverage
+    // restore. See voidTransaction's identical step.
+    this._reversePartnerSettlementLedger(original, userId);
+
+    // 4e. LIRA-085 — SUPPLIER_SETTLEMENT commission/ledger/fs-stamp
+    // restore. See voidTransaction's identical step.
+    this._reverseSupplierSettlement(original, userId);
+
+    // 4e1. SUPPLIER_STOCK_INTAKE_PLAN.md, rule 20 — SUPPLIER_STOCK_INTAKE
+    // batch delete (refuses if already sold) + stock takeback. See
+    // voidTransaction's identical step.
+    this._reverseSupplierStockIntake(original);
+
+    // 4e2. EXCHANGE_LOT_SETTLEMENT.md rule 20 — EXCHANGE lot restore/void.
+    // See voidTransaction's identical step.
+    this._reverseExchangeLotEffects(original);
+
+    // 4f. Rule 20 — LOTO ticket TOP_UP soft-void + checkpoint delta-adjust.
+    // See voidTransaction's identical step.
+    this._reverseLotoSupplierLedger(original);
+
+    // 4f1. LIRA-201c, rule 20 — LOTO_CASH_PRIZE basket member: supplier
+    // CASH_PRIZE soft-void + voided flag + checkpoint delta-adjust. See
+    // voidTransaction's identical step.
+    this._reverseLotoCashPrize(original);
+
+    // 4f2. LIRA-194, rule 20 — RECHARGE_TOPUP (topUpFromSupplier) link-mode
+    // supplier_ledger soft-void. See voidTransaction's identical step.
+    this._reverseSupplierLedgerByTransactionLink(original);
+
+    // 4g. LIRA-090 §8, rule 20 — carrier_line_movements reversal. See
+    // voidTransaction's identical step.
+    this._reverseCarrierLineMovements(original);
+
+    // 4e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied
+    // to this SALE back to IN_STOCK, applying the operator's chosen
+    // defective/warranty-override flags (`opts.refundUnitExtras`) at the
+    // same time. See voidTransaction's identical step (which never passes
+    // extras). No-op for every non-SALE transaction.
+    this._reverseProductUnits(original, opts.refundUnitExtras);
+
+    // 5. If SALE: mark sale & items as refunded, restore stock
+    if (original.source_table === "sales" && original.source_id) {
+      this.execute(
+        `UPDATE sales SET status = 'refunded' WHERE id = ? AND tenant_id = ?`,
+        original.source_id,
+        tenantId,
+      );
+      this.execute(
+        `UPDATE sale_items SET is_refunded = 1 WHERE sale_id = ? AND tenant_id = ?`,
+        original.source_id,
+        tenantId,
+      );
+      this._restoreStock(original.source_id);
+    }
+
+    // 5a. Rule 20 — same custom-service stock restore as voidTransaction's
+    // identical step. See that step's doc for why this lives here rather
+    // than in CustomServiceRepository.
+    if (original.source_table === "custom_services" && original.source_id) {
+      this._restoreCustomServiceStock(original.source_id);
+    }
+
+    // 5b. LIRA-176 phase 4, rule 20 — same maintenance-parts stock restore
+    // as voidTransaction's identical step. See that step's doc for why
+    // this lives here rather than in the maintenance module.
+    if (original.source_table === "maintenance" && original.source_id) {
+      this._restoreMaintenancePartsStock(original.source_id);
+    }
+
+    // 6. Supplier payment: un-apply the FIFO purchase coverage
+    this._unapplySupplierPurchaseCoverage(original);
   }
 
   /**
@@ -2185,6 +5566,38 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   }
 
   /**
+   * Public wrapper (rule 14) around the SAME session-basket-membership check
+   * `_assertReversible` uses internally — lets other repositories
+   * (SalesRepository's POS refund guard, LIRA-231) detect session-basket
+   * membership without re-deriving the `customer_session_transactions` query.
+   */
+  isTransactionSessionLinked(transactionId: number): boolean {
+    return this._sessionIdForTransaction(transactionId) != null;
+  }
+
+  /**
+   * LIRA-232 round-3 adversarial review, finding #1 (BLOCKER) — rule 14: the
+   * ONE place either refund-preview reader resolves a transaction's
+   * session-basket membership for display, so a session-linked preview can
+   * hand `sessionId`/`sessionTransactionId` straight to
+   * `refundSessionBasketItem` without a second lookup. `getSaleRefundPreview`
+   * (the whole-sale preview) already had this, added as round-2 finding #11;
+   * `SalesRepository.getItemRefundPreview` (the per-item preview the POS
+   * "Refund item" button actually calls) never did, so every "Refund item"
+   * attempt on a session-paid sale had no session ids to hand to
+   * `refundSessionBasketItem` and always failed. Both readers now share this
+   * one method instead of one having its own copy that could drift.
+   */
+  getSessionLinkage(
+    transactionId: number,
+  ): { sessionId: number; sessionTransactionId: number } | null {
+    const sessionId = this._sessionIdForTransaction(transactionId);
+    return sessionId != null
+      ? { sessionId, sessionTransactionId: transactionId }
+      : null;
+  }
+
+  /**
    * Parse the `split_group` linkage a multi-unit split checkout stamps into
    * `metadata_json` at create time (CARRIER_LEGS_VOID_ASYMMETRY.md, design
    * B+: FinancialServiceRepository.createTransaction). Returns null for
@@ -2259,6 +5672,29 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         amount: Math.abs(p.amount),
         direction: p.amount < 0 ? "OUT" : "IN",
       }));
+  }
+
+  /**
+   * LIRA-236 — the Transactions-page refund modal's generic (non-sale,
+   * non-session) counterpart to `getSaleRefundPreview`/
+   * `getSessionItemRefundPreview`'s `bookedRate`/`bookedRateSource`: the
+   * transaction's own recorded `exchange_rate` (source "sale" when it's a
+   * SALE row — `sales.exchange_rate_snapshot`, stamped onto
+   * `transactions.exchange_rate` at creation, same as `getSaleRefundPreview`
+   * reads; source "transaction" for every other type that recorded a rate),
+   * else the day's fallback (source "fallback").
+   */
+  getRefundBookedRate(transactionId: number): {
+    bookedRate: number;
+    bookedRateSource: "sale" | "transaction" | "fallback";
+  } {
+    const original = this.findById(transactionId);
+    if (!original) {
+      throw new NotFoundError("transactions", transactionId);
+    }
+    const isSale =
+      original.source_table === "sales" && original.type === TRANSACTION_TYPES.SALE;
+    return this._bookedRateFor(original.exchange_rate, isSale ? "sale" : "transaction");
   }
 
   /**
@@ -3093,12 +6529,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       note: string | null;
     }>,
   ): Record<string, number> {
-    const net: Record<string, number> = {};
-    for (const p of rows) {
-      if (!isOverridableLeg(p)) continue;
-      net[p.currency_code] = (net[p.currency_code] ?? 0) + p.amount;
-    }
-    return net;
+    return overridableNetByCurrency(rows);
   }
 
   /**
@@ -3140,65 +6571,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   private _validateRefundLegOverride(
     transactionId: number,
     refundLegs: RefundLegOverride[],
+    exchangeRate?: number,
   ): void {
-    const EPSILON: Record<string, number> = { USD: 0.01, LBP: 1 };
-
     const originalRows = this.getPaymentsByTransactionId(transactionId);
     const originalNet = this._overridableNetByCurrency(originalRows);
-
-    const paymentMethodRepo = getPaymentMethodRepository();
-    const overrideNet: Record<string, number> = {};
-    for (const leg of refundLegs) {
-      if (!(leg.amount > 0)) {
-        throw new DatabaseError(
-          `Refund method override: leg amount must be greater than 0 (got ${leg.amount} ${leg.currencyCode})`,
-          { entityId: transactionId },
-        );
-      }
-      if (!CUSTOMER_CASH_CURRENCIES.has(leg.currencyCode)) {
-        throw new DatabaseError(
-          `Refund method override: currency "${leg.currencyCode}" is not USD or LBP — cross-currency refund is not supported`,
-          { entityId: transactionId },
-        );
-      }
-      const pm = paymentMethodRepo.getByCode(leg.method);
-      if (!pm || pm.is_active !== 1 || pm.affects_drawer !== 1) {
-        throw new DatabaseError(
-          `Refund method override: "${leg.method}" is not an active, drawer-affecting payment method`,
-          { entityId: transactionId },
-        );
-      }
-      overrideNet[leg.currencyCode] =
-        (overrideNet[leg.currencyCode] ?? 0) + leg.amount;
-    }
-
-    const currencies = new Set([
-      ...Object.keys(originalNet),
-      ...Object.keys(overrideNet),
-    ]);
-    if (currencies.size === 0) {
-      throw new DatabaseError(
-        "Refund method override: this transaction has no customer-facing payment to refund",
-        { entityId: transactionId },
-      );
-    }
-    for (const currency of currencies) {
-      // Magnitude comparison (see the doc comment above): originalNet is
-      // SIGNED (negative for a fee-on-top RECEIVE, whose payout leg
-      // outweighs the customer-paid fee leg), override is always a positive
-      // magnitude sum — comparing the signed value to the unsigned one
-      // directly would hard-reject every such row.
-      const original = Math.abs(originalNet[currency] ?? 0);
-      const override = overrideNet[currency] ?? 0;
-      const epsilon = EPSILON[currency] ?? 0.01;
-      if (Math.abs(original - override) > epsilon) {
-        throw new DatabaseError(
-          `Refund method override: ${currency} totals do not match the original payment — ` +
-            `original ${original}, refund legs total ${override}`,
-          { entityId: transactionId },
-        );
-      }
-    }
+    validateRefundLegOverrideAmounts(
+      originalNet,
+      refundLegs,
+      transactionId,
+      exchangeRate,
+    );
   }
 
   /**
@@ -3266,6 +6648,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     reversalTxnId: number,
     userId: number,
     refundLegOverride?: RefundLegOverride[],
+    /** LIRA-236 — the cashier-typed rate, threaded through to
+     *  `refundLegReversalSign` so a cross-currency override leg's direction
+     *  follows the OVERALL transaction value, not just this currency's own
+     *  (possibly unrepresentative) net. See that function's doc. */
+    exchangeRate?: number,
   ): void {
     const tenantId = getCurrentTenantId();
     const payments = this.query<{
@@ -3334,18 +6721,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // the shop paid the customer more than the fee it collected back), so
       // its override reverses by ADDING to the chosen drawer instead — undoing
       // the OUT movement the original transaction made. See the worked
-      // example in `_validateRefundLegOverride`'s doc comment. A currency
-      // whose original net is exactly 0 can only be reached here by an
-      // override leg of amount 0, which the validator already rejects
-      // (`leg.amount > 0` is required) — so the `-1` default below is never
-      // actually exercised, kept only as the historically-safe fallback.
+      // example in `_validateRefundLegOverride`'s doc comment. F1 (round-3
+      // review): a currency the ORIGINAL never touched (a cross-currency
+      // LIRA-236 refund) has no net of its own to reverse, and a currency
+      // whose OWN net disagrees with the transaction's overall direction (a
+      // payment + a differently-currencied change leg) must not be signed
+      // in isolation either — `refundLegReversalSign` resolves both cases
+      // from the OVERALL value when `exchangeRate` is given, falling back to
+      // this currency's own net (the historic rule) otherwise.
       const originalNetByCurrency = this._overridableNetByCurrency(payments);
       for (const leg of refundLegOverride) {
         const drawerName = cashDrawerCtx
           ? resolveServiceCashDrawer(leg.method, cashDrawerCtx)
           : paymentMethodToDrawerName(leg.method);
-        const originalNet = originalNetByCurrency[leg.currencyCode] ?? 0;
-        const reversalSign = originalNet < 0 ? 1 : -1;
+        const reversalSign = refundLegReversalSign(
+          originalNetByCurrency,
+          leg.currencyCode,
+          exchangeRate,
+        );
         const signedAmount = reversalSign * leg.amount;
         insertPaymentRow(this.db, {
           transactionId: reversalTxnId,
@@ -4231,11 +7624,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * back to IN_STOCK, the unit-tracked counterpart to `_restoreStock`'s
    * quantity restore.
    *
-   * `unitExtras` (refund-only — void never passes any, per the phone-refund
-   * UI's owner decision 2026-07-04 that defective/warranty-override flagging
-   * lives only on the Transactions-page WHOLE-refund flow) let the operator
-   * set a returned unit's `is_defective`/`warranty_override_until` at the
-   * SAME moment it flips back to stock. Every `unit_id` is validated against
+   * `unitExtras` (refund-only — void never passes any) let the operator set
+   * a returned unit's `is_defective`/`warranty_override_until` at the SAME
+   * moment it flips back to stock. Originally wired only from the
+   * Transactions page's whole-refund flow (owner decision 2026-07-04); the
+   * 2026-09-26 owner decision extended the SAME "Returned phones" flagging
+   * to the POS refund window (`SaleDetailModal`'s "Refund Sale" — via
+   * `refundBySaleId`'s `opts.refundUnitExtras` below — and "Refund item" —
+   * via `SalesRepository.refundSaleItem`'s own `unitExtras`, validated
+   * against that ONE item's linked units instead of the whole sale's). Every
+   * `unit_id` is validated against
    * this sale's own linked-unit set BEFORE any unit is touched —
    * `_validateRefundUnitExtras` — so an id from another sale (operator
    * error) throws before any partial effect, same discipline as
@@ -4348,14 +7746,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         tenantId,
       ).map((r) => r.id),
     );
-    for (const extra of unitExtras) {
-      if (!linkedUnitIds.has(extra.unit_id)) {
-        throw new DatabaseError(
-          `Refund unit extras: product unit #${extra.unit_id} is not linked to sale #${saleId}`,
-          { entityId: saleId },
-        );
-      }
-    }
+    validateRefundUnitExtras(linkedUnitIds, unitExtras, saleId, "sale");
   }
 
   /**
@@ -4863,6 +8254,35 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Buckets: current (0-30 days), 31-60, 61-90, over 90.
    */
   getClientDebtAging(clientId: number): DebtAgingBuckets {
+    const tenantId = getCurrentTenantId();
+    // Finding #9 (adversarial review, LIRA-232) — a 'Session Item Refund'
+    // credit (SESSION_ITEM_REFUND_CREDIT_TYPE) is NEGATIVE and carries no
+    // `due_date` of its own, so it both failed the old `due_date IS NOT
+    // NULL` filter AND the old `(amount_usd > 0 OR amount_lbp > 0)` filter
+    // below — a refunded session's 'Session Debt' charge kept aging at its
+    // GROSS original amount forever (measured: amir's "current" bucket
+    // stayed $1,635, never dropping to the correct $135 post-refund).
+    // Targeted fix, scoped ONLY to this credit type: net it against its
+    // OWN session's 'Session Debt' row before bucketing, via a correlated
+    // subquery keyed on `session_id` (the credit's only link back to the
+    // charge it reduces). Deliberately does NOT touch how ordinary
+    // 'Repayment' rows are treated here — that's the pre-existing,
+    // out-of-scope aging design (a repayment is a separate negative row
+    // against the CLIENT, not against any one charge's `due_date`, and
+    // aging has never netted it in) — only this ticket's own new credit
+    // type gets bucket-level netting.
+    const netAmountUsdExpr = `(amount_usd + COALESCE((
+        SELECT SUM(c.amount_usd) FROM debt_ledger c
+        WHERE c.session_id = debt_ledger.session_id
+          AND c.transaction_type = '${SESSION_ITEM_REFUND_CREDIT_TYPE}'
+          AND c.tenant_id = debt_ledger.tenant_id
+      ), 0))`;
+    const netAmountLbpExpr = `(amount_lbp + COALESCE((
+        SELECT SUM(c.amount_lbp) FROM debt_ledger c
+        WHERE c.session_id = debt_ledger.session_id
+          AND c.transaction_type = '${SESSION_ITEM_REFUND_CREDIT_TYPE}'
+          AND c.tenant_id = debt_ledger.tenant_id
+      ), 0))`;
     const row = this.queryOne<{
       current_usd: number;
       current_lbp: number;
@@ -4874,21 +8294,22 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       over_90_lbp: number;
     }>(
       `SELECT
-        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) <= 0 THEN amount_usd ELSE 0 END), 0) AS current_usd,
-        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) <= 0 THEN amount_lbp ELSE 0 END), 0) AS current_lbp,
-        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) BETWEEN 1 AND 30 THEN amount_usd ELSE 0 END), 0) AS days_31_60_usd,
-        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) BETWEEN 1 AND 30 THEN amount_lbp ELSE 0 END), 0) AS days_31_60_lbp,
-        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) BETWEEN 31 AND 60 THEN amount_usd ELSE 0 END), 0) AS days_61_90_usd,
-        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) BETWEEN 31 AND 60 THEN amount_lbp ELSE 0 END), 0) AS days_61_90_lbp,
-        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) > 60 THEN amount_usd ELSE 0 END), 0) AS over_90_usd,
-        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) > 60 THEN amount_lbp ELSE 0 END), 0) AS over_90_lbp
+        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) <= 0 THEN ${netAmountUsdExpr} ELSE 0 END), 0) AS current_usd,
+        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) <= 0 THEN ${netAmountLbpExpr} ELSE 0 END), 0) AS current_lbp,
+        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) BETWEEN 1 AND 30 THEN ${netAmountUsdExpr} ELSE 0 END), 0) AS days_31_60_usd,
+        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) BETWEEN 1 AND 30 THEN ${netAmountLbpExpr} ELSE 0 END), 0) AS days_31_60_lbp,
+        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) BETWEEN 31 AND 60 THEN ${netAmountUsdExpr} ELSE 0 END), 0) AS days_61_90_usd,
+        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) BETWEEN 31 AND 60 THEN ${netAmountLbpExpr} ELSE 0 END), 0) AS days_61_90_lbp,
+        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) > 60 THEN ${netAmountUsdExpr} ELSE 0 END), 0) AS over_90_usd,
+        COALESCE(SUM(CASE WHEN julianday('now') - julianday(due_date) > 60 THEN ${netAmountLbpExpr} ELSE 0 END), 0) AS over_90_lbp
       FROM debt_ledger
       WHERE client_id = ?
         AND due_date IS NOT NULL
         AND (amount_usd > 0 OR amount_lbp > 0)
+        AND transaction_type <> '${SESSION_ITEM_REFUND_CREDIT_TYPE}'
         AND tenant_id = ?`,
       clientId,
-      getCurrentTenantId(),
+      tenantId,
     );
 
     return {
@@ -4911,13 +8332,31 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    */
   getOverdueDebts(): OverdueDebtEntry[] {
     const tenantId = getCurrentTenantId();
+    // Finding #9 — same root cause as `getClientDebtAging` immediately
+    // above: a 'Session Item Refund' credit has no `due_date`, so it never
+    // reaches this query's own rows and never nets against the 'Session
+    // Debt' row it reduces. Fixed the SAME way (rule 14 — one netting
+    // expression, reused): a per-row correlated SUM of same-session credits
+    // folded into `d.amount_usd`/`amount_lbp` before the client-level SUM,
+    // scoped to this credit type only (ordinary repayments stay untouched —
+    // out of scope, same note as the aging method above).
     return this.query<OverdueDebtEntry>(
       `SELECT
         c.id AS client_id,
         c.full_name AS client_name,
         c.phone_number,
-        SUM(d.amount_usd) AS total_usd,
-        SUM(d.amount_lbp) AS total_lbp,
+        SUM(d.amount_usd + COALESCE((
+          SELECT SUM(cr.amount_usd) FROM debt_ledger cr
+          WHERE cr.session_id = d.session_id
+            AND cr.transaction_type = '${SESSION_ITEM_REFUND_CREDIT_TYPE}'
+            AND cr.tenant_id = d.tenant_id
+        ), 0)) AS total_usd,
+        SUM(d.amount_lbp + COALESCE((
+          SELECT SUM(cr.amount_lbp) FROM debt_ledger cr
+          WHERE cr.session_id = d.session_id
+            AND cr.transaction_type = '${SESSION_ITEM_REFUND_CREDIT_TYPE}'
+            AND cr.tenant_id = d.tenant_id
+        ), 0)) AS total_lbp,
         MIN(d.due_date) AS oldest_due_date,
         CAST(MAX(julianday('now') - julianday(d.due_date)) AS INTEGER) AS max_days_overdue,
         COUNT(*) AS entry_count
@@ -4925,9 +8364,20 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       JOIN clients c ON c.id = d.client_id AND c.tenant_id = ?
       WHERE d.due_date < datetime('now')
         AND d.due_date IS NOT NULL
+        AND d.transaction_type <> '${SESSION_ITEM_REFUND_CREDIT_TYPE}'
         AND d.tenant_id = ?
       GROUP BY d.client_id
-      HAVING SUM(d.amount_usd) > 0 OR SUM(d.amount_lbp) > 0
+      -- Round-2 finding #6 (LOW) — this used to read the RAW gross sum,
+      -- SUM(d.amount_usd) > 0, which never sees a Session Item Refund
+      -- credit at all (excluded from d by the WHERE clause above, only
+      -- pulled in via the correlated subquery that nets the SELECTed
+      -- totals). A client whose overdue charge was fully credited away
+      -- still passed this filter and stayed listed as "overdue" -- with a
+      -- correctly-netted $0 total, but still a row. Reuse the SAME netted
+      -- aliases the SELECT already computed (rule 14 -- one netting
+      -- expression, not a second copy) so a fully-credited client is
+      -- excluded exactly where a fully-repaid one already is.
+      HAVING total_usd > 0 OR total_lbp > 0
       ORDER BY max_days_overdue DESC`,
       tenantId,
       tenantId,

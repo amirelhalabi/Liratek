@@ -18,6 +18,9 @@ import {
   type RefundLegOverride,
   type RefundUnitExtra,
   type SessionBasketReversalResult,
+  type RefundSessionBasketItemInput,
+  type RefundSessionBasketItemResult,
+  type SessionItemRefundPreview,
   TransactionRepository,
   getTransactionRepository,
 } from "../repositories/TransactionRepository.js";
@@ -108,6 +111,33 @@ export class TransactionService {
     }
   }
 
+  /**
+   * LIRA-236 — the Transactions-page refund modal's `bookedRate`/
+   * `bookedRateSource` default (see `TransactionRepository.getRefundBookedRate`'s
+   * own doc). Mirrors `getSessionItemRefundPreview`'s envelope (`{success:true,
+   * ...}` / `{success:false, error}`), unlike `getCustomerFacingLegs` above
+   * (a pre-existing, unenveloped read this ticket leaves unchanged).
+   */
+  getRefundBookedRate(
+    transactionId: number,
+  ):
+    | { success: true; bookedRate: number; bookedRateSource: "sale" | "transaction" | "fallback" }
+    | { success: false; error: string } {
+    try {
+      const result = this.repo.getRefundBookedRate(transactionId);
+      return { success: true, ...result };
+    } catch (error) {
+      logger.error(
+        { error, transactionId },
+        "TransactionService.getRefundBookedRate error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to load booked rate",
+      };
+    }
+  }
+
   getBySourceId(
     sourceTable: string,
     sourceId: number,
@@ -170,10 +200,29 @@ export class TransactionService {
 
   /**
    * Refund a sale by its sale ID. Resolves the transaction internally.
+   *
+   * LIRA-231: `opts.refundLegs` is the operator's chosen return-method
+   * override (LIRA-078 contract, same as `refundTransaction` below) —
+   * forwarded verbatim; the repository owns all validation, including the
+   * session-basket refusal.
+   *
+   * 2026-09-26: `opts.refundUnitExtras` — the POS "Returned phones"
+   * per-unit defective/warranty-override flags — rides alongside it,
+   * forwarded verbatim (same as `refundTransaction`'s own field below).
    */
-  refundBySaleId(saleId: number, userId: number): number {
+  refundBySaleId(
+    saleId: number,
+    userId: number,
+    opts?: {
+      refundLegs?: RefundLegOverride[];
+      refundUnitExtras?: RefundUnitExtra[];
+      /** LIRA-236 — forwarded verbatim; see `TransactionRepository
+       *  .refundBySaleId`'s own doc. */
+      exchangeRate?: number;
+    },
+  ): number {
     try {
-      return this.repo.refundBySaleId(saleId, userId);
+      return this.repo.refundBySaleId(saleId, userId, opts);
     } catch (error) {
       logger.error(
         { error, saleId, userId },
@@ -207,6 +256,9 @@ export class TransactionService {
     opts?: {
       refundLegs?: RefundLegOverride[];
       refundUnitExtras?: RefundUnitExtra[];
+      /** LIRA-236 — forwarded verbatim; see `TransactionRepository
+       *  .refundTransaction`'s own doc. */
+      exchangeRate?: number;
     },
   ): number {
     try {
@@ -279,6 +331,64 @@ export class TransactionService {
         "TransactionService.refundSessionBasket error",
       );
       throw error;
+    }
+  }
+
+  /**
+   * LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §3/§7) — thin passthrough
+   * to `TransactionRepository.refundSessionBasketItem` (rethrow pattern,
+   * matching `voidSessionBasket`/`refundSessionBasket` immediately above —
+   * the IPC handler / REST route own the try/catch-into-envelope + audit).
+   */
+  refundSessionBasketItem(
+    input: RefundSessionBasketItemInput,
+  ): RefundSessionBasketItemResult {
+    try {
+      return this.repo.refundSessionBasketItem(input);
+    } catch (error) {
+      logger.error(
+        { error, input },
+        "TransactionService.refundSessionBasketItem error",
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Read-only preview for the item-refund form's pre-fill. Mirrors
+   * `SalesService.getRefundPreview`'s (LIRA-231) own success/error envelope,
+   * fields spread flat alongside `success` — wrapped HERE at the service
+   * layer rather than by the caller, so both transports' handlers can
+   * return this value directly with no extra try/catch of their own (same
+   * shape `sales:refund-preview` / `GET /:id/refund-preview` already
+   * depend on).
+   */
+  getSessionItemRefundPreview(input: {
+    sessionId: number;
+    transactionId: number;
+    saleItemId?: number;
+    quantity?: number;
+    /** LIRA-236 — forwarded verbatim; see `TransactionRepository
+     *  .getSessionItemRefundPreview`'s own doc. */
+    exchangeRate?: number;
+  }):
+    | (SessionItemRefundPreview & { success: true })
+    | { success: false; error: string } {
+    try {
+      const preview = this.repo.getSessionItemRefundPreview(input);
+      return { success: true, ...preview };
+    } catch (error) {
+      logger.error(
+        { error, input },
+        "TransactionService.getSessionItemRefundPreview error",
+      );
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load session item refund preview",
+      };
     }
   }
 

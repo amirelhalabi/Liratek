@@ -21,6 +21,9 @@ import {
   type TopProduct,
   type RecentSale,
   type ChartDataPoint,
+  type RefundLegOverride,
+  type RefundUnitExtra,
+  type TransactionPaymentLeg,
 } from "../repositories/index.js";
 import { salesLogger } from "../utils/logger.js";
 import { getSettingsService } from "./SettingsService.js";
@@ -176,12 +179,27 @@ export class SalesService {
 
   /**
    * Refund a specific item from a sale (partial or full quantity)
+   *
+   * LIRA-231: `params.refundLegs` is the operator's chosen return-method
+   * override (LIRA-078 contract) — forwarded verbatim to the repository,
+   * which owns all money-correctness validation (rule 13: this service adds
+   * no logic of its own).
+   *
+   * 2026-09-26: `params.unitExtras` — the POS "Refund item" button's
+   * "Returned phones" per-unit defective/warranty-override flags — rides
+   * alongside it, forwarded verbatim; the repository validates it against
+   * THIS item's own linked units.
    */
   refundSaleItem(params: {
     saleId: number;
     saleItemId: number;
     refundQuantity: number;
     userId: number;
+    refundLegs?: RefundLegOverride[];
+    unitExtras?: RefundUnitExtra[];
+    /** LIRA-236 — forwarded verbatim, see `SalesRepository.refundSaleItem`'s
+     *  own doc (rule 13: this service adds no logic of its own). */
+    exchangeRate?: number;
   }): { success: boolean; refundId?: number; error?: string } {
     try {
       const refundTxnId = this.salesRepo.refundSaleItem(params);
@@ -200,6 +218,51 @@ export class SalesService {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * LIRA-231 — POS refund preview (both "Refund Sale" and "Refund item"
+   * buttons): the sale's (or, with `item`, one item's proportional share of
+   * the sale's) own customer-facing payment legs, for RefundMethodModal's
+   * pre-fill, plus whether the sale is session-linked (both POS refund
+   * buttons are blocked for a session-paid sale).
+   */
+  getRefundPreview(
+    saleId: number,
+    item?: { saleItemId: number; refundQuantity: number },
+  ): {
+    success: boolean;
+    legs?: TransactionPaymentLeg[];
+    sessionLinked?: boolean;
+    /** Round-2 finding #11 — only present for a whole-sale preview
+     *  (`item` omitted) of a session-linked sale; see
+     *  `TransactionRepository.getSaleRefundPreview`'s own doc. */
+    sessionId?: number;
+    sessionTransactionId?: number;
+    /** LIRA-236 — the default rate the refund popup shows. */
+    bookedRate?: number;
+    bookedRateSource?: "sale" | "transaction" | "fallback";
+    error?: string;
+  } {
+    try {
+      const result = item
+        ? this.salesRepo.getItemRefundPreview({
+            saleId,
+            saleItemId: item.saleItemId,
+            refundQuantity: item.refundQuantity,
+          })
+        : this.salesRepo.getSaleRefundPreview(saleId);
+      return { success: true, ...result };
+    } catch (error) {
+      salesLogger.error({ error, saleId, item }, "getRefundPreview failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load refund preview",
       };
     }
   }

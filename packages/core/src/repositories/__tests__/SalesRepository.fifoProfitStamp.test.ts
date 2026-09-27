@@ -369,10 +369,18 @@ describe("SalesRepository — SALE profit stamp agrees with the FIFO cost charge
     expect(stampedSaleProfit(db)).toBe(200); // (1300 - 1200) * 2
   });
 
-  it("a DRAFT sale is untouched — it consumes no batches, so both cost readings stay at the provisional cost_price_usd", () => {
+  it("a DRAFT sale is untouched — it consumes no batches, so sale_items keeps the provisional cost_price_usd, and (LIRA-229) it writes NO transaction row at all, so there is no premature profit stamp to correct", () => {
     // A draft never moves stock or consumes batches (status !== "completed"
     // guards both), so it must not run the correction either — even though
     // an open batch exists at a different cost.
+    //
+    // LIRA-229 (owner design decision): a draft also never reaches the
+    // `status === "completed"` block that writes the unified `transactions`
+    // row at all — money/profit posts exactly once, on completion — so
+    // there is no premature "provisional" profit stamp to assert on a
+    // draft any more (pre-fix, this test's own premise WAS that stale
+    // provisional stamp: every processSale call, draft included,
+    // unconditionally wrote a fresh ACTIVE SALE row).
     const productId = seedProduct(db, 1450, 6);
     getStockBatchRepository().createBatch({
       product_id: productId,
@@ -400,10 +408,39 @@ describe("SalesRepository — SALE profit stamp agrees with the FIFO cost charge
 
     expect(res.success).toBe(true);
     // Draft: no FIFO draw, so sale_items keeps the plain subquery cost
-    // (current cost_price_usd) and the transaction stamp is still the
-    // provisional (price - currentCost) figure — the two still agree
-    // because neither was corrected, not because the correction ran.
+    // (current cost_price_usd) — unaffected by LIRA-229, this is the
+    // pre-existing oracle.
     expect(snapshotCost(db, res.id!)).toBe(1450);
-    expect(stampedSaleProfit(db)).toBe(1300 - 1450);
+
+    // No `transactions` row exists yet for this draft.
+    const txnRow = db
+      .prepare(
+        `SELECT id FROM transactions WHERE type = 'SALE' AND source_table = 'sales' AND source_id = ?`,
+      )
+      .get(res.id!);
+    expect(txnRow).toBeUndefined();
+
+    // Completing the SAME draft now runs the real FIFO draw (quantity 1,
+    // oldest/only open batch costs 1200) and stamps the REAL corrected
+    // profit — never the provisional (price − currentCost) figure a
+    // pre-fix draft-stage row would have carried.
+    const completed = repo.processSale(
+      {
+        id: res.id,
+        client_id: null,
+        items: [{ product_id: productId, quantity: 1, price: 1300 }],
+        total_amount: 1300,
+        discount: 0,
+        final_amount: 1300,
+        payment_usd: 1300,
+        payment_lbp: 0,
+        exchange_rate: 90_000,
+        status: "completed",
+      },
+      1,
+    );
+    expect(completed.success).toBe(true);
+    expect(snapshotCost(db, res.id!)).toBe(1200);
+    expect(stampedSaleProfit(db)).toBe(100); // (1300 - 1200), never (1300 - 1450)
   });
 });

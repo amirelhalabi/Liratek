@@ -73,12 +73,18 @@ export function registerProfitHandlers(): void {
   });
 
   // PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the
-  // By Module drill-down's "Show transactions" list. Mirrors the other 7
-  // data channels' own unvalidated `(from, to)` positional-args convention
-  // (no `validatePayload` call) — `moduleKey` is validated by
-  // `ProfitService.getModuleDetail` itself (throws for anything other than
-  // SALE/RECHARGE_<carrier> in slice 2), same shape as every sibling channel
-  // above.
+  // By Module drill-down's "Show transactions" list. Widened LIRA-233 #14
+  // slice 3 to every module `ProfitService.getModuleDetail`'s registry
+  // covers (SALE, RECHARGE_<carrier>, FINANCIAL_SERVICE_<provider>,
+  // CUSTOM_SERVICE, MAINTENANCE, LOTO, EXCHANGE, PM_FEE, KEPT_CHANGE,
+  // COUNTERPARTY_DISCOUNT, SUPPLIER_COMMISSION, TOPUP_BUYBACK) — no longer
+  // SALE/RECHARGE_<carrier> alone. Mirrors the other 7 data channels' own
+  // unvalidated `(from, to)` positional-args convention (no
+  // `validatePayload` call) — `moduleKey` is validated by
+  // `ProfitService.getModuleDetail` itself (throws a clear "not built yet"
+  // error for any key outside that registry — see its own doc comment and
+  // the shared `hasModuleDetailSupport` constant it checks first), same
+  // shape as every sibling channel above.
   ipcMain.handle(
     "profits:module-detail",
     (e, moduleKey: string, from: string, to: string) => {

@@ -790,7 +790,12 @@ async function openSaleDetail(
 }
 
 /** Refund exactly 1 of one line through the sale-detail modal's real
- *  per-item Refund button + its quantity step. */
+ *  per-item Refund button + its quantity step. LIRA-231 (owner decision
+ *  2026-09-26): "Refund 1x" no longer posts the refund itself — it closes
+ *  the quantity dialog and opens the same `RefundMethodModal` the
+ *  Transactions page uses (`counterparty-settle-modal`), and the refund only
+ *  posts once "Confirm Refund" is clicked there. This helper drives that
+ *  step too, accepting the pre-filled legs as-is (no overrides). */
 async function refundOneItemViaSaleDetail(
   page: Page,
   modal: Locator,
@@ -808,6 +813,16 @@ async function refundOneItemViaSaleDetail(
   await expect(qtyHeading).toBeVisible({ timeout: 5_000 });
   await page.getByRole("button", { name: /^Refund 1x$/ }).click();
   await expect(qtyHeading).not.toBeVisible({ timeout: 15_000 });
+
+  // LIRA-231's refund payment form (same modal the Transactions page uses).
+  const refundModal = page.getByTestId("counterparty-settle-modal");
+  await expect(refundModal).toBeVisible({ timeout: 10_000 });
+  const confirmRefundBtn = page.getByRole("button", {
+    name: "Confirm Refund",
+  });
+  await expect(confirmRefundBtn).toBeEnabled({ timeout: 10_000 });
+  await confirmRefundBtn.click();
+  await expect(refundModal).not.toBeVisible({ timeout: 15_000 });
 }
 
 /** `sales.status` as persisted — the "did the per-item route actually finish
@@ -1060,6 +1075,16 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
 
     const saleDateBeforeResale = todayIso();
     await posSearch2.fill(IMEI_1);
+    // LIRA-231 (owner decision 2026-09-26): scanning a unit marked defective
+    // (it was refunded with the checkbox checked in step (e)) now pauses the
+    // auto-add behind ConfirmModal instead of adding straight to cart — this
+    // assertion doubles as an e2e guard of that confirm actually appearing.
+    await expect(
+      appPage.getByText(
+        "This phone is marked defective — sell anyway?",
+      ),
+    ).toBeVisible({ timeout: 10_000 });
+    await appPage.getByRole("button", { name: "Sell Anyway" }).click();
     await expect(posSearch2).toHaveValue("", { timeout: 10_000 });
 
     const cartLine3 = cartLineFor(appPage);

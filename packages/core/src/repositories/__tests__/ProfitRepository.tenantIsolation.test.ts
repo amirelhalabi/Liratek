@@ -244,6 +244,26 @@ function createSchema(db: Database.Database): void {
       covered_amount REAL NOT NULL DEFAULT 0
     );
 
+    -- Referenced by getPaymentMethodRows's session_legs CTE (the
+    -- sessionBasketNotReversedSql / cst_itemrefund EXISTS branch, LIRA-232)
+    -- and by notReversedByRefund's cst_sir EXISTS branch (columns read:
+    -- unified_transaction_id, transaction_type, tenant_id, session_id).
+    -- Left empty: both EXISTS gates then pass every row, preserving this
+    -- suite's pre-LIRA-232 expectations unchanged.
+    CREATE TABLE customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Referenced by ProfitRepository's notDebtPending fragment (DBT-1, v129).
     -- Left empty: the NOT EXISTS gate passes every row unchanged.
     CREATE TABLE debt_ledger (

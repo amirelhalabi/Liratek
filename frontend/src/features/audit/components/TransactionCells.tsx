@@ -19,6 +19,10 @@
  * computed ONCE by the caller and passed in, rather than each cell
  * re-parsing `metadata_json` for itself.
  */
+import {
+  SESSION_ITEM_REFUNDABLE_TYPES,
+  type TransactionType,
+} from "@liratek/core";
 import { isReceiptableRow } from "../receiptGating";
 import { isReversibleRow } from "../actionGating";
 import { formatPaymentLegs } from "../cashFlow";
@@ -333,6 +337,10 @@ export interface RowActionHandlers {
    *  end below. */
   onVoidSessionBasket: (sessionId: number) => void;
   onRefundSessionBasket: (sessionId: number) => void;
+  /** LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §4) — refund ONE sold-item session
+   *  member (a product line/quantity, a service, a recharge) instead of the
+   *  whole basket. Offered only for SESSION_ITEM_REFUNDABLE_TYPES rows. */
+  onRefundSessionItem: (row: TransactionRow) => void;
 }
 
 export function ActionsCell({
@@ -341,6 +349,9 @@ export function ActionsCell({
   sessionId,
   refundLookupRowId,
   handlers,
+  hideVoidBasket = false,
+  hideRefundItem = false,
+  hideBasketActions = false,
 }: {
   row: TransactionRow;
   derived: RowDerived;
@@ -348,6 +359,36 @@ export function ActionsCell({
   /** Row whose linked-units lookup is in flight — disables just its button. */
   refundLookupRowId: number | null;
   handlers: RowActionHandlers;
+  /** LIRA-232 round-2 review (finding 2) — true when this row's session has
+   *  ANY per-item refund already: `voidSessionBasket` hard-refuses a basket
+   *  once it's been touched by an item refund, so "Void basket" is hidden
+   *  (never disabled — same convention as every other action-visibility gate
+   *  in this cell), leaving "Refund basket" (which reverses only what's
+   *  left) and "Refund item" available. Defaults to `false` so every
+   *  existing caller that doesn't pass it is unaffected. */
+  hideVoidBasket?: boolean;
+  /** LIRA-232 round-3 review (finding 2) — true when this row's session has
+   *  ANY payout member (a loto cash prize, a wallet/Binance cash-out, a
+   *  custom-service booked as a payout — anything the basket netted against
+   *  its other items at checkout): core refuses `refundSessionBasketItem`
+   *  for EVERY member of such a basket, not just the payout row itself, so
+   *  "Refund item" is hidden (never disabled — same convention as
+   *  `hideVoidBasket`) for an otherwise-refundable SALE/CUSTOM_SERVICE/
+   *  RECHARGE row too, leaving "Void basket"/"Refund basket" as the only
+   *  way to touch that basket. Defaults to `false` so every existing caller
+   *  that doesn't pass it is unaffected. */
+  hideRefundItem?: boolean;
+  /** Coordinator follow-up (2026-09-27), item 5 — true when this row's
+   *  session has already been refunded item by item in FULL
+   *  (`row.session_fully_refunded`/`TransactionRepository
+   *  .isSessionBasketFullyRefunded`): the server now REFUSES both
+   *  `voidSessionBasket` and `refundSessionBasket` on such a basket
+   *  ("Everything in this basket has already been refunded item by item —
+   *  there is nothing left to refund"), so BOTH "Void basket" and "Refund
+   *  basket" are hidden — unlike `hideVoidBasket` above, which still leaves
+   *  "Refund basket" offered (it reverses what's left). Defaults to `false`
+   *  so every existing caller that doesn't pass it is unaffected. */
+  hideBasketActions?: boolean;
 }) {
   const { splitGroup } = derived;
   return (
@@ -400,20 +441,36 @@ export function ActionsCell({
             // reverse every item plus the pooled leg(s) and pooled debt in
             // ONE transaction.
             <>
-              <button
-                onClick={() => handlers.onVoidSessionBasket(sessionId)}
-                title="Void the entire session basket — every item's money, cost, and profit is reversed together."
-                className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
-              >
-                Void basket
-              </button>
-              <button
-                onClick={() => handlers.onRefundSessionBasket(sessionId)}
-                title="Refund the entire session basket — every item's money, cost, and profit is reversed together."
-                className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
-              >
-                Refund basket
-              </button>
+              {!hideVoidBasket && !hideBasketActions && (
+                <button
+                  onClick={() => handlers.onVoidSessionBasket(sessionId)}
+                  title="Void the entire session basket — every item's money, cost, and profit is reversed together."
+                  className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
+                >
+                  Void basket
+                </button>
+              )}
+              {!hideBasketActions && (
+                <button
+                  onClick={() => handlers.onRefundSessionBasket(sessionId)}
+                  title="Refund the entire session basket — every item's money, cost, and profit is reversed together."
+                  className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
+                >
+                  Refund basket
+                </button>
+              )}
+              {!hideRefundItem &&
+                SESSION_ITEM_REFUNDABLE_TYPES.has(
+                  row.type as TransactionType,
+                ) && (
+                <button
+                  onClick={() => handlers.onRefundSessionItem(row)}
+                  title="Refund just this item — reduces the customer's account first, then hands back any remainder."
+                  className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
+                >
+                  Refund item
+                </button>
+              )}
             </>
           ) : (
             <>

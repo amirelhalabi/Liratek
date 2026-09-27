@@ -47,6 +47,7 @@ import {
   resetClosingRepository,
 } from "../ClosingRepository.js";
 import { resetProfitRepository } from "../ProfitRepository.js";
+import { localDay } from "../../utils/localDate.js";
 import {
   initFixedTenantContext,
   resetTenantContext,
@@ -300,17 +301,38 @@ describe("Expense active-gate (rule 14 / rule 20) — Closing reporting", () => 
   let txnRepo: TransactionRepository;
   let closingRepo: ClosingRepository;
 
-  /** A real "now" so every date-bucketed query (`todayLocal`) sees the same
-   *  calendar day — TZ is pinned to Asia/Beirut by the jest script, and
-   *  Node's own Date getters respect that, matching SQLite's own
-   *  `'localtime'` modifier. */
-  const NOW = new Date();
-  const TODAY_ISO = NOW.toISOString();
   // LIRA-219: `ClosingRepository.getDailyActivityStats` now takes `day`
   // explicitly instead of asking SQLite for `DATE('now','localtime')`
-  // itself — this is the same local calendar day, built from the same
-  // TZ-pinned `NOW` the rest of this file already uses.
-  const TODAY_DAY = `${NOW.getFullYear()}-${String(NOW.getMonth() + 1).padStart(2, "0")}-${String(NOW.getDate()).padStart(2, "0")}`;
+  // itself — `localDay()` is the SAME helper production callers
+  // (`clientDay()`'s desktop fallback) resolve `day` from.
+  const TODAY_DAY = localDay();
+  // Flaky-test incident (2026-09-26/27, ~22:45 UTC = 01:45 Beirut): this
+  // used to be `new Date().toISOString()` — the real "now" instant. That
+  // is UNSAFE: `getDailyActivityStats` buckets `expense_date` via
+  // `dateRange()`'s `datetime(col, 'localtime')`, which asks SQLite's OWN
+  // 'localtime' conversion, not Node's. On this Windows box, launching
+  // with the core test script's `TZ=Asia/Beirut` (cross-env) makes the
+  // Microsoft C runtime — which better-sqlite3 calls into for `'localtime'`
+  // — silently mis-resolve the IANA zone name to a WRONG, smaller UTC
+  // offset (measured: +01:00 instead of the real Beirut DST +03:00; with
+  // `TZ` unset entirely, SQLite falls back to the OS zone and agrees with
+  // Node exactly). Node's own Date/Intl (used by `localDay()` above) is
+  // NOT affected — it parses "Asia/Beirut" correctly on every platform
+  // tested. So for ~2 real-clock hours nightly (~21:00-23:00 UTC =
+  // ~00:00-02:00 Beirut) a row's real "now" `expense_date`, once
+  // mis-converted by SQLite, lands one calendar day EARLIER than the
+  // Node-computed `TODAY_DAY` this file queries — exactly what happened
+  // here (10 expected, 0 got). See the regression guard at the bottom of
+  // this file for a deterministic reproduction and CLAUDE.md rule 27 for
+  // the wider "the environment lies about what day it is" class of bug.
+  //
+  // Fix: anchor the stamp at LOCAL NOON of `TODAY_DAY`, expressed as a UTC
+  // instant. Any timezone offset within +/-11h — every real IANA zone, and
+  // the observed wrong +01:00 CRT fallback — still converts noon-UTC to a
+  // wall-clock time inside the SAME calendar day, so the fixture no longer
+  // depends on which of the two disagreeing offsets SQLite happens to
+  // apply, or on what real wall-clock moment this test happens to run at.
+  const TODAY_ISO = `${TODAY_DAY}T12:00:00.000Z`;
 
   beforeEach(() => {
     db = createTestDb();
@@ -428,5 +450,159 @@ describe("Expense active-gate (rule 14 / rule 20) — Closing reporting", () => 
     const refundedRow = expenseRepo.getExpenseById(refundedId)!;
     expect(refundedRow.status).toBe("active");
     expect(refundedRow.is_refunded).toBe(1);
+  });
+});
+
+/**
+ * Regression guard — flaky-test incident (2026-09-26/27, ~22:45 UTC = 01:45
+ * Beirut). Three files failed together (`ExpenseActiveGate.test.ts` — this
+ * file, pre-fix — `SalesRepository.chartDataTelecomSales.test.ts`,
+ * `PostRefactorVerification.test.ts`), each expecting today's totals and
+ * getting 0.
+ *
+ * ROOT CAUSE (reproduced directly on this Windows box, not inferred):
+ * launching the process with `TZ=Asia/Beirut` (the core test script's own
+ * `cross-env TZ=Asia/Beirut` — needed so Linux CI, whose runner defaults to
+ * UTC, actually exercises non-UTC day bucketing) makes better-sqlite3's
+ * SQLite `'localtime'` modifier resolve to the WRONG UTC offset. The
+ * Microsoft C runtime that better-sqlite3 links against only parses the
+ * legacy POSIX TZ format ("AST-3", "EET-2EEST,M3.5.0,M10.5.0"); it does not
+ * understand an IANA zone name ("Asia/Beirut") and silently falls back to a
+ * bogus offset instead of erroring. Measured on this machine: real Beirut
+ * DST offset (per Node's own Date/Intl, and per `Get-TimeZone`) is +03:00;
+ * with `TZ=Asia/Beirut` launched, SQLite's `datetime('now','localtime')`
+ * instead applies only +01:00. With `TZ` unset entirely, SQLite correctly
+ * falls back to the OS zone and agrees with Node (+03:00) — confirming the
+ * bug is specific to an explicit, IANA-named `TZ` override on Windows, not
+ * to Beirut/DST math in general. A ~2-hour window opens nightly
+ * (~21:00-23:00 UTC = ~00:00-02:00 Beirut) where a row's real UTC
+ * `created_at`/`expense_date`, once mis-converted by SQLite's
+ * `'localtime'`, lands one calendar day EARLIER than the Node-computed
+ * `day` a caller (`localDay()`/`clientDay()`) queries — exactly the
+ * incident window (22:45 UTC).
+ *
+ * PRODUCTION IS NOT AFFECTED: desktop never sets `TZ` (falls back to the
+ * shop PC's real OS zone, which the probe below shows SQLite gets right),
+ * and the web backend never sets `TZ=Asia/Beirut` either — CLAUDE.md rule
+ * 27 deliberately keeps it on the host's ambient zone and relies on
+ * `clientDay()` instead. This is a Windows-dev-box-only artifact of the
+ * test launcher's own `TZ=Asia/Beirut` pin colliding with a Windows CRT
+ * limitation, not a request-path bug.
+ *
+ * Rule 17 discharge: the first test below was written and run BEFORE this
+ * file's `TODAY_ISO`/`TODAY_DAY` fix above existed (i.e. against the old
+ * `new Date().toISOString()` stamping technique) and observed RED on this
+ * machine — `getDailyActivityStats` returned `totalExpensesUSD: 0` for a
+ * row stamped with the literal incident UTC instant, matching the real
+ * failure exactly. The probe-gated branch below pins that same reproduction
+ * permanently (rather than leaving a hard-coded, platform-specific
+ * assertion) so it stays meaningful instead of flaky: red on a machine that
+ * reproduces the platform bug, green on one that doesn't — and if the
+ * Windows/better-sqlite3 limitation is ever fixed, this test starts
+ * FAILING (expects 0, gets 10), which is a deliberate canary telling
+ * whoever sees it that the branch below is now dead and can be deleted.
+ */
+describe("Regression guard — SQLite 'localtime' vs Node local-day mismatch (flaky-test incident 2026-09-26/27)", () => {
+  let db: Database.Database;
+  let expenseRepo: ExpenseRepository;
+  let closingRepo: ClosingRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
+    resetExpenseRepository();
+    resetTransactionRepository();
+    resetClosingRepository();
+    resetProfitRepository();
+    expenseRepo = new ExpenseRepository();
+    new TransactionRepository(); // registers the singleton, mirrors other describes in this file
+    closingRepo = new ClosingRepository();
+  });
+
+  afterEach(() => {
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
+    db.close();
+    resetExpenseRepository();
+    resetTransactionRepository();
+    resetClosingRepository();
+    resetProfitRepository();
+    resetTenantContext();
+  });
+
+  /** How many minutes SQLite's own `'localtime'` conversion (what
+   *  `dateRange()` binds every reporting query through) currently
+   *  disagrees with Node's own local UTC offset (what `localDay()` /
+   *  `clientDay()` use). 0 on a healthy platform (Linux, or a Windows box
+   *  with no `TZ` override); nonzero reproduces this file's incident. */
+  function sqliteVsNodeOffsetMismatchMinutes(): number {
+    const nodeOffsetMin = -new Date().getTimezoneOffset();
+    const { sqliteOffsetMin } = db
+      .prepare(
+        `SELECT (strftime('%s', datetime('now','localtime')) - strftime('%s', datetime('now'))) / 60 AS sqliteOffsetMin`,
+      )
+      .get() as { sqliteOffsetMin: number };
+    return sqliteOffsetMin - nodeOffsetMin;
+  }
+
+  it("pins the incident: a row stamped with the exact real UTC instant from the flaky run (2026-09-26T22:45:00Z / 01:45 Beirut) is excluded on a platform that reproduces the SQLite/Node TZ mismatch, counted on one that doesn't", () => {
+    const incidentUtcStamp = "2026-09-26 22:45:00"; // the real failing run's instant
+    // The Node-computed local day for that instant, under WHATEVER `TZ`
+    // this process actually launched with — hardcoding "2026-09-27" (the
+    // real incident's Beirut day) would be wrong under a different launch
+    // TZ (e.g. plain `TZ=UTC` maps this same instant to "2026-09-26"), and
+    // this guard must stay meaningful under any launch zone, not just
+    // Beirut's.
+    const incidentLocalDay = localDay(
+      new Date(`${incidentUtcStamp.replace(" ", "T")}.000Z`),
+    );
+
+    expenseRepo.createExpense(
+      {
+        description: "incident-repro",
+        category: "Misc",
+        paid_by_method: "CASH",
+        amount_usd: 10,
+        amount_lbp: 0,
+        expense_date: incidentUtcStamp,
+      },
+      USER_ID,
+    );
+
+    const snapshot = closingRepo.getDailyActivityStats(incidentLocalDay);
+
+    if (sqliteVsNodeOffsetMismatchMinutes() !== 0) {
+      // Reproduces the documented platform bug: the row is (wrongly)
+      // excluded. See this describe block's header comment.
+      expect(snapshot.totalExpensesUSD).toBe(0);
+    } else {
+      // Platform is healthy (SQLite's 'localtime' agrees with Node): the
+      // row correctly counts.
+      expect(snapshot.totalExpensesUSD).toBe(10);
+    }
+  });
+
+  it("proves the fix: anchoring expense_date at local-noon-as-UTC for the target day survives the SQLite/Node TZ mismatch regardless of platform", () => {
+    const day = localDay();
+    const safeStamp = `${day}T12:00:00.000Z`;
+
+    expenseRepo.createExpense(
+      {
+        description: "noon-anchor-fix",
+        category: "Misc",
+        paid_by_method: "CASH",
+        amount_usd: 10,
+        amount_lbp: 0,
+        expense_date: safeStamp,
+      },
+      USER_ID,
+    );
+
+    const snapshot = closingRepo.getDailyActivityStats(day);
+    expect(snapshot.totalExpensesUSD).toBe(10);
   });
 });

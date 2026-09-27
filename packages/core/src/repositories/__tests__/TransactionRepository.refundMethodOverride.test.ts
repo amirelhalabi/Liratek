@@ -40,6 +40,7 @@ import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext.js";
+import { REFUND_LEG_AMOUNT_EPSILON } from "../../constants/refundTolerance.js";
 
 const RATE = 90_000;
 const CLIENT_ID = 1;
@@ -334,6 +335,27 @@ function insertTxnWithCashLeg(
   return txnId;
 }
 
+function insertTxnWithLbpLeg(
+  db: Database.Database,
+  amountLbp: number,
+): number {
+  const txn = db
+    .prepare(
+      `INSERT INTO transactions (type, source_table, source_id, user_id, amount_usd, summary)
+       VALUES ('SALE', 'sales', 1, 1, 0, 'LBP cash sale')`,
+    )
+    .run();
+  const txnId = Number(txn.lastInsertRowid);
+  db.prepare(
+    `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+     VALUES (?, 'CASH', 'General', 'LBP', ?, NULL, 1)`,
+  ).run(txnId, amountLbp);
+  db.prepare(
+    `UPDATE drawer_balances SET balance = balance + ? WHERE drawer_name = 'General' AND currency_code = 'LBP'`,
+  ).run(amountLbp);
+  return txnId;
+}
+
 /**
  * A transaction shaped like an OMT/WHISH SEND: ONE customer-facing CASH leg
  * (the tender the operator may override) alongside TWO internal bookkeeping
@@ -477,6 +499,29 @@ describe("LIRA-078 — refund method-override (tender-selection modal)", () => {
         txnRepo.refundTransaction(txnId, 1, {
           refundLegs: [
             { method: "OMT", currencyCode: "LBP", amount: 9_000_000 },
+          ],
+        }),
+      ).toThrow(/do not match/i);
+    });
+
+    // Rule-14 fix (2026-09-26): the frontend's client-side hint used to carry
+    // its OWN `EPSILON.LBP` (widened to 100) while this server-side check
+    // kept `EPSILON.LBP = 1` — a gap the form accepted that the server then
+    // rejected. Both now import the SAME `REFUND_LEG_AMOUNT_EPSILON` from
+    // `packages/core/src/constants/refundTolerance.ts`; this pins that this
+    // repository actually uses that shared constant (not a re-drifted local
+    // copy) by asserting a gap one unit past it is still hard-rejected.
+    it("rejects an LBP gap one unit past the shared REFUND_LEG_AMOUNT_EPSILON.LBP tolerance", () => {
+      const txnId = insertTxnWithLbpLeg(db, 900_000);
+      const overTolerance = REFUND_LEG_AMOUNT_EPSILON.LBP + 1; // 2 LBP gap
+      expect(() =>
+        txnRepo.refundTransaction(txnId, 1, {
+          refundLegs: [
+            {
+              method: "CASH",
+              currencyCode: "LBP",
+              amount: 900_000 - overTolerance,
+            },
           ],
         }),
       ).toThrow(/do not match/i);

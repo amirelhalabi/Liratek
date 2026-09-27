@@ -187,6 +187,41 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
+   * REFUND_EXCHANGE_RATE_PLAN.md / SESSION_ITEM_REFUND_PLAN.md round-3
+   * review, finding F3 — stamp the rate the basket was ACTUALLY checked out
+   * at onto every one of its members (`customer_session_transactions
+   * .paid_exchange_rate`, migration v186). A SALE member already has its own
+   * correct column for this (`sales.exchange_rate_snapshot`, back-filled by
+   * `SalesRepository.markSalePaid` with this SAME rate) — this stamps EVERY
+   * member uniformly anyway (rule 14: one write, no per-type branching), so
+   * a RECHARGE/CUSTOM_SERVICE/FINANCIAL_SERVICE member — which has no
+   * snapshot column of its own — gets the same fix. Must run AFTER every
+   * cart item is linked (same ordering requirement as
+   * `getSessionCashSplitContext` — `SessionPaymentService.recordBasketPayment`
+   * runs last, inside the checkout's own db.transaction).
+   */
+  stampMemberExchangeRate(sessionId: number, rate: number): void {
+    if (!(rate > 0)) return;
+    try {
+      this.db
+        .prepare(
+          `UPDATE customer_session_transactions SET paid_exchange_rate = ?
+           WHERE session_id = ? AND tenant_id = ?`,
+        )
+        .run(rate, sessionId, getCurrentTenantId());
+    } catch {
+      // Defensive only (mirrors this file's other minimal-schema fallbacks,
+      // e.g. TransactionRepository._financialServiceCashDrawerCtx): a
+      // connection that predates migration v186 (a mid-upgrade edge case,
+      // or a test fixture that doesn't carry every column) must not fail
+      // the whole checkout over an audit-only column. The refund-rate
+      // reader falls back to transactions.exchange_rate when this column
+      // was never stamped, so this is a pure no-op there, not silent data
+      // loss.
+    }
+  }
+
+  /**
    * Resolve a session's SALE rows (unified txn → source sale id + amount),
    * ordered by transaction id ascending (creation order).
    */

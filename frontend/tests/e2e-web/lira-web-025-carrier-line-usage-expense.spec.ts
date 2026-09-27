@@ -42,25 +42,15 @@
  * to `res.status(400).json(result)` and test (b) fails on the status
  * assertion while every other test keeps passing.
  */
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-// Same import global-setup.ts and lira-web-019 already use — this suite runs
-// under the Node ABI, so a direct better-sqlite3 open is safe here.
-import Database from "better-sqlite3";
-import { hashPassword } from "@liratek/core";
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  seedStaffUser,
+  staffHeaders,
+  BACKEND_URL,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Mirrors global-setup.ts / lira-web-019 path resolution exactly.
-const DB_PATH = path.join(
-  __dirname,
-  "..",
-  "..",
-  "test-results",
-  "e2e-web",
-  "phone_shop.web.db",
-);
 
 const STAFF_USERNAME = "e2e025staff";
 const STAFF_PASSWORD = "E2e025Staff!1";
@@ -71,43 +61,6 @@ const TO = "2099-12-31";
 const LINE_USAGE_CATEGORY = "Line_Usage";
 
 type Headers = Record<string, string>;
-
-/**
- * Seed (idempotently) a REAL `staff`-role user directly in the shared web test
- * DB. Same reasoning lira-web-019 documents at length: `POST /api/users` is an
- * unfinished placeholder that writes no row, and `authenticateJWT` requires a
- * live `sessions` row behind the token, so a self-signed JWT cannot stand in
- * for a real login. The UPDATE runs unconditionally so a prior run's leftover
- * row can never decide this spec's outcome.
- */
-function seedStaffUser(): void {
-  const db = new Database(DB_PATH);
-  try {
-    db.prepare(
-      `INSERT OR IGNORE INTO users (tenant_id, username, password_hash, role, is_active)
-       VALUES (1, ?, ?, 'staff', 1)`,
-    ).run(STAFF_USERNAME, hashPassword(STAFF_PASSWORD));
-    db.prepare(
-      `UPDATE users SET password_hash = ?, role = 'staff', is_active = 1 WHERE username = ?`,
-    ).run(hashPassword(STAFF_PASSWORD), STAFF_USERNAME);
-  } finally {
-    db.close();
-  }
-}
-
-async function loginHeaders(
-  page: Page,
-  username: string,
-  password: string,
-): Promise<Headers> {
-  const res = await (
-    await page.request.post(`${BACKEND_URL}/api/auth/login`, {
-      data: { username, password },
-    })
-  ).json();
-  expect(res.success, JSON.stringify(res)).toBeTruthy();
-  return { Authorization: `Bearer ${res.data.token as string}` };
-}
 
 async function adminHeaders(page: Page): Promise<Headers> {
   await loginAsAdmin(page);
@@ -541,8 +494,8 @@ test.describe("LIRA-145 carrier-line usage expense over REST", () => {
     const phone = `03${String(stamp).slice(-6)}`;
     const lineId = await seedMtcLine(page, admin, phone, `W025-D-${stamp}`, 10);
 
-    seedStaffUser();
-    const staff = await loginHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
+    seedStaffUser(STAFF_USERNAME, STAFF_PASSWORD);
+    const staff = await staffHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
 
     const res = await page.request.post(
       `${BACKEND_URL}/api/carrier-lines/record-usage`,

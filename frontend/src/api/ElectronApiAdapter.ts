@@ -15,6 +15,15 @@ import type {
   DailyStatsSnapshotQuery,
   HoldMoneyCreateInput,
   HoldMoneyCollectInput,
+  // LIRA-231 — POS refund-leg-override payloads, derived from the core
+  // schema (rule 21).
+  SaleRefundInput,
+  SaleRefundItemInput,
+  // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
+  // single-item refund payload/preview shapes, derived from the core
+  // schema/repository (rule 21).
+  SessionItemRefundInput,
+  SessionItemRefundPreviewInput,
 } from "@liratek/core";
 import * as api from "./backendApi";
 
@@ -120,14 +129,39 @@ export class ElectronApiAdapter implements ApiAdapter {
   processSale = (payload: any) => api.processSale(payload);
   getSale = (saleId: number) => api.getSale(saleId);
   getSaleItems = (saleId: number) => api.getSaleItems(saleId);
-  /** Refund a WHOLE sale (admin only). */
-  refundSale = (saleId: number) => api.refundSale(saleId);
-  /** Refund a specific line item off a sale, by quantity (admin only). */
+  /** Refund a WHOLE sale (admin only). LIRA-231: refundLegs optional.
+   *  2026-09-26: unitExtras optional too (POS "Returned phones").
+   *  LIRA-236: exchangeRate optional too. */
+  refundSale = (
+    saleId: number,
+    refundLegs?: SaleRefundInput["refundLegs"],
+    unitExtras?: SaleRefundInput["unitExtras"],
+    exchangeRate?: number,
+  ) => api.refundSale(saleId, refundLegs, unitExtras, exchangeRate);
+  /** Refund a specific line item off a sale, by quantity (admin only).
+   *  LIRA-231: refundLegs optional. 2026-09-26: unitExtras optional too.
+   *  LIRA-236: exchangeRate optional too. */
   refundSaleItem = (
     saleId: number,
     saleItemId: number,
     refundQuantity: number,
-  ) => api.refundSaleItem(saleId, saleItemId, refundQuantity);
+    refundLegs?: SaleRefundItemInput["refundLegs"],
+    unitExtras?: SaleRefundItemInput["unitExtras"],
+    exchangeRate?: number,
+  ) =>
+    api.refundSaleItem(
+      saleId,
+      saleItemId,
+      refundQuantity,
+      refundLegs,
+      unitExtras,
+      exchangeRate,
+    );
+  /** LIRA-231 — POS refund preview (both refund buttons). */
+  getSaleRefundPreview = (
+    saleId: number,
+    item?: { saleItemId: number; refundQuantity: number },
+  ) => api.getSaleRefundPreview(saleId, item);
   /** Edit non-financial metadata (walk-in name/phone, note) on a sale row. */
   updateSaleMetadata = (data: {
     id: number;
@@ -489,6 +523,9 @@ export class ElectronApiAdapter implements ApiAdapter {
   getClientTransactions = (clientId: number, limit?: number) =>
     api.getClientTransactions(clientId, limit);
   voidTransaction = (id: number) => api.voidTransaction(id);
+  /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
+   *  `bookedRateSource` default. */
+  getRefundBookedRate = (id: number) => api.getRefundBookedRate(id);
   refundTransaction = (
     id: number,
     refundLegs?: api.RefundLegOverride[],
@@ -502,6 +539,11 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.voidSessionBasket(sessionId);
   refundSessionBasket = (sessionId: number) =>
     api.refundSessionBasket(sessionId);
+  /** LIRA-232 phase 2 — item-level sibling of refundSessionBasket above. */
+  refundSessionBasketItem = (payload: SessionItemRefundInput) =>
+    api.refundSessionBasketItem(payload);
+  getSessionItemRefundPreview = (payload: SessionItemRefundPreviewInput) =>
+    api.getSessionItemRefundPreview(payload);
   getTransactionDailySummary = (date: string) =>
     api.getTransactionDailySummary(date);
   getDebtAging = (clientId: number) => api.getDebtAging(clientId);

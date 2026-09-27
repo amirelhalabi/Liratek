@@ -13,7 +13,9 @@ import {
   refundSessionBasket,
   getSaleItems,
   getProductUnitsForSaleItems,
+  getRefundBookedRate,
   type ProductUnitDto,
+  type BookedRateSource,
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
 import logger from "@/utils/logger";
@@ -62,6 +64,12 @@ import {
 import { appEvents } from "@liratek/ui";
 import { ReceiptPreviewModal } from "@/shared/components/ReceiptPreviewModal";
 import { RefundMethodModal } from "../components/RefundMethodModal";
+import { RefundQuantityModal } from "../components/RefundQuantityModal";
+import {
+  SessionSaleLinePickerModal,
+  type SessionSaleLineItem,
+} from "../components/SessionSaleLinePickerModal";
+import { useSessionItemRefund } from "../hooks/useSessionItemRefund";
 import type {
   RefundLegOverride,
   RefundUnitExtraOverride,
@@ -134,6 +142,9 @@ export default function TransactionsViewer({
     filteredRows,
     loading,
     reload: load,
+    sessionsWithItemRefund,
+    sessionsWithPayoutMember,
+    sessionsFullyRefunded,
   } = useTransactionRows({
     limit,
     selectedFilters,
@@ -163,6 +174,19 @@ export default function TransactionsViewer({
     (row: TransactionRow) => isSessionGroupHeader(row, sessionGroupHeaderIds),
     [sessionGroupHeaderIds],
   );
+
+  // LIRA-232 round-2 review (finding 2), round-3 review (finding 3) — every
+  // session id that already has AT LEAST ONE per-item refund (a
+  // `refundSessionBasketItem` REFUND row, identified by
+  // `isSessionItemRefundRow`). Drives ActionsCell's `hideVoidBasket` — "Void
+  // basket" hard-refuses on a session that's been touched by an item refund
+  // (nothing left to cleanly void), so the button is hidden rather than
+  // offered and then erroring. Now sourced from `useTransactionRows` itself
+  // (a separate, always-unfiltered-by-page-state REFUND-only query) rather
+  // than recomputed here from `filteredRows` — the operator's active
+  // type/date filter must never un-hide "Void basket" just because it hides
+  // the one REFUND row that proves the session was touched (see the hook's
+  // own doc on `sessionsWithItemRefund`).
 
   const { methods: paymentMethods, drawerAffectingMethods } =
     usePaymentMethods();
@@ -234,9 +258,15 @@ export default function TransactionsViewer({
       id: number,
       refundLegs?: RefundLegOverride[],
       unitExtras?: RefundUnitExtraOverride[],
+      exchangeRate?: number,
     ) => {
       try {
-        const res = await refundTransaction(id, refundLegs, unitExtras);
+        const res = await refundTransaction(
+          id,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+        );
         if (res.success) load();
         else
           alert(describeActionFailure(res.error, "Refunding a transaction"));
@@ -264,6 +294,16 @@ export default function TransactionsViewer({
   const [refundLookupRowId, setRefundLookupRowId] = useState<number | null>(
     null,
   );
+  // LIRA-236 — the Transactions-page (non-session) refund popup's default
+  // rate, fetched from the server (`TransactionService.getRefundBookedRate`)
+  // when the popup opens, instead of the UI deriving its own fallback from
+  // `row.exchange_rate` (a second definition of the rule — rule 14). Null
+  // while loading or when the fetch fails; the render below falls back to
+  // today's rate (`fallbackRate`) in that case, same as before this change.
+  const [refundBookedRate, setRefundBookedRate] = useState<{
+    bookedRate: number;
+    bookedRateSource: BookedRateSource;
+  } | null>(null);
 
   const handleRefund = useCallback(
     async (row: TransactionRow) => {
@@ -328,7 +368,33 @@ export default function TransactionsViewer({
         return;
       }
 
+      // LIRA-236 — fetch the popup's default rate from the server BEFORE it
+      // opens (same "await, then show the modal" shape as the units lookup
+      // just above and `openSessionItemPreview` below), so the modal never
+      // renders with a stale/fallback rate that jumps once the request
+      // resolves. A slow/failed lookup still can't block the refund form
+      // forever — `getRefundBookedRate` never throws on a business-rule
+      // failure (rule 19c envelope), and a rejected promise (network error)
+      // is caught below and simply leaves `refundBookedRate` null, which the
+      // render treats the same as "fallback".
+      let bookedRate: { bookedRate: number; bookedRateSource: BookedRateSource } | null =
+        null;
+      try {
+        const rateRes = await getRefundBookedRate(row.id);
+        if (rateRes.success) {
+          bookedRate = {
+            bookedRate: rateRes.bookedRate,
+            bookedRateSource: rateRes.bookedRateSource,
+          };
+        }
+      } catch (err) {
+        logger.error("Failed to load the refund popup's booked rate", {
+          error: err,
+        });
+      }
+
       setRefundModalUnits(linkedUnits);
+      setRefundBookedRate(bookedRate);
       setRefundModalRow(row);
     },
     [doRefund],
@@ -338,15 +404,17 @@ export default function TransactionsViewer({
     async (
       refundLegs: RefundLegOverride[] | undefined,
       unitExtras?: RefundUnitExtraOverride[],
+      exchangeRate?: number,
     ) => {
       if (!refundModalRow) return;
       setIsRefunding(true);
       try {
-        await doRefund(refundModalRow.id, refundLegs, unitExtras);
+        await doRefund(refundModalRow.id, refundLegs, unitExtras, exchangeRate);
       } finally {
         setIsRefunding(false);
         setRefundModalRow(null);
         setRefundModalUnits([]);
+        setRefundBookedRate(null);
       }
     },
     [refundModalRow, doRefund],
@@ -428,6 +496,115 @@ export default function TransactionsViewer({
     [load],
   );
 
+  // LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §4) — refund ONE sold-item session
+  // member instead of the whole basket. A SALE member first asks which line
+  // (or "all remaining", owner Q2) via SessionSaleLinePickerModal — a
+  // CUSTOM_SERVICE/RECHARGE member has no line concept and previews
+  // straight away. Both paths end at the SAME `useSessionItemRefund` hook
+  // that drives the (existing) RefundMethodModal instance below.
+  const [saleLinePicker, setSaleLinePicker] = useState<{
+    row: TransactionRow;
+    items: SessionSaleLineItem[];
+  } | null>(null);
+  const [saleLineQuantityTarget, setSaleLineQuantityTarget] = useState<{
+    row: TransactionRow;
+    item: SessionSaleLineItem;
+  } | null>(null);
+  const [sessionItemRefundUnits, setSessionItemRefundUnits] = useState<
+    ProductUnitDto[]
+  >([]);
+
+  const sessionItemRefund = useSessionItemRefund(() => {
+    setSessionItemRefundUnits([]);
+    load();
+  });
+
+  // LIRA-232 round-3 review (finding 4) — "Refund All Remaining"
+  // (`handleRefundAllRemainingSaleLines` below) omits `saleItemId` (owner Q2:
+  // every remaining line refunds in ONE operation), so the OLD `if
+  // (saleItemId != null)` gate here never loaded any unit at all for that
+  // path — the POS's equivalent whole-sale refund (`SaleDetailModal.
+  // openWholeSaleRefund`) always loads every item's units. `remainingSaleItemIds`
+  // carries the picker's own list for exactly that case; a single-line pick
+  // still uses `[saleItemId]` as before.
+  const openSessionItemPreview = useCallback(
+    async (
+      row: TransactionRow,
+      saleItemId?: number,
+      quantity?: number,
+      remainingSaleItemIds?: number[],
+    ) => {
+      let units: ProductUnitDto[] = [];
+      const unitLookupIds =
+        saleItemId != null ? [saleItemId] : (remainingSaleItemIds ?? []);
+      if (unitLookupIds.length > 0) {
+        try {
+          units = await getProductUnitsForSaleItems(unitLookupIds);
+        } catch (err) {
+          logger.error("Failed to load linked phone units for refund", {
+            error: err,
+          });
+        }
+      }
+      setSessionItemRefundUnits(units);
+      await sessionItemRefund.open({
+        sessionId: row.session_id as number,
+        transactionId: row.id,
+        ...(saleItemId != null ? { saleItemId } : {}),
+        ...(quantity != null ? { quantity } : {}),
+        ...(row.client_name ? { clientLabel: row.client_name } : {}),
+      });
+    },
+    [sessionItemRefund],
+  );
+
+  const handleRefundSessionItem = useCallback(
+    async (row: TransactionRow) => {
+      if (row.session_id == null) return;
+      if (row.type === "SALE" && row.source_table === "sales") {
+        try {
+          const items = await getSaleItems(row.source_id);
+          setSaleLinePicker({
+            row,
+            items: (items ?? []) as SessionSaleLineItem[],
+          });
+        } catch (err) {
+          alert(describeActionFailure(err, "Loading sale items"));
+        }
+        return;
+      }
+      await openSessionItemPreview(row);
+    },
+    [openSessionItemPreview],
+  );
+
+  const handlePickSaleLine = (item: SessionSaleLineItem) => {
+    if (!saleLinePicker) return;
+    setSaleLineQuantityTarget({ row: saleLinePicker.row, item });
+    setSaleLinePicker(null);
+  };
+
+  const handleRefundAllRemainingSaleLines = () => {
+    if (!saleLinePicker) return;
+    const { row, items } = saleLinePicker;
+    // Same "has anything left to refund" predicate SessionSaleLinePickerModal
+    // itself uses to decide which lines to list (rule 14) — every remaining
+    // line's phone units (if any) get loaded together for the "Returned
+    // phones" section, mirroring the POS's whole-sale refund.
+    const remainingSaleItemIds = items
+      .filter((item) => item.quantity - (item.refunded_quantity ?? 0) > 0)
+      .map((item) => item.id);
+    setSaleLinePicker(null);
+    void openSessionItemPreview(row, undefined, undefined, remainingSaleItemIds);
+  };
+
+  const handleConfirmSaleLineQuantity = (quantity: number) => {
+    if (!saleLineQuantityTarget) return;
+    const { row, item } = saleLineQuantityTarget;
+    setSaleLineQuantityTarget(null);
+    void openSessionItemPreview(row, item.id, quantity);
+  };
+
   // One stable object for every row's ActionsCell — the handlers are
   // already memoised individually, so this only re-creates when one of them
   // genuinely changes.
@@ -439,6 +616,7 @@ export default function TransactionsViewer({
       onVoidCheckoutGroup: handleVoidCheckoutGroup,
       onVoidSessionBasket: handleVoidSessionBasket,
       onRefundSessionBasket: handleRefundSessionBasket,
+      onRefundSessionItem: handleRefundSessionItem,
     }),
     [
       handlePrintReceipt,
@@ -447,6 +625,7 @@ export default function TransactionsViewer({
       handleVoidCheckoutGroup,
       handleVoidSessionBasket,
       handleRefundSessionBasket,
+      handleRefundSessionItem,
     ],
   );
 
@@ -576,6 +755,15 @@ export default function TransactionsViewer({
           sessionId={sessionId}
           refundLookupRowId={refundLookupRowId}
           handlers={rowActionHandlers}
+          hideVoidBasket={
+            sessionId != null && sessionsWithItemRefund.has(sessionId)
+          }
+          hideRefundItem={
+            sessionId != null && sessionsWithPayoutMember.has(sessionId)
+          }
+          hideBasketActions={
+            sessionId != null && sessionsFullyRefunded.has(sessionId)
+          }
         />
       </tr>
     );
@@ -722,13 +910,94 @@ export default function TransactionsViewer({
             code: m.code,
             label: m.label,
           }))}
-          exchangeRate={refundModalRow.exchange_rate ?? 89000}
+          // LIRA-236 — the server's own `getRefundBookedRate` verdict
+          // (`TransactionService.getRefundBookedRate`, rule 14): the sale's/
+          // transaction's own recorded rate, or the day's rate when nothing
+          // was recorded. Replaces this component's own former
+          // `refundModalRow.exchange_rate ?? fallbackRate` derivation — a
+          // second definition of the same rule. Falls back to the client-side
+          // day rate only while the fetch is in flight or if it failed
+          // outright (never blocks the popup itself — see `handleRefund`).
+          exchangeRate={refundBookedRate?.bookedRate ?? fallbackRate ?? 89000}
+          bookedRateSource={refundBookedRate?.bookedRateSource ?? "fallback"}
           isSubmitting={isRefunding}
           onCancel={() => {
             setRefundModalRow(null);
             setRefundModalUnits([]);
+            setRefundBookedRate(null);
           }}
           onConfirm={handleConfirmRefundOverride}
+        />
+      )}
+      {saleLinePicker && (
+        <SessionSaleLinePickerModal
+          items={saleLinePicker.items}
+          onPickLine={handlePickSaleLine}
+          onRefundAllRemaining={handleRefundAllRemainingSaleLines}
+          onCancel={() => setSaleLinePicker(null)}
+        />
+      )}
+      {saleLineQuantityTarget && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setSaleLineQuantityTarget(null);
+          }}
+        >
+          <RefundQuantityModal
+            itemName={saleLineQuantityTarget.item.name}
+            availableQuantity={
+              saleLineQuantityTarget.item.quantity -
+              (saleLineQuantityTarget.item.refunded_quantity ?? 0)
+            }
+            onConfirm={handleConfirmSaleLineQuantity}
+            onCancel={() => setSaleLineQuantityTarget(null)}
+          />
+        </div>
+      )}
+      {/* LIRA-232 — the SAME modal used above, driven by the per-item
+          session-refund flow (useSessionItemRefund) instead of the generic
+          void/refund path. `accountReduction` renders the read-only
+          "Reduces <client>'s account by ..." line; `legs` is the preview's
+          `defaultLegs`. Round-2 review (finding 4): prefer the preview's own
+          `accountClientName` (the "Session Debt" row's actual client, which
+          can differ from the row's own client inside a basket) over the
+          row's `target.clientLabel` fallback. */}
+      {sessionItemRefund.preview && (
+        <RefundMethodModal
+          legs={sessionItemRefund.preview.legs}
+          units={sessionItemRefundUnits}
+          accountReduction={{
+            usd: sessionItemRefund.preview.accountReductionUsd,
+            lbp: sessionItemRefund.preview.accountReductionLbp,
+            ...(sessionItemRefund.preview.accountClientName ||
+            sessionItemRefund.preview.target.clientLabel
+              ? {
+                  clientLabel:
+                    sessionItemRefund.preview.accountClientName ||
+                    sessionItemRefund.preview.target.clientLabel,
+                }
+              : {}),
+          }}
+          paymentMethods={drawerAffectingMethods.map((m) => ({
+            code: m.code,
+            label: m.label,
+          }))}
+          exchangeRate={
+            sessionItemRefund.preview.bookedRate ?? fallbackRate ?? 89000
+          }
+          bookedRateSource={
+            sessionItemRefund.preview.bookedRateSource ?? "fallback"
+          }
+          // LIRA-236 — re-preview (account reduction + remainder) at the
+          // typed rate, debounced inside the hook.
+          onRateChange={sessionItemRefund.changeRate}
+          isSubmitting={sessionItemRefund.submitting}
+          onCancel={() => {
+            setSessionItemRefundUnits([]);
+            sessionItemRefund.cancel();
+          }}
+          onConfirm={sessionItemRefund.confirm}
         />
       )}
       {receiptPreview && (

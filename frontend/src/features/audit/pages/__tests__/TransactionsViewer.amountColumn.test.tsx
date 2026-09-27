@@ -59,6 +59,19 @@ jest.mock("@/hooks/useSellRate", () => ({
   useSellRate: () => ({ sellRate: 89500, buyRate: 89000, isLoading: false }),
 }));
 
+// LIRA-232 — TransactionsViewer now calls useSessionItemRefund(), which
+// calls useApi() (@liratek/ui) unconditionally. This file doesn't exercise
+// the session-item-refund flow, so a minimal mock is enough to satisfy
+// ApiProvider's context requirement (rule 25 — deliberately a fresh object
+// literal per render; nothing here puts `api` in an auto-firing effect).
+jest.mock("@liratek/ui", () => ({
+  ...jest.requireActual("@liratek/ui"),
+  useApi: () => ({
+    getSessionItemRefundPreview: jest.fn(),
+    refundSessionBasketItem: jest.fn(),
+  }),
+}));
+
 const mockGetRecentTransactions = getRecentTransactions as jest.MockedFunction<
   typeof getRecentTransactions
 >;

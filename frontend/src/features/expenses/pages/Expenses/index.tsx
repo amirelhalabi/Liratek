@@ -163,6 +163,13 @@ export default function Expenses() {
       const result = await api.deleteExpense(id);
       if (result.success) {
         loadTodayExpenses();
+      } else {
+        // Rule 19c: a server refusal is a resolved { success: false, error }
+        // envelope on BOTH transports, not a thrown error — mirrors
+        // handleAddExpense's existing failure branch above so a refusal
+        // (e.g. an already-voided expense) is surfaced instead of silently
+        // leaving the row in the list with no feedback.
+        alert("Error: " + result.error);
       }
     } catch (error) {
       logger.error("Operation failed", { error });

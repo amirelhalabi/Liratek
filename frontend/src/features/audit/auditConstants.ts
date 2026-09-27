@@ -103,6 +103,26 @@ export function isAutoSupplierPayment(
 }
 
 /**
+ * LIRA-232 round-2 review (finding 2) — true only for a REFUND row that
+ * `TransactionRepository.refundSessionBasketItem` itself wrote (it stamps
+ * `metadata_json.refundType = "sessionItem"` on every REFUND row it
+ * creates, both the SALE-line branch and the generic item branch). Used to
+ * hide "Void basket" once a session has ANY per-item refund: `voidSessionBasket`
+ * hard-refuses a basket that has been touched by an item refund (nothing
+ * left to cleanly void — only "Refund basket", which reverses just what's
+ * left, remains valid), so offering the button at all just surfaces that
+ * error on click. Absent/unparsable metadata (or a whole-basket void/refund
+ * REFUND row, which carries no `refundType`) reads as `false` — the safe
+ * default here is "don't hide a button that might still work".
+ */
+export function isSessionItemRefundRow(
+  type: string,
+  metaJson: string | null | undefined,
+): boolean {
+  return type === "REFUND" && parseMetaSafe(metaJson).refundType === "sessionItem";
+}
+
+/**
  * Whether a SUPPLIER_PAYMENT row should be visible under the given filter
  * state (D2). `activeOption` is the currently selected FILTER_GROUPS entry,
  * or undefined for "All types".

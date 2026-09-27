@@ -13,6 +13,7 @@
  */
 
 import Database from "better-sqlite3";
+import { localDay } from "../../utils/localDate.js";
 
 // ─── Service imports ─────────────────────────────────────────────────────────
 import { SalesService } from "../SalesService.js";
@@ -1554,18 +1555,24 @@ describe("Post-Refactor Verification", () => {
       // `ProfitService` for profit) resolves `day` via `clientDay()` when no
       // explicit `day` is passed, which falls back to `localDay()` here (no
       // request-scoped client day in this fixed-tenant test context) — the
-      // MACHINE-LOCAL calendar day. `new Date().toISOString()` is UTC, so
-      // near local midnight (when the UTC and local calendar days differ,
-      // e.g. after UTC midnight but before local midnight east of UTC) the
-      // seeded expense_date lands on "yesterday" and the snapshot undercounts
-      // it. Ask SQLite for the SAME `date('now','localtime')` `localDay()`
-      // resolves to (mirrors ProfitRepository.localBusinessDay.test.ts),
-      // rather than re-deriving it via JS Date math, so the seed always
-      // matches the day it's exercised against, regardless of run time or
-      // UTC-offset sign.
-      const { today } = db
-        .prepare(`SELECT date('now', 'localtime') AS today`)
-        .get() as { today: string };
+      // MACHINE-LOCAL calendar day, per Node's own Date getters.
+      //
+      // Flaky-test incident (2026-09-26/27, ~22:45 UTC = 01:45 Beirut): this
+      // used to ask SQLite for `date('now','localtime')` instead, on the
+      // (false, on this platform) assumption that it always agrees with
+      // `localDay()`. It doesn't: `getDailyActivityStats` buckets rows via
+      // SQLite's OWN `'localtime'` conversion, which — on a Windows box
+      // launched with the core test script's `TZ=Asia/Beirut` (cross-env) —
+      // the Microsoft C runtime mis-resolves (it only understands legacy
+      // POSIX TZ strings, not an IANA zone name like "Asia/Beirut", and
+      // silently falls back to a WRONG offset instead of erroring; measured:
+      // +01:00 instead of the real Beirut DST +03:00 — see the guard test in
+      // `ExpenseActiveGate.test.ts` for the full mechanism + evidence).
+      // Node's own Date/Intl (`localDay()`) is unaffected. `day` MUST come
+      // from `localDay()` — the same helper `clientDay()`'s fallback (and
+      // therefore `getDailyStatsSnapshot()` itself) actually resolves — not
+      // from SQLite, or the two can silently disagree.
+      const today = localDay();
 
       // Create a sale
       salesService.processSale(
@@ -1582,6 +1589,19 @@ describe("Post-Refactor Verification", () => {
         },
         1,
       );
+      // `processSale` stamps `sales.created_at` via the table's own
+      // `CURRENT_TIMESTAMP` default — the real machine "now" — which is
+      // exactly the value the incident above showed cannot be trusted to
+      // fall inside `today`'s window once SQLite re-buckets it. Anchor it
+      // at LOCAL NOON of `today` instead: any timezone offset within
+      // +/-11h (every real IANA zone, and the observed wrong +01:00 CRT
+      // fallback) still converts noon-UTC to a wall-clock time inside the
+      // SAME calendar day, so this fixture no longer depends on which of
+      // the two disagreeing offsets SQLite happens to apply, or on what
+      // real wall-clock moment this test happens to run at.
+      db.prepare(`UPDATE sales SET created_at = ? WHERE tenant_id = 1`).run(
+        `${today}T12:00:00.000Z`,
+      );
 
       // Create an expense
       expenseService.addExpense(
@@ -1591,7 +1611,7 @@ describe("Post-Refactor Verification", () => {
           paid_by_method: "CASH",
           amount_usd: 50,
           amount_lbp: 0,
-          expense_date: today,
+          expense_date: `${today}T12:00:00.000Z`,
         },
         1,
       );

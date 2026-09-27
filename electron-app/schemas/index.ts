@@ -48,6 +48,9 @@ import {
   voidCheckoutGroupSchema,
   sessionBasketReversalSchema,
   refundLegsSchema,
+  // LIRA-236 — the cashier-typed exchange rate, shared (rule 14) with every
+  // other refund payload schema.
+  refundExchangeRateSchema,
   carrierLineCreateSchema,
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
@@ -139,6 +142,14 @@ import {
   type ExchangeSubmitInput,
   refundUnitExtrasSchema,
   type RefundUnitExtrasInput,
+  // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
+  // single-item refund payload/preview contracts, shared with the REST
+  // route the same way (rule 14): packages/core/src/validators/
+  // transaction.ts.
+  sessionItemRefundSchema,
+  type SessionItemRefundInput,
+  sessionItemRefundPreviewSchema,
+  type SessionItemRefundPreviewInput,
   registerProductUnitsSchema,
   productUnitsForProductSchema,
   listProductUnitsSchema,
@@ -183,6 +194,15 @@ import {
   // Straight re-exports, no local duplicate (rule 14).
   saleUpdateMetadataSchema,
   type SaleUpdateMetadataInput,
+  // LIRA-231 — POS "Refund Sale"/"Refund item" buttons' operator-chosen
+  // return-method override + refund-preview read, shared with the REST
+  // routes via packages/core/src/validators/sale.ts (rule 14/19b).
+  saleRefundSchema,
+  type SaleRefundInput,
+  saleRefundItemSchema,
+  type SaleRefundItemInput,
+  saleRefundPreviewSchema,
+  type SaleRefundPreviewInput,
   expenseUpdateMetadataSchema,
   type ExpenseUpdateMetadataInput,
   financialUpdateMetadataSchema,
@@ -234,7 +254,18 @@ import {
 export const SaleProcessSchema =
   saleProcessSchema as unknown as z.ZodSchema<SaleProcessInput>;
 
-export const SaleRefundSchema = z.number().int().positive();
+// LIRA-231 — POS "Refund Sale" (whole sale), "Refund item", and the
+// refund-preview read, all sharing the LIRA-078 refund-leg-override contract
+// (packages/core/src/validators/sale.ts, rule 14). Cast bridges the zod
+// major mismatch, same as SaleProcessSchema above. `SaleRefundSchema` was
+// previously an unused bare `z.number().int().positive()` — replaced here,
+// not extended, since nothing depended on that shape.
+export const SaleRefundSchema =
+  saleRefundSchema as unknown as z.ZodSchema<SaleRefundInput>;
+export const SaleRefundItemSchema =
+  saleRefundItemSchema as unknown as z.ZodSchema<SaleRefundItemInput>;
+export const SaleRefundPreviewSchema =
+  saleRefundPreviewSchema as unknown as z.ZodSchema<SaleRefundPreviewInput>;
 
 // DC-10/DC-11 (OWNER_NOTES_2026-09-21.md §7.2): the dashboard chart's
 // "Profit" series and the "Net Profit — last 30 days" tile both read a
@@ -909,6 +940,29 @@ export const RefundLegsSchema =
 // present — a plain refund (no extras) never reaches this schema.
 export const RefundUnitExtrasSchema =
   refundUnitExtrasSchema as unknown as z.ZodSchema<RefundUnitExtrasInput>;
+
+// LIRA-236 — the cashier-typed exchange rate, riding alongside `refundLegs`
+// on the SAME `transactions:refund` call (the ONLY refund channel that
+// validates it as a bare positional value rather than a key on a combined
+// object schema — every other refund payload embeds `exchangeRate` directly).
+// Shared with the REST route the same way, rule 14. Validated only when
+// present — a plain refund (no typed rate) never reaches this schema.
+export const RefundExchangeRateSchema =
+  refundExchangeRateSchema as unknown as z.ZodSchema<number | undefined>;
+
+// LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — refund ONE (or, with
+// saleItemId omitted on a SALE member, every remaining) line of a
+// customer-session basket item. Shared with the REST route the same way —
+// packages/core/src/validators/transaction.ts, rule 14. Same cast-bridge
+// pattern as its siblings above.
+export const SessionItemRefundSchema =
+  sessionItemRefundSchema as unknown as z.ZodSchema<SessionItemRefundInput>;
+
+// Read-only preview counterpart of SessionItemRefundSchema above — mirrors
+// SaleRefundPreviewSchema's (LIRA-231) role for the whole-sale/item refund
+// preview. Same cast-bridge pattern.
+export const SessionItemRefundPreviewSchema =
+  sessionItemRefundPreviewSchema as unknown as z.ZodSchema<SessionItemRefundPreviewInput>;
 
 // =============================================================================
 // Carrier Lines (LIRA W6.a) / Mobile Service Items (LIRA W6.b)

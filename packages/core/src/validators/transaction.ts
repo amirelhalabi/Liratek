@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { TRANSACTION_TYPES, type TransactionType } from "../constants/transactionTypes.js";
+import {
+  clientDayInputSchema,
+  refundExchangeRateSchema,
+  refundExchangeRateQuerySchema,
+} from "./common.js";
 
 /**
  * Transaction-level (unified journal) validation schemas.
@@ -35,6 +40,24 @@ export const sessionBasketReversalSchema = z.object({
 
 export type SessionBasketReversalInput = z.infer<
   typeof sessionBasketReversalSchema
+>;
+
+/**
+ * REST path-param variant of `sessionBasketReversalSchema` above — same
+ * `z.coerce` pattern as `saleIdParamSchema`/`productUnitIdSchema`
+ * (validators/sale.ts, validators/productUnit.ts): a URL param is ALWAYS a
+ * string ("7", never 7), so the plain `z.number()` schema above rejects
+ * every request through `validateParams`. Used by
+ * `POST /session-basket/:sessionId/void` and `.../refund` (rule 19c —
+ * routed through `validateParams` so a bad id answers the SAME HTTP 200
+ * `{ success: false, error }` envelope every other validation failure on
+ * these routes does, instead of the old manual 400).
+ */
+export const sessionBasketSessionIdParamSchema = z.object({
+  sessionId: z.coerce.number().int().positive(),
+});
+export type SessionBasketSessionIdParamInput = z.infer<
+  typeof sessionBasketSessionIdParamSchema
 >;
 
 /**
@@ -96,6 +119,99 @@ export const refundUnitExtrasSchema = z.array(refundUnitExtraSchema).min(1);
 
 export type RefundUnitExtraInput = z.infer<typeof refundUnitExtraSchema>;
 export type RefundUnitExtrasInput = z.infer<typeof refundUnitExtrasSchema>;
+
+/**
+ * LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) —
+ * `TransactionRepository.refundSessionBasketItem`'s payload, shared by BOTH
+ * transports (IPC body / REST body) — rule 14. `sessionId` is
+ * `z.coerce.number()` because the REST route reads it off the URL
+ * (`/session-basket/:sessionId/items/refund`, always a string there); the
+ * IPC caller always sends a real number, and coercing a number is a no-op.
+ * `refundLegs` reuses `refundLegSchema`/`refundLegsSchema` (LIRA-078) rather
+ * than a second copy (rule 14) — same per-leg shape, same validation, same
+ * repository-side amount check. `clientDay` reuses the one shared
+ * client-day fragment (`clientDayInputSchema`, rule 27) — nothing in this
+ * flow currently reads the clock, but a future caller can supply it without
+ * a schema change. `saleItemId`/`quantity` are optional together: a SALE
+ * member with `saleItemId` omitted refunds every remaining line in one
+ * operation (owner answer Q2); `quantity` must be a positive integer when
+ * present — the repository owns the "not more than what's left" check
+ * (rule 14: one money-correctness predicate).
+ */
+export const sessionItemRefundSchema = z
+  .object({
+    sessionId: z.coerce.number().int().positive(),
+    transactionId: z.number().int().positive(),
+    saleItemId: z.number().int().positive().optional(),
+    quantity: z.number().int().positive().optional(),
+    refundLegs: refundLegsSchema.optional(),
+    // 2026-09-26 owner decision (adversarial-review NEW API CONTRACT) — the
+    // SAME "Returned phones" defective/warranty override `refundSaleItem`
+    // accepts (`refundUnitExtrasSchema`, rule 14 — one schema, not a second
+    // copy). A no-op for a non-SALE member; validated against THIS line's own
+    // linked unit(s) by the repository (`validateRefundUnitExtras`), never here.
+    unitExtras: refundUnitExtrasSchema.optional(),
+    clientDay: clientDayInputSchema,
+    // LIRA-236 (REFUND_EXCHANGE_RATE_PLAN.md §3/§4) — the cashier-typed
+    // exchange rate: drives BOTH the account-first cross-currency step and
+    // `refundLegs`' value-based validation. Omitted: the refunded member's
+    // own booked rate, else the day's fallback.
+    exchangeRate: refundExchangeRateSchema,
+  })
+  // Round-2 finding #10a (LOW) — `saleItemId` and `quantity` must be given
+  // TOGETHER or BOTH omitted. Omitting BOTH is Q2 ("every remaining line, in
+  // ONE operation" — owner answer). `quantity` given ALONE used to be
+  // silently ignored by that same Q2 branch (it never reads `quantity` at
+  // all when `saleItemId` is absent) — the caller asked to refund N units of
+  // ONE line and the whole sale's remaining lines were refunded instead.
+  // `saleItemId` given alone was already refused deep inside the repository
+  // ("quantity is required..."); refusing it here too, at the schema, is the
+  // SAME rule moved to the one shared boundary (rule 14).
+  .refine((data) => (data.saleItemId == null) === (data.quantity == null), {
+    message: "saleItemId and quantity must be given together, or both omitted",
+    path: ["quantity"],
+  });
+
+export type SessionItemRefundInput = z.infer<typeof sessionItemRefundSchema>;
+
+/**
+ * LIRA-232 phase 2 — read-only preview query for
+ * `TransactionService.getSessionItemRefundPreview`/`TransactionRepository
+ * .getSessionItemRefundPreview`. Mirrors `saleRefundPreviewSchema`'s shape
+ * (LIRA-231, `validators/sale.ts`) — a query, not a write, so every field
+ * (including `sessionId`/`transactionId`, which the write schema above
+ * treats differently) is `z.coerce.number()`: the REST route reads ALL of
+ * them off query-string params (`?transactionId=&saleItemId=&quantity=`),
+ * which arrive as strings; the IPC caller sends real numbers, and coercing
+ * a number is a no-op. No `refundLegs`/`clientDay` — a preview computes the
+ * default proportional legs itself and reads nothing time-dependent.
+ */
+export const sessionItemRefundPreviewSchema = z
+  .object({
+    sessionId: z.coerce.number().int().positive(),
+    transactionId: z.coerce.number().int().positive(),
+    saleItemId: z.coerce.number().int().positive().optional(),
+    quantity: z.coerce.number().int().positive().optional(),
+    // LIRA-236, contract item 3 — the preview also accepts a typed rate, so
+    // the account reduction/remainder shown reflect it. Coordinator
+    // follow-up (2026-09-28, rule 14 dedup) — `refundExchangeRateQuerySchema`
+    // (validators/common.ts) is the ONE query-string variant of the shared
+    // exchange-rate rule, instead of a second hand-written
+    // `z.coerce.number().positive().finite()` copy that had silently
+    // dropped the base schema's `.nullish()` null-handling.
+    exchangeRate: refundExchangeRateQuerySchema,
+  })
+  // Round-2 finding #10a — same pairing rule as `sessionItemRefundSchema`
+  // above (rule 14's spirit — one rule, both callers), so the preview never
+  // silently answers a different question than the write it's previewing.
+  .refine((data) => (data.saleItemId == null) === (data.quantity == null), {
+    message: "saleItemId and quantity must be given together, or both omitted",
+    path: ["quantity"],
+  });
+
+export type SessionItemRefundPreviewInput = z.infer<
+  typeof sessionItemRefundPreviewSchema
+>;
 
 /**
  * Transactions page multi-select Type filter (TransactionRepository.getRecent

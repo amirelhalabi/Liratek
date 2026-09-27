@@ -135,6 +135,21 @@ function createSchema(db: Database.Database): void {
       session_id INTEGER,
       transaction_type TEXT
     );
+
+    -- LIRA-232 findings #7/#8 (adversarial review) — getPaymentMethodRows'
+    -- linked_legs/session_legs CTEs each gained a 'session_item_refund'-link
+    -- EXISTS check against this table; a missing table here dies in setup
+    -- looking like an assertion failure for every test in the file (CLAUDE.md
+    -- "Test schemas silently void whole files"), even ones that never touch
+    -- a session basket at all.
+    CREATE TABLE customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER NOT NULL,
+      session_id INTEGER,
+      transaction_type TEXT,
+      transaction_id INTEGER,
+      unified_transaction_id INTEGER
+    );
   `);
 }
 
@@ -900,6 +915,128 @@ describe("ProfitRepository.getPaymentMethodRows", () => {
       expect(cash).toBeDefined();
       expect(cash!.total_usd).toBe(40);
       expect(cash!.count).toBe(1);
+    });
+  });
+
+  // ===========================================================================
+  // LIRA-232 findings #7/#8 (adversarial review, SESSION_ITEM_REFUND_PLAN.md)
+  // ===========================================================================
+  //
+  // Rule 17 — run against the pre-fix query (no 'session_item_refund' EXISTS
+  // escape in either CTE), both cases below FAILED as follows:
+  //   finding #8: a non-SALE item refund's own REFUND row sets reverses_id
+  //     (unlike a SALE item refund's own REFUND row, which never does), so
+  //     the blanket `t.reverses_id IS NULL` dropped its cash-back leg from
+  //     `linked_legs` — CASH read the recharge's original +$20 intake with
+  //     NOTHING netting it, instead of the true +$10 (20 - 10 refunded).
+  //   finding #7: once `sessionBasketNotReversedSql` trips (the basket's
+  //     remainder was whole-reversed AFTER a prior item refund already
+  //     returned part of its pooled cash), the old code dropped BOTH the
+  //     pooled IN leg and the reversal's own OUT leg — which no longer
+  //     cancel each other exactly, since the reversal's OUT leg is smaller
+  //     by whatever the item refund already gave back — leaving a residual,
+  //     uncounted delta (CASH read -$15 instead of the true 0).
+  describe("LIRA-232 findings #7/#8 — session-item-refund link rows", () => {
+    function linkSessionItemRefund(
+      sessionId: number,
+      refundTxnId: number,
+    ): void {
+      db.prepare(
+        `INSERT INTO customer_session_transactions (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id)
+         VALUES (1, ?, 'session_item_refund', 1, ?)`,
+      ).run(sessionId, refundTxnId);
+    }
+
+    it("finding #8: a non-SALE item refund's own REFUND row (reverses_id SET) still nets against its original — CASH reads the TRUE remaining intake, not the untouched gross", () => {
+      // The recharge's original intake: +$20 CASH.
+      const original = insertTxn(db, { type: "RECHARGE" });
+      insertPayment(db, {
+        transactionId: original,
+        method: "CASH",
+        currencyCode: "USD",
+        amount: 20,
+        sessionId: 900,
+      });
+      // Its item refund's OWN REFUND row: reverses_id SET (the non-SALE
+      // branch's real shape — TransactionRepository._createRefundRow always
+      // sets it), with its own -$10 cash-back leg.
+      const refundTxn = insertTxn(db, {
+        type: "REFUND",
+        reversesId: original,
+      });
+      insertPayment(db, {
+        transactionId: refundTxn,
+        method: "CASH",
+        currencyCode: "USD",
+        amount: -10,
+        sessionId: 900,
+      });
+      linkSessionItemRefund(900, refundTxn);
+
+      const rows = runWithTenant(1, () => repo.getPaymentMethodRows(FROM, TO));
+      const cash = rows.find((r) => r.method === "CASH");
+      expect(cash).toBeDefined();
+      expect(cash!.total_usd).toBeCloseTo(10, 6);
+    });
+
+    it("finding #7: a whole-basket reversal AFTER a prior item refund nets CASH to exactly 0, not a residual delta", () => {
+      // Basket: $1,515 pooled IN. An item refund already handed back $15 of
+      // it (its own linked_legs-counted REFUND row). The whole-basket
+      // reversal that follows only reverses what's LEFT: -$1,500 (not the
+      // full -$1,515 — SESSION_ITEM_REFUND_PLAN.md §9's "already returned"
+      // netting in _reverseSessionPooledPayments).
+      insertPayment(db, {
+        transactionId: null,
+        sessionId: 901,
+        method: "CASH",
+        currencyCode: "USD",
+        amount: 1515,
+      });
+      const refundTxn = insertTxn(db, { type: "REFUND" });
+      insertPayment(db, {
+        transactionId: refundTxn,
+        method: "CASH",
+        currencyCode: "USD",
+        amount: -15,
+        sessionId: 901,
+      });
+      linkSessionItemRefund(901, refundTxn);
+      insertPayment(db, {
+        transactionId: null,
+        sessionId: 901,
+        method: "CASH",
+        currencyCode: "USD",
+        amount: -1500,
+        note: "Basket reversal",
+      });
+
+      const rows = runWithTenant(1, () => repo.getPaymentMethodRows(FROM, TO));
+      const cash = rows.find((r) => r.method === "CASH");
+      // 1515 (pooled IN) - 15 (item refund's own leg) - 1500 (Q1 reversal of
+      // the remainder) = 0 — matches the drawer, which really did net to 0.
+      expect(cash?.total_usd ?? 0).toBeCloseTo(0, 6);
+    });
+
+    it("regression: a session with NO item refund is completely unaffected by the new EXISTS check (LPAY-V1 unchanged)", () => {
+      insertPayment(db, {
+        transactionId: null,
+        sessionId: 902,
+        method: "CASH",
+        currencyCode: "USD",
+        amount: 100,
+      });
+      insertPayment(db, {
+        transactionId: null,
+        sessionId: 902,
+        method: "CASH",
+        currencyCode: "USD",
+        amount: -100,
+        note: "Basket reversal",
+      });
+
+      const rows = runWithTenant(1, () => repo.getPaymentMethodRows(FROM, TO));
+      const cash = rows.find((r) => r.method === "CASH");
+      expect(cash).toBeUndefined();
     });
   });
 

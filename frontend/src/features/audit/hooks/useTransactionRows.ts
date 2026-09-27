@@ -8,6 +8,7 @@ import {
   parseMetaSafe,
   isExpenseVisible,
   isSupplierPaymentVisible,
+  isSessionItemRefundRow,
   type FilterOption,
 } from "../auditConstants";
 import { isCashTransaction, extraCurrencyLegs } from "../cashFlow";
@@ -95,6 +96,31 @@ export type TransactionRow = {
    * nothing. Read by `ReturnedCreditsCell` (../components/TransactionCells).
    */
   returned_credits_usd?: number;
+  /**
+   * LIRA-236 follow-up (2026-09-27 review) — server-computed replacement for
+   * the old amount-sign `isSessionPayoutMember` heuristic (see
+   * `sessionsWithPayoutMember` below): true when THIS row is a session-basket
+   * member that was netted as a payout at checkout (a loto cash prize, a
+   * wallet/Binance cash-out, a negative-amount custom-service payout). The
+   * amount-sign check missed a wallet/Binance cash-out entirely — that
+   * member's OWN `transactions` row carries a positive-or-zero amount; only
+   * the session's pooled basket-link row ever carried the negative
+   * customer-side amount. Optional because core's `getRecent` addition may
+   * not have landed yet in every environment this type is compiled against;
+   * absent/undefined MUST read as "not a payout" (never hidden), same as a
+   * REFUND row's own negative amount must never be misread as one.
+   */
+  is_session_payout?: boolean;
+  /**
+   * Coordinator follow-up (2026-09-27), item 5 — true when THIS row belongs
+   * to a session basket where EVERY member has already been refunded (item
+   * by item, or by an earlier whole-member refund/void) — server-computed,
+   * `TransactionRepository.isSessionBasketFullyRefunded`/`getRecent`'s
+   * addition, stamped identically onto every row of the session. Optional
+   * for the same reason `is_session_payout` above is: absent/undefined MUST
+   * read as "not fully refunded" (never hides the basket actions).
+   */
+  session_fully_refunded?: boolean;
 };
 
 /**
@@ -213,6 +239,57 @@ export interface UseTransactionRowsResult {
   loading: boolean;
   /** Re-run the query (after a void/refund writes). */
   reload: () => void;
+  /**
+   * LIRA-232 round-3 review (finding 3) — session ids that already have AT
+   * LEAST ONE per-item refund (a `refundSessionBasketItem` REFUND row,
+   * identified by `isSessionItemRefundRow`). Deliberately NOT derived from
+   * `rows`/`filteredRows`: both are narrowed by the operator's active
+   * type/search selection (SQL-level, in `load` below) and date range
+   * (client-side, in `filteredRows`), so a filter that hides the one REFUND
+   * row that proves a session was touched would wrongly un-hide "Void
+   * basket" — which still hard-refuses server-side no matter what the page
+   * currently shows. Populated by a SEPARATE, always-unfiltered-by-page-state
+   * REFUND-only query (see `loadSessionsWithItemRefund` below) that never
+   * depends on `selectedFilters`/`search`/`from`/`to`.
+   */
+  sessionsWithItemRefund: Set<number>;
+  /**
+   * LIRA-232 round-3 review (finding 2) — session ids that have ANY payout
+   * member (a loto cash prize, a wallet/Binance cash-out, a custom-service
+   * booked as a payout — anything netted against the basket's other items
+   * at checkout). Core refuses `refundSessionBasketItem` for EVERY member of
+   * such a basket, not just the payout row itself, so the Transactions page
+   * hides "Refund item" for the whole session rather than offering a button
+   * that's guaranteed to error.
+   *
+   * LIRA-236 follow-up (2026-09-27 review) — a payout member is now derived
+   * from each row's own server-computed `is_session_payout` flag
+   * (`TransactionRow.is_session_payout`, `getRecent`'s addition), NOT the
+   * former `isSessionPayoutMember` amount-sign predicate (`@liratek/core`).
+   * The sign check missed a wallet/Binance cash-out entirely: THAT member's
+   * own `transactions` row carries a positive-or-zero amount — only the
+   * session's pooled basket-link row ever carried the negative customer-side
+   * amount — so it never landed in this set and "Refund item" stayed offered
+   * on a basket the server refuses. The flag also keeps the OLD guarantee
+   * for free: an item-refund REFUND row's own negative amount was never
+   * flagged `is_session_payout` (core stamps it only on a genuine netted
+   * payout), so it still never hides "Refund item" for a sibling basket
+   * member. Absent/undefined reads as NOT a payout — never hidden. Derived
+   * from `rows` (not a dedicated unfiltered fetch like `sessionsWithItemRefund`
+   * above) — a narrower fix than finding 3's, scoped to what this finding
+   * asked for.
+   */
+  sessionsWithPayoutMember: Set<number>;
+  /**
+   * Coordinator follow-up (2026-09-27), item 5 — session ids where EVERY
+   * member has already been refunded item by item (server-computed,
+   * `TransactionRow.session_fully_refunded`). The server now REFUSES both
+   * `voidSessionBasket` and `refundSessionBasket` on such a basket, so
+   * `TransactionsViewer` hides BOTH "Void basket" and "Refund basket" for
+   * it (`ActionsCell`'s `hideBasketActions`), rather than offering buttons
+   * guaranteed to error.
+   */
+  sessionsFullyRefunded: Set<number>;
 }
 
 export function useTransactionRows({
@@ -224,6 +301,12 @@ export function useTransactionRows({
 }: UseTransactionRowsParams): UseTransactionRowsResult {
   const [rows, setRows] = useState<TransactionRow[]>([]);
   const [loading, setLoading] = useState(false);
+  // LIRA-232 round-3 review (finding 3) — populated ONLY while a filter is
+  // active (see `hasActiveFilter` below); `null` otherwise, meaning "derive
+  // it from `rows` instead" (see the `sessionsWithItemRefund` memo at the
+  // bottom of this hook).
+  const [dedicatedSessionsWithItemRefund, setDedicatedSessionsWithItemRefund] =
+    useState<Set<number> | null>(null);
 
   // A content-derived primitive key, not the array reference itself. Any
   // caller that builds `selectedFilters` fresh per render (an inline `[]` in
@@ -337,9 +420,70 @@ export function useTransactionRows({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit, filterKey, search]);
 
+  // LIRA-232 round-3 review (finding 3) — whether ANY active filter could
+  // hide the one REFUND row that proves a session was touched by an item
+  // refund: an active type selection (SQL-level, in `load` above) or an
+  // active date range (client-side, in `filteredRows` below). With no filter
+  // at all, `rows` already contains every REFUND row the fetch window
+  // covers (REFUND is never in HIDDEN_TRANSACTION_TYPES and "All types"
+  // matches every type), so deriving the set from `rows` directly is exactly
+  // as correct as a dedicated fetch and costs no extra round trip — the
+  // widening-loop tests below rely on `getRecentTransactions` being called
+  // exactly once per `load()` in that unfiltered case.
+  const hasActiveFilter = selectedFilters.length > 0 || from !== "" || to !== "";
+
+  // A dedicated, always-unfiltered-by-page-state REFUND-only fetch, run ONLY
+  // while `hasActiveFilter` is true. Deliberately has NO dependency on
+  // `filterKey`/`search`/`from`/`to`: those narrow what the OPERATOR
+  // currently sees, but "has this session already had an item refund" is a
+  // fact about the data, not about the current view, and
+  // `voidSessionBasket` refuses server-side regardless of the active filter.
+  // Best-effort — a failed fetch here must never block the main table; on
+  // failure it leaves the previous dedicated set (or null, before the first
+  // one lands) rather than throwing, matching the safe default documented on
+  // `isSessionItemRefundRow` ("don't hide a button that might still work").
+  const loadSessionsWithItemRefund = useCallback(async () => {
+    try {
+      const raw = ((await getRecentTransactions(FETCH_CAP, {
+        typeFilters: [{ type: "REFUND" } as TypeFilterTuple],
+      })) || []) as TransactionRow[];
+      const ids = new Set<number>();
+      for (const row of raw) {
+        if (
+          row.session_id != null &&
+          isSessionItemRefundRow(row.type, row.metadata_json)
+        ) {
+          ids.add(row.session_id);
+        }
+      }
+      setDedicatedSessionsWithItemRefund(ids);
+    } catch {
+      // ignore — see doc above
+    }
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (hasActiveFilter) {
+      loadSessionsWithItemRefund();
+    } else {
+      // Filter cleared — fall back to deriving from `rows` (below) until/
+      // unless a filter is applied again.
+      setDedicatedSessionsWithItemRefund(null);
+    }
+  }, [hasActiveFilter, loadSessionsWithItemRefund]);
+
+  // Both queries refresh together after a write (void/refund/etc) — a caller
+  // that just voided or item-refunded something needs the table AND the
+  // hide-Void-basket set to reflect it. Only re-runs the dedicated fetch
+  // while a filter is active, for the same reason the effect above does.
+  const reload = useCallback(() => {
+    load();
+    if (hasActiveFilter) loadSessionsWithItemRefund();
+  }, [load, hasActiveFilter, loadSessionsWithItemRefund]);
 
   const filteredRows = useMemo(() => {
     if (!from && !to) return rows;
@@ -351,5 +495,67 @@ export function useTransactionRows({
     });
   }, [rows, from, to]);
 
-  return { rows, filteredRows, loading, reload: load };
+  // No active filter: `rows` already carries every REFUND row the fetch
+  // window covers, so derive straight from it (no extra round trip). With a
+  // filter active, prefer the dedicated unfiltered fetch's result — falling
+  // back to deriving from `rows` only for the brief window before that
+  // fetch's first response lands (same "don't hide a button that might
+  // still work" default as everywhere else here).
+  const sessionsWithItemRefundFromRows = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of rows) {
+      if (
+        row.session_id != null &&
+        isSessionItemRefundRow(row.type, row.metadata_json)
+      ) {
+        ids.add(row.session_id);
+      }
+    }
+    return ids;
+  }, [rows]);
+  const sessionsWithItemRefund =
+    dedicatedSessionsWithItemRefund ?? sessionsWithItemRefundFromRows;
+
+  // LIRA-232 round-3 review (finding 2) / LIRA-236 follow-up — see the
+  // field's own doc above: flag-derived, not amount-sign-derived.
+  const sessionsWithPayoutMember = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of rows) {
+      if (row.session_id != null && row.is_session_payout === true) {
+        ids.add(row.session_id);
+      }
+    }
+    return ids;
+  }, [rows]);
+
+  // Coordinator follow-up (2026-09-27), item 5 — session ids where EVERY
+  // member has already been refunded item by item (server-computed,
+  // `TransactionRow.session_fully_refunded` / `TransactionRepository
+  // .isSessionBasketFullyRefunded`, stamped identically onto every row of
+  // that session by `getRecent()`). Mirrors `sessionsWithPayoutMember`
+  // immediately above (rule 14): derived from `rows` (the full page-level
+  // set), never `filteredRows` (further narrowed by the date range) — since
+  // the flag is stamped onto EVERY row of the session identically, any one
+  // visible row of that session already carries the correct value, unlike
+  // `sessionsWithItemRefund` above (which needs its own dedicated
+  // unfiltered query because only ONE specific REFUND row proves "touched").
+  const sessionsFullyRefunded = useMemo(() => {
+    const ids = new Set<number>();
+    for (const row of rows) {
+      if (row.session_id != null && row.session_fully_refunded === true) {
+        ids.add(row.session_id);
+      }
+    }
+    return ids;
+  }, [rows]);
+
+  return {
+    rows,
+    filteredRows,
+    loading,
+    reload,
+    sessionsWithItemRefund,
+    sessionsWithPayoutMember,
+    sessionsFullyRefunded,
+  };
 }

@@ -504,8 +504,41 @@ describe("SalesRepository.getChartData('Sales') — DC-1..DC-4 telecom/product-o
       price: 270_000,
     });
 
-    // DAY-1 (rule 27): `endDay` is now required — the fixture rows use
-    // `CURRENT_TIMESTAMP` (real machine "now"), so binding `localDay()`
+    // Flaky-test incident (2026-09-26/27, ~22:45 UTC = 01:45 Beirut): every
+    // row above was stamped via its table's `created_at DEFAULT
+    // CURRENT_TIMESTAMP` — the real machine "now" — while the query below
+    // binds `localDay()` (Node-computed). `getChartData` buckets each row
+    // via `DATE(col, 'localtime')`, i.e. SQLite's OWN 'localtime'
+    // conversion — NOT Node's. On a Windows box launched with the core test
+    // script's `TZ=Asia/Beirut` (cross-env), the Microsoft C runtime
+    // better-sqlite3 links against cannot parse that IANA zone name and
+    // silently applies a WRONG offset (measured: +01:00 instead of the real
+    // Beirut DST +03:00), so for ~2 real-clock hours nightly
+    // (~21:00-23:00 UTC = ~00:00-02:00 Beirut) SQLite's bucketed day for a
+    // real "now" row disagrees with `localDay()`'s — exactly this file's
+    // incident (see the guard test in `ExpenseActiveGate.test.ts` for the
+    // full mechanism + evidence). Node's own Date/Intl (which `localDay()`
+    // uses) is unaffected — the mismatch is SQLite-side only.
+    //
+    // Fix: re-stamp every fixture row's `created_at` at LOCAL NOON of
+    // today, expressed as a UTC instant. Any timezone offset within
+    // +/-11h — every real IANA zone, and the observed wrong +01:00 CRT
+    // fallback — still converts noon-UTC to a wall-clock time inside the
+    // SAME calendar day, so this fixture no longer depends on which of the
+    // two disagreeing offsets SQLite happens to apply, or on what real
+    // wall-clock moment this test happens to run at.
+    const safeCreatedAt = `${localDay()}T12:00:00.000Z`;
+    db.prepare(`UPDATE sales SET created_at = ? WHERE tenant_id = 1`).run(
+      safeCreatedAt,
+    );
+    db.prepare(`UPDATE recharges SET created_at = ? WHERE tenant_id = 1`).run(
+      safeCreatedAt,
+    );
+    db.prepare(
+      `UPDATE financial_services SET created_at = ? WHERE tenant_id = 1`,
+    ).run(safeCreatedAt);
+
+    // DAY-1 (rule 27): `endDay` is now required — binding `localDay()`
     // reproduces the exact pre-fix `date('now','localtime')` window this
     // fixture was written against.
     const chart = repo.getChartData("Sales", localDay());

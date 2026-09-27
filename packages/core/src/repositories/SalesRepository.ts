@@ -5,6 +5,7 @@
  * Extends BaseRepository for standard CRUD operations.
  */
 
+import type Database from "better-sqlite3";
 import { BaseRepository } from "./BaseRepository.js";
 import {
   DatabaseError,
@@ -12,7 +13,19 @@ import {
   BusinessRuleError,
 } from "../utils/errors.js";
 import { salesLogger } from "../utils/logger.js";
-import { getTransactionRepository } from "./TransactionRepository.js";
+import {
+  getTransactionRepository,
+  isOverridableLeg,
+  overridableNetByCurrency,
+  refundLegReversalSign,
+  paymentRowsToLegs,
+  resolveBookedRate,
+  validateRefundLegOverrideAmounts,
+  validateRefundUnitExtras,
+  type RefundLegOverride,
+  type RefundUnitExtra,
+  type TransactionPaymentLeg,
+} from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
@@ -338,6 +351,53 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     return this._productUnitsTableExistsCache;
   }
 
+  /**
+   * LIRA-229 — undo whatever drawer deltas this sale's CURRENT payment legs
+   * applied, keyed by `source_table`/`source_id` (not a single
+   * `transaction_id`) so it also mops up any legacy duplicate SALE rows a
+   * pre-fix draft resave may have left behind. Every row this selects was
+   * originally posted via `applyDrawerDelta` inside `processSale`'s
+   * `status === "completed"` block (the `insertPayment.run`/
+   * `upsertBalanceDelta.run` pair, and the change-given legs) —
+   * `applyDrawerDelta`'s upsert is exact under negation regardless of sign,
+   * so a negative (change/OUT) leg's amount negates back to a positive
+   * re-credit correctly.
+   *
+   * Called from ONE place: `processSale`, right before it deletes and
+   * re-inserts this sale's payment rows — which, since a draft never posts
+   * a payment leg in the first place (see the `status === "completed"`
+   * gate), is only ever non-empty when `processSale` is called AGAIN with
+   * `status: "completed"` for a sale that has already been completed once
+   * (a retry/double-submit). A no-op on every normal completion: no prior
+   * payment rows exist yet.
+   */
+  private _reverseExistingSalePayments(
+    db: Database.Database,
+    saleId: number,
+    tenantId: number,
+  ): void {
+    const priorLegs = db
+      .prepare(
+        `SELECT p.drawer_name AS drawer_name, p.currency_code AS currency_code, p.amount AS amount
+         FROM payments p
+         JOIN transactions t ON t.id = p.transaction_id
+         WHERE t.tenant_id = ? AND t.source_table = 'sales' AND t.source_id = ? AND p.tenant_id = ?`,
+      )
+      .all(tenantId, saleId, tenantId) as {
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    }[];
+    for (const leg of priorLegs) {
+      applyDrawerDelta(db, {
+        drawerName: leg.drawer_name,
+        currencyCode: leg.currency_code,
+        delta: -leg.amount,
+        tenantId,
+      });
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Full Transaction Processing
   // ---------------------------------------------------------------------------
@@ -371,7 +431,20 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // then exact name) — a blind INSERT hit UNIQUE constraints for repeat
         // customers and silently dropped the client association entirely
         // (lira-094 session sweep).
-        if (!finalClientId && sale.client_name) {
+        //
+        // Session-basket exception: `deferPayment: true` is the session
+        // checkout's own marker (stamped on every cart item by
+        // `processCartItem`, SessionCheckoutService.ts) — never set by
+        // standalone POS. The SESSION already resolved client identity
+        // (exact match only, no fuzzy name-match/auto-create — see
+        // SessionCheckoutService's client-injection block); a sale routed
+        // through a session basket must carry exactly what the session
+        // resolved, not re-run this standalone-POS heuristic. Without this
+        // gate, a name-only walk-in whose session found no client would
+        // create a brand-new client row (or silently attach to an unrelated
+        // existing client who happens to share the name) purely because the
+        // session's client injection also stamps `client_name` for display.
+        if (!sale.deferPayment && !finalClientId && sale.client_name) {
           try {
             const existing =
               ((sale.client_phone
@@ -804,327 +877,389 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           }
         });
 
-        const txnId = getTransactionRepository().createTransaction({
-          type: TRANSACTION_TYPES.SALE,
-          source_table: "sales",
-          source_id: saleId,
-          user_id: userId,
-          // Unified-row amounts carry the sale's VALUE in its denominated
-          // currency (sales are USD-priced), never the tender — the LBP the
-          // customer handed over lives in the payment legs below. Stamping
-          // payment_lbp here double-counted the sale ($5 + 450,000 LBP) in the
-          // audit view and inflated revenue_lbp in profit/session reports.
-          amount_usd: sale.final_amount,
-          amount_lbp: 0,
-          // Item margins − discount, plus any change the operator kept as
-          // profit (T3 keep-change) — stamped per currency at create time so
-          // the generic void's stamp negation reverses it symmetrically. By
-          // this point saleProfitUsd already carries the FIFO correction
-          // applied in the item-processing loop above, so this is the
-          // sale's REAL margin, never the early loop's provisional one.
-          profit_usd: saleProfitUsd + (sale.kept_change_usd || 0),
-          profit_lbp: sale.kept_change_lbp || 0,
-          exchange_rate: sale.exchange_rate,
-          client_id: finalClientId ?? null,
-          // Rule 11: keep the walk-in name/phone on the unified row even when
-          // no clients row could be resolved (lira-094). For-partner sales
-          // label the row with the partner instead (owner ask: the
-          // transactions table shows "<partner> [partner]").
-          client_name:
-            sale.partnerMode === "FOR" && sale.partnerId
-              ? `${getPartnerRepository().getById(sale.partnerId)?.name ?? `#${sale.partnerId}`} [partner]`
-              : (sale.client_name ?? null),
-          client_phone: sale.client_phone ?? null,
-          summary: saleLabel,
-          metadata_json: {
-            total_amount: sale.total_amount,
-            discount: sale.discount,
-            final_amount: sale.final_amount,
-            status,
-            item_count: sale.items.length,
-            items: saleItemDetails,
-          },
-          transaction_time: sale.transaction_time,
-        });
+        // LIRA-229: the unified `transactions` money-ledger row — and every
+        // payment leg, drawer delta, gift-card redemption, debt charge and
+        // partner-ledger entry that follows from it — is written for a sale
+        // ONLY when it is `completed`. A draft never reaches this block:
+        // the `sales`/`sale_items` write above already carries whatever the
+        // draft's current paid_usd/paid_lbp/items are (so resuming a draft
+        // restores the checkout form), but NO money moves and NO
+        // `transactions` row exists until the sale is completed. Cancelling
+        // a draft (`deleteDraft`) therefore has nothing to reverse.
+        //
+        // Pre-fix, this whole block ran unconditionally on every
+        // processSale call — draft autosave, draft resave, AND completion
+        // alike — so a sale saved N times before completion ended up with
+        // N ACTIVE `type = 'SALE'` rows (no status gate, nothing voiding
+        // the earlier ones): every Profits query that doesn't defend
+        // against it (unlike refundOriginalJoin's MIN(o.id)) over-counted
+        // revenue/profit by up to Nx, and a draft saved on one day and
+        // completed on another split its profit across both periods. It
+        // also meant the DELETE-then-reinsert of `payments` a few lines
+        // below dropped old rows without ever reversing the drawer delta
+        // they had applied, so a draft resaved with a $5 pre-payment 3
+        // times then completed for $8 credited the drawer
+        // $5+$5+$5+$8 instead of $8.
+        //
+        // The invariant this repairs: a sale has AT MOST ONE ACTIVE,
+        // non-reversal SALE transaction row, written exactly once, on
+        // completion. The lookup+update-in-place below exists only to keep
+        // that true if `processSale` is ever called again with
+        // `status: 'completed'` for a sale that already has one (a
+        // retry/double-submit) — the ONLY way this branch runs more than
+        // once for the same sale.id — rather than inserting a second row.
+        if (status === "completed") {
+          const existingTxnId =
+            getTransactionRepository().getActiveSaleTransactionId(saleId);
 
-        // Persist payment lines + update running balances (drawer_balances)
-        // - If sale.payments is not provided, we store inferred CASH lines from legacy totals.
-        // - Change is treated as CASH (General drawer) outflow.
-        const paymentLines: PaymentLine[] = sale.payments?.length
-          ? sale.payments
-          : [
-              ...(paymentUsd
-                ? [
-                    {
-                      method: "CASH" as const,
-                      currency_code: "USD",
-                      amount: paymentUsd,
-                    },
-                  ]
-                : []),
-              ...(paymentLbp
-                ? [
-                    {
-                      method: "CASH" as const,
-                      currency_code: "LBP",
-                      amount: paymentLbp,
-                    },
-                  ]
-                : []),
-            ];
+          const txnFields = {
+            user_id: userId,
+            // Unified-row amounts carry the sale's VALUE in its denominated
+            // currency (sales are USD-priced), never the tender — the LBP the
+            // customer handed over lives in the payment legs below. Stamping
+            // payment_lbp here double-counted the sale ($5 + 450,000 LBP) in the
+            // audit view and inflated revenue_lbp in profit/session reports.
+            amount_usd: sale.final_amount,
+            amount_lbp: 0,
+            // Item margins − discount, plus any change the operator kept as
+            // profit (T3 keep-change) — stamped per currency at create time so
+            // the generic void's stamp negation reverses it symmetrically. By
+            // this point saleProfitUsd already carries the FIFO correction
+            // applied in the item-processing loop above, so this is the
+            // sale's REAL margin, never the early loop's provisional one.
+            profit_usd: saleProfitUsd + (sale.kept_change_usd || 0),
+            profit_lbp: sale.kept_change_lbp || 0,
+            exchange_rate: sale.exchange_rate,
+            client_id: finalClientId ?? null,
+            // Rule 11: keep the walk-in name/phone on the unified row even when
+            // no clients row could be resolved (lira-094). For-partner sales
+            // label the row with the partner instead (owner ask: the
+            // transactions table shows "<partner> [partner]").
+            client_name:
+              sale.partnerMode === "FOR" && sale.partnerId
+                ? `${getPartnerRepository().getById(sale.partnerId)?.name ?? `#${sale.partnerId}`} [partner]`
+                : (sale.client_name ?? null),
+            client_phone: sale.client_phone ?? null,
+            summary: saleLabel,
+            metadata_json: {
+              total_amount: sale.total_amount,
+              discount: sale.discount,
+              final_amount: sale.final_amount,
+              status,
+              item_count: sale.items.length,
+              items: saleItemDetails,
+            },
+          };
 
-        db.prepare(
-          `DELETE FROM payments WHERE tenant_id = ? AND transaction_id IN (SELECT id FROM transactions WHERE tenant_id = ? AND source_table = 'sales' AND source_id = ?)`,
-        ).run(tenantId, tenantId, saleId);
+          const txnId = existingTxnId
+            ? (getTransactionRepository().updateTransactionCore(
+                existingTxnId,
+                txnFields,
+              ),
+              existingTxnId)
+            : getTransactionRepository().createTransaction({
+                ...txnFields,
+                type: TRANSACTION_TYPES.SALE,
+                source_table: "sales",
+                source_id: saleId,
+                transaction_time: sale.transaction_time,
+              });
 
-        const insertPayment = {
-          run: (
-            transactionId: number,
-            method: string,
-            drawerName: string,
-            currencyCode: string,
-            amount: number,
-            note: string | null,
-            createdBy: number,
-            tenant: number,
-          ) =>
-            insertPaymentRow(db, {
-              transactionId,
-              method,
-              drawerName,
-              currencyCode,
-              amount,
-              note,
-              createdBy,
-              tenantId: tenant,
-            }),
-        };
+          // Persist payment lines + update running balances (drawer_balances)
+          // - If sale.payments is not provided, we store inferred CASH lines from legacy totals.
+          // - Change is treated as CASH (General drawer) outflow.
+          const paymentLines: PaymentLine[] = sale.payments?.length
+            ? sale.payments
+            : [
+                ...(paymentUsd
+                  ? [
+                      {
+                        method: "CASH" as const,
+                        currency_code: "USD",
+                        amount: paymentUsd,
+                      },
+                    ]
+                  : []),
+                ...(paymentLbp
+                  ? [
+                      {
+                        method: "CASH" as const,
+                        currency_code: "LBP",
+                        amount: paymentLbp,
+                      },
+                    ]
+                  : []),
+              ];
 
-        const upsertBalanceDelta = {
-          run: (
-            tenant: number,
-            drawerName: string,
-            currencyCode: string,
-            delta: number,
-          ) =>
-            applyDrawerDelta(db, {
-              drawerName,
-              currencyCode,
-              delta,
-              tenantId: tenant,
-            }),
-        };
+          // Only reachable on a completion retry (existingTxnId set) — undo
+          // whatever this sale's payment legs posted on the FIRST
+          // completion BEFORE deleting them (and before the fresh legs
+          // below re-post the current state), so a retry can never
+          // double-post a drawer delta. No-op on every normal (first and
+          // only) completion, since no prior payment rows exist yet.
+          // Reversal owner (rule 20): this method itself, symmetric with
+          // the post loop a few lines down.
+          this._reverseExistingSalePayments(db, saleId, tenantId);
 
-        const createdBy = userId;
-        const note = sale.note || null;
-        const deferPayment = sale.deferPayment === true;
+          db.prepare(
+            `DELETE FROM payments WHERE tenant_id = ? AND transaction_id IN (SELECT id FROM transactions WHERE tenant_id = ? AND source_table = 'sales' AND source_id = ?)`,
+          ).run(tenantId, tenantId, saleId);
 
-        // Split customer-paid (IN) legs from shop-returned change (OUT) legs.
-        // Deferred (session basket): the basket recorder owns the customer-cash
-        // legs, change, gift-card redemption, and debt — skip them all here.
-        const { inLegs, outLegs } = partitionLegs(
-          deferPayment ? [] : paymentLines,
-        );
+          const insertPayment = {
+            run: (
+              transactionId: number,
+              method: string,
+              drawerName: string,
+              currencyCode: string,
+              amount: number,
+              note: string | null,
+              createdBy: number,
+              tenant: number,
+            ) =>
+              insertPaymentRow(db, {
+                transactionId,
+                method,
+                drawerName,
+                currencyCode,
+                amount,
+                note,
+                createdBy,
+                tenantId: tenant,
+              }),
+          };
 
-        for (const p of inLegs) {
-          // DEBT means no drawer movement and should not create a payments row.
-          if (!isDrawerAffectingMethod(p.method)) continue;
-          const drawerName = paymentMethodToDrawerName(p.method);
-          insertPayment.run(
-            txnId,
-            p.method,
-            drawerName,
-            p.currency_code,
-            p.amount,
-            note,
-            createdBy,
-            tenantId,
+          const upsertBalanceDelta = {
+            run: (
+              tenant: number,
+              drawerName: string,
+              currencyCode: string,
+              delta: number,
+            ) =>
+              applyDrawerDelta(db, {
+                drawerName,
+                currencyCode,
+                delta,
+                tenantId: tenant,
+              }),
+          };
+
+          const createdBy = userId;
+          const note = sale.note || null;
+          const deferPayment = sale.deferPayment === true;
+
+          // Split customer-paid (IN) legs from shop-returned change (OUT) legs.
+          // Deferred (session basket): the basket recorder owns the customer-cash
+          // legs, change, gift-card redemption, and debt — skip them all here.
+          const { inLegs, outLegs } = partitionLegs(
+            deferPayment ? [] : paymentLines,
           );
-          upsertBalanceDelta.run(
-            tenantId,
-            drawerName,
-            p.currency_code,
-            p.amount,
-          );
-        }
 
-        // Redeem any gift-card / voucher legs atomically with the sale. The
-        // voucher's full value is deposited to the owner's account; the sale's
-        // GIFT_CARD leg is non-drawer, so the unpaid balance becomes a Sale Debt
-        // that the deposited credit offsets.
-        const voucherRepo = getVoucherRepository();
-        for (const p of inLegs) {
-          if (p.method !== "GIFT_CARD" || !p.voucher_code) continue;
-          voucherRepo.redeemByCode({
-            code: p.voucher_code,
-            context: "sale",
-            transactionId: txnId,
-            userId: createdBy,
-          });
-        }
-
-        // Return (OUT) legs: change handed back via a non-cash method or kept as
-        // store credit. Cash change uses the change_given_usd/lbp path below.
-        for (const r of outLegs) {
-          const amt = Math.abs(r.amount);
-          if (amt <= 0) continue;
-          if (r.method === "CUSTOMER_ACCOUNT") {
-            if (!sale.client_id) {
-              throw new Error(
-                "Client is required to return change as store credit",
-              );
-            }
-            getDebtService().addCredit({
-              clientId: sale.client_id,
-              amountUsd: r.currency_code === "USD" ? amt : 0,
-              amountLbp: r.currency_code === "LBP" ? amt : 0,
-              note: "Change returned",
-              userId: createdBy,
-              transactionId: txnId,
-            });
-          } else if (isDrawerAffectingMethod(r.method)) {
-            const drawerName = paymentMethodToDrawerName(r.method);
+          for (const p of inLegs) {
+            // DEBT means no drawer movement and should not create a payments row.
+            if (!isDrawerAffectingMethod(p.method)) continue;
+            const drawerName = paymentMethodToDrawerName(p.method);
             insertPayment.run(
               txnId,
-              r.method,
+              p.method,
               drawerName,
-              r.currency_code,
-              -amt,
-              "Change returned",
+              p.currency_code,
+              p.amount,
+              note,
               createdBy,
               tenantId,
             );
-            upsertBalanceDelta.run(tenantId, drawerName, r.currency_code, -amt);
-          }
-        }
-
-        const changeUsd = deferPayment
-          ? 0
-          : Math.abs(sale.change_given_usd || 0);
-        const changeLbp = deferPayment
-          ? 0
-          : Math.abs(sale.change_given_lbp || 0);
-        if (changeUsd) {
-          insertPayment.run(
-            txnId,
-            "CASH",
-            "General",
-            "USD",
-            -changeUsd,
-            "Change given",
-            createdBy,
-            tenantId,
-          );
-          upsertBalanceDelta.run(tenantId, "General", "USD", -changeUsd);
-        }
-        if (changeLbp) {
-          insertPayment.run(
-            txnId,
-            "CASH",
-            "General",
-            "LBP",
-            -changeLbp,
-            "Change given",
-            createdBy,
-            tenantId,
-          );
-          upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
-        }
-
-        // Handle Debt (If Partial Payment AND Completed)
-        // Deferred (session basket): the basket recorder creates ONE debt entry
-        // for the whole basket and back-fills this sale's paid state, so skip the
-        // per-sale debt here (it would double-count and mis-attribute).
-        //
-        // PFT-R (Partner FOR-Transactions, validated flow catalog — supersedes
-        // the PFT-2 "walk-in pays cash, remainder to partner" model): a
-        // FOR-partner sale has NO walk-in customer in between. No counter
-        // cash/wallet payment is taken at all — the partner owes the FULL
-        // sale amount, settled later on the Partners page. Routing is
-        // mutually exclusive with client debt_ledger — never both on one
-        // transaction.
-        if (status === "completed" && !deferPayment) {
-          const isForPartner = sale.partnerMode === "FOR";
-
-          if (isForPartner) {
-            // A CUSTOMER_ACCOUNT leg is the client-debt deferred-payment
-            // destination — contradictory with routing the amount to the
-            // partner instead. Reject rather than silently pick one.
-            assertNoCustomerAccountLeg(
-              inLegs.some((p) => p.method === "CUSTOMER_ACCOUNT"),
-              "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg — the remainder can only route to one deferred-payment destination",
+            upsertBalanceDelta.run(
+              tenantId,
+              drawerName,
+              p.currency_code,
+              p.amount,
             );
-            // PFT-R: a partner sale takes no counter payment at all — any
-            // customer-paid IN leg (cash, wallet, gift card, ...) means a
-            // walk-in customer is in the loop, which contradicts the
-            // validated FOR-partner model (full amount, no counter cash).
-            // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 slice 2 decision:
-            // `legacyPaidBy` deliberately STAYS `undefined` here — unlike
-            // Financial Services/Recharge/Custom Services, Sales has no
-            // separate legacy METHOD field to wire in. `sale.payment_usd`/
-            // `sale.payment_lbp` are legacy AMOUNTS, not a method code
-            // ("CUSTOMER_ACCOUNT" cannot appear there), and — the part that
-            // matters — they are already structurally absorbed into `inLegs`
-            // above (this method's `paymentLines` synthesizes a `"CASH"` leg
-            // from them whenever `sale.payments` is empty/absent — see
-            // `paymentLines`'s own comment), which is EVERY case that
-            // reaches this branch (a non-empty `sale.payments` array takes
-            // precedence and makes the legacy amounts inert everywhere in
-            // this repo, not just under FOR — that is pre-existing,
-            // partner-mode-independent behavior, not a hole this plan
-            // opened). So `inLegs.length > 0` above ALREADY reflects a
-            // non-zero legacy `payment_usd`/`payment_lbp` and this guard
-            // already rejects it — proven by
-            // `SalesRepository.forPartnerLegacyAmounts.test.ts`, which pins
-            // exactly that combination (no `payments`, non-zero
-            // `payment_usd`) as REJECTED on the CURRENT, unmodified code.
-            // There is nothing to wire: passing `undefined` here is not a
-            // placeholder, it's the correct value — Sales has no legacy
-            // field this guard's second parameter is FOR.
-            assertNoCounterPayment(inLegs.length > 0, undefined, "sale");
-            assertPartnerIdRequired(sale.partnerId);
+          }
 
-            // PFT-R: the partner owes the FULL sale amount unconditionally —
-            // never a "remainder after cash" figure, and never gated on the
-            // sale.final_amount vs. paid-now threshold below (there is no
-            // paid-now leg in partner mode). Native to the sale's currency
-            // (POS sales are always USD-priced).
-            getPartnerRepository().addLedgerEntry({
-              partner_id: sale.partnerId as number,
-              transaction_type: "FOR_POS",
-              reference_table: "sales",
-              reference_id: saleId,
-              amount: sale.final_amount,
-              currency: "USD",
-              direction: "DEBIT",
-              user_id: createdBy,
-              notes: saleLabel,
+          // Redeem any gift-card / voucher legs atomically with the sale. The
+          // voucher's full value is deposited to the owner's account; the sale's
+          // GIFT_CARD leg is non-drawer, so the unpaid balance becomes a Sale Debt
+          // that the deposited credit offsets.
+          const voucherRepo = getVoucherRepository();
+          for (const p of inLegs) {
+            if (p.method !== "GIFT_CARD" || !p.voucher_code) continue;
+            voucherRepo.redeemByCode({
+              code: p.voucher_code,
+              context: "sale",
+              transactionId: txnId,
+              userId: createdBy,
             });
-          } else {
-            // Use derived payment totals (accounts for new payment lines structure)
-            const totalPaidUSD = paymentUsd + paymentLbp / sale.exchange_rate;
-            if (sale.final_amount - totalPaidUSD > 0.05) {
-              const remainder = sale.final_amount - totalPaidUSD;
+          }
 
-              if (!finalClientId) {
-                throw new Error("Cannot create debt for anonymous client");
+          // Return (OUT) legs: change handed back via a non-cash method or kept as
+          // store credit. Cash change uses the change_given_usd/lbp path below.
+          for (const r of outLegs) {
+            const amt = Math.abs(r.amount);
+            if (amt <= 0) continue;
+            if (r.method === "CUSTOMER_ACCOUNT") {
+              if (!sale.client_id) {
+                throw new Error(
+                  "Client is required to return change as store credit",
+                );
               }
-
-              // Use txnId (transactions table FK) per unified transaction
-              // architecture. amountLbp/createdBy stay null: the original
-              // hand-rolled INSERT here never included those columns (POS
-              // sales are always USD-priced) — see moneyPosting.ts's
-              // bookClientDebtCharge doc for why null reproduces that exactly.
-              bookClientDebtCharge(db, {
-                clientId: finalClientId,
-                transactionType: "Sale Debt",
-                amountUsd: remainder,
-                amountLbp: null,
+              getDebtService().addCredit({
+                clientId: sale.client_id,
+                amountUsd: r.currency_code === "USD" ? amt : 0,
+                amountLbp: r.currency_code === "LBP" ? amt : 0,
+                note: "Change returned",
+                userId: createdBy,
                 transactionId: txnId,
-                note: saleLabel,
-                createdBy: null,
-                tenantId,
               });
+            } else if (isDrawerAffectingMethod(r.method)) {
+              const drawerName = paymentMethodToDrawerName(r.method);
+              insertPayment.run(
+                txnId,
+                r.method,
+                drawerName,
+                r.currency_code,
+                -amt,
+                "Change returned",
+                createdBy,
+                tenantId,
+              );
+              upsertBalanceDelta.run(
+                tenantId,
+                drawerName,
+                r.currency_code,
+                -amt,
+              );
+            }
+          }
+
+          const changeUsd = deferPayment
+            ? 0
+            : Math.abs(sale.change_given_usd || 0);
+          const changeLbp = deferPayment
+            ? 0
+            : Math.abs(sale.change_given_lbp || 0);
+          if (changeUsd) {
+            insertPayment.run(
+              txnId,
+              "CASH",
+              "General",
+              "USD",
+              -changeUsd,
+              "Change given",
+              createdBy,
+              tenantId,
+            );
+            upsertBalanceDelta.run(tenantId, "General", "USD", -changeUsd);
+          }
+          if (changeLbp) {
+            insertPayment.run(
+              txnId,
+              "CASH",
+              "General",
+              "LBP",
+              -changeLbp,
+              "Change given",
+              createdBy,
+              tenantId,
+            );
+            upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
+          }
+
+          // Handle Debt (If Partial Payment) — deferred (session basket): the
+          // basket recorder creates ONE debt entry for the whole basket and
+          // back-fills this sale's paid state, so skip the per-sale debt
+          // here (it would double-count and mis-attribute).
+          //
+          // PFT-R (Partner FOR-Transactions, validated flow catalog — supersedes
+          // the PFT-2 "walk-in pays cash, remainder to partner" model): a
+          // FOR-partner sale has NO walk-in customer in between. No counter
+          // cash/wallet payment is taken at all — the partner owes the FULL
+          // sale amount, settled later on the Partners page. Routing is
+          // mutually exclusive with client debt_ledger — never both on one
+          // transaction.
+          if (!deferPayment) {
+            const isForPartner = sale.partnerMode === "FOR";
+
+            if (isForPartner) {
+              // A CUSTOMER_ACCOUNT leg is the client-debt deferred-payment
+              // destination — contradictory with routing the amount to the
+              // partner instead. Reject rather than silently pick one.
+              assertNoCustomerAccountLeg(
+                inLegs.some((p) => p.method === "CUSTOMER_ACCOUNT"),
+                "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg — the remainder can only route to one deferred-payment destination",
+              );
+              // PFT-R: a partner sale takes no counter payment at all — any
+              // customer-paid IN leg (cash, wallet, gift card, ...) means a
+              // walk-in customer is in the loop, which contradicts the
+              // validated FOR-partner model (full amount, no counter cash).
+              // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 slice 2 decision:
+              // `legacyPaidBy` deliberately STAYS `undefined` here — unlike
+              // Financial Services/Recharge/Custom Services, Sales has no
+              // separate legacy METHOD field to wire in. `sale.payment_usd`/
+              // `sale.payment_lbp` are legacy AMOUNTS, not a method code
+              // ("CUSTOMER_ACCOUNT" cannot appear there), and — the part that
+              // matters — they are already structurally absorbed into `inLegs`
+              // above (this method's `paymentLines` synthesizes a `"CASH"` leg
+              // from them whenever `sale.payments` is empty/absent — see
+              // `paymentLines`'s own comment), which is EVERY case that
+              // reaches this branch (a non-empty `sale.payments` array takes
+              // precedence and makes the legacy amounts inert everywhere in
+              // this repo, not just under FOR — that is pre-existing,
+              // partner-mode-independent behavior, not a hole this plan
+              // opened). So `inLegs.length > 0` above ALREADY reflects a
+              // non-zero legacy `payment_usd`/`payment_lbp` and this guard
+              // already rejects it — proven by
+              // `SalesRepository.forPartnerLegacyAmounts.test.ts`, which pins
+              // exactly that combination (no `payments`, non-zero
+              // `payment_usd`) as REJECTED on the CURRENT, unmodified code.
+              // There is nothing to wire: passing `undefined` here is not a
+              // placeholder, it's the correct value — Sales has no legacy
+              // field this guard's second parameter is FOR.
+              assertNoCounterPayment(inLegs.length > 0, undefined, "sale");
+              assertPartnerIdRequired(sale.partnerId);
+
+              // PFT-R: the partner owes the FULL sale amount unconditionally —
+              // never a "remainder after cash" figure, and never gated on the
+              // sale.final_amount vs. paid-now threshold below (there is no
+              // paid-now leg in partner mode). Native to the sale's currency
+              // (POS sales are always USD-priced).
+              getPartnerRepository().addLedgerEntry({
+                partner_id: sale.partnerId as number,
+                transaction_type: "FOR_POS",
+                reference_table: "sales",
+                reference_id: saleId,
+                amount: sale.final_amount,
+                currency: "USD",
+                direction: "DEBIT",
+                user_id: createdBy,
+                notes: saleLabel,
+              });
+            } else {
+              // Use derived payment totals (accounts for new payment lines structure)
+              const totalPaidUSD =
+                paymentUsd + paymentLbp / sale.exchange_rate;
+              if (sale.final_amount - totalPaidUSD > 0.05) {
+                const remainder = sale.final_amount - totalPaidUSD;
+
+                if (!finalClientId) {
+                  throw new Error("Cannot create debt for anonymous client");
+                }
+
+                // Use txnId (transactions table FK) per unified transaction
+                // architecture. amountLbp/createdBy stay null: the original
+                // hand-rolled INSERT here never included those columns (POS
+                // sales are always USD-priced) — see moneyPosting.ts's
+                // bookClientDebtCharge doc for why null reproduces that exactly.
+                bookClientDebtCharge(db, {
+                  clientId: finalClientId,
+                  transactionType: "Sale Debt",
+                  amountUsd: remainder,
+                  amountLbp: null,
+                  transactionId: txnId,
+                  note: saleLabel,
+                  createdBy: null,
+                  tenantId,
+                });
+              }
             }
           }
         }
@@ -1345,6 +1480,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       if (sale.status !== "draft") {
         return { success: false, error: "Only draft sales can be deleted" };
       }
+      // LIRA-229: a draft never writes a `transactions` row (money only
+      // posts once, on completion — see the `status === "completed"` gate
+      // in processSale), so cancelling one here is a plain delete with
+      // nothing to reverse: no payments, no drawer delta, no debt/partner
+      // ledger row and no stock movement ever existed for it.
       const tenantId = getCurrentTenantId();
       this.execute(
         "DELETE FROM sale_items WHERE sale_id = ? AND tenant_id = ?",
@@ -1419,134 +1559,308 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
+   * ONE definition (rule 14) of "this item's fractional share of the sale's
+   * PRE-discount total" — used by BOTH the real refund (`refundSaleItem`, to
+   * pro-rate profit/tender/debt-cancellation) and the read-only preview
+   * (`getItemRefundPreview`, to pre-fill RefundMethodModal with EXACTLY what
+   * confirming with no override would do), so the preview can never drift
+   * from what the real refund actually applies. See `refundSaleItem`'s
+   * inline doc (money contract) for why the denominator is the pre-discount
+   * total, not the post-discount final.
+   */
+  private _computeLineShareOfSale(
+    item: Pick<SaleItemEntity, "sold_price_usd">,
+    sale: Pick<SaleEntity, "total_amount_usd">,
+    refundQuantity: number,
+  ): number {
+    const refundAmount = item.sold_price_usd * refundQuantity;
+    const saleTotalUsd = sale.total_amount_usd || 0;
+    return saleTotalUsd > 0 ? refundAmount / saleTotalUsd : 0;
+  }
+
+  /**
+   * LIRA-231 — POS refund preview for one line item: this item's
+   * PROPORTIONAL share of the sale's own customer-facing payment legs (same
+   * `TransactionPaymentLeg[]` shape RefundMethodModal already consumes on the
+   * Transactions page), scaled by the SAME fraction `refundSaleItem` itself
+   * applies (`_computeLineShareOfSale`, rule 14 — never a second formula),
+   * plus whether the sale is session-linked (blocks the "Refund item" button
+   * too, same detection as `refundSaleItem`'s own guard). Read-only — no
+   * write, no transaction.
+   *
+   * LIRA-232 round-3 adversarial review, finding #1 (BLOCKER) — also carries
+   * `sessionId`/`sessionTransactionId` for a session-linked sale, mirroring
+   * `TransactionRepository.getSaleRefundPreview`'s own fields (round-2
+   * finding #11) via the SAME shared resolver (`getSessionLinkage`, rule 14)
+   * so the two previews can never drift. Before this fix, the POS "Refund
+   * item" button had no session ids to hand to `refundSessionBasketItem` and
+   * every attempt on a session-paid sale failed.
+   */
+  getItemRefundPreview(params: {
+    saleId: number;
+    saleItemId: number;
+    refundQuantity: number;
+  }): {
+    legs: TransactionPaymentLeg[];
+    sessionLinked: boolean;
+    sessionId?: number;
+    sessionTransactionId?: number;
+    /** LIRA-236 — this sale's own `exchange_rate_snapshot` (source "sale"),
+     *  else the day's fallback. */
+    bookedRate: number;
+    bookedRateSource: "sale" | "transaction" | "fallback";
+  } {
+    const db = this.db;
+    const tenantId = getCurrentTenantId();
+
+    const item = db
+      .prepare(
+        `SELECT * FROM sale_items WHERE id = ? AND sale_id = ? AND tenant_id = ?`,
+      )
+      .get(params.saleItemId, params.saleId, tenantId) as
+      | SaleItemEntity
+      | undefined;
+    if (!item) {
+      throw new NotFoundError("sale_item", params.saleItemId);
+    }
+
+    const availableToRefund = item.quantity - (item.refunded_quantity ?? 0);
+    if (
+      params.refundQuantity <= 0 ||
+      params.refundQuantity > availableToRefund
+    ) {
+      throw new DatabaseError(
+        `Cannot refund ${params.refundQuantity} - only ${availableToRefund} available (already refunded ${item.refunded_quantity ?? 0})`,
+      );
+    }
+
+    const sale = db
+      .prepare(`SELECT * FROM sales WHERE id = ? AND tenant_id = ?`)
+      .get(params.saleId, tenantId) as SaleEntity | undefined;
+    if (!sale) {
+      throw new NotFoundError("sale", params.saleId);
+    }
+
+    const txnRepo = getTransactionRepository();
+    const txnId = txnRepo.getActiveSaleTransactionId(params.saleId);
+    if (txnId == null) {
+      throw new DatabaseError("No SALE transaction found for this sale");
+    }
+
+    const lineShareOfSale = this._computeLineShareOfSale(
+      item,
+      sale,
+      params.refundQuantity,
+    );
+    const linkage = txnRepo.getSessionLinkage(txnId);
+    const { bookedRate, bookedRateSource } = resolveBookedRate(
+      sale.exchange_rate_snapshot,
+      "sale",
+    );
+    return {
+      legs: paymentRowsToLegs(
+        txnRepo.getPaymentsByTransactionId(txnId),
+        lineShareOfSale,
+      ),
+      sessionLinked: linkage != null,
+      ...(linkage ?? {}),
+      bookedRate,
+      bookedRateSource,
+    };
+  }
+
+  /**
    * Refund a specific item from a sale (partial or full quantity)
    * Returns the refund transaction ID
+   *
+   * LIRA-231: `params.refundLegs` gives this the SAME operator-chosen
+   * return-method override contract `TransactionRepository.refundTransaction`
+   * uses (LIRA-078) — validated against THIS ITEM's own proportional share of
+   * the sale's customer-facing net (`overridableNetByCurrency` +
+   * `validateRefundLegOverrideAmounts`, imported from TransactionRepository —
+   * rule 14, never a second copy of that predicate). Omitting `refundLegs`
+   * reproduces today's exact proportional-mirror reversal, unchanged.
+   *
+   * A session-basket sale is refused up front, before any row is written —
+   * same discipline `_refundTransactionInternal`/`_validateRefundLegOverride`
+   * follow for the whole-transaction override — with the owner's POS-specific
+   * message (same detection as `TransactionRepository.refundBySaleId`'s
+   * identical guard on the whole-sale button — rule 14).
+   *
+   * 2026-09-26 owner decision: `params.unitExtras` gives the POS "Refund
+   * item" button the SAME "Returned phones" per-unit defective/warranty-
+   * override flagging the Transactions page's whole-refund flow has always
+   * had — validated against THIS ITEM's own linked unit(s) only (never the
+   * whole sale's — a sibling line's unit is rejected, see
+   * `validateRefundUnitExtras`), BEFORE any row is written, same discipline
+   * as `refundLegs` above. Applied via `ProductUnitRepository.markInStock`
+   * as the unit(s) flip back to IN_STOCK (see step 9b below).
    */
   refundSaleItem(params: {
     saleId: number;
     saleItemId: number;
     refundQuantity: number;
     userId: number;
+    refundLegs?: RefundLegOverride[];
+    unitExtras?: RefundUnitExtra[];
+    /** LIRA-236 — the cashier-typed exchange rate (LBP per 1 USD), driving
+     *  `refundLegs`' value-based validation (cross-currency legs allowed)
+     *  and stamped onto the REFUND row's own metadata_json. Omitted:
+     *  today's per-currency exact-match behavior, unchanged. */
+    exchangeRate?: number;
   }): number {
     const db = this.db;
     const tenantId = getCurrentTenantId();
+    const txnRepo = getTransactionRepository();
+
+    // ---- Pre-transaction guards & reads (mirrors _refundTransactionInternal's
+    // "validate before this.transaction() opens" discipline — nothing is
+    // written by any of the checks below). --------------------------------
+
+    // 1. Get the sale item
+    const item = db
+      .prepare(
+        `SELECT * FROM sale_items WHERE id = ? AND sale_id = ? AND tenant_id = ?`,
+      )
+      .get(params.saleItemId, params.saleId, tenantId) as
+      | SaleItemEntity
+      | undefined;
+
+    if (!item) {
+      throw new NotFoundError("sale_item", params.saleItemId);
+    }
+
+    // 2. Validate quantity
+    const alreadyRefunded = item.refunded_quantity ?? 0;
+    const availableToRefund = item.quantity - alreadyRefunded;
+
+    if (params.refundQuantity <= 0) {
+      throw new DatabaseError("Refund quantity must be greater than 0");
+    }
+    if (params.refundQuantity > availableToRefund) {
+      throw new DatabaseError(
+        `Cannot refund ${params.refundQuantity} - only ${availableToRefund} available (already refunded ${alreadyRefunded})`,
+      );
+    }
+
+    // 3. Get the parent sale
+    const sale = db
+      .prepare(`SELECT * FROM sales WHERE id = ? AND tenant_id = ?`)
+      .get(params.saleId, tenantId) as SaleEntity | undefined;
+
+    if (!sale) {
+      throw new NotFoundError("sale", params.saleId);
+    }
+
+    if (sale.status === "refunded") {
+      throw new DatabaseError(
+        "Cannot refund items from a fully refunded sale",
+      );
+    }
+
+    // 5. Get the original SALE transaction
+    // `amount_usd`/`amount_lbp` are deliberately NOT selected: the SALE row's
+    // amount is the POST-discount final, and it was the wrong denominator for
+    // this function's pro-rating (see `lineShareOfSale`). Keeping it out of
+    // reach is the point — nothing here needs it.
+    const originalTxn = db
+      .prepare(
+        `SELECT id, source_table, source_id, exchange_rate, client_id, device_id
+         FROM transactions
+         WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?`,
+      )
+      .get(params.saleId, tenantId) as
+      | {
+          id: number;
+          source_table: string;
+          source_id: number;
+          exchange_rate: number;
+          client_id: number | null;
+          device_id: string | null;
+        }
+      | undefined;
+
+    if (!originalTxn) {
+      throw new DatabaseError("No SALE transaction found for this sale");
+    }
+
+    // LIRA-231 owner decision: a session-basket sale's pooled payment is
+    // invisible to a transaction_id-keyed query (payments/debt_ledger keyed
+    // by session_id, transaction_id NULL) — block up front, same detection
+    // `refundBySaleId` uses for the whole-sale button.
+    if (txnRepo.isTransactionSessionLinked(originalTxn.id)) {
+      throw new DatabaseError(
+        "This sale was paid through a customer session — refund it from the session basket.",
+      );
+    }
+
+    // ONE pro-rata base for this entire refund (rule 14): the line's share of
+    // the sale's PRE-DISCOUNT total. See `_computeLineShareOfSale`'s doc and
+    // `discountItemRefundTender.test.ts` for why this is the correct
+    // denominator (not `originalTxn.amount_usd`, the POST-discount final).
+    const lineShareOfSale = this._computeLineShareOfSale(
+      item,
+      sale,
+      params.refundQuantity,
+    );
+
+    // LIRA-231: validate the operator's chosen return legs (if any) against
+    // THIS ITEM's proportional share of the sale's customer-facing net,
+    // BEFORE any row is written.
+    const refundLegs = params.refundLegs;
+    let itemNetByCurrency: Record<string, number> | undefined;
+    if (refundLegs && refundLegs.length > 0) {
+      const originalPaymentRows = txnRepo.getPaymentsByTransactionId(
+        originalTxn.id,
+      );
+      const saleNet = overridableNetByCurrency(originalPaymentRows);
+      itemNetByCurrency = {};
+      for (const [currency, amount] of Object.entries(saleNet)) {
+        itemNetByCurrency[currency] = amount * lineShareOfSale;
+      }
+      validateRefundLegOverrideAmounts(
+        itemNetByCurrency,
+        refundLegs,
+        params.saleItemId,
+        params.exchangeRate,
+      );
+    }
+
+    // 2026-09-26: validate the operator's chosen unit extras (if any) BEFORE
+    // any row is written — every unit_id must belong to THIS ITEM's own
+    // linked-unit set, never a sibling line's or another sale's unit
+    // (operator error, not data to half-apply — same discipline as
+    // `refundLegs` above). A no-op when the `product_units` table doesn't
+    // exist on this connection, matching step 9b's own guard below.
+    const unitExtras = params.unitExtras;
+    if (unitExtras && unitExtras.length > 0 && this._productUnitsTableExists()) {
+      const linkedUnitIds = new Set(
+        getProductUnitRepository()
+          .findBySaleItemIds([params.saleItemId])
+          .map((u) => u.id),
+      );
+      validateRefundUnitExtras(
+        linkedUnitIds,
+        unitExtras,
+        params.saleItemId,
+        "sale item",
+      );
+    }
 
     return this.transaction(() => {
-      // 1. Get the sale item
-      const item = db
-        .prepare(
-          `SELECT * FROM sale_items WHERE id = ? AND sale_id = ? AND tenant_id = ?`,
-        )
-        .get(params.saleItemId, params.saleId, tenantId) as
-        | SaleItemEntity
-        | undefined;
-
-      if (!item) {
-        throw new NotFoundError("sale_item", params.saleItemId);
-      }
-
-      // 2. Validate quantity
-      const alreadyRefunded = item.refunded_quantity ?? 0;
-      const availableToRefund = item.quantity - alreadyRefunded;
-
-      if (params.refundQuantity <= 0) {
-        throw new DatabaseError("Refund quantity must be greater than 0");
-      }
-      if (params.refundQuantity > availableToRefund) {
-        throw new DatabaseError(
-          `Cannot refund ${params.refundQuantity} - only ${availableToRefund} available (already refunded ${alreadyRefunded})`,
+      // LIRA-232 phase 1 (rule 14): amounts are a pure calculation, shared
+      // with `refundSessionBasketItem` via `_computeSaleItemRefundAmounts` —
+      // see that method's doc for why the discount pro-ration uses
+      // `lineShareOfSale` rather than `originalTxn.amount_usd`.
+      const { refundAmount, refundProfitUsd } =
+        this._computeSaleItemRefundAmounts(
+          item,
+          sale,
+          lineShareOfSale,
+          params.refundQuantity,
         );
-      }
-
-      // 3. Get the parent sale
-      const sale = db
-        .prepare(`SELECT * FROM sales WHERE id = ? AND tenant_id = ?`)
-        .get(params.saleId, tenantId) as SaleEntity | undefined;
-
-      if (!sale) {
-        throw new NotFoundError("sale", params.saleId);
-      }
-
-      if (sale.status === "refunded") {
-        throw new DatabaseError(
-          "Cannot refund items from a fully refunded sale",
-        );
-      }
-
-      // 4. Calculate refund amount (proportional)
-      const refundAmount = item.sold_price_usd * params.refundQuantity;
-
-      // 4b. Calculate the refunded profit so the REFUND transaction can stamp its
-      //     NEGATIVE on transactions.profit_usd. SUM(profit) over a sale's
-      //     SALE + REFUND rows then equals the net (post-refund) profit, attributed
-      //     at the refund's date (accrual — intended).
-      //
-      //     The SALE stamps profit = Σ item margins − sale.discount (see
-      //     processSale). So the refund of an item must give back its gross
-      //     margin MINUS its pro-rata share of that sale-level discount, or a
-      //     discounted sale never nets to zero when fully refunded (it would
-      //     leave a phantom loss equal to the discount). Pro-rate by the item's
-      //     share of the sale's pre-discount total.
-      const grossMarginUsd =
-        (item.sold_price_usd - item.cost_price_snapshot_usd) *
-        params.refundQuantity;
-      const saleTotalUsd = sale.total_amount_usd || 0;
-      // ONE pro-rata base for this entire refund (rule 14): the line's share of
-      // the sale's PRE-DISCOUNT total. `refundAmount` above is a PRE-discount
-      // line value, so the denominator must be the PRE-discount total or the
-      // per-line shares don't sum to 1. Every consumer below is a share of the
-      // SAME line — the discount stamped on profit, the tender reversed across
-      // the payment legs, the Sale Debt cancelled — so all of them use this.
-      //
-      // The payment/debt arm used to divide by `originalTxn.amount_usd` (the
-      // POST-discount final) instead, so the shares summed to total/final > 1:
-      // item-refunding every line of a discounted sale handed back the full
-      // pre-discount price against a discounted tender, over by exactly the
-      // discount in EVERY currency leg, and over-cancelled an on-account
-      // sale's debt into a phantom credit of the same size. One business rule,
-      // two disagreeing denominators — the profit arm here was the correct one.
-      // Guarded by `SalesRepository.discountItemRefundTender.test.ts`; load-
-      // bearing now that `TransactionRepository._assertNoPartialItemRefunds`
-      // blocks the whole-sale refund of a part-refunded sale and names this
-      // per-item route as the exact one.
-      //
-      // `saleTotalUsd > 0` keeps the ratio finite on legacy/hand-crafted rows
-      // with no total: 0 (no money movement) is the safe direction, never
-      // Infinity/NaN. Behaviour is identical to before whenever there is no
-      // discount (total === final), which is every existing refund test.
-      const lineShareOfSale =
-        saleTotalUsd > 0 ? refundAmount / saleTotalUsd : 0;
-      const discountShareUsd = (sale.discount_usd || 0) * lineShareOfSale;
-      const refundProfitUsd = grossMarginUsd - discountShareUsd;
-
-      // 5. Get the original SALE transaction
-      // `amount_usd`/`amount_lbp` are deliberately NOT selected: the SALE row's
-      // amount is the POST-discount final, and it was the wrong denominator for
-      // this function's pro-rating (see `lineShareOfSale`). Keeping it out of
-      // reach is the point — nothing here needs it.
-      const originalTxn = db
-        .prepare(
-          `SELECT id, source_table, source_id, exchange_rate, client_id, device_id
-           FROM transactions
-           WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?`,
-        )
-        .get(params.saleId, tenantId) as
-        | {
-            id: number;
-            source_table: string;
-            source_id: number;
-            exchange_rate: number;
-            client_id: number | null;
-            device_id: string | null;
-          }
-        | undefined;
-
-      if (!originalTxn) {
-        throw new DatabaseError("No SALE transaction found for this sale");
-      }
 
       // 6. Create REFUND transaction for this item via TransactionRepository
-      const txnRepo = getTransactionRepository();
       const refundTxnId = txnRepo.createTransaction({
         type: TRANSACTION_TYPES.REFUND,
         source_table: originalTxn.source_table,
@@ -1567,132 +1881,580 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           saleItemId: params.saleItemId,
           refundQuantity: params.refundQuantity,
           originalSaleId: params.saleId,
+          // LIRA-236, contract item 6 — the rate this refund used (the
+          // cashier's typed rate when given, else the sale's own booked
+          // rate — see `refundSaleItem`'s doc). F12 (round-3 review): the
+          // fallback was missing — this comment claimed it existed, but the
+          // code only ever stamped the typed rate, silently omitting the
+          // field on every untouched (no-override) refund.
+          ...((params.exchangeRate ?? originalTxn.exchange_rate) != null
+            ? { exchangeRate: params.exchangeRate ?? originalTxn.exchange_rate }
+            : {}),
         },
         device_id: originalTxn.device_id ?? undefined,
       });
 
-      // 7. Reverse payments proportionally
-      const originalPayments = db
+      // 7. ITEM side (stock/batches/units/refunded_quantity/own-debt/sale
+      // status) — shared with `refundSessionBasketItem` (rule 14), which
+      // reuses this EXACT reversal but skips the MONEY side below (a
+      // session-linked sale's own `payments` rows are empty — the basket's
+      // pooled leg is reversed by the session flow's dedicated account-first
+      // + leg logic instead).
+      this._applySaleItemReversal({
+        saleId: params.saleId,
+        saleItemId: params.saleItemId,
+        productId: item.product_id,
+        refundQuantity: params.refundQuantity,
+        userId: params.userId,
+        refundTxnId,
+        originalSaleTxnId: originalTxn.id,
+        clientId: originalTxn.client_id,
+        lineShareOfSale,
+        unitExtras,
+      });
+
+      // 8. MONEY side — reverse this item's proportional share of the sale's
+      // OWN payments (or the operator's chosen override). A no-op for a
+      // session-linked sale (blocked above before this.transaction() opens)
+      // — kept here only for the standalone POS "Refund item" caller.
+      this._applySaleItemMoneyBack({
+        originalTxnId: originalTxn.id,
+        refundTxnId,
+        productId: item.product_id,
+        refundQuantity: params.refundQuantity,
+        lineShareOfSale,
+        userId: params.userId,
+        refundLegs,
+        itemNetByCurrency,
+        exchangeRate: params.exchangeRate,
+      });
+
+      return refundTxnId;
+    });
+  }
+
+  /**
+   * LIRA-232 phase 1 (rule 14): pure calculation of "this refund's amount and
+   * profit delta" — no I/O, no writes. Shared by the standalone `refundSaleItem`
+   * and `refundSessionBasketItem` so the discount-pro-ration math (see the
+   * original inline doc, preserved below) can never drift between the two
+   * callers.
+   *
+   * The SALE stamps profit = Σ item margins − sale.discount (see processSale).
+   * So refunding an item must give back its gross margin MINUS its pro-rata
+   * share of that sale-level discount, or a discounted sale never nets to
+   * zero when fully refunded (it would leave a phantom loss equal to the
+   * discount). Pro-rate by the item's share of the sale's PRE-discount total
+   * (`lineShareOfSale`, from `_computeLineShareOfSale` — same base the
+   * payment/debt arms use).
+   */
+  private _computeSaleItemRefundAmounts(
+    item: Pick<SaleItemEntity, "sold_price_usd" | "cost_price_snapshot_usd">,
+    sale: Pick<SaleEntity, "discount_usd">,
+    lineShareOfSale: number,
+    refundQuantity: number,
+  ): { refundAmount: number; refundProfitUsd: number } {
+    // Adversarial-review fix (SESSION_ITEM_REFUND_PLAN.md finding #1,
+    // BLOCKER): `refundAmount` used to be the GROSS pre-discount line value
+    // (`sold_price_usd × qty`), while `refundProfitUsd` below already
+    // correctly netted the line's pro-rata discount share. That's the same
+    // "A" this file's profit arm nets — reusing `discountShareUsd` (rule 14,
+    // not a second copy) closes the same gap `SalesRepository
+    // .discountItemRefundTender.test.ts` already proved for the standalone
+    // refund's MONEY step (there it flows through `lineShareOfSale` applied
+    // to the sale's own payment legs, so it was silently correct by a
+    // different path; here `refundAmount` IS "A" that
+    // `refundSessionBasketItem` treats as cash-equivalent for account-first
+    // + cash-back, so the discount MUST be netted at the source). Measured
+    // pre-fix (2x $50 lines, $10 discount, $90 tendered): two item refunds
+    // summed to $100 handed back on a $90 tender — see
+    // TransactionRepository.refundSessionBasketItem.test.ts's
+    // "finding #1" case for the failing-first proof.
+    const discountShareUsd = (sale.discount_usd || 0) * lineShareOfSale;
+    const refundAmount = item.sold_price_usd * refundQuantity - discountShareUsd;
+    const grossMarginUsd =
+      (item.sold_price_usd - item.cost_price_snapshot_usd) * refundQuantity;
+    const refundProfitUsd = grossMarginUsd - discountShareUsd;
+    return { refundAmount, refundProfitUsd };
+  }
+
+  /**
+   * LIRA-232 phase 1 (rule 14) — the ITEM side of a sale-line refund: stock
+   * restore, FIFO batch give-back, product-unit flip (with the operator's
+   * defective/warranty extras), `sale_items.refunded_quantity`, the item's
+   * pro-rata share of any 'Sale Debt' booked against the SALE's own
+   * transaction, and marking the sale fully 'refunded' once nothing remains.
+   * Deliberately excludes MONEY (the sale's own `payments` reversal) — see
+   * `_applySaleItemMoneyBack`. Must run inside the caller's db.transaction();
+   * this method opens none of its own. Reused by `refundSaleItem` (standalone
+   * POS refund) and `TransactionRepository.refundSessionBasketItem` (session
+   * basket item refund) — rule 14, one item-reversal, two money paths.
+   */
+  private _applySaleItemReversal(params: {
+    saleId: number;
+    saleItemId: number;
+    productId: number;
+    refundQuantity: number;
+    userId: number;
+    /** The (caller-created) REFUND transactions row this reversal's own-debt
+     *  cancellation links to via `debt_ledger.transaction_id`. */
+    refundTxnId: number;
+    /** The member's own unified transaction id — `originalTxn.id` — used to
+     *  find any 'Sale Debt' row booked directly against THIS sale (never the
+     *  pooled session 'Session Debt', which the session flow cancels itself). */
+    originalSaleTxnId: number;
+    clientId: number | null;
+    lineShareOfSale: number;
+    unitExtras?: RefundUnitExtra[];
+  }): void {
+    const db = this.db;
+    const tenantId = getCurrentTenantId();
+
+    // Update sale_items.refunded_quantity
+    db.prepare(
+      `UPDATE sale_items SET refunded_quantity = refunded_quantity + ? WHERE id = ? AND tenant_id = ?`,
+    ).run(params.refundQuantity, params.saleItemId, tenantId);
+
+    // Restore stock for refunded quantity
+    db.prepare(
+      `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
+    ).run(params.refundQuantity, params.productId, tenantId);
+
+    // Give the refunded units back to the batches they were FIFO-consumed
+    // from (newest-consumption-first — see StockBatchRepository
+    // .restoreForSaleItem), so `stock_quantity` and batch cover stay in step
+    // after an item refund exactly like they do after processSale's
+    // consumption.
+    getStockBatchRepository().restoreForSaleItem(
+      params.saleItemId,
+      params.refundQuantity,
+    );
+
+    // LIRA-143 phase 4 — flip up to `refundQuantity` SOLD product_units
+    // linked to THIS sale_item back to IN_STOCK, applying the operator's
+    // is_defective/warranty_override_until extras at the same moment.
+    // `markInStock` is idempotent (no-ops a unit that isn't currently SOLD),
+    // so re-running this on an already-flipped unit is harmless.
+    if (this._productUnitsTableExists()) {
+      const productUnitRepo = getProductUnitRepository();
+      const linkedUnits = productUnitRepo
+        .findBySaleItemIds([params.saleItemId])
+        .filter((u) => u.status === "SOLD")
+        .sort((a, b) => a.id - b.id)
+        .slice(0, params.refundQuantity);
+      const extrasByUnitId = new Map<number, RefundUnitExtra>();
+      for (const extra of params.unitExtras ?? []) {
+        extrasByUnitId.set(extra.unit_id, extra);
+      }
+      for (const unit of linkedUnits) {
+        const extra = extrasByUnitId.get(unit.id);
+        productUnitRepo.markInStock(unit.id, {
+          isDefective: extra?.is_defective,
+          warrantyOverrideUntil: extra?.warranty_override_until,
+        });
+      }
+    }
+
+    // If the sale was on its OWN debt (never the session's pooled debt),
+    // cancel this line's proportional share.
+    if (params.clientId) {
+      const debts = db
         .prepare(
-          `SELECT method, drawer_name, currency_code, amount FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
+          `SELECT id, client_id, amount_usd FROM debt_ledger WHERE transaction_id = ? AND transaction_type = 'Sale Debt' AND tenant_id = ?`,
         )
-        .all(originalTxn.id, tenantId) as {
-        method: string;
-        drawer_name: string;
-        currency_code: string;
-        amount: number;
+        .all(params.originalSaleTxnId, tenantId) as {
+        id: number;
+        client_id: number;
+        amount_usd: number;
       }[];
 
-      // Pro-rate the tender by the SAME base the profit arm uses — see
-      // `lineShareOfSale`. NOT `refundAmount / originalTxn.amount_usd`.
-      for (const payment of originalPayments) {
-        const negatedAmount = -(payment.amount * lineShareOfSale);
+      const insertReversal = db.prepare(`
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id)
+        VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by item refund', ?, ?)
+      `);
+
+      for (const debt of debts) {
+        insertReversal.run(
+          debt.client_id,
+          -(debt.amount_usd * params.lineShareOfSale),
+          params.refundTxnId,
+          params.userId,
+          tenantId,
+        );
+      }
+    }
+
+    // Check if ALL items are fully refunded - mark sale as refunded
+    const remainingItems = db
+      .prepare(
+        `SELECT COUNT(*) as count FROM sale_items
+         WHERE sale_id = ? AND (quantity - refunded_quantity) > 0 AND tenant_id = ?`,
+      )
+      .get(params.saleId, tenantId) as { count: number } | undefined;
+
+    if (remainingItems?.count === 0) {
+      db.prepare(
+        `UPDATE sales SET status = 'refunded' WHERE id = ? AND tenant_id = ?`,
+      ).run(params.saleId, tenantId);
+    }
+  }
+
+  /**
+   * LIRA-232 phase 1 (rule 14) — the MONEY side of a sale-line refund:
+   * reverses this item's proportional share of the sale's OWN `payments`
+   * rows (or, for the operator's chosen return method(s), replaces the
+   * overridable legs entirely — LIRA-231, mirrors
+   * `TransactionRepository._reversePayments` exactly, just scaled to this
+   * item's share via `lineShareOfSale` instead of 1:1). A session-linked
+   * sale has no OWN `payments` rows (its money lives on the basket's pooled
+   * leg), so this is a no-op for `refundSessionBasketItem` — which is why
+   * that caller never invokes it and routes money back through the
+   * session's account-first + leg-override flow instead.
+   */
+  private _applySaleItemMoneyBack(params: {
+    originalTxnId: number;
+    refundTxnId: number;
+    productId: number;
+    refundQuantity: number;
+    lineShareOfSale: number;
+    userId: number;
+    refundLegs?: RefundLegOverride[];
+    itemNetByCurrency?: Record<string, number>;
+    /** LIRA-236 — see `TransactionRepository._reversePayments`'s identical
+     *  param; threaded through to `refundLegReversalSign` (rule 14). */
+    exchangeRate?: number;
+  }): void {
+    const db = this.db;
+    const tenantId = getCurrentTenantId();
+
+    const originalPayments = db
+      .prepare(
+        `SELECT method, drawer_name, currency_code, amount, note FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
+      )
+      .all(params.originalTxnId, tenantId) as {
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+      note: string | null;
+    }[];
+
+    const hasOverride = !!params.refundLegs && params.refundLegs.length > 0;
+
+    // Pro-rate the tender by the SAME base the profit arm uses — see
+    // `lineShareOfSale`. Every OTHER (internal bookkeeping) leg still
+    // mirrors exactly as before, regardless of the override — only
+    // overridable (customer-facing, drawer-affecting) legs are replaced.
+    for (const payment of originalPayments) {
+      if (hasOverride && isOverridableLeg(payment)) continue;
+      const negatedAmount = -(payment.amount * params.lineShareOfSale);
+      insertPaymentRow(db, {
+        transactionId: params.refundTxnId,
+        method: payment.method,
+        drawerName: payment.drawer_name,
+        currencyCode: payment.currency_code,
+        amount: negatedAmount,
+        note: `Item refund - ${params.refundQuantity}x product ${params.productId}`,
+        createdBy: params.userId,
+        tenantId,
+      });
+      applyDrawerDelta(db, {
+        drawerName: payment.drawer_name,
+        currencyCode: payment.currency_code,
+        delta: negatedAmount,
+        tenantId,
+      });
+    }
+
+    if (hasOverride) {
+      // The override leg carries a positive MAGNITUDE only (validated
+      // before this.transaction() opened) — the DIRECTION it posts in comes
+      // from the SAME `refundLegReversalSign` helper
+      // `TransactionRepository._reversePayments` uses (rule 14), fed THIS
+      // ITEM's own overridable net (`itemNetByCurrency`) and the cashier's
+      // typed rate. Sales are never `financial_services` rows, so there is
+      // no primary-cash-drawer routing context to resolve here — plain
+      // `paymentMethodToDrawerName` is correct for every POS refund.
+      for (const leg of params.refundLegs!) {
+        const drawerName = paymentMethodToDrawerName(leg.method);
+        const reversalSign = refundLegReversalSign(
+          params.itemNetByCurrency ?? {},
+          leg.currencyCode,
+          params.exchangeRate,
+        );
+        const signedAmount = reversalSign * leg.amount;
         insertPaymentRow(db, {
-          transactionId: refundTxnId,
-          method: payment.method,
-          drawerName: payment.drawer_name,
-          currencyCode: payment.currency_code,
-          amount: negatedAmount,
-          note: `Item refund - ${params.refundQuantity}x product ${item.product_id}`,
+          transactionId: params.refundTxnId,
+          method: leg.method,
+          drawerName,
+          currencyCode: leg.currencyCode,
+          amount: signedAmount,
+          note: "Refund (method override)",
           createdBy: params.userId,
           tenantId,
         });
         applyDrawerDelta(db, {
-          drawerName: payment.drawer_name,
-          currencyCode: payment.currency_code,
-          delta: negatedAmount,
+          drawerName,
+          currencyCode: leg.currencyCode,
+          delta: signedAmount,
           tenantId,
         });
       }
+    }
+  }
 
-      // 8. Update sale_items.refunded_quantity
-      db.prepare(
-        `UPDATE sale_items SET refunded_quantity = refunded_quantity + ? WHERE id = ? AND tenant_id = ?`,
-      ).run(params.refundQuantity, params.saleItemId, tenantId);
+  /**
+   * LIRA-232 phase 1 (rule 14) — pure, read-only sizing for ONE sale line's
+   * refund: no writes, no `transactions` row. Used both by
+   * `TransactionRepository.getSessionItemRefundPreview` (read-only UI
+   * preview) and by `refundSessionBasketItem`'s pre-write sizing pass (it
+   * must know the TOTAL amount/profit across every line it will touch
+   * BEFORE creating the one aggregate REFUND row that carries that total —
+   * see `applySaleItemReversalForSession` for the write half).
+   */
+  previewSaleItemRefundAmount(params: {
+    saleId: number;
+    saleItemId: number;
+    refundQuantity: number;
+  }): {
+    refundAmountUsd: number;
+    refundProfitUsd: number;
+    productId: number;
+    clientId: number | null;
+    originalSaleTxnId: number;
+  } {
+    const db = this.db;
+    const tenantId = getCurrentTenantId();
 
-      // 9. Restore stock for refunded quantity
-      db.prepare(
-        `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
-      ).run(params.refundQuantity, item.product_id, tenantId);
+    const item = db
+      .prepare(
+        `SELECT * FROM sale_items WHERE id = ? AND sale_id = ? AND tenant_id = ?`,
+      )
+      .get(params.saleItemId, params.saleId, tenantId) as
+      | SaleItemEntity
+      | undefined;
+    if (!item) {
+      throw new NotFoundError("sale_item", params.saleItemId);
+    }
 
-      // 9a. Give the refunded units back to the batches they were FIFO-
-      // consumed from (newest-consumption-first — see
-      // StockBatchRepository.restoreForSaleItem), so `stock_quantity` and
-      // batch cover stay in step after an item refund exactly like they do
-      // after processSale's consumption.
-      getStockBatchRepository().restoreForSaleItem(
-        params.saleItemId,
+    const alreadyRefunded = item.refunded_quantity ?? 0;
+    const availableToRefund = item.quantity - alreadyRefunded;
+    if (params.refundQuantity <= 0) {
+      throw new DatabaseError("Refund quantity must be greater than 0");
+    }
+    if (params.refundQuantity > availableToRefund) {
+      throw new DatabaseError(
+        `Cannot refund ${params.refundQuantity} - only ${availableToRefund} available (already refunded ${alreadyRefunded})`,
+      );
+    }
+
+    const sale = db
+      .prepare(`SELECT * FROM sales WHERE id = ? AND tenant_id = ?`)
+      .get(params.saleId, tenantId) as SaleEntity | undefined;
+    if (!sale) {
+      throw new NotFoundError("sale", params.saleId);
+    }
+    // Round-2 finding #2 (HIGH) — `refundSaleItem` (the standalone POS
+    // path) already refuses `sale.status === 'refunded'`; this read-only
+    // sizing method — the one `TransactionRepository._planSessionItemRefund`
+    // actually calls — did not, so it only ever capped by
+    // `refunded_quantity`. That column stays 0 for the WHOLE-basket refund
+    // path (`_applyGenericItemReversal` stamps `sales.status = 'refunded'`
+    // and blanket `sale_items.is_refunded = 1` without ever touching
+    // `refunded_quantity` per line), so a second item-refund attempt on an
+    // already whole-refunded sale read a full `quantity` still "available"
+    // and succeeded a second time — measured: stock restored twice, two
+    // REFUND rows, profit double-negated. See this file's
+    // TransactionRepository.refundSessionBasketItem.test.ts "round-2
+    // finding #2" test.
+    if (sale.status === "refunded") {
+      throw new DatabaseError(
+        "This sale has already been fully refunded — nothing remains to refund.",
+      );
+    }
+
+    const originalTxn = db
+      .prepare(
+        `SELECT id, client_id FROM transactions
+         WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?`,
+      )
+      .get(params.saleId, tenantId) as
+      | { id: number; client_id: number | null }
+      | undefined;
+    if (!originalTxn) {
+      throw new DatabaseError("No SALE transaction found for this sale");
+    }
+
+    const lineShareOfSale = this._computeLineShareOfSale(
+      item,
+      sale,
+      params.refundQuantity,
+    );
+    const { refundAmount, refundProfitUsd } =
+      this._computeSaleItemRefundAmounts(
+        item,
+        sale,
+        lineShareOfSale,
         params.refundQuantity,
       );
 
-      // 9b. LIRA-143 phase 4 — flip up to `refundQuantity` SOLD product_units
-      // linked to THIS sale_item back to IN_STOCK. No extras here: the
-      // phone-refund UI's defective/warranty-override flagging lives only on
-      // the Transactions-page WHOLE-refund flow (owner decision 2026-07-04),
-      // never on this per-item path. Under the one-unit-per-line rule
-      // (processSale requires quantity === 1 for any unit-tracked line) a
-      // unit-tracked sale_items row always has exactly one linked unit, so
-      // this is exact; the count-based `take` below is graceful degradation
-      // for hand-crafted/legacy data where that invariant might not hold.
-      // `markInStock` is idempotent (no-ops a unit that isn't currently
-      // SOLD), so re-running this on an already-flipped unit is harmless.
-      if (this._productUnitsTableExists()) {
-        const productUnitRepo = getProductUnitRepository();
-        const linkedUnits = productUnitRepo
+    return {
+      refundAmountUsd: refundAmount,
+      refundProfitUsd,
+      productId: item.product_id,
+      clientId: originalTxn.client_id,
+      originalSaleTxnId: originalTxn.id,
+    };
+  }
+
+  /**
+   * LIRA-232 phase 1 (rule 14) — the WRITE half of
+   * `previewSaleItemRefundAmount`: applies the item-side reversal
+   * (`_applySaleItemReversal` — stock, batches, units, refunded_quantity,
+   * the line's own 'Sale Debt' cancellation, mark-sale-refunded) against a
+   * REFUND transaction row the CALLER already created (`refundTxnId`) —
+   * `TransactionRepository.refundSessionBasketItem`, which sizes ONE
+   * aggregate row from the sum of every line's `previewSaleItemRefundAmount`
+   * BEFORE calling this. Deliberately does not create a row and does not
+   * touch `payments` — money for a session member goes through the
+   * session's own account-first + leg logic (rule 14 — one item reversal,
+   * reused by both the standalone `refundSaleItem` and this session path).
+   * Must run inside the caller's db.transaction(); opens none of its own.
+   */
+  applySaleItemReversalForSession(params: {
+    saleId: number;
+    saleItemId: number;
+    refundQuantity: number;
+    userId: number;
+    refundTxnId: number;
+    unitExtras?: RefundUnitExtra[];
+  }): void {
+    const db = this.db;
+    const tenantId = getCurrentTenantId();
+
+    const item = db
+      .prepare(
+        `SELECT * FROM sale_items WHERE id = ? AND sale_id = ? AND tenant_id = ?`,
+      )
+      .get(params.saleItemId, params.saleId, tenantId) as
+      | SaleItemEntity
+      | undefined;
+    if (!item) {
+      throw new NotFoundError("sale_item", params.saleItemId);
+    }
+    const sale = db
+      .prepare(`SELECT * FROM sales WHERE id = ? AND tenant_id = ?`)
+      .get(params.saleId, tenantId) as SaleEntity | undefined;
+    if (!sale) {
+      throw new NotFoundError("sale", params.saleId);
+    }
+    const originalTxn = db
+      .prepare(
+        `SELECT id, client_id FROM transactions
+         WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?`,
+      )
+      .get(params.saleId, tenantId) as
+      | { id: number; client_id: number | null }
+      | undefined;
+    if (!originalTxn) {
+      throw new DatabaseError("No SALE transaction found for this sale");
+    }
+
+    if (
+      params.unitExtras &&
+      params.unitExtras.length > 0 &&
+      this._productUnitsTableExists()
+    ) {
+      const linkedUnitIds = new Set(
+        getProductUnitRepository()
           .findBySaleItemIds([params.saleItemId])
-          .filter((u) => u.status === "SOLD")
-          .sort((a, b) => a.id - b.id)
-          .slice(0, params.refundQuantity);
-        for (const unit of linkedUnits) {
-          productUnitRepo.markInStock(unit.id);
-        }
-      }
+          .map((u) => u.id),
+      );
+      validateRefundUnitExtras(
+        linkedUnitIds,
+        params.unitExtras,
+        params.saleItemId,
+        "sale item",
+      );
+    }
 
-      // 10. If sale was on debt, cancel proportional debt
-      if (originalTxn.client_id) {
-        const debts = db
-          .prepare(
-            `SELECT id, client_id, amount_usd FROM debt_ledger WHERE transaction_id = ? AND transaction_type = 'Sale Debt' AND tenant_id = ?`,
-          )
-          .all(originalTxn.id, tenantId) as {
-          id: number;
-          client_id: number;
-          amount_usd: number;
-        }[];
+    const lineShareOfSale = this._computeLineShareOfSale(
+      item,
+      sale,
+      params.refundQuantity,
+    );
 
-        const insertReversal = db.prepare(`
-          INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id)
-          VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by item refund', ?, ?)
-        `);
-
-        for (const debt of debts) {
-          insertReversal.run(
-            debt.client_id,
-            // Same pro-rata base again — see `lineShareOfSale`.
-            -(debt.amount_usd * lineShareOfSale),
-            refundTxnId,
-            params.userId,
-            tenantId,
-          );
-        }
-      }
-
-      // 11. Check if ALL items are fully refunded - mark sale as refunded
-      const remainingItems = db
-        .prepare(
-          `SELECT COUNT(*) as count FROM sale_items
-           WHERE sale_id = ? AND (quantity - refunded_quantity) > 0 AND tenant_id = ?`,
-        )
-        .get(params.saleId, tenantId) as { count: number } | undefined;
-
-      if (remainingItems?.count === 0) {
-        db.prepare(
-          `UPDATE sales SET status = 'refunded' WHERE id = ? AND tenant_id = ?`,
-        ).run(params.saleId, tenantId);
-      }
-
-      return refundTxnId;
+    this._applySaleItemReversal({
+      saleId: params.saleId,
+      saleItemId: params.saleItemId,
+      productId: item.product_id,
+      refundQuantity: params.refundQuantity,
+      userId: params.userId,
+      refundTxnId: params.refundTxnId,
+      originalSaleTxnId: originalTxn.id,
+      clientId: originalTxn.client_id,
+      lineShareOfSale,
+      unitExtras: params.unitExtras,
     });
+  }
+
+  /**
+   * LIRA-231 — POS refund preview for the WHOLE sale: thin delegation to
+   * `TransactionRepository.getSaleRefundPreview` (rule 13 — SalesService only
+   * depends on `salesRepo`, so this keeps that single-dependency shape
+   * instead of the service reaching into a second repository directly).
+   */
+  getSaleRefundPreview(saleId: number): {
+    legs: TransactionPaymentLeg[];
+    sessionLinked: boolean;
+    sessionId?: number;
+    sessionTransactionId?: number;
+  } {
+    return getTransactionRepository().getSaleRefundPreview(saleId);
+  }
+
+  /**
+   * Round-2 finding #3 (HIGH) — routes a MULTI-LINE refund's shared
+   * `unitExtras` array to the line each `unit_id` is actually linked to.
+   * `refundSessionBasketItem`'s Q2 branch ("saleItemId omitted → every
+   * remaining line") used to pass the WHOLE array to EVERY line's
+   * `applySaleItemReversalForSession`, whose own `validateRefundUnitExtras`
+   * call is scoped to THAT line's own linked units only (by design — a
+   * sibling line's unit must never be silently accepted). The result: a
+   * unit linked to line A, passed alongside a refund of lines A and B, got
+   * rejected the moment line B's own (unrelated) validation ran against it
+   * — measured: "product unit #1 is not linked to sale item #2" on a
+   * phone+charger refund where the charger has no linked units at all.
+   *
+   * ONE query (rule 14) resolves every given line's linked units at once,
+   * then groups `unitExtras` by the line each `unit_id` actually belongs
+   * to. A `unit_id` linked to NONE of the given lines is refused up front
+   * — operator error, not data to half-apply (same discipline as
+   * `validateRefundUnitExtras` itself).
+   */
+  routeUnitExtrasByLine(
+    saleItemIds: number[],
+    unitExtras: RefundUnitExtra[],
+  ): Map<number, RefundUnitExtra[]> {
+    const byLine = new Map<number, RefundUnitExtra[]>();
+    if (unitExtras.length === 0) return byLine;
+    const units = getProductUnitRepository().findBySaleItemIds(saleItemIds);
+    const lineByUnitId = new Map<number, number>();
+    for (const u of units) {
+      if (u.sale_item_id != null) lineByUnitId.set(u.id, u.sale_item_id);
+    }
+    for (const extra of unitExtras) {
+      const lineId = lineByUnitId.get(extra.unit_id);
+      if (lineId == null) {
+        throw new DatabaseError(
+          `Refund unit extras: product unit #${extra.unit_id} is not linked to any of the refunded sale items`,
+        );
+      }
+      const arr = byLine.get(lineId) ?? [];
+      arr.push(extra);
+      byLine.set(lineId, arr);
+    }
+    return byLine;
   }
 
   // ---------------------------------------------------------------------------

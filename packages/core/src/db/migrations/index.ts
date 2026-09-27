@@ -12615,6 +12615,81 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 186,
+    name: "session_member_paid_exchange_rate",
+    description:
+      "REFUND_EXCHANGE_RATE_PLAN.md / SESSION_ITEM_REFUND_PLAN.md round-3 review, " +
+      "finding F3 (HIGH) — adds customer_session_transactions.paid_exchange_rate " +
+      "(nullable REAL). A session member's default refund rate must be the rate " +
+      "the BASKET was actually checked out/paid at, never the rate stamped on " +
+      "the cart item at creation time (transactions.exchange_rate) — the two can " +
+      "legitimately differ when the shop's rate moves between adding an item to " +
+      "a basket and finally checking it out. A SALE member already has a correct " +
+      "column for this (sales.exchange_rate_snapshot, back-filled by " +
+      "SalesRepository.markSalePaid); every OTHER member type (RECHARGE, " +
+      "CUSTOM_SERVICE, FINANCIAL_SERVICE, ...) had no equivalent, so " +
+      "SessionPaymentService.recordBasketPayment now stamps this column on EVERY " +
+      "member of the basket (rule 14 — one write, one column, no per-type " +
+      "special-casing) with the SAME rate it hands to markSalePaid. Nullable and " +
+      "unbackfilled for existing rows — a pre-migration basket's members simply " +
+      "keep falling back to today's transactions.exchange_rate default (never a " +
+      "regression, no data to reconstruct).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "customer_session_transactions")) {
+        console.log(
+          "Migration v186 skipped: 'customer_session_transactions' table not present",
+        );
+        return;
+      }
+      if (
+        columnExists(
+          db,
+          "customer_session_transactions",
+          "paid_exchange_rate",
+        )
+      ) {
+        console.log(
+          "Migration v186 skipped: 'customer_session_transactions.paid_exchange_rate' already present",
+        );
+        return;
+      }
+
+      db.exec(`
+        ALTER TABLE customer_session_transactions
+          ADD COLUMN paid_exchange_rate REAL;
+      `);
+
+      console.log(
+        "Migration v186: customer_session_transactions.paid_exchange_rate added " +
+          "(nullable, unbackfilled — every existing row falls back to today's " +
+          "transactions.exchange_rate default)",
+      );
+    },
+    down(db: Database.Database) {
+      if (
+        !columnExists(
+          db,
+          "customer_session_transactions",
+          "paid_exchange_rate",
+        )
+      ) {
+        console.log(
+          "Migration v186 rollback skipped: 'customer_session_transactions.paid_exchange_rate' not present",
+        );
+        return;
+      }
+
+      db.exec(
+        `ALTER TABLE customer_session_transactions DROP COLUMN paid_exchange_rate;`,
+      );
+
+      console.log(
+        "Migration v186 rolled back: 'customer_session_transactions.paid_exchange_rate' dropped",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

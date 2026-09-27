@@ -429,6 +429,16 @@ export type {
   OverdueDebtEntry,
   VoidCheckoutGroupResult,
   RefundLegOverride,
+  RefundUnitExtra,
+  TransactionPaymentLeg,
+  SessionBasketReversalResult,
+  // LIRA-232 phase 1 — refundSessionBasketItem's payload/result/preview
+  // shapes, exported so phase 2's transports (IPC handler, REST route,
+  // backendApi.ts) can derive their own types from these (rule 21) instead
+  // of hand-copying the field names a second time.
+  RefundSessionBasketItemInput,
+  RefundSessionBasketItemResult,
+  SessionItemRefundPreview,
 } from "./TransactionRepository.js";
 
 // Category Repository

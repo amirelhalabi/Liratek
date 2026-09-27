@@ -505,6 +505,12 @@ CREATE TABLE IF NOT EXISTS customer_session_transactions (
   amount_lbp REAL NOT NULL DEFAULT 0,
   profit_usd REAL NOT NULL DEFAULT 0,
   profit_lbp REAL NOT NULL DEFAULT 0,
+  -- v186 (REFUND_EXCHANGE_RATE_PLAN.md / SESSION_ITEM_REFUND_PLAN.md round-3
+  -- review, finding F3): the rate the BASKET was actually checked out/paid
+  -- at, stamped on every member row by SessionPaymentService.recordBasketPayment
+  -- — a session-item refund's default rate reads THIS, never the cart-time
+  -- transactions.exchange_rate, which can legitimately differ.
+  paid_exchange_rate REAL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE,
   FOREIGN KEY (unified_transaction_id) REFERENCES transactions(id)
@@ -2393,4 +2399,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- fresh table declaration above already carries that column directly,
     -- so a fresh DB needs no separate ALTER — same shape as v180's marker
     -- note above.
-    (185, 'custom_services_payout_direction');
+    -- v186 adds customer_session_transactions.paid_exchange_rate; the fresh
+    -- table declaration above already carries that column directly, so a
+    -- fresh DB needs no separate ALTER — same shape as v185's marker note above.
+    (185, 'custom_services_payout_direction'),
+    (186, 'session_member_paid_exchange_rate');

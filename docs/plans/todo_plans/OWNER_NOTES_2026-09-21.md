@@ -23,7 +23,8 @@ a named plan with no number · 22 need new tickets (21 new IDs; two notes share 
 > both tabs), and the transactions-table row actions stay **VISIBLE** to staff with an explanatory
 > failure message rather than being hidden behind a role check. Nine follow-up tickets —
 > **LIRA-220 … LIRA-228** — came out of building the three. **LIRA-229** and **LIRA-230** came out of the
-> 2026-09-24 Profits audit (§6.9), so the next free ID is **LIRA-231**.
+> 2026-09-24 Profits audit (§6.9), and **LIRA-231** from the owner's 2026-09-26 refund test, so the
+> next free ID is **LIRA-237** (LIRA-232 … LIRA-235 filed 2026-09-26, LIRA-236 on 2026-09-27).
 
 **Status glyphs, used consistently throughout:**
 ✅ done and verified in source · 🟡 partially shipped (the row says which half) ·
@@ -401,7 +402,7 @@ additionally taken 2026-09-22 by the LIRA-176 renumber (§0.4).
 
 **Updated 2026-09-23:** **LIRA-198**, **LIRA-205** and **LIRA-208** are now filed in
 `current_sprint.md` as **DONE**, and **LIRA-220 … LIRA-228** were filed for work discovered while
-building them. LIRA-229 and LIRA-230 followed on 2026-09-24; the next free ID is **LIRA-231**.
+building them. LIRA-229 and LIRA-230 followed on 2026-09-24, and LIRA-231 on 2026-09-26; LIRA-232 … LIRA-235 on 2026-09-26 too and LIRA-236 on 2026-09-27; the next free ID is **LIRA-237**.
 
 ### Table 1 — Tuesday (14 notes)
 
@@ -1092,8 +1093,9 @@ later."**
   finishes the 7 cut pieces: #11-B fix → #11-C impl, #14 fix, #16 fix, #20 fix, #11-A fix, #28 fix.
 - **NOT reviewed after their last change:** #21 and #24.
 - **NOTHING in this batch has been run.** The owner's later verification must cover build:core,
-  schema-equivalence, typecheck, lint, full jest, the rule-17 proofs for every new test, and desktop
-  then web e2e.
+  schema-equivalence, typecheck, lint, full jest, and desktop then web e2e. (The "rule-17 proof pass"
+  that undid finished code was DROPPED on 2026-09-26, when the owner reworded rule 17 to "test first, see
+  it fail, then fix; never undo finished code".)
 
 **~00:05 (2026-09-25) — remaining-notes IMPLEMENTATION COMPLETE, nothing run.**
 - **Implemented:** #11 A/B/C, #19, #20, #21, #24, #28, #13, #16, #14 slice 2 and lira-141.

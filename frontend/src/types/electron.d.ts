@@ -368,6 +368,26 @@ export interface RecentTransaction {
    * void/refund row carries the negated mirror.
    */
   returned_credits_usd?: number;
+  /**
+   * LIRA-236 follow-up (2026-09-27 review) — server-computed: true when THIS
+   * row is a session-basket member that was netted as a payout at checkout
+   * (a loto cash prize, a wallet/Binance cash-out, a negative-amount
+   * custom-service payout). Derived from the member's customer-side
+   * (`customer_session_transactions`) amount via the shared
+   * `isSessionPayoutMember` predicate (`@liratek/core`), never the row's own
+   * `amount_usd`/`amount_lbp` — see `TransactionRepository.getRecent`'s own
+   * doc. Always `false` for a non-session row.
+   */
+  is_session_payout: boolean;
+  /**
+   * Coordinator follow-up (2026-09-27), item 5 — true when THIS row belongs
+   * to a session basket where EVERY member has already been refunded (item
+   * by item, or by an earlier whole-member refund/void) — i.e.
+   * `voidSessionBasket`/`refundSessionBasket` would now refuse the basket.
+   * Server-computed by `getRecent()`, stamped identically onto every row of
+   * the session. Always `false` for a non-session row.
+   */
+  session_fully_refunded: boolean;
 }
 
 /** A mobile service catalog item stored in the database */
@@ -982,7 +1002,26 @@ export interface ElectronAPI {
     getTopProducts: () => Promise<
       { name: string; total_quantity: number; total_revenue: number }[]
     >;
-    refund: (saleId: number) => Promise<{
+    /** LIRA-231: refundLegs is optional — omit for the default (mirror the
+     *  original payment legs verbatim) reversal, same LIRA-078 contract the
+     *  Transactions page uses. 2026-09-26: unitExtras is optional too — the
+     *  POS "Returned phones" per-unit defective/warranty-override flags.
+     *  LIRA-236: exchangeRate is optional too — the rate the refund popup
+     *  was showing at confirm time (meaningful only alongside refundLegs). */
+    refund: (
+      saleId: number,
+      refundLegs?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>,
+      unitExtras?: Array<{
+        unit_id: number;
+        is_defective?: boolean;
+        warranty_override_until?: string | null;
+      }>,
+      exchangeRate?: number,
+    ) => Promise<{
       success: boolean;
       refundId?: number;
       error?: string;
@@ -991,9 +1030,43 @@ export interface ElectronAPI {
       saleId: number,
       saleItemId: number,
       refundQuantity: number,
+      refundLegs?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>,
+      unitExtras?: Array<{
+        unit_id: number;
+        is_defective?: boolean;
+        warranty_override_until?: string | null;
+      }>,
+      exchangeRate?: number,
     ) => Promise<{
       success: boolean;
       refundId?: number;
+      error?: string;
+    }>;
+    /** LIRA-231 — POS refund preview: the sale's (or, with `item`, one
+     *  item's proportional share of the sale's) own customer-facing payment
+     *  legs, plus whether the sale is session-linked. LIRA-236:
+     *  bookedRate/bookedRateSource are the popup's default rate + its
+     *  provenance. */
+    getRefundPreview: (
+      saleId: number,
+      item?: { saleItemId: number; refundQuantity: number },
+    ) => Promise<{
+      success: boolean;
+      legs?: Array<{
+        direction: "in" | "out";
+        amount: number;
+        signed_amount: number;
+        currency_code: string;
+        method: string;
+        drawer_name?: string;
+      }>;
+      sessionLinked?: boolean;
+      bookedRate?: number;
+      bookedRateSource?: "sale" | "transaction" | "fallback";
       error?: string;
     }>;
     getByDateRange: (
@@ -2957,13 +3030,27 @@ export interface ElectronAPI {
       reversalId?: number;
       error?: string;
     }>;
+    /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
+     *  `bookedRateSource` default (the transaction's own recorded rate, else
+     *  the day's fallback). Read-only, no write. */
+    getRefundBookedRate: (id: number) => Promise<
+      | {
+          success: true;
+          bookedRate: number;
+          bookedRateSource: "sale" | "transaction" | "fallback";
+        }
+      | { success: false; error?: string }
+    >;
     /** LIRA-078: refundLegs is optional — omit for the default reversal
      *  (mirrors the original payment legs verbatim); when provided, each
      *  entry overrides the return method for one currency (method-override
      *  only — amount/currencyCode must net to the original's own total).
      *  LIRA-143 phase 5: refundUnitExtras is optional too — the phone-refund
      *  UI's per-unit defective/warranty-override flags, riding alongside
-     *  refundLegs on the SAME call. */
+     *  refundLegs on the SAME call. LIRA-236: exchangeRate is optional too —
+     *  the rate the refund popup was showing at confirm time (meaningful
+     *  only alongside refundLegs, whose TOTAL VALUE is then validated at
+     *  that rate instead of the old per-currency rule). */
     refund: (
       id: number,
       refundLegs?: Array<{
@@ -2976,6 +3063,7 @@ export interface ElectronAPI {
         is_defective?: boolean;
         warranty_override_until?: string | null;
       }>,
+      exchangeRate?: number,
     ) => Promise<{
       success: boolean;
       refundId?: number;
@@ -3012,6 +3100,26 @@ export interface ElectronAPI {
       reversalIds?: number[];
       error?: string;
     }>;
+    /** LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — refund ONE (or,
+     *  with saleItemId omitted on a SALE member, every remaining) line of a
+     *  customer-session basket item, in ONE db transaction. The item-level
+     *  sibling of refundSessionBasket above, which reverses the WHOLE
+     *  basket. Payload/result types imported directly from @liratek/core
+     *  (rule 21) rather than hand-copied. */
+    refundSessionBasketItem: (
+      data: import("@liratek/core").SessionItemRefundInput,
+    ) => Promise<
+      | ({ success: true } & import("@liratek/core").RefundSessionBasketItemResult)
+      | { success: false; error?: string }
+    >;
+    /** Read-only preview for the item-refund form's pre-fill (the account
+     *  reduction + default proportional legs). */
+    getSessionItemRefundPreview: (
+      data: import("@liratek/core").SessionItemRefundPreviewInput,
+    ) => Promise<
+      | ({ success: true } & import("@liratek/core").SessionItemRefundPreview)
+      | { success: false; error?: string }
+    >;
   };
 
   // Profits

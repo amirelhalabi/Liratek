@@ -93,7 +93,9 @@ function createTestDb(): Database.Database {
       id                     INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id              INTEGER,
       session_id             INTEGER NOT NULL,
-      unified_transaction_id INTEGER
+      unified_transaction_id INTEGER,
+      amount_usd             REAL NOT NULL DEFAULT 0,
+      amount_lbp             REAL NOT NULL DEFAULT 0
     );
 
     CREATE TABLE debt_ledger (

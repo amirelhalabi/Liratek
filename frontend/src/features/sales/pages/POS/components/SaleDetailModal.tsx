@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   X,
   RotateCcw,
@@ -17,10 +17,42 @@ import {
 } from "@/features/sales/utils/receiptFormatter";
 import { useShopInfo } from "@/hooks/useShopName";
 import { printReceipt } from "@/shared/utils/printReceipt";
-import { ConfirmModal } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { getWarrantyState } from "@/features/sales/utils/warrantyStatus";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import {
+  RefundMethodModal,
+  type RefundableUnit,
+} from "@/features/audit/components/RefundMethodModal";
+import { RefundQuantityModal } from "@/features/audit/components/RefundQuantityModal";
+import { useSessionItemRefund } from "@/features/audit/hooks/useSessionItemRefund";
+import type { TransactionPaymentLeg } from "@/features/audit/cashFlow";
+import type {
+  RefundLegOverride,
+  RefundUnitExtraOverride,
+} from "@/features/audit/refundLegOverride";
+import { getProductUnitsForSaleItems } from "@/api/backendApi";
+
+/** LIRA-231 owner decision (2026-09-26): a sale paid through a customer
+ *  session basket has its own pooled payment, invisible to a
+ *  per-transaction refund (`TransactionRepository.refundBySaleId` /
+ *  `SalesRepository.refundSaleItem`'s server-side guard still refuses those
+ *  two DESKTOP-only entry points directly). LIRA-232 replaces the UI's old
+ *  "go refund it from the session basket" block message with the real
+ *  flow below: resolve the sale's {sessionId, transactionId} and refund
+ *  through `refundSessionBasketItem` instead, from right here.
+ *
+ *  Round-2 review (finding 1): the {sessionId, transactionId} pair comes
+ *  straight from `getSaleRefundPreview`'s own `sessionId`/
+ *  `sessionTransactionId` fields now — NOT a `getTransactionBySource` +
+ *  `getSessionForTransaction` two-hop lookup. That lookup resolved the
+ *  basket member via "the newest ACTIVE unified transaction for source
+ *  sales/saleId", which is correct only until the FIRST item refund: after
+ *  that, the newest ACTIVE row for the same source is the ITEM REFUND, not
+ *  the original SALE member, so the preview/refund calls targeted the wrong
+ *  transaction id and "Refund item"/"Refund Sale" broke on a
+ *  once-refunded session sale. */
 
 interface SaleItem {
   id: number;
@@ -70,15 +102,57 @@ export default function SaleDetailModal({
   useModalFocusFix(true);
   const api = useApi();
   const shopInfo = useShopInfo();
+  const { drawerAffectingMethods } = usePaymentMethods();
   const [sale, setSale] = useState<SaleDetail | null>(null);
   const [items, setItems] = useState<SaleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refunding, setRefunding] = useState(false);
-  const [showRefundConfirm, setShowRefundConfirm] = useState(false);
+  const [loadingRefundPreview, setLoadingRefundPreview] = useState(false);
   const [showRefundQuantity, setShowRefundQuantity] = useState(false);
   const [selectedRefundItem, setSelectedRefundItem] = useState<SaleItem | null>(
     null,
   );
+  // LIRA-231 — which refund the open RefundMethodModal (if any) is for, and
+  // the payment legs it was pre-filled with (that item's proportional
+  // share for an item refund, the whole sale's legs for "Refund Sale").
+  const [refundTarget, setRefundTarget] = useState<
+    | { kind: "sale" }
+    | { kind: "item"; item: SaleItem; quantity: number }
+    | null
+  >(null);
+  const [refundModalLegs, setRefundModalLegs] = useState<
+    TransactionPaymentLeg[]
+  >([]);
+  // 2026-09-26 owner decision — the POS refund window gets the SAME
+  // "Returned phones" section the Transactions page's refund modal has
+  // always had: the linked IMEI-tracked unit(s) for whichever refund
+  // `refundTarget` describes (every item's units for "Refund Sale", just
+  // THAT item's for "Refund item"). Empty renders no section at all, same
+  // as before this change (RefundMethodModal's own `units.length > 0` gate).
+  const [refundModalUnits, setRefundModalUnits] = useState<RefundableUnit[]>(
+    [],
+  );
+  // LIRA-236 — the rate the popup opens with (the preview's own `bookedRate`,
+  // falling back to `sale.exchange_rate_snapshot`/EXCHANGE_RATE) + its
+  // provenance, computed once when the preview resolves so the popup and the
+  // "no rate was recorded" fallback note both read the SAME values render to
+  // render (rather than recomputing the fallback chain inline in JSX).
+  const [refundModalBookedRate, setRefundModalBookedRate] =
+    useState<number>(EXCHANGE_RATE);
+  const [refundModalBookedRateSource, setRefundModalBookedRateSource] =
+    useState<"sale" | "transaction" | "fallback">("fallback");
+  // LIRA-232 — which kind of refund the SESSION flow (useSessionItemRefund)
+  // is currently open for. A ref, not state: it's read only from inside the
+  // hook's onRefunded callback below (fixed at hook-construction time, so it
+  // can't close over fresh state), never rendered directly.
+  const sessionRefundKindRef = useRef<
+    | { kind: "sale" }
+    | { kind: "item"; item: SaleItem; quantity: number }
+    | null
+  >(null);
+  const [sessionRefundUnits, setSessionRefundUnits] = useState<
+    RefundableUnit[]
+  >([]);
   // RCP-1 walk-in rename: edit the customer on a walk-in sale (client_id null).
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [editName, setEditName] = useState("");
@@ -141,30 +215,296 @@ export default function SaleDetailModal({
     }
   };
 
-  const handleRefund = async () => {
-    if (!sale) return;
-    setRefunding(true);
+  // 2026-09-26 — every linked IMEI-tracked unit for the CURRENTLY LOADED
+  // `items` (whole-sale refund) or just ONE item (per-item refund), for the
+  // "Returned phones" section. Mirrors TransactionsViewer.handleRefund's
+  // identical lookup (`getProductUnitsForSaleItems`) — never blocks the
+  // refund on failure, same as there: a lookup error just means no units to
+  // flag, not a refund-blocking error.
+  const loadRefundUnits = async (
+    saleItemIds: number[],
+  ): Promise<RefundableUnit[]> => {
+    if (saleItemIds.length === 0) return [];
     try {
-      const result = await api.refundSale(saleId);
-      if (result.success) {
+      const units = await getProductUnitsForSaleItems(saleItemIds);
+      return (units ?? []).map((u) => ({ id: u.id, imei: u.imei }));
+    } catch (err) {
+      logger.error("Failed to load linked phone units for refund", {
+        error: err,
+      });
+      return [];
+    }
+  };
+
+  // LIRA-232 — the session-flow's own onRefunded: fires once
+  // refundSessionBasketItem succeeds. sessionRefundKindRef (set right before
+  // sessionRefund.open() below) says whether this was "Refund Sale" or
+  // "Refund item", so the success notification/reload matches
+  // handleConfirmRefund's non-session equivalents below exactly.
+  const sessionRefund = useSessionItemRefund(() => {
+    const kind = sessionRefundKindRef.current;
+    sessionRefundKindRef.current = null;
+    setSessionRefundUnits([]);
+    if (kind?.kind === "sale") {
+      appEvents.emit(
+        "notification:show",
+        "Sale refunded successfully",
+        "success",
+      );
+      appEvents.emit("sale:completed", { refunded: true, saleId });
+      onRefunded?.();
+      onClose();
+      window.api?.display?.fixFocus?.();
+    } else if (kind?.kind === "item") {
+      appEvents.emit(
+        "notification:show",
+        `Refunded ${kind.quantity}x ${kind.item.name}`,
+        "success",
+      );
+      appEvents.emit("sale:completed", { refunded: true, saleId });
+      onRefunded?.();
+      void (async () => {
+        const itemsData = await api.getSaleItems(saleId);
+        setItems(itemsData ?? []);
+      })();
+    }
+  });
+
+  // LIRA-231 — "Refund Sale": load the sale's own payment legs (and whether
+  // it's session-linked) BEFORE opening RefundMethodModal, so the modal can
+  // pre-fill with exactly what a no-override refund would do.
+  //
+  // LIRA-232 (2026-09-26 owner decision) — a session-linked sale no longer
+  // shows the old block message: it opens the SAME RefundMethodModal
+  // through `useSessionItemRefund`, using the preview's own `sessionId`/
+  // `sessionTransactionId` (finding 1 — never a separate lookup, see the
+  // file-header note), refunding EVERY remaining line of the sale in one
+  // operation (owner answer Q2 — no `saleItemId`).
+  //
+  // 2026-09-26: also loads every linked phone unit across ALL of this sale's
+  // items, so the "Returned phones" section covers the whole sale.
+  //
+  // LIRA-236 (REFUND_EXCHANGE_RATE_PLAN.md §2 owner decision 3) — the
+  // popup's default rate: ONLY the server's own `bookedRate`/
+  // `bookedRateSource` (`SalesRepository.getSaleRefundPreview`/
+  // `getItemRefundPreview`, which already resolve "the sale's own recorded
+  // rate, else the day's fallback" — the exact same rule this used to
+  // RE-DERIVE from `sale.exchange_rate_snapshot`, a second definition of the
+  // server's own business rule, rule 14). `getSaleRefundPreview`'s return
+  // type still marks these optional defensively (a non-success response
+  // carries neither), so `EXCHANGE_RATE`/`"fallback"` below is a pure
+  // type-safety guard, never a business-rule fallback — round-2/final review
+  // finding F15.
+  const resolveBookedRate = (preview: {
+    bookedRate?: number;
+    bookedRateSource?: "sale" | "transaction" | "fallback";
+  }): { rate: number; source: "sale" | "transaction" | "fallback" } => ({
+    rate: preview.bookedRate ?? EXCHANGE_RATE,
+    source: preview.bookedRateSource ?? "fallback",
+  });
+
+  const openWholeSaleRefund = async () => {
+    if (!sale) return;
+    setLoadingRefundPreview(true);
+    try {
+      const [preview, units] = await Promise.all([
+        api.getSaleRefundPreview(saleId),
+        loadRefundUnits(items.map((i) => i.id)),
+      ]);
+      if (!preview.success) {
         appEvents.emit(
           "notification:show",
-          "Sale refunded successfully",
-          "success",
-        );
-        appEvents.emit("sale:completed", { refunded: true, saleId });
-        onRefunded?.();
-        onClose();
-        // Windows focus fix — Electron-only workaround for a focus bug after
-        // a modal closes; a no-op in the browser (window.api is undefined
-        // there), so no REST/web equivalent exists or is needed.
-        window.api?.display?.fixFocus?.();
-      } else {
-        appEvents.emit(
-          "notification:show",
-          result.error || "Refund failed",
+          preview.error || "Failed to load refund details",
           "error",
         );
+        return;
+      }
+      if (preview.sessionLinked) {
+        if (preview.sessionId == null || preview.sessionTransactionId == null) {
+          appEvents.emit(
+            "notification:show",
+            "Could not resolve this sale's session — try refunding it from the Transactions page.",
+            "error",
+          );
+          return;
+        }
+        sessionRefundKindRef.current = { kind: "sale" };
+        setSessionRefundUnits(units);
+        await sessionRefund.open({
+          sessionId: preview.sessionId,
+          transactionId: preview.sessionTransactionId,
+          ...(sale.client_name ? { clientLabel: sale.client_name } : {}),
+        });
+        return;
+      }
+      const booked = resolveBookedRate(preview);
+      setRefundModalBookedRate(booked.rate);
+      setRefundModalBookedRateSource(booked.source);
+      setRefundModalLegs(preview.legs ?? []);
+      setRefundModalUnits(units);
+      setRefundTarget({ kind: "sale" });
+    } catch (_err) {
+      appEvents.emit(
+        "notification:show",
+        "Failed to load refund details",
+        "error",
+      );
+    } finally {
+      setLoadingRefundPreview(false);
+    }
+  };
+
+  // LIRA-231 — "Refund item": same preview-then-modal flow, scoped to this
+  // item's proportional share of the sale's legs. LIRA-232: same
+  // session-resolution branch as openWholeSaleRefund above, but this item's
+  // own `saleItemId`/`quantity`.
+  //
+  // 2026-09-26: also loads ONLY this item's own linked phone unit(s) — never
+  // a sibling line's — for the "Returned phones" section.
+  const openItemRefund = async (item: SaleItem, quantity: number) => {
+    setLoadingRefundPreview(true);
+    try {
+      const [preview, units] = await Promise.all([
+        api.getSaleRefundPreview(saleId, {
+          saleItemId: item.id,
+          refundQuantity: quantity,
+        }),
+        loadRefundUnits([item.id]),
+      ]);
+      if (!preview.success) {
+        appEvents.emit(
+          "notification:show",
+          preview.error || "Failed to load refund details",
+          "error",
+        );
+        return;
+      }
+      if (preview.sessionLinked) {
+        if (preview.sessionId == null || preview.sessionTransactionId == null) {
+          appEvents.emit(
+            "notification:show",
+            "Could not resolve this sale's session — try refunding it from the Transactions page.",
+            "error",
+          );
+          return;
+        }
+        sessionRefundKindRef.current = { kind: "item", item, quantity };
+        setSessionRefundUnits(units);
+        await sessionRefund.open({
+          sessionId: preview.sessionId,
+          transactionId: preview.sessionTransactionId,
+          saleItemId: item.id,
+          quantity,
+          ...(sale?.client_name ? { clientLabel: sale.client_name } : {}),
+        });
+        return;
+      }
+      const booked = resolveBookedRate(preview);
+      setRefundModalBookedRate(booked.rate);
+      setRefundModalBookedRateSource(booked.source);
+      setRefundModalLegs(preview.legs ?? []);
+      setRefundModalUnits(units);
+      setRefundTarget({ kind: "item", item, quantity });
+    } catch (_err) {
+      appEvents.emit(
+        "notification:show",
+        "Failed to load refund details",
+        "error",
+      );
+    } finally {
+      setLoadingRefundPreview(false);
+      setShowRefundQuantity(false);
+      setSelectedRefundItem(null);
+    }
+  };
+
+  // Typing follow-up (rule 21/24) — RefundMethodModal's own `RefundLegOverride`
+  // (frontend/src/features/audit/refundLegOverride.ts) is now a type alias
+  // for the core schema's `RefundLegInput`, the SAME type the adapter's
+  // `refundSale`/`refundSaleItem` derive their `refundLegs` param off of
+  // (rule 21) — so `refundLegsInput` below is already the exact shape those
+  // calls expect. No conversion needed; a hand-rolled narrow here would just
+  // be a second, driftable copy of `toRefundLegs` (refundLegOverride.ts),
+  // which already did the ONE real narrow (loose `PaymentLine.currencyCode`
+  // -> `"USD" | "LBP"`) before RefundMethodModal ever calls `onConfirm`.
+
+  // LIRA-231 — RefundMethodModal's Confirm: posts the operator's chosen (or
+  // untouched-default, `refundLegs === undefined`) return legs for whichever
+  // refund `refundTarget` describes.
+  //
+  // 2026-09-26: `unitExtras` — RefundMethodModal's own `RefundUnitExtraOverride`
+  // shape already matches the adapter's schema-derived `unitExtras` param
+  // structurally (unit_id/is_defective?/warranty_override_until?), so unlike
+  // `refundLegs` this needs no narrowing conversion — forwarded as-is.
+  //
+  // LIRA-236: `exchangeRate` — the rate RefundMethodModal was showing at
+  // confirm time (its own onConfirm contract: present only alongside a real
+  // `refundLegs` override), forwarded to `api.refundSale`/`refundSaleItem`
+  // as-is — no conversion needed, it's already a plain number.
+  const handleConfirmRefund = async (
+    refundLegsInput: RefundLegOverride[] | undefined,
+    unitExtras?: RefundUnitExtraOverride[],
+    exchangeRate?: number,
+  ) => {
+    if (!refundTarget) return;
+    const refundLegs = refundLegsInput;
+    setRefunding(true);
+    try {
+      if (refundTarget.kind === "sale") {
+        const result = await api.refundSale(
+          saleId,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+        );
+        if (result.success) {
+          appEvents.emit(
+            "notification:show",
+            "Sale refunded successfully",
+            "success",
+          );
+          appEvents.emit("sale:completed", { refunded: true, saleId });
+          onRefunded?.();
+          onClose();
+          // Windows focus fix — Electron-only workaround for a focus bug
+          // after a modal closes; a no-op in the browser (window.api is
+          // undefined there), so no REST/web equivalent exists or is needed.
+          window.api?.display?.fixFocus?.();
+        } else {
+          appEvents.emit(
+            "notification:show",
+            result.error || "Refund failed",
+            "error",
+          );
+        }
+      } else {
+        const { item, quantity } = refundTarget;
+        const result = await api.refundSaleItem(
+          saleId,
+          item.id,
+          quantity,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+        );
+        if (result.success) {
+          appEvents.emit(
+            "notification:show",
+            `Refunded ${quantity}x ${item.name}`,
+            "success",
+          );
+          appEvents.emit("sale:completed", { refunded: true, saleId });
+          onRefunded?.();
+          // Reload items to show updated refunded_quantity
+          const itemsData = await api.getSaleItems(saleId);
+          setItems(itemsData ?? []);
+        } else {
+          appEvents.emit(
+            "notification:show",
+            result.error || "Item refund failed",
+            "error",
+          );
+        }
       }
     } catch (_err) {
       appEvents.emit(
@@ -174,45 +514,9 @@ export default function SaleDetailModal({
       );
     } finally {
       setRefunding(false);
-      setShowRefundConfirm(false);
-    }
-  };
-
-  const handleRefundItem = async (item: SaleItem, quantity: number) => {
-    if (!sale) return;
-
-    setRefunding(true);
-    try {
-      const result = await api.refundSaleItem(saleId, item.id, quantity);
-
-      if (result.success) {
-        appEvents.emit(
-          "notification:show",
-          `Refunded ${quantity}x ${item.name}`,
-          "success",
-        );
-        appEvents.emit("sale:completed", { refunded: true, saleId });
-        onRefunded?.();
-        // Reload items to show updated refunded_quantity
-        const itemsData = await api.getSaleItems(saleId);
-        setItems(itemsData ?? []);
-      } else {
-        appEvents.emit(
-          "notification:show",
-          result.error || "Item refund failed",
-          "error",
-        );
-      }
-    } catch (_err) {
-      appEvents.emit(
-        "notification:show",
-        "Item refund failed unexpectedly",
-        "error",
-      );
-    } finally {
-      setRefunding(false);
-      setShowRefundQuantity(false);
-      setSelectedRefundItem(null);
+      setRefundTarget(null);
+      setRefundModalLegs([]);
+      setRefundModalUnits([]);
     }
   };
 
@@ -276,7 +580,29 @@ export default function SaleDetailModal({
     return d.toLocaleString();
   };
 
-  const isRefunded = sale?.status === "refunded";
+  // LIRA-232 round-2 review (finding 3) — `sale.status` is the PRIMARY
+  // signal, but a session basket's WHOLE-BASKET reversal (a different code
+  // path than this modal's own "Refund Sale"/"Refund item") reverses a
+  // partly item-refunded sale's remaining lines through the session-item
+  // reversal helper, not through `SalesRepository.refundSale` itself — so a
+  // stale open modal must not rely on `sale.status` alone to decide whether
+  // "Refund Sale" is still safe to click. Falling back to "every loaded line
+  // is already fully refunded" catches that case defensively: it hides the
+  // (now guaranteed to error) whole-sale refund button using the SAME
+  // `refunded_quantity`/`quantity` state each line's own "Refund item" icon
+  // already keys off (see `isFullyRefunded` below), so the two can never
+  // disagree with each other.
+  const allItemsFullyRefunded =
+    items.length > 0 &&
+    items.every((i) => (i.refunded_quantity ?? 0) >= i.quantity);
+  const isRefunded = sale?.status === "refunded" || allItemsFullyRefunded;
+  // LIRA-232 round-2 review (finding 4) — the session-refund modal's account
+  // line prefers the preview's own `accountClientName` (the "Session Debt"
+  // row's actual client) over the sale's own name; computed once so the JSX
+  // below can spread a single optional prop without an `undefined` literal
+  // reaching `AccountReductionInfo.clientLabel` (exactOptionalPropertyTypes).
+  const sessionAccountClientLabel: string | undefined =
+    sessionRefund.preview?.accountClientName || sale?.client_name || undefined;
   // LIRA-143 phase 6a — computed once per render for the per-line warranty
   // hint below (getWarrantyState compares only the YYYY-MM-DD prefix).
   const todayIso = new Date().toISOString();
@@ -572,27 +898,22 @@ export default function SaleDetailModal({
               </button>
               {!isRefunded && (
                 <button
-                  onClick={() => setShowRefundConfirm(true)}
-                  disabled={refunding}
+                  onClick={openWholeSaleRefund}
+                  disabled={refunding || loadingRefundPreview}
                   className="ml-auto px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
                 >
                   <RotateCcw size={16} />
-                  {refunding ? "Refunding..." : "Refund Sale"}
+                  {loadingRefundPreview
+                    ? "Loading..."
+                    : refunding
+                      ? "Refunding..."
+                      : "Refund Sale"}
                 </button>
               )}
             </div>
           </>
         )}
       </div>
-
-      <ConfirmModal
-        isOpen={showRefundConfirm}
-        title="Refund Sale"
-        message="Are you sure you want to refund this sale? This will restore stock and reverse payments. This action cannot be undone."
-        onConfirm={handleRefund}
-        onCancel={() => setShowRefundConfirm(false)}
-        variant="danger"
-      />
 
       {showRefundQuantity && selectedRefundItem && (
         <div
@@ -611,7 +932,7 @@ export default function SaleDetailModal({
               (selectedRefundItem.refunded_quantity ?? 0)
             }
             onConfirm={(quantity) => {
-              handleRefundItem(selectedRefundItem, quantity);
+              openItemRefund(selectedRefundItem, quantity);
             }}
             onCancel={() => {
               setShowRefundQuantity(false);
@@ -620,84 +941,79 @@ export default function SaleDetailModal({
           />
         </div>
       )}
-    </div>
-  );
-}
 
-// =============================================================================
-// RefundQuantityModal Component
-// =============================================================================
+      {/* LIRA-231 — reuses the SAME refund-tender-selection modal the
+          Transactions page uses (rule 14), pre-filled with either the whole
+          sale's or one item's proportional share of the customer-facing
+          payment legs. 2026-09-26 owner decision: `units` is now passed too
+          — the SAME "Returned phones" per-unit defective/warranty-override
+          flagging section the Transactions page's refund modal has always
+          had, no longer Transactions-page-only. Empty renders no section at
+          all (RefundMethodModal's own gate), same as before this change. */}
+      {refundTarget && (
+        <RefundMethodModal
+          legs={refundModalLegs}
+          units={refundModalUnits}
+          paymentMethods={drawerAffectingMethods.map((m) => ({
+            code: m.code,
+            label: m.label,
+          }))}
+          exchangeRate={refundModalBookedRate}
+          bookedRateSource={refundModalBookedRateSource}
+          entityLabel="sale"
+          isSubmitting={refunding}
+          onCancel={() => {
+            setRefundTarget(null);
+            setRefundModalLegs([]);
+            setRefundModalUnits([]);
+          }}
+          onConfirm={handleConfirmRefund}
+        />
+      )}
 
-interface RefundQuantityModalProps {
-  itemName: string;
-  availableQuantity: number;
-  onConfirm: (quantity: number) => void;
-  onCancel: () => void;
-}
-
-function RefundQuantityModal({
-  itemName,
-  availableQuantity,
-  onConfirm,
-  onCancel,
-}: RefundQuantityModalProps) {
-  const [quantity, setQuantity] = useState(1);
-
-  useEffect(() => {
-    setQuantity(1);
-  }, [availableQuantity]);
-
-  return (
-    <div
-      className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <div className="p-6 border-b border-slate-700">
-        <h3 className="text-lg font-bold text-white">Refund Item Quantity</h3>
-      </div>
-
-      <div className="p-6 space-y-4">
-        <p className="text-slate-300">
-          Refunding:{" "}
-          <span className="font-semibold text-white">{itemName}</span>
-        </p>
-
-        <div className="space-y-2">
-          <label className="text-sm text-slate-400">
-            Available to refund: {availableQuantity}
-          </label>
-          <input
-            type="number"
-            min={1}
-            max={availableQuantity}
-            value={quantity}
-            onChange={(e) =>
-              setQuantity(
-                Math.max(
-                  1,
-                  Math.min(availableQuantity, parseInt(e.target.value) || 1),
-                ),
-              )
-            }
-            className="w-full px-4 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
-          />
-        </div>
-      </div>
-
-      <div className="p-4 border-t border-slate-700 flex gap-3">
-        <button
-          onClick={onCancel}
-          className="flex-1 px-4 py-2.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg font-medium transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={() => onConfirm(quantity)}
-          className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition-colors"
-        >
-          Refund {quantity}x
-        </button>
-      </div>
+      {/* LIRA-232 — the SAME modal, driven by the session-item-refund flow
+          instead (a session-linked sale). `accountReduction` renders the
+          read-only "Reduces <client>'s account by ..." line; `legs` is the
+          preview's `defaultLegs`, whose own per-currency total IS the
+          remainder still owed back through a drawer (see the hook's doc).
+          Round-2 review (finding 4): the account actually credited is
+          `accountClientName` (the "Session Debt" row's own client — can
+          differ from the item's buyer inside a basket) — `sale.client_name`
+          is only the fallback for when the core omits it. */}
+      {sessionRefund.preview && (
+        <RefundMethodModal
+          legs={sessionRefund.preview.legs}
+          units={sessionRefundUnits}
+          accountReduction={{
+            usd: sessionRefund.preview.accountReductionUsd,
+            lbp: sessionRefund.preview.accountReductionLbp,
+            ...(sessionAccountClientLabel
+              ? { clientLabel: sessionAccountClientLabel }
+              : {}),
+          }}
+          paymentMethods={drawerAffectingMethods.map((m) => ({
+            code: m.code,
+            label: m.label,
+          }))}
+          // LIRA-236 F15 — ONLY the server's own bookedRate/bookedRateSource
+          // (`SessionItemRefundPreview.bookedRate`, always present on a
+          // successful preview) — no `sale.exchange_rate_snapshot`
+          // re-derivation (rule 14, same fix as `resolveBookedRate` above).
+          exchangeRate={sessionRefund.preview.bookedRate ?? EXCHANGE_RATE}
+          bookedRateSource={sessionRefund.preview.bookedRateSource ?? "fallback"}
+          entityLabel="sale"
+          // LIRA-236 — re-preview (account reduction + remainder) at the
+          // typed rate, debounced inside the hook.
+          onRateChange={sessionRefund.changeRate}
+          isSubmitting={sessionRefund.submitting}
+          onCancel={() => {
+            sessionRefundKindRef.current = null;
+            setSessionRefundUnits([]);
+            sessionRefund.cancel();
+          }}
+          onConfirm={sessionRefund.confirm}
+        />
+      )}
     </div>
   );
 }

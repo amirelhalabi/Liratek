@@ -42,7 +42,11 @@ import { messageFrom } from "@/api/apiError";
 // into its rendering class (equation / commission / profit-only), reused
 // here instead of a hand-rolled per-row if (rule 14). Exported from
 // `browser.ts` (this is Vite/frontend-jest's resolved entry point, rule 29).
-import { classifyProfitModuleRow, PROFIT_ROW_CLASS } from "@liratek/core";
+import {
+  classifyProfitModuleRow,
+  PROFIT_ROW_CLASS,
+  hasModuleDetailSupport,
+} from "@liratek/core";
 
 const CommissionsChart = lazy(
   () => import("../../dashboard/components/CommissionsChart"),
@@ -73,6 +77,27 @@ interface ModuleDetailRow {
   counted_profit_lbp: number;
   reason: string | null;
   fee_note: string | null;
+  // LIRA-233 (#14 slice 3 review round, finding 9) — "fee" (a real cost
+  // deduction — red) vs "info" (a positive/neutral aside — never red).
+  // Optional/undefined defaults to "fee" so an older cached payload (or a
+  // row that never set it) keeps today's red styling unchanged.
+  fee_note_kind?: "fee" | "info";
+  // LIRA-233 (#14 slice 3 review round, finding 2) — which underlying row
+  // this was built from (e.g. "financial_service_transfer" vs
+  // "financial_service_allocation"). `id` alone collides across a
+  // FINANCIAL_SERVICE_<provider> row's two source tables — rows are keyed
+  // by `${source}-${id}`, never bare `id`. Optional so an older cached
+  // payload doesn't crash; falls back to a constant string in that case.
+  source?: string;
+  // LIRA-233 (#14 slice 3) — MAINTENANCE-only, mirrors the module TOTALS
+  // row's own parts/labour split (ModuleRow, below) at the per-transaction
+  // level. Optional so a non-MAINTENANCE row (or an older cached payload)
+  // doesn't crash.
+  parts_revenue_usd?: number;
+  parts_cost_usd?: number;
+  parts_profit_usd?: number;
+  labour_profit_usd?: number;
+  labour_profit_lbp?: number;
 }
 
 interface ModuleDetailResult {
@@ -82,6 +107,14 @@ interface ModuleDetailResult {
   counted_total_profit_usd: number;
   counted_total_profit_lbp: number;
 }
+
+// LIRA-233 (#14 slice 3 review round, finding 10) — `hasModuleDetailSupport`
+// used to be a hand-maintained copy of core's own `moduleDetailRegistry` key
+// list (`ProfitService.ts`), with nothing forcing the two to agree (rule
+// 14). Now imported from the SAME shared, pure-leaf constant
+// `ProfitService.getModuleDetail` itself checks before consulting its own
+// registry (see that method's own doc comment) — one list, not two
+// hand-kept-in-sync copies.
 
 interface ProfitSummary {
   period: string;
@@ -472,6 +505,29 @@ function profitClass(value: number): string {
   if (value > 0) return "text-emerald-400";
   if (value < 0) return "text-red-400";
   return "text-slate-400";
+}
+
+/**
+ * LIRA-233 (#14 slice 3 review round, finding 2) — a drill-down row's list
+ * key. `id` alone collides for FINANCIAL_SERVICE_<provider> (a
+ * `financial_services.id` and a `settlement_commission_allocations.id` are
+ * independent sequences) — `source` disambiguates. Falls back to a constant
+ * string for an older cached payload that never set `source`.
+ */
+function moduleDetailRowKey(r: ModuleDetailRow): string {
+  return `${r.source ?? "row"}-${r.id}`;
+}
+
+/**
+ * LIRA-233 (#14 slice 3 review round, finding 9) — a row note is either a
+ * real cost DEDUCTION ("fee" — red, the pre-existing RECHARGE SMS-fee
+ * convention) or a purely informational aside ("info" — neutral slate; a
+ * positive kept-change note, an off-currency stamp, a settlement-timing
+ * explanation). `undefined`/missing defaults to "fee" so an older cached
+ * payload (or a row that never set it) keeps today's red styling unchanged.
+ */
+function feeNoteClass(kind: ModuleDetailRow["fee_note_kind"]): string {
+  return kind === "info" ? "text-slate-400" : "text-red-400";
 }
 
 /**
@@ -2923,15 +2979,18 @@ export default function Profits() {
                                 </p>
                               )}
                             {/* PROF-DD (OWNER_NOTES_REMAINING_BUILD.md #14
-                                slice 2) — "Show transactions" drill-down,
-                                SALE + RECHARGE_<carrier> only. Slice 3 (every
-                                other module) is a later ticket, so no button
-                                renders for those rows yet — matching
-                                ProfitService.getModuleDetail's own "not
-                                built yet" boundary instead of offering a
-                                button that would only throw. */}
-                            {(row.module === "SALE" ||
-                              row.module.startsWith("RECHARGE_")) && (
+                                slice 2) — "Show transactions" drill-down.
+                                LIRA-233 (slice 3) widened this from
+                                SALE + RECHARGE_<carrier> only to every
+                                module `ProfitService.getModuleDetail` has a
+                                registry entry for — gated by
+                                `hasModuleDetailSupport`, imported from
+                                `@liratek/core` (finding 10: the SAME shared
+                                constant the core registry itself checks now,
+                                not a hand-maintained frontend copy — rule
+                                14/29). A module not yet in that list simply
+                                gets no button. */}
+                            {hasModuleDetailSupport(row.module) && (
                               <div
                                 data-testid={`by-module-transactions-${row.module}`}
                                 className="sm:col-span-2 border-t border-slate-700 pt-2"
@@ -3006,7 +3065,7 @@ export default function Profits() {
                                             </thead>
                                             <tbody>
                                               {detail.counted.map((r) => (
-                                                <Fragment key={r.id}>
+                                                <Fragment key={moduleDetailRowKey(r)}>
                                                   <tr className="border-t border-slate-800">
                                                     <td className="py-1 pr-2 text-slate-400">
                                                       {parseDbDate(
@@ -3019,7 +3078,11 @@ export default function Profits() {
                                                     <td className="py-1 pr-2 text-slate-400">
                                                       {r.detail || "—"}
                                                       {r.fee_note && (
-                                                        <span className="text-red-400">
+                                                        <span
+                                                          className={feeNoteClass(
+                                                            r.fee_note_kind,
+                                                          )}
+                                                        >
                                                           {" "}
                                                           · {r.fee_note}
                                                         </span>
@@ -3078,6 +3141,73 @@ export default function Profits() {
                                                       </td>
                                                     </tr>
                                                   )}
+                                                  {/* LIRA-233 (#14 slice 3)
+                                                      — per-transaction
+                                                      parts/labour split,
+                                                      MAINTENANCE only.
+                                                      Mirrors the module
+                                                      TOTALS row's own split
+                                                      (by-module-maintenance-
+                                                      parts-labour, above)
+                                                      scaled down to one
+                                                      row. Parts are always
+                                                      USD (owner decision —
+                                                      never converted). */}
+                                                  {isMaintenance &&
+                                                    (r.parts_revenue_usd !==
+                                                      undefined ||
+                                                      r.labour_profit_usd !==
+                                                        undefined) && (
+                                                      <tr>
+                                                        <td
+                                                          colSpan={5}
+                                                          data-testid={`by-module-transactions-parts-labour-${row.module}-${r.id}`}
+                                                          className="pb-1 pr-2 text-slate-500"
+                                                        >
+                                                          Parts:{" "}
+                                                          {formatAmount(
+                                                            r.parts_revenue_usd ??
+                                                              0,
+                                                            "USD",
+                                                          )}{" "}
+                                                          revenue −{" "}
+                                                          {formatAmount(
+                                                            r.parts_cost_usd ??
+                                                              0,
+                                                            "USD",
+                                                          )}{" "}
+                                                          cost ={" "}
+                                                          <span
+                                                            className={profitClass(
+                                                              r.parts_profit_usd ??
+                                                                0,
+                                                            )}
+                                                          >
+                                                            {formatAmount(
+                                                              r.parts_profit_usd ??
+                                                                0,
+                                                              "USD",
+                                                            )}
+                                                          </span>
+                                                          {" · Labour: "}
+                                                          <span
+                                                            className={profitClass(
+                                                              r.labour_profit_usd ??
+                                                                0,
+                                                            )}
+                                                          >
+                                                            {formatAmount(
+                                                              r.labour_profit_usd ??
+                                                                0,
+                                                              "USD",
+                                                            )}
+                                                          </span>
+                                                          {(r.labour_profit_lbp ??
+                                                            0) !== 0 &&
+                                                            ` + ${formatAmount(r.labour_profit_lbp ?? 0, "LBP")}`}
+                                                        </td>
+                                                      </tr>
+                                                    )}
                                                 </Fragment>
                                               ))}
                                               {detail.counted.length ===
@@ -3136,45 +3266,97 @@ export default function Profits() {
                                             <p className="font-semibold text-slate-400 mb-1">
                                               Not counted yet
                                             </p>
+                                            {/* LIRA-233 (#14 slice 3 review
+                                                round, finding 4) — a
+                                                not-counted row used to show
+                                                only date/client/reason,
+                                                making two different
+                                                not-counted rows
+                                                indistinguishable except by
+                                                reason text. Now mirrors the
+                                                counted table's own Detail +
+                                                Amount columns (muted). */}
                                             <table className="w-full text-[11px]">
+                                              <thead>
+                                                <tr className="text-slate-600">
+                                                  <th className="text-left py-1 pr-2">
+                                                    Date
+                                                  </th>
+                                                  <th className="text-left py-1 pr-2">
+                                                    Client
+                                                  </th>
+                                                  <th className="text-left py-1 pr-2">
+                                                    Detail
+                                                  </th>
+                                                  <th className="text-right py-1">
+                                                    Amount
+                                                  </th>
+                                                </tr>
+                                              </thead>
                                               <tbody>
                                                 {detail.not_counted.map(
                                                   (r) => (
-                                                    <tr
-                                                      key={r.id}
-                                                      className="border-t border-slate-800"
+                                                    <Fragment
+                                                      key={moduleDetailRowKey(
+                                                        r,
+                                                      )}
                                                     >
-                                                      <td className="py-1 pr-2 text-slate-500">
-                                                        {parseDbDate(
-                                                          r.date,
-                                                        ).toLocaleDateString()}
-                                                      </td>
-                                                      <td className="py-1 pr-2 text-slate-500">
-                                                        {r.counterpart}
-                                                      </td>
-                                                      <td className="py-1 pr-2 text-slate-500 italic">
-                                                        {r.reason}
-                                                        {/* PROF-DD-FIX
-                                                            (review round,
-                                                            OA14-3) — an
-                                                            auto-booked fee
-                                                            still shows next
-                                                            to a NOT-counted
-                                                            row too (e.g. a
-                                                            debt-pending
-                                                            recharge that
-                                                            already accrued
-                                                            its SMS fee) —
-                                                            it was silently
-                                                            left out before. */}
-                                                        {r.fee_note && (
-                                                          <span className="text-red-400 not-italic">
-                                                            {" "}
-                                                            · {r.fee_note}
-                                                          </span>
-                                                        )}
-                                                      </td>
-                                                    </tr>
+                                                      <tr className="border-t border-slate-800">
+                                                        <td className="py-1 pr-2 text-slate-500">
+                                                          {parseDbDate(
+                                                            r.date,
+                                                          ).toLocaleDateString()}
+                                                        </td>
+                                                        <td className="py-1 pr-2 text-slate-500">
+                                                          {r.counterpart}
+                                                        </td>
+                                                        <td className="py-1 pr-2 text-slate-500">
+                                                          {r.detail || "—"}
+                                                          {/* PROF-DD-FIX
+                                                              (review round,
+                                                              OA14-3) — an
+                                                              auto-booked fee
+                                                              still shows next
+                                                              to a NOT-counted
+                                                              row too (e.g. a
+                                                              debt-pending
+                                                              recharge that
+                                                              already accrued
+                                                              its SMS fee) —
+                                                              it was silently
+                                                              left out before. */}
+                                                          {r.fee_note && (
+                                                            <span
+                                                              className={feeNoteClass(
+                                                                r.fee_note_kind,
+                                                              )}
+                                                            >
+                                                              {" "}
+                                                              · {r.fee_note}
+                                                            </span>
+                                                          )}
+                                                        </td>
+                                                        <td className="py-1 text-right">
+                                                          <ProfitAmountSpans
+                                                            usd={r.profit_usd}
+                                                            lbp={r.profit_lbp}
+                                                            formatAmount={
+                                                              formatAmount
+                                                            }
+                                                          />
+                                                        </td>
+                                                      </tr>
+                                                      {r.reason && (
+                                                        <tr>
+                                                          <td
+                                                            colSpan={4}
+                                                            className="pb-1 pr-2 text-slate-500 italic"
+                                                          >
+                                                            {r.reason}
+                                                          </td>
+                                                        </tr>
+                                                      )}
+                                                    </Fragment>
                                                   ),
                                                 )}
                                               </tbody>

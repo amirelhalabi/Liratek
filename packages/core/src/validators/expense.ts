@@ -50,6 +50,24 @@ export const deleteExpenseSchema = z.object({
 });
 
 /**
+ * `DELETE /api/expenses/:id` (REST) path-param variant of
+ * `deleteExpenseSchema` above. `id` uses `z.coerce` — a URL param is ALWAYS a
+ * string ("5", never 5), so `deleteExpenseSchema`'s plain `positiveIntegerSchema`
+ * (a bare `z.number()`) rejected every single request through
+ * `validateParams`, the exact same trap `saleIdParamSchema`
+ * (`packages/core/src/validators/sale.ts`) already fixed for
+ * `GET /api/sales/:id`. `deleteExpenseSchema` itself is left untouched — no
+ * caller currently hands it a string id (rule 14: add the correctly-shaped
+ * schema, don't reshape one whose contract is fine for its own callers; the
+ * desktop `db:delete-expense` IPC handler validates nothing at all today and
+ * passes a real number straight through).
+ */
+export const expenseIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+export type ExpenseIdParamInput = z.infer<typeof expenseIdParamSchema>;
+
+/**
  * Edit non-financial metadata on an `expenses` row — mirrors the
  * `expenses:update-metadata` IPC handler's own inline shape
  * (electron-app/handlers/dbHandlers.ts), which validates nothing beyond

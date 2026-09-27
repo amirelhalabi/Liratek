@@ -325,6 +325,67 @@ describe("SalesRepository — per-item refund of a DISCOUNTED sale returns exact
     expect(drawer("USD")).toBe(OPENING_USD);
   });
 
+  // Round-2 finding #7 (LOW, pinning test) — `refundSaleItem`'s REFUND row
+  // now writes a NET (discount-adjusted) `amount_usd` (e.g. -9 for a 1/3
+  // share of a $3 discount on a $30 sale), where the pre-round-2 staged
+  // code wrote the GROSS line price (-10). This pins that choice and checks
+  // the one invariant that decides whether it's safe: the SALE row's own
+  // `amount_usd` is ALREADY the post-discount final (see `refundSaleItem`'s
+  // own comment, "amount_usd/amount_lbp are deliberately NOT selected: the
+  // SALE row's amount is the POST-discount final") — so summing SALE +
+  // every REFUND must reach the sale's correct REMAINING net value only if
+  // the REFUND amounts are ALSO net. A gross REFUND amount would instead
+  // UNDER-state what remains once summed. `netSaleRevenueExpr()`
+  // (ProfitRepository.ts) — this app's main revenue engine — sidesteps the
+  // question entirely: it recomputes revenue from `sale_items.quantity −
+  // refunded_quantity` directly and never sums `transactions.amount_usd`
+  // for SALE + REFUND rows at all, so it can't double-apply the discount
+  // either way.
+  it("round-2 finding #7 (pinning): a discounted REFUND's amount_usd is net, and SALE + REFUND sums to the correct remaining value", () => {
+    const res = repo.processSale(
+      {
+        client_id: null,
+        items: [
+          { product_id: 1, quantity: 1, price: 10 },
+          { product_id: 1, quantity: 1, price: 10 },
+          { product_id: 1, quantity: 1, price: 10 },
+        ],
+        total_amount: 30,
+        discount: 3,
+        final_amount: 27,
+        payment_usd: 27,
+        payment_lbp: 0,
+        exchange_rate: 30_000,
+      },
+      1,
+    );
+    const saleId = res.id!;
+    const saleTxn = db
+      .prepare(
+        `SELECT amount_usd FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+      )
+      .get(saleId) as { amount_usd: number };
+    expect(saleTxn.amount_usd).toBeCloseTo(27, 6); // post-discount final
+
+    // Refund ONE of the three $10 lines: net = 10 - (3 * 10/30) = $9.
+    const [firstLineId] = lineIds(saleId);
+    const refundTxnId = repo.refundSaleItem({
+      saleId,
+      saleItemId: firstLineId,
+      refundQuantity: 1,
+      userId: 1,
+    });
+    const refundTxn = db
+      .prepare(`SELECT amount_usd FROM transactions WHERE id = ?`)
+      .get(refundTxnId) as { amount_usd: number };
+    expect(refundTxn.amount_usd).toBeCloseTo(-9, 6);
+
+    // Two lines ($20 pre-discount) remain, at the SAME discount ratio:
+    // 20 - 3*(20/30) = $18 — exactly what SALE.amount_usd + REFUND.amount_usd
+    // sums to.
+    expect(saleTxn.amount_usd + refundTxn.amount_usd).toBeCloseTo(18, 6);
+  });
+
   it("returns EVERY currency leg to its pre-sale balance (mixed USD + LBP tender)", () => {
     // 2 x $30 = $60 pre-discount, $6 discount → $54 final, tendered as
     // $27 + 810,000 LBP (= $27 at 30,000).

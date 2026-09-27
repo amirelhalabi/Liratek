@@ -135,4 +135,5 @@ describe("CustomerSessionRepository", () => {
     const names = sessions.map((s: any) => s.customer_name).sort();
     expect(names).toEqual(["Alice", "Bob", "Charlie"]);
   });
+
 });

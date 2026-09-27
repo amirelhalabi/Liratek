@@ -39,6 +39,28 @@ function getLastPreparedSql(callIndex?: number): string {
 }
 
 /**
+ * LIRA-231 — `ProfitRepository.getPendingSaleProfit` now starts with a
+ * `_hasSaleDiscountAndRefundQuantityColumns()` schema-drift probe (two
+ * `PRAGMA table_info(...)` prepares) before its real query, so "call index
+ * 0" is no longer reliably the pending-sale-profit query itself — it's
+ * whichever one runs first. In THIS file that probe result is memoized on
+ * the shared `ProfitRepository` singleton (`getProfitRepository()`, not
+ * reset between tests here), so only the very FIRST test in the file to
+ * reach it actually observes the PRAGMA prepares; every later test reuses
+ * the cached answer and never re-issues them — which is exactly why only
+ * ONE test in this suite (whichever runs first) ever saw `PRAGMA
+ * table_info(sales)` at index 0 instead of the real query. Search across
+ * every prepared statement for the real query instead of assuming a fixed
+ * position — both the net and the gross branch alias the sale's id as
+ * `sale_id`, which no PRAGMA probe text ever contains.
+ */
+function getPendingSaleProfitSql(): string {
+  const calls = (mockDatabase.prepare as any).mock.calls as [string][];
+  const match = calls.find(([sql]) => sql.includes("AS sale_id"));
+  return match?.[0] ?? "";
+}
+
+/**
  * Set up the mock so the next `.prepare().all()` call returns `rows`.
  */
 function mockAllReturns(rows: any[]) {
@@ -87,7 +109,7 @@ describe("ProfitService.getPendingProfit", () => {
   describe("SQL query", () => {
     it("filters by status = completed", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql(0);
+      const sql = getPendingSaleProfitSql();
       expect(sql).toContain("s.status = 'completed'");
     });
 

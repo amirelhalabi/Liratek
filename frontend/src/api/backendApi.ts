@@ -27,6 +27,22 @@ import type {
   // derived from the core schema (rule 21) instead of a hand-typed literal.
   HoldMoneyCreateInput,
   HoldMoneyCollectInput,
+  // LIRA-231 — POS "Refund Sale"/"Refund item" refund-leg-override payloads,
+  // derived from the core schema (rule 21).
+  SaleRefundInput,
+  SaleRefundItemInput,
+  // Typing follow-up (rule 21/24) — `RefundLegOverride`/`RefundUnitExtraOverride`
+  // below are type aliases for these, never a hand-copied second definition
+  // of `refundLegSchema`/`refundUnitExtraSchema`'s shape.
+  RefundLegInput,
+  RefundUnitExtraInput,
+  // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
+  // single-item refund payload (derived from the core schema, rule 21) +
+  // result/preview shapes (derived from the repository, rule 21).
+  SessionItemRefundInput,
+  SessionItemRefundPreviewInput,
+  RefundSessionBasketItemResult,
+  SessionItemRefundPreview,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -1142,36 +1158,180 @@ export async function getSaleItems(saleId: number) {
 
 /** Refund a WHOLE sale (admin only). Was a raw, unguarded
  *  `window.api.sales.refund()` call with no REST twin (rule 19a) — the
- *  SaleDetailModal's refund button silently failed in a real browser. */
+ *  SaleDetailModal's refund button silently failed in a real browser.
+ *
+ *  LIRA-231: `refundLegs` is optional — omit for the default (mirror the
+ *  original payment legs verbatim) reversal; pass the operator's chosen
+ *  return method(s) — same LIRA-078 contract the Transactions page uses —
+ *  to override it. Type derived from `SaleRefundInput` (rule 21). A
+ *  session-paid sale is refused server-side regardless of transport.
+ *
+ *  2026-09-26: `unitExtras` is optional too — the POS "Returned phones"
+ *  per-unit defective/warranty-override flags, same shape/type-derivation
+ *  as `refundLegs` above.
+ *
+ *  LIRA-236: `exchangeRate` is optional too — the rate RefundMethodModal was
+ *  showing when the operator confirmed a legs override. Only meaningful
+ *  alongside `refundLegs` (server validates the override's TOTAL VALUE at
+ *  this rate instead of the old per-currency rule); omitted when
+ *  `refundLegs` is omitted, matching "today's default behaviour is
+ *  unchanged". Type derived straight off `SaleRefundInput` (rule 21) — it is
+ *  a real schema field now (`saleRefundSchema`'s `exchangeRate`), not a
+ *  hand-added forward declaration. */
 export async function refundSale(
   saleId: number,
+  refundLegs?: SaleRefundInput["refundLegs"],
+  unitExtras?: SaleRefundInput["unitExtras"],
+  exchangeRate?: SaleRefundInput["exchangeRate"],
 ): Promise<{ success: boolean; refundId?: number; error?: string }> {
   return ipcOrHttp(
-    async () => getElectronApi().sales.refund(saleId),
+    async () =>
+      getElectronApi().sales.refund(
+        saleId,
+        refundLegs,
+        unitExtras,
+        exchangeRate,
+      ),
     async () =>
       requestJson<{ success: boolean; refundId?: number; error?: string }>(
         `/api/sales/${saleId}/refund`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body:
+            refundLegs || unitExtras || exchangeRate
+              ? { refundLegs, unitExtras, exchangeRate }
+              : undefined,
+        },
       ),
   );
 }
 
 /** Refund a specific line item off a sale, by quantity (admin only). Was a
  *  raw, unguarded `window.api.sales.refundItem()` call with no REST twin
- *  (rule 19a). */
+ *  (rule 19a).
+ *
+ *  LIRA-231: same optional `refundLegs` override as `refundSale`, validated
+ *  server-side against THIS ITEM's proportional share of the sale. Type
+ *  derived from `SaleRefundItemInput` (rule 21).
+ *
+ *  2026-09-26: `unitExtras` — same as `refundSale` above, validated
+ *  server-side against THIS ITEM's own linked unit(s) only.
+ *
+ *  LIRA-236: `exchangeRate` — same as `refundSale` above (type derived off
+ *  `SaleRefundItemInput` directly, rule 21). */
 export async function refundSaleItem(
   saleId: number,
   saleItemId: number,
   refundQuantity: number,
+  refundLegs?: SaleRefundItemInput["refundLegs"],
+  unitExtras?: SaleRefundItemInput["unitExtras"],
+  exchangeRate?: SaleRefundItemInput["exchangeRate"],
 ): Promise<{ success: boolean; refundId?: number; error?: string }> {
   return ipcOrHttp(
     async () =>
-      getElectronApi().sales.refundItem(saleId, saleItemId, refundQuantity),
+      getElectronApi().sales.refundItem(
+        saleId,
+        saleItemId,
+        refundQuantity,
+        refundLegs,
+        unitExtras,
+        exchangeRate,
+      ),
     async () =>
       requestJson<{ success: boolean; refundId?: number; error?: string }>(
         `/api/sales/${saleId}/refund-item`,
-        { method: "POST", body: { saleItemId, refundQuantity } },
+        {
+          method: "POST",
+          body: {
+            saleItemId,
+            refundQuantity,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+          },
+        },
       ),
+  );
+}
+
+/** LIRA-231 — POS refund preview leg. Mirrors
+ *  `frontend/src/features/audit/cashFlow.ts`'s `TransactionPaymentLeg` —
+ *  each layer of the dual-mode stack keeps its own small DTO rather than
+ *  cross-importing a feature-level type into the api layer (same pattern as
+ *  `RefundLegOverride` below). */
+export interface SaleRefundPreviewLeg {
+  direction: "in" | "out";
+  amount: number;
+  signed_amount: number;
+  currency_code: string;
+  method: string;
+  drawer_name?: string;
+}
+
+/** LIRA-236 — provenance of a refund preview's `bookedRate` (the default
+ *  rate RefundMethodModal opens with): the sale's/transaction's own
+ *  recorded rate, or the day's rate when nothing was recorded ("fallback").
+ *  ONE definition (rule 14), reused by every refund preview's return type
+ *  below and by `SessionItemRefundPreviewState.bookedRateSource` in
+ *  `useSessionItemRefund.ts`. */
+export type BookedRateSource = "sale" | "transaction" | "fallback";
+
+/**
+ * LIRA-231 — POS refund preview (both "Refund Sale" and "Refund item"
+ * buttons): the sale's (or, with `item`, one item's proportional share of
+ * the sale's) own customer-facing payment legs, for RefundMethodModal's
+ * pre-fill, plus whether the sale is session-linked (both POS refund
+ * buttons are blocked server-side for a session-paid sale).
+ *
+ * LIRA-232 round-2 review (finding 1) — when `sessionLinked` is true, the
+ * preview ALSO carries `sessionId`/`sessionTransactionId`: the basket the
+ * sale belongs to, and the unified SALE transaction that is the basket
+ * member. SaleDetailModal reads these directly instead of a separate
+ * `getTransactionBySource` + `getSessionForTransaction` round trip — that
+ * two-hop lookup resolved the member via "newest ACTIVE row for this
+ * source", which breaks after the FIRST item refund (the newest active row
+ * becomes the REFUND, not the SALE). Both fields are optional so the
+ * pre-existing (non-session) shape is unchanged.
+ *
+ * LIRA-236 — `bookedRate`/`bookedRateSource` are the popup's default rate +
+ * its provenance (a concurrent core change; forward-declared here per rule
+ * 21 — undefined at runtime until core's `TransactionRepository`/
+ * `SalesRepository` preview methods add them, harmless in the meantime since
+ * SaleDetailModal falls back to `sale.exchange_rate_snapshot` either way).
+ */
+export async function getSaleRefundPreview(
+  saleId: number,
+  item?: { saleItemId: number; refundQuantity: number },
+): Promise<{
+  success: boolean;
+  legs?: SaleRefundPreviewLeg[];
+  sessionLinked?: boolean;
+  sessionId?: number;
+  sessionTransactionId?: number;
+  bookedRate?: number;
+  bookedRateSource?: BookedRateSource;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().sales.getRefundPreview(saleId, item),
+    async () => {
+      const query = new URLSearchParams();
+      if (item) {
+        query.set("saleItemId", String(item.saleItemId));
+        query.set("refundQuantity", String(item.refundQuantity));
+      }
+      const qs = query.toString();
+      return requestJson<{
+        success: boolean;
+        legs?: SaleRefundPreviewLeg[];
+        sessionLinked?: boolean;
+        sessionId?: number;
+        sessionTransactionId?: number;
+        bookedRate?: number;
+        bookedRateSource?: BookedRateSource;
+        error?: string;
+      }>(`/api/sales/${saleId}/refund-preview${qs ? `?${qs}` : ""}`);
+    },
   );
 }
 
@@ -3253,20 +3413,41 @@ export async function voidTransaction(id: number) {
   );
 }
 
-/** A single operator-chosen refund return leg (LIRA-078 method-override). */
-export interface RefundLegOverride {
-  method: string;
-  currencyCode: string;
-  amount: number;
+/**
+ * LIRA-236 — the Transactions-page refund modal's `bookedRate`/
+ * `bookedRateSource` default (the transaction's own recorded rate, else the
+ * day's fallback rate). Read-only, no write — mirrors {@link getSaleRefundPreview}
+ * (rule 14: one payload shape, `ipcOrHttp` the only transport branch). Was
+ * wired end-to-end on both transports (IPC channel + REST route) with NO
+ * frontend caller — `TransactionsViewer.tsx` derived its own fallback rate
+ * from `row.exchange_rate` instead, a second definition of the rule (rule
+ * 14). This closes that gap.
+ */
+export async function getRefundBookedRate(transactionId: number): Promise<
+  | { success: true; bookedRate: number; bookedRateSource: BookedRateSource }
+  | { success: false; error?: string }
+> {
+  return ipcOrHttp(
+    async () => getElectronApi().transactions.getRefundBookedRate(transactionId),
+    async () =>
+      requestJson<
+        | { success: true; bookedRate: number; bookedRateSource: BookedRateSource }
+        | { success: false; error?: string }
+      >(`/api/transactions/${transactionId}/refund-booked-rate`),
+  );
 }
 
+/** A single operator-chosen refund return leg (LIRA-078 method-override).
+ *  Type alias for the core schema's own `RefundLegInput` (`refundLegSchema`,
+ *  rule 21) — `currencyCode` is `"USD" | "LBP"`, never a hand-typed loose
+ *  `string`, so a non-USD/LBP value is a TYPE ERROR here, matching what the
+ *  server hard-rejects at runtime. */
+export type RefundLegOverride = RefundLegInput;
+
 /** LIRA-143 phase 5 — the phone-refund UI's per-unit flag override, riding
- *  alongside `refundLegs` on the SAME `refundTransaction` call. */
-export interface RefundUnitExtraOverride {
-  unit_id: number;
-  is_defective?: boolean;
-  warranty_override_until?: string | null;
-}
+ *  alongside `refundLegs` on the SAME `refundTransaction` call. Type alias
+ *  for the core schema's own `RefundUnitExtraInput` (rule 21). */
+export type RefundUnitExtraOverride = RefundUnitExtraInput;
 
 /**
  * Refund a transaction. `refundLegs` is optional — omit for the default
@@ -3275,22 +3456,34 @@ export interface RefundUnitExtraOverride {
  * choose which drawer/method the money returns through instead.
  * `unitExtras` is optional too (LIRA-143 phase 5) — the phone-refund UI's
  * per-unit defective/warranty-override flags, sent on the SAME call.
+ *
+ * LIRA-236: `exchangeRate` is optional too — the rate RefundMethodModal was
+ * showing when the operator confirmed a legs override, so the server can
+ * validate the override's TOTAL VALUE at that rate instead of the old
+ * per-currency rule. Only meaningful alongside `refundLegs`; omitted when
+ * `refundLegs` is (matching "today's default behaviour is unchanged").
  */
 export async function refundTransaction(
   id: number,
   refundLegs?: RefundLegOverride[],
   unitExtras?: RefundUnitExtraOverride[],
+  exchangeRate?: number,
 ) {
   if (isElectron()) {
-    return (window as any).api.transactions.refund(id, refundLegs, unitExtras);
+    return (window as any).api.transactions.refund(
+      id,
+      refundLegs,
+      unitExtras,
+      exchangeRate,
+    );
   }
   return requestJson<{ success: boolean; refundId?: number; error?: string }>(
     `/api/transactions/${id}/refund`,
     {
       method: "POST",
       body:
-        refundLegs || unitExtras
-          ? { refundLegs, refundUnitExtras: unitExtras }
+        refundLegs || unitExtras || exchangeRate
+          ? { refundLegs, refundUnitExtras: unitExtras, exchangeRate }
           : undefined,
     },
   );
@@ -3365,6 +3558,68 @@ export async function refundSessionBasket(
   return requestJson<SessionBasketReversalResult>(
     `/api/transactions/session-basket/${encodeURIComponent(String(sessionId))}/refund`,
     { method: "POST" },
+  );
+}
+
+/**
+ * LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — refund ONE (or, with
+ * `saleItemId` omitted on a SALE member, every remaining) line of a
+ * customer-session basket item. The item-level sibling of
+ * {@link refundSessionBasket} above, which reverses the WHOLE basket.
+ * `payload` is built ONCE by the caller and handed to this function
+ * unchanged (rule 22) — `ipcOrHttp` is the only transport branch. `userId`
+ * is never part of the payload: both transports derive it server-side from
+ * the authenticated session/JWT, never the client (rule 19c).
+ */
+export async function refundSessionBasketItem(
+  payload: SessionItemRefundInput,
+): Promise<
+  | ({ success: true } & RefundSessionBasketItemResult)
+  | { success: false; error?: string }
+> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().transactions.refundSessionBasketItem(payload),
+    async () => {
+      const { sessionId, ...body } = payload;
+      return requestJson<
+        | ({ success: true } & RefundSessionBasketItemResult)
+        | { success: false; error?: string }
+      >(
+        `/api/transactions/session-basket/${encodeURIComponent(String(sessionId))}/items/refund`,
+        { method: "POST", body },
+      );
+    },
+  );
+}
+
+/**
+ * Read-only preview for the item-refund form's pre-fill (the account
+ * reduction + default proportional legs). Mirrors {@link getSaleRefundPreview}
+ * (LIRA-231) — one payload shape, `ipcOrHttp` as the only transport branch.
+ */
+export async function getSessionItemRefundPreview(
+  payload: SessionItemRefundPreviewInput,
+): Promise<
+  | ({ success: true } & SessionItemRefundPreview)
+  | { success: false; error?: string }
+> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().transactions.getSessionItemRefundPreview(payload),
+    async () => {
+      const { sessionId, transactionId, saleItemId, quantity } = payload;
+      const query = new URLSearchParams();
+      query.set("transactionId", String(transactionId));
+      if (saleItemId !== undefined) query.set("saleItemId", String(saleItemId));
+      if (quantity !== undefined) query.set("quantity", String(quantity));
+      return requestJson<
+        | ({ success: true } & SessionItemRefundPreview)
+        | { success: false; error?: string }
+      >(
+        `/api/transactions/session-basket/${encodeURIComponent(String(sessionId))}/items/refund-preview?${query.toString()}`,
+      );
+    },
   );
 }
 

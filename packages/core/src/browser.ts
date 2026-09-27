@@ -160,10 +160,53 @@ export * from "./constants/omtAppCashout.js";
 // failure mode this avoids.
 export * from "./constants/profitRowClass.js";
 
+// LIRA-233 (#14 slice 3 review round, finding 10) — the shared "which By
+// Module keys have a getModuleDetail drill-down" list. Pure string/Set data,
+// no Node.js deps. Profits.tsx imports `hasModuleDetailSupport` to gate its
+// "Show transactions" button instead of hand-maintaining a second copy of
+// the registry's own key list (rule 14). Must be exported HERE, not only
+// from index.ts — see the telecomCredit.js note above for the exact failure
+// mode this avoids.
+export * from "./constants/profitModuleDetailSupport.js";
+
+// Refund-leg amount tolerance (rule 14 fix, 2026-09-26) — the ONE definition
+// of the per-currency matching tolerance shared by
+// `TransactionRepository.validateRefundLegOverrideAmounts` (server) and
+// `frontend/src/features/audit/refundLegOverride.ts` (client-side hint).
+// Pure data, no Node.js deps. Must be exported HERE, not only from
+// index.ts — see the telecomCredit.js note above for the exact failure mode
+// this avoids.
+export * from "./constants/refundTolerance.js";
+
+// LIRA-232 round-3 finding #2 follow-up — `isSessionPayoutMember`, the ONE
+// predicate for "is this session-basket member a netted payout", shared by
+// TransactionRepository's server-side refusal and the frontend's own
+// session-group derivation (useTransactionRows.ts). Pure data, no Node.js
+// deps — see this module's own doc for the bug this closes.
+export * from "./constants/sessionPayoutMember.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";
 export type { SaleRequest } from "./repositories/SalesRepository.js";
+
+// LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
+// single-item refund payload/result/preview shapes, plus the two smaller
+// types they're built from. Type-only, so importing them from
+// TransactionRepository.js (which is NOT otherwise browser-safe) has zero
+// runtime impact — same reasoning as every other type-only export in this
+// file. Must be exported HERE too, not only from index.ts (where
+// `export * from "./repositories/index.js"` already covers them): Vite/Jest
+// resolve @liratek/core to THIS file, so a renderer import of any of these
+// missing here fails at load (same failure mode as the telecomCredit.js
+// note earlier in this file).
+export type {
+  RefundLegOverride,
+  TransactionPaymentLeg,
+  RefundSessionBasketItemInput,
+  RefundSessionBasketItemResult,
+  SessionItemRefundPreview,
+} from "./repositories/TransactionRepository.js";
 
 // "Signed-in devices" panel shape (SESSION_RESILIENCE_AND_DEVICES_PLAN.md
 // Part 2) — the frontend Settings page types its device list against this.
@@ -234,3 +277,14 @@ export type {
   ProfitModuleDetail,
   ProfitModuleDetailRow,
 } from "./services/ProfitService.js";
+
+// LIRA-232 phase 3 (SESSION_ITEM_REFUND_PLAN.md §4) — session-basket
+// item-refund eligibility. Pure data (a Set literal built from
+// TRANSACTION_TYPES), no Node.js deps. The Transactions page imports
+// SESSION_ITEM_REFUNDABLE_TYPES to decide which session-member rows get a
+// per-item "Refund" action, instead of hand-copying the type list a second
+// time (rule 14) — that copy would silently drift the moment this file's set
+// changed. Must be exported HERE, not only from index.ts — see the
+// telecomCredit.js note earlier in this file for the exact failure mode this
+// avoids.
+export * from "./constants/transactionTypes.js";

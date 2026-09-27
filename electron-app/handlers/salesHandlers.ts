@@ -18,6 +18,9 @@ import { audit } from "./auditHelper.js";
 import {
   SaleProcessSchema,
   SaleUpdateMetadataSchema,
+  SaleRefundSchema,
+  SaleRefundItemSchema,
+  SaleRefundPreviewSchema,
   DashboardChartQuerySchema,
   NetProfitWindowQuerySchema,
   validatePayload,
@@ -57,16 +60,28 @@ export function registerSalesHandlers(): void {
     return salesService.getDrafts();
   });
 
-  // Delete Draft
-  ipcMain.handle("sales:delete-draft", (_event, saleId: number) => {
+  // Delete Draft (LIRA-234: same roles as sales:process — any authenticated
+  // session could previously cancel ANY draft, and a refused delete was
+  // still audited as if it had succeeded).
+  ipcMain.handle("sales:delete-draft", (event, saleId: number) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+    if (!Number.isInteger(saleId) || saleId < 1) {
+      return { success: false, error: "Invalid sale ID" };
+    }
     salesLogger.debug({ saleId }, "Deleting draft");
     const result = salesService.deleteDraft(saleId);
-    audit(_event.sender.id, {
-      action: "delete",
-      entity_type: "sale",
-      entity_id: String(saleId),
-      summary: `Deleted draft sale #${saleId}`,
-    });
+    // Only audit a delete that actually committed (same pattern as
+    // sales:process above) — a refused delete (not a draft / not found)
+    // must not leave a phantom "Deleted draft" audit row.
+    if (result.success) {
+      audit(event.sender.id, {
+        action: "delete",
+        entity_type: "sale",
+        entity_id: String(saleId),
+        summary: `Deleted draft sale #${saleId}`,
+      });
+    }
     return result;
   });
 
@@ -133,53 +148,86 @@ export function registerSalesHandlers(): void {
     return salesService.getSaleItems(saleId);
   });
 
-  // Refund a sale by sale ID (admin only)
-  ipcMain.handle("sales:refund", (e, saleId: number) => {
-    if (typeof saleId !== "number" || saleId < 1 || !Number.isInteger(saleId)) {
-      return { success: false, error: "Invalid sale ID" };
-    }
-    try {
-      const auth = requireRole(e.sender.id, ["admin"]);
-      if (!auth.ok) throw new Error(auth.error);
-      const userId = auth.userId;
-      const txnService = getTransactionService();
-      const refundId = txnService.refundBySaleId(saleId, userId);
-      audit(e.sender.id, {
-        action: "refund",
-        entity_type: "sale",
-        entity_id: String(saleId),
-        summary: `Refunded sale #${saleId}`,
-        metadata: { refundId },
+  // Refund a sale by sale ID (admin only). LIRA-231: an optional
+  // `refundLegs` field carries the operator's chosen return method(s) — same
+  // LIRA-078 contract the Transactions page uses (rule 14). Omitting it
+  // reproduces the pre-existing default reversal, byte-identical.
+  //
+  // 2026-09-26: an optional `unitExtras` 4th positional arg carries the POS
+  // "Returned phones" per-unit defective/warranty-override flags — same
+  // "Returned phones" UI RefundMethodModal already renders on the
+  // Transactions page, now also reachable here (rule 14 — reused schema,
+  // reused `TransactionRepository.refundBySaleId` forwarding).
+  ipcMain.handle(
+    "sales:refund",
+    (
+      e,
+      saleId: number,
+      refundLegs?: unknown,
+      unitExtras?: unknown,
+      exchangeRate?: unknown,
+    ) => {
+      const v = validatePayload(SaleRefundSchema, {
+        saleId,
+        refundLegs,
+        unitExtras,
+        exchangeRate,
       });
-      return { success: true, refundId };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-  });
+      if (!v.ok) return { success: false, error: v.error };
+      try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) throw new Error(auth.error);
+        const userId = auth.userId;
+        const txnService = getTransactionService();
+        const refundId = txnService.refundBySaleId(v.data.saleId, userId, {
+          refundLegs: v.data.refundLegs,
+          refundUnitExtras: v.data.unitExtras,
+          exchangeRate: v.data.exchangeRate,
+        });
+        audit(e.sender.id, {
+          action: "refund",
+          entity_type: "sale",
+          entity_id: String(v.data.saleId),
+          summary: `Refunded sale #${v.data.saleId}`,
+          metadata: {
+            refundId,
+            refundLegs: v.data.refundLegs,
+            unitExtras: v.data.unitExtras,
+            exchangeRate: v.data.exchangeRate,
+          },
+        });
+        return { success: true, refundId };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
 
-  // Refund a specific item from a sale (admin only)
+  // Refund a specific item from a sale (admin only). LIRA-231: same optional
+  // `refundLegs` override, validated against this ITEM's proportional share
+  // by the repository.
+  //
+  // 2026-09-26: same optional `unitExtras` — validated by
+  // `SalesRepository.refundSaleItem` against THIS ITEM's own linked units
+  // only (never the whole sale's).
   ipcMain.handle(
     "sales:refund-item",
     (
       e,
-      params: { saleId: number; saleItemId: number; refundQuantity: number },
+      params: {
+        saleId: number;
+        saleItemId: number;
+        refundQuantity: number;
+        refundLegs?: unknown;
+        unitExtras?: unknown;
+        exchangeRate?: unknown;
+      },
     ) => {
-      // Validation
-      if (typeof params.saleId !== "number" || params.saleId < 1) {
-        return { success: false, error: "Invalid sale ID" };
-      }
-      if (typeof params.saleItemId !== "number" || params.saleItemId < 1) {
-        return { success: false, error: "Invalid sale item ID" };
-      }
-      if (
-        typeof params.refundQuantity !== "number" ||
-        params.refundQuantity < 1
-      ) {
-        return { success: false, error: "Invalid refund quantity" };
-      }
+      const v = validatePayload(SaleRefundItemSchema, params);
+      if (!v.ok) return { success: false, error: v.error };
 
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
@@ -189,19 +237,25 @@ export function registerSalesHandlers(): void {
         const userId = auth.userId;
 
         const result = salesService.refundSaleItem({
-          saleId: params.saleId,
-          saleItemId: params.saleItemId,
-          refundQuantity: params.refundQuantity,
+          saleId: v.data.saleId,
+          saleItemId: v.data.saleItemId,
+          refundQuantity: v.data.refundQuantity,
+          refundLegs: v.data.refundLegs,
+          unitExtras: v.data.unitExtras,
+          exchangeRate: v.data.exchangeRate,
           userId,
         });
         audit(e.sender.id, {
           action: "refund",
           entity_type: "sale_item",
-          entity_id: String(params.saleItemId),
-          summary: `Refunded ${params.refundQuantity}x item #${params.saleItemId} from sale #${params.saleId}`,
+          entity_id: String(v.data.saleItemId),
+          summary: `Refunded ${v.data.refundQuantity}x item #${v.data.saleItemId} from sale #${v.data.saleId}`,
           metadata: {
-            saleId: params.saleId,
-            refundQuantity: params.refundQuantity,
+            saleId: v.data.saleId,
+            refundQuantity: v.data.refundQuantity,
+            refundLegs: v.data.refundLegs,
+            unitExtras: v.data.unitExtras,
+            exchangeRate: v.data.exchangeRate,
           },
         });
 
@@ -212,6 +266,27 @@ export function registerSalesHandlers(): void {
           error: err instanceof Error ? err.message : String(err),
         };
       }
+    },
+  );
+
+  // LIRA-231 — POS refund preview (admin only, same gate as the refund
+  // actions themselves): the sale's (or one item's proportional share of
+  // the sale's) own customer-facing payment legs, plus whether the sale is
+  // session-linked. Read-only.
+  ipcMain.handle(
+    "sales:refund-preview",
+    (
+      e,
+      params: {
+        saleId: number;
+        item?: { saleItemId: number; refundQuantity: number };
+      },
+    ) => {
+      const v = validatePayload(SaleRefundPreviewSchema, params);
+      if (!v.ok) return { success: false, error: v.error };
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+      return salesService.getRefundPreview(v.data.saleId, v.data.item);
     },
   );
 

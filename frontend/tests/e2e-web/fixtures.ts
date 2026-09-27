@@ -1,7 +1,26 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test as base, expect, type Page } from "@playwright/test";
+// Same import global-setup.ts already uses — every spec in this suite runs
+// under the Node ABI (rule "rebuild:node before ... web e2e"), so a direct
+// better-sqlite3 open is safe from here too.
+import Database from "better-sqlite3";
+import { hashPassword } from "@liratek/core";
 import { BACKEND_PORT } from "../../playwright.web.config";
 
 export const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Mirrors global-setup.ts's own path resolution exactly — same DB file,
+// this module lives in the same directory as global-setup.ts and every spec.
+const DB_PATH = path.join(
+  __dirname,
+  "..",
+  "..",
+  "test-results",
+  "e2e-web",
+  "phone_shop.web.db",
+);
 
 /**
  * Web-mode test fixture: every page in the suite gets
@@ -23,13 +42,86 @@ export const test = base.extend({
 export { expect };
 
 /** Log in through the real UI form and wait for the authenticated shell. */
-export async function loginAsAdmin(page: Page): Promise<void> {
+export async function loginAsUser(
+  page: Page,
+  username: string,
+  password: string,
+): Promise<void> {
   await page.goto("/#/login");
-  await page.fill('input[placeholder="Enter username"]', "admin");
-  await page.fill('input[type="password"]', "admin123");
+  await page.fill('input[placeholder="Enter username"]', username);
+  await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
   // Successful login navigates away from #/login to the home route.
   await page.waitForURL((url) => !url.hash.includes("/login"), {
     timeout: 15_000,
   });
+}
+
+/** Log in as the seeded admin through the real UI form. */
+export async function loginAsAdmin(page: Page): Promise<void> {
+  await loginAsUser(page, "admin", "admin123");
+}
+
+/**
+ * Seed (idempotently) a REAL `staff`-role user directly in the shared web
+ * test DB — mirrors global-setup.ts's own admin-password bootstrap.
+ *
+ * Why not go over REST: `POST /api/users` (backend/src/api/users.ts) is an
+ * unfinished placeholder — it validates the body, logs, and returns
+ * `{success:true,id:1}` without writing a row, so it cannot create a
+ * logically-real staff account. And `authenticateJWT` requires a live DB
+ * `sessions` row behind the JWT's `sessionToken` (backend/src/middleware/
+ * auth.ts), so a self-signed token (even with the correct role claim and
+ * the right `JWT_SECRET`) is rejected the same way a stale one is — there
+ * is no way to prove a route's role gate without a REAL login. The backend
+ * jest suite's `x-test-role` header (recharge.api.test.ts,
+ * databaseResetRoleGate.api.test.ts, profitsGate.api.test.ts, ...) is not a
+ * usable shortcut either: it only exists inside that suite's own
+ * `jest.mock("../../middleware/auth.js")`, never wired into the real
+ * Express app this e2e suite drives.
+ *
+ * Idempotent AND unconditional: `INSERT OR IGNORE` no-ops against the
+ * accumulating DB (rule 15) on every run after the first — the UPDATE that
+ * follows forces the password/role/active state unconditionally, so a spec
+ * never depends on what a PRIOR run happened to leave behind.
+ *
+ * `username`/`password` are caller-supplied (not a single shared constant)
+ * so specs that seed their own staff user in parallel never collide on one
+ * account's state.
+ */
+export function seedStaffUser(username: string, password: string): void {
+  const db = new Database(DB_PATH);
+  try {
+    db.prepare(
+      `INSERT OR IGNORE INTO users (tenant_id, username, password_hash, role, is_active)
+       VALUES (1, ?, ?, 'staff', 1)`,
+    ).run(username, hashPassword(password));
+    db.prepare(
+      `UPDATE users SET password_hash = ?, role = 'staff', is_active = 1 WHERE username = ?`,
+    ).run(hashPassword(password), username);
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Log a seeded user in over REST (`POST /api/auth/login`, the real route —
+ * not `loginAsAdmin`'s UI form flow) and return ready-to-use `Authorization`
+ * headers. Named for its primary use (a staff account seeded by
+ * `seedStaffUser` above), but works for any real DB user, admin included —
+ * the same `loginHeaders` helper lira-web-019/022/025 each hand-rolled
+ * identically before this file consolidated it.
+ */
+export async function staffHeaders(
+  page: Page,
+  username: string,
+  password: string,
+): Promise<Record<string, string>> {
+  const res = await (
+    await page.request.post(`${BACKEND_URL}/api/auth/login`, {
+      data: { username, password },
+    })
+  ).json();
+  expect(res.success, JSON.stringify(res)).toBeTruthy();
+  return { Authorization: `Bearer ${res.data.token as string}` };
 }

@@ -32,22 +32,45 @@
  * very first spec in the suite — these assertions hold regardless of how
  * much of the rest of the suite has run before this file.
  *
- * Case 4 (non-admin cannot reset) is SKIPPED here: this suite has no staff
- * login fixture (grepped — only `loginAsAdmin` exists; lira-web-028's and
- * lira-web-029's own comments document the same gap for their tickets), so
- * there is no way to drive this case without inventing a helper — which the
- * task instructions explicitly say not to do. The role gate itself
- * (`requireRole(["admin"])` on both `/api/database/reset/preview` and
- * `POST /api/database/reset`, identical to the IPC handlers) is covered at
- * the backend/core level instead.
+ * Case 4 (non-admin cannot reset) is a REAL test now (LIRA-235) — the suite
+ * gained a shared staff-login fixture (`seedStaffUser`/`staffHeaders` in
+ * `./fixtures`), so this file no longer needs to lean solely on the
+ * backend/core-level regression coverage. That coverage is still the more
+ * detailed guard and stays in place alongside this end-to-end proof:
+ * `backend/src/api/__tests__/databaseResetRoleGate.api.test.ts` (REST
+ * transport — staff 403 on both routes with `{ error: "Forbidden" }`, admin
+ * 200, unauthenticated 401) and `electron-app/handlers/__tests__/
+ * databaseResetHandlers.roleGate.test.ts` (desktop IPC transport — same
+ * staff-refused/admin-allowed shape on `database:resetPreview`/
+ * `database:reset`). Case 4 below hits the REAL Express app (not the mocked
+ * router those files use) with a REAL staff login, over both routes, and
+ * confirms nothing moved — never sending the real confirmation phrase,
+ * per the ABSOLUTE CONSTRAINT above (the role gate refuses the request
+ * before the phrase is ever checked, but this file takes no chances).
+ *
+ * The real `requireRole` middleware (`backend/src/middleware/auth.ts`)
+ * answers a refusal with `{ error: "Forbidden" }` — NO `success` key — unlike
+ * the mocked auth module `databaseResetRoleGate.api.test.ts` uses for its own
+ * assertions (`{ success: false, error: "Forbidden" }`); this file only
+ * asserts the HTTP status, matching how lira-web-019's role-parity case (c)
+ * already asserts the same real middleware.
  */
 
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  seedStaffUser,
+  staffHeaders,
+  BACKEND_URL,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
 
 const WRONG_PHRASE = "definitely not the phrase";
 const LOWERCASE_NEAR_MISS = "reset all data";
 const TRAILING_SPACE_NEAR_MISS = "RESET ALL DATA ";
+const STAFF_USERNAME = "e2e031staff";
+const STAFF_PASSWORD = "E2e031Staff!1";
 
 interface ResetPreview {
   counts: Record<string, number>;
@@ -172,7 +195,46 @@ test.describe("Database Reset guard (web/REST) — LIRA-165 (no real reset ever 
     expect(after.counts).toEqual(before.counts);
   });
 
-  // 4. Non-admin cannot reset — SKIPPED, see file header: no staff login
-  // fixture exists in this suite (same gap lira-web-028/029 document).
-  test.skip("4. a non-admin (staff) cannot reach preview or reset at all — SKIPPED (no staff login fixture in this suite; see file header comment)", () => {});
+  test("4. a non-admin (staff) cannot reach preview or reset at all; the DB is untouched", async ({
+    page,
+  }) => {
+    await loginAsAdmin(page);
+    const adminHeaders = await authHeaders(page);
+
+    seedStaffUser(STAFF_USERNAME, STAFF_PASSWORD);
+    const staff = await staffHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
+
+    // `before` is snapshotted here, AFTER seeding the staff user and logging
+    // them in — both legitimately write rows (a `users` row and a login
+    // `sessions` row) — and immediately before the two refused calls below,
+    // so the delta assertion proves exactly what it claims: the refused
+    // preview/reset calls changed nothing, not that setup was a no-op.
+    const before = await getPreview(page, adminHeaders);
+
+    // `requireRole(["admin"])` (databaseReset.ts:52) runs before either
+    // handler body, so a staff caller never reaches `preview()`/`reset()` —
+    // the real middleware answers 403 with `{ error: "Forbidden" }` (no
+    // `success` key, unlike the mocked-auth backend test's own assertion
+    // shape), so this only asserts status, matching lira-web-019 case (c).
+    const previewRes = await page.request.get(
+      `${BACKEND_URL}/api/database/reset/preview`,
+      { headers: staff },
+    );
+    expect(previewRes.status()).toBe(403);
+
+    // WRONG_PHRASE, never the real confirmation phrase — per the ABSOLUTE
+    // CONSTRAINT above. The role gate refuses this before the phrase is even
+    // read, but this file takes no chances regardless of caller.
+    const resetRes = await page.request.post(
+      `${BACKEND_URL}/api/database/reset`,
+      { headers: staff, data: { confirmation: WRONG_PHRASE } },
+    );
+    expect(resetRes.status()).toBe(403);
+
+    // Delta assertion (rule 15) — neither refused call reached the
+    // repository.
+    const after = await getPreview(page, adminHeaders);
+    expect(after.totalRows).toBe(before.totalRows);
+    expect(after.counts).toEqual(before.counts);
+  });
 });

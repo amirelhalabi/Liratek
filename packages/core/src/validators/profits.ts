@@ -66,11 +66,15 @@ export type CommissionsReportQueryInput = z.input<
 /**
  * GET /api/profits/module-detail query contract (2026-09-24,
  * OWNER_NOTES_REMAINING_BUILD.md #14 slice 2 — Profits page "Show
- * transactions" drill-down). `module` is a By Module row's own `module` key
- * (e.g. "SALE", "RECHARGE_MTC") — the service validates it against the
- * modules it actually supports (SALE / RECHARGE_<carrier> in slice 2) and
- * throws a clear error for any other key; this schema only enforces shape,
- * matching every other Profits data route's `from`/`to` convention
+ * transactions" drill-down; widened LIRA-233 #14 slice 3 to every module
+ * `ProfitService.getModuleDetail`'s registry covers, not SALE/
+ * RECHARGE_<carrier> alone). `module` is a By Module row's own `module` key
+ * (e.g. "SALE", "RECHARGE_MTC", "FINANCIAL_SERVICE_OMT", "KEPT_CHANGE") —
+ * the service validates it against `hasModuleDetailSupport`
+ * (`constants/profitModuleDetailSupport.ts`, the SAME list the frontend
+ * gates its "Show transactions" button on — rule 14) and throws a clear
+ * error for any other key; this schema only enforces shape, matching every
+ * other Profits data route's `from`/`to` convention
  * ({@link commissionsReportQuerySchema}). Shared by both transports (rule
  * 19b) — IPC's `profits:module-detail` channel follows the other 7 data
  * channels' own unvalidated `(from, to)` positional-args convention and

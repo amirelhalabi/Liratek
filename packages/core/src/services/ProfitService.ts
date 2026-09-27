@@ -20,12 +20,20 @@ import {
   getProfitRepository,
   type ProfitRepository,
   type DeferredProfitRow,
+  type FinancialServiceDetailRow,
+  type CustomServiceDetailRow,
+  type MaintenanceDetailRow,
+  type LotoDetailRow,
+  type ExchangeDetailRow,
+  type PmFeeDetailRow,
+  type ProfitOnlyDetailRow,
 } from "../repositories/ProfitRepository.js";
 import {
   getRateRepository,
   type RateRepository,
 } from "../repositories/RateRepository.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
+import { hasModuleDetailSupport } from "../constants/profitModuleDetailSupport.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -47,6 +55,35 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 function humanizeProviderLabel(provider: string): string {
   return PROVIDER_LABELS[provider] ?? provider;
+}
+
+/**
+ * LIRA-233 (#14 slice 3 review round, findings 6 & 10) — the ONE "is this
+ * currency code one this app buckets into a USD/LBP total" check every
+ * per-currency drill-down needs. Previously `buildPmFeeModuleDetail` alone
+ * had this test (`isKnownCurrency`); `buildFinancialServiceModuleDetail`
+ * needed the exact same test for a third-currency transfer (EUR, a
+ * BINANCE-USDT-denominated row) whose `profit_usd`/`profit_lbp` the
+ * repository's own currency-bucketing `CASE` already silently zeroes —
+ * same "LO-EUR-phantom" class PM_FEE's own doc comment names. One
+ * definition, reused, instead of a second hand-copied `=== "USD" || ===
+ * "LBP"` pair.
+ */
+function isTrackedCurrency(code: string | null): boolean {
+  return code === "USD" || code === "LBP";
+}
+
+/**
+ * LIRA-233 (#14 slice 3 review round, findings 6 & 10) — the ONE reason text
+ * for an `!isTrackedCurrency` row: "this row's own SUM already reads $0 for
+ * this row, not because it's genuinely zero, but because its currency isn't
+ * one of the two the app buckets." `label` names the kind of row for the
+ * reader ("fee", "transfer"). Reused by `buildPmFeeModuleDetail` (the
+ * original wording this generalizes, byte-for-byte unchanged for PM_FEE)
+ * and `buildFinancialServiceModuleDetail`.
+ */
+function untrackedCurrencyReason(label: string): string {
+  return `This ${label}'s currency isn't tracked as USD or LBP.`;
 }
 
 /**
@@ -228,8 +265,38 @@ export interface ProfitModuleDetailRow {
    *  `expenses.source_ref_table = 'recharges'`), shown NEXT TO the row —
    *  never subtracted from `profit_usd`/`counted_profit_usd` above (owner
    *  decision: "+90,000 LBP profit · SMS fee -0.32$ (booked in expenses)").
-   *  `null` when this transaction has no linked auto expense. */
+   *  `null` when this transaction has no linked auto expense. Also reused by
+   *  {@link ProfitService.buildLotoModuleDetail} (#14 slice 3) for a loto
+   *  ticket's off-currency kept change — NOT an auto-booked expense, but the
+   *  same "additive note next to the row, never folded into profit" shape.
+   */
   fee_note: string | null;
+  /** LIRA-233 (#14 slice 3, finding 9) — is `fee_note` a real cost DEDUCTION
+   *  ("fee", the RECHARGE SMS/Line_Usage precedent — colour it red) or a
+   *  purely informational aside ("info" — a positive kept-change note, an
+   *  off-currency stamp, a settlement-timing explanation — colour it
+   *  neutral)? `undefined`/`null` `fee_note` needs no kind. Defaults to
+   *  "fee" when a row sets `fee_note` but omits this (keeps the pre-existing
+   *  RECHARGE behaviour unchanged without having to touch that call site). */
+  fee_note_kind?: "fee" | "info";
+  /** MAINTENANCE row only (#14 slice 3) — mirrors {@link ProfitByModule}'s
+   *  own optional parts/labour split fields, per row instead of summed. See
+   *  that interface's own doc comment for the labour/kept-change caveat. */
+  parts_revenue_usd?: number;
+  parts_cost_usd?: number;
+  parts_profit_usd?: number;
+  labour_profit_usd?: number;
+  labour_profit_lbp?: number;
+  /** LIRA-233 (#14 slice 3 review round, finding 2) — which underlying row
+   *  this drill-down row was built from. Every module sets a literal value;
+   *  FINANCIAL_SERVICE_<provider> is the one module whose `id` alone is NOT
+   *  unique (a `financial_services.id` and a `settlement_commission_
+   *  allocations.id` are independent sequences that collide) — the UI keys
+   *  rows by `${source}-${id}`, never `id` alone (rule 15's "match by
+   *  identity, not position" applied to a React list key). Optional only for
+   *  backward compatibility with an older cached payload; every row this
+   *  service builds today sets it. */
+  source?: string;
 }
 
 /**
@@ -1444,22 +1511,114 @@ export class ProfitService {
   }
 
   /**
+   * LIRA-233 (#14 slice 3) — dispatch registry, ordered array of
+   * `{match, build}` entries, first match wins (SOLID — a lookup table
+   * instead of a growing if/else-if chain). `RECHARGE_`/`FINANCIAL_SERVICE_`
+   * are prefix matches (the carrier/provider is embedded in the key); every
+   * other module is an exact-key match. Kept in sync with the shared
+   * {@link hasModuleDetailSupport} constant (rule 10/14/29) — see
+   * `getModuleDetail`'s own doc comment below for how the two are cross-
+   * checked instead of silently drifting apart.
+   */
+  private readonly moduleDetailRegistry: Array<{
+    match: (key: string) => boolean;
+    build: (key: string, fromDt: string, toDt: string) => ProfitModuleDetail;
+  }> = [
+    {
+      match: (key) => key === "SALE",
+      build: (_key, fromDt, toDt) => this.buildSaleModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key.startsWith("RECHARGE_"),
+      build: (key, fromDt, toDt) =>
+        this.buildRechargeModuleDetail(
+          key.slice("RECHARGE_".length),
+          fromDt,
+          toDt,
+        ),
+    },
+    {
+      match: (key) => key.startsWith("FINANCIAL_SERVICE_"),
+      build: (key, fromDt, toDt) =>
+        this.buildFinancialServiceModuleDetail(
+          key.slice("FINANCIAL_SERVICE_".length),
+          fromDt,
+          toDt,
+        ),
+    },
+    {
+      match: (key) => key === "CUSTOM_SERVICE",
+      build: (_key, fromDt, toDt) =>
+        this.buildCustomServiceModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "MAINTENANCE",
+      build: (_key, fromDt, toDt) =>
+        this.buildMaintenanceModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "LOTO",
+      build: (_key, fromDt, toDt) => this.buildLotoModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "EXCHANGE",
+      build: (_key, fromDt, toDt) =>
+        this.buildExchangeModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "PM_FEE",
+      build: (_key, fromDt, toDt) => this.buildPmFeeModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "KEPT_CHANGE",
+      build: (_key, fromDt, toDt) =>
+        this.buildKeptChangeModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "COUNTERPARTY_DISCOUNT",
+      build: (_key, fromDt, toDt) =>
+        this.buildCounterpartyDiscountModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "SUPPLIER_COMMISSION",
+      build: (_key, fromDt, toDt) =>
+        this.buildSupplierCommissionModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "TOPUP_BUYBACK",
+      build: (_key, fromDt, toDt) =>
+        this.buildTopupBuybackModuleDetail(fromDt, toDt),
+    },
+  ];
+
+  /**
    * PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the
    * Profits page's "Show transactions" drill-down under a By Module row.
-   * SALE and RECHARGE_<carrier> only (slice 2); every other module key
-   * throws a clear "not built yet" error — slice 3 is a later ticket, and a
-   * silent empty list here would read as "this module truly has no
-   * transactions" instead of "the drill-down for this module doesn't exist
-   * yet" (same "don't swallow a real gap into an empty-looking state"
-   * discipline as PA-4.16 elsewhere in this file).
+   * LIRA-233 (#14 slice 3) widened this from SALE/RECHARGE_<carrier> only to
+   * every module {@link moduleDetailRegistry} has an entry for; a module
+   * outside that list still throws a clear "not built yet" error — a silent
+   * empty list here would read as "this module truly has no transactions"
+   * instead of "the drill-down for this module doesn't exist yet" (same
+   * "don't swallow a real gap into an empty-looking state" discipline as
+   * PA-4.16 elsewhere in this file).
    *
    * Assembly only (rule 13) — every predicate/weight comes from the
-   * repository (rule 14, shared with the By Module totals query); this
-   * method only splits counted (weight > 0) from not-yet-counted (weight =
-   * 0), states WHY a not-yet-counted row is excluded, and sums the counted
-   * side. `counted_total_profit_usd`/`_lbp` reproduces the By Module row's
-   * own `profit_usd`/`profit_lbp` EXACTLY — proven by
+   * repository (rule 14, shared with the By Module totals query); each
+   * `build*ModuleDetail` method splits counted from not-yet-counted, states
+   * WHY a not-yet-counted row is excluded, and sums the counted side.
+   * `counted_total_profit_usd`/`_lbp` reproduces the By Module row's own
+   * `profit_usd`/`profit_lbp` EXACTLY — proven by
    * `ProfitRepository.moduleDetailReconciliation.test.ts` (rule 17).
+   *
+   * LIRA-233 (#14 slice 3 review round, finding 10) — checks the shared
+   * {@link hasModuleDetailSupport} constant BEFORE consulting
+   * {@link moduleDetailRegistry}: that constant is also what `Profits.tsx`
+   * gates its "Show transactions" button on (rule 14 — one list, not two
+   * hand-kept-in-sync copies), so if a module is ever added to one without
+   * the other, this throws a loud, specific "registry/constant drift" error
+   * server-side instead of the frontend silently rendering a button that
+   * always fails, or hiding a button for a module the registry can actually
+   * serve.
    */
   getModuleDetail(
     moduleKey: string,
@@ -1470,15 +1629,24 @@ export class ProfitService {
       const fromDt = `${from} 00:00:00`;
       const toDt = `${to} 23:59:59`;
 
-      if (moduleKey === "SALE") {
-        return this.buildSaleModuleDetail(fromDt, toDt);
+      if (!hasModuleDetailSupport(moduleKey)) {
+        throw new Error(
+          `No transaction-level detail is available for "${moduleKey}" yet (slice 3, a later ticket).`,
+        );
       }
-      if (moduleKey.startsWith("RECHARGE_")) {
-        const carrier = moduleKey.slice("RECHARGE_".length);
-        return this.buildRechargeModuleDetail(carrier, fromDt, toDt);
+
+      const entry = this.moduleDetailRegistry.find((e) =>
+        e.match(moduleKey),
+      );
+      if (entry) {
+        return entry.build(moduleKey, fromDt, toDt);
       }
+      // hasModuleDetailSupport said yes but the registry has no matching
+      // entry — the shared constant and this class's own registry have
+      // drifted apart. Fail loudly rather than silently returning nothing
+      // (see this method's own doc comment).
       throw new Error(
-        `No transaction-level detail is available for "${moduleKey}" yet (slice 3, a later ticket).`,
+        `Module "${moduleKey}" is listed in hasModuleDetailSupport but has no moduleDetailRegistry entry (registry/constant drift).`,
       );
     } catch (error) {
       logger.error(
@@ -1529,6 +1697,7 @@ export class ProfitService {
 
       const row: ProfitModuleDetailRow = {
         id: r.sale_id,
+        source: "sale",
         date: r.created_at,
         counterpart,
         detail: r.items_summary,
@@ -1628,9 +1797,30 @@ export class ProfitService {
         feeParts.length > 0
           ? `${r.fee_expense_description ?? "Fee"}: ${feeParts.join(" + ")} (booked in expenses)`
           : null;
+      // LIRA-233 (finding 5) — same "kept change" note LOTO already shows
+      // (buildLotoModuleDetail below), reading the SAME
+      // otherCurrencyKeptChangeUsd/_lbp-sourced columns getRechargesByCarrier
+      // already sums into its own kept_change_usd/_lbp totals (rule 14) — a
+      // USD recharge paid with cash that needed LBP change used to have
+      // nowhere on this row to show that change.
+      const keptChangeAmount =
+        r.kept_change_usd !== 0 ? r.kept_change_usd : r.kept_change_lbp;
+      const keptChangeCurrency = r.kept_change_usd !== 0 ? "USD" : "LBP";
+      const keptChangeNote =
+        keptChangeAmount !== 0
+          ? `kept change ${keptChangeAmount > 0 ? "+" : "-"}${formatMoneyAmount(Math.abs(keptChangeAmount), keptChangeCurrency)}`
+          : null;
+      // A real fee deduction takes precedence in the note text/colour (a
+      // genuine cost is the more urgent fact); the kept-change clause still
+      // rides along in the SAME note when both exist on one row.
+      const noteParts = [feeNote, keptChangeNote].filter(
+        (p): p is string => p !== null,
+      );
+      const combinedNote = noteParts.length > 0 ? noteParts.join(" · ") : null;
 
       const row: ProfitModuleDetailRow = {
         id: r.recharge_id,
+        source: "recharge",
         date: r.created_at,
         counterpart: r.client_name || r.phone_number || "Walk-in",
         detail: `${r.amount} credit`,
@@ -1644,7 +1834,8 @@ export class ProfitService {
         counted_profit_usd: countedProfitUsdRow,
         counted_profit_lbp: countedProfitLbpRow,
         reason,
-        fee_note: feeNote,
+        fee_note: combinedNote,
+        fee_note_kind: feeNote !== null ? "fee" : "info",
       };
 
       // PROF-DD-FIX (review round, m5) — same `weight > 0` split as
@@ -1660,6 +1851,852 @@ export class ProfitService {
 
     return {
       module: `RECHARGE_${carrier}`,
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 (#14 slice 3) — combines the "transfer" arm (one row per
+   * `financial_services` row) and "settlement_allocation" arm (one row per
+   * cashless `settlement_commission_allocations` row) `getFinancialServiceDetail`
+   * returns. Precedence, checked in order: (0) a THIRD-currency transfer row
+   * (finding 6 — its own `profit_usd`/`profit_lbp` read $0 because the
+   * repository's per-currency bucketing zeroes a currency outside USD/LBP,
+   * not because it's genuinely $0); then `recognized === 0` (an unsettled
+   * legacy row, or a provider outside the known lists — finding 7 splits
+   * this into two different reasons via `provider_known`) — mirrors the
+   * totals query's OUTERMOST gate
+   * ({@link ProfitRepository.getFinancialSettledByProvider}'s
+   * `fsProviderRowRecognized`); then `debt_pending`, then partner coverage —
+   * exactly the same precedence {@link buildRechargeModuleDetail} already
+   * uses for its own `debt_pending` vs `partner_coverage_ratio`.
+   *
+   * `id` alone is NOT a unique React key across the combined array — a
+   * `financial_services.id` and a `settlement_commission_allocations.id` are
+   * independent sequences that collide (finding 2) — so every row also sets
+   * `source: "financial_service_transfer" | "financial_service_allocation"`
+   * (the PUBLIC discriminant; distinct from the repository's own internal
+   * `r.source: "transfer" | "settlement_allocation"`), and the UI keys rows
+   * by `${source}-${id}`.
+   */
+  private buildFinancialServiceModuleDetail(
+    provider: string,
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: FinancialServiceDetailRow[] = this.repo.getFinancialServiceDetail(
+      provider,
+      fromDt,
+      toDt,
+    );
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    // LIRA-233 (finding 8) — which transfers already have their commission
+    // booked as a settlement_allocation row WITHIN this SAME selected date
+    // range (both arms share the same fromDt/toDt). Computed once, outside
+    // the per-row loop.
+    const allocatedInRange = new Set(
+      rows
+        .filter((rr) => rr.source === "settlement_allocation")
+        .map((rr) => rr.related_transfer_id),
+    );
+
+    for (const r of rows) {
+      // finding 6 — a transfer row's currency-bucketed profit reads $0 for a
+      // currency outside USD/LBP (the repository zeroes it, matching
+      // PM_FEE's own precedent); never true for an allocation row (its
+      // currency_code is always null — commission_usd/_lbp are not
+      // currency-bucketed).
+      const isThirdCurrency =
+        r.source === "transfer" && !isTrackedCurrency(r.currency_code);
+      const weight = isThirdCurrency
+        ? 0
+        : r.recognized === 0
+          ? 0
+          : r.debt_pending
+            ? 0
+            : r.partner_coverage_ratio;
+      const isFull = weight >= 0.9995;
+      const isNone = weight <= 0.0005;
+      const countedProfitUsdRow = r.profit_usd * weight;
+      const countedProfitLbpRow = r.profit_lbp * weight;
+      const counterpart =
+        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      const reason = isFull
+        ? null
+        : isThirdCurrency
+          ? untrackedCurrencyReason("transfer")
+          : r.recognized === 0
+            ? r.provider_known === 0
+              ? "This provider isn't recognized for commission tracking — no profit is tracked for its transfers."
+              : "Commission not yet settled with the supplier."
+            : r.debt_pending
+              ? "Customer still owes — Service Debt not yet repaid."
+              : r.has_partner_obligation
+                ? isNone
+                  ? "Partner has not settled this transfer yet."
+                  : `Partner has settled ${Math.round(r.partner_coverage_ratio * 100)}% of this transfer so far.`
+                : null;
+      const detail =
+        r.source === "settlement_allocation"
+          ? `${r.detail ?? "Transfer"} (settlement allocation)`
+          : r.detail;
+
+      // finding 5 — off-currency kept change, same note LOTO/RECHARGE show.
+      const keptChangeAmount =
+        r.kept_change_usd !== 0 ? r.kept_change_usd : r.kept_change_lbp;
+      const keptChangeCurrency = r.kept_change_usd !== 0 ? "USD" : "LBP";
+      const keptChangeNote =
+        keptChangeAmount !== 0
+          ? `kept change ${keptChangeAmount > 0 ? "+" : "-"}${formatMoneyAmount(Math.abs(keptChangeAmount), keptChangeCurrency)}`
+          : null;
+      // finding 8 — a fully-recognized commission-provider transfer row with
+      // a genuinely-zero own stamp (its real commission lives on a separate
+      // allocation row, by construction of this provider model) reads as an
+      // unexplained "100% counted, $0.00" without this note.
+      const isCommissionTimingCase =
+        r.source === "transfer" &&
+        r.is_commission_provider === 1 &&
+        r.profit_usd === 0 &&
+        r.profit_lbp === 0;
+      const commissionTimingNote = isCommissionTimingCase
+        ? allocatedInRange.has(r.related_transfer_id)
+          ? "Commission booked separately below — see the settlement allocation row for this transfer."
+          : "Commission is counted when the supplier settles (outside this date range if it already has)."
+        : null;
+      const infoNoteParts = [keptChangeNote, commissionTimingNote].filter(
+        (p): p is string => p !== null,
+      );
+      const infoNote =
+        infoNoteParts.length > 0 ? infoNoteParts.join(" · ") : null;
+
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source:
+          r.source === "settlement_allocation"
+            ? "financial_service_allocation"
+            : "financial_service_transfer",
+        date: r.created_at,
+        counterpart,
+        detail,
+        amount_usd: r.amount_usd,
+        amount_lbp: r.amount_lbp,
+        cost_usd: r.cost_usd,
+        cost_lbp: r.cost_lbp,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: Math.round(weight * 1000) / 10,
+        counted_profit_usd: countedProfitUsdRow,
+        counted_profit_lbp: countedProfitLbpRow,
+        reason,
+        fee_note: infoNote,
+        fee_note_kind: infoNote !== null ? "info" : undefined,
+      };
+
+      if (weight > 0) {
+        counted.push(row);
+        countedProfitUsd += countedProfitUsdRow;
+        countedProfitLbp += countedProfitLbpRow;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: `FINANCIAL_SERVICE_${provider}`,
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 — mirrors {@link buildRechargeModuleDetail}'s split, but
+   * {@link ProfitRepository.getCustomServicesTotals} has only the two gates
+   * this loop applies (debt_pending, then partner coverage) — there is no
+   * "not yet recognised" third state the way FINANCIAL_SERVICE has.
+   */
+  private buildCustomServiceModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: CustomServiceDetailRow[] = this.repo.getCustomServiceDetail(
+      fromDt,
+      toDt,
+    );
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      const weight = r.debt_pending ? 0 : r.partner_coverage_ratio;
+      const isFull = weight >= 0.9995;
+      const isNone = weight <= 0.0005;
+      const countedProfitUsdRow = r.profit_usd * weight;
+      const countedProfitLbpRow = r.profit_lbp * weight;
+      const counterpart = r.client_name || r.phone_number || "Walk-in";
+      const reason = isFull
+        ? null
+        : r.debt_pending
+          ? "Customer still owes — Custom Service Debt not yet repaid."
+          : r.has_partner_obligation
+            ? isNone
+              ? "Partner has not settled this service yet."
+              : `Partner has settled ${Math.round(r.partner_coverage_ratio * 100)}% of this service so far.`
+            : null;
+
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "custom_service",
+        date: r.created_at,
+        counterpart,
+        detail: r.description,
+        amount_usd: r.revenue_usd,
+        amount_lbp: r.revenue_lbp,
+        cost_usd: r.cost_usd,
+        cost_lbp: r.cost_lbp,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: Math.round(weight * 1000) / 10,
+        counted_profit_usd: countedProfitUsdRow,
+        counted_profit_lbp: countedProfitLbpRow,
+        reason,
+        fee_note: null,
+      };
+
+      if (weight > 0) {
+        counted.push(row);
+        countedProfitUsd += countedProfitUsdRow;
+        countedProfitLbp += countedProfitLbpRow;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: "CUSTOM_SERVICE",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 — {@link ProfitRepository.getMaintenanceTotals} applies NO
+   * partner weighting at all (confirmed by reading it — a bare unweighted
+   * `SUM`), so `debt_pending` is the only classification here: a row is
+   * either fully counted (weight 1) or fully excluded (weight 0), never
+   * partial. Reproduces `ProfitService.getByModule`'s own MAINTENANCE
+   * parts/labour derivation per row (rule 14) — see that push site's own
+   * comment for why a kept-change gain is attributed to labour.
+   */
+  private buildMaintenanceModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: MaintenanceDetailRow[] = this.repo.getMaintenanceDetail(
+      fromDt,
+      toDt,
+    );
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      const weight = r.debt_pending ? 0 : 1;
+      const countedProfitUsdRow = r.profit_usd * weight;
+      const countedProfitLbpRow = r.profit_lbp * weight;
+      const counterpart = r.client_name || "Walk-in";
+      const reason =
+        weight === 1
+          ? null
+          : "Customer still owes — Maintenance Debt not yet repaid.";
+      const partsProfitUsd = r.parts_revenue_usd - r.parts_cost_usd;
+      const labourProfitUsd = r.profit_usd - partsProfitUsd;
+
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "maintenance",
+        date: r.created_at,
+        counterpart,
+        detail: r.device_name,
+        amount_usd: r.revenue_usd,
+        amount_lbp: r.revenue_lbp,
+        cost_usd: r.cost_usd,
+        cost_lbp: r.cost_lbp,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: weight === 1 ? 100 : 0,
+        counted_profit_usd: countedProfitUsdRow,
+        counted_profit_lbp: countedProfitLbpRow,
+        reason,
+        fee_note: null,
+        parts_revenue_usd: r.parts_revenue_usd,
+        parts_cost_usd: r.parts_cost_usd,
+        parts_profit_usd: partsProfitUsd,
+        labour_profit_usd: labourProfitUsd,
+        labour_profit_lbp: r.profit_lbp,
+      };
+
+      if (weight > 0) {
+        counted.push(row);
+        countedProfitUsd += countedProfitUsdRow;
+        countedProfitLbp += countedProfitLbpRow;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: "MAINTENANCE",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 — the module row's own `profit_usd` is HARDCODED 0
+   * ({@link ProfitService.getByModule}'s LOTO push) — a loto ticket has no
+   * USD margin of its own. `kept_change_usd` is the row's off-currency
+   * stamp; owner instruction (ticket): report it via `fee_note` (the same
+   * additive-note field {@link buildRechargeModuleDetail} already uses for
+   * an SMS fee), NEVER folded into `counted_profit_usd` — so the
+   * reconciliation invariant (Σ counted_profit_usd === 0 === the module
+   * row's own profit_usd) holds exactly regardless of kept change.
+   */
+  private buildLotoModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: LotoDetailRow[] = this.repo.getLotoDetail(fromDt, toDt);
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      const weight = r.debt_pending ? 0 : r.partner_coverage_ratio;
+      const isFull = weight >= 0.9995;
+      const isNone = weight <= 0.0005;
+      // Always 0 — see this method's own doc comment.
+      const countedProfitUsdRow = 0;
+      const countedProfitLbpRow = r.profit_lbp * weight;
+      const counterpart = r.client_name || "Walk-in";
+      const reason = isFull
+        ? null
+        : r.debt_pending
+          ? "Customer still owes — Loto Debt not yet repaid."
+          : r.has_partner_obligation
+            ? isNone
+              ? "Partner has not settled this ticket yet."
+              : `Partner has settled ${Math.round(r.partner_coverage_ratio * 100)}% of this ticket so far.`
+            : null;
+      const feeNote =
+        r.kept_change_usd !== 0
+          ? `kept change ${r.kept_change_usd > 0 ? "+" : "-"}${formatMoneyAmount(Math.abs(r.kept_change_usd), "USD")}`
+          : null;
+
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "loto",
+        date: r.created_at,
+        counterpart,
+        detail: r.ticket_number ? `Ticket ${r.ticket_number}` : "Loto ticket",
+        amount_usd: 0,
+        amount_lbp: r.revenue_lbp,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: 0,
+        profit_lbp: r.profit_lbp,
+        counted_pct: Math.round(weight * 1000) / 10,
+        counted_profit_usd: countedProfitUsdRow,
+        counted_profit_lbp: countedProfitLbpRow,
+        reason,
+        fee_note: feeNote,
+        // finding 9 — a positive kept-change note is informational, never a
+        // deduction; it must not render in the same red as a real fee.
+        fee_note_kind: feeNote !== null ? "info" : undefined,
+      };
+
+      if (weight > 0) {
+        counted.push(row);
+        countedProfitUsd += countedProfitUsdRow;
+        countedProfitLbp += countedProfitLbpRow;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: "LOTO",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 — {@link ProfitRepository.getExchangeTotals} has no debt gate
+   * at all (exchange carries no `debt_ledger` link) — partner coverage is
+   * the only weighting. `cost_usd` is derived here as `amount_usd -
+   * profit_usd` (linear — ticket instruction) rather than independently
+   * queried, so it can never drift from the revenue/profit pair this loop
+   * already reconciles.
+   */
+  private buildExchangeModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: ExchangeDetailRow[] = this.repo.getExchangeDetail(
+      fromDt,
+      toDt,
+    );
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      const weight = r.partner_coverage_ratio;
+      const isFull = weight >= 0.9995;
+      const isNone = weight <= 0.0005;
+      const countedProfitUsdRow = r.profit_usd * weight;
+      // EXCHANGE is USD-only (matches getExchangeTotals — no LBP profit
+      // column of its own).
+      const countedProfitLbpRow = 0;
+      const counterpart = r.client_name || "Walk-in";
+      const reason = isFull
+        ? null
+        : r.has_partner_obligation
+          ? isNone
+            ? "Partner has not settled this exchange yet."
+            : `Partner has settled ${Math.round(r.partner_coverage_ratio * 100)}% of this exchange so far.`
+          : null;
+      const costUsd = r.amount_usd - r.profit_usd;
+
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "exchange",
+        date: r.created_at,
+        counterpart,
+        detail:
+          r.from_currency && r.to_currency
+            ? `${r.from_currency} → ${r.to_currency}`
+            : null,
+        amount_usd: r.amount_usd,
+        amount_lbp: 0,
+        cost_usd: costUsd,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: 0,
+        counted_pct: Math.round(weight * 1000) / 10,
+        counted_profit_usd: countedProfitUsdRow,
+        counted_profit_lbp: countedProfitLbpRow,
+        reason,
+        fee_note: null,
+      };
+
+      if (weight > 0) {
+        counted.push(row);
+        countedProfitUsd += countedProfitUsdRow;
+        countedProfitLbp += countedProfitLbpRow;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: "EXCHANGE",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 — {@link ProfitRepository.getPmFeeTotals} has NO partner/debt
+   * gating — every row is 100% counted UNLESS its currency falls outside the
+   * known USD/LBP bucketing set, in which case the totals query's own
+   * `GROUP BY fs.currency` silently drops it from both buckets (LO-EUR-
+   * phantom precedent elsewhere in this file); this loop surfaces that case
+   * as not-counted with a reason instead (rule 8), keeping the
+   * reconciliation invariant exact either way.
+   */
+  private buildPmFeeModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: PmFeeDetailRow[] = this.repo.getPmFeeDetail(fromDt, toDt);
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      // LIRA-233 (rule 14 dedup, finding 10) — the ONE isTrackedCurrency/
+      // untrackedCurrencyReason pair, now shared with
+      // buildFinancialServiceModuleDetail's own third-currency gate instead
+      // of a second hand-copied `=== "USD" || === "LBP"` check.
+      const isKnownCurrency = isTrackedCurrency(r.currency_code);
+      const feeUsd = r.currency_code === "USD" ? r.fee : 0;
+      const feeLbp = r.currency_code === "LBP" ? r.fee : 0;
+      const weight = isKnownCurrency ? 1 : 0;
+      const countedProfitUsdRow = feeUsd * weight;
+      const countedProfitLbpRow = feeLbp * weight;
+      const counterpart = r.client_name || r.phone_number || "Walk-in";
+      const reason = isKnownCurrency ? null : untrackedCurrencyReason("fee");
+
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "pm_fee",
+        date: r.created_at,
+        counterpart,
+        detail: r.provider
+          ? `${r.provider} payment method fee`
+          : "Payment method fee",
+        amount_usd: feeUsd,
+        amount_lbp: feeLbp,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: feeUsd,
+        profit_lbp: feeLbp,
+        counted_pct: weight * 100,
+        counted_profit_usd: countedProfitUsdRow,
+        counted_profit_lbp: countedProfitLbpRow,
+        reason,
+        fee_note: null,
+      };
+
+      if (weight > 0) {
+        counted.push(row);
+        countedProfitUsd += countedProfitUsdRow;
+        countedProfitLbp += countedProfitLbpRow;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: "PM_FEE",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 — {@link ProfitRepository.getDebtRepaymentProfit} carries NO
+   * partner/debt gate — every row with a real (nonzero) profit is 100%
+   * counted at its own signed value.
+   *
+   * LIRA-233 (#14 slice 3 review round, finding 3, THEN corrected in a
+   * follow-up round) — the first cut of this method split `counted`/
+   * `not_counted` on `r.count_eligible` (whether the row is one of
+   * `getDebtRepaymentProfit`'s own `count` events) while still accumulating
+   * EVERY row's profit — including a REFUND reversal's, sent to
+   * `not_counted` — into `counted_total_profit_usd`/`_lbp`. That broke the
+   * owner's ACTUAL, higher-priority contract: "the LISTED counted rows add
+   * up exactly to the module total" (Σ over `detail.counted`, the array the
+   * UI renders and could foot a total from). A voided +X kept-change stayed
+   * in `counted` (its own event was count-eligible) while its −X REFUND
+   * reversal moved to `not_counted` — the visible list summed to +X while
+   * the displayed total read $0.
+   *
+   * Fixed by splitting on **real money, not event-type**: `profit_usd !== 0
+   * || profit_lbp !== 0` decides `counted` vs `not_counted` — a REFUND
+   * reversal with a nonzero profit is counted (and clearly labeled "Kept-
+   * change reversal"), and accumulation happens ONLY when a row is pushed to
+   * `counted`, so Σ(counted) === counted_total_profit_* holds BY
+   * CONSTRUCTION, the same shape every weight-based module in this file
+   * already uses. `not_counted` is now reserved for a genuine $0 row (no
+   * kept change on that particular repayment) — never for a reversal that
+   * carries real money. `r.count_eligible`/By Module's own Count column can
+   * therefore differ from `counted.length` by the number of reversal rows —
+   * an accepted, lower-priority mismatch (the sum rule wins).
+   */
+  private buildKeptChangeModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: ProfitOnlyDetailRow[] = this.repo.getKeptChangeDetail(
+      fromDt,
+      toDt,
+    );
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      const counterpart =
+        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      const detail =
+        r.txn_type === "REFUND"
+          ? "Kept-change reversal"
+          : r.txn_type === "DEBT_REPAYMENT"
+            ? "Debt repayment kept change"
+            : "Kept change";
+      const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
+      const reason = isRealMoney
+        ? null
+        : "No kept change on this repayment (rounds to $0).";
+
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "kept_change",
+        date: r.created_at,
+        counterpart,
+        detail,
+        amount_usd: 0,
+        amount_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: isRealMoney ? 100 : 0,
+        counted_profit_usd: isRealMoney ? r.profit_usd : 0,
+        counted_profit_lbp: isRealMoney ? r.profit_lbp : 0,
+        reason,
+        fee_note: null,
+      };
+      if (isRealMoney) {
+        counted.push(row);
+        countedProfitUsd += r.profit_usd;
+        countedProfitLbp += r.profit_lbp;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: "KEPT_CHANGE",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 — {@link ProfitRepository.getCounterpartyDiscountTotals} is
+   * NON_REVERSIBLE (no void/refund row ever exists to net against — see that
+   * method's own doc comment) and carries no partner/debt gate: every row is
+   * 100% counted.
+   */
+  private buildCounterpartyDiscountModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: ProfitOnlyDetailRow[] =
+      this.repo.getCounterpartyDiscountDetail(fromDt, toDt);
+    const counted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      const counterpart =
+        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "counterparty_discount",
+        date: r.created_at,
+        counterpart,
+        detail: "Counterparty discount",
+        amount_usd: 0,
+        amount_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: 100,
+        counted_profit_usd: r.profit_usd,
+        counted_profit_lbp: r.profit_lbp,
+        reason: null,
+        fee_note: null,
+      };
+      counted.push(row);
+      countedProfitUsd += r.profit_usd;
+      countedProfitLbp += r.profit_lbp;
+    }
+
+    return {
+      module: "COUNTERPARTY_DISCOUNT",
+      counted,
+      not_counted: [],
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 — BILLS-ONLY only (mirrors
+   * {@link ProfitRepository.getSupplierCommissionTotals}'s own `billsOnly`
+   * bucket, which is what `ProfitService.getByModule` pushes as the
+   * SUPPLIER_COMMISSION row — the cashless share is already listed under the
+   * FINANCIAL_SERVICE_<provider> allocation-arm rows; owner's explicit "do
+   * not count it twice" instruction). No partner/debt gate on this bucket —
+   * every row with a real (nonzero) profit is 100% counted at its own signed
+   * value.
+   *
+   * LIRA-233 (#14 slice 3 review round, finding 3, THEN corrected in a
+   * follow-up round — see {@link buildKeptChangeModuleDetail}'s own doc
+   * comment for the full story, identical here): the first cut split
+   * `counted`/`not_counted` on `r.count_eligible` while still accumulating
+   * a `not_counted` REFUND reversal's profit into `counted_total_profit_*`,
+   * breaking "the LISTED counted rows add up exactly to the module total".
+   * Fixed the SAME way: split on real money (`profit_usd !== 0 ||
+   * profit_lbp !== 0`), accumulate ONLY when pushed to `counted`, label a
+   * REFUND reversal row "Settlement reversal" instead of the generic bills
+   * label. `not_counted` is now reserved for a genuine $0 settlement.
+   */
+  private buildSupplierCommissionModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: ProfitOnlyDetailRow[] = this.repo.getSupplierCommissionDetail(
+      fromDt,
+      toDt,
+    );
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      const counterpart =
+        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
+      const reason = isRealMoney
+        ? null
+        : "No commission recognized on this settlement (rounds to $0).";
+      const detail =
+        r.txn_type === "REFUND"
+          ? "Settlement reversal"
+          : "Supplier settlement commission (bills)";
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "supplier_commission",
+        date: r.created_at,
+        counterpart,
+        detail,
+        amount_usd: 0,
+        amount_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: isRealMoney ? 100 : 0,
+        counted_profit_usd: isRealMoney ? r.profit_usd : 0,
+        counted_profit_lbp: isRealMoney ? r.profit_lbp : 0,
+        reason,
+        fee_note: null,
+      };
+      if (isRealMoney) {
+        counted.push(row);
+        countedProfitUsd += r.profit_usd;
+        countedProfitLbp += r.profit_lbp;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: "SUPPLIER_COMMISSION",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-233 — unlike its three profit-only siblings above,
+   * {@link ProfitRepository.getTopupBuybackProfit} DOES gate on
+   * `notDebtPending` (hard WHERE) and weight on `partnerCoverageRatio`, so
+   * this loop mirrors {@link buildRechargeModuleDetail}'s split instead of
+   * the flat "always counted" shape.
+   */
+  private buildTopupBuybackModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: ProfitOnlyDetailRow[] = this.repo.getTopupBuybackDetail(
+      fromDt,
+      toDt,
+    );
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      const partnerRatio = r.partner_coverage_ratio ?? 1;
+      const weight = r.debt_pending ? 0 : partnerRatio;
+      const isFull = weight >= 0.9995;
+      const isNone = weight <= 0.0005;
+      const countedProfitUsdRow = r.profit_usd * weight;
+      const countedProfitLbpRow = r.profit_lbp * weight;
+      const counterpart =
+        r.counterpart_name || r.counterpart_phone || "Walk-in";
+      const reason = isFull
+        ? null
+        : r.debt_pending
+          ? "Customer still owes — Recharge Debt not yet repaid."
+          : r.has_partner_obligation
+            ? isNone
+              ? "Partner has not settled this top-up yet."
+              : `Partner has settled ${Math.round(partnerRatio * 100)}% of this top-up so far.`
+            : null;
+      const detail =
+        r.txn_type === "TELECOM_CREDIT_BUYBACK"
+          ? "Telecom credit buyback"
+          : "Client top-up";
+
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "topup_buyback",
+        date: r.created_at,
+        counterpart,
+        detail,
+        amount_usd: 0,
+        amount_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: Math.round(weight * 1000) / 10,
+        counted_profit_usd: countedProfitUsdRow,
+        counted_profit_lbp: countedProfitLbpRow,
+        reason,
+        fee_note: null,
+      };
+
+      if (weight > 0) {
+        counted.push(row);
+        countedProfitUsd += countedProfitUsdRow;
+        countedProfitLbp += countedProfitLbpRow;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: "TOPUP_BUYBACK",
       counted,
       not_counted: notCounted,
       counted_total_profit_usd: countedProfitUsd,

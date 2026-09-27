@@ -208,6 +208,16 @@ const GATE_FRAGMENTS = [
   // load-bearing there, and getByUser/getByClient's sale arm sits inside a
   // unit that also calls notDebtPending/txnPartnerCoverageRatio elsewhere.
   "saleRecognitionWeight",
+  // LIRA-231 — net-of-item-refund counterpart of `saleNotFullyPaid`, used by
+  // `_getPendingSaleProfitNet`'s WHERE gate (the deferred/pending "unpaid
+  // sales" card, net of item refunds). Compares still-uncollected NET
+  // revenue (post item-refund) against the same $0.05 tolerance, instead of
+  // `saleNotFullyPaid`'s GROSS `final_amount_usd` — using the gross form
+  // here would keep a fully-item-refunded-but-unpaid sale on the list
+  // forever, at its full pre-refund outstanding amount (see that method's
+  // own doc comment). Same "profit real only when money is real" rule,
+  // applied to the net figure — a genuine gate, not a loophole.
+  "saleNetRevenueNotFullyPaid",
 ] as const;
 
 const GATE_CALL_REGEX = new RegExp(`\\b(?:${GATE_FRAGMENTS.join("|")})\\(`);
@@ -390,6 +400,34 @@ const EXCLUDED_UNITS: Record<string, string> = {
   // immediately instead of silently escaping this guard's scan the way the
   // original bug did. See `ClosingService.profitParity.test.ts` for the
   // guarding spec that replaced these six scenarios (rule 24).
+  // --- LIRA-233 (#14 slice 3) — per-row drill-down siblings of the three
+  // already-excluded profit-only totals queries above. Each detail query
+  // mirrors its totals sibling's own SELECT minus the SUM/COUNT (see each
+  // method's own doc comment in ProfitRepository.ts) — same rows, same
+  // WHERE, so the SAME "recognition-by-construction, nothing left to gate"
+  // reasoning applies verbatim; these are NOT new gaps, just the totals
+  // query's reasoning restated for its row-level twin (rule 14 — one
+  // rationale, not a second one invented per unit).
+  "ProfitRepository:getKeptChangeDetail:(query)":
+    "Mirrors getDebtRepaymentProfit exactly (see that method's own " +
+    "EXCLUDED_UNITS entry above): DEBT_REPAYMENT/KEPT_CHANGE rows ARE the " +
+    "recognition event (kept change collected AT the repayment) — there is " +
+    "no counterparty-pending state left to gate against.",
+  "ProfitRepository:getCounterpartyDiscountDetail:(query)":
+    "Mirrors getCounterpartyDiscountTotals exactly (see that method's own " +
+    "EXCLUDED_UNITS entry above): COUNTERPARTY_DISCOUNT carries a signed " +
+    "profit stamp with amount_usd/lbp always 0 (no cash moved) and is " +
+    "NON_REVERSIBLE_TRANSACTION_TYPES — immediate recognition by design, " +
+    "nothing left to defer.",
+  "ProfitRepository:getSupplierCommissionDetail:(query)":
+    "Mirrors getSupplierCommissionTotals's billsOnly/degraded buckets " +
+    "exactly (see those methods' own EXCLUDED_UNITS entries above): this " +
+    "detail query is BILLS-ONLY (or the pre-allocations-table degraded " +
+    "shape, same cashlessGate branch that totals query uses) — a real " +
+    "provider-drawer top-up funded directly BY THE SUPPLIER at settlement, " +
+    "'our profit entirely' (owner) — recognition-by-construction; no " +
+    "partner_ledger/debt_ledger row is ever keyed to a SUPPLIER_SETTLEMENT " +
+    "transaction id, so a gate here would always no-op.",
 };
 
 describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)", () => {

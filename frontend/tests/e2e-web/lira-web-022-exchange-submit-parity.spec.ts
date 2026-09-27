@@ -26,64 +26,17 @@
  * consumption can never be contaminated by a prior run's leftover open
  * lots for a shared code like "EUR".
  */
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-// Same import global-setup.ts already uses — no dual-ABI mock concern here:
-// this suite runs under the Node ABI.
-import Database from "better-sqlite3";
-import { hashPassword } from "@liratek/core";
-import { test, expect, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  seedStaffUser,
+  staffHeaders,
+  BACKEND_URL,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Mirrors global-setup.ts's own path resolution exactly — same DB file.
-const DB_PATH = path.join(
-  __dirname,
-  "..",
-  "..",
-  "test-results",
-  "e2e-web",
-  "phone_shop.web.db",
-);
 
 const STAFF_USERNAME = "e2e022staff";
 const STAFF_PASSWORD = "E2e022Staff!1";
-
-/**
- * Seed (idempotently) a REAL `staff`-role user directly in the shared test
- * DB — mirrors lira-web-019's own seedStaffUser (see that file's doc for why
- * this can't go over REST: POST /api/users is a placeholder, and
- * authenticateJWT requires a live `sessions` row a self-signed token can't
- * produce).
- */
-function seedStaffUser(): void {
-  const db = new Database(DB_PATH);
-  try {
-    db.prepare(
-      `INSERT OR IGNORE INTO users (tenant_id, username, password_hash, role, is_active)
-       VALUES (1, ?, ?, 'staff', 1)`,
-    ).run(STAFF_USERNAME, hashPassword(STAFF_PASSWORD));
-    db.prepare(
-      `UPDATE users SET password_hash = ?, role = 'staff', is_active = 1 WHERE username = ?`,
-    ).run(hashPassword(STAFF_PASSWORD), STAFF_USERNAME);
-  } finally {
-    db.close();
-  }
-}
-
-async function loginHeaders(
-  page: Page,
-  username: string,
-  password: string,
-): Promise<Record<string, string>> {
-  const res = await (
-    await page.request.post(`${BACKEND_URL}/api/auth/login`, {
-      data: { username, password },
-    })
-  ).json();
-  expect(res.success, JSON.stringify(res)).toBeTruthy();
-  return { Authorization: `Bearer ${res.data.token as string}` };
-}
 
 type ExchangeSubmitResult = {
   success: boolean;
@@ -136,8 +89,8 @@ test.describe("Exchange submit parity over REST (EXCHANGE_LOT_SETTLEMENT.md F3)"
   test("(a) staff can submit, and an operator-overridden leg1Rate is stamped verbatim (not server-recomputed)", async ({
     page,
   }) => {
-    seedStaffUser();
-    const headers = await loginHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
+    seedStaffUser(STAFF_USERNAME, STAFF_PASSWORD);
+    const headers = await staffHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
 
     // A deliberately "odd" rate no default/seeded USD->LBP rate would ever
     // produce by coincidence — proves it round-trips verbatim rather than
@@ -188,7 +141,7 @@ test.describe("Exchange submit parity over REST (EXCHANGE_LOT_SETTLEMENT.md F3)"
     // repository's own runtime guard (assertPartnerIdRequired) — a genuine
     // business-logic failure, exactly the class of result the OLD route's
     // `res.status(result.success ? 200 : 400)` line answered with 400.
-    const admin = await loginHeaders(page, "admin", "admin123");
+    const admin = await staffHeaders(page, "admin", "admin123");
 
     const res = await page.request.post(
       `${BACKEND_URL}/api/exchange/transactions`,
@@ -224,8 +177,8 @@ test.describe("Exchange submit parity over REST (EXCHANGE_LOT_SETTLEMENT.md F3)"
   test("(c) selling an exotic against its own freshly-bought open lot returns a defined, correctly FIFO-priced realizedProfitUsd", async ({
     page,
   }) => {
-    seedStaffUser();
-    const headers = await loginHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
+    seedStaffUser(STAFF_USERNAME, STAFF_PASSWORD);
+    const headers = await staffHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
 
     // A currency code unique to THIS run — the DB accumulates across runs,
     // and FIFO lot consumption for a shared code like "EUR" could draw from
@@ -279,7 +232,7 @@ test.describe("Exchange submit parity over REST (EXCHANGE_LOT_SETTLEMENT.md F3)"
   test("(d) an admin-role JWT is still accepted on /transactions (role parity didn't remove the old caller)", async ({
     page,
   }) => {
-    const admin = await loginHeaders(page, "admin", "admin123");
+    const admin = await staffHeaders(page, "admin", "admin123");
     const res = await submitExchange(page, admin, {
       fromCurrency: "USD",
       toCurrency: "LBP",

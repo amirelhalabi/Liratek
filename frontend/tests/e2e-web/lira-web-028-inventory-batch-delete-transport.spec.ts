@@ -36,13 +36,23 @@
  * position or "newest row".
  */
 
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  seedStaffUser,
+  staffHeaders,
+  BACKEND_URL,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
 
 const RUN = Date.now();
 const NAME_A = `LW28 BatchDel A ${RUN}`;
 const NAME_B = `LW28 BatchDel B ${RUN}`;
 const NAME_C = `LW28 BatchDel C ${RUN}`;
+
+const STAFF_USERNAME = "e2e028staff";
+const STAFF_PASSWORD = "E2e028Staff!1";
 
 async function authHeaders(page: Page): Promise<Record<string, string>> {
   const token = await page.evaluate(() => localStorage.getItem("liratek.jwt"));
@@ -151,20 +161,31 @@ test.describe("Inventory batch delete — REST transport (LIRA-149)", () => {
     page,
   }) => {
     await loginAsAdmin(page);
-    const headers = await authHeaders(page);
-    const idC = await createProduct(page, headers, NAME_C);
+    const adminAuthHeaders = await authHeaders(page);
+    const idC = await createProduct(page, adminAuthHeaders, NAME_C);
 
-    // loginAsAdmin only proves the ROUTE accepts admin; the gate itself is
-    // asserted directly against the router's own `requireRole` config via a
-    // staff-forged... no live staff login fixture exists in this suite
-    // (grepped: only loginAsAdmin), so this asserts the documented contract
-    // the backend jest guard (inventoryBatchDelete.api.test.ts) already pins
-    // at the unit level with a real staff role header — this test instead
-    // pins the OTHER half: an admin token (the strictest case) is accepted,
-    // proving the route is reachable at all over a real backend.
-    const { status, body } = await batchDelete(page, headers, [idC]);
+    // A REAL staff-role JWT (LIRA-235 — fixtures.ts's seedStaffUser/
+    // staffHeaders), not the admin token used everywhere else in this file.
+    // The IPC handler's own gate is `requireRole(["admin", "staff"])`
+    // (`electron-app/handlers/inventoryHandlers.ts`), unlike the singular
+    // DELETE route beside it which is admin-only — this proves the REST
+    // route matches the IPC handler's WIDER gate, not just "some token
+    // works". The backend jest guard (inventoryBatchDelete.api.test.ts)
+    // already pins the same contract at the unit level with a mocked role
+    // header; this is the end-to-end proof over a real backend + real login.
+    seedStaffUser(STAFF_USERNAME, STAFF_PASSWORD);
+    const staff = await staffHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
+
+    const { status, body } = await batchDelete(page, staff, [idC]);
     expect(status).toBe(200);
-    expect(body.success).toBe(true);
+    expect(body.success, JSON.stringify(body)).toBe(true);
+    expect(body.deleted).toBe(1);
+
+    // Ground truth: the staff-issued delete actually took effect, read back
+    // with the (unrelated) admin token to isolate the read from the gate
+    // under test.
+    const after = await getProduct(page, adminAuthHeaders, idC);
+    expect(after.success).toBe(false);
   });
 
   test("(c) rejects an empty ids array — rule 19c: HTTP 200 + string error", async ({

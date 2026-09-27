@@ -16,7 +16,7 @@ import {
   X as XIcon,
 } from "lucide-react";
 import type { Product } from "@liratek/ui";
-import { useApi, appEvents } from "@liratek/ui";
+import { useApi, appEvents, ConfirmModal } from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
 
 const PAGE_SIZE = 20;
@@ -110,6 +110,37 @@ function ProductSearch({
   // Timer for delayed barcode auto-add (gives time to keep typing)
   const barcodeAutoAddTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
+  );
+
+  // Owner decision 2026-09-26: a scanned/typed IMEI that resolves to a
+  // defective-but-in-stock unit (LIRA-143 refund-as-defective path) must
+  // not auto-add silently — same rule as the cart's IMEI dropdown
+  // (CartLineRow.tsx). Held here until the operator confirms; canceling
+  // just clears it, leaving the cart untouched.
+  const [pendingScanAdd, setPendingScanAdd] = useState<{
+    product: Product;
+    unit: { id: number; imei: string };
+  } | null>(null);
+
+  // The auto-add itself, shared by the direct (non-defective) path and the
+  // confirm dialog's "Sell Anyway" path — today's unconditional behavior,
+  // extracted so both routes end up doing exactly the same thing.
+  const commitScanAdd = useCallback(
+    async (product: Product, unit: { id: number; imei: string }) => {
+      const added = await onAddToCart(product, unit);
+      if (added === false) {
+        appEvents.emit(
+          "notification:show",
+          `Unit ${unit.imei} is already in the cart`,
+          "error",
+        );
+      } else {
+        setSearch("");
+      }
+      isUserSearch.current = false;
+      requestAnimationFrame(() => searchInputRef.current?.focus());
+    },
+    [onAddToCart],
   );
 
   // Date state for searching past sales, defaults to today
@@ -231,21 +262,16 @@ function ProductSearch({
             const scan = await api.resolveScanCode(scannedTerm);
             if (scan.success && scan.data?.matched_unit) {
               const matchedUnit = scan.data.matched_unit;
-              const added = await onAddToCart(scan.data.product as Product, {
-                id: matchedUnit.id,
-                imei: matchedUnit.imei,
-              });
-              if (added === false) {
-                appEvents.emit(
-                  "notification:show",
-                  `Unit ${matchedUnit.imei} is already in the cart`,
-                  "error",
-                );
-              } else {
-                setSearch("");
+              const product = scan.data.product as Product;
+              const unit = { id: matchedUnit.id, imei: matchedUnit.imei };
+              if (matchedUnit.is_defective) {
+                // Ask first — see commitScanAdd's doc comment. Leave
+                // isUserSearch as-is and don't refocus the search box; the
+                // confirm dialog owns focus until the operator answers.
+                setPendingScanAdd({ product, unit });
+                return;
               }
-              isUserSearch.current = false;
-              requestAnimationFrame(() => searchInputRef.current?.focus());
+              await commitScanAdd(product, unit);
               return;
             }
           } catch (err) {
@@ -266,7 +292,7 @@ function ProductSearch({
     } catch (err) {
       logger.error("Error loading products:", err);
     }
-  }, [search, onAddToCart, api]);
+  }, [search, onAddToCart, api, commitScanAdd]);
 
   // Initial load
   useEffect(() => {
@@ -711,6 +737,27 @@ function ProductSearch({
           />
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={pendingScanAdd !== null}
+        title="Defective Phone"
+        message="This phone is marked defective — sell anyway?"
+        confirmLabel="Sell Anyway"
+        cancelLabel="Cancel"
+        variant="warning"
+        onConfirm={() => {
+          const pending = pendingScanAdd;
+          setPendingScanAdd(null);
+          if (pending) {
+            commitScanAdd(pending.product, pending.unit);
+          }
+        }}
+        onCancel={() => {
+          setPendingScanAdd(null);
+          isUserSearch.current = false;
+          requestAnimationFrame(() => searchInputRef.current?.focus());
+        }}
+      />
     </div>
   );
 }

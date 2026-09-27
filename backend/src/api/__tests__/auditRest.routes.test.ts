@@ -267,7 +267,7 @@ describe("REST audit wiring (LIRA-104, Implementer B)", () => {
       );
     });
 
-    it("business failure (voidTransaction throws, caught as 500): records nothing", async () => {
+    it("business failure (voidTransaction throws, caught as HTTP 200 success:false per rule 19c): records nothing", async () => {
       jest
         .spyOn(getTransactionService(), "voidTransaction")
         .mockImplementation(() => {
@@ -279,7 +279,13 @@ describe("REST audit wiring (LIRA-104, Implementer B)", () => {
         .set("x-test-role", "admin")
         .send({});
 
-      expect(res.status).toBe(500);
+      // Rule 19c: business/validation failures on write routes now answer
+      // HTTP 200 with { success: false, error } — the adapter branches on
+      // `result.success`, never on status code. This used to be a real 500;
+      // the route's catch block was changed to `res.json(...)`.
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toEqual(expect.any(String));
       expect(logSpy).not.toHaveBeenCalled();
     });
   });

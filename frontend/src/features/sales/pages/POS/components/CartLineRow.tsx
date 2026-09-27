@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Trash2, Plus, Minus } from "lucide-react";
 import type { CartItem } from "@liratek/ui";
+import { ConfirmModal } from "@liratek/ui";
 import { useInStockUnitsQuery } from "@/features/sales/hooks/useProductUnits";
 import {
   resolveCartLineMode,
@@ -47,6 +49,15 @@ export function CartLineRow({
   const { data: units = [] } = useInStockUnitsQuery(
     item.tracks_imei_units ? item.id : null,
   );
+  // Owner decision 2026-09-26: a defective-but-in-stock unit (refunded via
+  // the Transactions-page "Defective" checkbox) still shows in this picker
+  // — it CAN be sold as-is — but picking one must ask first, so a defective
+  // phone is never sold by accident. Held here, not committed to the cart,
+  // until the operator confirms.
+  const [pendingDefectiveUnit, setPendingDefectiveUnit] = useState<{
+    id: number;
+    imei: string;
+  } | null>(null);
   const mode = resolveCartLineMode(item.tracks_imei_units, units.length);
   const isLockedQty = shouldAlwaysAddNewLine(mode);
 
@@ -87,19 +98,42 @@ export function CartLineRow({
                 }
                 const unitId = Number(raw);
                 const unit = unitOptions.find((u) => u.id === unitId);
-                if (unit) {
-                  onSelectUnit(lineKey, { id: unit.id, imei: unit.imei });
+                if (!unit) return;
+                if (unit.is_defective) {
+                  // Don't commit yet — the confirm dialog below decides.
+                  // Not calling onSelectUnit means the controlled <select>
+                  // stays on its previous value once this state update
+                  // re-renders (React re-syncs the DOM to the `value` prop
+                  // on every render of a controlled element).
+                  setPendingDefectiveUnit({ id: unit.id, imei: unit.imei });
+                  return;
                 }
+                onSelectUnit(lineKey, { id: unit.id, imei: unit.imei });
               }}
               className="w-full h-[30px] bg-slate-900 border border-slate-700/50 rounded-lg px-2 text-[10px] text-white focus:border-violet-500/50 outline-none font-mono"
             >
               <option value="">Select IMEI / Serial…</option>
               {unitOptions.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.imei}
+                  {u.is_defective ? `${u.imei} — Defective` : u.imei}
                 </option>
               ))}
             </select>
+            <ConfirmModal
+              isOpen={pendingDefectiveUnit !== null}
+              title="Defective Phone"
+              message="This phone is marked defective — sell anyway?"
+              confirmLabel="Sell Anyway"
+              cancelLabel="Cancel"
+              variant="warning"
+              onConfirm={() => {
+                if (pendingDefectiveUnit) {
+                  onSelectUnit(lineKey, pendingDefectiveUnit);
+                }
+                setPendingDefectiveUnit(null);
+              }}
+              onCancel={() => setPendingDefectiveUnit(null)}
+            />
           </div>
         )}
       </div>

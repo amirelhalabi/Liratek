@@ -540,6 +540,11 @@ export class SessionPaymentService {
     // classifies them correctly (covered → realized; on-account → pending).
     this.backfillSaleSettlement(sessionId, result, rate);
 
+    // F3 (round-3 review) — stamp the rate this basket was ACTUALLY checked
+    // out at onto every member, so a later session-item refund defaults to
+    // it instead of the cart-time rate (see the repository method's doc).
+    this.paymentRepo.stampMemberExchangeRate(sessionId, rate);
+
     closingLogger.info(
       { sessionId, ...result, exchangeRate: rate },
       "Recorded session basket payment",

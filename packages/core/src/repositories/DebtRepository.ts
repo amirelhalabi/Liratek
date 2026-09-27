@@ -240,11 +240,34 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   /**
    * Get debt history for a specific client
    * Default: most recent first (DESC)
+   *
+   * LIRA-232 round-3 adversarial review, finding #7 (LOW) — a 0/0
+   * 'Refund Reversal' row (`TransactionRepository._cancelSessionDebt`'s
+   * idempotency marker, written even when a Session Debt row's own net is
+   * fully attributed away by a prior item refund — see round-2 finding #4)
+   * carries no money and nothing for the owner to act on; showing it on the
+   * Debts page history is noise. The row itself MUST stay in the table (it
+   * is `_assertSessionBasketReversible`'s only idempotency marker for that
+   * case) — this filters it from the READ only, never from storage.
+   *
+   * Round-4 review, finding L1 — widened from an EXACT `= 0` match to a
+   * tolerant `< half a unit` one. `TransactionRepository._cancelSessionDebt`
+   * now rounds its own net at the write site (so a NEW zero-net row lands on
+   * exact 0), but an exact filter is still the wrong invariant to depend on:
+   * IEEE-754 subtraction of two float dollar amounts can legitimately land a
+   * few femtocents off zero (measured pre-fix: 10.10 + 20.20 charged on
+   * account netted to `-3.552713678800501e-15`, which this filter's old
+   * exact `= 0` silently let through as a visible "−$0.00" row).
    */
   findClientHistory(clientId: number): DebtLedgerEntity[] {
     const stmt = this.db.prepare(`
       SELECT ${this.getColumns()} FROM debt_ledger
       WHERE client_id = ? AND tenant_id = ?
+        AND NOT (
+          transaction_type = 'Refund Reversal'
+          AND ABS(amount_usd) < 0.005
+          AND ABS(amount_lbp) < 0.5
+        )
       ORDER BY created_at DESC
     `);
     return stmt.all(clientId, getCurrentTenantId()) as DebtLedgerEntity[];

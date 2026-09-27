@@ -38,79 +38,18 @@
  * reverting the same guard entirely (the call would then succeed against an
  * arbitrary phone number).
  */
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-// Same import global-setup.ts already uses — no dual-ABI mock concern here:
-// this suite runs under the Node ABI (rule "the two ABIs are mutually
-// exclusive, hence rebuild:node before ... web e2e").
-import Database from "better-sqlite3";
-import { hashPassword } from "@liratek/core";
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  seedStaffUser,
+  staffHeaders,
+  BACKEND_URL,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Mirrors global-setup.ts's own path resolution exactly — same DB file,
-// this spec file lives in the same directory.
-const DB_PATH = path.join(
-  __dirname,
-  "..",
-  "..",
-  "test-results",
-  "e2e-web",
-  "phone_shop.web.db",
-);
 
 const STAFF_USERNAME = "e2e019staff";
 const STAFF_PASSWORD = "E2e019Staff!1";
-
-/**
- * Seed (idempotently) a REAL `staff`-role user directly in the shared test
- * DB — mirrors global-setup.ts's own admin-password bootstrap.
- *
- * Why not go over REST: `POST /api/users` (backend/src/api/users.ts) is an
- * unfinished placeholder — it validates the body, logs, and returns
- * `{success:true,id:1}` without writing a row, so it cannot create a
- * logically-real staff account. And `authenticateJWT` requires a live DB
- * `sessions` row behind the JWT's `sessionToken` (backend/src/middleware/
- * auth.ts), so a self-signed token (even with the correct role claim and
- * the right `JWT_SECRET`) is rejected the same way a stale one is — there
- * is no way to prove this route's role gate without a REAL login. The
- * backend jest suite's `x-test-role` header (recharge.api.test.ts) is not a
- * usable shortcut either: it only exists inside that suite's own
- * `jest.mock("../../middleware/auth.js")`, never wired into the real
- * Express app this e2e suite drives.
- */
-function seedStaffUser(): void {
-  const db = new Database(DB_PATH);
-  try {
-    db.prepare(
-      `INSERT OR IGNORE INTO users (tenant_id, username, password_hash, role, is_active)
-       VALUES (1, ?, ?, 'staff', 1)`,
-    ).run(STAFF_USERNAME, hashPassword(STAFF_PASSWORD));
-    // INSERT OR IGNORE no-ops against the accumulating DB on every run after
-    // the first — force the password/role/active state unconditionally so
-    // this spec never depends on what a PRIOR run happened to leave behind.
-    db.prepare(
-      `UPDATE users SET password_hash = ?, role = 'staff', is_active = 1 WHERE username = ?`,
-    ).run(hashPassword(STAFF_PASSWORD), STAFF_USERNAME);
-  } finally {
-    db.close();
-  }
-}
-
-async function loginHeaders(
-  page: Page,
-  username: string,
-  password: string,
-): Promise<Record<string, string>> {
-  const res = await (
-    await page.request.post(`${BACKEND_URL}/api/auth/login`, {
-      data: { username, password },
-    })
-  ).json();
-  expect(res.success, JSON.stringify(res)).toBeTruthy();
-  return { Authorization: `Bearer ${res.data.token as string}` };
-}
 
 async function drawers(
   page: Page,
@@ -300,8 +239,8 @@ test.describe("Telecom credit buy-back over REST (CARRIER_LINES_VALIDITY_PLAN.md
   test("(c) a staff-role JWT is refused on /process (role parity, Phase 0b)", async ({
     page,
   }) => {
-    seedStaffUser();
-    const headers = await loginHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
+    seedStaffUser(STAFF_USERNAME, STAFF_PASSWORD);
+    const headers = await staffHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
 
     const res = await page.request.post(`${BACKEND_URL}/api/recharge/process`, {
       headers,

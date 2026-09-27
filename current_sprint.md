@@ -4140,7 +4140,7 @@ assuming it is safe.
 
 ### Acceptance
 
-Failing-first per rule 17 for each part: reintroduce the gap, watch the new test fail, restore.
+Failing-first per rule 17 for each part: write the test first, see it fail on the unfixed code, then fix. Never re-break finished code to prove it.
 Prove, per currency, that the drawer delta equals the ledger movement for `settleTransactions` and
 `recordSupplierCashflow`, and that a settlement paid entirely in non-drawer-affecting legs is
 rejected rather than silently stamped settled. `settleAccount`'s own suite
@@ -4231,7 +4231,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; next free: **LIRA-231**).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-237**, LIRA-236 filed 2026-09-27).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -4447,7 +4447,7 @@ rejected, not performed"*. So this is a **desktop-only leak AND a rule-19c diver
 
 - [ ] A rejected sensitive-setting write produces **no** `audit_log` row on either transport.
 - [ ] An accepted sensitive-setting write produces a row whose `new_values` contains no value.
-- [ ] Rule 17: reintroduce the unconditional `audit(...)` and watch the new test fail first.
+- [ ] Rule 17: write the test first and watch it fail against the current unconditional `audit(...)`, then fix.
 - [ ] A staff-role search of the audit log returns no plaintext sensitive value.
 
 ---
@@ -4779,7 +4779,7 @@ in the UI that warranty is not preserved across a minimize. Prove it with a fail
 | **Epic**             | POS / Sales                                                                        |
 | **Type**             | Bug — duplicate ledger rows (money path)                                           |
 | **Priority**         | Medium                                                                             |
-| **Status**           | TODO — owner decision 2026-09-24: its own ticket, not in the Profits batch         |
+| **Status**           | DONE 2026-09-26 (verified, not yet committed) — see "Resolution" below            |
 | **Affected Modules** | pos, profits                                                                       |
 | **Source Plan**      | Profits audit run 2026-09-24, lane LCC (`OWNER_NOTES_2026-09-21.md` §6.9)          |
 
@@ -4806,6 +4806,28 @@ cancelled but paid sale, still showed profit on By Cashier.
 4. Check that the change touches no drawer or payment posting.
 5. Failing-first test (rule 17). Read `docs/FEATURE_GUIDE.md` §13 before touching it (rule 18).
 
+### Resolution (2026-09-26)
+
+**Reproduced first.** Draft → re-save ×2 → complete left **4 ACTIVE SALE rows**. Each draft re-save also
+re-posted any typed payment to the drawer: $5 × 3 + $8 left General at +$23 instead of +$8, because old
+payment rows were deleted without reversing their drawer deltas. A cancelled draft left an orphan ACTIVE
+SALE row behind.
+
+**Owner design:** a draft is a parked order, so a DRAFT writes nothing to the `transactions` money
+ledger. `SalesRepository.processSale` now gates the whole posting block on `status === "completed"`:
+the unified row, payment legs, drawer deltas, debt, partner ledger and gift card. The single SALE row
+is written once, on completion. Cancelling a draft has nothing to reverse. A defensive double-completion
+path updates the one row in place (`TransactionRepository.getActiveSaleTransactionId` /
+`updateTransactionCore`), reversing its prior legs first. Old duplicate rows in existing DBs are left
+as they are, and ProfitRepository's `MIN(o.id)` defence stays.
+
+**Tests:** `SalesRepository.draftAutosaveDuplicateTxn.test.ts`, 5 cases, failing-first.
+`SalesRepository.fifoProfitStamp.test.ts`'s draft case was updated to the new design.
+
+**Also found and fixed in this batch:** web "cancel draft" was broken (no `DELETE /api/sales/drafts/:id`
+route); it has been added (`salesDeleteDraft.api.test.ts`). Not fixed, reported: the desktop
+`sales:delete-draft` handler has no role check, and it audits even when the delete fails.
+
 ---
 
 ## LIRA-230: a named walk-in's kept change lands in the unnamed "Walk-in" bucket — LOW
@@ -4815,7 +4837,7 @@ cancelled but paid sale, still showed profit on By Cashier.
 | **Epic**             | Sessions / Profits                                                                 |
 | **Type**             | Bug — wrong attribution (reporting)                                                |
 | **Priority**         | Low                                                                                |
-| **Status**           | TODO — owner decision 2026-09-24: its own ticket                                   |
+| **Status**           | DONE 2026-09-26 (verified, not yet committed) — see "Resolution" below            |
 | **Affected Modules** | pos (session checkout), profits                                                    |
 | **Source Plan**      | Profits audit run 2026-09-24, lane LCC (`OWNER_NOTES_2026-09-21.md` §6.9)          |
 
@@ -4833,6 +4855,19 @@ already groups walk-ins by the stamped name.
    other rows get it.
 2. Failing-first test: a named walk-in session with kept change must show under that name on
    By Client.
+
+### Resolution (2026-09-26)
+
+**Reproduced first:**
+- a named walk-in's KEPT_CHANGE row had `client_name` null (so it landed in "Walk-in");
+- a saved client's KEPT_CHANGE row was also missing the name, though its `client_id` was already there.
+
+**Fix:** `SessionCheckoutService.checkout()` now stamps `client_name: sessionCustomerName` on the
+KEPT_CHANGE row, the same source every other basket item uses. Amounts are unchanged. It is the only
+KEPT_CHANGE writer in core.
+
+**Tests:** `SessionCheckoutService.keptChangeClientName.test.ts`, 3 cases: a named walk-in, a saved
+client, and an anonymous walk-in, which still goes to Walk-in.
 
 ---
 
@@ -4887,3 +4922,275 @@ the change"). OMT_APP RECEIVE now refuses a customer fee (`commission`, `includi
 `feePayments`) with the shared `OMT_RECEIVE_NO_FEE_MESSAGE`. It is enforced in the shared validator
 refine, in the electron schema mirror and in the repository guard. The message wording was broadened
 so it names no single fee field. Verified: core jest 3,940/3,940, backend 963/963.
+
+---
+
+## LIRA-231: POS refunds hand money back silently — use the payment form; block session-paid sales — HIGH
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | POS / Refunds                                                                      |
+| **Type**             | Bug + small feature (money path)                                                   |
+| **Priority**         | High                                                                               |
+| **Status**           | DONE 2026-09-26 (verified, not yet committed) — incl. items 3–7 below             |
+| **Affected Modules** | pos, audit                                                                         |
+| **Source**           | Owner test 2026-09-26: an item refund on session Sale #4                           |
+
+### Summary
+
+The POS Sale detail modal's **"Refund item"** (`SalesRepository.refundSaleItem`) and **"Refund
+Sale"** give money back with no cashier input. They silently reverse the sale's OWN payment rows,
+in proportion.
+
+For a sale paid through a **customer session basket**, whose payment is pooled on the session, the
+sale has no payment rows of its own. The item refund therefore wrote a REFUND row with **no payment
+legs and no drawer movement**. The owner refunded a $1,500 iPhone from Sale #4 and the Transactions
+page showed `ITEM REFUND … $-1,500` with no payment details: the handed-back cash was never recorded.
+
+### Owner decisions (2026-09-26)
+
+1. **Both POS buttons open the payment form.** This reuses the Transactions page's
+   `RefundMethodModal` / `MultiPaymentInput`.
+   - It opens pre-filled with how the sale was paid (for an item refund, that item's share).
+   - The cashier can change the method, drawer and currency split.
+   - What they confirm is posted as the REFUND row's legs.
+   - One form, one refund path (rule 14).
+2. **A sale paid through a customer session is BLOCKED** for both POS refunds, with the message:
+   "This sale was paid through a customer session — refund it from the session basket." This is
+   enforced server-side on both transports and matches the Transactions page's existing refusal.
+   The proper single-item session refund is a later design (owner's answers so far: the row amount,
+   the cashier picks the payback method, account debt is reduced first, sold items only).
+
+### Acceptance
+
+- An override posts exactly the confirmed legs and the drawer deltas; no override gives today's
+  proportional behaviour.
+- An over-refund is rejected.
+- A session-paid sale is refused for both refunds, and nothing is written.
+- Both transports, with schema-derived types (rules 19, 21–23).
+- Failing-first tests (rule 17).
+
+**Not repaired:** the owner's local test refund on Sale #4 (no drawer movement recorded). It is test
+data.
+
+### Added to this ticket (owner decisions 2026-09-26, from the owner's web test on tenant 5)
+
+3. **Deferred Profit nets item refunds.** The Overview "Unpaid sales" card and the Pending tab showed an unpaid
+   sale at its gross total ($1,635 / potential $225 for Sale #4, after a $1,500 item refund). They now show it
+   net ($135 / $25), via the new `saleNetRevenueNotFullyPaid` fragment, which is registered in the profit guard.
+4. **Web "Sale not found".** `GET /api/sales/:id` validated the URL id with `z.number()`, so every web sale
+   detail failed. The id is now coerced, and the route returns the IPC envelope.
+5. **POS IMEI list marks defective phones.** A unit refunded as Defective is listed as "IMEI — Defective", and
+   picking it asks "This phone is marked defective — sell anyway?". This was verified on tenant 5: the unit
+   saved `is_defective = 1` and a warranty until 2027-04-01, but the POS showed it as normal.
+6. **The POS refund window gets "Returned phones"** (Defective + New warranty expiry), for both Refund Sale and
+   Refund item. The per-item refund validates unit ids against that item's own linked units. This supersedes
+   the 2026-07-04 "Transactions page only" scoping.
+7. **Web expense delete** (`DELETE /api/expenses/:id`) had the same URL-id bug as item 4. It is fixed with
+   `expenseIdParamSchema` (`expensesDelete.api.test.ts`). Not changed: this route still returns HTTP 400 on
+   failure, not the rule-19c envelope. That is pre-existing.
+
+### Resolution (2026-09-26)
+
+**Built:**
+- **Refund window in the POS.** "Refund Sale" and "Refund item" open `RefundMethodModal`, pre-filled
+  from a new read-only preview (`sales:refund-preview` / `GET /api/sales/:id/refund-preview`). The
+  cashier's legs flow through the existing refund-override contract: `refundBySaleId`'s `refundLegs`, and
+  `refundSaleItem`'s new override, validated by the shared `validateRefundLegOverrideAmounts`.
+- **Session-sale block.** Refunds of session-paid sales are refused server-side, with the owner's message,
+  via `TransactionRepository.isTransactionSessionLinked`.
+- **Returned phones.** `unitExtras` are forwarded on both refunds (shared `validateRefundUnitExtras`).
+- **Defective-phone confirm** in the cart IMEI dropdown and on scan/auto-add.
+- **Deferred Profit net of refunds** (`_getPendingSaleProfitNet`, `salePlusRefundProfitSubquery`).
+- **Web sale detail** (`saleIdParamSchema`).
+
+**Verified 2026-09-26:**
+- build:core, schema-equivalence (74 tables), tenant-scoping, bind-arity, `yarn typecheck` and `yarn lint`
+  (0 errors);
+- jest: core 3,960, backend 990 (995 after item 7), electron 219, frontend 1,982 (1 pre-existing skip).
+- Tests that were written after their fix are labelled "not proven failing-first" in their headers (rule 17
+  as reworded 2026-09-26).
+
+**Desktop e2e (owner run, 2026-09-26):** 311 of 313 passed. Both failures were in `lira-143`, and both
+came from the spec not driving this ticket's new screens, not from an app bug:
+- the re-sell scan of the refunded-as-defective phone now hits the defective confirm;
+- the POS per-item refund now opens the refund payment form.
+
+The spec was updated to click "Sell Anyway" (it now also checks that the confirm appears) and
+"Confirm Refund", and the `lira-143` re-run passed. **Web e2e (owner run, 2026-09-26):** 121 passed,
+1 skipped.
+
+**Follow-ups:** the proper single-item session refund is `docs/plans/done_plans/SESSION_ITEM_REFUND_PLAN.md`
+(LIRA-232, now being built).
+
+---
+
+## LIRA-232: refund a single item from a session basket — HIGH
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Sessions / Refunds                                                                 |
+| **Type**             | Feature (money path)                                                               |
+| **Priority**         | High                                                                               |
+| **Status**           | DONE 2026-09-27 (verified, not yet committed) — 5 review rounds fixed; desktop e2e 313 + lira-232 2/2; web e2e 124 + lira-web-031 fixed |
+| **Affected Modules** | pos, audit, debts, sessions                                                        |
+| **Source**           | Owner item #9 (2026-09-26); owner's own test of Sale #4 / Session #1               |
+
+### Summary
+
+A session-paid sale has no payment rows of its own, because its payment is pooled on the basket. Refunding
+one of its items therefore gave nothing back and left the account debt in place: amir's refunded $1,500
+iPhone stayed owed. LIRA-231 blocks those refunds for now. This ticket replaces the block with the proper
+flow.
+
+**Full design:** `docs/plans/done_plans/SESSION_ITEM_REFUND_PLAN.md`.
+
+**Owner answers (2026-09-26, all four took the recommended option):**
+- A whole-basket reversal after item refunds reverses only what's left.
+- POS "Refund Sale" on a session sale refunds all remaining lines in one operation.
+- A currency mismatch converts at the day's buy rate.
+- The Debts basket view stays read-only.
+
+**Phases:**
+1. Core.
+2. Transports.
+3. UI (Transactions session group, POS sale screen).
+4. e2e.
+
+---
+
+## LIRA-233: Profits drill-down for the remaining modules (#14 slice 3) — MEDIUM
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Profits                                                                            |
+| **Type**             | Feature (read-only reporting)                                                      |
+| **Priority**         | Medium                                                                             |
+| **Status**           | DONE 2026-09-27 (verified, not yet committed) — full suites + desktop and web e2e green |
+| **Affected Modules** | profits                                                                            |
+| **Source**           | Owner note #14 (OWNER_NOTES_2026-09-21), slice 3                                   |
+
+### Summary
+
+Slice 2 gave By Module rows a transaction list for Product Sales and Recharges. This slice adds the rest:
+- financial services, per transfer plus per settlement allocation;
+- custom services;
+- maintenance, with the parts/labour split;
+- loto;
+- exchange;
+- PM fees;
+- simple lists for kept change, counterparty discounts, supplier commission and top-up buyback.
+
+It applies the same owner rules as slice 2:
+- counted rows add up exactly to the module row, per currency;
+- a "not counted yet" section with a reason per row;
+- auto-booked fees are shown next to a row, never subtracted.
+
+`ProfitService.getModuleDetail` now dispatches through a registry. No totals query was changed, and no
+transport change was needed.
+
+---
+
+## LIRA-234: desktop cancel-draft role check + web expense error envelope — LOW
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Transport parity                                                                   |
+| **Type**             | Bug                                                                                |
+| **Priority**         | Low                                                                                |
+| **Status**           | DONE 2026-09-26 (not yet committed)                                                |
+| **Affected Modules** | pos, expenses                                                                      |
+| **Source**           | Follow-ups found while building LIRA-229 / LIRA-231                                |
+
+### Summary
+
+1. **Cancel draft.** Desktop `sales:delete-draft` had no role check and logged an audit entry even when the
+   delete was refused.
+   - It now requires admin/staff (the same roles as `sales:process`).
+   - It rejects an invalid id.
+   - It audits only on success.
+   - The web route `DELETE /api/sales/drafts/:id` got the matching role check.
+   - Tests: `salesHandlers.deleteDraftRoleGate.test.ts` (9 cases, failing-first) and
+     `salesDeleteDraft.api.test.ts` (1 new case, "not proven failing-first").
+2. **Expense errors on web.** `POST /api/expenses` and `DELETE /api/expenses/:id` returned HTTP 400 on a
+   refusal, so the web showed a generic "Failed to …" instead of the real reason. They now return the 200
+   `{ success: false, error }` envelope (rule 19c). Test: `expensesDelete.api.test.ts` (failing-first).
+   - Found, not fixed: the Expenses page's void handler shows nothing when the server refuses a void.
+     That's true on desktop too, and predates this ticket.
+
+---
+
+## LIRA-235: shared staff login for the web e2e suite — LOW
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Testing                                                                            |
+| **Type**             | Test infrastructure                                                                |
+| **Priority**         | Low                                                                                |
+| **Status**           | DONE 2026-09-27 (verified, not yet committed) — web e2e run; lira-web-031 case 4 snapshot order fixed, 4/4 |
+| **Affected Modules** | e2e-web                                                                            |
+| **Source**           | lira-web-028/029/031 each noted "no staff login fixture exists"                    |
+
+### Summary
+
+`frontend/tests/e2e-web/fixtures.ts` now has `seedStaffUser`, `staffHeaders` and `loginAsUser`.
+- lira-web-019/022/025 use it instead of three identical copies.
+- lira-web-031 case 4 is no longer skipped: a staff login gets 403 on Reset Data preview/reset, and nothing
+  changes.
+- lira-web-028 (b) now proves a real staff login can batch-delete.
+- lira-web-029 gained case (e): staff sees the same Profits lock and unlocks with the same password.
+
+---
+
+## LIRA-236: refund form — editable exchange rate + free currency mix (all refunds) — HIGH
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Refunds                                                                            |
+| **Type**             | Feature (money path)                                                               |
+| **Priority**         | High                                                                               |
+| **Status**           | DONE 2026-09-27 (verified, not yet committed) — incl. migration v186; full suites + desktop and web e2e green |
+| **Affected Modules** | pos, audit, sessions                                                               |
+| **Source**           | Owner, 2026-09-27, answering the LIRA-232 rate question                            |
+
+### Summary
+
+Every refund popup gets:
+- an editable exchange rate, defaulting to the rate the sale was paid at;
+- free currency mixing, where the total value at that rate must equal the refund.
+
+The typed rate also converts the account-first part of a session item refund.
+
+**Scope:** POS Refund Sale / Refund item, the Transactions page Refund, and session item refunds.
+
+**Plan:** `docs/plans/done_plans/REFUND_EXCHANGE_RATE_PLAN.md`.
+
+### LIRA-232 / LIRA-236 — verification and a bug found by the e2e run (2026-09-27)
+
+**Final checks** (all green on the final tree):
+- **Checks:** typecheck, lint (0 errors), schema-equivalence (176 migrations), tenant-scoping, bind-arity.
+- **Jest:** core 4,147, backend 1,020, electron 246, frontend 2,109.
+- **Desktop e2e:** full run 313 of 315; the 2 `lira-232` failures were then fixed, and `lira-232` re-ran 2 of 2.
+- **Web e2e:** full run 124 of 125; the `lira-web-031` failure was then fixed, and it re-ran 4 of 4.
+
+**Bug found by the lira-232 e2e — rule 11, pre-existing, fixed.** A POS sale checked out through a session basket never carried the customer. `SessionCheckoutService` stamped `clientId`/`clientName` (camelCase) onto cart items, but `SaleRequest` reads snake_case `client_id`/`client_name` only. So every session-basket sale landed with no client. The fix:
+- Both spellings are now stamped.
+- `SalesRepository.processSale` no longer auto-creates or name-matches a client for session sales (`deferPayment`), because the session owns client resolution; standalone POS is unchanged.
+- Tests: `SessionCheckoutService.salesClientPropagation.test.ts` (3 cases, labelled "not proven failing-first").
+
+**Migration v186** adds `customer_session_transactions.paid_exchange_rate` (nullable, not backfilled): the rate each basket member was paid at, which is the default refund rate. Both `migrations/index.ts` and `create_db.sql` are updated.
+
+**Follow-ups: all fixed 2026-09-27** (full suites + desktop e2e 315/315 + web e2e 125/125 afterwards):
+- **`getRecent` query count:** the per-session flags are now batched. The count is flat: 13 queries for 5 sessions and for 50. The single-session check calls the batched one (rule 14).
+- **REST envelopes (rule 19c):**
+  - `POST /api/transactions/:id/refund`, `/:id/void`, `/checkout-group/:groupId/void` and `/session-basket/:sessionId/void|refund` now return 200 `{ success: false, error }` on failure.
+  - The session-basket routes parse ids through `z.coerce`.
+  - `POST /api/sales/process` returns 200 too. This was a real web bug: a refused sale showed a generic error instead of the reason.
+- **Expenses page:** a refused void now shows the server's reason.
+- **`exchangeRate` schema:** there is one definition (`refundExchangeRateSchema` + `refundExchangeRateQuerySchema` from one builder). This fixed the preview endpoint rejecting `null`.
+- **Refund line DTOs:** they are derived from the core schema (`"USD" | "LBP"`), with one `toRefundLegs` boundary. This fixed a latent bug where a USDT line was silently sent as USD.
+- **The 3 "today" tests (test-only):**
+  - Cause: on Windows, `TZ=Asia/Beirut` (set by core's jest script) makes SQLite's `'localtime'` use +01:00 while Node uses +03:00. So for about 2 hours after midnight in Beirut, fixture rows landed on the wrong day.
+  - Fixtures are now anchored at noon UTC, and a guard test pins the 22:45 UTC case. Production is not affected, because desktop never sets `TZ`.
+
+**New, NOT fixed — proposed LIRA-237 (investigate):** many reporting queries bucket by `DATE(col, 'localtime')` / `dateRange()`. On the web backend (Fly, host UTC, `TZ` unset per rule 27), that is the SERVER's UTC day. So rows written between 00:00 and 03:00 Beirut may land on the previous day in web daily reports, unless something in that path already compensates. This is unverified.

@@ -7,6 +7,10 @@ import type {
   ProductListFilters,
   SaveJobParams,
   DailyStatsSnapshotQuery,
+  // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
+  // single-item refund payload/preview contracts.
+  SessionItemRefundInput,
+  SessionItemRefundPreviewInput,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -175,13 +179,73 @@ contextBridge.exposeInMainWorld("api", {
     getTodaysSales: (date?: string) =>
       ipcRenderer.invoke("sales:get-todays-sales", date),
     getTopProducts: () => ipcRenderer.invoke("sales:get-top-products"),
-    refund: (saleId: number) => ipcRenderer.invoke("sales:refund", saleId),
-    refundItem: (saleId: number, saleItemId: number, refundQuantity: number) =>
+    /** LIRA-231: refundLegs is optional — omit for the default (mirror the
+     *  original payment legs verbatim) reversal, same LIRA-078 contract the
+     *  Transactions page uses. 2026-09-26: unitExtras is optional too — the
+     *  POS "Returned phones" per-unit defective/warranty-override flags,
+     *  riding alongside refundLegs on the SAME call, same shape
+     *  `transactions.refund`'s `refundUnitExtras` above already uses.
+     *  LIRA-236: exchangeRate is optional too — the cashier-typed rate;
+     *  omitted, the sale's own booked rate applies (per-currency exact
+     *  match, unchanged). */
+    refund: (
+      saleId: number,
+      refundLegs?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>,
+      unitExtras?: Array<{
+        unit_id: number;
+        is_defective?: boolean;
+        warranty_override_until?: string | null;
+      }>,
+      exchangeRate?: number,
+    ) =>
+      ipcRenderer.invoke(
+        "sales:refund",
+        saleId,
+        refundLegs,
+        unitExtras,
+        exchangeRate,
+      ),
+    /** LIRA-231: refundLegs is optional — same contract as `refund` above,
+     *  validated against this item's PROPORTIONAL share of the sale.
+     *  2026-09-26: unitExtras — same shape as `refund` above, validated
+     *  against THIS ITEM's own linked unit(s) only. LIRA-236: exchangeRate —
+     *  same contract as `refund` above. */
+    refundItem: (
+      saleId: number,
+      saleItemId: number,
+      refundQuantity: number,
+      refundLegs?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>,
+      unitExtras?: Array<{
+        unit_id: number;
+        is_defective?: boolean;
+        warranty_override_until?: string | null;
+      }>,
+      exchangeRate?: number,
+    ) =>
       ipcRenderer.invoke("sales:refund-item", {
         saleId,
         saleItemId,
         refundQuantity,
+        refundLegs,
+        unitExtras,
+        exchangeRate,
       }),
+    /** LIRA-231 — POS refund preview: the sale's (or, with `item`, one
+     *  item's proportional share of the sale's) own customer-facing payment
+     *  legs, plus whether the sale is session-linked (both POS refund
+     *  buttons are blocked for a session-paid sale). */
+    getRefundPreview: (
+      saleId: number,
+      item?: { saleItemId: number; refundQuantity: number },
+    ) => ipcRenderer.invoke("sales:refund-preview", { saleId, item }),
     getByDateRange: (startDate: string, endDate: string) =>
       ipcRenderer.invoke("sales:get-by-date-range", startDate, endDate),
     updateMetadata: (data: {
@@ -1277,6 +1341,10 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("transactions:get-by-source", sourceTable, sourceId),
     getCustomerLegs: (id: number) =>
       ipcRenderer.invoke("transactions:get-customer-legs", id),
+    /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
+     *  `bookedRateSource` default. */
+    getRefundBookedRate: (id: number) =>
+      ipcRenderer.invoke("transactions:get-refund-booked-rate", id),
     getByClient: (clientId: number, limit?: number) =>
       ipcRenderer.invoke("transactions:get-by-client", clientId, limit),
     getByDateRange: (from: string, to: string, type?: string) =>
@@ -1286,7 +1354,9 @@ contextBridge.exposeInMainWorld("api", {
      *  original payment legs verbatim) reversal. LIRA-143 phase 5:
      *  refundUnitExtras is optional too — the phone-refund UI's per-unit
      *  defective/warranty-override flags, riding alongside refundLegs on
-     *  the SAME call. */
+     *  the SAME call. LIRA-236: exchangeRate is optional too — the
+     *  cashier-typed rate; omitted, the transaction's own booked rate
+     *  applies (per-currency exact match, unchanged). */
     refund: (
       id: number,
       refundLegs?: Array<{
@@ -1299,12 +1369,14 @@ contextBridge.exposeInMainWorld("api", {
         is_defective?: boolean;
         warranty_override_until?: string | null;
       }>,
+      exchangeRate?: number,
     ) =>
       ipcRenderer.invoke(
         "transactions:refund",
         id,
         refundLegs,
         refundUnitExtras,
+        exchangeRate,
       ),
     /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
      *  member of a multi-unit split checkout in ONE transaction. */
@@ -1321,6 +1393,18 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("transactions:refund-session-basket", {
         sessionId,
       }),
+    /** LIRA-232 phase 2 — refund ONE (or, with saleItemId omitted on a SALE
+     *  member, every remaining) line of a customer-session basket item.
+     *  refundLegs/clientDay are optional — omit refundLegs for the default
+     *  proportional pre-fill. */
+    refundSessionBasketItem: (data: SessionItemRefundInput) =>
+      ipcRenderer.invoke("transactions:refund-session-basket-item", data),
+    /** Read-only preview for the item-refund form's pre-fill. */
+    getSessionItemRefundPreview: (data: SessionItemRefundPreviewInput) =>
+      ipcRenderer.invoke(
+        "transactions:session-basket-item-refund-preview",
+        data,
+      ),
     dailySummary: (date: string) =>
       ipcRenderer.invoke("transactions:daily-summary", date),
     debtAging: (clientId: number) =>

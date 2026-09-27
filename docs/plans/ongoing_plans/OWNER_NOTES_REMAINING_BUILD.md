@@ -8,7 +8,9 @@ specs pending with the owner); not yet committed at the time of writing.
 - Implement every note first.
 - Run NO jest, lint or e2e during the build.
 - A typecheck of the affected workspace is allowed once a whole module area is finished, and only if needed.
-- All tests, the rule-17 proofs and the gates run ONCE at the end; whatever they find is then fixed.
+- All tests and the gates run ONCE at the end; whatever they find is then fixed. (Rule 17 was reworded
+  2026-09-26: tests are proven by being written and seen failing FIRST, never by undoing finished code.
+  Tests in this batch that were written after their fix stay "not proven failing-first".)
 - Write the tests as normal, but mark them as NOT RUN until then. Commit granularity doesn't matter to the owner.
 
 **Out of this batch:**

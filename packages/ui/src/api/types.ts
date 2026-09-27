@@ -42,6 +42,23 @@ import type {
   // a hand-typed object literal that could silently drift from the schema.
   HoldMoneyCreateInput,
   HoldMoneyCollectInput,
+  // LIRA-231 — POS "Refund Sale"/"Refund item" refund-leg-override payloads,
+  // imported directly (rule 21) instead of a hand-typed object literal.
+  SaleRefundInput,
+  SaleRefundItemInput,
+  // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
+  // single-item refund payload (rule 21) + result/preview shapes, imported
+  // directly instead of a hand-typed object literal.
+  SessionItemRefundInput,
+  SessionItemRefundPreviewInput,
+  RefundSessionBasketItemResult,
+  SessionItemRefundPreview,
+  // Typing follow-up (rule 21/24) — `refundTransaction` below used to
+  // hand-type its `refundLegs`/`unitExtras` params with `currencyCode:
+  // string` (loose), instead of importing these directly the way
+  // `SaleRefundInput` above already does; imported directly now instead.
+  RefundLegInput,
+  RefundUnitExtraInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -1060,16 +1077,71 @@ export type ApiAdapter = {
   processSale: (payload: any) => Promise<ProcessSaleResult>;
   getSale: (saleId: number) => Promise<any>;
   getSaleItems: (saleId: number) => Promise<any[]>;
-  /** Refund a WHOLE sale (admin only). */
+  /** Refund a WHOLE sale (admin only). LIRA-231: `refundLegs` is optional —
+   *  omit for the default (mirror the original payment legs verbatim)
+   *  reversal; pass the operator's chosen return method(s) to override it.
+   *  A session-paid sale is refused server-side. 2026-09-26: `unitExtras` is
+   *  optional too — the POS "Returned phones" per-unit defective/warranty-
+   *  override flags. LIRA-236: `exchangeRate` is optional too — the rate the
+   *  popup was showing at confirm time, meaningful only alongside
+   *  `refundLegs` (server validates the override's TOTAL VALUE at that rate
+   *  instead of the old per-currency rule). */
   refundSale: (
     saleId: number,
+    refundLegs?: SaleRefundInput["refundLegs"],
+    unitExtras?: SaleRefundInput["unitExtras"],
+    exchangeRate?: number,
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
-  /** Refund a specific line item off a sale, by quantity (admin only). */
+  /** Refund a specific line item off a sale, by quantity (admin only).
+   *  LIRA-231: same optional `refundLegs` override, validated against THIS
+   *  ITEM's proportional share of the sale. 2026-09-26: `unitExtras` — same
+   *  as `refundSale` above, validated against THIS ITEM's own linked
+   *  unit(s) only. LIRA-236: `exchangeRate` — same as `refundSale` above. */
   refundSaleItem: (
     saleId: number,
     saleItemId: number,
     refundQuantity: number,
+    refundLegs?: SaleRefundItemInput["refundLegs"],
+    unitExtras?: SaleRefundItemInput["unitExtras"],
+    exchangeRate?: number,
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
+  /**
+   * LIRA-231 — POS refund preview (both refund buttons): the sale's (or,
+   * with `item`, one item's proportional share of the sale's) own
+   * customer-facing payment legs, for the refund modal's pre-fill, plus
+   * whether the sale is session-linked (both POS refund buttons are
+   * blocked server-side for a session-paid sale).
+   *
+   * LIRA-232 round-2 review (finding 1) — `sessionId`/`sessionTransactionId`
+   * (present when `sessionLinked`) are the basket + the unified SALE member,
+   * so a caller can drive `refundSessionBasketItem` without a separate
+   * lookup that resolves the member by "newest row for this source" (breaks
+   * after the first item refund — see SaleDetailModal.tsx).
+   *
+   * LIRA-236 — `bookedRate`/`bookedRateSource` are the popup's default rate
+   * (RefundMethodModal's `exchangeRate` prop) + its provenance, feeding the
+   * "no rate was recorded" fallback note.
+   */
+  getSaleRefundPreview: (
+    saleId: number,
+    item?: { saleItemId: number; refundQuantity: number },
+  ) => Promise<{
+    success: boolean;
+    legs?: Array<{
+      direction: "in" | "out";
+      amount: number;
+      signed_amount: number;
+      currency_code: string;
+      method: string;
+      drawer_name?: string;
+    }>;
+    sessionLinked?: boolean;
+    sessionId?: number;
+    sessionTransactionId?: number;
+    bookedRate?: number;
+    bookedRateSource?: "sale" | "transaction" | "fallback";
+    error?: string;
+  }>;
   /** Edit non-financial metadata (walk-in name/phone, note) on a sale row. */
   updateSaleMetadata: (data: {
     id: number;
@@ -2458,20 +2530,23 @@ export type ApiAdapter = {
    *  currency to let the operator choose the return method (method-override
    *  only — amount/currencyCode must net to the original's own total).
    *  LIRA-143 phase 5: `unitExtras` is optional too — the phone-refund UI's
-   *  per-unit defective/warranty-override flags, sent on the SAME call. */
+   *  per-unit defective/warranty-override flags, sent on the SAME call.
+   *  LIRA-236: `exchangeRate` is optional too — when given, the server
+   *  validates `refundLegs` by TOTAL VALUE at that rate instead of the old
+   *  per-currency exact match, so cross-currency legs are accepted. */
   refundTransaction: (
     id: number,
-    refundLegs?: Array<{
-      method: string;
-      currencyCode: string;
-      amount: number;
-    }>,
-    unitExtras?: Array<{
-      unit_id: number;
-      is_defective?: boolean;
-      warranty_override_until?: string | null;
-    }>,
+    refundLegs?: RefundLegInput[],
+    unitExtras?: RefundUnitExtraInput[],
+    exchangeRate?: number,
   ) => Promise<ApiResult & { refundId?: number }>;
+  /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
+   *  `bookedRateSource` default (the transaction's own recorded rate, else
+   *  the day's fallback). Read-only, no write. */
+  getRefundBookedRate: (id: number) => Promise<
+    | { success: true; bookedRate: number; bookedRateSource: "sale" | "transaction" | "fallback" }
+    | { success: false; error?: string }
+  >;
   /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
    *  member of a multi-unit split checkout in ONE transaction. */
   voidCheckoutGroup: (groupId: string) => Promise<
@@ -2501,6 +2576,24 @@ export type ApiAdapter = {
       reversedTransactionIds?: number[];
       reversalIds?: number[];
     }
+  >;
+  /** LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — item-level sibling
+   *  of refundSessionBasket above: refund ONE (or, with saleItemId omitted
+   *  on a SALE member, every remaining) line of a customer-session basket
+   *  item, reducing the basket's outstanding account charge first. */
+  refundSessionBasketItem: (
+    payload: SessionItemRefundInput,
+  ) => Promise<
+    | ({ success: true } & RefundSessionBasketItemResult)
+    | { success: false; error?: string }
+  >;
+  /** Read-only preview for the item-refund form's pre-fill (the account
+   *  reduction + default proportional legs). */
+  getSessionItemRefundPreview: (
+    payload: SessionItemRefundPreviewInput,
+  ) => Promise<
+    | ({ success: true } & SessionItemRefundPreview)
+    | { success: false; error?: string }
   >;
   getTransactionDailySummary: (date: string) => Promise<any>;
   getDebtAging: (clientId: number) => Promise<any>;

@@ -31,7 +31,10 @@ import {
   PROVIDER_STOCK_DRAWERS,
   sessionBasketNotReversedSql,
 } from "./TransactionRepository.js";
-import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import {
+  TRANSACTION_TYPES,
+  SESSION_ITEM_REFUND_LINK_TYPE,
+} from "../constants/transactionTypes.js";
 import { COMMISSION_PROVIDERS_SQL_LIST } from "../constants/commissionProviders.js";
 import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
 
@@ -303,6 +306,270 @@ export interface RechargeDetailRow {
   fee_expense_usd: number;
   fee_expense_lbp: number;
   fee_expense_description: string | null;
+  /** LIRA-233 (finding 5) — this row's OTHER-currency kept-change stamp
+   *  ({@link otherCurrencyKeptChangeUsd}/{@link otherCurrencyKeptChangeLbp}
+   *  against `currency_code`), the SAME figure
+   *  {@link ProfitRepository.getRechargesByCarrier} already sums into its
+   *  own `kept_change_usd`/`_lbp` totals — exposed per row so the service
+   *  can show it next to the row (LOTO precedent), which it previously did
+   *  not. */
+  kept_change_usd: number;
+  kept_change_lbp: number;
+}
+
+/**
+ * LIRA-233 (#14 slice 3) — per-`financial_services`-row drill-down under a
+ * `FINANCIAL_SERVICE_<provider>` By Module row. `source: "transfer"` is one
+ * row per `financial_services` transaction (the base arm
+ * {@link ProfitRepository.getFinancialSettledByProvider} sums); `source:
+ * "settlement_allocation"` is one row per `settlement_commission_allocations`
+ * row (that method's cashless-commission UNION arm). `amount_usd`/`cost_usd`/
+ * `profit_usd` etc. are this ONE row's own, UNWEIGHTED figures (own-currency
+ * only — matches the totals query's per-currency `CASE` fold, minus the
+ * `SUM`); `recognized`/`debt_pending`/`partner_coverage_ratio` are the raw
+ * recognition inputs so the SERVICE (rule 13) can classify each row and
+ * state why. Summing `profit_usd * (recognized ? (debt_pending ? 0 :
+ * partner_coverage_ratio) : 0)` over EVERY row this method returns for a
+ * given provider reproduces {@link FinByProviderRow}'s own `profit_usd`/
+ * `profit_lbp` for that provider EXACTLY — both queries share
+ * {@link fsProviderRowRecognized}, {@link notDebtPending},
+ * {@link partnerCoverageRatio}, {@link notRefunded}, {@link dateRange},
+ * {@link allocationNotDebtPending}, {@link cashlessCommissionBatch} and
+ * {@link currentSettlementAllocation} verbatim (rule 14).
+ */
+export interface FinancialServiceDetailRow {
+  id: number;
+  source: "transfer" | "settlement_allocation";
+  created_at: string;
+  counterpart_name: string | null;
+  counterpart_phone: string | null;
+  /** `financial_services.service_type` (SEND/RECEIVE/BILL) for a transfer
+   *  row; the allocation row's own originating fs row's service_type for a
+   *  settlement_allocation row. */
+  detail: string | null;
+  /** `financial_services.currency` for a transfer row; `null` for a
+   *  settlement_allocation row (its commission_usd/commission_lbp can both
+   *  be nonzero on the SAME row — it has no single "own currency"). */
+  currency_code: string | null;
+  amount_usd: number;
+  amount_lbp: number;
+  cost_usd: number;
+  cost_lbp: number;
+  profit_usd: number;
+  profit_lbp: number;
+  /** Does this row's profit stamp count as recognised AT ALL right now
+   *  ({@link fsProviderRowRecognized})? Always 1 for a settlement_allocation
+   *  row (an allocation is only ever written once its batch settles). 0 for
+   *  an unsettled legacy (commission_model = 0) row awaiting settlement, or
+   *  a provider outside the known mobile/commission lists. */
+  recognized: 0 | 1;
+  /** LIRA-233 (finding 7) — is this row's `financial_services.provider` one
+   *  of the recognized mobile/commission providers AT ALL
+   *  ({@link fsProviderKnown}), independent of whether its stamp has
+   *  settled? Always 1 for a settlement_allocation row (an allocation is
+   *  only ever written for a known commission provider's batch). 0 only for
+   *  a `recognized = 0` transfer row whose provider is outside BOTH known
+   *  lists (e.g. an unconfigured integration) — lets the service tell that
+   *  case apart from "known provider, just not settled yet" and word the
+   *  reason correctly instead of always saying "not yet settled with the
+   *  supplier" (was wrong for an unrecognized provider). */
+  provider_known: 0 | 1;
+  /** LIRA-233 (finding 8) — is this row's provider one of the
+   *  {@link COMMISSION_PROVIDERS} (OMT/WHISH/BINANCE-style — commission
+   *  booked separately, at settlement, via `settlement_commission_
+   *  allocations`), as opposed to a cost/price mobile provider (iPick/
+   *  Katsh/BOB) whose margin is real on the transfer row itself? A
+   *  commission-provider TRANSFER row (`source: "transfer"`) is expected to
+   *  show `profit_usd = profit_lbp = 0` even when fully recognized — its
+   *  real commission lives on a separate `settlement_allocation` row, never
+   *  on this one — so the service can add an explanatory note instead of a
+   *  bare, unexplained "100% counted, $0.00". Always 1 for a
+   *  settlement_allocation row (it only ever exists for a commission
+   *  provider's batch). */
+  is_commission_provider: 0 | 1;
+  /** LIRA-233 (finding 8) — the originating `financial_services.id` this row
+   *  is about: itself, for a transfer row; `settlement_commission_
+   *  allocations.financial_service_id` for a settlement_allocation row. Lets
+   *  the service correlate a commission-provider transfer row (see
+   *  `is_commission_provider` above) back to its OWN settlement_allocation
+   *  row (if that allocation also falls inside the SAME selected date
+   *  range) to say "booked separately, see below" instead of leaving a
+   *  reader to wonder why a fully-recognized row shows $0. */
+  related_transfer_id: number;
+  /** LIRA-233 (finding 5) — this row's OTHER-currency kept-change stamp,
+   *  same convention as {@link RechargeDetailRow.kept_change_usd}. Always 0
+   *  for a settlement_allocation row (a commission allocation has no
+   *  "kept change" concept — `commission_usd`/`commission_lbp` are not a
+   *  price/change pair). */
+  kept_change_usd: number;
+  kept_change_lbp: number;
+  has_partner_obligation: 0 | 1;
+  partner_coverage_ratio: number;
+  debt_pending: 0 | 1;
+}
+
+/**
+ * LIRA-233 — per-job drill-down under the CUSTOM_SERVICE By Module row.
+ * Mirrors {@link ProfitRepository.getCustomServicesTotals} minus the
+ * `SUM`/weighting: `notDebtPending` is exposed as a column (not a hard
+ * WHERE) so a debt-pending job still appears, in `not_counted`, instead of
+ * silently vanishing — the same "expose the gate, don't apply it" shape
+ * {@link RechargeDetailRow} already uses for its own `debt_pending`.
+ */
+export interface CustomServiceDetailRow {
+  id: number;
+  created_at: string;
+  client_name: string | null;
+  phone_number: string | null;
+  description: string | null;
+  revenue_usd: number;
+  revenue_lbp: number;
+  cost_usd: number;
+  cost_lbp: number;
+  profit_usd: number;
+  profit_lbp: number;
+  has_partner_obligation: 0 | 1;
+  partner_coverage_ratio: number;
+  debt_pending: 0 | 1;
+}
+
+/**
+ * LIRA-233 — per-job drill-down under the MAINTENANCE By Module row. Mirrors
+ * {@link ProfitRepository.getMaintenanceTotals} minus the `SUM` — that
+ * totals query applies NO partner weighting at all (confirmed by reading
+ * it), so this row carries no partner fields; `debt_pending` (exposed as a
+ * column, not a hard WHERE, same "expose don't apply" shape as
+ * {@link RechargeDetailRow}) is the only reason a row is ever not counted.
+ * `parts_revenue_usd`/`parts_cost_usd` let the service reproduce
+ * `ProfitByModule`'s own parts/labour split per row (rule 14 — same
+ * derivation, `ProfitService.getByModule`'s MAINTENANCE push).
+ */
+export interface MaintenanceDetailRow {
+  id: number;
+  created_at: string;
+  client_name: string | null;
+  device_name: string | null;
+  revenue_usd: number;
+  revenue_lbp: number;
+  cost_usd: number;
+  cost_lbp: number;
+  profit_usd: number;
+  profit_lbp: number;
+  parts_revenue_usd: number;
+  parts_cost_usd: number;
+  debt_pending: 0 | 1;
+}
+
+/**
+ * LIRA-233 — per-ticket drill-down under the LOTO By Module row. Mirrors
+ * {@link ProfitRepository.getLotoTotals} minus the `SUM`. `profit_usd` here
+ * is ALWAYS 0 (the module row's own `profit_usd` is hardcoded 0 — loto has
+ * no USD margin of its own); `kept_change_usd` is the row's OTHER-currency
+ * stamp, reported by the service via `fee_note` rather than folded into
+ * `counted_profit_usd` (owner instruction — see
+ * `ProfitService.buildLotoModuleDetail`'s own doc comment).
+ */
+export interface LotoDetailRow {
+  id: number;
+  created_at: string;
+  client_name: string | null;
+  ticket_number: string | null;
+  revenue_lbp: number;
+  profit_lbp: number;
+  kept_change_usd: number;
+  has_partner_obligation: 0 | 1;
+  partner_coverage_ratio: number;
+  debt_pending: 0 | 1;
+}
+
+/**
+ * LIRA-233 — per-transaction drill-down under the EXCHANGE By Module row.
+ * Mirrors {@link ProfitRepository.getExchangeTotals} minus the `SUM` — one
+ * row per `exchange_transactions` row (that totals query sums per-row, not
+ * per-lot — confirmed by reading it), gated by {@link notRefunded} and
+ * {@link dateRange} only, weighted by {@link partnerCoverageRatio} (no debt
+ * gate — exchange carries no `debt_ledger` link). `cost_usd` is NOT
+ * selected here — the service derives it as `amount_usd - profit_usd`
+ * (linear, so a correct revenue/profit sum makes cost reconcile
+ * automatically — ticket instruction, avoids an independent cost SUM that
+ * could drift from the revenue/profit pair).
+ */
+export interface ExchangeDetailRow {
+  id: number;
+  created_at: string;
+  client_name: string | null;
+  from_currency: string | null;
+  to_currency: string | null;
+  amount_usd: number;
+  profit_usd: number;
+  has_partner_obligation: 0 | 1;
+  partner_coverage_ratio: number;
+}
+
+/**
+ * LIRA-233 — per-`financial_services`-row drill-down under the PM_FEE By
+ * Module row. Mirrors {@link ProfitRepository.getPmFeeTotals} minus the
+ * `SUM`/`GROUP BY` — that totals query has NO partner/debt gating at all
+ * (confirmed by reading it), so every row this method returns is 100%
+ * counted UNLESS its currency is outside the known USD/LBP bucketing set
+ * (the totals query's own `GROUP BY fs.currency` silently drops a third
+ * currency from both buckets — LO-EUR-phantom precedent elsewhere in this
+ * file); the service classifies that case as not-counted with a reason
+ * instead of silently omitting the row (rule 8).
+ */
+export interface PmFeeDetailRow {
+  id: number;
+  created_at: string;
+  client_name: string | null;
+  phone_number: string | null;
+  provider: string | null;
+  currency_code: string;
+  fee: number;
+}
+
+/**
+ * LIRA-233 — the shared row shape for the four profit-only By Module rows
+ * (KEPT_CHANGE, COUNTERPARTY_DISCOUNT, SUPPLIER_COMMISSION bills-only,
+ * TOPUP_BUYBACK) — no revenue/cost pair, matching
+ * {@link TopupBuybackProfitRow}'s own convention. KEPT_CHANGE/
+ * COUNTERPARTY_DISCOUNT/SUPPLIER_COMMISSION(bills-only) carry NO partner/debt
+ * gate in their own totals query (confirmed by reading each), so
+ * `has_partner_obligation`/`partner_coverage_ratio`/`debt_pending` are
+ * `undefined` for those three — every row they return is 100% counted.
+ * TOPUP_BUYBACK's totals query DOES gate on `notDebtPending` (hard WHERE) and
+ * weight on `partnerCoverageRatio`, so its own detail rows populate all
+ * three fields for real (same "expose the gate, don't apply it" shape as
+ * {@link RechargeDetailRow}).
+ *
+ * LIRA-233 (#14 slice 3 review round, finding 3, THEN a follow-up round) —
+ * this interface briefly carried a `count_eligible` flag meant to split
+ * `counted`/`not_counted` by whether a row is one of the By Module row's own
+ * `count` events (a REFUND reversal counts toward the profit SUM but isn't
+ * its own count event). That flag was REMOVED: the service split on it while
+ * still summing every row (including a `not_counted` REFUND reversal's
+ * profit) into `counted_total_profit_usd`/`_lbp`, which broke the owner's
+ * higher-priority "the LISTED counted rows add up exactly to the module
+ * total" contract. `ProfitService.buildKeptChangeModuleDetail`/
+ * `buildSupplierCommissionModuleDetail` now split on REAL MONEY
+ * (`profit_usd !== 0 || profit_lbp !== 0`) instead — a REFUND reversal with a
+ * nonzero profit is counted (clearly labeled as a reversal), so `counted`
+ * can legitimately be longer than the module row's own Count by the number
+ * of reversal rows; that mismatch is accepted (the sum rule wins). See
+ * {@link keptChangeCountEligible}/{@link supplierCommissionCountEligible} —
+ * both fragments still exist and are still used, but now ONLY by the totals
+ * queries' own `count` column, never as a per-row detail column.
+ */
+export interface ProfitOnlyDetailRow {
+  id: number;
+  created_at: string;
+  counterpart_name: string | null;
+  counterpart_phone: string | null;
+  txn_type: string;
+  profit_usd: number;
+  profit_lbp: number;
+  has_partner_obligation?: 0 | 1;
+  partner_coverage_ratio?: number;
+  debt_pending?: 0 | 1;
 }
 
 export interface ProfitByDateRow {
@@ -540,6 +807,27 @@ export function saleFullyPaid(alias: string): string {
 /** Negation of {@link saleFullyPaid} — sale still owes money (pending). */
 function saleNotFullyPaid(alias: string): string {
   return `${saleTotalPaidUsdEquiv(alias)} < ${alias}.final_amount_usd - 0.05`;
+}
+
+/**
+ * LIRA-231 (rule 14) — net-of-item-refund counterpart of
+ * {@link saleNotFullyPaid}: still-uncollected NET revenue (`netRevenueExpr`,
+ * the caller's own {@link netSaleRevenueExpr}-derived alias, e.g.
+ * `sn.net_revenue_usd`) exceeds the same $0.05 tolerance — same gate, applied
+ * to the net-of-refund figure instead of `${alias}.final_amount_usd`.
+ * `ProfitRepository._getPendingSaleProfitNet`'s own doc comment explains why
+ * plain `saleNotFullyPaid` is wrong for that query: it compares against the
+ * GROSS `final_amount_usd`, which would keep a fully-item-refunded-but-unpaid
+ * sale on the Pending list forever, at its full pre-refund outstanding
+ * amount. Registered in `profitRecognition.guard.test.ts`'s `GATE_FRAGMENTS`
+ * alongside `saleNotFullyPaid` — same rule, same guard family, just the net
+ * variant.
+ */
+function saleNetRevenueNotFullyPaid(
+  alias: string,
+  netRevenueExpr: string,
+): string {
+  return `(${netRevenueExpr} - ${saleTotalPaidUsdEquiv(alias)}) > 0.05`;
 }
 
 /**
@@ -951,6 +1239,24 @@ export function notReversedByRefund(alias: string): string {
       AND r.type = 'REFUND'
       AND r.status = 'ACTIVE'
       AND r.tenant_id = ${alias}.tenant_id
+      -- Finding #8 (adversarial review, LIRA-232) — a non-SALE session item
+      -- refund's own REFUND row DOES set reverses_id (pointing at the
+      -- member it PARTIALLY refunds — unlike a SALE item refund's REFUND
+      -- row, which never does), the exact same shape a WHOLE-transaction
+      -- refund uses. Without this exclusion, this predicate treated a
+      -- partial non-SALE item refund as if the entire original event had
+      -- been reversed, dropping the original's real remaining cash intake
+      -- entirely (a $20 recharge partially refunded $10 read as -$10, not
+      -- the true +$10). A 'session_item_refund' link (customer_session_
+      -- transactions.transaction_type) is this refund's OWN identifying
+      -- mark (SESSION_ITEM_REFUND_PLAN.md §5) — reused here (rule 14) the
+      -- same way the linked_legs CTE's own reverses_id gate reuses it.
+      AND NOT EXISTS (
+        SELECT 1 FROM customer_session_transactions cst_sir
+        WHERE cst_sir.unified_transaction_id = r.id
+          AND cst_sir.transaction_type = '${SESSION_ITEM_REFUND_LINK_TYPE}'
+          AND cst_sir.tenant_id = r.tenant_id
+      )
   )`;
 }
 
@@ -1504,6 +1810,37 @@ export function keptChangeSource(alias: string): string {
 }
 
 /**
+ * LIRA-233 (#14 slice 3, finding 3) — the ONE "does this kept-change row
+ * count as one of the By Module row's `count` events" predicate. Extracted
+ * from {@link ProfitRepository.getDebtRepaymentProfit}'s own inline `count`
+ * CASE (byte-for-byte the same text — rule 14) so that method's `count`
+ * column and this fragment can never drift apart.
+ *
+ * Deliberately narrower than {@link keptChangeSource}: a REFUND row IS a
+ * kept-change SOURCE row (its negated stamp must enter the profit SUM so a
+ * reversed kept-change nets to 0), but it is NOT a new count EVENT — the
+ * repayment/ticket that generated the kept change already counted once, and
+ * a $0 DEBT_REPAYMENT/KEPT_CHANGE row (no kept change on this particular
+ * repayment) counts zero times either way. This is why the By Module row's
+ * own `count` can be smaller than the number of rows
+ * {@link keptChangeSource} matches.
+ *
+ * LIRA-233 follow-up round — {@link ProfitRepository.getKeptChangeDetail}
+ * used to ALSO expose this as a per-row `count_eligible` column, which
+ * `ProfitService.buildKeptChangeModuleDetail` used to decide `counted` vs
+ * `not_counted` while STILL summing every row (including a REFUND reversal
+ * sent to `not_counted`) into `counted_total_profit_*` — that broke "the
+ * LISTED counted rows add up exactly to the module total" (a REFUND
+ * reversal's negated money vanished from the visible list but not from the
+ * displayed total). The per-row column was REMOVED for that reason; this
+ * fragment is now used ONLY by the totals query's own `count`, never
+ * per-row.
+ */
+export function keptChangeCountEligible(alias: string): string {
+  return `${alias}.type IN ('DEBT_REPAYMENT', 'KEPT_CHANGE') AND (${alias}.profit_usd != 0 OR ${alias}.profit_lbp != 0)`;
+}
+
+/**
  * LCC-M1 (round 4, rule 14) — a kept-change row's `user_id` names the wrong
  * actor for a REFUND. `TransactionRepository`'s generic void/refund path
  * always stamps a REFUND row's OWN `user_id` from the actor who performed
@@ -1565,6 +1902,23 @@ export function counterpartyDiscountSource(alias: string): string {
  */
 export function supplierSettlementSource(alias: string): string {
   return `${alias}.source_table = 'supplier_ledger' AND ${alias}.type IN ('SUPPLIER_SETTLEMENT', 'REFUND')`;
+}
+
+/**
+ * LIRA-233 (#14 slice 3, finding 3) — the ONE "does this bills-only
+ * supplier-settlement row count as one of the By Module row's `count`
+ * events" predicate. Extracted from
+ * {@link ProfitRepository.getSupplierCommissionTotals}'s own inline `count`
+ * CASE — that method pasted this exact text TWICE (its `degraded` and
+ * `billsOnly` branches), both now call this instead (rule 14, fixes the
+ * pre-existing in-file duplication as a side effect). Same "REFUND is a
+ * SOURCE row for the SUM but not a count EVENT" shape as
+ * {@link keptChangeCountEligible} — see that fragment's own doc comment,
+ * including the follow-up note on why this is no longer ALSO exposed as a
+ * per-row column on {@link ProfitRepository.getSupplierCommissionDetail}.
+ */
+export function supplierCommissionCountEligible(alias: string): string {
+  return `${alias}.type = 'SUPPLIER_SETTLEMENT' AND (${alias}.profit_usd != 0 OR ${alias}.profit_lbp != 0)`;
 }
 
 /**
@@ -1744,6 +2098,24 @@ function fsProviderRowRecognized(
 ): string {
   return `((${alias}.provider IN (${MOBILE_PROVIDERS}))
         OR (${alias}.provider IN (${COMMISSION_PROVIDERS}) AND ${fsStampRecognized(alias, hasCommissionModelColumn)}))`;
+}
+
+/**
+ * LIRA-233 (#14 slice 3, finding 7) — "is this row's provider one this app
+ * even tracks for commission recognition at all", independent of whether
+ * its stamp has settled. `fsProviderRowRecognized` above conflates TWO
+ * different reasons a row can be `recognized = 0`: (a) a known
+ * COMMISSION_PROVIDERS provider whose legacy stamp hasn't settled yet
+ * ({@link fsStampRecognized} false), or (b) a provider outside BOTH known
+ * lists entirely (the doc comment above's own 'SUYOOL' example) — for which
+ * "not yet settled with the supplier" is simply the wrong story; there is no
+ * supplier settlement concept for an unrecognized provider at all. Exposed
+ * as its own column so the SERVICE (rule 13) can tell the two apart and
+ * word the reason correctly, the same "expose the gate, don't collapse it"
+ * shape {@link FinancialServiceDetailRow.recognized} already uses.
+ */
+function fsProviderKnown(alias: string): string {
+  return `(${alias}.provider IN (${MOBILE_PROVIDERS}) OR ${alias}.provider IN (${COMMISSION_PROVIDERS}))`;
 }
 
 /** Exchange leg profit (v30+): leg1 + leg2, NULL-safe. */
@@ -2125,6 +2497,42 @@ function saleRevenueUsdCaseBranch(hasNetCols: boolean): string {
           FROM (
             ${saleAggBody("s2", "si2", "", "s2.id = t.source_id AND s2.tenant_id = ? AND si2.tenant_id = ?")}
           )`;
+}
+
+/**
+ * LIRA-231 (rule 14 extraction) — the ONE per-sale correlated-subquery shape
+ * for "this sale's ledger profit, the SALE row plus any item-REFUND
+ * siblings". `SalesRepository.refundSaleItem`'s `createTransaction` call
+ * gives its REFUND row the SAME `source_table = 'sales'`/`source_id =
+ * <sale>.id` pair the original SALE row carries (it never sets
+ * `reverses_id`), so a plain correlation on that pair — no
+ * {@link refundOriginalJoin} needed, that function solves the OPPOSITE
+ * direction (resolving a REFUND row's original when the query is grouped by
+ * something other than the sale itself, e.g. by user/client) — sums exactly
+ * the SALE stamp plus every item refund against it. Byte-identical to
+ * `getSalesProfit`'s own `SUM(t.profit_usd * weight) ... t.type IN ('SALE',
+ * 'REFUND')` (see that method's doc comment), just as a scalar per-sale
+ * correlation instead of a grouped aggregate over a date range.
+ *
+ * Extracted because {@link ProfitRepository.getCompletedSalesDetailGross},
+ * {@link ProfitRepository.getCompletedSalesDetailNet} and
+ * {@link ProfitRepository.getRefundedSalesDetail} each hand-pasted this exact
+ * scalar subquery (three copies, each captioned "Mirrors getSalesProfit's own
+ * per-sale SUM") before this fix, and
+ * {@link ProfitRepository.getPendingSaleProfit} needed a FOURTH copy for its
+ * own `potential_profit_usd` (LIRA-231, OWNER_NOTES batch) — the exact "about
+ * to paste it a second time" trigger rule 14 names. All four call sites now
+ * share this one definition.
+ */
+function salePlusRefundProfitSubquery(
+  saleAlias: string,
+  profitColumn: "profit_usd" | "profit_lbp",
+): string {
+  return `COALESCE((
+              SELECT SUM(t.${profitColumn}) FROM transactions t
+              WHERE t.source_table = 'sales' AND t.source_id = ${saleAlias}.id
+                AND t.type IN ('SALE', 'REFUND') AND t.status = 'ACTIVE' AND t.tenant_id = ?
+            ), 0)`;
 }
 
 /**
@@ -3205,8 +3613,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         `SELECT
           COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
           COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
-          COALESCE(SUM(CASE WHEN t.type IN ('DEBT_REPAYMENT', 'KEPT_CHANGE')
-                             AND (t.profit_usd != 0 OR t.profit_lbp != 0)
+          COALESCE(SUM(CASE WHEN ${keptChangeCountEligible("t")}
                             THEN 1 ELSE 0 END), 0) AS count
         FROM transactions t
         WHERE t.status = 'ACTIVE'
@@ -3410,8 +3817,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           `SELECT
             COALESCE(SUM(profit_usd), 0) AS profit_usd,
             COALESCE(SUM(profit_lbp), 0) AS profit_lbp,
-            COALESCE(SUM(CASE WHEN type = 'SUPPLIER_SETTLEMENT'
-                               AND (profit_usd != 0 OR profit_lbp != 0)
+            COALESCE(SUM(CASE WHEN ${supplierCommissionCountEligible("t")}
                               THEN 1 ELSE 0 END), 0) AS count
           FROM transactions t
           WHERE t.status = 'ACTIVE'
@@ -3439,8 +3845,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         `SELECT
           COALESCE(SUM(profit_usd), 0) AS profit_usd,
           COALESCE(SUM(profit_lbp), 0) AS profit_lbp,
-          COALESCE(SUM(CASE WHEN type = 'SUPPLIER_SETTLEMENT'
-                             AND (profit_usd != 0 OR profit_lbp != 0)
+          COALESCE(SUM(CASE WHEN ${supplierCommissionCountEligible("t")}
                             THEN 1 ELSE 0 END), 0) AS count
         FROM transactions t
         WHERE t.status = 'ACTIVE'
@@ -4584,17 +4989,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- partially-item-refunded but still-'completed' sale (a REFUND
             -- transaction row alongside its SALE row, same source_id) sums
             -- both here exactly as getSalesProfit's SUM(...) does, instead
-            -- of missing the REFUND row's negative contribution.
-            COALESCE((
-              SELECT SUM(t.profit_usd) FROM transactions t
-              WHERE t.source_table = 'sales' AND t.source_id = s.id
-                AND t.type IN ('SALE', 'REFUND') AND t.status = 'ACTIVE' AND t.tenant_id = ?
-            ), 0) AS profit_usd,
-            COALESCE((
-              SELECT SUM(t.profit_lbp) FROM transactions t
-              WHERE t.source_table = 'sales' AND t.source_id = s.id
-                AND t.type IN ('SALE', 'REFUND') AND t.status = 'ACTIVE' AND t.tenant_id = ?
-            ), 0) AS profit_lbp,
+            -- of missing the REFUND row's negative contribution. Rule 14:
+            -- shared via salePlusRefundProfitSubquery (see its own doc
+            -- comment) instead of a hand-pasted copy.
+            ${salePlusRefundProfitSubquery("s", "profit_usd")} AS profit_usd,
+            ${salePlusRefundProfitSubquery("s", "profit_lbp")} AS profit_lbp,
             s.total_amount_usd AS total_amount_usd,
             s.paid_usd AS paid_usd,
             s.paid_lbp AS paid_lbp,
@@ -4663,17 +5062,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           CASE WHEN ${saleHasPartnerObligation("s")} THEN 1 ELSE 0 END AS has_partner_obligation,
           (${partnerCoverageRatio("sales", "s.id")}) AS partner_coverage_ratio,
           -- Same scalar-subquery shape as the fallback branch above (see its
-          -- own comment) — mirrors getSalesProfit's per-sale SUM exactly.
-          COALESCE((
-            SELECT SUM(t.profit_usd) FROM transactions t
-            WHERE t.source_table = 'sales' AND t.source_id = s.id
-              AND t.type IN ('SALE', 'REFUND') AND t.status = 'ACTIVE' AND t.tenant_id = ?
-          ), 0) AS profit_usd,
-          COALESCE((
-            SELECT SUM(t.profit_lbp) FROM transactions t
-            WHERE t.source_table = 'sales' AND t.source_id = s.id
-              AND t.type IN ('SALE', 'REFUND') AND t.status = 'ACTIVE' AND t.tenant_id = ?
-          ), 0) AS profit_lbp,
+          -- own comment) — rule 14: shared via salePlusRefundProfitSubquery.
+          ${salePlusRefundProfitSubquery("s", "profit_usd")} AS profit_usd,
+          ${salePlusRefundProfitSubquery("s", "profit_lbp")} AS profit_lbp,
           s.total_amount_usd AS total_amount_usd,
           s.paid_usd AS paid_usd,
           s.paid_lbp AS paid_lbp,
@@ -4727,16 +5118,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           CASE WHEN ${saleFullyPaid("s")} THEN 1 ELSE 0 END AS fully_paid,
           CASE WHEN ${saleHasPartnerObligation("s")} THEN 1 ELSE 0 END AS has_partner_obligation,
           (${partnerCoverageRatio("sales", "s.id")}) AS partner_coverage_ratio,
-          COALESCE((
-            SELECT SUM(t.profit_usd) FROM transactions t
-            WHERE t.source_table = 'sales' AND t.source_id = s.id
-              AND t.type IN ('SALE', 'REFUND') AND t.status = 'ACTIVE' AND t.tenant_id = ?
-          ), 0) AS profit_usd,
-          COALESCE((
-            SELECT SUM(t.profit_lbp) FROM transactions t
-            WHERE t.source_table = 'sales' AND t.source_id = s.id
-              AND t.type IN ('SALE', 'REFUND') AND t.status = 'ACTIVE' AND t.tenant_id = ?
-          ), 0) AS profit_lbp,
+          -- Rule 14: shared via salePlusRefundProfitSubquery.
+          ${salePlusRefundProfitSubquery("s", "profit_usd")} AS profit_usd,
+          ${salePlusRefundProfitSubquery("s", "profit_lbp")} AS profit_lbp,
           s.total_amount_usd AS total_amount_usd,
           s.paid_usd AS paid_usd,
           s.paid_lbp AS paid_lbp,
@@ -4818,7 +5202,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             SELECT GROUP_CONCAT(e.description, ', ') FROM expenses e
             WHERE e.source_ref_table = 'recharges' AND e.source_ref_id = r.id
               AND ${activeExpense("e")} AND e.tenant_id = ?
-          ) AS fee_expense_description
+          ) AS fee_expense_description,
+          (${otherCurrencyKeptChangeUsd("r.currency_code")}) AS kept_change_usd,
+          (${otherCurrencyKeptChangeLbp("r.currency_code")}) AS kept_change_lbp
         FROM recharges r
         JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
         WHERE r.carrier = ?
@@ -4838,6 +5224,422 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         tenantId,
         tenantId,
       ) as RechargeDetailRow[];
+  }
+
+  /**
+   * LIRA-233 (#14 slice 3) — per-row drill-down under a
+   * `FINANCIAL_SERVICE_<provider>` By Module row. Combines a "transfer" arm
+   * (one row per `financial_services` row for this provider) and a
+   * "settlement_allocation" arm (one row per
+   * `settlement_commission_allocations` row for this provider) — see
+   * {@link FinancialServiceDetailRow}'s own doc comment for why both are
+   * needed and how they reproduce {@link getFinancialSettledByProvider}'s own
+   * totals exactly. Both arms select EVERY row for the provider in range —
+   * `fsProviderRowRecognized`/`notDebtPending`/`allocationNotDebtPending` are
+   * exposed as columns (`recognized`/`debt_pending`), never applied as a
+   * WHERE filter, so an unsettled or debt-pending row still surfaces in
+   * `not_counted` instead of vanishing (rule 8) — the same "expose the gate"
+   * shape {@link getRechargeDetail} already uses for its own `debt_pending`.
+   * The allocation arm keeps {@link cashlessCommissionBatch} as a hard WHERE
+   * (not a column): a bills-only batch's allocation rows belong to
+   * SUPPLIER_COMMISSION's own drill-down, not this one — listing them here
+   * too would double-list them (owner's explicit "do not count it twice"
+   * instruction, same one {@link getSupplierCommissionTotals} documents).
+   */
+  getFinancialServiceDetail(
+    provider: string,
+    fromDt: string,
+    toDt: string,
+  ): FinancialServiceDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    const hasCommissionModel = this._hasCommissionModelColumn();
+    const hasAllocations = this._hasSettlementAllocationsTable();
+
+    const transferRows = this.db
+      .prepare(
+        `SELECT
+          fs.id AS id,
+          'transfer' AS source,
+          fs.created_at AS created_at,
+          fs.client_name AS counterpart_name,
+          fs.phone_number AS counterpart_phone,
+          fs.service_type AS detail,
+          fs.currency AS currency_code,
+          CASE WHEN fs.currency = 'USD' THEN (${fsRevenue("fs")}) ELSE 0 END AS amount_usd,
+          CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END AS amount_lbp,
+          CASE WHEN fs.currency = 'USD' THEN fs.cost ELSE 0 END AS cost_usd,
+          CASE WHEN fs.currency = 'LBP' THEN fs.cost ELSE 0 END AS cost_lbp,
+          CASE WHEN fs.currency = 'USD' THEN t.profit_usd ELSE 0 END AS profit_usd,
+          CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END AS profit_lbp,
+          CASE WHEN ${fsProviderRowRecognized("fs", hasCommissionModel)} THEN 1 ELSE 0 END AS recognized,
+          CASE WHEN ${fsProviderKnown("fs")} THEN 1 ELSE 0 END AS provider_known,
+          CASE WHEN fs.provider IN (${COMMISSION_PROVIDERS}) THEN 1 ELSE 0 END AS is_commission_provider,
+          fs.id AS related_transfer_id,
+          (${otherCurrencyKeptChangeUsd("fs.currency")}) AS kept_change_usd,
+          (${otherCurrencyKeptChangeLbp("fs.currency")}) AS kept_change_lbp,
+          CASE WHEN ${hasPartnerObligation("financial_services", "fs.id")} THEN 1 ELSE 0 END AS has_partner_obligation,
+          (${partnerCoverageRatio("financial_services", "fs.id")}) AS partner_coverage_ratio,
+          CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
+        FROM financial_services fs
+        JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
+        WHERE fs.provider = ?
+          AND t.status = 'ACTIVE'
+          AND ${notRefunded("fs")}
+          AND ${dateRange("fs.created_at")}
+          AND fs.tenant_id = ? AND t.tenant_id = ?
+        ORDER BY fs.created_at DESC, fs.id DESC`,
+      )
+      .all(
+        provider,
+        fromDt,
+        toDt,
+        tenantId,
+        tenantId,
+      ) as FinancialServiceDetailRow[];
+
+    if (!hasAllocations) return transferRows;
+
+    const allocationRows = this.db
+      .prepare(
+        `SELECT
+          sca.id AS id,
+          'settlement_allocation' AS source,
+          sca.created_at AS created_at,
+          fs.client_name AS counterpart_name,
+          fs.phone_number AS counterpart_phone,
+          fs.service_type AS detail,
+          NULL AS currency_code,
+          0 AS amount_usd,
+          0 AS amount_lbp,
+          0 AS cost_usd,
+          0 AS cost_lbp,
+          sca.commission_usd AS profit_usd,
+          sca.commission_lbp AS profit_lbp,
+          1 AS recognized,
+          1 AS provider_known,
+          1 AS is_commission_provider,
+          sca.financial_service_id AS related_transfer_id,
+          0 AS kept_change_usd,
+          0 AS kept_change_lbp,
+          CASE WHEN ${hasPartnerObligation("financial_services", "sca.financial_service_id")} THEN 1 ELSE 0 END AS has_partner_obligation,
+          (${partnerCoverageRatio("financial_services", "sca.financial_service_id")}) AS partner_coverage_ratio,
+          CASE WHEN ${allocationNotDebtPending("sca")} THEN 0 ELSE 1 END AS debt_pending
+        FROM settlement_commission_allocations sca
+        JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
+        WHERE sca.provider = ?
+          AND sca.tenant_id = ?
+          AND ${notRefunded("fs")}
+          AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
+          AND ${dateRange("sca.created_at")}
+        ORDER BY sca.created_at DESC, sca.id DESC`,
+      )
+      .all(provider, tenantId, fromDt, toDt) as FinancialServiceDetailRow[];
+
+    return [...transferRows, ...allocationRows];
+  }
+
+  /**
+   * LIRA-233 — per-job drill-down under the CUSTOM_SERVICE By Module row.
+   * Mirrors {@link getCustomServicesTotals} minus the `SUM` — see
+   * {@link CustomServiceDetailRow}'s own doc comment for the "expose the
+   * gate" shape.
+   */
+  getCustomServiceDetail(
+    fromDt: string,
+    toDt: string,
+  ): CustomServiceDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          cs.id AS id,
+          cs.created_at AS created_at,
+          cs.client_name AS client_name,
+          cs.phone_number AS phone_number,
+          cs.description AS description,
+          cs.price_usd AS revenue_usd,
+          cs.price_lbp AS revenue_lbp,
+          cs.cost_usd AS cost_usd,
+          cs.cost_lbp AS cost_lbp,
+          COALESCE(t.profit_usd, 0) AS profit_usd,
+          COALESCE(t.profit_lbp, 0) AS profit_lbp,
+          CASE WHEN ${hasPartnerObligation("custom_services", "cs.id")} THEN 1 ELSE 0 END AS has_partner_obligation,
+          (${partnerCoverageRatio("custom_services", "cs.id")}) AS partner_coverage_ratio,
+          CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
+        FROM custom_services cs
+        JOIN transactions t ON t.source_table = 'custom_services' AND t.source_id = cs.id AND t.type = 'CUSTOM_SERVICE'
+        WHERE cs.status = 'completed'
+          AND t.status = 'ACTIVE'
+          AND ${notRefunded("cs")}
+          AND ${dateRange("cs.created_at")}
+          AND cs.tenant_id = ? AND t.tenant_id = ?
+        ORDER BY cs.created_at DESC, cs.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId, tenantId) as CustomServiceDetailRow[];
+  }
+
+  /**
+   * LIRA-233 — per-job drill-down under the MAINTENANCE By Module row.
+   * Mirrors {@link getMaintenanceTotals} minus the `SUM` — that totals query
+   * applies NO partner weighting (confirmed by reading it), so `debt_pending`
+   * is the only classification column here.
+   */
+  getMaintenanceDetail(fromDt: string, toDt: string): MaintenanceDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          m.id AS id,
+          m.created_at AS created_at,
+          m.client_name AS client_name,
+          m.device_name AS device_name,
+          m.final_amount_usd AS revenue_usd,
+          m.final_amount_lbp AS revenue_lbp,
+          (${maintenanceCostUsd("m")}) AS cost_usd,
+          m.cost_lbp AS cost_lbp,
+          COALESCE(t.profit_usd, 0) AS profit_usd,
+          COALESCE(t.profit_lbp, 0) AS profit_lbp,
+          COALESCE(m.parts_price_usd, 0) AS parts_revenue_usd,
+          COALESCE(m.parts_cost_usd, 0) AS parts_cost_usd,
+          CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
+        FROM maintenance m
+        JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
+        WHERE ${maintenanceCompleted("m")}
+          AND t.status = 'ACTIVE'
+          AND ${notRefunded("m")}
+          AND ${dateRange("m.created_at")}
+          AND m.tenant_id = ? AND t.tenant_id = ?
+        ORDER BY m.created_at DESC, m.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId, tenantId) as MaintenanceDetailRow[];
+  }
+
+  /**
+   * LIRA-233 — per-ticket drill-down under the LOTO By Module row. Mirrors
+   * {@link getLotoTotals} minus the `SUM`.
+   */
+  getLotoDetail(fromDt: string, toDt: string): LotoDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          lt.id AS id,
+          lt.created_at AS created_at,
+          lt.client_name AS client_name,
+          lt.ticket_number AS ticket_number,
+          lt.sale_amount AS revenue_lbp,
+          COALESCE(t.profit_lbp, 0) AS profit_lbp,
+          COALESCE(t.profit_usd, 0) AS kept_change_usd,
+          CASE WHEN ${hasPartnerObligation("loto_tickets", "lt.id")} THEN 1 ELSE 0 END AS has_partner_obligation,
+          (${partnerCoverageRatio("loto_tickets", "lt.id")}) AS partner_coverage_ratio,
+          CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
+        FROM loto_tickets lt
+        JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
+        WHERE t.status = 'ACTIVE'
+          AND ${notRefunded("lt")}
+          AND ${dateRange("lt.created_at")}
+          AND lt.tenant_id = ? AND t.tenant_id = ?
+        ORDER BY lt.created_at DESC, lt.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId, tenantId) as LotoDetailRow[];
+  }
+
+  /**
+   * LIRA-233 — per-transaction drill-down under the EXCHANGE By Module row.
+   * Mirrors {@link getExchangeTotals} minus the `SUM` — one row per
+   * `exchange_transactions` row (that totals query sums per-row, confirmed by
+   * reading it — no lot aggregation), gated by `notRefunded`/`dateRange`
+   * only, weighted by `partnerCoverageRatio` (no debt gate).
+   */
+  getExchangeDetail(fromDt: string, toDt: string): ExchangeDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    const usdRevenue = exchangeUsdRevenue(
+      "et",
+      this._hasExchangeCurrencyColumns(),
+    );
+    return this.db
+      .prepare(
+        `SELECT
+          et.id AS id,
+          et.created_at AS created_at,
+          et.client_name AS client_name,
+          et.from_currency AS from_currency,
+          et.to_currency AS to_currency,
+          (${usdRevenue}) AS amount_usd,
+          (${EXCHANGE_LEG_PROFIT}) AS profit_usd,
+          CASE WHEN ${hasPartnerObligation("exchange_transactions", "et.id")} THEN 1 ELSE 0 END AS has_partner_obligation,
+          (${partnerCoverageRatio("exchange_transactions", "et.id")}) AS partner_coverage_ratio
+        FROM exchange_transactions et
+        WHERE ${notRefunded("et")}
+          AND ${dateRange("et.created_at")}
+          AND et.tenant_id = ?
+        ORDER BY et.created_at DESC, et.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId) as ExchangeDetailRow[];
+  }
+
+  /**
+   * LIRA-233 — per-row drill-down under the PM_FEE By Module row. Mirrors
+   * {@link getPmFeeTotals} minus the `SUM`/`GROUP BY`.
+   */
+  getPmFeeDetail(fromDt: string, toDt: string): PmFeeDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          fs.id AS id,
+          fs.created_at AS created_at,
+          fs.client_name AS client_name,
+          fs.phone_number AS phone_number,
+          fs.provider AS provider,
+          fs.currency AS currency_code,
+          fs.payment_method_fee AS fee
+        FROM financial_services fs
+        WHERE COALESCE(fs.payment_method_fee, 0) <> 0
+          AND ${notRefunded("fs")}
+          AND ${dateRange("fs.created_at")}
+          AND fs.tenant_id = ?
+        ORDER BY fs.created_at DESC, fs.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId) as PmFeeDetailRow[];
+  }
+
+  /**
+   * LIRA-233 — per-row drill-down under the KEPT_CHANGE By Module row.
+   * Mirrors {@link getDebtRepaymentProfit} minus the `SUM` — NO partner/debt
+   * gate in that totals query, so every row with a nonzero profit is 100%
+   * counted (the service, rule 13, classifies a $0 row as not-counted and a
+   * REFUND reversal as counted-but-labeled — see
+   * `ProfitService.buildKeptChangeModuleDetail`'s own doc comment for why a
+   * per-row `count_eligible` column was tried here and removed).
+   */
+  getKeptChangeDetail(fromDt: string, toDt: string): ProfitOnlyDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          t.client_name AS counterpart_name,
+          t.client_phone AS counterpart_phone,
+          t.type AS txn_type,
+          t.profit_usd AS profit_usd,
+          t.profit_lbp AS profit_lbp
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${keptChangeSource("t")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
+        ORDER BY t.created_at DESC, t.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
+  }
+
+  /**
+   * LIRA-233 — per-row drill-down under the COUNTERPARTY_DISCOUNT By Module
+   * row. Mirrors {@link getCounterpartyDiscountTotals} minus the `SUM` — NO
+   * partner/debt gate, and NON_REVERSIBLE (no REFUND row ever exists), so
+   * every row here is 100% counted regardless of value.
+   */
+  getCounterpartyDiscountDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitOnlyDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          t.client_name AS counterpart_name,
+          t.client_phone AS counterpart_phone,
+          t.type AS txn_type,
+          t.profit_usd AS profit_usd,
+          t.profit_lbp AS profit_lbp
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${counterpartyDiscountSource("t")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
+        ORDER BY t.created_at DESC, t.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
+  }
+
+  /**
+   * LIRA-233 — per-row drill-down under the SUPPLIER_COMMISSION By Module
+   * row. BILLS-ONLY ONLY (mirrors {@link getSupplierCommissionTotals}'s own
+   * `billsOnly` bucket minus the `SUM`) — the cashless share is already
+   * listed under the FINANCIAL_SERVICE_<provider> allocation-arm rows
+   * (owner's explicit "do not count it twice" instruction, same one that
+   * totals query documents). Degrades to the undifferentiated stamp (no
+   * `NOT cashlessCommissionBatch` filter) when
+   * `settlement_commission_allocations` doesn't exist (§5), matching that
+   * method's own schema-drift branch. A row with a nonzero profit is 100%
+   * counted (a REFUND reversal included — see
+   * `ProfitService.buildSupplierCommissionModuleDetail`'s own doc comment).
+   */
+  getSupplierCommissionDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitOnlyDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    const cashlessGate = this._hasSettlementAllocationsTable()
+      ? `AND NOT (${cashlessCommissionBatch("t.source_id")})`
+      : "";
+    return this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          t.client_name AS counterpart_name,
+          t.client_phone AS counterpart_phone,
+          t.type AS txn_type,
+          t.profit_usd AS profit_usd,
+          t.profit_lbp AS profit_lbp
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${supplierSettlementSource("t")}
+          ${cashlessGate}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
+        ORDER BY t.created_at DESC, t.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
+  }
+
+  /**
+   * LIRA-233 — per-row drill-down under the TOPUP_BUYBACK By Module row.
+   * Mirrors {@link getTopupBuybackProfit} minus the `SUM` — that totals
+   * query DOES gate on `notDebtPending` (hard WHERE) and weight on
+   * `partnerCoverageRatio`, so (unlike the three profit-only siblings above)
+   * this exposes both as columns, same "expose the gate" shape as
+   * {@link getRechargeDetail}.
+   */
+  getTopupBuybackDetail(fromDt: string, toDt: string): ProfitOnlyDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          r.client_name AS counterpart_name,
+          r.phone_number AS counterpart_phone,
+          t.type AS txn_type,
+          t.profit_usd AS profit_usd,
+          t.profit_lbp AS profit_lbp,
+          CASE WHEN ${hasPartnerObligation("recharges", "r.id")} THEN 1 ELSE 0 END AS has_partner_obligation,
+          (${partnerCoverageRatio("recharges", "r.id")}) AS partner_coverage_ratio,
+          CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
+        FROM recharges r
+        JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND ${topupBuybackSource("t")}
+        WHERE t.status = 'ACTIVE'
+          AND ${notRefunded("r")}
+          AND ${dateRange("r.created_at")}
+          AND r.tenant_id = ? AND t.tenant_id = ?
+        ORDER BY r.created_at DESC, r.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId, tenantId) as ProfitOnlyDetailRow[];
   }
 
   // ---------------------------------------------------------------------------
@@ -5599,7 +6401,31 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- .refundSaleItem) never does, so this single check both admits
             -- the partial refund's own unit and excludes every whole-
             -- transaction reversal, void or refund alike.
-            AND t.reverses_id IS NULL
+            --
+            -- Finding #8 (adversarial review, LIRA-232) — a NON-SALE session
+            -- item refund's own REFUND row (TransactionRepository
+            -- ._createRefundRow, the RECHARGE/CUSTOM_SERVICE branch) DOES
+            -- set reverses_id (pointing at the member it refunds) — unlike
+            -- the SALE branch's own REFUND row, which never does — because
+            -- reverses_id is load-bearing there for the double-refund
+            -- guard and the "reversed_by" badge (rule 14 — never removed).
+            -- The blanket reverses_id IS NULL therefore dropped that
+            -- refund's own cash-back leg entirely: the report kept counting
+            -- the recharge's original CASH intake with nothing to net it
+            -- against, so CASH read +$10 too high while the drawer, which
+            -- DID move, read correctly. Admit it the SAME way a SALE item
+            -- refund already is: by its customer_session_transactions
+            -- .transaction_type = 'session_item_refund' link, regardless of
+            -- reverses_id.
+            AND (
+              t.reverses_id IS NULL
+              OR EXISTS (
+                SELECT 1 FROM customer_session_transactions cst_link
+                WHERE cst_link.unified_transaction_id = t.id
+                  AND cst_link.transaction_type = ?
+                  AND cst_link.tenant_id = t.tenant_id
+              )
+            )
             AND t.type NOT IN (?, ?, ?)
             AND ${notReversedByRefund("t")}
         ),
@@ -5618,7 +6444,31 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND p.method NOT IN (${internalMethods})
             AND p.drawer_name NOT IN (${providerStockDrawers})
             AND p.tenant_id = ?
-            AND ${sessionBasketNotReversedSql("p.session_id", "p.tenant_id")}
+            -- Finding #7 (adversarial review) — once ANY
+            -- refundSessionBasketItem call already returned part of this
+            -- session's pooled cash through its OWN (linked_legs-counted)
+            -- REFUND row, a later whole-basket reversal's own pooled OUT leg
+            -- no longer exactly cancels the pooled IN leg (it's short by
+            -- whatever the item refund already gave back) — so dropping
+            -- BOTH pooled rows once sessionBasketNotReversedSql trips
+            -- (the pre-fix, LPAY-V1 behavior, correct only when reversal
+            -- exactly cancels intake) leaves a residual, uncounted delta:
+            -- measured CASH -$35 against a drawer that nets to 0. Once this
+            -- session has a 'session_item_refund' link at all, keep BOTH
+            -- pooled legs counted (the ordinary per-session net in unit_net
+            -- below already sums IN vs OUT correctly) instead of dropping
+            -- them — the asymmetric case a whole-basket-only reversal (no
+            -- prior item refund) never hits, so that existing, proven case
+            -- is completely unchanged.
+            AND (
+              ${sessionBasketNotReversedSql("p.session_id", "p.tenant_id")}
+              OR EXISTS (
+                SELECT 1 FROM customer_session_transactions cst_itemrefund
+                WHERE cst_itemrefund.session_id = p.session_id
+                  AND cst_itemrefund.transaction_type = ?
+                  AND cst_itemrefund.tenant_id = p.tenant_id
+              )
+            )
         ),
         orphan_legs AS (
           SELECT
@@ -5709,12 +6559,14 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         fromDt,
         toDt,
         tenantId,
+        SESSION_ITEM_REFUND_LINK_TYPE,
         TRANSACTION_TYPES.DRAWER_TOPUP,
         TRANSACTION_TYPES.DRAWER_TRANSFER,
         TRANSACTION_TYPES.EXCHANGE,
         fromDt,
         toDt,
         tenantId,
+        SESSION_ITEM_REFUND_LINK_TYPE,
         fromDt,
         toDt,
         tenantId,
@@ -6853,17 +7705,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     //      `client_id IS NOT NULL` branch below regardless of `client_name`.
     //
     // A DIFFERENT, real bug was found in the same investigation: a named
-    // walk-in's KEPT_CHANGE row is ALREADY always unnamed on ITS OWN
-    // creation, no refund involved — `SessionCheckoutService.checkout()`'s
-    // `KEPT_CHANGE` `createTransaction` call passes `client_id` but never
-    // `client_name`, unlike every other item type in the same basket
-    // (which gets `sessionCustomerName` injected into its own `formData`
-    // first). That is a write-path gap in `SessionCheckoutService.ts` — not
-    // in this lane's ownership tonight (reporting-only; that file is not in
-    // this round's owned-files list) and not fixable from this SQL layer
-    // (there is no sibling row here to fall back to, only a name that was
-    // never written). Flagged for the owner / the session-checkout lane,
-    // not fixed here.
+    // walk-in's KEPT_CHANGE row was ALWAYS unnamed on ITS OWN creation, no
+    // refund involved — `SessionCheckoutService.checkout()`'s `KEPT_CHANGE`
+    // `createTransaction` call passed `client_id` but never `client_name`,
+    // unlike every other item type in the same basket (which gets
+    // `sessionCustomerName` injected into its own `formData` first). That
+    // was a write-path gap in `SessionCheckoutService.ts` — not fixable from
+    // this SQL layer (there is no sibling row here to fall back to, only a
+    // name that was never written) — flagged for the session-checkout lane
+    // and FIXED there (LIRA-230): the KEPT_CHANGE `createTransaction` call
+    // now stamps `client_name: sessionCustomerName ?? null` directly.
     const clientKeptMatchMain = `((t.client_id IS NOT NULL AND kc.client_id = t.client_id) OR (t.client_id IS NULL AND kc.client_id IS NULL AND COALESCE(kc.client_name, '') = ${CLIENT_NAME_KEY}))`;
     // LCC-V2: the orphan-row branch below has no `t`/`orig` in scope — it
     // matches against its own derived key table `k` instead.
@@ -7349,8 +8200,129 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * clause never excludes it.
    *
    * PA-3.8 — no date-range filter; see the top of this doc comment.
+   *
+   * LIRA-231 (net of item refunds) — `SalesRepository.refundSaleItem` (the
+   * per-item refund path) only ever increments `sale_items.refunded_quantity`
+   * — it never touches `sale_items.is_refunded` (that flag is written ONLY by
+   * a WHOLE-sale refund, `TransactionRepository`'s
+   * `UPDATE sale_items SET is_refunded = 1 ...`, which also flips
+   * `sales.status` away from `'completed'` and so already drops out of this
+   * query via the `sale_net` CTE below). The OLD query here filtered
+   * `si.is_refunded = 0` and multiplied by the line's FULL `si.quantity` —
+   * so an item-refunded line kept contributing its full pre-refund revenue
+   * and margin forever. Measured: Sale #4 ($1,635 final, iPhone line $1,500
+   * cost $1,300 refunded via `refundSaleItem`, paid $0) read `total_amount_usd
+   * 1635`/`potential_profit_usd 225` post-refund — the refund was invisible
+   * to this card. Fixed the same way `getSalesRevCost`/`getSalesDetail`
+   * already fixed the identical bug for the Overview/drill-down (PA-4.23,
+   * rule 14 — reusing their exact fragments, not re-deriving a third
+   * formula):
+   *  - revenue nets via {@link saleAggBody}/{@link netSaleRevenueExpr} — the
+   *    SAME remaining-quantity (`quantity - refunded_quantity`) and
+   *    discount-proration formula {@link ProfitRepository.getSalesRevCost}
+   *    and {@link ProfitRepository.getSalesDetail} already use;
+   *  - profit sums the SALE stamp plus its item-REFUND stamps via
+   *    {@link salePlusRefundProfitSubquery} — the SAME SALE+REFUND-by-
+   *    `source_id` shape {@link ProfitRepository.getSalesProfit} uses for the
+   *    Overview's own By Module total, so this card can never disagree with
+   *    it. `refundOriginalJoin` is NOT used here: that join resolves a
+   *    REFUND row's ORIGINAL sale when a query is grouped by something else
+   *    (user/client); this query is already grouped by the sale itself, so a
+   *    plain `source_table = 'sales' AND source_id = s.id` correlation (the
+   *    same pair `refundSaleItem` stamps on its REFUND row) is exact and
+   *    needs no join at all.
+   *  - `outstanding_usd` is `MAX(0, net revenue − paid)` (owner decision,
+   *    LIRA-231): a refund can bring the net value below what was already
+   *    paid (e.g. a partially-paid sale refunded down further), and "the
+   *    customer still owes a NEGATIVE amount" is not a receivable — floored
+   *    at 0 rather than shown as a phantom credit.
+   *  - the WHERE gate becomes `net revenue − paid > 0.05` (replacing
+   *    {@link saleNotFullyPaid}, which compares against the GROSS
+   *    `final_amount_usd` and would keep a fully-item-refunded-but-unpaid
+   *    sale on this list forever, at its full pre-refund outstanding amount).
+   *    A sale refunded down to net $0 with $0 paid now reads
+   *    `0 - 0 = 0`, which is NOT `> 0.05`, so it drops out of the section
+   *    entirely — matching `sale_agg`'s own `status = 'completed'` gate,
+   *    which already excludes a *whole*-sale refund (status flips to
+   *    `'refunded'`) as a second, independent reason it can never appear
+   *    here.
+   *  - `items_summary` now lists only the REMAINING quantity per line
+   *    (`quantity - refunded_quantity`), matching what the customer still
+   *    hasn't paid for; a line fully consumed by refunds (remaining 0) is
+   *    dropped from the summary text the same way it already drops out of
+   *    revenue/cost.
+   *
+   * Schema-drift-guarded like `getSalesRevCost`/`getSalesDetail`
+   * ({@link ProfitRepository._hasSaleDiscountAndRefundQuantityColumns}): a
+   * jest fixture whose hand-rolled `sales`/`sale_items` schema lacks
+   * `discount_usd`/`total_amount_usd`/`refunded_quantity` falls back to the
+   * OLD gross query, byte-for-byte unchanged (no `refunded_quantity` column
+   * for that formula to read in the first place).
    */
   getPendingSaleProfit(): PendingSaleProfitRow[] {
+    return this._hasSaleDiscountAndRefundQuantityColumns()
+      ? this._getPendingSaleProfitNet()
+      : this._getPendingSaleProfitGross();
+  }
+
+  /** {@link ProfitRepository.getPendingSaleProfit}'s net-of-item-refund
+   *  primary branch — see that method's own doc comment for the full
+   *  rationale. */
+  private _getPendingSaleProfitNet(): PendingSaleProfitRow[] {
+    const tenantId = getCurrentTenantId();
+    const saleAggExtraWhere = "si.tenant_id = ? AND s.tenant_id = ?";
+    return this.db
+      .prepare(
+        `WITH sale_agg AS (
+          ${saleAggBody(
+            "s",
+            "si",
+            "s.id AS sale_id, s.created_at AS created_at,",
+            saleAggExtraWhere,
+          )}
+        ), sale_net AS (
+          SELECT sale_agg.*, (${netSaleRevenueExpr()}) AS net_revenue_usd
+          FROM sale_agg
+        )
+        SELECT
+          s.id AS sale_id,
+          sn.created_at AS created_at,
+          COALESCE(c.full_name, 'Unknown') AS client_name,
+          COALESCE(c.phone_number, '') AS client_phone,
+          sn.net_revenue_usd AS total_amount_usd,
+          (${saleTotalPaidUsdEquiv("s")}) AS paid_usd,
+          MAX(0, sn.net_revenue_usd - (${saleTotalPaidUsdEquiv("s")})) AS outstanding_usd,
+          ${salePlusRefundProfitSubquery("s", "profit_usd")} AS potential_profit_usd,
+          COALESCE((
+            SELECT GROUP_CONCAT((si2.quantity - si2.refunded_quantity) || 'x ' || COALESCE(p.name, 'Item'), ', ')
+            FROM sale_items si2
+            LEFT JOIN products p ON p.id = si2.product_id AND p.tenant_id = ?
+            WHERE si2.sale_id = s.id AND si2.tenant_id = ?
+              AND si2.quantity - si2.refunded_quantity > 0
+          ), '') AS items_summary
+        FROM sale_net sn
+        JOIN sales s ON s.id = sn.sale_id
+        LEFT JOIN transactions t ON t.source_table = 'sales' AND t.source_id = s.id AND t.type = 'SALE' AND t.tenant_id = ?
+        LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
+        WHERE ${saleNetRevenueNotFullyPaid("s", "sn.net_revenue_usd")}
+          AND NOT ${saleHasPartnerObligation("s")}
+        ORDER BY sn.created_at DESC`,
+      )
+      .all(
+        tenantId, // sale_agg extraWhere — si.tenant_id
+        tenantId, // sale_agg extraWhere — s.tenant_id
+        tenantId, // potential_profit_usd — salePlusRefundProfitSubquery
+        tenantId, // items_summary — products p join
+        tenantId, // items_summary — si2 predicate
+        tenantId, // LEFT JOIN transactions t
+        tenantId, // LEFT JOIN clients c
+      ) as PendingSaleProfitRow[];
+  }
+
+  /** {@link ProfitRepository.getPendingSaleProfit}'s schema-drift fallback —
+   *  the pre-LIRA-231 gross query, unchanged, for a fixture lacking
+   *  `discount_usd`/`total_amount_usd`/`refunded_quantity`. */
+  private _getPendingSaleProfitGross(): PendingSaleProfitRow[] {
     const tenantId = getCurrentTenantId();
     return this.db
       .prepare(

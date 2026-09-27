@@ -4,7 +4,7 @@ import { validateRequest, validateParams } from "../middleware/validation.js";
 import {
   getExpenseService,
   createExpenseSchema,
-  deleteExpenseSchema,
+  expenseIdParamSchema,
   expenseUpdateMetadataSchema,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
@@ -41,7 +41,11 @@ router.post(
         },
       });
     }
-    res.status(result.success ? 200 : 400).json(result);
+    // Rule 19c: HTTP 200 even on a service failure — the frontend adapter
+    // branches on result.success, never on status code (LIRA-234: this used
+    // to 400 on a business-rule refusal, which made `requestJson` throw on
+    // web and swallow the real `result.error` behind a generic catch).
+    res.json(result);
   },
 );
 
@@ -49,7 +53,7 @@ router.post(
 router.delete(
   "/:id",
   requireRole(["admin"]),
-  validateParams(deleteExpenseSchema),
+  validateParams(expenseIdParamSchema),
   (req, res) => {
     const id = req.params.id as unknown as number;
     const service = getExpenseService();
@@ -63,7 +67,9 @@ router.delete(
         summary: `Deleted expense #${id}`,
       });
     }
-    res.status(result.success ? 200 : 400).json(result);
+    // Rule 19c: HTTP 200 even on a service failure — see the identical note
+    // on POST / above.
+    res.json(result);
   },
 );
 

@@ -414,7 +414,24 @@ export class SessionCheckoutService {
         userId,
       );
 
-      // Inject session customer into cart items lacking a client name
+      // Inject session customer into cart items lacking a client name.
+      //
+      // LIRA-232 investigation fix: request shapes disagree on naming —
+      // RechargeRequest/FinancialServiceRequest read camelCase
+      // `clientId`/`clientName`, but SalesRepository's `SaleRequest` reads
+      // snake_case `client_id`/`client_name` only. Stamping just the
+      // camelCase form (the original code) silently dropped the walk-in
+      // session customer off every SALE transaction row — `sale.client_id`/
+      // `sale.client_name` stayed whatever the cart item's formData already
+      // had (often explicit `client_id: null`), so the SALE never linked to
+      // the client the session had just resolved/created, and the
+      // Transactions/POS pages showed no name at all for that row (rule 21:
+      // this is the same "second definition of the contract" trap — one
+      // injection has to speak every downstream module's shape, not the
+      // shape of whichever module was tested first). Setting BOTH forms is
+      // safe: whichever key a module's own request type reads picks up the
+      // value, and the other key is simply ignored by services that don't
+      // look at it.
       if (sessionCustomerName) {
         for (const item of cartItems) {
           const fd = item.formData;
@@ -422,17 +439,21 @@ export class SessionCheckoutService {
             for (const sub of fd.items as Record<string, unknown>[]) {
               if (!sub.clientName && !sub.senderName && !sub.client_name) {
                 sub.clientName = sessionCustomerName;
+                sub.client_name = sessionCustomerName;
               }
-              if (!sub.clientId && sessionClientId) {
+              if (!sub.clientId && !sub.client_id && sessionClientId) {
                 sub.clientId = sessionClientId;
+                sub.client_id = sessionClientId;
               }
             }
           } else {
             if (!fd.clientName && !fd.senderName && !fd.client_name) {
               fd.clientName = sessionCustomerName;
+              fd.client_name = sessionCustomerName;
             }
-            if (!fd.clientId && sessionClientId) {
+            if (!fd.clientId && !fd.client_id && sessionClientId) {
               fd.clientId = sessionClientId;
+              fd.client_id = sessionClientId;
             }
           }
         }
@@ -479,7 +500,14 @@ export class SessionCheckoutService {
                   sessionId,
                   result.transactionType,
                   result.sourceId,
-                  item.currency === "USD"
+                  // F4 (round-3 review) — any NON-LBP currency (including a
+                  // netted USDT/Binance cash-out) is USD-equivalent for this
+                  // link's purposes, matching the SAME bucketing this
+                  // function's own checkoutTotalUsd/Lbp accumulation uses a
+                  // few lines below (rule 14) — a strict `=== "USD"` check
+                  // silently dropped a USDT item to 0/0, making it invisible
+                  // to the sign-based `isSessionPayoutMember` guard.
+                  item.currency !== "LBP"
                     ? item.amount / batchResults.length
                     : 0,
                   item.currency === "LBP"
@@ -532,7 +560,14 @@ export class SessionCheckoutService {
                 sessionId,
                 result.transactionType,
                 result.sourceId,
-                item.currency === "USD" ? item.amount : 0,
+                // F4 (round-3 review) — see the batch branch's identical
+                // comment above: any NON-LBP currency (a netted USDT/Binance
+                // cash-out included) is USD-equivalent here, matching
+                // checkoutTotalUsd/Lbp's own bucketing a few lines below
+                // (rule 14). A strict `=== "USD"` check made a USDT item's
+                // real (negative, netted) value invisible to every
+                // sign-based payout reader — it was stamped 0/0 instead.
+                item.currency !== "LBP" ? item.amount : 0,
                 item.currency === "LBP" ? item.amount : 0,
                 itemProfitUsd,
                 itemProfitLbp,
@@ -615,6 +650,20 @@ export class SessionCheckoutService {
             profit_usd: keptUsd,
             profit_lbp: keptLbp,
             client_id: sessionClientId ?? null,
+            // LIRA-230: every OTHER cart item in this basket gets
+            // `sessionCustomerName` injected into its own formData above
+            // ("Inject session customer into cart items lacking a client
+            // name") before its module repository stamps it onto the
+            // resulting transaction row. This standalone KEPT_CHANGE row has
+            // no formData/item to inject into, so it must stamp the same
+            // name directly here — otherwise a named walk-in with no
+            // resolvable client_id (no phone, no exact existing-client
+            // match) leaves this row's client_name null, and
+            // ProfitRepository.getByClient's walk-in grouping
+            // (`COALESCE(t.client_name, orig.client_name, '')`) silently
+            // folds it into the unnamed "Walk-in" bucket instead of the
+            // customer's own name.
+            client_name: sessionCustomerName ?? null,
             summary: `Kept change (session checkout): ${[
               keptUsd > 0 ? `$${keptUsd}` : null,
               keptLbp > 0 ? `${keptLbp.toLocaleString()} LBP` : null,

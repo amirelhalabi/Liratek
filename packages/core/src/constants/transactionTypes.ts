@@ -508,6 +508,60 @@ export const MODULE_DEBT_TRANSACTION_TYPES: readonly string[] = [
   "Maintenance Debt",
 ];
 
+/**
+ * LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §5) — the debt_ledger credit a
+ * `TransactionRepository.refundSessionBasketItem` call writes when it
+ * reduces a session basket's outstanding 'Session Debt' charge. Deliberately
+ * NOT the existing 'Refund Reversal' shape: that exact shape (session_id
+ * set, transaction_id NULL) already means "the WHOLE basket was
+ * voided/refunded" to two readers — `TransactionRepository
+ * ._assertSessionBasketReversible`'s idempotency check and
+ * `sessionBasketNotReversedSql` (LPAY-V1) — and reusing it here would make
+ * refunding ONE item look like the whole basket was reversed, hard-blocking
+ * every further item refund and (wrongly) hiding the basket's legs from the
+ * By Payment report. This type is linked to BOTH the session
+ * (`debt_ledger.session_id`) and the item's own REFUND transaction
+ * (`debt_ledger.transaction_id`), so it is a real, individually-attributable
+ * credit — not a paper adjustment — and deliberately NOT named "<Module>
+ * Debt" (it isn't a charge), so `moduleDebtTypes.guard.test.ts`'s scan does
+ * not need to classify it.
+ */
+export const SESSION_ITEM_REFUND_CREDIT_TYPE = "Session Item Refund";
+
+/**
+ * LIRA-232 (adversarial-review fix) — `customer_session_transactions
+ * .transaction_type` marker `refundSessionBasketItem` writes to link its own
+ * REFUND transaction into the session group (SESSION_ITEM_REFUND_PLAN.md
+ * §5). Exported (rule 14) so every reader that must tell "this cst row is a
+ * refund LINK, not a basket member" apart from every other `cst.
+ * transaction_type` value — `voidSessionBasket`/`refundSessionBasket`'s item
+ * loop (finding #4), `ProfitRepository.getPaymentMethodRows`'s
+ * `linked_legs`/`session_legs` CTEs (findings #7/#8) — shares ONE string,
+ * not a second hand-typed copy.
+ */
+export const SESSION_ITEM_REFUND_LINK_TYPE = "session_item_refund";
+
+/**
+ * LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §2 owner decision #4) — the ONLY
+ * session-basket member types `TransactionRepository.refundSessionBasketItem`
+ * will act on: "sold items" (products, services, recharges). Payouts (a
+ * negative-amount financial item, a loto cash prize) and KEPT_CHANGE are
+ * deliberately excluded — they were netted against the basket's other items
+ * at checkout, not sold on their own, and can only be undone by the
+ * whole-basket reversal (`voidSessionBasket`/`refundSessionBasket`).
+ * FINANCIAL_SERVICE is excluded too: the owner's enumeration names only
+ * "products (sale lines), services, recharges," and a FINANCIAL_SERVICE row
+ * can be either a charge OR a payout depending on its sign — telling those
+ * apart from the type alone isn't reliable, so it stays whole-basket-only in
+ * this phase.
+ */
+export const SESSION_ITEM_REFUNDABLE_TYPES: ReadonlySet<TransactionType> =
+  new Set<TransactionType>([
+    TRANSACTION_TYPES.SALE,
+    TRANSACTION_TYPES.CUSTOM_SERVICE,
+    TRANSACTION_TYPES.RECHARGE,
+  ]);
+
 export const TRANSACTION_STATUS = {
   ACTIVE: "ACTIVE",
   VOIDED: "VOIDED",

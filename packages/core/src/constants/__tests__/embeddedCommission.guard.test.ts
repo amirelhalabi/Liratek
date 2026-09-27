@@ -473,25 +473,25 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "anywhere, in `_bookCommissionAtSettlement` or otherwise. A value " +
     "nobody reads cannot misreport anything: NOT a reporting aggregate, " +
     "ruled out.",
-  "TransactionRepository:getCustomerFacingLegs:(query-like #23)":
+  "TransactionRepository:getRefundBookedRate:(query-like #23)":
     "Per-row REVERSAL-STATE read, not a reporting aggregate. The true " +
     "source is the PRIVATE method `_reverseSupplierSettlement` — " +
-    "mis-attributed by {@link collectQueryLikeUnits} to `getCustomerFacingLegs` " +
-    "(nearest preceding public boundary) as its 23rd `this.query(`-shaped " +
-    "inline-template call in that mis-attributed span (see this const's own " +
-    "doc comment on the ordinal-fragility tradeoff — the ordinal shifted from " +
-    "#20 to #21 when the SMS-fee-expense cutover (owner decision 2026-09-06) " +
-    "inserted `_cascadeExpenseSiblingVoid`/`_expensesHasSourceRefColumns` " +
-    "earlier in this same mis-attributed span, and from #21 to #23 when " +
-    "LIRA-189 (multi-member supplier-settlement reversal) widened this same " +
-    "method's OWN preceding `linkedLedgerRows` lookup from a single " +
-    "`this.query` call (`settlement_id = ?`) into a `source_table`/" +
-    "`source_id` ternary with two `this.query` branches — inserting one " +
-    "extra query-like call (both branches count, only one runs) immediately " +
-    "before this one in the same mis-attributed span, and changing THIS " +
-    "query's own predicate from `settlement_id = ?` to `settlement_id IN " +
-    "(...)` so a multi-member settlement un-stamps every row it touched). " +
-    "`SELECT id, provider, " +
+    "mis-attributed by {@link collectQueryLikeUnits} to the nearest " +
+    "preceding PUBLIC method boundary (see this const's own doc comment on " +
+    "the ordinal-fragility tradeoff — the ordinal shifted from #20 to #21 " +
+    "when the SMS-fee-expense cutover (owner decision 2026-09-06) inserted " +
+    "`_cascadeExpenseSiblingVoid`/`_expensesHasSourceRefColumns` earlier in " +
+    "this same mis-attributed span, from #21 to #23 when LIRA-189 " +
+    "(multi-member supplier-settlement reversal) widened this same " +
+    "method's OWN preceding `linkedLedgerRows` lookup into a two-branch " +
+    "ternary, and the ATTRIBUTED PUBLIC METHOD NAME itself from " +
+    "`getCustomerFacingLegs` to `getRefundBookedRate` when LIRA-236 " +
+    "(REFUND_EXCHANGE_RATE_PLAN.md) added `getRefundBookedRate` as a new " +
+    "public method immediately after `getCustomerFacingLegs` — becoming " +
+    "the new nearest-preceding boundary for the SAME unmoved private query; " +
+    "the ordinal held at #23 because nothing changed the query COUNT " +
+    "between the new boundary and `_reverseSupplierSettlement`, only WHICH " +
+    "public method name sits closest to it). `SELECT id, provider, " +
     "service_type, commission, commission_model FROM financial_services " +
     "WHERE settlement_id IN (...)` feeds each row into " +
     "`isPendingSupplierSettlement` to decide whether reversing this " +
@@ -505,7 +505,9 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "rather than as a SQL gate call, so it is invisible to this guard's " +
     "text-only `embeddedCommission(`/`atSettlementCommission(` detection. " +
     "Not a dollar figure or count surfaced anywhere: NOT a reporting " +
-    "aggregate, ruled out.",
+    "aggregate, ruled out. `getRefundBookedRate` itself (verified by " +
+    "reading it) runs no SQL touching `financial_services.commission` at " +
+    "all — it reads `transactions.exchange_rate` only.",
 };
 
 describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {

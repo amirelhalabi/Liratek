@@ -117,13 +117,27 @@ export function SessionDebtDetailModal({
   const cartInMode = (amount: number): boolean =>
     mode === "all" ? true : mode === "payouts" ? amount < 0 : amount >= 0;
   const displayCartItems = cartItems.filter((i) => cartInMode(i.amount));
-  const displayTransactions = transactions.filter((t) =>
-    mode === "all"
-      ? true
-      : mode === "payouts"
-        ? isPayoutAmount(t.amount_usd, t.amount_lbp)
-        : !isPayoutAmount(t.amount_usd, t.amount_lbp),
-  );
+  // LIRA-232 round-3 review (finding 5) — core's `findClientHistory` hides a
+  // 0/0 "Refund Reversal" debt_ledger marker row (written when a
+  // whole-basket reversal has nothing left to reverse in a currency because
+  // prior item refunds already consumed it — SESSION_ITEM_REFUND_PLAN.md §9b
+  // point 8). This modal reads a DIFFERENT source
+  // (`session.getTransactions`/`customer_session_transactions`, not
+  // `debt_ledger`/`findClientHistory`), so core's hide never reaches it — but
+  // the exact same shape can occur here: a session-linked transaction row
+  // whose amount_usd/amount_lbp are BOTH ~0 renders as a bare
+  // `transaction_type` label with an empty amount span (nonZero already
+  // hides each currency span individually, but not the whole row). Applying
+  // the same "hide a 0/0 row" rule here keeps the two views consistent.
+  const displayTransactions = transactions
+    .filter((t) => nonZero(t.amount_usd) || nonZero(t.amount_lbp))
+    .filter((t) =>
+      mode === "all"
+        ? true
+        : mode === "payouts"
+          ? isPayoutAmount(t.amount_usd, t.amount_lbp)
+          : !isPayoutAmount(t.amount_usd, t.amount_lbp),
+    );
 
   const itemsHeading =
     mode === "payouts" ? "Payouts" : mode === "charges" ? "Charges" : "Items";

@@ -9,6 +9,9 @@ import {
   SessionBasketReversalSchema,
   RefundLegsSchema,
   RefundUnitExtrasSchema,
+  RefundExchangeRateSchema,
+  SessionItemRefundSchema,
+  SessionItemRefundPreviewSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -57,6 +60,19 @@ export function registerTransactionHandlers(): void {
 
   ipcMain.handle("transactions:get-customer-legs", (_e, id: number) => {
     return txnService.getCustomerFacingLegs(id);
+  });
+
+  /**
+   * LIRA-236 — the Transactions-page refund modal's `bookedRate`/
+   * `bookedRateSource` default. Read-only, no role gate (matches
+   * `transactions:get-customer-legs` immediately above — both feed the
+   * refund modal's pre-fill, not the write itself, which stays admin-gated
+   * on `transactions:refund`).
+   */
+  ipcMain.handle("transactions:get-refund-booked-rate", (_e, id: unknown) => {
+    const idV = validatePayload(PositiveIdSchema, id);
+    if (!idV.ok) return { success: false, error: idV.error };
+    return txnService.getRefundBookedRate(idV.data);
   });
 
   /** Get transactions for a specific client */
@@ -121,7 +137,13 @@ export function registerTransactionHandlers(): void {
    */
   ipcMain.handle(
     "transactions:refund",
-    (e, id: unknown, refundLegs?: unknown, refundUnitExtras?: unknown) => {
+    (
+      e,
+      id: unknown,
+      refundLegs?: unknown,
+      refundUnitExtras?: unknown,
+      exchangeRate?: unknown,
+    ) => {
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
@@ -147,10 +169,20 @@ export function registerTransactionHandlers(): void {
           unitExtras = extrasV.data;
         }
 
+        // LIRA-236 — same "validate only when present" discipline as
+        // refundLegs/refundUnitExtras above.
+        let rate: ReturnType<typeof RefundExchangeRateSchema.parse> | undefined;
+        if (exchangeRate !== undefined && exchangeRate !== null) {
+          const rateV = validatePayload(RefundExchangeRateSchema, exchangeRate);
+          if (!rateV.ok) return { success: false, error: rateV.error };
+          rate = rateV.data;
+        }
+
         const userId = auth.userId ?? 1;
         const refundId = txnService.refundTransaction(idV.data, userId, {
           refundLegs: legs,
           refundUnitExtras: unitExtras,
+          exchangeRate: rate,
         });
         audit(e.sender.id, {
           action: "refund",
@@ -161,6 +193,7 @@ export function registerTransactionHandlers(): void {
             refundId,
             refundLegs: legs,
             refundUnitExtras: unitExtras,
+            exchangeRate: rate,
           },
         });
         return { success: true, refundId };
@@ -275,6 +308,93 @@ export function registerTransactionHandlers(): void {
           },
         });
         return { success: true, ...result };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  /**
+   * LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §3/§7) — refund ONE (or,
+   * with saleItemId omitted on a SALE member, every remaining) line of a
+   * customer-session basket item, in ONE db transaction. The item-level
+   * sibling of transactions:refund-session-basket immediately above (same
+   * admin-only gate, rule 14) — that channel reverses the WHOLE basket;
+   * this one reverses a single sold item, reducing the basket's outstanding
+   * account charge first and handing back only the remainder (owner
+   * decisions, SESSION_ITEM_REFUND_PLAN.md §9). userId always comes from
+   * the authenticated session, never the client payload (rule 19c).
+   */
+  ipcMain.handle(
+    "transactions:refund-session-basket-item",
+    (e, data: unknown) => {
+      try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+        const v = validatePayload(SessionItemRefundSchema, data);
+        if (!v.ok) return { success: false, error: v.error };
+        const userId = auth.userId ?? 1;
+        const result = txnService.refundSessionBasketItem({
+          ...v.data,
+          userId,
+        });
+        audit(e.sender.id, {
+          action: "refund",
+          entity_type: "session_basket_item",
+          entity_id: String(v.data.transactionId),
+          summary: `Refunded session #${v.data.sessionId} item (txn #${v.data.transactionId})`,
+          metadata: {
+            sessionId: v.data.sessionId,
+            transactionId: v.data.transactionId,
+            saleItemId: v.data.saleItemId,
+            quantity: v.data.quantity,
+            refundTransactionId: result.refundTransactionId,
+            itemAmountUsd: result.itemAmountUsd,
+            itemAmountLbp: result.itemAmountLbp,
+            accountReductionUsd: result.accountReductionUsd,
+            accountReductionLbp: result.accountReductionLbp,
+            remainderUsd: result.remainderUsd,
+            remainderLbp: result.remainderLbp,
+          },
+        });
+        return { success: true, ...result };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  /**
+   * Read-only preview for the item-refund form's pre-fill (the account
+   * reduction + default proportional legs), same admin-only gate as the
+   * write path immediately above. TransactionService.getSessionItemRefundPreview
+   * already wraps its own success/error envelope (mirrors SalesService
+   * .getRefundPreview, LIRA-231), so the handler forwards it as-is.
+   *
+   * Round-2 finding #10b (LOW) — this handler had no try/catch at all
+   * (every other handler in this file does — electron-app/CLAUDE.md's
+   * checklist: "Wrap every handler in try-catch"). The service call itself
+   * already self-catches, but `requireRole`/`validatePayload` do not carry
+   * a documented never-throws contract, so an unexpected error from either
+   * would have propagated as an unhandled IPC rejection instead of the
+   * `{ success: false, error }` envelope every other failure mode here
+   * returns.
+   */
+  ipcMain.handle(
+    "transactions:session-basket-item-refund-preview",
+    (e, data: unknown) => {
+      try {
+        const v = validatePayload(SessionItemRefundPreviewSchema, data);
+        if (!v.ok) return { success: false, error: v.error };
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+        return txnService.getSessionItemRefundPreview(v.data);
       } catch (err) {
         return {
           success: false,

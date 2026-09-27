@@ -45,6 +45,7 @@ function buildHandlers(): RowActionHandlers {
     onVoidCheckoutGroup: jest.fn(),
     onVoidSessionBasket: jest.fn(),
     onRefundSessionBasket: jest.fn(),
+    onRefundSessionItem: jest.fn(),
   };
 }
 
@@ -159,5 +160,104 @@ describe("ActionsCell — session-basket whole-basket reversal buttons (LIRA-201
     expect(
       screen.getByRole("button", { name: "Refund" }),
     ).toBeInTheDocument();
+  });
+
+  // LIRA-232 round-2 review (finding 2) — once a session has ANY per-item
+  // refund, `voidSessionBasket` hard-refuses it server-side (nothing left to
+  // cleanly void), so the button must be HIDDEN, not just left to error on
+  // click. "Refund basket" (reverses only what's left) stays. Written
+  // failing-first: at authoring time `ActionsCell` had no `hideVoidBasket`
+  // prop at all, so passing it was a no-op and "Void basket" still rendered.
+  it("hides 'Void basket' (keeps 'Refund basket') when hideVoidBasket is true", () => {
+    const row = buildSessionRow();
+    const handlers = buildHandlers();
+
+    render(
+      <table>
+        <tbody>
+          <tr>
+            <ActionsCell
+              row={row}
+              derived={deriveRow(row)}
+              sessionId={7}
+              refundLookupRowId={null}
+              handlers={handlers}
+              hideVoidBasket
+            />
+          </tr>
+        </tbody>
+      </table>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Void basket" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Refund basket" }),
+    ).toBeInTheDocument();
+  });
+
+  it("hideVoidBasket defaults to false — 'Void basket' still renders when the prop is omitted (backward compatible)", () => {
+    const row = buildSessionRow();
+    const handlers = buildHandlers();
+
+    render(
+      <table>
+        <tbody>
+          <tr>
+            <ActionsCell
+              row={row}
+              derived={deriveRow(row)}
+              sessionId={7}
+              refundLookupRowId={null}
+              handlers={handlers}
+            />
+          </tr>
+        </tbody>
+      </table>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Void basket" }),
+    ).toBeInTheDocument();
+  });
+
+  // LIRA-232 round-2 review (finding 3) — a member row that core has already
+  // marked reversed (`reversed_by_id` set — note 21d) must show NONE of
+  // Void basket / Refund basket / Refund item, the same way a plain
+  // non-session row's Void/Refund pair already disappears (actionGating.ts,
+  // `isReversibleRow`). Regression guard: `ActionsCell`'s entire session
+  // block is gated on `isReversibleRow(row)`, which already reads
+  // `reversed_by_id` — this pins that the session branch was never given a
+  // weaker gate of its own.
+  it("hides Void basket / Refund basket / Refund item entirely once the row is already reversed (reversed_by_id set)", () => {
+    const row = buildSessionRow({ reversed_by_id: 999 });
+    const handlers = buildHandlers();
+
+    render(
+      <table>
+        <tbody>
+          <tr>
+            <ActionsCell
+              row={row}
+              derived={deriveRow(row)}
+              sessionId={7}
+              refundLookupRowId={null}
+              handlers={handlers}
+            />
+          </tr>
+        </tbody>
+      </table>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Void basket" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refund basket" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refund item" }),
+    ).not.toBeInTheDocument();
   });
 });

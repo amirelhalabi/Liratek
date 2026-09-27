@@ -17,6 +17,19 @@ import {
   refundLegsSchema,
   refundUnitExtrasSchema,
   transactionTypeFiltersSchema,
+  // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
+  // single-item refund payload/preview contracts, shared with the Electron
+  // IPC handler the same way (rule 14): packages/core/src/validators/
+  // transaction.ts.
+  sessionItemRefundSchema,
+  sessionItemRefundPreviewSchema,
+  // LIRA-236 — the cashier-typed exchange rate, shared (rule 14) with every
+  // other refund payload schema.
+  refundExchangeRateSchema,
+  // Rule 19c sweep — REST path-param variant of `sessionBasketReversalSchema`
+  // (z.coerce, same pattern as `saleIdParamSchema`), used by
+  // POST /session-basket/:sessionId/void|refund below.
+  sessionBasketSessionIdParamSchema,
 } from "@liratek/core";
 import { validateParams } from "../middleware/validation.js";
 import { logger } from "../server.js";
@@ -220,7 +233,33 @@ router.post(
       res.json({ success: true, reversalId });
     } catch (error) {
       logger.error({ error }, "Void transaction error");
-      res.status(500).json({ success: false, error: (error as Error).message });
+      // Rule 19c: HTTP 200 even on failure — the adapter branches on
+      // `result.success`, never on status code.
+      res.json({ success: false, error: (error as Error).message });
+    }
+  },
+);
+
+// GET /api/transactions/:id/refund-booked-rate (no role gate — read-only
+// pre-fill for the refund modal, mirrors the IPC channel's own gate-free
+// shape; the WRITE stays admin-gated on POST /:id/refund below).
+// LIRA-236 — the Transactions-page refund modal's `bookedRate`/
+// `bookedRateSource` default.
+router.get(
+  "/:id/refund-booked-rate",
+  requireAuth,
+  (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const txnService = getTransactionService();
+      const result = txnService.getRefundBookedRate(id);
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Get refund booked rate error");
+      res.json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   },
 );
@@ -252,7 +291,10 @@ router.post(
         const parsed = refundLegsSchema.safeParse(req.body.refundLegs);
         if (!parsed.success) {
           const firstError = parsed.error.issues[0];
-          res.status(400).json({
+          // Rule 19c: HTTP 200 even on a validation failure — the adapter
+          // branches on `success`, never on status code (matches the
+          // exchangeRate block below, F13's fix).
+          res.json({
             success: false,
             error: firstError?.message ?? "Invalid refundLegs",
           });
@@ -270,7 +312,8 @@ router.post(
         );
         if (!parsed.success) {
           const firstError = parsed.error.issues[0];
-          res.status(400).json({
+          // Rule 19c — see the note on the refundLegs block above.
+          res.json({
             success: false,
             error: firstError?.message ?? "Invalid refundUnitExtras",
           });
@@ -279,10 +322,40 @@ router.post(
         refundUnitExtras = parsed.data;
       }
 
+      // LIRA-236 — same "validate only when present" discipline as
+      // refundLegs/refundUnitExtras above (rule 23: a bare POST /:id/refund
+      // with no body keeps working exactly as before). `refundExchangeRateSchema`
+      // is `.nullish()` (F13, round-3 review), so a literal `exchangeRate:
+      // null` — `!== undefined`, so it still reaches `safeParse` here — comes
+      // back `parsed.success === true` with `parsed.data === undefined`,
+      // exactly like omitting the key.
+      let exchangeRate: number | undefined;
+      if (req.body?.exchangeRate !== undefined) {
+        const parsed = refundExchangeRateSchema.safeParse(req.body.exchangeRate);
+        if (!parsed.success) {
+          const firstError = parsed.error.issues[0];
+          // F13 (round-3 review) — rule 19c envelope parity: every other
+          // validation failure on this route (refundLegs/refundUnitExtras
+          // above, and every OTHER refund route in this file) already
+          // answers HTTP 200 `{ success: false, error }` so the adapter can
+          // branch on `success` alone. This block was the one exception,
+          // copy-pasted from the two blocks above it before rule 19c was
+          // enforced here — bringing it in line, not introducing a new
+          // convention.
+          res.json({
+            success: false,
+            error: firstError?.message ?? "Invalid exchangeRate",
+          });
+          return;
+        }
+        exchangeRate = parsed.data;
+      }
+
       const txnService = getTransactionService();
       const refundId = txnService.refundTransaction(id, userId, {
         refundLegs,
         refundUnitExtras,
+        exchangeRate,
       });
       // Mirrors transactionHandlers.ts's transactions:refund audit
       // (refund/transaction) — reaching here means the refund committed
@@ -292,12 +365,14 @@ router.post(
         entity_type: "transaction",
         entity_id: String(id),
         summary: `Refunded transaction #${id}`,
-        metadata: { refundId, refundLegs, refundUnitExtras },
+        metadata: { refundId, refundLegs, refundUnitExtras, exchangeRate },
       });
       res.json({ success: true, refundId });
     } catch (error) {
       logger.error({ error }, "Refund transaction error");
-      res.status(500).json({ success: false, error: (error as Error).message });
+      // Rule 19c: HTTP 200 even on failure — the adapter branches on
+      // `result.success`, never on status code.
+      res.json({ success: false, error: (error as Error).message });
     }
   },
 );
@@ -337,7 +412,9 @@ router.post(
       res.json({ success: true, ...result });
     } catch (error) {
       logger.error({ error }, "Void checkout group error");
-      res.status(500).json({ success: false, error: (error as Error).message });
+      // Rule 19c: HTTP 200 even on failure — the adapter branches on
+      // `result.success`, never on status code.
+      res.json({ success: false, error: (error as Error).message });
     }
   },
 );
@@ -347,20 +424,23 @@ router.post(
 // customer-session basket, plus its pooled cash leg(s) and pooled debt
 // (Session Debt / CREDIT_DEPOSIT), in ONE transaction. Replaces the
 // "Basket item — see admin to reverse" dead end — a bare void/refund on a
-// session-linked row is refused by the repository guard. Numeric-param
-// convention matches /:id/void above (plain parseInt + NaN guard) rather
-// than validateParams — sessionId is a bare positive int, same as :id.
+// session-linked row is refused by the repository guard.
+//
+// `sessionId` is parsed via `validateParams(sessionBasketSessionIdParamSchema)`
+// (rule 19c) — the manual `parseInt` + `res.status(400)` this route used to
+// carry answered a real 4xx on a bad id, unlike every other validation
+// failure on this file's routes; `validateParams` already answers the SAME
+// HTTP 200 `{ success: false, error }` envelope (see validation.ts), so a bad
+// sessionId is indistinguishable from any other rejected payload to the
+// adapter.
 router.post(
   "/session-basket/:sessionId/void",
   requireAuth,
   requireRole(["admin"]),
+  validateParams(sessionBasketSessionIdParamSchema),
   async (req: AuthRequest, res) => {
     try {
-      const sessionId = parseInt(req.params.sessionId, 10);
-      if (!Number.isInteger(sessionId) || sessionId <= 0) {
-        res.status(400).json({ success: false, error: "Invalid sessionId" });
-        return;
-      }
+      const sessionId = req.params.sessionId as unknown as number;
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
       const result = txnService.voidSessionBasket(sessionId, userId);
@@ -380,7 +460,9 @@ router.post(
       res.json({ success: true, ...result });
     } catch (error) {
       logger.error({ error }, "Void session basket error");
-      res.status(500).json({ success: false, error: (error as Error).message });
+      // Rule 19c: HTTP 200 even on failure — the adapter branches on
+      // `result.success`, never on status code.
+      res.json({ success: false, error: (error as Error).message });
     }
   },
 );
@@ -392,13 +474,10 @@ router.post(
   "/session-basket/:sessionId/refund",
   requireAuth,
   requireRole(["admin"]),
+  validateParams(sessionBasketSessionIdParamSchema),
   async (req: AuthRequest, res) => {
     try {
-      const sessionId = parseInt(req.params.sessionId, 10);
-      if (!Number.isInteger(sessionId) || sessionId <= 0) {
-        res.status(400).json({ success: false, error: "Invalid sessionId" });
-        return;
-      }
+      const sessionId = req.params.sessionId as unknown as number;
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
       const result = txnService.refundSessionBasket(sessionId, userId);
@@ -416,7 +495,129 @@ router.post(
       res.json({ success: true, ...result });
     } catch (error) {
       logger.error({ error }, "Refund session basket error");
-      res.status(500).json({ success: false, error: (error as Error).message });
+      // Rule 19c: HTTP 200 even on failure — the adapter branches on
+      // `result.success`, never on status code.
+      res.json({ success: false, error: (error as Error).message });
+    }
+  },
+);
+
+// POST /api/transactions/session-basket/:sessionId/items/refund
+// LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §3/§7) — refund ONE (or,
+// with saleItemId omitted on a SALE member, every remaining) line of a
+// customer-session basket item, in ONE transaction. The item-level sibling
+// of /session-basket/:sessionId/refund above (same admin-only gate) — that
+// route reverses the WHOLE basket; this one reverses a single sold item,
+// reducing the basket's outstanding account charge first (owner decisions,
+// SESSION_ITEM_REFUND_PLAN.md §9). Every failure path returns HTTP 200
+// (rule 19c) — including a malformed body/sessionId — so the adapter can
+// branch on `success` alone, matching the IPC envelope exactly; this
+// deliberately does NOT copy /session-basket/:sessionId/void|refund's
+// 400-on-bad-sessionId convention above.
+router.post(
+  "/session-basket/:sessionId/items/refund",
+  requireAuth,
+  requireRole(["admin"]),
+  async (req: AuthRequest, res) => {
+    try {
+      const parsed = sessionItemRefundSchema.safeParse({
+        sessionId: req.params.sessionId,
+        transactionId: req.body?.transactionId,
+        saleItemId: req.body?.saleItemId,
+        quantity: req.body?.quantity,
+        refundLegs: req.body?.refundLegs,
+        unitExtras: req.body?.unitExtras,
+        clientDay: req.body?.clientDay,
+        exchangeRate: req.body?.exchangeRate,
+      });
+      if (!parsed.success) {
+        const firstError = parsed.error.issues[0];
+        res.json({
+          success: false,
+          error: firstError?.message ?? "Invalid session item refund request",
+        });
+        return;
+      }
+      // userId always comes from the JWT, never the client body — rule 19c.
+      const userId = req.user?.userId ?? 1;
+      const txnService = getTransactionService();
+      const result = txnService.refundSessionBasketItem({
+        ...parsed.data,
+        userId,
+      });
+      // Mirrors transactionHandlers.ts's transactions:refund-session-basket-
+      // item audit (refund/session_basket_item) — reaching here means the
+      // refund committed (refundSessionBasketItem throws on any
+      // business-rule failure).
+      auditRest(req, {
+        action: "refund",
+        entity_type: "session_basket_item",
+        entity_id: String(parsed.data.transactionId),
+        summary: `Refunded session #${parsed.data.sessionId} item (txn #${parsed.data.transactionId})`,
+        metadata: {
+          sessionId: parsed.data.sessionId,
+          transactionId: parsed.data.transactionId,
+          saleItemId: parsed.data.saleItemId,
+          quantity: parsed.data.quantity,
+          refundTransactionId: result.refundTransactionId,
+          itemAmountUsd: result.itemAmountUsd,
+          itemAmountLbp: result.itemAmountLbp,
+          accountReductionUsd: result.accountReductionUsd,
+          accountReductionLbp: result.accountReductionLbp,
+          remainderUsd: result.remainderUsd,
+          remainderLbp: result.remainderLbp,
+        },
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      logger.error({ error }, "Refund session basket item error");
+      res.json({ success: false, error: (error as Error).message });
+    }
+  },
+);
+
+// GET /api/transactions/session-basket/:sessionId/items/refund-preview
+// ?transactionId=&saleItemId=&quantity= (admin only — matches the refund
+// action's own gate). Read-only preview for the item-refund form's
+// pre-fill (the account reduction + default proportional legs). Static
+// enough placement: the "refund-preview" segment never collides with the
+// POST route immediately above (different HTTP method + trailing segment).
+// TransactionService.getSessionItemRefundPreview already wraps its own
+// success/error envelope (mirrors SalesService.getRefundPreview, LIRA-231),
+// so the route forwards it as-is.
+router.get(
+  "/session-basket/:sessionId/items/refund-preview",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, res) => {
+    // Round-2 finding #10b (LOW) — this route had no try/catch at all,
+    // unlike the POST route immediately above (and every other write
+    // route in this file). The service call itself already self-catches,
+    // but an unexpected error from `.safeParse()` or anything else in this
+    // handler would have propagated as an unhandled rejection instead of
+    // the `{ success: false, error }` envelope IPC parity requires.
+    try {
+      const parsed = sessionItemRefundPreviewSchema.safeParse({
+        sessionId: req.params.sessionId,
+        transactionId: req.query.transactionId,
+        saleItemId: req.query.saleItemId,
+        quantity: req.query.quantity,
+        exchangeRate: req.query.exchangeRate,
+      });
+      if (!parsed.success) {
+        const firstError = parsed.error.issues[0];
+        res.json({
+          success: false,
+          error: firstError?.message ?? "Invalid refund-preview request",
+        });
+        return;
+      }
+      const txnService = getTransactionService();
+      const result = txnService.getSessionItemRefundPreview(parsed.data);
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Session item refund preview error");
+      res.json({ success: false, error: (error as Error).message });
     }
   },
 );

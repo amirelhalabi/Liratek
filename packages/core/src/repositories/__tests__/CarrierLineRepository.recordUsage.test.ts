@@ -202,6 +202,8 @@ function createTestDb(): Database.Database {
       transaction_type       TEXT,
       transaction_id         INTEGER,
       unified_transaction_id INTEGER,
+      amount_usd             REAL NOT NULL DEFAULT 0,
+      amount_lbp             REAL NOT NULL DEFAULT 0,
       tenant_id              INTEGER NOT NULL DEFAULT 1,
       created_at             TEXT DEFAULT CURRENT_TIMESTAMP
     );

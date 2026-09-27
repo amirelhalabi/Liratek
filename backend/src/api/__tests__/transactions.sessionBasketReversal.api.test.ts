@@ -138,7 +138,7 @@ describe("LIRA-201c: POST /api/transactions/session-basket/:sessionId/void|refun
       expect(refundSpy).toHaveBeenCalledWith(8, 42);
     });
 
-    it("void: an invalid (non-numeric) sessionId is rejected with 400 before the service is called", async () => {
+    it("void: an invalid (non-numeric) sessionId is rejected as HTTP 200 { success: false } before the service is called (rule 19c)", async () => {
       const voidSpy = jest.spyOn(txnService, "voidSessionBasket");
 
       const res = await request(app)
@@ -146,12 +146,30 @@ describe("LIRA-201c: POST /api/transactions/session-basket/:sessionId/void|refun
         .set("x-test-role", "admin")
         .send();
 
-      expect(res.status).toBe(400);
+      // Rule 19c: a bad sessionId is a validation failure like any other on
+      // this route, so it answers HTTP 200 with { success: false, error } —
+      // never a 400 — so the adapter can branch on `success` alone. This
+      // route used to answer a manual `res.status(400)` here, the same class
+      // of bug the exchangeRate block on /:id/refund had (F13).
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
       expect(voidSpy).not.toHaveBeenCalled();
     });
 
-    it("void: a thrown business-rule error (e.g. already-reimbursed prize) is surfaced as { success: false }", async () => {
+    it("refund: an invalid (non-numeric) sessionId is rejected as HTTP 200 { success: false } before the service is called (rule 19c)", async () => {
+      const refundSpy = jest.spyOn(txnService, "refundSessionBasket");
+
+      const res = await request(app)
+        .post("/api/transactions/session-basket/not-a-number/refund")
+        .set("x-test-role", "admin")
+        .send();
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(refundSpy).not.toHaveBeenCalled();
+    });
+
+    it("void: a thrown business-rule error (e.g. already-reimbursed prize) is surfaced as { success: false }, HTTP 200 (rule 19c)", async () => {
       jest.spyOn(txnService, "voidSessionBasket").mockImplementation(() => {
         throw new Error(
           "This prize was already settled with Loto on 2026-09-20. Fix it from the Loto page.",
@@ -163,8 +181,28 @@ describe("LIRA-201c: POST /api/transactions/session-basket/:sessionId/void|refun
         .set("x-test-role", "admin")
         .send();
 
+      // Rule 19c: every failure path answers HTTP 200 with { success: false,
+      // error } so the adapter can branch on `success` alone. This route's
+      // catch block used to answer `res.status(500)` — the SAME class of bug
+      // the exchangeRate block on /:id/refund had (F13).
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
       expect(res.body.error).toContain("already settled with Loto");
+    });
+
+    it("refund: a thrown business-rule error is surfaced as { success: false }, HTTP 200 (rule 19c)", async () => {
+      jest.spyOn(txnService, "refundSessionBasket").mockImplementation(() => {
+        throw new Error("Some other business-rule refusal.");
+      });
+
+      const res = await request(app)
+        .post("/api/transactions/session-basket/7/refund")
+        .set("x-test-role", "admin")
+        .send();
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toContain("Some other business-rule refusal");
     });
   });
 
