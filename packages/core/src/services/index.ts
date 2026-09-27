@@ -394,6 +394,7 @@ export type {
   CreateAuditLogData,
   AuditLogEntity,
   AuditFilters,
+  AdminActionAuditInput,
 } from "./AuditService.js";
 
 // Audit utilities
@@ -447,6 +448,26 @@ export {
 } from "./TenantProvisioningService.js";
 export type { ProvisionTenantData } from "./TenantProvisioningService.js";
 
+// Tenant Storage Provisioner port (Phase C, PRODUCTION_DATABASE_AND_HOSTING_PLAN.md § 12.2/12.3)
+export {
+  SharedTenantStorageProvisioner,
+  setTenantStorageProvisioner,
+  getTenantStorageProvisionerOverride,
+  resetTenantStorageProvisioner,
+} from "./TenantStorageProvisioner.js";
+export type {
+  TenantStorageProvisioner,
+  CreateTenantStorageInput,
+  TenantStorageDeleteResult,
+} from "./TenantStorageProvisioner.js";
+
+// Tenant Stats Service (Phase C fan-out, § 12.3 wave 2)
+export {
+  TenantStatsService,
+  getTenantStatsService,
+  resetTenantStatsService,
+} from "./TenantStatsService.js";
+
 // Subscription Service (control plane — commercial standing, v173)
 export {
   SubscriptionService,
@@ -482,3 +503,11 @@ export type {
   DatabaseResetRequest,
   DatabaseResetOutcome,
 } from "./DatabaseResetService.js";
+
+// Session Sweep Service (plan § 12.3 wave 2 — per-tenant session sweep fan-out)
+export {
+  SessionSweepService,
+  getSessionSweepService,
+  resetSessionSweepService,
+} from "./SessionSweepService.js";
+export type { SessionSweepResult } from "./SessionSweepService.js";

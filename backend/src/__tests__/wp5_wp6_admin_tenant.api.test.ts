@@ -731,15 +731,39 @@ describe("POST /api/admin/tenants/:id/impersonate", () => {
     // Exactly 2h, no more no less (plan §5: short expiry, no refresh).
     expect((decoded.exp as number) - (decoded.iat as number)).toBe(2 * 60 * 60);
 
-    // Audit row lives in the TARGET tenant's realm with impersonator_id set.
+    // Shop-note row lives in the TARGET tenant's realm (B-D3). impersonator_id
+    // is now ALWAYS NULL — never the super admin's platform id, which would
+    // be an FK violation the moment this runs against the super admin's own
+    // (separate) per-tenant file — the impersonator's identity moved to
+    // `metadata` instead, so it's still recoverable without an FK.
     const auditRow = db
       .prepare(
         `SELECT * FROM audit_log WHERE tenant_id = 2 AND action = 'IMPERSONATION_START' ORDER BY id DESC LIMIT 1`,
       )
-      .get() as { user_id: number; impersonator_id: number | null } | undefined;
+      .get() as
+      | { user_id: number; impersonator_id: number | null; metadata: string | null }
+      | undefined;
     expect(auditRow).toBeDefined();
     expect(auditRow!.user_id).toBe(betaAdminRow.id);
-    expect(auditRow!.impersonator_id).toBe(superAdminId);
+    expect(auditRow!.impersonator_id).toBeNull();
+    expect(JSON.parse(auditRow!.metadata ?? "{}")).toMatchObject({
+      impersonatedBy: "root",
+      impersonatorUserId: superAdminId,
+    });
+
+    // Platform row — the durable control-plane record, tenant_id NULL,
+    // written under the super admin's OWN (valid, platform-file) identity.
+    const platformRow = db
+      .prepare(
+        `SELECT * FROM audit_log WHERE tenant_id IS NULL AND action = 'IMPERSONATION_START' ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { user_id: number; metadata: string | null } | undefined;
+    expect(platformRow).toBeDefined();
+    expect(platformRow!.user_id).toBe(superAdminId);
+    expect(JSON.parse(platformRow!.metadata ?? "{}")).toMatchObject({
+      targetTenantId: 2,
+      tenantAdminId: betaAdminRow.id,
+    });
   });
 
   it("returns the TENANT'S OWN origin to open the session on", async () => {

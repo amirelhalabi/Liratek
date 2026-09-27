@@ -13,13 +13,26 @@
  * literal `tenant_id = ?` or is a deliberate cross-tenant sweep marked with a
  * `tenant-exempt` comment, matching how `TenantRepository` is treated.
  *
+ * PRODUCTION_DATABASE_AND_HOSTING_PLAN.md § 12/B-D — every public method here
+ * forces PLATFORM scope internally (`runWithoutTenant`), never trusting the
+ * caller's ambient scope. `tenant_subscriptions` lives ONLY in the platform
+ * database once `TENANT_DB_MODE=per-tenant` is set; a caller reached from
+ * inside a shop's `runWithTenant(shopId)` scope (e.g. `GET
+ * /api/subscription/status`, `ModuleService.filterByEntitlement`) must still
+ * land on the platform file, not the shop's own. In `shared` mode
+ * `runWithoutTenant()` still resolves to the one shared file, so this is a
+ * no-op there — behaviour is unchanged (proven in
+ * `SubscriptionRepository.platformScope.test.ts`).
+ *
  * SQL only. Every policy question — what a lapse means, when grace ends, what
  * a NULL allowlist implies — belongs to `SubscriptionService` (rule 13).
  */
 
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { runWithoutTenant } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
+import { MODULE_SEED_ROWS } from "./TenantRepository.js";
 
 // =============================================================================
 // Types
@@ -64,10 +77,15 @@ export interface UpdateSubscriptionData {
 // =============================================================================
 
 export class SubscriptionRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
-  constructor(db: Database.Database) {
-    this.db = db;
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   private static readonly COLUMNS = `
@@ -76,20 +94,22 @@ export class SubscriptionRepository {
   `;
 
   getByTenantId(tenantId: number): SubscriptionEntity | null {
-    try {
-      const row = this.db
-        .prepare(
-          `SELECT ${SubscriptionRepository.COLUMNS}
-             FROM tenant_subscriptions WHERE tenant_id = ?`,
-        )
-        .get(tenantId) as SubscriptionEntity | undefined;
-      return row ?? null;
-    } catch (error) {
-      throw new DatabaseError("Failed to load subscription", {
-        cause: error,
-        entityId: tenantId,
-      });
-    }
+    return runWithoutTenant(() => {
+      try {
+        const row = this.db
+          .prepare(
+            `SELECT ${SubscriptionRepository.COLUMNS}
+               FROM tenant_subscriptions WHERE tenant_id = ?`,
+          )
+          .get(tenantId) as SubscriptionEntity | undefined;
+        return row ?? null;
+      } catch (error) {
+        throw new DatabaseError("Failed to load subscription", {
+          cause: error,
+          entityId: tenantId,
+        });
+      }
+    });
   }
 
   /**
@@ -100,22 +120,24 @@ export class SubscriptionRepository {
    * is UNIQUE, so at most one row can match.
    */
   getByLicenseKey(key: string): SubscriptionEntity | null {
-    try {
-      const row = this.db
-        .prepare(
-          `SELECT ${SubscriptionRepository.COLUMNS}
-             FROM tenant_subscriptions
-             /* tenant-exempt: the license key is the identity — no tenant
-                context exists until this lookup resolves one */
-            WHERE license_key = ?`,
-        )
-        .get(key) as SubscriptionEntity | undefined;
-      return row ?? null;
-    } catch (error) {
-      throw new DatabaseError("Failed to load subscription by license key", {
-        cause: error,
-      });
-    }
+    return runWithoutTenant(() => {
+      try {
+        const row = this.db
+          .prepare(
+            `SELECT ${SubscriptionRepository.COLUMNS}
+               FROM tenant_subscriptions
+               /* tenant-exempt: the license key is the identity — no tenant
+                  context exists until this lookup resolves one */
+              WHERE license_key = ?`,
+          )
+          .get(key) as SubscriptionEntity | undefined;
+        return row ?? null;
+      } catch (error) {
+        throw new DatabaseError("Failed to load subscription by license key", {
+          cause: error,
+        });
+      }
+    });
   }
 
   /**
@@ -129,43 +151,74 @@ export class SubscriptionRepository {
     tenantId: number,
     data: UpdateSubscriptionData = {},
   ): SubscriptionEntity {
-    try {
-      this.db
-        .prepare(
-          `INSERT INTO tenant_subscriptions
-             (tenant_id, plan, status, current_period_end, grace_ends_at,
-              license_key, entitled_modules, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(tenant_id) DO NOTHING`,
-        )
-        .run(
-          tenantId,
-          data.plan ?? "standard",
-          data.status ?? "active",
-          data.current_period_end ?? null,
-          data.grace_ends_at ?? null,
-          data.license_key ?? null,
-          data.entitled_modules ?? null,
-          data.notes ?? null,
-        );
+    return runWithoutTenant(() => {
+      try {
+        this.db
+          .prepare(
+            `INSERT INTO tenant_subscriptions
+               (tenant_id, plan, status, current_period_end, grace_ends_at,
+                license_key, entitled_modules, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(tenant_id) DO NOTHING`,
+          )
+          .run(
+            tenantId,
+            data.plan ?? "standard",
+            data.status ?? "active",
+            data.current_period_end ?? null,
+            data.grace_ends_at ?? null,
+            data.license_key ?? null,
+            data.entitled_modules ?? null,
+            data.notes ?? null,
+          );
 
-      const row = this.getByTenantId(tenantId);
-      if (!row) {
-        // Neither inserted nor found: the caller would otherwise carry on with
-        // a tenant that has no commercial state and no error to explain it.
-        throw new DatabaseError(
-          "Subscription row missing immediately after insert",
-          { entityId: tenantId },
-        );
+        // getByTenantId() also calls runWithoutTenant() — nesting is safe
+        // (the inner scope's bypass extent ends when its callback returns).
+        const row = this.getByTenantId(tenantId);
+        if (!row) {
+          // Neither inserted nor found: the caller would otherwise carry on
+          // with a tenant that has no commercial state and no error to
+          // explain it.
+          throw new DatabaseError(
+            "Subscription row missing immediately after insert",
+            { entityId: tenantId },
+          );
+        }
+        return row;
+      } catch (error) {
+        if (error instanceof DatabaseError) throw error;
+        throw new DatabaseError("Failed to create subscription", {
+          cause: error,
+          entityId: tenantId,
+        });
       }
-      return row;
-    } catch (error) {
-      if (error instanceof DatabaseError) throw error;
-      throw new DatabaseError("Failed to create subscription", {
-        cause: error,
-        entityId: tenantId,
-      });
-    }
+    });
+  }
+
+  /**
+   * Removes the subscription row for `tenantId`. Used by the per-tenant-mode
+   * tenant-storage provisioner (`backend/src/database/
+   * perTenantStorageProvisioner.ts`) to roll back a failed provisioning
+   * attempt (§ 12.2's two-step create) and, on delete, to remove the
+   * platform row after the tenant's own database file has already been
+   * archived (B-D4). `runWithoutTenant`-wrapped for the same reason
+   * `createForTenant` is: this table is control-plane, global by nature, and
+   * a caller should not need to already be in a bypass scope for this one
+   * write to land in the right (platform) place.
+   */
+  deleteForTenant(tenantId: number): void {
+    runWithoutTenant(() => {
+      try {
+        this.db
+          .prepare(`DELETE FROM tenant_subscriptions WHERE tenant_id = ?`)
+          .run(tenantId);
+      } catch (error) {
+        throw new DatabaseError("Failed to delete tenant subscription row", {
+          cause: error,
+          entityId: tenantId,
+        });
+      }
+    });
   }
 
   /**
@@ -199,21 +252,23 @@ export class SubscriptionRepository {
 
     if (sets.length === 0) return this.getByTenantId(tenantId);
 
-    try {
-      this.db
-        .prepare(
-          `UPDATE tenant_subscriptions
-              SET ${sets.join(", ")}, updated_at = CURRENT_TIMESTAMP
-            WHERE tenant_id = ?`,
-        )
-        .run(...params, tenantId);
-      return this.getByTenantId(tenantId);
-    } catch (error) {
-      throw new DatabaseError("Failed to update subscription", {
-        cause: error,
-        entityId: tenantId,
-      });
-    }
+    return runWithoutTenant(() => {
+      try {
+        this.db
+          .prepare(
+            `UPDATE tenant_subscriptions
+                SET ${sets.join(", ")}, updated_at = CURRENT_TIMESTAMP
+              WHERE tenant_id = ?`,
+          )
+          .run(...params, tenantId);
+        return this.getByTenantId(tenantId);
+      } catch (error) {
+        throw new DatabaseError("Failed to update subscription", {
+          cause: error,
+          entityId: tenantId,
+        });
+      }
+    });
   }
 
   /**
@@ -226,57 +281,62 @@ export class SubscriptionRepository {
     tenant_name: string;
     tenant_slug: string;
   })[] {
-    try {
-      return this.db
-        .prepare(
-          `SELECT s.id, s.tenant_id, s.plan, s.status, s.current_period_end,
-                  s.grace_ends_at, s.license_key, s.entitled_modules, s.notes,
-                  s.created_at, s.updated_at,
-                  t.name AS tenant_name, t.slug AS tenant_slug
-             FROM tenant_subscriptions s
-             /* tenant-exempt: control-plane sweep across every tenant */
-             JOIN tenants t ON t.id = s.tenant_id
-            ORDER BY t.name COLLATE NOCASE`,
-        )
-        .all() as (SubscriptionEntity & {
-        tenant_name: string;
-        tenant_slug: string;
-      })[];
-    } catch (error) {
-      throw new DatabaseError("Failed to list subscriptions", { cause: error });
-    }
+    return runWithoutTenant(() => {
+      try {
+        return this.db
+          .prepare(
+            `SELECT s.id, s.tenant_id, s.plan, s.status, s.current_period_end,
+                    s.grace_ends_at, s.license_key, s.entitled_modules, s.notes,
+                    s.created_at, s.updated_at,
+                    t.name AS tenant_name, t.slug AS tenant_slug
+               FROM tenant_subscriptions s
+               /* tenant-exempt: control-plane sweep across every tenant */
+               JOIN tenants t ON t.id = s.tenant_id
+              ORDER BY t.name COLLATE NOCASE`,
+          )
+          .all() as (SubscriptionEntity & {
+          tenant_name: string;
+          tenant_slug: string;
+        })[];
+      } catch (error) {
+        throw new DatabaseError("Failed to list subscriptions", {
+          cause: error,
+        });
+      }
+    });
   }
 
   /**
    * Every module key that can be sold, for the owner's plan editor.
    *
-   * Derived from the `modules` rows rather than a hand-kept list in the
-   * frontend: the seed in `create_db.sql` is the real catalogue, and a
-   * second copy would silently omit whatever module was added last (rule
-   * 14). `is_system = 0` excludes the chassis, which is not for sale --
-   * the same distinction `UNGATEABLE_MODULES` encodes on the read side.
+   * Derived from `MODULE_SEED_ROWS` (`TenantRepository.ts`) — the single TS
+   * constant that is already the real catalogue for freshly-provisioned
+   * tenants (rule 14) — rather than querying each shop's own `modules`
+   * table. Two reasons this moved off SQL, both from
+   * PRODUCTION_DATABASE_AND_HOSTING_PLAN.md § 12/12.2: (a) per-tenant DB mode
+   * gives this repository no single `modules` table to query at all — each
+   * shop has its own file; (b) even in shared mode, a module added AFTER a
+   * tenant was provisioned only reaches that tenant's `modules` row via a
+   * migration's `INSERT OR IGNORE` — an old per-shop query could still omit
+   * a module every EXISTING tenant's row predates. The constant is always
+   * current.
    *
-   * DISTINCT because `modules` is per-tenant: ten tenants means ten rows
+   * No DISTINCT/dedup needed: unlike the per-tenant `modules` table (one row
+   * per key PER TENANT), `MODULE_SEED_ROWS` already holds exactly one row
    * per key.
    */
   listSellableModuleKeys(): string[] {
-    try {
-      const rows = this.db
-        .prepare(
-          `SELECT DISTINCT key
-             FROM modules
-             /* tenant-exempt: the catalogue of sellable modules is a
-                platform-wide fact, not one tenant's configuration */
-            WHERE is_system = 0
-            ORDER BY key`,
-        )
-        .all() as { key: string }[];
-      return rows.map((r) => r.key);
-    } catch (error) {
-      throw new DatabaseError("Failed to list sellable modules", {
-        cause: error,
-      });
-    }
+    return runWithoutTenant(() => {
+      try {
+        return MODULE_SEED_ROWS.filter((row) => row.isSystem === 0)
+          .map((row) => row.key)
+          .sort();
+      } catch (error) {
+        throw new DatabaseError("Failed to list sellable modules", {
+          cause: error,
+        });
+      }
+    });
   }
   /**
    * Subscriptions whose period has run out but that are still `active`, and
@@ -291,34 +351,36 @@ export class SubscriptionRepository {
     toGrace: SubscriptionEntity[];
     toReadOnly: SubscriptionEntity[];
   } {
-    try {
-      const select = (where: string) =>
-        this.db
-          .prepare(
-            `SELECT ${SubscriptionRepository.COLUMNS}
-               FROM tenant_subscriptions
-               /* tenant-exempt: control-plane sweep across every tenant */
-              WHERE ${where}`,
-          )
-          .all(nowIso) as SubscriptionEntity[];
+    return runWithoutTenant(() => {
+      try {
+        const select = (where: string) =>
+          this.db
+            .prepare(
+              `SELECT ${SubscriptionRepository.COLUMNS}
+                 FROM tenant_subscriptions
+                 /* tenant-exempt: control-plane sweep across every tenant */
+                WHERE ${where}`,
+            )
+            .all(nowIso) as SubscriptionEntity[];
 
-      return {
-        toGrace: select(
-          `status = 'active'
-             AND current_period_end IS NOT NULL
-             AND current_period_end <= ?`,
-        ),
-        toReadOnly: select(
-          `status = 'grace'
-             AND grace_ends_at IS NOT NULL
-             AND grace_ends_at <= ?`,
-        ),
-      };
-    } catch (error) {
-      throw new DatabaseError("Failed to find lapsed subscriptions", {
-        cause: error,
-      });
-    }
+        return {
+          toGrace: select(
+            `status = 'active'
+               AND current_period_end IS NOT NULL
+               AND current_period_end <= ?`,
+          ),
+          toReadOnly: select(
+            `status = 'grace'
+               AND grace_ends_at IS NOT NULL
+               AND grace_ends_at <= ?`,
+          ),
+        };
+      } catch (error) {
+        throw new DatabaseError("Failed to find lapsed subscriptions", {
+          cause: error,
+        });
+      }
+    });
   }
 }
 
@@ -330,7 +392,7 @@ let instance: SubscriptionRepository | null = null;
 
 export function getSubscriptionRepository(): SubscriptionRepository {
   if (!instance) {
-    instance = new SubscriptionRepository(getDatabase());
+    instance = new SubscriptionRepository();
   }
   return instance;
 }

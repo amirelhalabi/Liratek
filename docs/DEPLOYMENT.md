@@ -255,6 +255,22 @@ from migrated settings, and `platformHost` is correct on both hosts.
 every tenant login at once, and there are now _two_ hops (Vercel then Fly)
 against `trust proxy` = 1. It works — measured, not assumed.
 
+**Per-tenant database mode (Phase A, not yet turned on).** Two env vars,
+both optional, both no-ops until Phase D actually splits tenants into their
+own files (`PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 11):
+
+- `TENANT_DB_MODE` — `shared` (default, today's single `DATABASE_PATH` file)
+  or `per-tenant` (routes each request's `runWithTenant(id)` scope to
+  `<TENANT_DATABASES_DIR>/<id>.db`; a bypass or no-tenant-scope request keeps
+  using `DATABASE_PATH` as the platform/control-plane database).
+- `TENANT_DATABASES_DIR` — defaults to a `tenants/` directory next to
+  `DATABASE_PATH` (e.g. `/data/tenants` alongside `/data/liratek.db` on Fly).
+  A missing tenant file is a hard error, never auto-created.
+
+Leave both unset in production until Phase C (provisioning) and Phase D
+(the actual data move) are done — flipping `TENANT_DB_MODE` today with no
+tenant files on disk would just make every request 500.
+
 ### Things that bit, recorded so they don't again
 
 - **The image had never built.** The root `postinstall` runs

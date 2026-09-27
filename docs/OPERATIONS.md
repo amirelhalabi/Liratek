@@ -163,6 +163,41 @@ credential. Check the endpoint before the token.
 
 ---
 
+## Per-tenant database mode (not live yet)
+
+`TENANT_DB_MODE` (`shared` default, `per-tenant`) and `TENANT_DATABASES_DIR`
+are wired end to end — boot-time migration of every shop file, a Litestream
+`dir` replica for the tenants directory, an empty-volume restore attempt, and
+a deploy-verifier check for the per-tenant boot marker — but **nothing sets
+`TENANT_DB_MODE=per-tenant` today**; production stays on `shared` until
+Phase D actually splits the file. See
+`docs/plans/ongoing_plans/PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 12.4 for
+the full runbook (split tool, file layout, restore drill, rollback) when that
+day comes. **Unverified**: whether `litestream restore` resolves a
+`dir`-configured replica for a tenant file that does not yet exist locally
+the same way it resolves the single-file `path` replica above — flagged
+clearly in § 12.4, not assumed.
+
+**Two boot-time guards protect the flip itself** (§ 12.4), so setting the env
+var without having run the split doesn't take every shop down silently:
+
+- **Safety lock.** Before installing per-tenant routing, the backend checks
+  whether the platform database still holds shop data (i.e. the split never
+  ran). If it does, per-tenant mode is REFUSED — the app keeps running in
+  `shared` mode in every respect, logs one ERROR line
+  (`Per-tenant mode REFUSED: platform database still holds shop data — run
+  the Phase D split first`), and the deploy verifier hard-fails on that line.
+  It never crashes the process — a crash-loop on the one Fly machine would
+  itself take every shop offline.
+- **Completeness check.** Once per-tenant mode IS active, the boot-time
+  `"Tenant databases migrated"` line now also carries `missing` /
+  `missingIds` — active/suspended tenants with no `<id>.db` file found on
+  disk. `scripts/deploy-api.mjs` fails the deploy on a non-zero `missing`
+  count (and on an old boot log that doesn't report `missing` at all — that
+  shape predates this check and can't be trusted). Tenants mid-provision
+  (`provisioning`) and stray files with no matching tenant row (orphans) are
+  logged as warnings only, never a failure.
+
 ## Rollback
 
 The cutover was one DNS record, so is the rollback: point `api.liratek.shop`

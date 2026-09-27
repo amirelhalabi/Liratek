@@ -15,13 +15,18 @@ export interface SettingEntity {
  * Does not extend BaseRepository since it uses key_name as the primary identifier
  */
 export class SettingsRepository {
-  protected db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
   // Define explicit columns instead of SELECT *
   private readonly columns = "id, key_name, value, created_at, updated_at";
 
-  constructor() {
-    this.db = getDatabase();
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  protected get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   /**

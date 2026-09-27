@@ -13,7 +13,6 @@
  */
 
 import type Database from "better-sqlite3";
-import { getDatabase } from "../db/connection.js";
 
 // Re-export all types from specialized repos
 export type {
@@ -103,7 +102,15 @@ export class LotoRepository {
   private checkpoints: LotoCheckpointRepository;
   private cashPrizes: LotoCashPrizeRepository;
 
-  constructor(db: Database.Database) {
+  /**
+   * `db` is an explicit override for tests only. Left undefined (the
+   * default, including the singleton path below), each sub-repository
+   * resolves its own connection live on every access instead of freezing on
+   * whichever one was current when this facade was built (§ 11.2) — passing
+   * a already-resolved handle down at construction time would just move the
+   * same capture bug one level deeper.
+   */
+  constructor(db?: Database.Database) {
     this.tickets = new LotoTicketRepository(db);
     this.settings = new LotoSettingsRepository(db);
     this.monthlyFees = new LotoMonthlyFeeRepository(db);
@@ -289,7 +296,7 @@ let lotoRepositoryInstance: LotoRepository | null = null;
 
 export function getLotoRepository(): LotoRepository {
   if (!lotoRepositoryInstance) {
-    lotoRepositoryInstance = new LotoRepository(getDatabase());
+    lotoRepositoryInstance = new LotoRepository();
   }
   return lotoRepositoryInstance;
 }

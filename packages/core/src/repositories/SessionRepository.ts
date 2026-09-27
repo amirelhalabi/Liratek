@@ -213,42 +213,30 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
   }
 
   /**
-   * Validate session by token (checks expiration AND tenant status)
-   * Returns session (including its tenant_id) if valid; null if expired,
-   * not found, or belonging to a suspended/archived tenant.
+   * Validate session by token (checks expiration only — NOT tenant status).
+   * Returns session (including its tenant_id) if valid; null if expired or
+   * not found.
    *
    * Runs BEFORE tenant context exists (the middleware establishes context
    * from this very validation), so the lookup is global by the random
-   * 64-char token. The tenant gate is folded into the same query via a
-   * LEFT JOIN on the control-plane `tenants` table: a suspended tenant's
-   * existing sessions stop working immediately, not just at next login.
-   * Platform-realm sessions (tenant_id NULL) skip the tenant gate.
+   * 64-char token.
+   *
+   * Deliberately does NOT gate on tenant status: this method's SQL stays
+   * scoped to whichever single file the session ROW lives in (the shop's own
+   * file, per `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 12.1 B-D1), and
+   * once `TENANT_DB_MODE=per-tenant` is set that file's own `tenants` row is
+   * only a MIRROR (§ 12.2) — a `LEFT JOIN` here would silently read the
+   * mirror instead of the platform row a super admin's suspend action
+   * actually changes, exactly the bug this split fixes. The tenant-status
+   * gate now lives in `AuthService.validateSession`, which asks
+   * `UserRepository.getTenantStatus()` — the one method that forces platform
+   * scope (`runWithoutTenant`) regardless of the caller's ambient scope.
    */
   validateSession(token: string): SessionEntity | null {
     try {
-      const query = `
-        SELECT s.id, s.user_id, s.token, s.device_type, s.device_info, s.ip_address,
-               s.remember_me, s.created_at, s.last_activity_at, s.expires_at, s.tenant_id,
-               t.status AS tenant_status
-        /* tenant-exempt: session token is globally unique; tenant enforcement happens at JWT/middleware layer */
-        FROM ${this.tableName} s
-        LEFT JOIN tenants t ON t.id = s.tenant_id
-        WHERE s.token = ?
-      `;
-      const row = this.queryOne<
-        SessionEntity & {
-          tenant_status: "active" | "suspended" | "archived" | null;
-        }
-      >(query, token);
-      if (!row) {
-        return null;
-      }
-
-      const { tenant_status, ...session } = row;
-
-      // Suspended/archived tenant: reject WITHOUT deleting — the session may
-      // become valid again if the tenant is re-activated before it expires.
-      if (session.tenant_id !== null && tenant_status !== "active") {
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: session token is globally unique; tenant enforcement happens at JWT/middleware layer, and tenant STATUS is gated separately by AuthService against the platform row */ WHERE token = ?`;
+      const session = this.queryOne<SessionEntity>(query, token);
+      if (!session) {
         return null;
       }
 

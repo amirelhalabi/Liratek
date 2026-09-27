@@ -1,5 +1,5 @@
 import { BaseRepository } from "./BaseRepository.js";
-import { getCurrentTenantId } from "../db/tenantContext.js";
+import { getCurrentTenantId, isTenantBypass } from "../db/tenantContext.js";
 
 // =============================================================================
 // Types
@@ -67,8 +67,21 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
 
   /**
    * Insert an audit log entry. Returns the new row ID.
+   *
+   * `tenant_id`: `getCurrentTenantId()` inside an explicit
+   * `runWithoutTenant()` bypass — the platform's own control-plane calls
+   * (`AuditService.logAdminAction()`'s platform-row write) — so a NULL
+   * `tenant_id` row lands in whichever database is currently in scope (the
+   * platform file, once resolved that way). Any OTHER unscoped call (no
+   * `runWithTenant()` and no explicit bypass) still throws, same as before:
+   * a forgotten wrapper must stay a loud failure, not a silent NULL-tenant
+   * row (B-D3; this also used to be why subscription-change/license-key
+   * audit rows were silently dropped — `AuditService.log()` swallows the
+   * throw — see `logAdminAction()`, which now wraps its platform write in
+   * `runWithoutTenant()` explicitly instead of relying on ambient scope).
    */
   log(data: CreateAuditLogData): number {
+    const tenantId = isTenantBypass() ? null : getCurrentTenantId();
     const stmt = this.db.prepare(`
       INSERT INTO audit_log
         (user_id, username, role, action, entity_type, entity_id,
@@ -89,7 +102,7 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
       data.new_values ? JSON.stringify(data.new_values) : null,
       data.metadata ? JSON.stringify(data.metadata) : null,
       data.impersonator_id ?? null,
-      getCurrentTenantId(),
+      tenantId,
     );
     return Number(result.lastInsertRowid);
   }

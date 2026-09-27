@@ -26,10 +26,22 @@ export interface CategoryUpdateOptions {
 }
 
 export class CategoryRepository {
-  private db: Database.Database;
+  /**
+   * Explicit override for tests only. The default (`undefined`) resolves
+   * `getDatabase()` live on every access via the `db` getter below — never
+   * captured once at construction time. A process-wide singleton built while
+   * one tenant's connection was current must keep following whichever
+   * connection is current on each call, not freeze on its first one (Phase A,
+   * `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 11.2).
+   */
+  private readonly _db?: Database.Database;
 
-  constructor() {
-    this.db = getDatabase();
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   getAll(): ProductCategory[] {
@@ -137,4 +149,9 @@ let instance: CategoryRepository | null = null;
 export function getCategoryRepository(): CategoryRepository {
   if (!instance) instance = new CategoryRepository();
   return instance;
+}
+
+/** Reset the singleton (for testing) */
+export function resetCategoryRepository(): void {
+  instance = null;
 }

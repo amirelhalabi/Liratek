@@ -146,15 +146,29 @@ describe("SessionRepository — how long a login lasts", () => {
     ).toBeUndefined();
   });
 
-  it("refuses a session whose tenant is no longer active, whatever its expiry", () => {
+  // The "suspended tenant -> session rejected, not deleted" behavior used to
+  // be asserted HERE, against a `LEFT JOIN tenants` inside
+  // `SessionRepository.validateSession()` itself. It has been relocated to
+  // `AuthService.validateSession()` (PRODUCTION_DATABASE_AND_HOSTING_PLAN.md
+  // § 12/B-D1): once `TENANT_DB_MODE=per-tenant` is set, this repository's
+  // query is scoped to whichever single file the session ROW lives in (the
+  // shop's own file), and that file's own `tenants` row is only a MIRROR —
+  // joining against it would read stale data instead of the platform row a
+  // super admin's suspend action actually changes. `validateSession()` here
+  // now checks ONLY token + expiry; the status gate lives in
+  // `AuthService.validateSession()`, which asks
+  // `UserRepository.getTenantStatus()` (forced to platform scope) instead.
+  // The exact behavior this test used to guard — reject without deleting,
+  // and a re-activated tenant revives the same session — is now proven at
+  // that layer by
+  // `services/__tests__/AuthService.platformTenantStatus.test.ts` (tests
+  // (a)/(b)/(c), each shown failing against the pre-fix code first, per rule
+  // 17). This suite instead confirms the repository method no longer reads
+  // `tenants` at all: a suspended row here has NO effect on its own.
+  it("no longer gates on tenant status itself — a suspended tenants row here has no effect (that gate moved to AuthService)", () => {
     const session = create(true);
     db.prepare("UPDATE tenants SET status = 'suspended' WHERE id = 5").run();
 
-    // Revocation must not depend on the lifetime numbers above.
-    expect(repo.validateSession(session.token)).toBeNull();
-    // Rejected, but NOT deleted — re-activating the tenant restores it.
-    expect(
-      db.prepare("SELECT id FROM sessions WHERE token = ?").get(session.token),
-    ).toBeDefined();
+    expect(repo.validateSession(session.token)).not.toBeNull();
   });
 });

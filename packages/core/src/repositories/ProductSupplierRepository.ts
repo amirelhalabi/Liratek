@@ -28,10 +28,15 @@ export interface ProductSupplierItem {
 const COLUMNS = "id, name, sort_order, is_active, supplier_id, created_at";
 
 export class ProductSupplierRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
-  constructor() {
-    this.db = getDatabase();
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   getAll(): ProductSupplier[] {

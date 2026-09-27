@@ -27,7 +27,14 @@ import { TELECOM_CREDIT_COST_RATE_LBP } from "../utils/telecomCredit.js";
 // Types
 // =============================================================================
 
-export type TenantStatus = "active" | "suspended" | "archived";
+/**
+ * 'provisioning' (migration v187) is a transient PLATFORM-only status: the
+ * window between the registry row committing and the shop's own database
+ * file existing (per-tenant mode only — see `perTenantStorageProvisioner.ts`
+ * in the backend). Login already refuses anything but 'active'
+ * (backend/src/api/auth.ts), so this needs no separate enforcement here.
+ */
+export type TenantStatus = "provisioning" | "active" | "suspended" | "archived";
 
 export interface TenantEntity {
   id: number;
@@ -338,10 +345,15 @@ export const MODULE_SEED_ROWS: ModuleSeedRow[] = [
 // =============================================================================
 
 export class TenantRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
-  constructor(db: Database.Database) {
-    this.db = db;
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   create(data: CreateTenantData): TenantEntity {
@@ -479,6 +491,74 @@ export class TenantRepository {
         .all() as TenantWithStats[];
     } catch (error) {
       throw new DatabaseError("Failed to list tenants", { cause: error });
+    }
+  }
+
+  /**
+   * Every tenant registry row, WITHOUT the cross-tenant stats subqueries
+   * `listAll()` runs. Used by `TenantStatsService` in per-tenant mode, where
+   * `listAll()`'s subqueries would read the (empty, in that mode) PLATFORM
+   * copies of `users`/`transactions`/`sessions`/`audit_log` instead of each
+   * shop's own file — harmless (the caller overwrites user_count/
+   * last_activity from a per-shop fan-out anyway, see `getShopStats` below)
+   * but pure waste, and confusing to read stats columns here that this
+   * method makes no attempt to fill in correctly. Shared mode never calls
+   * this — `listAll()` is already complete there.
+   */
+  listAllRows(): TenantEntity[] {
+    try {
+      return this.db
+        .prepare(`SELECT * FROM tenants ORDER BY id ASC`)
+        .all() as TenantEntity[];
+    } catch (error) {
+      throw new DatabaseError("Failed to list tenant rows", { cause: error });
+    }
+  }
+
+  /**
+   * The SAME two stats `listAll()` computes per row (active user count, most
+   * recent of transactions/sessions/audit_log activity — see that method's
+   * doc comment for the full "why datetime()" / COALESCE-then-NULLIF
+   * rationale, unchanged here), but for a SINGLE tenant, queried from
+   * whatever database is ambient when this is called.
+   *
+   * Per-tenant mode's use (`TenantStatsService`): call this from INSIDE
+   * `runWithTenant(tenantId, ...)`, so `this.db` resolves to that shop's OWN
+   * file — at which point every row in it already belongs to `tenantId` (§
+   * 11.4 decision A-D1: a shop's file keeps its real id on every row), so
+   * `tenantId` is passed explicitly as the query parameter rather than
+   * re-deriving it from context, keeping this repository's "no ambient
+   * tenant id" rule (this class never calls `getCurrentTenantId()`) intact.
+   */
+  getShopStats(tenantId: number): {
+    user_count: number;
+    last_activity: string | null;
+  } {
+    try {
+      return this.db
+        .prepare(
+          `
+          SELECT
+            (SELECT COUNT(*) FROM users u WHERE u.tenant_id = ? AND u.is_active = 1) AS user_count,
+            NULLIF(
+              MAX(
+                COALESCE((SELECT MAX(datetime(tr.created_at))      FROM transactions tr WHERE tr.tenant_id = ?), ''),
+                COALESCE((SELECT MAX(datetime(s.last_activity_at)) FROM sessions s      WHERE s.tenant_id  = ?), ''),
+                COALESCE((SELECT MAX(datetime(a.created_at))       FROM audit_log a     WHERE a.tenant_id  = ?), '')
+              ),
+              ''
+            ) AS last_activity
+          `,
+        )
+        .get(tenantId, tenantId, tenantId, tenantId) as {
+        user_count: number;
+        last_activity: string | null;
+      };
+    } catch (error) {
+      throw new DatabaseError("Failed to compute tenant stats", {
+        cause: error,
+        entityId: tenantId,
+      });
     }
   }
 
@@ -670,6 +750,87 @@ export class TenantRepository {
       throw new DatabaseError("Failed to delete tenant", {
         cause: error,
         entityId: tenantId,
+      });
+    }
+  }
+
+  /**
+   * Removes ONLY the platform `tenants` row for `id` — no cascade, no
+   * tenant-scoped table cleanup. Used exclusively by the per-tenant-mode
+   * storage provisioner (`backend/src/database/perTenantStorageProvisioner.ts`):
+   *
+   *   - rolling back a FAILED provisioning attempt (§ 12.2's two-step
+   *     create) — the failed tenant never had any tenant-scoped rows in the
+   *     PLATFORM file to begin with, its would-be data lived only in the temp
+   *     file that same rollback already deleted;
+   *   - finishing a successful per-tenant DELETE, after the tenant's own
+   *     database file has already been archived (B-D4).
+   *
+   * `deleteTenantCascade` is deliberately NOT reused for either case: in
+   * per-tenant mode it would scan and (no-op) "clear" every PLATFORM table
+   * that holds none of this tenant's data, and report a misleading
+   * tablesCleared/rowsDeleted count for an operation whose real effect is a
+   * file build/archive, not a row cascade.
+   */
+  deleteRegistryRow(id: number): void {
+    try {
+      this.db.prepare(`DELETE FROM tenants WHERE id = ?`).run(id);
+    } catch (error) {
+      throw new DatabaseError("Failed to delete tenant registry row", {
+        cause: error,
+        entityId: id,
+      });
+    }
+  }
+
+  /**
+   * Raises `tenants`' own AUTOINCREMENT high-water mark (`sqlite_sequence`)
+   * so the NEXT insert is guaranteed to produce an id strictly greater than
+   * `minId` — never lowers it. Used exclusively by the per-tenant-mode
+   * storage provisioner (`backend/src/database/perTenantStorageProvisioner.ts`)
+   * as the second half of the id-reuse-after-restore fix: `tenants.id` is
+   * AUTOINCREMENT so the platform file itself never reissues an id on its
+   * own, but the platform file and the `tenants/` directory (one file per
+   * shop, plus `archive/`) are replicated as two SEPARATE Litestream streams
+   * (§ 12.4). A platform-only restore rolls `sqlite_sequence` back to an
+   * older snapshot while shop files newer than that snapshot are untouched
+   * on disk — the very next ordinary provisioning call would otherwise
+   * silently reissue one of those ids and `createTenant()`'s rename would
+   * clobber that shop's live database (this is the exact scenario
+   * `tenantIdReuseAfterRestore.adversarial.test.ts` reproduces).
+   *
+   * The CALLER computes `minId` from a directory scan (every live `<id>.db`
+   * AND every archived `<id>-<timestamp>.db`, § 12.2 keeps that scan in the
+   * backend, not here) and MUST call this inside the same platform
+   * transaction that inserts the new `tenants` row, before that insert —
+   * this only edits SQLite's own bookkeeping table, so ordering is what
+   * makes it effective.
+   *
+   * `sqlite_sequence` has no declared UNIQUE index on `name` (it is SQLite's
+   * own internal table, not one this schema defines), so this cannot use an
+   * `ON CONFLICT` upsert: it updates the existing row if one exists for
+   * `tenants` — `max(seq, ?)` is the two-argument SCALAR `max()`, evaluated
+   * per row, never the aggregate — and falls back to inserting one only if
+   * `UPDATE` matched nothing (a `tenants` table that has never had an
+   * AUTOINCREMENT insert recorded, e.g. a schema built without ever seeding
+   * the desktop default row).
+   */
+  raiseSequenceFloor(minId: number): void {
+    try {
+      const result = this.db
+        .prepare(
+          `UPDATE sqlite_sequence SET seq = max(seq, ?) WHERE name = 'tenants'`,
+        )
+        .run(minId);
+      if (result.changes === 0) {
+        this.db
+          .prepare(`INSERT INTO sqlite_sequence (name, seq) VALUES ('tenants', ?)`)
+          .run(minId);
+      }
+    } catch (error) {
+      throw new DatabaseError("Failed to raise the tenants autoincrement floor", {
+        cause: error,
+        entityId: minId,
       });
     }
   }
@@ -1015,7 +1176,7 @@ let instance: TenantRepository | null = null;
 
 export function getTenantRepository(): TenantRepository {
   if (!instance) {
-    instance = new TenantRepository(getDatabase());
+    instance = new TenantRepository();
   }
   return instance;
 }

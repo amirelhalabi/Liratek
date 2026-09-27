@@ -103,12 +103,15 @@ export class InventoryService {
   private stockBatchRepo: StockBatchRepository;
   /**
    * Injected override for the category repo, or `null` until the default
-   * singleton is resolved on first use. Deliberately NOT resolved in the
-   * constructor like the three above: `CategoryRepository`'s constructor
-   * grabs a live `getDatabase()` handle (it is not a `BaseRepository`, which
-   * reads the handle per query), and this service is constructed by
-   * read-only callers — and by unit tests with partially mocked repos —
-   * that never touch categories.
+   * singleton is resolved on first use. Not resolved eagerly in the
+   * constructor like the three above: this service is constructed by
+   * read-only callers — and by unit tests with partially mocked repos — that
+   * never touch categories, so there is no reason to build the singleton
+   * (`getCategoryRepository()`) if nothing will call it. (`CategoryRepository`
+   * itself now reads `getDatabase()` live on every access, not once at
+   * construction — see § 11.2 of PRODUCTION_DATABASE_AND_HOSTING_PLAN.md —
+   * so this lazy resolution is purely an avoid-unnecessary-work choice now,
+   * not a correctness requirement.)
    */
   private categoryRepoRef: CategoryRepository | null;
 

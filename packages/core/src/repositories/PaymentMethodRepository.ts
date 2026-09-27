@@ -49,10 +49,15 @@ const COLUMNS =
   "id, code, label, drawer_name, affects_drawer, sort_order, is_active, is_system, created_at";
 
 export class PaymentMethodRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
-  constructor() {
-    this.db = getDatabase();
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   /** Get all payment methods ordered by sort_order */

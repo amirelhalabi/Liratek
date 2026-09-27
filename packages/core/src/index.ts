@@ -4,6 +4,25 @@ export * from "./db/dbKey.js";
 export * from "./db/sqlcipher.js";
 export * from "./db/connection.js";
 export * from "./db/tenantContext.js";
+// Per-tenant connection pool (Phase A) — uses `fs`, Node-only. Exported from
+// THIS entry point alone; never add it to browser.ts (rule 29).
+export * from "./db/tenantDatabasePool.js";
+// Shop-id listing contract (Wave 2 prep, § 12.2/§ 12.3 W3). Pure (no Node
+// imports), but exported from this entry point only — nothing in the
+// frontend needs it today, and keeping it out of browser.ts avoids growing
+// that bundle's surface for no reason.
+export * from "./db/tenantDatabaseIds.js";
+// Phase D split tool (§ 12.3, offline CLI use only) — uses `fs`/`path`,
+// Node-only. Never add to browser.ts.
+export * from "./db/tenantSplit.js";
+// Safety lock: is the platform database still holding shop data (split not
+// run yet)? (§ 12.4, ticket item 1). Imports `tenantSplit.js`, so it is
+// transitively Node-only too — never add to browser.ts.
+export * from "./db/platformSplitGuard.js";
+// Platform-db tenant-id listing (§ 12.4, ticket item 2) — pure (no Node
+// imports at all, not even better-sqlite3 at runtime), but exported here
+// only; nothing in the frontend needs it.
+export * from "./db/listTenantIds.js";
 // Migration system (runner infrastructure; migrations added post-production)
 export * from "./db/migrations/index.js";
 

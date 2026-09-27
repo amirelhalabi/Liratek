@@ -50,7 +50,8 @@ export interface SessionTransaction {
 let repositoryInstance: CustomerSessionRepository | null = null;
 
 export class CustomerSessionRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
   private tableName = "customer_sessions";
   private transactionsTableName = "customer_session_transactions";
   private cartTableName = "session_cart_items";
@@ -64,7 +65,11 @@ export class CustomerSessionRepository {
     "id, session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id, created_at";
 
   constructor(db?: Database.Database) {
-    this.db = db ?? getDatabase();
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   /**

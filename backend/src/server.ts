@@ -107,6 +107,7 @@ app.use("/api/", apiLimiter); // General API rate limiting
 import { invalidateOnMutation } from "./middleware/invalidateOnMutation.js";
 import { requireWritableSubscription } from "./middleware/requireWritableSubscription.js";
 import { startLapseSweep } from "./services/lapseSweep.js";
+import { startSessionSweep } from "./services/sessionSweep.js";
 app.use(invalidateOnMutation);
 
 // Block writes for a tenant whose subscription has lapsed to read_only.
@@ -296,6 +297,11 @@ httpServer.listen(PORT, HOST, () => {
   // Move lapsed subscriptions along. Idempotent and hourly, so a missed run
   // or a double run both equal one run -- see lapseSweep.ts.
   startLapseSweep();
+
+  // Purge expired/idle auth sessions from every database this process
+  // serves (platform + every tenant file in per-tenant mode). Idempotent
+  // and every 5 minutes, matching desktop's own sweep -- see sessionSweep.ts.
+  startSessionSweep();
 });
 
 // Graceful shutdown

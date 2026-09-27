@@ -34,10 +34,15 @@ export interface LotoMonthlyFeeCreate {
 }
 
 export class LotoMonthlyFeeRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
-  constructor(db: Database.Database) {
-    this.db = db;
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   createMonthlyFee(data: LotoMonthlyFeeCreate): LotoMonthlyFee {
@@ -159,7 +164,7 @@ let instance: LotoMonthlyFeeRepository | null = null;
 
 export function getLotoMonthlyFeeRepository(): LotoMonthlyFeeRepository {
   if (!instance) {
-    instance = new LotoMonthlyFeeRepository(getDatabase());
+    instance = new LotoMonthlyFeeRepository();
   }
   return instance;
 }

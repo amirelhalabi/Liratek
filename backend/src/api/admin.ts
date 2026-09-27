@@ -21,10 +21,12 @@ import jwt from "jsonwebtoken";
 import {
   getTenantRepository,
   getTenantProvisioningService,
+  getTenantStatsService,
   getSubscriptionService,
   getUserRepository,
   getSessionRepository,
   getAuditRepository,
+  getAuditService,
   runWithoutTenant,
   runWithTenant,
   createErrorResponse,
@@ -44,7 +46,6 @@ import {
 } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
 import { logger } from "../server.js";
-import { auditRest } from "../middleware/audit.js";
 import {
   provisionTenantDomain,
   deprovisionTenantDomain,
@@ -71,7 +72,13 @@ router.use(authenticateJWT, requireSuperAdmin);
 
 router.get("/tenants", (_req, res) => {
   try {
-    const tenants = runWithoutTenant(() => getTenantRepository().listAll());
+    // TenantStatsService fans out per-shop in per-tenant mode (each shop's
+    // user_count/last_activity now live in ITS OWN file) and falls straight
+    // through to TenantRepository.listAll() unchanged in shared mode —
+    // see that service's header comment.
+    const tenants = runWithoutTenant(() =>
+      getTenantStatsService().listAllWithStats(),
+    );
     res.json(createSuccessResponse({ tenants }));
   } catch (error) {
     logger.error({ error }, "GET /api/admin/tenants failed");
@@ -105,26 +112,24 @@ router.post("/tenants", validateRequest(createTenantSchema), (req, res) => {
     );
 
     // No IPC precedent (desktop has no tenant-provisioning channel) — new
-    // vocabulary per the ticket: action=create, entity_type=tenant. The
-    // acting super_admin has tenantId===null (platform realm), so the row
-    // is written under the newly-created tenant's own context, same as the
-    // impersonate audit below.
+    // vocabulary per the ticket: action=create, entity_type=tenant.
     //
-    // Routed through `auditRest` (-> AuditService.log(), never throws)
-    // rather than calling AuditRepository.log() directly: the tenant is
-    // ALREADY committed by this point, so a raw repository call that throws
-    // on a write failure would incorrectly turn an already-successful
-    // provisioning into a false HTTP 500 (LIRA-104 adversarial-review
-    // blocker fix). `runWithTenant` is still required — a super_admin actor
-    // has no ambient tenant context of its own.
-    runWithTenant(tenant.id, () => {
-      auditRest(req, {
-        action: "create",
-        entity_type: "tenant",
-        entity_id: String(tenant.id),
-        summary: `Provisioned tenant "${tenant.name}"`,
-        new_values: { name: tenant.name, slug: tenant.slug },
-      });
+    // B-D3: `logAdminAction()` never throws (matches the old `auditRest`
+    // contract — the tenant is ALREADY committed by this point, so an audit
+    // write failure must not turn an already-successful provisioning into a
+    // false HTTP 500, LIRA-104) and now writes BOTH the platform's own
+    // durable record (`tenant_id NULL`) and a shop-note row inside the new
+    // tenant's own file.
+    getAuditService().logAdminAction({
+      actorUserId: req.user!.userId,
+      actorUsername: req.user!.username,
+      actorRole: req.user!.role,
+      targetTenantId: tenant.id,
+      action: "create",
+      entityType: "tenant",
+      entityId: String(tenant.id),
+      summary: `Provisioned tenant "${tenant.name}"`,
+      newValues: { name: tenant.name, slug: tenant.slug },
     });
 
     // Same automatic subdomain as self-service signup -- a tenant the
@@ -196,21 +201,19 @@ router.patch(
       }
 
       // No IPC precedent — new vocabulary per the ticket: action=update,
-      // entity_type=tenant. Written under the target tenant's own context
-      // (same rationale as the create route above).
-      //
-      // Routed through `auditRest` (non-throwing) rather than
-      // AuditRepository.log() directly — same rationale as POST /tenants
-      // above: the update is already committed, so an audit-write failure
-      // must not surface as a false HTTP 500.
-      runWithTenant(id, () => {
-        auditRest(req, {
-          action: "update",
-          entity_type: "tenant",
-          entity_id: String(id),
-          summary: `Updated tenant "${tenant.name}"`,
-          new_values: req.body,
-        });
+      // entity_type=tenant. Same B-D3 rationale as POST /tenants above: the
+      // update is already committed, so a non-throwing write is required,
+      // and both a platform row and a shop note are written.
+      getAuditService().logAdminAction({
+        actorUserId: req.user!.userId,
+        actorUsername: req.user!.username,
+        actorRole: req.user!.role,
+        targetTenantId: id,
+        action: "update",
+        entityType: "tenant",
+        entityId: String(id),
+        summary: `Updated tenant "${tenant.name}"`,
+        newValues: req.body,
       });
 
       res.json(createSuccessResponse({ tenant }));
@@ -289,7 +292,10 @@ router.post("/tenants/:id/impersonate", (req, res) => {
       return;
     }
 
-    const tenantAdmin = runWithoutTenant(() =>
+    // The shop admin lives in the TARGET SHOP's own file (per-tenant mode),
+    // not the platform file — `findFirstActiveAdminByTenant`'s explicit
+    // `tenant_id = ?` predicate stays as a second fence either way.
+    const tenantAdmin = runWithTenant(tenantId, () =>
       getUserRepository().findFirstActiveAdminByTenant(tenantId),
     );
     if (!tenantAdmin) {
@@ -306,9 +312,11 @@ router.post("/tenants/:id/impersonate", (req, res) => {
 
     // Real, revocable DB session for the TENANT ADMIN (not the super admin) —
     // validateSession/logout work exactly like any other session (plan §5
-    // step 4). tenant_id is the target tenant, denormalized like every
-    // session row.
-    const impersonationSession = runWithoutTenant(() =>
+    // step 4). B-D1: the session lives in the SHOP's own file (the JWT's
+    // signed `tenantId` claim is what routes the later session check there),
+    // so this write must land in the shop scope, not the platform bypass.
+    // tenant_id is still denormalized onto the row, like every session row.
+    const impersonationSession = runWithTenant(tenantId, () =>
       getSessionRepository().createSession({
         user_id: tenantAdmin.id,
         device_type: "impersonation",
@@ -330,7 +338,36 @@ router.post("/tenants/:id/impersonate", (req, res) => {
       expiresIn: IMPERSONATION_TOKEN_TTL,
     });
 
-    // Audit row lives in the TARGET tenant's realm.
+    // B-D3: two rows, same as every other admin action.
+    //
+    // Platform row — the durable control-plane record, actor = the super
+    // admin's OWN (valid, platform-file) identity, target shop folded into
+    // metadata.
+    runWithoutTenant(() => {
+      getAuditRepository().log({
+        user_id: superAdmin.userId,
+        username: superAdmin.username,
+        role: "super_admin",
+        action: "IMPERSONATION_START",
+        entity_type: "tenant",
+        entity_id: String(tenantId),
+        summary: `Super admin ${superAdmin.username} connected as ${tenantAdmin.username}`,
+        metadata: {
+          targetTenantId: tenantId,
+          tenantAdminId: tenantAdmin.id,
+          tenantAdminUsername: tenantAdmin.username,
+        },
+      });
+    });
+
+    // Shop-note row — lives in the TARGET tenant's own file, recorded under
+    // the tenant admin's OWN (valid, shop-file) identity, same as before.
+    // `impersonator_id` is now ALWAYS NULL (never the super admin's platform
+    // id, which does not exist as a `users` row in the shop's file and would
+    // violate the FK the moment this runs against a real per-tenant
+    // database) — the impersonator's identity is preserved in `metadata`
+    // instead, so a future audit viewer can still show "impersonated by X"
+    // without an FK.
     runWithTenant(tenantId, () => {
       getAuditRepository().log({
         user_id: tenantAdmin.id,
@@ -340,7 +377,11 @@ router.post("/tenants/:id/impersonate", (req, res) => {
         entity_type: "session",
         entity_id: String(impersonationSession.id),
         summary: `Super admin ${superAdmin.username} connected as ${tenantAdmin.username}`,
-        impersonator_id: superAdmin.userId,
+        impersonator_id: null,
+        metadata: {
+          impersonatedBy: superAdmin.username,
+          impersonatorUserId: superAdmin.userId,
+        },
       });
     });
 
@@ -509,17 +550,26 @@ router.patch("/subscriptions/:tenantId", (req, res) => {
 
     const after = runWithoutTenant(() => service.statusFor(tenantId));
 
-    auditRest(req, {
+    // B-D3 + the pre-existing dropped-audit bug: this call used to go through
+    // `auditRest` with NO scope wrapping at all, so `AuditRepository.log()`'s
+    // `getCurrentTenantId()` threw and `AuditService.log()` silently
+    // swallowed it -- the row was NEVER written. `logAdminAction()` wraps its
+    // platform write in `runWithoutTenant()` explicitly, so it now lands.
+    getAuditService().logAdminAction({
+      actorUserId: req.user!.userId,
+      actorUsername: req.user!.username,
+      actorRole: req.user!.role,
+      targetTenantId: tenantId,
       action: "update",
-      entity_type: "subscription",
-      entity_id: String(tenantId),
+      entityType: "subscription",
+      entityId: String(tenantId),
       summary: `Updated subscription for tenant ${tenantId}`,
-      // Explicit snapshots rather than the view object: auditRest stores
-      // Record<string, unknown>, and naming the fields also keeps the audit
-      // row stable if the view type later grows something that should not be
-      // written to a trail the tenant's own admin can read.
-      old_values: auditSnapshot(before),
-      new_values: auditSnapshot(after),
+      // Explicit snapshots rather than the view object: naming the fields
+      // keeps the audit row stable if the view type later grows something
+      // that should not be written to a trail the tenant's own admin can
+      // read.
+      oldValues: auditSnapshot(before),
+      newValues: auditSnapshot(after),
     });
 
     res.json(createSuccessResponse({ subscription: after }));
@@ -559,15 +609,21 @@ router.post("/subscriptions/:tenantId/license-key", (req, res) => {
       getSubscriptionService().setLicenseKey(tenantId, key),
     );
 
-    auditRest(req, {
+    // Same dropped-audit bug and B-D3 fix as PATCH /subscriptions/:tenantId
+    // above -- this write used to be silently lost.
+    getAuditService().logAdminAction({
+      actorUserId: req.user!.userId,
+      actorUsername: req.user!.username,
+      actorRole: req.user!.role,
+      targetTenantId: tenantId,
       action: "update",
-      entity_type: "subscription",
-      entity_id: String(tenantId),
+      entityType: "subscription",
+      entityId: String(tenantId),
       summary: `Issued a new licence key for tenant ${tenantId}`,
       // The KEY ITSELF is never audited -- an audit row is readable by
       // the tenant's own admin through the audit viewer, which would hand
       // them the credential this is meant to control.
-      new_values: { licenseKeyIssued: true },
+      newValues: { licenseKeyIssued: true },
     });
 
     res.json(createSuccessResponse({ licenseKey: key }));
@@ -631,15 +687,17 @@ router.patch("/tenants/:id/slug", async (req, res) => {
     }
     const domain = await provisionTenantDomain(tenant.slug);
 
-    runWithTenant(id, () => {
-      auditRest(req, {
-        action: "update",
-        entity_type: "tenant",
-        entity_id: String(id),
-        summary: `Renamed tenant slug "${before.slug}" to "${tenant.slug}"`,
-        old_values: { slug: before.slug },
-        new_values: { slug: tenant.slug },
-      });
+    getAuditService().logAdminAction({
+      actorUserId: req.user!.userId,
+      actorUsername: req.user!.username,
+      actorRole: req.user!.role,
+      targetTenantId: id,
+      action: "update",
+      entityType: "tenant",
+      entityId: String(id),
+      summary: `Renamed tenant slug "${before.slug}" to "${tenant.slug}"`,
+      oldValues: { slug: before.slug },
+      newValues: { slug: tenant.slug },
     });
 
     res.json(createSuccessResponse({ tenant, domain }));
@@ -693,14 +751,16 @@ router.delete("/tenants/:id", async (req, res) => {
       return;
     }
 
-    runWithTenant(id, () => {
-      auditRest(req, {
-        action: "delete",
-        entity_type: "tenant",
-        entity_id: String(id),
-        summary: `Permanently deleted tenant "${tenant.name}" (${tenant.slug})`,
-        old_values: { name: tenant.name, slug: tenant.slug },
-      });
+    getAuditService().logAdminAction({
+      actorUserId: req.user!.userId,
+      actorUsername: req.user!.username,
+      actorRole: req.user!.role,
+      targetTenantId: id,
+      action: "delete",
+      entityType: "tenant",
+      entityId: String(id),
+      summary: `Permanently deleted tenant "${tenant.name}" (${tenant.slug})`,
+      oldValues: { name: tenant.name, slug: tenant.slug },
     });
 
     const result = runWithoutTenant(() =>

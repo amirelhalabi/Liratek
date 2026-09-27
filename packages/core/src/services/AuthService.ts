@@ -217,8 +217,19 @@ export class AuthService {
    * This whole path runs BEFORE tenant context exists (the backend middleware
    * derives the request's tenant context FROM this validation), so every
    * lookup here is deliberately global: session by token, activity refresh on
-   * the already-validated row, user by id. Suspended-tenant sessions are
-   * rejected inside sessionRepo.validateSession (tenant-status join).
+   * the already-validated row, user by id. Suspended/archived-tenant sessions
+   * are rejected HERE, against `userRepo.getTenantStatus()` — the one method
+   * that forces PLATFORM scope internally, never the ambient scope the
+   * caller happens to be running in. That distinction is the entire point:
+   * session validation itself runs inside the shop's own `runWithTenant`
+   * scope (B-D1), and once `TENANT_DB_MODE=per-tenant` is set, a status read
+   * against that ambient scope would land on the shop file's local `tenants`
+   * MIRROR row, not the platform row a super admin's suspend action actually
+   * changes (`PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 12.2). Keeping the
+   * gate here (service = policy, rule 13) rather than folding it back into
+   * `SessionRepository.validateSession`'s SQL keeps that repository's query
+   * scoped to the single file its session row lives in, with no join across
+   * files it cannot make.
    *
    * DELIBERATELY NO try/catch here (SESSION_RESILIENCE_AND_DEVICES_PLAN.md
    * Part 1). `null` means exactly one thing to every caller: THIS SESSION IS
@@ -245,6 +256,19 @@ export class AuthService {
 
     if (!session) {
       return null;
+    }
+
+    // Tenant realm gate: a suspended/archived tenant's existing sessions
+    // stop working immediately, not just at next login — reject WITHOUT
+    // deleting, so the session can revive on reactivation before it expires
+    // (same semantics the old in-file JOIN preserved, now read from the
+    // platform row instead of whatever file is in ambient scope). Platform
+    // sessions (tenant_id NULL, super_admin) skip the check entirely.
+    if (session.tenant_id !== null) {
+      const tenantStatus = this.userRepo.getTenantStatus(session.tenant_id);
+      if (tenantStatus !== "active") {
+        return null;
+      }
     }
 
     // Update activity timestamp (on the validated row — no tenant-scoped

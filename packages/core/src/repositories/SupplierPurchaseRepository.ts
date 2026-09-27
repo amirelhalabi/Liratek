@@ -32,10 +32,15 @@ const STATUS_CASE = `
 `;
 
 export class SupplierPurchaseRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
-  constructor(db: Database.Database) {
-    this.db = db;
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   create(data: CreateSupplierPurchaseData): SupplierPurchase {
@@ -127,7 +132,7 @@ export class SupplierPurchaseRepository {
 let instance: SupplierPurchaseRepository | null = null;
 
 export function getSupplierPurchaseRepository(): SupplierPurchaseRepository {
-  if (!instance) instance = new SupplierPurchaseRepository(getDatabase());
+  if (!instance) instance = new SupplierPurchaseRepository();
   return instance;
 }
 

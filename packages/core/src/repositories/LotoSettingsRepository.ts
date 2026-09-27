@@ -16,10 +16,15 @@ export interface LotoSetting {
 }
 
 export class LotoSettingsRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
-  constructor(db: Database.Database) {
-    this.db = db;
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   getSettings(): Map<string, string> {
@@ -63,7 +68,7 @@ let instance: LotoSettingsRepository | null = null;
 
 export function getLotoSettingsRepository(): LotoSettingsRepository {
   if (!instance) {
-    instance = new LotoSettingsRepository(getDatabase());
+    instance = new LotoSettingsRepository();
   }
   return instance;
 }

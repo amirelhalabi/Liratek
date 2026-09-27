@@ -29,10 +29,15 @@ export interface ModuleEntity {
 // =============================================================================
 
 export class ModuleRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
-  constructor() {
-    this.db = getDatabase();
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   /** Get all modules ordered by sort_order */

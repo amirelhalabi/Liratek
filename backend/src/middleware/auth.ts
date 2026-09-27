@@ -4,6 +4,7 @@ import { logger } from "../server.js";
 import {
   getAuthService,
   runWithTenant,
+  runWithoutTenant,
   JWT_SECRET,
   JWT_EXPIRES_IN,
 } from "@liratek/core";
@@ -220,9 +221,28 @@ export function authenticateJWT(
     }
 
     // Every request validates the DB session — no signature-only fast path.
+    //
+    // Scoped by the JWT's OWN signed `tenantId` claim (plan § 12.1 B-D1): a
+    // shop's sessions live in that shop's own database file once per-tenant
+    // routing is live, so the lookup must be routed there BEFORE it runs, not
+    // after — routing it afterward (from whatever `user.tenant_id` comes
+    // back) would search the wrong file in the first place, since
+    // `validateSession`'s internal calls (token lookup, activity touch, the
+    // global user fetch) are exactly the calls `getDatabase()` resolves per
+    // request. `null` (super_admin/platform token, enforced by
+    // `parseJwtPayload`) resolves to the platform database via
+    // `runWithoutTenant()` — never the ambient ("no scope") ALS state, which
+    // in `per-tenant` mode is what THIS very check exists to stop meaning "the
+    // platform file by accident".
     const authService = getAuthService();
-    authService
-      .validateSession(payload.sessionToken)
+    const validateSessionScoped = (): Promise<SafeUser | null> =>
+      payload.tenantId === null
+        ? runWithoutTenant(() => authService.validateSession(payload.sessionToken))
+        : runWithTenant(payload.tenantId, () =>
+            authService.validateSession(payload.sessionToken),
+          );
+
+    validateSessionScoped()
       .then((user: SafeUser | null) => {
         if (!user) {
           logger.warn({ userId: payload.userId }, "Session expired or invalid");

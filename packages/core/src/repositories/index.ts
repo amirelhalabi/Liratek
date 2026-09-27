@@ -445,6 +445,7 @@ export type {
 export {
   CategoryRepository,
   getCategoryRepository,
+  resetCategoryRepository,
 } from "./CategoryRepository.js";
 export type { ProductCategory } from "./CategoryRepository.js";
 

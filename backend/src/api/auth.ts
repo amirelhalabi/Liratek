@@ -24,8 +24,10 @@ import {
   resolveTenantHost,
   isHostTenancyActive,
   NO_SUCH_REALM,
+  type TenantHostResolution,
 } from "../middleware/tenantHost.js";
 import { authenticateJWT, type LiratekJwtPayload } from "../middleware/auth.js";
+import { isPerTenantDbMode } from "../database/tenantDbMode.js";
 import { logger } from "../server.js";
 import jwt from "jsonwebtoken";
 
@@ -40,6 +42,66 @@ if (!JWT_SECRET) {
 
 const jwtSecret: string = JWT_SECRET;
 const jwtExpiresIn: string = JWT_EXPIRES_IN;
+
+/**
+ * Resolve BOTH (a) the realm `authService.login()` should search WITHIN (the
+ * LOOKUP realm — since v172 usernames are unique per tenant, not globally)
+ * and (b) the database scope the login call itself must run under (plan
+ * § 12.1 B-D2) — from the SAME host resolution, in one switch, so the two
+ * never drift apart (rule 14: a business predicate defined once).
+ *
+ * These answer different questions that happen to share one source: (a) is
+ * "which tenant_id should the username match", (b) is "which physical
+ * connection does `getDatabase()` hand back for every call login() makes"
+ * once per-tenant DB routing is live. In `per-tenant` mode they always agree:
+ * whichever tenant's users are being searched is also whose file the search
+ * must run against — a shop's users only ever exist in that shop's own file.
+ *
+ * `runInScope`'s generic parameter deliberately allows `Promise<T>`: the
+ * caller awaits the returned promise OUTSIDE the synchronous extent of
+ * `runWithTenant`/`runWithoutTenant`, exactly the way
+ * `middleware/auth.ts`'s `runWithTenant(tenantId, () => next())` already
+ * does for the rest of the request — Node's AsyncLocalStorage keeps the
+ * store bound to a promise's continuation regardless of where `.then`/
+ * `await` is written, not just to the synchronous callback passed to `run`.
+ */
+function resolveLoginRealmAndScope(realm: TenantHostResolution): {
+  /** `undefined` here means "omit `realm` from LoginOptions entirely" —
+   * `authService.login` treats an OMITTED realm differently from an
+   * explicit `null` (platform) (see `resolveWithoutRealm`). */
+  loginRealm: number | null | undefined;
+  runInScope: <T>(fn: () => T) => T;
+} {
+  if (!isHostTenancyActive(realm)) {
+    // Host-based tenancy is off (or a foreign/preview host) — no realm can
+    // be inferred from the host at all. login() falls back to inferring one
+    // from the username itself (resolveWithoutRealm), a control-plane-
+    // flavoured cross-tenant search, so it runs with no ambient tenant.
+    return { loginRealm: undefined, runInScope: (fn) => runWithoutTenant(fn) };
+  }
+
+  switch (realm.kind) {
+    case "tenant": {
+      const tenantId = realm.tenant.id;
+      return {
+        loginRealm: tenantId,
+        runInScope: (fn) => runWithTenant(tenantId, fn),
+      };
+    }
+    case "platform":
+      return { loginRealm: null, runInScope: (fn) => runWithoutTenant(fn) };
+    case "unknown":
+      // No tenant can match this subdomain, so the lookup is doomed
+      // regardless of scope — but NO_SUCH_REALM is not a real tenant id, and
+      // routing a per-tenant DB connection to it would throw (pool miss)
+      // instead of the clean "no such user" outcome. runWithoutTenant() runs
+      // the doomed lookup against the platform file, which always exists.
+      return {
+        loginRealm: NO_SUCH_REALM,
+        runInScope: (fn) => runWithoutTenant(fn),
+      };
+  }
+}
 
 // POST /api/auth/login
 router.post(
@@ -60,22 +122,43 @@ router.post(
       // scoped: with per-tenant usernames (v172), two shops can both have an
       // 'admin' and only the host says which one is being addressed.
       const realm = resolveTenantHost(req);
-      const realmScope: { realm?: number | null } = isHostTenancyActive(realm)
-        ? realm.kind === "tenant"
-          ? { realm: realm.tenant.id }
-          : realm.kind === "platform"
-            ? { realm: null }
-            : // unknown subdomain: no realm can match, so no lookup should succeed
-              { realm: NO_SUCH_REALM }
-        : {};
 
-      const result = await authService.login(username, password, {
-        ...realmScope,
-        rememberMe: rememberMe || false,
-        deviceType: "web",
-        deviceInfo: req.headers["user-agent"] || "Unknown",
-        ipAddress: req.ip || req.socket.remoteAddress,
-      });
+      // per-tenant DB mode has no cross-tenant username search to fall back
+      // on (each shop's users live in that shop's own file — there is no
+      // single table to search "every tenant" against). Without a realm the
+      // host resolved, refuse up front rather than let login() run
+      // resolveWithoutRealm() against whichever file happens to be ambient.
+      // Same generic error and no earlier branching than the realm check
+      // below already uses, so this adds no new way to probe a username.
+      if (isPerTenantDbMode() && !isHostTenancyActive(realm)) {
+        logger.warn(
+          { username },
+          "Login refused: no realm resolved from the host and per-tenant DB mode is active",
+        );
+        res
+          .status(401)
+          .json(
+            createErrorResponse(
+              ErrorCodes.INVALID_CREDENTIALS,
+              "Invalid credentials",
+            ),
+          );
+        return;
+      }
+
+      const { loginRealm, runInScope } = resolveLoginRealmAndScope(realm);
+      const realmScope: { realm?: number | null } =
+        loginRealm === undefined ? {} : { realm: loginRealm };
+
+      const result = await runInScope(() =>
+        authService.login(username, password, {
+          ...realmScope,
+          rememberMe: rememberMe || false,
+          deviceType: "web",
+          deviceInfo: req.headers["user-agent"] || "Unknown",
+          ipAddress: req.ip || req.socket.remoteAddress,
+        }),
+      );
 
       if (!result.success || !result.user || !result.token) {
         res
@@ -122,9 +205,12 @@ router.post(
 
         if (denied) {
           // login() already created a DB session; revoke it or the rejected
-          // attempt leaves a usable session row behind.
+          // attempt leaves a usable session row behind. Same DB scope as the
+          // login call that created it (per-tenant mode: the session row
+          // lives in that same tenant's file).
+          const sessionToken = result.token;
           try {
-            await authService.logout(result.token);
+            await runInScope(() => authService.logout(sessionToken));
           } catch {
             // best effort — the token is never returned to the client
           }
@@ -258,7 +344,21 @@ router.post("/logout", async (req, res): Promise<void> => {
         // Delete session from database if sessionToken exists
         if (decoded.sessionToken) {
           const authService = getAuthService();
-          await authService.logout(decoded.sessionToken);
+          const sessionToken = decoded.sessionToken;
+          // Scoped by the JWT's OWN tenantId claim (same rule as
+          // authenticateJWT's validateSession scoping, B-D1): the session
+          // row this deletes lives in that tenant's own file. `undefined`
+          // (a pre-tenantId-claim legacy token) is treated the same as
+          // `null` — there is no tenant to route to, so it falls back to the
+          // platform file, same as a real platform (super_admin) logout.
+          const sessionTenantId = decoded.tenantId ?? null;
+          if (sessionTenantId === null) {
+            await runWithoutTenant(() => authService.logout(sessionToken));
+          } else {
+            await runWithTenant(sessionTenantId, () =>
+              authService.logout(sessionToken),
+            );
+          }
           logger.info(
             { userId: decoded.userId },
             "User logged out, session deleted",

@@ -12690,6 +12690,217 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 187,
+    name: "tenants_status_provisioning",
+    description:
+      "PRODUCTION_DATABASE_AND_HOSTING_PLAN.md § 12.2/12.3 (Phase C, W4) — widens " +
+      "tenants.status's CHECK constraint from ('active','suspended','archived') to " +
+      "add 'provisioning'. Per-tenant-mode provisioning " +
+      "(backend/src/database/perTenantStorageProvisioner.ts, driven by " +
+      "TenantProvisioningService's injected TenantStorageProvisioner) needs a " +
+      "transient status for the window between the platform tenant-registry row " +
+      "being committed and the shop's own database file existing and being fully " +
+      "seeded — a request for a 'provisioning' tenant must be refused exactly like " +
+      "'suspended'/'archived' (login already denies on `status !== 'active'`, " +
+      "backend/src/api/auth.ts ~line 200 — unchanged by this migration). Requires a " +
+      "full table rebuild: SQLite cannot ALTER a CHECK constraint in place (house " +
+      "pattern — see v158's custom_services note on rebuild vs ALTER-with-CHECK). " +
+      "Rebuilds by capturing the table's OWN verbatim sqlite_master DDL text and " +
+      "swapping only the CHECK clause substring (house pattern — see v155's " +
+      "partners.system_association FK rebuild), then `INSERT INTO tenants_new " +
+      "SELECT * FROM tenants` — NOT a hardcoded 9-column list. An earlier version " +
+      "of this migration hardcoded `id, name, slug, status, contact_name, " +
+      "contact_phone, notes, created_at, updated_at` and broke two migration-runner " +
+      "test harnesses (telecomDaysCostMigrationsViaRunner.test.ts, " +
+      "PartnersSystemAssociationFkMigrationViaRunner.test.ts) that hand-build a " +
+      "MINIMAL `tenants` table (e.g. just `id, name`, or `id, name, slug, status` " +
+      "with no CHECK at all) to exercise an unrelated migration and then replay the " +
+      "whole chain via rollbackTo()/runMigrations() — 'no such column: slug' / 'no " +
+      "such column: contact_name'. The DDL-substitution approach preserves whatever " +
+      "columns/types/DEFAULTs/inline-UNIQUE actually exist, verbatim, and if the live " +
+      "DDL doesn't literally contain the exact narrow CHECK this migration targets " +
+      "(no `status` column, or one with no matching CHECK — exactly those two test " +
+      "fixtures), up()/down() skip rather than guess a shape to fabricate. On a real " +
+      "database (always created via the full migration chain from v123 onward, or " +
+      "via create_db.sql) the narrow CHECK is always present verbatim, so production " +
+      "behaviour is unchanged. AUTOINCREMENT continues correctly across the rebuild " +
+      "because sqlite_sequence tracks the largest ROWID ever inserted for the table " +
+      "NAME regardless of whether that ROWID came from an explicit INSERT (as this " +
+      "copy does) or an auto-assigned one. Every OTHER table's `REFERENCES " +
+      "tenants(id)` stays valid across the rename (matched by table NAME, not by " +
+      "object identity), and `runMigrations()` already runs the whole batch with " +
+      "`foreign_keys = OFF` (see the header comment near the bottom of this file), " +
+      "so the DROP + RENAME cannot trip a child table's FK mid-migration — a " +
+      "`PRAGMA foreign_key_check` self-guard after the rebuild fails loudly if it " +
+      "somehow did anyway (mirrors v123 §4 / v154 / v155). Shared mode and desktop " +
+      "are unaffected: 'provisioning' is simply never used there — every existing " +
+      "row's status is copied unchanged. Fresh installs (create_db.sql) declare the " +
+      "widened CHECK directly on the table, so this migration is a same-shape no-op " +
+      "on a fresh database (skip-guarded below), matching the v185 convention. " +
+      "down() rebuilds back to the narrower CHECK; it will fail loudly (CHECK " +
+      "violation on the copy) if a 'provisioning' row still exists at rollback time " +
+      "— correct, since there is no narrower status to fall back to automatically " +
+      "and picking one by guesswork would be a silent data decision.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "tenants")) {
+        console.log("Migration v187 skipped: 'tenants' table not present");
+        return;
+      }
+
+      const tbl = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tenants'`,
+        )
+        .get() as { sql: string } | undefined;
+      if (!tbl?.sql) {
+        console.log("Migration v187 skipped: 'tenants' table not present");
+        return;
+      }
+
+      const NARROW_CHECK =
+        "CHECK (status IN ('active', 'suspended', 'archived'))";
+      const WIDE_CHECK =
+        "CHECK (status IN ('provisioning', 'active', 'suspended', 'archived'))";
+      // Match the exact CHECK clause text, NOT a loose `.includes("'provisioning'")`
+      // — create_db.sql's own column comment for `status` (above the CHECK)
+      // literally contains the word 'provisioning' in prose, so a bare
+      // substring match on that word alone is a false positive: it would
+      // report "already applied" even right after down() has narrowed the
+      // CHECK back (the comment survives the DDL-text rebuild verbatim,
+      // only the CHECK clause itself is swapped) — caught by
+      // tenantsStatusProvisioning.fkIntegrity.test.ts's rollbackTo/
+      // runMigrations round-trip against the real create_db.sql schema.
+      if (tbl.sql.includes(WIDE_CHECK)) {
+        console.log(
+          "Migration v187 skipped: tenants.status already allows 'provisioning'",
+        );
+        return;
+      }
+      if (!tbl.sql.includes(NARROW_CHECK)) {
+        // Live `tenants` DDL doesn't verbatim contain the exact CHECK this
+        // migration targets — either no `status` column at all, or one with
+        // no matching CHECK (seen in migration-runner test harnesses that
+        // hand-build a MINIMAL `tenants` table to exercise a different
+        // migration and then replay the whole chain against it — see the
+        // description above). Nothing established to widen; skip rather than
+        // fabricate a shape.
+        console.log(
+          "Migration v187 skipped: tenants.status's CHECK is not the " +
+            "expected ('active','suspended','archived') shape — nothing to widen",
+        );
+        return;
+      }
+
+      // House pattern (v155): reuse the table's own verbatim DDL text and
+      // swap only the CHECK clause, rather than a hardcoded column list —
+      // preserves every existing column/type/DEFAULT/inline-UNIQUE exactly
+      // as-is, whatever they are.
+      let newSql = tbl.sql.replace(
+        /^CREATE TABLE (IF NOT EXISTS )?"?tenants"?\s*\(/,
+        "CREATE TABLE tenants_new (",
+      );
+      newSql = newSql.replace(NARROW_CHECK, WIDE_CHECK);
+
+      // Capture named indexes/triggers before the DROP (tenants has none
+      // beyond the inline UNIQUE(slug) autoindex today, recreated
+      // automatically by that clause in the rebuilt table — defensive,
+      // mirrors v154/v155).
+      const idx = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='tenants' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+      const triggers = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='tenants' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+
+      db.exec(newSql);
+      db.exec(`INSERT INTO tenants_new SELECT * FROM tenants;`);
+      db.exec(`DROP TABLE tenants;`);
+      db.exec(`ALTER TABLE tenants_new RENAME TO tenants;`);
+      for (const r of idx) db.exec(r.sql);
+      for (const r of triggers) db.exec(r.sql);
+
+      const fkViolations = db.pragma("foreign_key_check") as unknown[];
+      if (fkViolations.length > 0) {
+        throw new Error(
+          `Migration v187: foreign_key_check found ${fkViolations.length} violation(s) after rebuild: ${JSON.stringify(fkViolations)}`,
+        );
+      }
+
+      console.log(
+        "Migration v187: tenants.status CHECK widened to include 'provisioning'",
+      );
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "tenants")) {
+        console.log(
+          "Migration v187 rollback skipped: 'tenants' table not present",
+        );
+        return;
+      }
+
+      const tbl = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tenants'`,
+        )
+        .get() as { sql: string } | undefined;
+
+      const WIDE_CHECK =
+        "CHECK (status IN ('provisioning', 'active', 'suspended', 'archived'))";
+      if (!tbl?.sql?.includes(WIDE_CHECK)) {
+        console.log(
+          "Migration v187 rollback skipped: tenants.status does not currently allow 'provisioning'",
+        );
+        return;
+      }
+
+      const NARROW_CHECK =
+        "CHECK (status IN ('active', 'suspended', 'archived'))";
+      let newSql = tbl.sql.replace(
+        /^CREATE TABLE (IF NOT EXISTS )?"?tenants"?\s*\(/,
+        "CREATE TABLE tenants_new (",
+      );
+      newSql = newSql.replace(WIDE_CHECK, NARROW_CHECK);
+
+      const idx = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='tenants' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+      const triggers = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='tenants' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+
+      db.exec(newSql);
+      // Deliberately NOT filtered/rewritten: a 'provisioning' row hitting this
+      // INSERT's CHECK is a rollback that SHOULD fail loudly rather than
+      // silently guess a replacement status (see the migration description).
+      db.exec(`INSERT INTO tenants_new SELECT * FROM tenants;`);
+      db.exec(`DROP TABLE tenants;`);
+      db.exec(`ALTER TABLE tenants_new RENAME TO tenants;`);
+      for (const r of idx) db.exec(r.sql);
+      for (const r of triggers) db.exec(r.sql);
+
+      const fkViolations = db.pragma("foreign_key_check") as unknown[];
+      if (fkViolations.length > 0) {
+        throw new Error(
+          `Migration v187 rollback: foreign_key_check found ${fkViolations.length} violation(s) after rebuild: ${JSON.stringify(fkViolations)}`,
+        );
+      }
+
+      console.log(
+        "Migration v187 rolled back: tenants.status CHECK narrowed back to " +
+          "('active','suspended','archived')",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

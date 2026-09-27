@@ -37,3 +37,32 @@ dbs:
 
       access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
       secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+
+  # Per-tenant databases (`PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 10/§ 12).
+  # Harmless in `shared` mode (today's default): `TENANT_DATABASES_DIR` names
+  # a directory the entrypoint creates unconditionally before Litestream ever
+  # starts (`docker-entrypoint.sh`), so it always exists, and `watch: true`
+  # lets Litestream start against a directory with zero matching files —
+  # confirmed against the Litestream docs (litestream.io/guides/directory-watcher/,
+  # 2026-09-27): "static" directory replication (no `watch`) errors on an
+  # empty directory ("no SQLite databases found"), but the watcher explicitly
+  # tolerates it and picks up files as they appear, with no config reload and
+  # no restart. Once Phase D lands and shop files exist under this directory,
+  # each is replicated to its own `tenants/<id>.db/` prefix for free — nothing
+  # in the backup layer has to be told a tenant was created.
+  #
+  # `recursive` is deliberately left at its default (false): the tenants
+  # directory's own `archive/<id>-<timestamp>.db` subdirectory (deleted-shop
+  # archives, B-D4) must NOT be continuously replicated as if it were a live
+  # shop database — a non-recursive scan naturally excludes it.
+  - dir: ${TENANT_DATABASES_DIR}
+    pattern: "*.db"
+    watch: true
+    replica:
+      type: s3
+      bucket: ${LITESTREAM_BUCKET}
+      path: tenants
+      endpoint: ${LITESTREAM_ENDPOINT}
+      region: auto
+      access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+      secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}

@@ -125,10 +125,15 @@ export interface LotoTicketUpdate {
 }
 
 export class LotoTicketRepository {
-  private db: Database.Database;
+  /** Explicit override for tests only; default resolves live (§ 11.2). */
+  private readonly _db?: Database.Database;
 
-  constructor(db: Database.Database) {
-    this.db = db;
+  constructor(db?: Database.Database) {
+    this._db = db;
+  }
+
+  private get db(): Database.Database {
+    return this._db ?? getDatabase();
   }
 
   createTicket(data: LotoTicketCreate): LotoTicket {
@@ -716,7 +721,7 @@ let instance: LotoTicketRepository | null = null;
 
 export function getLotoTicketRepository(): LotoTicketRepository {
   if (!instance) {
-    instance = new LotoTicketRepository(getDatabase());
+    instance = new LotoTicketRepository();
   }
   return instance;
 }

@@ -23,6 +23,11 @@ import {
   getSubscriptionRepository,
   type SubscriptionRepository,
 } from "../repositories/SubscriptionRepository.js";
+import {
+  SharedTenantStorageProvisioner,
+  getTenantStorageProvisionerOverride,
+  type TenantStorageProvisioner,
+} from "./TenantStorageProvisioner.js";
 import { hashPassword, validatePasswordComplexity } from "../utils/crypto.js";
 import {
   ValidationError,
@@ -61,15 +66,38 @@ export class TenantProvisioningService {
   private tenantRepo: TenantRepository;
   private userRepo: UserRepository;
   private subscriptionRepo: SubscriptionRepository;
+  private storageProvisioner: TenantStorageProvisioner;
 
+  /**
+   * `storageProvisioner` resolution order:
+   *
+   *   1. explicitly passed in (tests that want to exercise a specific port
+   *      implementation, or a future caller with its own needs);
+   *   2. the process-wide override installed via `setTenantStorageProvisioner`
+   *      — only ever set by the backend, only in per-tenant mode;
+   *   3. a `SharedTenantStorageProvisioner` built from THIS service's own
+   *      `tenantRepo`/`userRepo`/`subscriptionRepo` (not fresh global
+   *      singletons) — so a caller that injects its own repos (every
+   *      existing test) gets byte-identical behaviour to before this port
+   *      existed, without needing to know the port exists at all.
+   */
   constructor(
     tenantRepo?: TenantRepository,
     userRepo?: UserRepository,
     subscriptionRepo?: SubscriptionRepository,
+    storageProvisioner?: TenantStorageProvisioner,
   ) {
     this.tenantRepo = tenantRepo ?? getTenantRepository();
     this.userRepo = userRepo ?? getUserRepository();
     this.subscriptionRepo = subscriptionRepo ?? getSubscriptionRepository();
+    this.storageProvisioner =
+      storageProvisioner ??
+      getTenantStorageProvisionerOverride() ??
+      new SharedTenantStorageProvisioner(
+        this.tenantRepo,
+        this.userRepo,
+        this.subscriptionRepo,
+      );
   }
 
   /**
@@ -120,47 +148,25 @@ export class TenantProvisioningService {
       }
       const passwordHash = hashPassword(data.adminPassword);
 
-      const tenant = this.tenantRepo.runInTransaction(() => {
-        const created = this.tenantRepo.create({
-          name,
-          slug,
-          contact_name: data.contactName?.trim() || null,
-          contact_phone: data.contactPhone?.trim() || null,
-          notes: data.notes?.trim() || null,
-        });
-
-        // shop_name seeds from the tenant's own name — see
-        // TenantRepository.seedConfig's doc comment for the one deliberate
-        // deviation from a byte-literal create_db.sql copy.
-        this.tenantRepo.seedConfig(created.id, name);
-
-        this.userRepo.createUser({
-          username: adminUsername,
-          password_hash: passwordHash,
-          role: "admin",
-          is_active: 1,
-          tenant_id: created.id,
-        });
-
-        // Commercial state, in the SAME transaction as the tenant row.
-        //
-        // Not a follow-up statement in the caller: a tenant that exists
-        // with no subscription is a tenant whose standing has to be
-        // GUESSED, and the guess is load-bearing (absent means full
-        // access, so a half-provisioned shop would silently be unlimited).
-        // Rolling both back together is the only state that cannot lie.
-        //
-        // active with a NULL period end, and NULL entitled_modules for
-        // every module: no trial, and no plan restriction until the owner
-        // sets one (SUBSCRIPTION_MANAGEMENT_PLAN.md D2/D6).
-        this.subscriptionRepo.createForTenant(created.id, {
-          plan: "standard",
-          status: "active",
-          current_period_end: null,
-          entitled_modules: null,
-        });
-
-        return created;
+      // Delegated to the injected port (TenantStorageProvisioner):
+      // shared-file mode does today's one-transaction commit (tenant row +
+      // config seed + admin user + subscription row, rolled back together —
+      // a tenant that exists with no subscription is a tenant whose
+      // standing has to be GUESSED, and the guess is load-bearing, so a
+      // half-provisioned shop would silently be unlimited); per-tenant mode
+      // builds a brand-new database file this service never needs to know
+      // exists. Either way the result is active, with a NULL period end and
+      // NULL entitled_modules for every module: no trial, and no plan
+      // restriction until the owner sets one
+      // (SUBSCRIPTION_MANAGEMENT_PLAN.md D2/D6).
+      const tenant = this.storageProvisioner.createTenant({
+        name,
+        slug,
+        contactName: data.contactName?.trim() || null,
+        contactPhone: data.contactPhone?.trim() || null,
+        notes: data.notes?.trim() || null,
+        adminUsername,
+        passwordHash,
       });
 
       tenantLogger.info(
@@ -210,7 +216,12 @@ export class TenantProvisioningService {
       );
     }
 
-    const result = this.tenantRepo.deleteTenantCascade(tenantId);
+    // Delegated to the injected port: shared-file mode does today's
+    // in-place cascade; per-tenant mode archives the tenant's own database
+    // file (B-D4) and only removes the platform rows once that archive has
+    // actually succeeded — see TenantStorageProvisioner.deleteTenant's doc
+    // comment for the ordering guarantee.
+    const result = this.storageProvisioner.deleteTenant(tenant);
     tenantLogger.warn(
       { tenantId, slug: tenant.slug, ...result },
       "Tenant permanently deleted",

@@ -12,6 +12,7 @@
  *   yarn api:verify     (the checks alone, no deploy)
  */
 import { fly, flyCapture } from "./fly.mjs";
+import { checkTenantMigrationLogs } from "./lib/tenantMigrationLogCheck.mjs";
 
 const HOST = "https://api.liratek.shop";
 const BASE_DOMAIN = "liratek.shop";
@@ -96,6 +97,25 @@ async function verify() {
   if (/Database is up to date|migrations applied/i.test(logs))
     ok("migrations applied");
   else bad("migration state unknown — boot line already out of the log window");
+
+  // 3b. Per-tenant boot migration + safety lock
+  // (`PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 12.2/§ 12.3 W3, § 12.4) —
+  // only meaningful once the deployed app is running
+  // `TENANT_DB_MODE=per-tenant`; in `shared` mode (today's default) neither
+  // marker is ever logged at all, so their absence is NOT a failure — same
+  // "log window" caveat as the two checks above applies to their PRESENCE,
+  // but unlike them, a present-and-bad marker IS a hard failure, not merely
+  // informational: "Tenant databases migrated" with a non-zero `failed` OR
+  // `missing` count, or the "Per-tenant mode REFUSED" safety-lock marker,
+  // each mean this deploy is not actually serving every shop, which is
+  // exactly the thing this step exists to catch before a human notices a
+  // shop is down. Parsing itself lives in `lib/tenantMigrationLogCheck.mjs`
+  // so it can be unit-tested against a fixed log string instead of only
+  // ever exercised against a real Fly deploy.
+  const tenantLogCheck = checkTenantMigrationLogs(logs);
+  failures.push(...tenantLogCheck.failures);
+  for (const m of tenantLogCheck.oks) ok(m);
+  for (const m of tenantLogCheck.infos) bad(m);
 
   // 4. Exactly one machine. Two writers on one SQLite file is corruption.
   const status = flyCapture(["status"]);

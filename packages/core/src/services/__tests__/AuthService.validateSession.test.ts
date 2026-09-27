@@ -55,6 +55,12 @@ function makeService(overrides: {
   touchActivity?: jest.Mock;
   findByIdGlobal?: jest.Mock;
   deleteByToken?: jest.Mock;
+  // W6 (PRODUCTION_DATABASE_AND_HOSTING_PLAN.md § 12/B-D): AuthService now
+  // gates on tenant status itself, reading it from `userRepo.getTenantStatus`
+  // (the one method that forces platform scope). Defaults to "active" so
+  // every pre-existing case here keeps exercising exactly what it did before
+  // that gate existed; tests about the gate itself override it.
+  getTenantStatus?: jest.Mock;
 }) {
   const sessionRepo = {
     validateSession: overrides.validateSession ?? jest.fn(),
@@ -64,6 +70,7 @@ function makeService(overrides: {
 
   const userRepo = {
     findByIdGlobal: overrides.findByIdGlobal ?? jest.fn(),
+    getTenantStatus: overrides.getTenantStatus ?? jest.fn(() => "active"),
   } as unknown as UserRepository;
 
   return {
@@ -159,5 +166,43 @@ describe("AuthService.validateSession — infrastructure errors propagate, inval
       tenant_id: 1,
     });
     expect(user).not.toHaveProperty("password_hash");
+  });
+
+  it("rejects a session whose tenant status is not active WITHOUT deleting it or touching activity", async () => {
+    const session = makeSession({ tenant_id: 5 });
+    const getTenantStatus = jest.fn(() => "suspended" as const);
+    const { service, sessionRepo, userRepo } = makeService({
+      validateSession: jest.fn(() => session),
+      getTenantStatus,
+    });
+
+    await expect(service.validateSession(session.token)).resolves.toBeNull();
+    expect(getTenantStatus).toHaveBeenCalledWith(5);
+    // Rejected, but NOT deleted (can revive on reactivation) and no wasted
+    // activity write on a session we're about to refuse.
+    expect(sessionRepo.deleteByToken).not.toHaveBeenCalled();
+    expect(sessionRepo.touchActivity).not.toHaveBeenCalled();
+    expect(userRepo.findByIdGlobal).not.toHaveBeenCalled();
+  });
+
+  it("never checks tenant status for a platform-realm session (tenant_id null)", async () => {
+    const session = makeSession({ tenant_id: null });
+    const getTenantStatus = jest.fn(() => "active" as const);
+    const { service } = makeService({
+      validateSession: jest.fn(() => session),
+      getTenantStatus,
+      findByIdGlobal: jest.fn(() => ({
+        id: 42,
+        username: "root",
+        password_hash: "SCRYPT:x",
+        role: "super_admin",
+        is_active: 1,
+        tenant_id: null,
+      })),
+    });
+
+    const user = await service.validateSession(session.token);
+    expect(getTenantStatus).not.toHaveBeenCalled();
+    expect(user?.role).toBe("super_admin");
   });
 });

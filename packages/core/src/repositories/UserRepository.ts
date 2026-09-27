@@ -6,7 +6,7 @@
  */
 
 import { BaseRepository, type FindOptions } from "./BaseRepository.js";
-import { getCurrentTenantId } from "../db/tenantContext.js";
+import { getCurrentTenantId, runWithoutTenant } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
 
 /**
@@ -128,24 +128,38 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
-   * Status of the tenant a user belongs to (login gate — suspended tenants
-   * cannot log in). `tenants` is a control-plane table (never tenant-scoped).
+   * Status of the tenant a user belongs to — the SINGLE place (rule 14) both
+   * the login gate (`AuthService.login`) and session validation
+   * (`AuthService.validateSession`) read tenant status from.
+   *
+   * Forces PLATFORM scope internally (`runWithoutTenant`), never trusting the
+   * caller's ambient scope: `tenants` is a control-plane table, and once
+   * `TENANT_DB_MODE=per-tenant` is set, each shop file keeps only a local
+   * MIRROR row that nobody updates when a super admin suspends the shop on
+   * the platform (`PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 12.2 — "the
+   * platform row is the truth"). A caller reached from inside the shop's own
+   * `runWithTenant(shopId)` scope (login runs there per B-D2; so does session
+   * validation, per B-D1) must still land on the platform file, not the
+   * shop's. In `shared` mode `runWithoutTenant()` still resolves to the one
+   * shared file, so this is a no-op there — behaviour is unchanged.
    */
   getTenantStatus(
     tenantId: number,
   ): "active" | "suspended" | "archived" | null {
-    try {
-      const query = `SELECT status FROM tenants WHERE id = ?`;
-      const row = this.queryOne<{
-        status: "active" | "suspended" | "archived";
-      }>(query, tenantId);
-      return row?.status ?? null;
-    } catch (error) {
-      throw new DatabaseError("Failed to load tenant status", {
-        cause: error,
-        entityId: tenantId,
-      });
-    }
+    return runWithoutTenant(() => {
+      try {
+        const query = `SELECT status FROM tenants /* tenant-exempt: control-plane status read, forced to platform scope regardless of the caller's ambient tenant */ WHERE id = ?`;
+        const row = this.queryOne<{
+          status: "active" | "suspended" | "archived";
+        }>(query, tenantId);
+        return row?.status ?? null;
+      } catch (error) {
+        throw new DatabaseError("Failed to load tenant status", {
+          cause: error,
+          entityId: tenantId,
+        });
+      }
+    });
   }
 
   /**

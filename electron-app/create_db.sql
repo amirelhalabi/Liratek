@@ -9,7 +9,12 @@ CREATE TABLE IF NOT EXISTS tenants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'archived')),
+    -- 'provisioning' (v187) is a transient platform-only status used by
+    -- per-tenant-mode provisioning (PRODUCTION_DATABASE_AND_HOSTING_PLAN.md
+    -- § 12.2) for the window between the registry row committing and the
+    -- shop's own database file existing; login denies it exactly like
+    -- 'suspended'/'archived' (backend/src/api/auth.ts, `status !== 'active'`).
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('provisioning', 'active', 'suspended', 'archived')),
     contact_name TEXT,
     contact_phone TEXT,
     notes TEXT,
@@ -2403,4 +2408,9 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- table declaration above already carries that column directly, so a
     -- fresh DB needs no separate ALTER — same shape as v185's marker note above.
     (185, 'custom_services_payout_direction'),
-    (186, 'session_member_paid_exchange_rate');
+    (186, 'session_member_paid_exchange_rate'),
+    -- v187 widens tenants.status's CHECK to add 'provisioning'; the fresh
+    -- table declaration above (near the top of this file) already carries
+    -- the widened CHECK directly, so a fresh DB needs no separate rebuild —
+    -- same shape as v185/v186's marker notes above.
+    (187, 'tenants_status_provisioning');
