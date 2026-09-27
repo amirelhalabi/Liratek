@@ -27,6 +27,16 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   Object.assign(globalThis, { ResizeObserver: ResizeObserverStub });
 }
 
+// `__APP_VERSION__` is a Vite `define` (vite.config.ts) — esbuild textually
+// substitutes it with the root package.json version at build time, so it
+// never exists as a real identifier in the shipped bundle. Jest has no such
+// substitution step, so any component that reads it (Sidebar's version
+// label) needs an actual global to resolve against, the same way the
+// ResizeObserver stub above exists only for tests.
+if (typeof (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ === "undefined") {
+  Object.assign(globalThis, { __APP_VERSION__: "0.0.0-test" });
+}
+
 // Reduce noisy console.error output during tests.
 // Tests should assert on error states rather than rely on console output.
 const originalConsoleError = console.error;

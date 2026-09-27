@@ -47,3 +47,6 @@ justified, not assumed:
   `electron-app/create_db.sql`; core build & sync; typecheck + lint.
 - Add an e2e or repo-level guard using delta + identity assertions (rule 15), and
   prove it FAILS on the pre-fix/pre-feature code (rule 17) before counting it.
+- Release note (rule 30): one plain-language line in `docs/release-notes/UNRELEASED.md`
+  saying what the cashier or owner now sees (no ticket ids, no code terms), plus a
+  "What users will notice" line in the ticket.

@@ -10,6 +10,8 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { ImpersonationBanner } from "@/features/admin/components/ImpersonationBanner";
 import { SubscriptionBanner } from "@/shared/components/SubscriptionBanner";
+import { WhatsNewModal } from "@/features/whatsNew/WhatsNewModal";
+import { useWhatsNew } from "@/features/whatsNew/useWhatsNew";
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -76,6 +78,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
   };
 
   const [checkpointDrawer, setCheckpointDrawer] = useState<string | null>(null);
+  // Mounted once, in the authenticated shell only (MainLayout is never
+  // rendered for /login or /signup — see App.tsx), on both desktop and web:
+  // it's pure frontend over a bundled JSON, no transport involved.
+  const whatsNew = useWhatsNew();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const { flags } = useFeatureFlags();
@@ -121,6 +127,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
       <LeftPanelLayout
         isSidebarCollapsed={isSidebarCollapsed}
         toggleSidebar={toggleSidebar}
+        onOpenWhatsNew={whatsNew.open}
       >
         {children}
       </LeftPanelLayout>
@@ -140,6 +147,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
           onClose={() => setCheckpointDrawer(null)}
         />
       )}
+      <WhatsNewModal
+        isOpen={whatsNew.isOpen}
+        onClose={whatsNew.dismiss}
+        entries={whatsNew.entries}
+      />
     </>
   );
 }

@@ -104,3 +104,7 @@ transaction(data);
 **Financial**: `financial_services` (OMT/Whish/IPEC/KATCH), `recharges` (MTC/Alfa), `loto_tickets`, `loto_settings`, `loto_monthly_fees`, `exchange_rates`, `expenses`, `maintenance_jobs`
 
 **System**: `modules`, `payment_methods`, `currencies`, `currency_modules`, `currency_drawers`, `schema_migrations`
+
+### Release note (rule 30)
+
+A migration by itself is invisible to users. If it ships a user-visible change, the feature that uses it owns the line in `docs/release-notes/UNRELEASED.md`. If the migration itself changes what users see, add the line here, e.g. restored data or a changed default.

@@ -69,6 +69,8 @@ const iconMap: Record<string, LucideIcon> = {
 interface SidebarProps {
   isCollapsed: boolean;
   toggleSidebar: () => void;
+  /** Reopens the "What's new" modal (owned by MainLayout). Omitted -> the version label stays plain text. */
+  onOpenWhatsNew?: () => void;
 }
 
 type NavItem = {
@@ -78,7 +80,11 @@ type NavItem = {
   prefetch?: () => void;
 };
 
-export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
+export default function Sidebar({
+  isCollapsed,
+  toggleSidebar,
+  onOpenWhatsNew,
+}: SidebarProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const { enabledModules } = useModules();
@@ -275,7 +281,19 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
       </nav>
 
       <div className="p-1 border-t border-slate-700 text-center text-xs text-slate-500 overflow-hidden">
-        <p>v{__APP_VERSION__}</p>
+        {onOpenWhatsNew ? (
+          <button
+            type="button"
+            onClick={onOpenWhatsNew}
+            aria-label="What's new"
+            title="What's new"
+            className="hover:text-violet-400 transition-colors"
+          >
+            v{__APP_VERSION__}
+          </button>
+        ) : (
+          <p>v{__APP_VERSION__}</p>
+        )}
       </div>
     </aside>
   );

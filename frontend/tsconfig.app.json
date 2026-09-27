@@ -16,6 +16,10 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    // whatsNew's releaseNotes.generated.json (scripts/build-release-notes.cjs)
+    // is imported as a static ES module — Vite bundles it natively, but tsc
+    // needs this to type-check the import.
+    "resolveJsonModule": true,
 
     /* Path aliases */
     "paths": {

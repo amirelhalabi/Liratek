@@ -136,6 +136,15 @@ Do NOT try to launch the app directly (`npx electron .`) to validate — it fail
 
     `src/__tests__/browserEntryIsNodeFree.guard.test.ts` walks the graph and fails with the offending import chain. Note what it deliberately does NOT follow: `export type { … } from "./repositories/…"` is erased at compile time, so type-only re-exports put nothing in the bundle — treating them as real edges reports every repository as an offender.
 
+30. **Every user-visible change writes its release note in the same change, and a session is not done until it has.**
+    - **Where:** add one line per change to `docs/release-notes/UNRELEASED.md`, under the right `## <emoji> Area` heading (POS, Transactions, Profits, Suppliers / OMT, MTC / Alfa, Debts, Inventory, Settings, Web app, …). Also put a "What users will notice:" line in the ticket in `current_sprint.md`.
+    - **Wording is for shop owners and cashiers:** what they now see or can do, and on which page. No ticket ids, no code terms, no internals. Say "web app" or "desktop app" when only one is affected.
+    - **Accuracy:** a fix that only applies to new entries says so ("from now on"). Never claim more than was built. Tests, docs, CI and refactors with no behaviour change get no line.
+    - **Owner decisions** that keep something as it is get no line either.
+    - **Where the notes end up.** `yarn release` moves the file's content into `docs/release-notes/vX.Y.Z.md`. That file then becomes the GitHub release body, which the desktop updater shows, and it regenerates the in-app "What's new" data (`scripts/build-release-notes.cjs`). CI fails if that data is stale.
+    - **WhatsApp copy:** `yarn release-notes:whatsapp <version|unreleased>` prints a version ready to paste.
+    - **Why this is a rule:** two weeks of changes once had to be rebuilt from commit history by two agents, because nobody wrote the note when the change was fresh. It is also the only channel through which desktop users learn what changed.
+
 ---
 
 ## Dual-Transport Architecture (Desktop IPC + Web REST)

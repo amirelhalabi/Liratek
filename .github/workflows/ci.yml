@@ -63,6 +63,12 @@ jobs:
       - name: Run ESLint
         run: yarn lint
 
+      # Cheap (no build, Node built-ins only) drift guard: fails if
+      # frontend/src/features/whatsNew/releaseNotes.generated.json is stale
+      # versus docs/release-notes/v*.md — see scripts/build-release-notes.cjs.
+      - name: Release notes drift check
+        run: node scripts/build-release-notes.cjs --check
+
   typecheck:
     name: TypeScript Check
     runs-on: ubuntu-latest

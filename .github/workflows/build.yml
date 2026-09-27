@@ -147,17 +147,37 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           TAG="${{ needs.prepare.outputs.tag }}"
+          # docs/release-notes/vX.Y.Z.md (written by `yarn release`, checked
+          # out above at the exact release ref) becomes the GitHub release
+          # body when it exists; --generate-notes is the fallback for a
+          # release with no curated notes (see scripts/build-release-notes.cjs).
+          NOTES_FILE="docs/release-notes/${TAG}.md"
+
           if gh release view "$TAG" &>/dev/null; then
             echo "Release $TAG already exists, ensuring it is a draft"
             gh release edit "$TAG" --draft
+            if [ -f "$NOTES_FILE" ]; then
+              echo "Updating release notes from $NOTES_FILE"
+              gh release edit "$TAG" --notes-file "$NOTES_FILE"
+            fi
           else
-            echo "Creating draft release $TAG"
-            gh release create "$TAG" \
-              --draft \
-              --title "LiraTek $TAG" \
-              --generate-notes \
-              --target "${{ needs.prepare.outputs.ref }}"
+            if [ -f "$NOTES_FILE" ]; then
+              echo "Creating draft release $TAG with notes from $NOTES_FILE"
+              gh release create "$TAG" \
+                --draft \
+                --title "LiraTek $TAG" \
+                --notes-file "$NOTES_FILE" \
+                --target "${{ needs.prepare.outputs.ref }}"
+            else
+              echo "Creating draft release $TAG (no $NOTES_FILE — using --generate-notes)"
+              gh release create "$TAG" \
+                --draft \
+                --title "LiraTek $TAG" \
+                --generate-notes \
+                --target "${{ needs.prepare.outputs.ref }}"
+            fi
           fi
 
   build-windows:

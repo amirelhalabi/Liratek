@@ -8,6 +8,7 @@
     "esModuleInterop": true,
     "verbatimModuleSyntax": false,
     "jsx": "react-jsx",
+    "resolveJsonModule": true,
     "types": ["node", "jest", "@testing-library/jest-dom", "vite/client"],
     "noEmit": true,
     "paths": {

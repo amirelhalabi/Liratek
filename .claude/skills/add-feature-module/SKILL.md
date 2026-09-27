@@ -48,3 +48,4 @@ When adding a new feature module, complete every step:
 - [ ] `yarn workspace @liratek/frontend test`
 - [ ] `yarn build`
 - [ ] `yarn dev` (manual smoke test)
+- [ ] Release note (rule 30): add a plain-language line to `docs/release-notes/UNRELEASED.md` under the right `## <emoji> Area` heading, and a "What users will notice" line in the ticket
