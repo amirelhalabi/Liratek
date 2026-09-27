@@ -762,6 +762,24 @@ yarn api:ssh
    Re-read the report: `ok: true`, `mismatches: []`, every `fileChecks` entry
    `foreignKeyViolations: 0` and `integrityCheck: "ok"`.
 
+   **If `foreignKeyViolations` is non-zero for a file**, that file's own
+   `foreignKeyViolationRows` (capped at the first 50 — `foreignKeyViolations`
+   itself is always the exact total, never capped) now names each offending
+   row: which table holds the dangling reference, its `rowid`, and which
+   parent table the missing row was expected in. This means the split
+   narrowed some table to one tenant's rows while another table that tenant
+   kept still points at a row that belonged to a DIFFERENT tenant and got
+   deleted out from under it — e.g. a shop-5 transaction whose `client_id`
+   references a client that only ever belonged to shop 1. **Do NOT proceed
+   past this** — moving a file with a dangling FK into `/data` ships a
+   database `PRAGMA integrity_check` already flagged as broken. Decide, per
+   listed row: is the reference itself wrong (a bug to fix in the shared
+   source file before re-splitting), or does it point at data that
+   legitimately needs to be duplicated/reassigned first? Either way, fix the
+   *shared* source file (never the split output — the output is disposable,
+   re-run from step 2's snapshot once the source is fixed), then repeat from
+   step 2.
+
 5. **Inspect the report**, then move the files into place (the tool refuses
    to write into `/data` directly — it only ever writes into an empty output
    directory you gave it, so this move is a separate, deliberate step):
@@ -837,6 +855,30 @@ yarn api:ssh
 over `/data/liratek.db` (delete its `-wal`/`-shm` first), redeploy. The
 shared-mode code path was never touched by any of this, so it is exactly as
 reliable as it was before Phase D started.
+
+**Any data entered during the per-tenant window before this rollback is
+discarded, not merged — there is no tool to recover it.** Every write made
+against `/data/tenants/*.db` while the app ran in per-tenant mode simply
+isn't in `liratek.db.pre-split-backup`, and nothing in this repo reconciles
+the two afterward (verified directly by the rehearsal below: a post-split
+client creation survives in the tenant file but is completely absent from
+the restored shared file, with no merge path anywhere). **Rollback is a last
+resort, not a routine undo; it is only clean before shops start working** —
+once real shop activity has happened in per-tenant mode, rolling back means
+choosing to lose it.
+
+**Rehearsing this runbook.** `scripts/rehearsal/phase-d/` runs the whole
+thing — split, boot, verify, rollback — against a COPY of the real desktop
+DB, never the live file; see its `README.md` for the exact commands. One
+Windows-only wrinkle showed up rehearsing there and is worth knowing before
+you hit it on a real run too: **on Windows, close every open handle on the
+split output (a DB browser, an editor, an antivirus scan) before moving the
+files into place** — step 5's `mv`/`rename` fails with `EBUSY`/`EPERM` if
+anything still has one of those files open, because Windows refuses to
+rename a file out from under an open handle. **Not an issue on the real Fly
+Linux host** this runbook actually targets — `rename`/`unlink` on Linux
+never fails that way; the process can still have the old inode open and the
+move still succeeds.
 
 ### 12.5 Fixed: id reuse after a platform-only restore (2026-09-27)
 

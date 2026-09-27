@@ -92,6 +92,58 @@ jobs:
       - name: Bind-arity check (prepared statements' ? count == bound args)
         run: yarn check:bind-arity
 
+      # scripts/__tests__/tenantMigrationLogCheck.test.mjs (node:test, pure
+      # JS, no build/native-module dependency) guards
+      # scripts/lib/tenantMigrationLogCheck.mjs — the per-tenant deploy
+      # verifier's log check that `scripts/deploy-api.mjs` runs after every
+      # Fly deploy. It was previously wired into neither `yarn test` nor CI,
+      # so a regression here (e.g. re-loosening the `missing` check that
+      # guards the "TENANT_DB_MODE=per-tenant flipped before the Phase D
+      # split ran" silent-outage scenario, see that file's header) would
+      # have shipped unnoticed.
+      #
+      # LIRA-123 lesson (rule 28a): a step that runs nothing and exits 0 is
+      # indistinguishable from a pass. Empirically (2026-09-27), `node --test`
+      # given a bare directory or an unmatched glob does NOT reliably error —
+      # an unmatched glob prints "# tests 0" and exits 0. Naming the exact
+      # file sidesteps the unmatched-glob trap (a missing file makes `node
+      # --test` exit non-zero on its own), and the floor check below catches
+      # the other silent-pass shape: a file that still loads as valid JS but
+      # whose test() calls were all removed is wrapped by node:test as ONE
+      # implicit passing test ("# tests 1"), not zero — so exit-code-only
+      # would miss it. Floor is 3, comfortably below the current 6.
+      - name: Deploy-verifier script tests (tenant migration log check)
+        run: |
+          MIN_TESTS=3
+
+          set +e
+          yarn test:scripts > scripts-test-output.log 2>&1
+          test_exit=$?
+          set -e
+          cat scripts-test-output.log
+
+          tests_total=$(grep -oE "^# tests [0-9]+" scripts-test-output.log | grep -oE "[0-9]+" || true)
+          fail_total=$(grep -oE "^# fail [0-9]+" scripts-test-output.log | grep -oE "[0-9]+" || true)
+
+          echo "[deploy-verifier-script-tests] exit=$test_exit tests_total=${tests_total:-<none>} fail_total=${fail_total:-<none>}"
+
+          if [ "$test_exit" -ne 0 ]; then
+            echo "[deploy-verifier-script-tests] node --test exited $test_exit — real test failure(s), see output above."
+            exit "$test_exit"
+          fi
+
+          if [ -z "$tests_total" ]; then
+            echo "[deploy-verifier-script-tests] FLOOR CHECK FAILED — no '# tests N' summary line found even though node --test exited 0."
+            exit 1
+          fi
+
+          if [ "$tests_total" -lt "$MIN_TESTS" ] || [ "${fail_total:-0}" -gt 0 ]; then
+            echo "[deploy-verifier-script-tests] FLOOR CHECK FAILED — reported $tests_total test(s) (floor $MIN_TESTS), ${fail_total:-0} failed."
+            exit 1
+          fi
+
+          echo "[deploy-verifier-script-tests] floor check passed — $tests_total test(s), floor $MIN_TESTS."
+
       # check:schema-equivalence executes real migrations against a real
       # SQLite DB (it can't work off source text alone), so it needs
       # packages/core actually built. The "TypeScript check" step above

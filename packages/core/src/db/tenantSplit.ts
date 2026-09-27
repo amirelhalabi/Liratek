@@ -135,11 +135,39 @@ export interface TenantSplitReport {
   /** Per-file `PRAGMA foreign_key_check` / `integrity_check` results. */
   fileChecks: {
     file: string;
+    /** Exact total — never truncated, unlike `foreignKeyViolationRows` below. */
     foreignKeyViolations: number;
+    /** The first `MAX_REPORTED_FK_VIOLATION_ROWS` rows `PRAGMA
+     * foreign_key_check` returned, so a human reviewing the report can see
+     * WHICH row references WHAT without opening the file by hand. Capped
+     * (not the full list) so one badly corrupted file can't blow up the
+     * JSON; `foreignKeyViolations` above is always the exact count
+     * regardless of how many rows are listed here. */
+    foreignKeyViolationRows: ForeignKeyViolationRow[];
     integrityCheck: string;
   }[];
   ok: boolean;
 }
+
+/** One row of `PRAGMA foreign_key_check` output — a dangling reference in
+ * `table` pointing at a missing row in `parent`, via the `fkid`-th FOREIGN
+ * KEY constraint declared on `table` (`PRAGMA foreign_key_list(table)`'s own
+ * `id` column indexes the same way). `rowid` is `null` when SQLite can't
+ * report one (e.g. a `WITHOUT ROWID` table). */
+export interface ForeignKeyViolationRow {
+  table: string;
+  rowid: number | null;
+  parent: string;
+  fkid: number;
+}
+
+/** Cap on how many violating rows a single file's `fileChecks` entry lists
+ * verbatim (item 1 of the Phase D rehearsal follow-ups). A cross-tenant leak
+ * that slipped through discovery could in principle produce thousands of
+ * dangling references; the report must stay reviewable JSON, not become the
+ * next thing that blows up. The exact total is always in
+ * `foreignKeyViolations`, uncapped. */
+const MAX_REPORTED_FK_VIOLATION_ROWS = 50;
 
 // Exported (not just used internally) so `platformSplitGuard.ts` can quote
 // the SAME table names this module discovers via `discoverTenantScopedTables`
@@ -269,16 +297,18 @@ function vacuumInto(db: Database.Database, destPath: string): void {
 function checkFileIntegrity(filePath: string): {
   file: string;
   foreignKeyViolations: number;
+  foreignKeyViolationRows: ForeignKeyViolationRow[];
   integrityCheck: string;
 } {
   const db = new Database(filePath);
   try {
-    const violations = db.pragma("foreign_key_check") as unknown[];
+    const violations = db.pragma("foreign_key_check") as ForeignKeyViolationRow[];
     const integrityRows = db.pragma("integrity_check") as { integrity_check: string }[];
     const integrityCheck = integrityRows[0]?.integrity_check ?? "unknown";
     return {
       file: filePath,
       foreignKeyViolations: violations.length,
+      foreignKeyViolationRows: violations.slice(0, MAX_REPORTED_FK_VIOLATION_ROWS),
       integrityCheck,
     };
   } finally {

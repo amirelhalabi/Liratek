@@ -343,4 +343,61 @@ describe("splitTenantDatabase", () => {
     expect(report.unsafeTableNames).toEqual(["weird table"]);
     expect(fs.existsSync(outputDir)).toBe(false);
   });
+
+  // ---------------------------------------------------------------------
+  // Phase D rehearsal follow-up item 1: the report must NAME the violating
+  // rows, not just count them. Guard written first against the pre-fix
+  // `checkFileIntegrity` (which returned only `{ foreignKeyViolations:
+  // number }`) and seen to fail with `Received: undefined` — proven against
+  // a throwaway byte-for-byte copy of the pre-fix module rather than by
+  // reverting the real (already-fixed) `tenantSplit.ts`, per rule 17.
+  // ---------------------------------------------------------------------
+
+  it("names the violating rows (table + rowid + parent) when a tenant file ends up with a dangling cross-tenant FK reference", () => {
+    // Cross-tenant FK: a tenant-5 transaction referencing a tenant-1-only
+    // client. `transactions.client_id REFERENCES clients(id)` is a real
+    // constraint (create_db.sql); once the tenant-5 file's clients table is
+    // narrowed to tenant 5 only, that client id no longer exists there, so
+    // the tenant-5 file's own `PRAGMA foreign_key_check` reports it.
+    const tenant1ClientId = (
+      sourceDb!.prepare(`SELECT id FROM clients WHERE tenant_id = 1 LIMIT 1`).get() as {
+        id: number;
+      }
+    ).id;
+    const tenant5AdminId = (
+      sourceDb!.prepare(`SELECT id FROM users WHERE username = 'admin-five'`).get() as {
+        id: number;
+      }
+    ).id;
+    sourceDb!
+      .prepare(
+        `INSERT INTO transactions (tenant_id, type, source_table, source_id, user_id, client_id) VALUES (5, 'TEST_TXN', 'test', 999, ?, ?)`,
+      )
+      .run(tenant5AdminId, tenant1ClientId);
+
+    const outputDir = path.join(tmpDir, "out-fk-violation");
+    const report = splitTenantDatabase({ sourceDbPath, outputDir, write: true });
+
+    expect(report.ok).toBe(false);
+
+    const tenant5FileCheck = report.fileChecks.find((c) => c.file === report.tenantFiles[5]);
+    expect(tenant5FileCheck).toBeDefined();
+    expect(tenant5FileCheck!.foreignKeyViolations).toBeGreaterThan(0);
+    expect(tenant5FileCheck!.foreignKeyViolationRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ table: "transactions", parent: "clients" }),
+      ]),
+    );
+    // The count and the listed-rows length agree when under the cap.
+    expect(tenant5FileCheck!.foreignKeyViolationRows.length).toBe(
+      tenant5FileCheck!.foreignKeyViolations,
+    );
+
+    // Every OTHER file stays clean — the finding is scoped to tenant 5 only.
+    for (const check of report.fileChecks) {
+      if (check.file === report.tenantFiles[5]) continue;
+      expect(check.foreignKeyViolations).toBe(0);
+      expect(check.foreignKeyViolationRows).toEqual([]);
+    }
+  });
 });
