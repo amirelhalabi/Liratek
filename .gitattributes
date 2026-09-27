@@ -19,3 +19,8 @@ docker-compose.yml text eol=lf
 # The pinned Yarn binary is an executable script consumed by Vercel s builder;
 # it must survive byte-for-byte, with no eol translation on any platform.
 .yarn/releases/** -text
+
+# Pinned LF so a Windows checkout (autocrlf=true) can't make the generated
+# JSON's embedded release-note bodies diverge from what CI rebuilds on Linux.
+docs/release-notes/*.md                                     text eol=lf
+frontend/src/features/whatsNew/releaseNotes.generated.json  text eol=lf

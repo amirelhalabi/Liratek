@@ -102,9 +102,11 @@ function extractHeaderComment(markdown) {
  * cumulative, never a single writer's property.
  */
 function writeOrAppendVersionFile(versionFilePath, bodyRaw) {
-  const trimmedBody = bodyRaw.trim();
+  const trimmedBody = releaseNotesBuilder.normalizeLineEndings(bodyRaw).trim();
   if (fs.existsSync(versionFilePath)) {
-    const existing = fs.readFileSync(versionFilePath, "utf8").trim();
+    const existing = releaseNotesBuilder
+      .normalizeLineEndings(fs.readFileSync(versionFilePath, "utf8"))
+      .trim();
     fs.writeFileSync(versionFilePath, `${existing}\n\n${trimmedBody}\n`);
   } else {
     fs.writeFileSync(versionFilePath, `${trimmedBody}\n`);
@@ -138,7 +140,9 @@ function rollReleaseNotes(
     return;
   }
 
-  const raw = fs.readFileSync(unreleasedPath, "utf8");
+  const raw = releaseNotesBuilder.normalizeLineEndings(
+    fs.readFileSync(unreleasedPath, "utf8"),
+  );
   const header = extractHeaderComment(raw);
   const bodyRaw = header ? raw.slice(header.length) : raw;
   const bodyForEmptyCheck = releaseNotesBuilder
@@ -204,7 +208,9 @@ function cutRelease(
     return false;
   }
 
-  const raw = fs.readFileSync(unreleasedPath, "utf8");
+  const raw = releaseNotesBuilder.normalizeLineEndings(
+    fs.readFileSync(unreleasedPath, "utf8"),
+  );
   const header = extractHeaderComment(raw);
   const bodyRaw = header ? raw.slice(header.length) : raw;
   const bodyForEmptyCheck = releaseNotesBuilder

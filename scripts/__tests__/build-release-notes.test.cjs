@@ -152,6 +152,68 @@ test("resolveNotesFile: 'unreleased' resolves to UNRELEASED.md, versions resolve
   assert.throws(() => mod.resolveNotesFile("not-a-version", dir));
 });
 
+test("CRLF markdown input produces byte-identical JSON to LF input (line-ending bug)", () => {
+  const lfContent = "## Area\n- thing one\n- thing two\n";
+  const crlfContent = lfContent.replace(/\n/g, "\r\n");
+
+  const lfDir = makeTempReleaseNotesDir({ "v1.0.0.md": lfContent });
+  const crlfDir = makeTempReleaseNotesDir({ "v1.0.0.md": crlfContent });
+
+  const lfJson = mod.serialize(mod.buildReleaseNotes(lfDir));
+  const crlfJson = mod.serialize(mod.buildReleaseNotes(crlfDir));
+
+  assert.equal(
+    crlfJson,
+    lfJson,
+    "a CRLF-checked-out .md must build the exact same JSON as an LF one",
+  );
+  assert.ok(!crlfJson.includes("\r"), "no \\r should survive into the generated JSON");
+});
+
+test("--check passes for a JSON built from LF compared against CRLF md, and the reverse", () => {
+  const lfContent = "## Area\n- thing\n";
+  const crlfContent = lfContent.replace(/\n/g, "\r\n");
+
+  // Case A: JSON was generated from LF md, then the md file itself is a CRLF
+  // working-tree checkout (Windows autocrlf) at --check time.
+  const dirA = makeTempReleaseNotesDir({ "v1.0.0.md": lfContent });
+  const outputPathA = path.join(dirA, "out.json");
+  mod.runBuild({ releaseNotesDir: dirA, outputPath: outputPathA });
+  fs.writeFileSync(path.join(dirA, "v1.0.0.md"), crlfContent);
+  process.exitCode = 0;
+  const okA = mod.runCheck({ releaseNotesDir: dirA, outputPath: outputPathA });
+  assert.equal(okA, true, "--check must pass: LF-built JSON vs CRLF md on disk");
+  assert.notEqual(process.exitCode, 1);
+  process.exitCode = 0;
+
+  // Case B: JSON was generated from CRLF md (so its body is normalized to \n
+  // internally), then the JSON FILE on disk is itself checked out with CRLF
+  // line endings (autocrlf rewriting the committed LF file on Windows).
+  const dirB = makeTempReleaseNotesDir({ "v1.0.0.md": crlfContent });
+  const outputPathB = path.join(dirB, "out.json");
+  mod.runBuild({ releaseNotesDir: dirB, outputPath: outputPathB });
+  const jsonWithCrlf = fs
+    .readFileSync(outputPathB, "utf8")
+    .replace(/\n/g, "\r\n");
+  fs.writeFileSync(outputPathB, jsonWithCrlf);
+  process.exitCode = 0;
+  const okB = mod.runCheck({ releaseNotesDir: dirB, outputPath: outputPathB });
+  assert.equal(
+    okB,
+    true,
+    "--check must pass: CRLF-built JSON content vs the JSON file itself checked out as CRLF",
+  );
+  assert.notEqual(process.exitCode, 1);
+  process.exitCode = 0;
+});
+
+test("markdownToWhatsApp normalizes CRLF input the same as LF input", () => {
+  const lf = "## Area\n\n- **bold** item\n";
+  const crlf = lf.replace(/\n/g, "\r\n");
+  assert.equal(mod.markdownToWhatsApp(crlf), mod.markdownToWhatsApp(lf));
+  assert.ok(!mod.markdownToWhatsApp(crlf).includes("\r"));
+});
+
 test("runWhatsapp prints the converted content of the requested version to stdout", () => {
   const dir = makeTempReleaseNotesDir({
     "v1.0.0.md": "## Area\n- **important** thing\n",

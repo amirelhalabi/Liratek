@@ -52,6 +52,19 @@ function stripHtmlComments(markdown) {
 }
 
 /**
+ * Normalizes CRLF and lone-CR line endings to LF. Must be applied to every
+ * markdown (and, for --check, JSON) read from disk: `core.autocrlf=true`
+ * checks .md files out with CRLF on Windows, while git stores them (and this
+ * repo's .gitattributes pins them) as LF — so a Windows working tree and a
+ * Linux CI checkout would otherwise produce different generated JSON from
+ * the identical committed content. Applying this at every read point makes
+ * the output byte-identical regardless of OS or git line-ending settings.
+ */
+function normalizeLineEndings(text) {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+/**
  * Descending semver comparator (newest first). Deliberately not a generic
  * semver library — this repo only ever writes plain X.Y.Z release-note
  * filenames, so a tiny numeric comparator is the whole job.
@@ -86,7 +99,7 @@ function buildReleaseNotes(releaseNotesDir = DEFAULT_RELEASE_NOTES_DIR) {
 
   return versions.map((version) => {
     const filePath = path.join(releaseNotesDir, `v${version}.md`);
-    const raw = fs.readFileSync(filePath, "utf8");
+    const raw = normalizeLineEndings(fs.readFileSync(filePath, "utf8"));
     const body = stripHtmlComments(raw).trim();
     return { version, body };
   });
@@ -117,8 +130,11 @@ function runCheck({
   outputPath = DEFAULT_OUTPUT_PATH,
 } = {}) {
   const expected = serialize(buildReleaseNotes(releaseNotesDir));
+  // The JSON file on disk may itself have been checked out with CRLF
+  // (autocrlf on Windows), even though it's stored as LF in git — normalize
+  // before comparing so --check is line-ending-insensitive on both sides.
   const actual = fs.existsSync(outputPath)
-    ? fs.readFileSync(outputPath, "utf8")
+    ? normalizeLineEndings(fs.readFileSync(outputPath, "utf8"))
     : null;
 
   if (actual === expected) {
@@ -138,7 +154,9 @@ function runCheck({
 }
 
 function markdownToWhatsApp(markdown) {
-  const withoutComments = stripHtmlComments(markdown).trim();
+  const withoutComments = stripHtmlComments(
+    normalizeLineEndings(markdown),
+  ).trim();
   const boldConverted = withoutComments.replace(/\*\*(.+?)\*\*/g, "*$1*");
 
   return boldConverted
@@ -216,6 +234,7 @@ module.exports = {
   DEFAULT_RELEASE_NOTES_DIR,
   DEFAULT_OUTPUT_PATH,
   stripHtmlComments,
+  normalizeLineEndings,
   compareSemverDesc,
   listVersionFiles,
   versionFromFilename,
