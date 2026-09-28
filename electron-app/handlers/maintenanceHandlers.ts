@@ -16,11 +16,16 @@ import {
 export function registerMaintenanceHandlers(): void {
   const service = getMaintenanceService();
 
-  // Add / Update Maintenance Job (Drawer B - General Drawer)
+  // Add / Update Maintenance Job (Drawer B - General Drawer). Admin and
+  // staff — LIRA-242 owner decision 2026-09-28: creating a job AND
+  // advancing its status/editing it are routine cashier work;
+  // maintenance:delete below stays admin-only.
   ipcMain.handle("maintenance:save", (e, job: SaveJobParams) => {
+    let actorUserId: number | undefined;
     try {
-      const auth = requireRole(e.sender.id, ["admin"]);
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
+      actorUserId = auth.userId;
     } catch {}
 
     const v = validatePayload(MaintenanceJobSchema, job);
@@ -30,7 +35,9 @@ export function registerMaintenanceHandlers(): void {
       { jobId: v.data.id, device: v.data.device_name },
       "Saving maintenance job",
     );
-    const result = service.saveJob(v.data as SaveJobParams);
+    // actorUserId (LIRA-246a): the session's own user id, never trusted from
+    // the payload — recorded on the status-history row this save appends.
+    const result = service.saveJob(v.data as SaveJobParams, actorUserId);
     audit(e.sender.id, {
       action: v.data.id ? "update" : "create",
       entity_type: "maintenance_job",

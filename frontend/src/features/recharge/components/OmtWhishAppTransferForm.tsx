@@ -16,6 +16,7 @@ import { HistoryModal } from "./HistoryModal";
 import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -338,6 +339,9 @@ function OmtWhishAppTransferFormInner({
       setFeeMode("SENDER");
       setFeePaymentLines([]);
       setCashoutMethod("CASH");
+      // LIRA-248: same reset as the non-session completion path below — a
+      // session basket add is also "a completed transaction" for this form.
+      setEffectiveRate(undefined);
       resetSaveAsClient();
       return;
     }
@@ -470,14 +474,22 @@ function OmtWhishAppTransferFormInner({
         setFeePaymentLines([]);
         setCashoutMethod("CASH");
         setTransactionTime(undefined);
+        // LIRA-248: an operator-edited sheet rate must not carry over to the
+        // next, unrelated transaction — reset to undefined so the next
+        // submit falls back to the live shop rate (`exchangeRate`) via
+        // `effectiveRate ?? exchangeRate` above, instead of resending this
+        // transaction's stale edit.
+        setEffectiveRate(undefined);
         resetSaveAsClient();
         loadFinancialData();
       } else {
         alert(result.error || "Failed to process transfer");
       }
     } catch (error) {
+      // LIRA-247: a thrown ApiError (e.g. a web role-refusal) used to be
+      // discarded here in favor of this hardcoded string.
       logger.error("Transfer failed:", error);
-      alert("Failed to process transfer");
+      alert(getApiErrorMessage(error, "Failed to process transfer"));
     } finally {
       setIsSubmitting(false);
     }
@@ -540,8 +552,9 @@ function OmtWhishAppTransferFormInner({
       setManualFee("");
       loadFinancialData();
     } catch (error) {
+      // LIRA-247: same reasoning as handleSubmit's catch above.
       logger.error("Partner transfer failed:", error);
-      alert("Failed to process partner transfer");
+      alert(getApiErrorMessage(error, "Failed to process partner transfer"));
     } finally {
       setIsSubmittingPartner(false);
     }
@@ -1058,6 +1071,12 @@ function OmtWhishAppTransferFormInner({
               if (activeSession) {
                 handleSubmit();
               } else {
+                // LIRA-248: belt-and-suspenders reset alongside the
+                // post-completion reset above — covers a rate edited on a
+                // transaction that was then cancelled/failed rather than
+                // completed, so THIS fresh transaction still starts at the
+                // shop rate instead of inheriting that stale edit.
+                setEffectiveRate(undefined);
                 setShowPaymentSheet(true);
               }
             }}

@@ -240,9 +240,16 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   }
 
   /**
-   * Create a new maintenance job
+   * Create a new maintenance job.
+   *
+   * `actorUserId` (LIRA-246a) is the user performing this action — taken by
+   * the CALLER from the JWT (REST) or the IPC session (desktop), NEVER from
+   * the request body — and is stamped on the job's first
+   * `maintenance_status_history` row via `recordStatusChange`. `undefined`/
+   * `null` means "no actor known" and stores `changed_by = NULL` (unchanged
+   * behavior for any call site not yet updated).
    */
-  createJob(job: MaintenanceJob): number {
+  createJob(job: MaintenanceJob, actorUserId?: number | null): number {
     const tenantId = getCurrentTenantId();
     // "In Progress" (with a space) was never a valid status — the real enum
     // value is `In_Progress`, so this literal could never match a status tab
@@ -286,15 +293,22 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
 
     // First status-history row for the job (from_status NULL — this is the
     // job's creation, not a transition).
-    this.recordStatusChange(jobId, null, status);
+    this.recordStatusChange(jobId, null, status, actorUserId);
 
     return jobId;
   }
 
   /**
-   * Update an existing maintenance job
+   * Update an existing maintenance job.
+   *
+   * `actorUserId` (LIRA-246a) — see `createJob`'s doc comment; stamped on the
+   * status-history row this write appends, when the status actually changed.
    */
-  updateJob(id: number, job: MaintenanceJob): void {
+  updateJob(
+    id: number,
+    job: MaintenanceJob,
+    actorUserId?: number | null,
+  ): void {
     // A job with a STILL-ACTIVE-and-unreversed transaction is live money
     // history — its amount fields are immutable while that's true. Once the
     // job has been refunded/voided (`is_refunded`), the historical
@@ -367,7 +381,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     // same-status resubmit (the UI resends the whole form on every save)
     // must not spam the history.
     if (existing && existing.status !== status) {
-      this.recordStatusChange(id, existing.status, status);
+      this.recordStatusChange(id, existing.status, status, actorUserId);
     }
   }
 
@@ -447,8 +461,20 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
        *  cost). */
       parts?: { name: string; quantity: number; unit_price_usd: number }[];
     },
+    /**
+     * The user actually running this checkout (owner follow-up, 2026-09-28,
+     * alongside LIRA-246a) — the CALLER resolves it from the session (IPC) or
+     * the JWT (REST), NEVER the client body, mirroring `createJob`/
+     * `updateJob`'s `actorUserId`. Falls back to `resolveFallbackUserId()`
+     * (a real, FK-safe admin id — never a bare guessed `1`) for any caller
+     * with no request context (old tests, seeds). This is now the ONE
+     * `createdBy` used for the transaction row, every payment/change leg,
+     * AND the "Maintenance Debt" ledger row below — previously that last one
+     * hardcoded `createdBy: null` regardless of who ran the checkout.
+     */
+    actorUserId?: number | null,
   ): void {
-    const createdBy = this.resolveFallbackUserId();
+    const createdBy = actorUserId ?? this.resolveFallbackUserId();
     const tenantId = getCurrentTenantId();
     const defer = opts.defer === true;
     const isLbp = opts.currency === "LBP";
@@ -659,12 +685,14 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       // exchange rate for an LBP job) — same currency split the old
       // job-currency-only debt used.
       const debtAmount = isLbp ? residualUsd * rate : residualUsd;
-      // createdBy stays null: the original hand-rolled INSERT here never
-      // included that column (see moneyPosting.ts's bookClientDebtCharge doc).
-      // Transaction type stays exactly "Maintenance Debt" — a new charge
-      // type would need a new reversal owner (CLAUDE.md rule 20) and there
-      // must not be one; parts residual rides the SAME charge type as
-      // labour residual.
+      // createdBy is now the resolved actor (real user, or the FK-safe
+      // fallback) — previously hardcoded `null` regardless of who ran the
+      // checkout (owner follow-up, 2026-09-28: the Debts history's User
+      // column, LIRA-241, needs a real value here like every other
+      // debt_ledger writer already provides). Transaction type stays exactly
+      // "Maintenance Debt" — a new charge type would need a new reversal
+      // owner (CLAUDE.md rule 20) and there must not be one; parts residual
+      // rides the SAME charge type as labour residual.
       bookClientDebtCharge(this.db, {
         clientId: opts.clientId,
         transactionType: "Maintenance Debt",
@@ -672,7 +700,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         amountLbp: isLbp ? debtAmount : 0,
         transactionId: txnId,
         note: "Balance from Maintenance",
-        createdBy: null,
+        createdBy,
         tenantId,
       });
       maintenanceLogger.info(

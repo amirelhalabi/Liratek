@@ -183,7 +183,8 @@ function createTestDb(): DatabaseType.Database {
       due_date         TEXT,
       created_by       INTEGER,
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
-    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL
+    , covered_usd REAL NOT NULL DEFAULT 0, covered_lbp REAL NOT NULL DEFAULT 0);
 
     -- A CREDIT_TRANSFER recharge books its SMS transfer fee as an
     -- SMS_Transfer_Fee expense via ExpenseRepository.createExpense;
@@ -425,10 +426,32 @@ describe("Recharge REST routes — POST /api/recharge/process", () => {
     });
   });
 
-  it("staff is refused with 403 and never reaches the service (role parity with recharge:process)", async () => {
+  it("staff CAN process MTC/Alfa recharges (LIRA-242, owner decision 2026-09-28: the ordinary sale flow a cashier does, role parity with recharge:process)", async () => {
     const res = await request(app)
       .post("/api/recharge/process")
       .set("x-test-role", "staff")
+      .send({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 6,
+        cost: 5,
+        price: 6,
+        currency: "USD",
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 6 }],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(
+      (db.prepare("SELECT COUNT(*) AS n FROM recharges").get() as { n: number })
+        .n,
+    ).toBe(1);
+  });
+
+  it("a role outside admin/staff is still refused with 403 and never reaches the service", async () => {
+    const res = await request(app)
+      .post("/api/recharge/process")
+      .set("x-test-role", "viewer")
       .send({
         provider: "MTC",
         type: "CREDIT_TRANSFER",
@@ -443,5 +466,103 @@ describe("Recharge REST routes — POST /api/recharge/process", () => {
       (db.prepare("SELECT COUNT(*) AS n FROM recharges").get() as { n: number })
         .n,
     ).toBe(0);
+  });
+});
+
+// LIRA-250 follow-up — GET /api/recharge/today-stats: today's MTC/Alfa sales
+// count/profit for the Recharge page's Count/Profit + Total Profit cards.
+// Deliberately NOT role-gated (mirrors `/history`/`/stock` — a read, open to
+// any authenticated session); envelope + role-openness are what this suite
+// proves, and one real-writer create->read round trip so a schema
+// regression (a dropped column, a broken join) shows up here too, not only
+// in the core repository suite.
+describe("Recharge REST routes — GET /api/recharge/today-stats (LIRA-250)", () => {
+  let app: Express;
+  let db: DatabaseType.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__: unknown }
+    ).__LIRATEK_TEST_DB__ = db;
+    resetRechargeRepository();
+    resetRechargeService();
+    resetTransactionRepository();
+    app = buildApp();
+  });
+
+  afterEach(() => {
+    resetRechargeRepository();
+    resetRechargeService();
+    resetTransactionRepository();
+    db.close();
+  });
+
+  it("401s with no auth, and any authenticated role (staff included) reaches the envelope — no requireRole, matching recharge:get-today-stats", async () => {
+    const unauth = await request(app).get(
+      "/api/recharge/today-stats?provider=MTC",
+    );
+    expect(unauth.status).toBe(401);
+
+    const staffRes = await request(app)
+      .get("/api/recharge/today-stats?provider=MTC")
+      .set("x-test-role", "staff");
+    expect(staffRes.status).toBe(200);
+    expect(staffRes.body).toEqual({
+      success: true,
+      stats: { count: 0, profit_usd: 0, profit_lbp: 0, byCurrency: [] },
+    });
+  });
+
+  it("rejects an invalid provider via the shared getRechargeHistorySchema query contract (HTTP 200, success:false — rule 19c envelope)", async () => {
+    const res = await request(app)
+      .get("/api/recharge/today-stats?provider=NOT_A_PROVIDER")
+      .set("x-test-role", "admin");
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("a real MTC sale processed through /process is reflected here the same day — proves the route reaches the real repository, not a stub", async () => {
+    const create = await request(app)
+      .post("/api/recharge/process")
+      .set("x-test-role", "admin")
+      .send({
+        provider: "MTC",
+        type: "VOUCHER",
+        amount: 5,
+        cost: 4,
+        price: 5,
+        currency: "USD",
+        paid_by_method: "CASH",
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+      });
+    expect(create.status).toBe(200);
+    expect(create.body.success).toBe(true);
+
+    const res = await request(app)
+      .get("/api/recharge/today-stats?provider=MTC")
+      .set("x-test-role", "admin");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: true,
+      stats: {
+        count: 1,
+        profit_usd: 1,
+        profit_lbp: 0,
+        byCurrency: [{ currency: "USD", commission: 1, count: 1 }],
+      },
+    });
+
+    // A DIFFERENT provider (Alfa) reads all-zero, not the MTC figures.
+    const alfaRes = await request(app)
+      .get("/api/recharge/today-stats?provider=Alfa")
+      .set("x-test-role", "admin");
+    expect(alfaRes.body.stats).toEqual({
+      count: 0,
+      profit_usd: 0,
+      profit_lbp: 0,
+      byCurrency: [],
+    });
   });
 });

@@ -76,9 +76,19 @@ export class MaintenanceService {
   }
 
   /**
-   * Save (create or update) a maintenance job
+   * Save (create or update) a maintenance job.
+   *
+   * `actorUserId` (LIRA-246a) is the user performing this save — the CALLER
+   * (IPC handler / REST route) resolves it from the session/JWT and passes
+   * it here explicitly; it is NEVER read off `params`, so a client cannot
+   * claim to be someone else. Threaded down to
+   * `MaintenanceRepository.createJob`/`updateJob`, which stamp it on the
+   * `maintenance_status_history` row this save appends.
    */
-  saveJob(params: SaveJobParams): {
+  saveJob(
+    params: SaveJobParams,
+    actorUserId?: number | null,
+  ): {
     success: boolean;
     id?: number;
     error?: string;
@@ -95,9 +105,18 @@ export class MaintenanceService {
       }
 
       return this.repo.withTransaction(() => {
-        // Handle client auto-creation if name provided but no ID
+        // Handle client auto-creation if name AND phone are provided but no
+        // ID. LIRA-246c: `findOrCreateClient` matches an EXISTING client by
+        // `full_name` ALONE (phone is only used on the insert branch), so a
+        // name-only walk-in with no phone used to silently attach to
+        // whichever existing client happens to share that name — possibly
+        // the wrong person entirely. With no phone to disambiguate, don't
+        // auto-create or name-match at all; keep `client_name` as free text
+        // only (see `baseJobData.client_name` below). An explicitly chosen
+        // `client_id` (rule 11) is untouched by this gate — it's read above
+        // and always kept.
         let clientId = params.client_id ?? null;
-        if (!clientId && params.client_name) {
+        if (!clientId && params.client_name && params.client_phone) {
           try {
             clientId = this.repo.findOrCreateClient(
               params.client_name,
@@ -234,7 +253,7 @@ export class MaintenanceService {
             parts_cost_usd: partsCostUsd,
           };
 
-          this.repo.updateJob(params.id, jobData);
+          this.repo.updateJob(params.id, jobData, actorUserId);
 
           // Process payments only on first transition to paid status.
           // Deferred (session basket): always create the unified transaction (so
@@ -247,6 +266,7 @@ export class MaintenanceService {
               params.id,
               params.payments ?? [],
               buildPaymentOpts(params.id, partsPriceUsd, partsMarginUsd),
+              actorUserId,
             );
           }
 
@@ -272,7 +292,7 @@ export class MaintenanceService {
             final_amount_usd: isLbpJob ? 0 : labourFinal,
             final_amount_lbp: isLbpJob ? labourFinal : 0,
           };
-          const newId = this.repo.createJob(jobData);
+          const newId = this.repo.createJob(jobData, actorUserId);
 
           this.repo.syncParts(newId, params.parts, {
             allowOutOfStock: params.allowOutOfStock,
@@ -287,12 +307,16 @@ export class MaintenanceService {
           // — keeps the no-parts path at exactly as many writes as before
           // parts existed.
           if (partsPriceUsd !== 0 || partsCostUsd !== 0) {
-            this.repo.updateJob(newId, {
-              ...jobData,
-              final_amount_usd: partsPriceUsd + (isLbpJob ? 0 : labourFinal),
-              parts_price_usd: partsPriceUsd,
-              parts_cost_usd: partsCostUsd,
-            });
+            this.repo.updateJob(
+              newId,
+              {
+                ...jobData,
+                final_amount_usd: partsPriceUsd + (isLbpJob ? 0 : labourFinal),
+                parts_price_usd: partsPriceUsd,
+                parts_cost_usd: partsCostUsd,
+              },
+              actorUserId,
+            );
           }
 
           // If creating with payment data (checkout from new job form).
@@ -303,6 +327,7 @@ export class MaintenanceService {
               newId,
               params.payments ?? [],
               buildPaymentOpts(newId, partsPriceUsd, partsMarginUsd),
+              actorUserId,
             );
           }
 

@@ -23,6 +23,7 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { toHoldMoneyLegs } from "@/utils/paymentUtils";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { HoldMoneyPickupSheet } from "./HoldMoneyPickupSheet";
 
 interface HoldMoneyRecord {
@@ -223,8 +224,14 @@ export function HoldMoneySection() {
         );
       }
     } catch (err) {
+      // LIRA-247: a thrown ApiError used to be discarded in favor of this
+      // hardcoded string.
       logger.error("[HoldMoney] void pickup failed", err);
-      appEvents.emit("notification:show", "Failed to void pickup.", "error");
+      appEvents.emit(
+        "notification:show",
+        getApiErrorMessage(err, "Failed to void pickup."),
+        "error",
+      );
     } finally {
       setVoidingPickupId(null);
     }
@@ -298,8 +305,14 @@ export function HoldMoneySection() {
         );
       }
     } catch (err) {
+      // LIRA-247: a thrown ApiError used to be discarded in favor of this
+      // hardcoded string.
       logger.error("[HoldMoney] create failed", err);
-      appEvents.emit("notification:show", "Failed to hold money.", "error");
+      appEvents.emit(
+        "notification:show",
+        getApiErrorMessage(err, "Failed to hold money."),
+        "error",
+      );
     } finally {
       setIsSubmitting(false);
     }

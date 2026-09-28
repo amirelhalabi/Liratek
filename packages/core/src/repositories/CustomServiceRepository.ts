@@ -10,6 +10,10 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { customServiceLogger } from "../utils/logger.js";
 import { BusinessRuleError } from "../utils/errors.js";
+// LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
+// module (no other repository import), so importing it directly here never
+// risks a require cycle.
+import { isToday } from "./reportingTimeFragments.js";
 import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
@@ -1040,7 +1044,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
            COALESCE(SUM(profit_usd), 0) as totalProfitUsd,
            COALESCE(SUM(profit_lbp), 0) as totalProfitLbp
          FROM custom_services
-         WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND tenant_id = ?`,
+         WHERE ${isToday("created_at")} AND tenant_id = ?`,
       )
       .get(getCurrentTenantId()) as CustomServiceSummary;
 

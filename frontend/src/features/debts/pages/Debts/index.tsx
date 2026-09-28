@@ -37,6 +37,7 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { DataTable } from "@liratek/ui";
 import { type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   computeRepaymentReduction,
   applyDebtDiscount,
@@ -672,7 +673,9 @@ export default function Debts() {
         }
       } catch (error) {
         logger.error("Cash out failed", { error });
-        alert("Failed to process cash out");
+        // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to
+        // be discarded here in favor of this hardcoded string.
+        alert(getApiErrorMessage(error, "Failed to process cash out"));
       }
       return;
     }
@@ -853,7 +856,9 @@ export default function Debts() {
       }
     } catch (error) {
       logger.error("Operation failed", { error });
-      alert("Failed to process repayment");
+      // LIRA-247: surface the server's real refusal reason instead of this
+      // hardcoded string (a thrown ApiError is a plain object, not an Error).
+      alert(getApiErrorMessage(error, "Failed to process repayment"));
     }
   };
 
@@ -924,8 +929,11 @@ export default function Debts() {
         alert("Import failed: " + (result.error ?? "Unknown error"));
       }
     } catch (err) {
+      // LIRA-247: `String(err)` on a thrown ApiError (a plain object, not an
+      // Error) stringifies to "[object Object]", hiding the real refusal —
+      // the same trap this file's other catches already guard against.
       logger.error("Excel import failed", { error: err });
-      alert("Failed to import: " + String(err));
+      alert("Failed to import: " + getApiErrorMessage(err, "Unknown error"));
     } finally {
       setIsImporting(false);
     }
@@ -1595,6 +1603,10 @@ export default function Debts() {
                           className: "px-3 py-2 text-xs font-medium",
                         },
                         {
+                          header: "User",
+                          className: "px-3 py-2 text-xs font-medium",
+                        },
+                        {
                           header: "USD",
                           className: "px-3 py-2 text-xs font-medium text-right",
                         },
@@ -1759,6 +1771,9 @@ export default function Debts() {
                                   </div>
                                 </div>
                               </td>
+                              <td className="px-3 py-2.5 text-slate-400 text-sm whitespace-nowrap">
+                                {item.created_by_username || "—"}
+                              </td>
                               <td
                                 className={`px-3 py-2.5 text-right font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
                               >
@@ -1849,6 +1864,10 @@ export default function Debts() {
                           className: "px-3 py-2 text-xs font-medium",
                         },
                         {
+                          header: "User",
+                          className: "px-3 py-2 text-xs font-medium",
+                        },
+                        {
                           header: "USD",
                           className: "px-3 py-2 text-xs font-medium text-right",
                         },
@@ -1918,6 +1937,9 @@ export default function Debts() {
                                       )}
                                   </span>
                                 </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-slate-400 text-sm whitespace-nowrap">
+                                {item.created_by_username || "—"}
                               </td>
                               <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
                                 {Math.abs(item.amount_usd) > 0 ? (
@@ -2354,7 +2376,11 @@ export default function Debts() {
                         }
                       } catch (error) {
                         logger.error("Debt write-off failed", { error });
-                        alert("Failed to write off debt");
+                        // LIRA-247: surface the real refusal reason (e.g. a
+                        // role check) instead of this hardcoded string.
+                        alert(
+                          getApiErrorMessage(error, "Failed to write off debt"),
+                        );
                       } finally {
                         setWriteOffSubmitting(false);
                       }

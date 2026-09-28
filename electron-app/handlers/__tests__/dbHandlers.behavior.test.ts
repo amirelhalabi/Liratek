@@ -53,6 +53,7 @@ jest.mock("../auditHelper.js", () => ({
 }));
 
 import { ipcMain as originalIpcMain } from "electron";
+import { requireRole } from "../../session.js";
 import {
   getSettingsService,
   getExpenseService,
@@ -140,6 +141,9 @@ describe("dbHandlers expenses behavior", () => {
       },
     );
     expect(res.success).toBe(true);
+    // LIRA-242 (owner decision 2026-09-28): db:add-expense widened to
+    // admin+staff — adding an expense is routine cashier work.
+    expect(requireRole).toHaveBeenCalledWith(1, ["admin", "staff"]);
     expect(mockExpenseService.addExpense).toHaveBeenCalledWith(
       expect.objectContaining({
         description: "Paper",

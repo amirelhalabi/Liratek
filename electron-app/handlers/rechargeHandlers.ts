@@ -41,16 +41,35 @@ export function registerRechargeHandlers(): void {
     },
   );
 
+  // LIRA-250 follow-up — today's MTC/Alfa sales count/profit for the
+  // Recharge page's Count/Profit + Total Profit cards. Deliberately NOT
+  // role-gated, same rationale as `recharge:get-history`/`recharge:get-
+  // stock` just above: a read, open to any authenticated session on
+  // desktop. Profit figures stay hidden from staff the SAME way they
+  // already are today — `CompactStats` (Recharge/index.tsx) only renders
+  // the Profit/Total Profit metrics when `isAdmin`; a staff session already
+  // receives full price/cost via `recharge:get-history` (the History modal)
+  // with nothing gating that at the transport layer either, so this read
+  // introduces no new exposure.
+  ipcMain.handle(
+    "recharge:get-today-stats",
+    (event: IpcMainInvokeEvent, provider: "MTC" | "Alfa") => {
+      return rechargeService.getTodayStats(provider);
+    },
+  );
+
   // Get All Drawer Balances
   ipcMain.handle("recharge:get-drawer-balances", () => {
     return rechargeService.getDrawerBalances();
   });
 
-  // Process Recharge Transaction (admin only)
+  // Process Recharge Transaction (admin and staff — LIRA-242 owner decision
+  // 2026-09-28: the ordinary MTC/Alfa sale flow a cashier does, including
+  // CREDIT_BUYBACK/SHOP_LINE_USE which share this same channel via `type`).
   ipcMain.handle(
     "recharge:process",
     (event: IpcMainInvokeEvent, data: RechargeData) => {
-      const auth = requireRole(event.sender.id, ["admin"]);
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
       const v = validatePayload(RechargeSchema, data);

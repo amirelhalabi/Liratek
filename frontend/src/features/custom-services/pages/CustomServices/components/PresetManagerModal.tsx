@@ -18,6 +18,7 @@ import {
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { DecimalInput, Select, useApi } from "@liratek/ui";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 
 interface ServicePreset {
   id: number;
@@ -117,8 +118,10 @@ export function PresetManagerModal({
         alert(result.error ?? "Failed to create preset");
       }
     } catch (err) {
+      // LIRA-247: a thrown ApiError used to be discarded in favor of this
+      // hardcoded string.
       logger.error("Failed to create preset:", err);
-      alert("Failed to create preset");
+      alert(getApiErrorMessage(err, "Failed to create preset"));
     } finally {
       setSaving(false);
     }
@@ -157,8 +160,10 @@ export function PresetManagerModal({
         alert(result.error ?? "Failed to update preset");
       }
     } catch (err) {
+      // LIRA-247: a thrown ApiError used to be discarded in favor of this
+      // hardcoded string.
       logger.error("Failed to update preset:", err);
-      alert("Failed to update preset");
+      alert(getApiErrorMessage(err, "Failed to update preset"));
     } finally {
       setSaving(false);
     }
@@ -175,8 +180,10 @@ export function PresetManagerModal({
         alert(result.error ?? "Failed to delete preset");
       }
     } catch (err) {
+      // LIRA-247: a thrown ApiError used to be discarded in favor of this
+      // hardcoded string.
       logger.error("Failed to delete preset:", err);
-      alert("Failed to delete preset");
+      alert(getApiErrorMessage(err, "Failed to delete preset"));
     }
   };
 
@@ -188,9 +195,14 @@ export function PresetManagerModal({
       if (result.success) {
         await loadPresets();
         onPresetsChanged();
+      } else {
+        alert(result.error ?? "Failed to toggle preset");
       }
     } catch (err) {
+      // LIRA-247: this used to fail completely silently on a thrown error —
+      // no alert at all, just a logged line the operator never sees.
       logger.error("Failed to toggle preset:", err);
+      alert(getApiErrorMessage(err, "Failed to toggle preset"));
     }
   };
 

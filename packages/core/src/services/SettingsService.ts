@@ -3,8 +3,8 @@ import {
   SettingEntity,
   getSettingsRepository,
 } from "../repositories/SettingsRepository.js";
-import { PROFITS_PASSWORD_SETTING_KEY } from "../constants/profitsAccess.js";
 import { settingsLogger } from "../utils/logger.js";
+import { SENSITIVE_SETTING_KEYS } from "../constants/sensitiveSettings.js";
 
 export interface SettingResult {
   success: boolean;
@@ -12,7 +12,8 @@ export interface SettingResult {
 }
 
 /**
- * Setting keys that must NEVER round-trip through the generic settings pipe.
+ * `SENSITIVE_SETTING_KEYS` (constants/sensitiveSettings.js) is the setting
+ * keys that must NEVER round-trip through the generic settings pipe.
  *
  * `GET /api/settings` (backend/src/api/settings.ts) is DELIBERATELY
  * unauthenticated, and the IPC channels `settings:get-all` / `db:get-settings`
@@ -28,10 +29,11 @@ export interface SettingResult {
  * `requireRole`, so without the write-guard any authenticated staff user
  * could overwrite the hash through the generic endpoint.
  *
- * Do not remove a key from this set without adding an authenticated,
- * role-gated replacement read/write path for it first.
+ * `AuditService` (LIRA-220) imports the SAME set to redact any audit row
+ * that names one of these keys, on both write and read — see its own
+ * comment. Do not remove a key from this set without adding an
+ * authenticated, role-gated replacement read/write path for it first.
  */
-const SENSITIVE_SETTING_KEYS = new Set<string>([PROFITS_PASSWORD_SETTING_KEY]);
 
 export class SettingsService {
   private repo: SettingsRepository;

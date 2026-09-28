@@ -38,6 +38,13 @@
  * run of this file as proof of anything until that revert/run/revert has
  * actually happened and this paragraph has been replaced with what was
  * observed.
+ *
+ * LIRA-223 resolution: under the reworded rule 17 (owner decision
+ * 2026-09-26), the fix is NOT to revert finished code to manufacture that
+ * proof after the fact — it is to label the affected tests honestly. The
+ * "widened channels" describe block below is marked "(not proven
+ * failing-first)" accordingly; only add the real proof by actually running
+ * the revert/run/revert cycle described above, never by editing this label.
  */
 
 import { ipcMain } from "electron";
@@ -89,7 +96,7 @@ describe("audit:get-recent / audit:search / audit:get-by-entity — role gate", 
       error: "Forbidden",
     });
 
-  describe("widened channels (this ticket) — staff must be ACCEPTED", () => {
+  describe("widened channels (this ticket) — staff must be ACCEPTED (not proven failing-first — see the file docblock's rule 17 status)", () => {
     it("audit:get-recent accepts a staff caller and calls the service", async () => {
       mockAuditService.getRecent.mockReturnValue([{ id: 1 }]);
       const handler = handlers.get("audit:get-recent")!;

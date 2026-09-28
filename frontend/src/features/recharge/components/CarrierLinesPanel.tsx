@@ -10,6 +10,7 @@ import { daysRemaining } from "@/shared/utils/daysRemaining";
 // the SAME rule the write path enforces, never a local `> 5` comparison.
 import { classifyLineValidity } from "@liratek/core";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 
 // m6 fix (2026-09-24 adversarial review): a stable module-level empty array,
 // never a fresh `[]` literal per render/catch — an unstable identity here
@@ -488,7 +489,11 @@ export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
       // clause a money write fails in complete silence — no error, no success,
       // the form just returns to idle and the rejection escapes unhandled.
       logger.error("Failed to record carrier line usage:", err);
-      const detail = err instanceof Error ? err.message.trim() : "";
+      // LIRA-247: `err instanceof Error` is false for a thrown ApiError (a
+      // plain object, e.g. a web 403 role refusal), so it used to fall
+      // through to the generic "check your connection" message below even
+      // when the server had already said exactly why it refused.
+      const detail = getApiErrorMessage(err, "").trim();
       setUsageError(
         detail
           ? `Failed to record usage: ${detail}`

@@ -185,6 +185,16 @@ export * from "./constants/refundTolerance.js";
 // deps — see this module's own doc for the bug this closes.
 export * from "./constants/sessionPayoutMember.js";
 
+// Tender exchange-rate sanity band (LIRA-240, owner decision 2026-09-28) —
+// pure constant + pure arithmetic, no Node.js deps. `@liratek/ui`'s
+// MultiPaymentInput imports `TENDER_RATE_BAND_PCT`/`tenderRateDeviationPct`
+// to render a non-blocking "rate looks off" warning using the SAME
+// threshold/formula `repositories/moneyPosting.ts` used to (and still could)
+// reference server-side, instead of hand-rolling a second copy in the
+// renderer (rule 14). Must be exported HERE, not only from index.ts — see
+// the telecomCredit.js note above for the exact failure mode this avoids.
+export * from "./constants/tenderRateBand.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

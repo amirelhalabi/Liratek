@@ -187,6 +187,15 @@ export async function requestJson<T>(
         sentToken = token;
       }
       headers["X-Client-Day"] = localDay();
+      // LIRA-237: the browser's own UTC offset (minutes to ADD to a UTC
+      // instant to reach this browser's local wall clock — the JS
+      // convention `-date.getTimezoneOffset()`), so server-side reporting
+      // queries can bucket a stored UTC row into THIS browser's day instead
+      // of the Fly host's (UTC, rule 27) — see
+      // `ProfitRepository.localtimeModifier()`'s doc comment for the full
+      // mechanism. Sent as a string; the server range-validates and
+      // silently ignores anything malformed.
+      headers["X-Client-Tz-Offset"] = String(-new Date().getTimezoneOffset());
     }
 
     const res = await fetch(url, {

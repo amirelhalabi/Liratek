@@ -114,7 +114,15 @@ const NotificationCenter: React.FC = () => {
   const visible = notifications.slice(-MAX_VISIBLE);
 
   return (
-    <div className="fixed bottom-4 right-4 z-[1000] space-y-2">
+    // LIRA-249: toasts sat on top of the payment panel's Pay button for
+    // 3-5s and blocked clicks. `pointer-events-none` here (and on each
+    // toast below) lets every click pass straight through to whatever is
+    // underneath — the least disruptive fix of the three the ticket allows:
+    // it needs no per-page awareness of what's covered (no "is a side panel
+    // open" state to thread through every host page) and keeps the
+    // familiar bottom-right position. Only the toast's own close (X)
+    // button opts back in to `pointer-events-auto` so it stays clickable.
+    <div className="fixed bottom-4 right-4 z-[1000] space-y-2 pointer-events-none">
       {hiddenCount > 0 && (
         <div className="flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-600 text-slate-300 text-xs backdrop-blur-md">
           +{hiddenCount} more notification{hiddenCount > 1 ? "s" : ""}
@@ -125,7 +133,7 @@ const NotificationCenter: React.FC = () => {
         return (
           <div
             key={notification.id}
-            className={`flex items-center gap-2 ${isError ? "px-3 py-2" : "p-4"} rounded-lg shadow-lg backdrop-blur-md border ${getBgColorClass(notification.type)} animate-in slide-in-from-right-full fade-in duration-300 ${isError ? "max-w-xs" : ""}`}
+            className={`flex items-center gap-2 ${isError ? "px-3 py-2" : "p-4"} rounded-lg shadow-lg backdrop-blur-md border ${getBgColorClass(notification.type)} animate-in slide-in-from-right-full fade-in duration-300 pointer-events-none ${isError ? "max-w-xs" : ""}`}
             role="alert"
           >
             {getIcon(notification.type)}
@@ -139,7 +147,7 @@ const NotificationCenter: React.FC = () => {
                 e.stopPropagation();
                 dismiss(notification.id);
               }}
-              className="text-white/70 hover:text-white transition-colors shrink-0"
+              className="text-white/70 hover:text-white transition-colors shrink-0 pointer-events-auto"
             >
               <X size={14} />
             </button>

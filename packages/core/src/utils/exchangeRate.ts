@@ -74,7 +74,8 @@ export function getUsdLbpSellRate(
           .get(getCurrentTenantId(), toCode) as
           | { sell_rate?: number; market_rate?: number }
           | undefined)
-      : (db
+      : /* tenant-exempt: legacy exchange_rates fixture with no tenant_id column at all (pre-multi-tenant test fixtures only, per exchangeRatesHasTenantColumn() above — every real schema has the column and takes the branch above instead) */
+        (db
           .prepare(
             `SELECT sell_rate, market_rate FROM exchange_rates WHERE to_code = ? LIMIT 1`,
           )

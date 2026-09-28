@@ -406,7 +406,7 @@ describe("RechargeRepository — S2 leg reconciliation wiring", () => {
       expect(counts(db)).toEqual(before);
     });
 
-    it("REJECTS a tender_exchange_rate outside the ±15% band with a distinct error", () => {
+    it("LIRA-240: a wildly implausible tender_exchange_rate (40,000 vs. 90,000) no longer throws 'outside the accepted' — but these SPECIFIC legs only balance at 89,000, so a genuine mismatch still fails with 'do not reconcile'", () => {
       const before = counts(db);
       const result = repo.processRecharge({
         provider: "MTC",
@@ -430,9 +430,69 @@ describe("RechargeRepository — S2 leg reconciliation wiring", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).not.toMatch(/do not reconcile/);
-      expect(result.error).toMatch(/outside the accepted/);
+      expect(result.error).toMatch(/do not reconcile/);
+      expect(result.error).not.toMatch(/outside the accepted/);
       expect(counts(db)).toEqual(before);
+    });
+
+    it("LIRA-240: MTC CREDIT_TRANSFER priced $6 USD, paid entirely in LBP at +16%/+30% off the server rate — ACCEPTED and stamped with the typed rate", () => {
+      const phoneNumbers = ["03000093", "03000094"];
+      const tenders = [90_000 * 1.16, 90_000 * 1.3];
+      for (let i = 0; i < tenders.length; i++) {
+        const tender = tenders[i];
+        const before = counts(db);
+        const result = repo.processRecharge({
+          provider: "MTC",
+          type: "CREDIT_TRANSFER",
+          amount: 6,
+          cost: 5.0,
+          price: 6.0,
+          currency: "USD",
+          phoneNumber: phoneNumbers[i],
+          payments: [
+            { method: "CASH", currencyCode: "LBP", amount: 6 * tender },
+          ],
+          tender_exchange_rate: tender,
+          userId: 1,
+        });
+
+        expect(result.success).toBe(true);
+        // +1 RECHARGE transaction, +1 EXPENSE transaction for the SMS
+        // transfer fee CREDIT_TRANSFER books via ExpenseRepository.
+        expect(counts(db).transactions).toBe(before.transactions + 2);
+        const txn = db
+          .prepare(
+            `SELECT exchange_rate FROM transactions WHERE type = 'RECHARGE' ORDER BY id DESC LIMIT 1`,
+          )
+          .get() as { exchange_rate: number };
+        expect(txn.exchange_rate).toBe(tender);
+      }
+    });
+
+    it("LIRA-240 exact bug repro: a 300,000 LBP recharge paid with 300,000 LBP cash is ACCEPTED at a +16%-off typed rate — no conversion is needed, so the rate must never matter", () => {
+      const before = counts(db);
+      const tender = 90_000 * 1.16; // 104,400 — the exact owner-reported deviation
+      const result = repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 4,
+        cost: 3.0,
+        price: 300_000,
+        currency: "LBP",
+        phoneNumber: "03000091",
+        payments: [{ method: "CASH", currencyCode: "LBP", amount: 300_000 }],
+        tender_exchange_rate: tender,
+        userId: 1,
+      });
+
+      expect(result.success).toBe(true);
+      expect(counts(db).transactions).toBe(before.transactions + 2);
+      const txn = db
+        .prepare(
+          `SELECT exchange_rate FROM transactions WHERE type = 'RECHARGE' ORDER BY id DESC LIMIT 1`,
+        )
+        .get() as { exchange_rate: number };
+      expect(txn.exchange_rate).toBe(tender);
     });
   });
 

@@ -29,6 +29,10 @@ import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 import { isLotTrackedCurrency } from "../constants/exchangeLotPolicy.js";
 import { exchangeLogger } from "../utils/logger.js";
 import { marketRateToUsdPerUnit } from "../utils/lotMarketRate.js";
+// LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
+// module (no other repository import), so importing it directly here never
+// risks a require cycle.
+import { isToday } from "./reportingTimeFragments.js";
 
 // =============================================================================
 // Entity Types
@@ -557,9 +561,13 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             Math.abs(data.amountOut),
             data.toCurrency,
           ),
-          // Band anchor only — the stamped `rate` is the from→to exchange
-          // rate (possibly EUR-per-USD etc.), NOT a USD↔LBP rate, so the
-          // server sell rate anchors the ±15% tender-rate sanity band here.
+          // Fallback rate only, used when `tenderExchangeRate` is absent —
+          // the stamped `rate` is the from→to exchange rate (possibly
+          // EUR-per-USD etc.), NOT a USD↔LBP rate, so the server sell rate
+          // anchors reconciliation here. LIRA-240 (2026-09-28) retired the
+          // ±15% band that used to compare a supplied tender rate against
+          // this anchor and refuse outside it — a tender rate, when
+          // supplied, is now used as-is regardless of the gap.
           exchangeRate: getUsdLbpSellRate(this.db),
           tenderExchangeRate: data.tender_exchange_rate,
           context: "Exchange payout",
@@ -1005,7 +1013,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM exchange_transactions
-         WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
+         WHERE ${isToday("created_at")}
            AND tenant_id = ?
          ORDER BY created_at DESC`,
       )
@@ -1023,7 +1031,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
            COALESCE(SUM(amount_out), 0) AS total_out,
            COUNT(*)                      AS count
          FROM exchange_transactions
-         WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
+         WHERE ${isToday("created_at")}
            AND tenant_id = ?`,
       )
       .get(getCurrentTenantId()) as {

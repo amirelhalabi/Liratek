@@ -33,9 +33,64 @@ export {
   seedExchangeRate,
 } from "./helpers/seed.js";
 import { installWebApiShim } from "./helpers/webApiShim.js";
+// Imported from storageKey.ts, NOT useWhatsNew.ts: the hook module also
+// imports releaseNotes.generated.json as a plain (non-asserted) ESM JSON
+// import, which Node's native loader (this fixture runs under it) rejects —
+// see storageKey.ts's own comment.
+import { WHATS_NEW_STORAGE_KEY } from "../../src/features/whatsNew/storageKey";
+import type { ReleaseNoteEntry } from "../../src/features/whatsNew/types";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// The "What's new" modal (MainLayout.tsx, mounted once for the whole
+// authenticated shell on both desktop and web) auto-opens the first time
+// `useWhatsNew`'s localStorage key is older than the newest release here.
+// The desktop suite's single shared Electron page currently survives this by
+// accident — whichever spec runs first tends to route through `navigateTo`'s
+// generic `div.fixed.inset-0` overlay-dismissal before asserting anything —
+// which makes the suite's green run order-dependent rather than actually
+// immune. Pre-seed the same "already seen" state here for the same reason
+// tests/e2e-web/fixtures.ts does, read from the generated JSON (not
+// hardcoded) so it keeps working after every future release.
+const WHATS_NEW_LATEST_VERSION: string | null = (() => {
+  try {
+    const raw = fs.readFileSync(
+      path.join(
+        __dirname,
+        "..",
+        "..",
+        "src",
+        "features",
+        "whatsNew",
+        "releaseNotes.generated.json",
+      ),
+      "utf8",
+    );
+    const entries = JSON.parse(raw) as ReleaseNoteEntry[];
+    return entries[0]?.version ?? null;
+  } catch {
+    return null;
+  }
+})();
+
+/** Seed localStorage on `page` so the "What's new" modal never auto-opens. */
+async function seedWhatsNewSeen(page: Page): Promise<void> {
+  if (!WHATS_NEW_LATEST_VERSION) return;
+  await page
+    .evaluate(
+      ({ key, version }: { key: string; version: string }) => {
+        try {
+          localStorage.setItem(key, version);
+        } catch {
+          // Private mode / blocked storage — worst case the modal auto-opens
+          // as it would for a real fresh user; never fail setup over this.
+        }
+      },
+      { key: WHATS_NEW_STORAGE_KEY, version: WHATS_NEW_LATEST_VERSION },
+    )
+    .catch(() => {});
+}
 
 // Per-worker index so parallel workers never share a DB or user-data-dir.
 // Playwright sets TEST_WORKER_INDEX per worker process; the fixture module
@@ -301,6 +356,19 @@ export const test = base.extend<
             globalThis as { __LIRATEK_BACKEND_URL?: string }
           ).__LIRATEK_BACKEND_URL = url;
         }, WEB_BACKEND_URL);
+        if (WHATS_NEW_LATEST_VERSION) {
+          await context.addInitScript(
+            ({ key, version }: { key: string; version: string }) => {
+              try {
+                localStorage.setItem(key, version);
+              } catch {
+                // Private mode / blocked storage — worst case the modal
+                // auto-opens as it would for a real fresh user.
+              }
+            },
+            { key: WHATS_NEW_STORAGE_KEY, version: WHATS_NEW_LATEST_VERSION },
+          );
+        }
         // Phase 3: install the browser-side window.api → REST shim so the
         // IPC-driven desktop specs (page.evaluate(window.api.*)) run over HTTP.
         await installWebApiShim(context);
@@ -492,6 +560,32 @@ export const test = base.extend<
           window as unknown as { __e2eNotificationDurationMs: number }
         ).__e2eNotificationDurationMs = ms;
       }, E2E_NOTIFICATION_DURATION_MS);
+
+      // "What's new" modal pre-seed (see WHATS_NEW_LATEST_VERSION comment
+      // above): unlike the notification-duration override, this CANNOT wait
+      // for a post-completeSetup auto fixture — MainLayout (and therefore
+      // useWhatsNew's auto-open effect) first mounts INSIDE completeSetup(),
+      // the instant the setup wizard's "Launch App" step logs the user in.
+      // A context-level addInitScript alone would also miss that first
+      // mount: it only takes effect on a document (re)created after being
+      // registered, and this SPA never reloads between here and that mount.
+      // So seed via both: an immediate evaluate() NOW (covers the imminent
+      // first mount) plus the addInitScript below (covers a later
+      // `appPage.reload()`, same two-layer split as notificationDurationMs).
+      if (WHATS_NEW_LATEST_VERSION) {
+        await seedWhatsNewSeen(sharedPage);
+        await sharedPage.context().addInitScript(
+          ({ key, version }: { key: string; version: string }) => {
+            try {
+              localStorage.setItem(key, version);
+            } catch {
+              // Private mode / blocked storage — worst case the modal
+              // auto-opens as it would for a real fresh user.
+            }
+          },
+          { key: WHATS_NEW_STORAGE_KEY, version: WHATS_NEW_LATEST_VERSION },
+        );
+      }
     }
 
     if (!setupDone) {

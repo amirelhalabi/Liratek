@@ -118,8 +118,15 @@ TZ=Asia/Beirut) then restore Electron ABI; frontend tests; the two timezone e2e 
   unrelated to dates (`SalesService.test.ts` mock-payload shape + `wp5_wp6_admin_tenant.api.test.ts`
   config-table counts, both fail on pristine HEAD) + `rateLimit.test.ts` (flaky under parallelism,
   passes 10/10 alone); frontend typecheck 0 errors, lint 0 errors, 321 tests pass.
-- NOT done here (needs ops): pin `TZ=Asia/Beirut` on the web backend deployment, or web-mode
-  reporting follows the server TZ (see Web caveat above). Desktop is correct as-is.
+- ~~NOT done here (needs ops): pin `TZ=Asia/Beirut` on the web backend deployment, or web-mode
+  reporting follows the server TZ (see Web caveat above).~~ **SUPERSEDED 2026-09-28. Do NOT pin
+  `TZ` on the server** (CLAUDE.md rule 27): that hides the bug for Beirut and leaves it wrong for any
+  tenant in another zone. Fixed the rule-27 way instead by **LIRA-237**:
+  - the browser sends `X-Client-Tz-Offset` on every request;
+  - the server converts reporting days through `repositories/reportingTimeFragments.ts`;
+  - the server's own `'localtime'` is used only when no offset is given (desktop).
+
+  Desktop is correct as-is.
 - Leftover latent (out of scope): `ReportingService.getDateRange` negative-offset edge;
   `logger.ts` log-filename UTC day.
 - E2E (Playwright/Electron): `lira-100-checkpoint-timeline-timezone` (display), plus

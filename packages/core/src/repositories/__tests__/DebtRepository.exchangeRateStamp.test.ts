@@ -222,7 +222,9 @@ describe("DebtRepository — addRepayment stamps the tendered rate", () => {
     expect(lastTransactionExchangeRate(db)).toBe(89_000);
   });
 
-  it("out-of-band tender (50,000 vs. server 90,000) stamps the server sell rate (90,000) — never throws (no reconcileLegs gate exists for repayments)", () => {
+  it("LIRA-240: out-of-band tender (50,000 vs. server 90,000) is stamped EXACTLY as typed, not the server sell rate — never throws (no reconcileLegs gate exists for repayments)", () => {
+    // Owner decision 2026-09-28: the silent server-rate fallback is retired
+    // — the stamp always reflects what the operator actually typed.
     expect(() =>
       repo.addRepayment({
         client_id: 7,
@@ -233,7 +235,7 @@ describe("DebtRepository — addRepayment stamps the tendered rate", () => {
       }),
     ).not.toThrow();
 
-    expect(lastTransactionExchangeRate(db)).toBe(SELL_RATE);
+    expect(lastTransactionExchangeRate(db)).toBe(50_000);
   });
 
   it("no tender_exchange_rate at all: stamps the server sell rate (90,000), not the market-rate decoy — backward compatible", () => {

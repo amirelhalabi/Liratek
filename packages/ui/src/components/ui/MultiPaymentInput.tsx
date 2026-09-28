@@ -10,6 +10,19 @@ import {
   type RateSide,
   type RateTable,
 } from "../../money";
+import {
+  TENDER_RATE_BAND_PCT,
+  tenderRateDeviationPct,
+} from "@liratek/core";
+
+/**
+ * Past this deviation, the warning switches to stronger "check for a typo"
+ * wording (LIRA-240, owner example: ">50%"). UI-only wording tier — never
+ * gates anything server-side, so it stays local to this component rather
+ * than living in the shared core constant (which IS reused, rule 14: this
+ * threshold and `TENDER_RATE_BAND_PCT` are used exactly once each, here).
+ */
+const TENDER_RATE_TYPO_PCT = 0.5;
 
 export type PaymentLine = {
   id: string;
@@ -356,6 +369,33 @@ export default function MultiPaymentInput({
   );
 
   const effectiveRate = parseFloat(customExchangeRate) || safeExchangeRate;
+
+  // ── Tender-rate sanity warning (LIRA-240, owner decision 2026-09-28) ──
+  // `safeExchangeRate` is the shop/server reference rate (the `exchangeRate`
+  // prop, falling back to the rate-table LBP pair, then a last-resort
+  // default) — it does NOT change when the operator edits the field below,
+  // so it stays a stable anchor to compare the typed rate against.
+  // NON-BLOCKING: this never disables Confirm/Pay or any input — it is a
+  // warning line only. The server-side ±15% band that used to REFUSE a
+  // payment over this same threshold was removed for the same reason
+  // (moneyPosting.ts, `TENDER_RATE_BAND_PCT`'s doc) — this is now the ONLY
+  // place the band has any effect at all.
+  const tenderRateDeviation = tenderRateDeviationPct(
+    effectiveRate,
+    safeExchangeRate,
+  );
+  const tenderRateWarning =
+    tenderRateDeviation > TENDER_RATE_BAND_PCT
+      ? {
+          isTypoLevel: tenderRateDeviation > TENDER_RATE_TYPO_PCT,
+          text:
+            `⚠ Rate is ${Math.round(tenderRateDeviation * 100)}% away from the shop rate ` +
+            `(${fmtNum(Math.round(safeExchangeRate))})` +
+            (tenderRateDeviation > TENDER_RATE_TYPO_PCT
+              ? " — check for a typo"
+              : ""),
+        }
+      : null;
 
   // ── Multi-currency engine model (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md) ──
   // Every conversion in this component goes through this table. The header
@@ -1439,6 +1479,21 @@ export default function MultiPaymentInput({
           )}
         </button>
       </div>
+
+      {/* Tender-rate sanity warning — non-blocking, never disables anything
+          below (LIRA-240). */}
+      {tenderRateWarning && (
+        <div
+          data-testid="tender-rate-warning"
+          className={`px-4 py-1.5 text-[11px] border-b border-slate-700/40 ${
+            tenderRateWarning.isTypoLevel
+              ? "bg-red-500/10 text-red-300"
+              : "bg-amber-500/10 text-amber-300"
+          }`}
+        >
+          {tenderRateWarning.text}
+        </div>
+      )}
 
       {/* Payment Lines */}
       <div className="px-4 py-3 space-y-2">

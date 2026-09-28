@@ -10,6 +10,7 @@ import {
   type VirtualStock,
   type RechargeData,
   type RechargeEntity,
+  type RechargeTodayStats,
 } from "../repositories/index.js";
 import { rechargeLogger } from "../utils/logger.js";
 import type { TopUpProvider } from "../constants/index.js";
@@ -56,6 +57,25 @@ export class RechargeService {
     } catch (error) {
       rechargeLogger.error({ error }, "Failed to get recharge history");
       return [];
+    }
+  }
+
+  /**
+   * LIRA-250 follow-up — today's MTC/Alfa sales count/profit for the
+   * Recharge page's Count/Profit cards (and the Total Profit card, for a
+   * telecom provider). Thin pass-through (rule 13 — all SQL, the
+   * "which rows count" definition, and the notRefunded/notDebtPending/
+   * isToday gates live in the repository); see
+   * `RechargeRepository.getTodayStats`'s doc comment for the full
+   * definition. A zeroed shape on error keeps the page's stat cards reading
+   * $0.00/0 rather than throwing.
+   */
+  getTodayStats(provider: "MTC" | "Alfa"): RechargeTodayStats {
+    try {
+      return this.rechargeRepo.getTodayStats(provider);
+    } catch (error) {
+      rechargeLogger.error({ error }, "Failed to get recharge today stats");
+      return { count: 0, profit_usd: 0, profit_lbp: 0, byCurrency: [] };
     }
   }
 

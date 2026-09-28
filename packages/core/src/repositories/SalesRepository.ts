@@ -29,6 +29,12 @@ import {
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+// LIRA-237: imported from the LEAF fragment module, not ProfitRepository.js
+// directly — ProfitRepository.js imports TransactionRepository.js, which
+// imports THIS file, so a direct SalesRepository -> ProfitRepository import
+// would close a require cycle (reportingTimeFragments.ts's own doc comment
+// has the full chain).
+import { isToday, localDayExpr } from "./reportingTimeFragments.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
@@ -1245,10 +1251,15 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 }
 
                 // Use txnId (transactions table FK) per unified transaction
-                // architecture. amountLbp/createdBy stay null: the original
-                // hand-rolled INSERT here never included those columns (POS
+                // architecture. amountLbp stays null: the original
+                // hand-rolled INSERT here never included that column (POS
                 // sales are always USD-priced) — see moneyPosting.ts's
-                // bookClientDebtCharge doc for why null reproduces that exactly.
+                // bookClientDebtCharge doc for why null reproduces that
+                // exactly. createdBy IS the sale's own actor (LIRA-241) —
+                // already resolved a few lines above for the partner-ledger
+                // branch (`user_id: createdBy`); the original hand-rolled
+                // INSERT just never threaded it through, leaving every Sale
+                // Debt row unattributed on the Debts page's User column.
                 bookClientDebtCharge(db, {
                   clientId: finalClientId,
                   transactionType: "Sale Debt",
@@ -1256,7 +1267,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                   amountLbp: null,
                   transactionId: txnId,
                   note: saleLabel,
-                  createdBy: null,
+                  createdBy,
                   tenantId,
                 });
               }
@@ -2474,19 +2485,107 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           SUM(final_amount_usd) as total_usd,
           SUM(paid_lbp - COALESCE(change_given_lbp, 0)) as total_lbp
         FROM ${this.tableName}
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed' AND tenant_id = ?
+        WHERE ${isToday("created_at")} AND status = 'completed' AND tenant_id = ?
       `,
         tenantId,
       );
 
-      // Cash Collected from Sales Today (net cash retained = tendered - change)
+      // Cash Collected from Sales Today (net cash retained = tendered - change).
+      //
+      // LIRA-244 fix: sourced from the sale's OWN `payments` rows (drawer-
+      // affecting legs only, posted once at sale creation and NEVER touched
+      // again) instead of `sales.paid_usd`/`change_given_*`. Those two
+      // columns look immutable but are NOT: `DebtRepository.addRepayment` →
+      // `_markSalesPaidFIFO` does `UPDATE sales SET paid_usd = paid_usd + ?`
+      // on this same row whenever the client later pays off the sale's
+      // debt — with no record of when. `payments` rows are immutable audit
+      // trail (a repayment posts against ITS OWN transaction, never the
+      // original sale's), so summing them instead structurally cannot
+      // double-count a repayment (`repaymentResult` below covers it once).
+      //
+      // Round-2 fix (coordinator correction, 2026-09-28) — a regression the
+      // FIRST LIRA-244 follow-up (same day) introduced: this query used to
+      // join `sales` and filter `isToday(s.created_at) AND s.status =
+      // 'completed'`, bucketing every leg by the SALE's own creation day
+      // and hiding it entirely once every item was refunded (status flips
+      // to 'refunded'). That happened to net to the right answer for a
+      // NON-session sale refunded the SAME day (both the original IN leg
+      // and the refund's OUT leg live on transactions tied to this same
+      // sale, so excluding both together still nets to 0) — but it broke
+      // the moment `cashFromSessionsResult` below started counting a
+      // session's pooled IN leg unconditionally (no link to `sales.status`
+      // at all): a session sale fully refunded the same day showed its
+      // cash IN but not the refund's cash OUT, overstating the total. It
+      // was also wrong for ANY cross-day case even before that: a sale
+      // refunded on a LATER day than it was created had its refund's real,
+      // same-day cash outflow attributed to the (non-"today") sale day
+      // instead, silently invisible.
+      //
+      // Fix: bucket by the PAYMENT LEG's own `created_at`
+      // (`isToday('p.created_at')`, rule 27) and drop the `sales`
+      // join/status filter entirely — every leg tied to a `source_table =
+      // 'sales'` transaction (the original SALE, a later REFUND, or a
+      // VOID's reversal — `_voidTransactionInternal`/`_createRefundRow`
+      // both copy `source_table`/`source_id` from the original) counts on
+      // the day it actually posted, matching `cashFromSessionsResult`'s
+      // (already leg-day-scoped, already status-blind) design — one rule
+      // (rule 14) applied the same way to both sale-linked and
+      // session-pooled legs. Proven against the full matrix (every IN/OUT
+      // shape, same-day and cross-day) in
+      // `SalesRepository.dashboardCashCollected.matrix.test.ts`.
       const cashFromSalesResult = this.queryOne<SumRow>(
         `
         SELECT
-          SUM(paid_usd - COALESCE(change_given_usd, 0)) as total_usd,
-          SUM(paid_lbp - COALESCE(change_given_lbp, 0)) as total_lbp
-        FROM ${this.tableName}
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed' AND tenant_id = ?
+          COALESCE(SUM(CASE WHEN p.currency_code = 'USD' THEN p.amount ELSE 0 END), 0) as total_usd,
+          COALESCE(SUM(CASE WHEN p.currency_code = 'LBP' THEN p.amount ELSE 0 END), 0) as total_lbp
+        FROM payments p
+        JOIN transactions t ON t.id = p.transaction_id AND t.tenant_id = p.tenant_id
+        WHERE t.source_table = 'sales' AND ${isToday("p.created_at")} AND p.tenant_id = ?
+      `,
+        tenantId,
+      );
+
+      // Cash Collected from SESSION-BASKET checkouts today (LIRA-244
+      // follow-up).
+      //
+      // `cashFromSalesResult` above can only ever match a `payments` row
+      // whose `transaction_id` points at a transaction — a session-basket
+      // sale (`deferPayment: true`, `SalesRepository.processSale`) writes
+      // NO such row: `partitionLegs(deferPayment ? [] : paymentLines)`
+      // empties both leg arrays, so the sale's own transaction gets no
+      // `payments` row at all. The cash the customer actually paid is
+      // instead posted ONCE, pooled, by
+      // `SessionPaymentService.recordBasketPayment` →
+      // `SessionPaymentRepository.insertSessionLeg`, whose own doc comment
+      // states the convention: "`transaction_id` is left NULL — a payment
+      // row belongs to EITHER a transaction OR a session basket, never
+      // both." That NULL is exactly why `cashFromSalesResult`'s INNER JOIN
+      // can never see it, regardless of what the basket contained — so a
+      // session checkout's cash silently dropped out of this stat entirely
+      // (not just for sales: a recharge/service/loto item paid the same way
+      // has the identical gap).
+      //
+      // `insertSessionLeg` is called ONLY for drawer-affecting cash/wallet
+      // legs (CASH, wallet methods) — CUSTOMER_ACCOUNT/GIFT_CARD legs never
+      // reach it (they book to `debt_ledger`/a voucher redemption instead,
+      // `SessionPaymentService.recordBasketPayment`'s non-drawer branch),
+      // so every row this query sums is real drawer movement, never debt.
+      // `transaction_id IS NULL` also makes this query's rows structurally
+      // disjoint from `cashFromSalesResult`'s (which requires a non-NULL
+      // match) — summing both can never double-count the same leg. Scoped
+      // by the leg's OWN `created_at` (the moment cash was actually taken
+      // at checkout, rule 27) rather than any linked sale's creation day —
+      // the two can differ when a session stays open across a day
+      // boundary, and it's the drawer-movement day that this stat means to
+      // reconcile against.
+      const cashFromSessionsResult = this.queryOne<SumRow>(
+        `
+        SELECT
+          COALESCE(SUM(CASE WHEN p.currency_code = 'USD' THEN p.amount ELSE 0 END), 0) as total_usd,
+          COALESCE(SUM(CASE WHEN p.currency_code = 'LBP' THEN p.amount ELSE 0 END), 0) as total_lbp
+        FROM payments p
+        WHERE p.transaction_id IS NULL AND p.session_id IS NOT NULL
+          AND ${isToday("p.created_at")} AND p.tenant_id = ?
       `,
         tenantId,
       );
@@ -2498,7 +2597,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           SUM(ABS(amount_usd)) as total_usd,
           SUM(ABS(amount_lbp)) as total_lbp
         FROM debt_ledger
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND transaction_type = 'Repayment' AND tenant_id = ?
+        WHERE ${isToday("created_at")} AND transaction_type = 'Repayment' AND tenant_id = ?
       `,
         tenantId,
       );
@@ -2508,7 +2607,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         `
         SELECT COUNT(*) as count
         FROM ${this.tableName}
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed' AND tenant_id = ?
+        WHERE ${isToday("created_at")} AND status = 'completed' AND tenant_id = ?
       `,
         tenantId,
       );
@@ -2533,12 +2632,18 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // Sales Revenue: actual sale value today (revenue recognition)
         totalSalesUSD: salesResult?.total_usd ?? 0,
         totalSalesLBP: salesResult?.total_lbp ?? 0,
-        // Cash Collected: net cash from sales + debt repayments today (cash flow)
+        // Cash Collected: net cash from plain sales + session-basket
+        // checkouts + debt repayments today (cash flow) — see
+        // `cashFromSessionsResult`'s doc comment for why a session checkout
+        // needs its own disjoint query rather than folding into
+        // `cashFromSalesResult`.
         cashCollectedUSD:
           (cashFromSalesResult?.total_usd ?? 0) +
+          (cashFromSessionsResult?.total_usd ?? 0) +
           (repaymentResult?.total_usd ?? 0),
         cashCollectedLBP:
           (cashFromSalesResult?.total_lbp ?? 0) +
+          (cashFromSessionsResult?.total_lbp ?? 0) +
           (repaymentResult?.total_lbp ?? 0),
         ordersCount: ordersResult?.count ?? 0,
         activeClients: clientsResult?.count ?? 0,
@@ -2675,7 +2780,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     try {
       const tenantId = getCurrentTenantId();
       const targetDate = date ? date : "now";
-      const dateFunc = date ? "?" : "DATE('now', 'localtime')";
+      const dateFunc = date ? "?" : localDayExpr("'now'");
 
       const queryParams: unknown[] = [tenantId, tenantId];
       if (date) queryParams.push(targetDate);
@@ -2695,7 +2800,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           s.created_at
         FROM ${this.tableName} s
         LEFT JOIN clients c ON s.client_id = c.id AND c.tenant_id = ?
-        WHERE s.status IN ('completed', 'refunded') AND DATE(s.created_at, 'localtime') = ${dateFunc} AND s.tenant_id = ?
+        WHERE s.status IN ('completed', 'refunded') AND ${localDayExpr("s.created_at")} = ${dateFunc} AND s.tenant_id = ?
         ORDER BY s.created_at DESC
         LIMIT ?
       `,
@@ -2840,7 +2945,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }>(
           `
           SELECT
-            DATE(s.created_at, 'localtime') as date,
+            ${localDayExpr("s.created_at")} as date,
             'USD' as currency,
             SUM(
               CASE
@@ -2857,7 +2962,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             WHERE tenant_id = ?
             GROUP BY sale_id
           ) ri ON ri.sale_id = s.id
-          WHERE s.status = 'completed' AND DATE(s.created_at, 'localtime') >= ? AND s.tenant_id = ?
+          WHERE s.status = 'completed' AND ${localDayExpr("s.created_at")} >= ? AND s.tenant_id = ?
           GROUP BY date
         `,
           tenantId,
@@ -2874,14 +2979,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }>(
           `
           SELECT
-            DATE(r.created_at, 'localtime') as date,
+            ${localDayExpr("r.created_at")} as date,
             r.currency_code as currency,
             SUM(r.price) as daily_amount
           FROM recharges r
           JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
           WHERE t.status = 'ACTIVE'
             AND COALESCE(r.is_refunded, 0) = 0
-            AND DATE(r.created_at, 'localtime') >= ?
+            AND ${localDayExpr("r.created_at")} >= ?
             AND r.tenant_id = ? AND t.tenant_id = ?
           GROUP BY date, r.currency_code
         `,
@@ -2900,14 +3005,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }>(
           `
           SELECT
-            DATE(fs.created_at, 'localtime') as date,
+            ${localDayExpr("fs.created_at")} as date,
             fs.currency as currency,
             SUM(fs.price) as daily_amount
           FROM financial_services fs
           WHERE fs.provider IN (${MOBILE_SERVICE_PROVIDERS_SQL_LIST})
             AND fs.service_type != 'BILL'
             AND COALESCE(fs.is_refunded, 0) = 0
-            AND DATE(fs.created_at, 'localtime') >= ?
+            AND ${localDayExpr("fs.created_at")} >= ?
             AND fs.tenant_id = ?
           GROUP BY date, fs.currency
         `,

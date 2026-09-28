@@ -218,7 +218,7 @@ function renderViewer() {
   );
 }
 
-describe("TransactionsViewer — extra-currency drawer top-up / cash-out", () => {
+describe("TransactionsViewer — extra-currency drawer top-up / cash-out (LIRA-223: not proven failing-first — written 2026-09-23, batch process forbade running tests mid-batch)", () => {
   beforeEach(() => {
     mockGetRecentTransactions.mockReset();
   });

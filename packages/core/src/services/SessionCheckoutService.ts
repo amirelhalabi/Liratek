@@ -227,7 +227,8 @@ export function processCartItem(
 
     case "maintenance:save": {
       const maintenanceService = getMaintenanceService();
-      const result = maintenanceService.saveJob(data as never);
+      // actorUserId (LIRA-246a): the session-basket checkout operator.
+      const result = maintenanceService.saveJob(data as never, userId);
       if (!result.success || !result.id) {
         throw new Error(result.error || "Failed to save maintenance job");
       }

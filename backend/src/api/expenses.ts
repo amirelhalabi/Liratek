@@ -21,10 +21,12 @@ router.get("/today", (_req, res) => {
   res.json({ success: true, expenses });
 });
 
-// POST /api/expenses (admin)
+// POST /api/expenses (admin and staff — LIRA-242 owner decision 2026-09-28:
+// adding an expense is routine cashier work; voiding/deleting one below
+// stays admin-only, matching dbHandlers.ts's "db:add-expense" IPC gate).
 router.post(
   "/",
-  requireRole(["admin"]),
+  requireRole(["admin", "staff"]),
   validateRequest(createExpenseSchema),
   (req, res) => {
     const service = getExpenseService();

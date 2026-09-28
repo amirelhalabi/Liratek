@@ -182,6 +182,12 @@ import {
   // RechargeSchema/SaleProcessSchema above.
   getMaintenanceStatusHistorySchema,
   type GetMaintenanceStatusHistoryInput,
+  // LIRA-246b — the same canonical-storage phone normalizer the core
+  // saveMaintenanceJobSchema uses (note #13); applied to THIS file's local
+  // MaintenanceJobSchema.client_phone too so desktop stores the same
+  // canonical form REST does, even though desktop's copy has no regex to
+  // reject a spaced number in the first place.
+  normalizeLineNumber,
   // LIRA-165 — Database Reset. Brand new, no local duplicate; straight
   // re-export from packages/core/src/validators/databaseReset.ts so the
   // Electron IPC handler (databaseResetHandlers.ts) and the REST route
@@ -441,7 +447,15 @@ export const MaintenanceJobSchema = z.object({
   currency: z.enum(["USD", "LBP"]).optional().default("USD"),
   client_id: z.number().int().positive().optional().nullable(),
   client_name: z.string().optional().nullable(),
-  client_phone: z.string().optional().nullable(),
+  // LIRA-246b: canonicalize before storage (see the `normalizeLineNumber`
+  // import note above) — desktop had no regex to reject a spaced number, but
+  // it also never normalized one, so "03 123 456" and "+961 3 123 456" for
+  // the SAME line stored as two different strings.
+  client_phone: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((v) => (v ? normalizeLineNumber(v) : v)),
   status: z
     .enum(["Received", "In_Progress", "Ready", "Delivered", "Delivered_Paid"])
     .optional()

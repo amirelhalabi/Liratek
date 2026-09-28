@@ -276,12 +276,11 @@ describe("RechargeRepository — SEND stamps the tendered rate", () => {
     expect(lastTransactionExchangeRate(db)).toBe(89000);
   });
 
-  it("out-of-band tender (40,000 vs. server 90,000) still stamps the server rate (90,000) — via deferPayment, isolating the stamp from the (unmodified) reconciliation hard-reject", () => {
-    // A raw out-of-band tender_exchange_rate would also fail the (unmodified)
-    // leg-reconciliation hard-reject if reconciliation actually ran (see
-    // RechargeRepository.legReconciliation.test.ts's "REJECTS a
-    // tender_exchange_rate outside the ±15% band" case) — deferPayment skips
-    // that check entirely, isolating the STAMP's own silent-fallback behavior.
+  it("LIRA-240: out-of-band tender (40,000 vs. server 90,000) is stamped EXACTLY as typed, not the server rate — the silent fallback is retired", () => {
+    // Owner decision 2026-09-28: `resolveStampedExchangeRate` no longer
+    // falls back to the server rate beyond ±15% — the stamp always reflects
+    // what the operator actually typed. deferPayment still isolates the
+    // STAMP from leg reconciliation (unrelated concern, unchanged).
     const result = repo.processRecharge({
       provider: "MTC",
       type: "CREDIT_TRANSFER",
@@ -296,7 +295,7 @@ describe("RechargeRepository — SEND stamps the tendered rate", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(lastTransactionExchangeRate(db)).toBe(90000);
+    expect(lastTransactionExchangeRate(db)).toBe(40000);
   });
 
   it("no tender_exchange_rate at all: stamps the server rate exactly as before (backward compatible)", () => {
@@ -560,7 +559,13 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
     expect(lastTransactionExchangeRate(db)).toBe(89000);
   });
 
-  it("out-of-band tender (40,000 vs. server 90,000) is still REJECTED by the (unmodified) reconciliation safety net — processCreditBuyback has no defer/bypass path, so this proves the guard wasn't weakened rather than the stamp's isolated fallback (already proven above and in the FinancialServiceRepository suite via its deferPayment bypass)", () => {
+  it("LIRA-240: out-of-band tender (40,000 vs. server 90,000) is ACCEPTED — same-currency payment ($9 USD price, $9 USD leg), the rate plays no part in the math and must never block it", () => {
+    // This is the exact bug class the owner reported (a same-currency
+    // payment refused purely because the TYPED rate looked implausible, even
+    // though no conversion was needed): before LIRA-240 this same payload
+    // was REJECTED with "outside the accepted ±15% band" despite the legs
+    // being entirely USD against a USD price. Owner decision 2026-09-28: the
+    // band never blocks, and the stamp records exactly what was typed.
     lineRepo.createLine({
       carrier: "mtc",
       phone_number: "03111112",
@@ -589,15 +594,14 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
       userId: 1,
     });
 
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/outside the accepted/);
-    // Atomic: nothing persisted.
+    expect(result.success).toBe(true);
     expect(
       (db.prepare(`SELECT COUNT(*) c FROM recharges`).get() as any).c,
-    ).toBe(before.recharges);
+    ).toBe(before.recharges + 1);
     expect(
       (db.prepare(`SELECT COUNT(*) c FROM transactions`).get() as any).c,
-    ).toBe(before.transactions);
+    ).toBeGreaterThan(before.transactions);
+    expect(lastTransactionExchangeRate(db)).toBe(40000);
   });
 
   it("no tender_exchange_rate at all: stamps the server rate exactly as before (backward compatible)", () => {

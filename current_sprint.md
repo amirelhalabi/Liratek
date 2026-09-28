@@ -4231,7 +4231,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-240**, LIRA-236 filed 2026-09-27, LIRA-237..239 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-252**, LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -4411,7 +4411,7 @@ found while tracing D13, not caused by this ticket).
 | **Epic**             | Audit / Settings / Security                                       |
 | **Type**             | Bug (security + rule-19c transport divergence)                    |
 | **Priority**         | **High** — a live data exposure created by LIRA-198               |
-| **Status**           | TODO                                                              |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — the Profits password is redacted in settings audit rows on write AND on read (`constants/sensitiveSettings.ts`); a settings audit row is written only when the write succeeded |
 | **Affected Modules** | settings, audit                                                   |
 | **Source Plan**      | Found while building LIRA-198 (`OWNER_NOTES_2026-09-21.md` §0.5)  |
 | **Depends On**       | LIRA-198 (DONE) — which is what made this reachable               |
@@ -4459,7 +4459,7 @@ rejected, not performed"*. So this is a **desktop-only leak AND a rule-19c diver
 | **Epic**             | Multi-tenant / Schema                                             |
 | **Type**             | Tech debt (rule 14) — the drift that caused LIRA-198's third piece |
 | **Priority**         | Medium                                                            |
-| **Status**           | TODO                                                              |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — `MODULE_SEED_ROWS` exported; drift guard `db/__tests__/moduleSeedRows.driftGuard.test.ts` |
 | **Affected Modules** | all (`modules` table)                                             |
 | **Source Plan**      | Found while building LIRA-198                                     |
 
@@ -4508,7 +4508,7 @@ off disk)?
 | **Epic**             | Inventory                                                         |
 | **Type**             | Bug — silent data loss                                            |
 | **Priority**         | Medium                                                            |
-| **Status**           | TODO — **unverified by execution**; found by reading, not running |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — reproduced; `updateProductFull` keeps `image_url` when none is sent. Pictures already lost stay lost |
 | **Affected Modules** | inventory                                                         |
 | **Source Plan**      | Found while tracing D13 for LIRA-208; pre-existing, not caused by it |
 
@@ -4546,7 +4546,7 @@ Make the write conditional the way `category` / `category_id` already are —
 | **Epic**             | Testing / process                                                 |
 | **Type**             | Rule-17 debt                                                      |
 | **Priority**         | Medium — a guard that has never failed proves nothing             |
-| **Status**           | TODO                                                              |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — every guard from the 2026-09-23 batch and this batch is either recorded as proven failing-first or labelled "NOT proven failing-first"; no finished code was re-broken |
 | **Affected Modules** | audit, inventory, recharge, multi-tenant                          |
 | **Source Plan**      | Batch process note, 2026-09-23                                    |
 
@@ -4602,7 +4602,7 @@ observed** — not with a prediction.
 | **Epic**             | Inventory                                                         |
 | **Type**             | Owner decision                                                    |
 | **Priority**         | Low                                                               |
-| **Status**           | **NEEDS INTERVIEW**                                               |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — owner said yes (2026-09-28); "Save & adjust" added to the unsaved-changes warning |
 | **Affected Modules** | inventory                                                         |
 | **Source Plan**      | Raised while building LIRA-208                                    |
 
@@ -4626,7 +4626,7 @@ money-moving intake event, and forcing a clean save before it is arguably the sa
 | **Epic**             | Inventory                                                         |
 | **Type**             | Bug (reachable dead-end) + missing coverage                       |
 | **Priority**         | Medium                                                            |
-| **Status**           | TODO                                                              |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — the hand-off fetches the product by id (`getProductById`, dual-mode), not from the filtered list; regression test added |
 | **Affected Modules** | inventory                                                         |
 | **Source Plan**      | Found reviewing LIRA-208                                          |
 
@@ -4671,7 +4671,7 @@ fails against the pre-fix `setAdjustingProduct(target)` line first (rule 17).
 | **Epic**             | CI / Schema                                                       |
 | **Type**             | Bug in a guard (a check that cannot fail)                         |
 | **Priority**         | Medium                                                            |
-| **Status**           | TODO                                                              |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — CI passes `SCHEMA_CHECK_BASE_REF`; duplicate migration versions are reported; `scripts/__tests__/checkSchemaEquivalence.test.mjs` |
 | **Affected Modules** | — (tooling)                                                       |
 | **Source Plan**      | Found while wiring the check up, 2026-09-23                       |
 
@@ -4720,7 +4720,7 @@ Map, and report any duplicated version as a diff.
 | **Epic**             | Schema                                                            |
 | **Type**             | Bug — presentation only                                           |
 | **Priority**         | Low                                                               |
-| **Status**           | TODO                                                              |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — migration v188 re-asserts custom_services=12, profits=13, loto=16 |
 | **Affected Modules** | all (`modules` table)                                             |
 | **Source Plan**      | Surfaced while proving fresh-vs-upgraded equivalence for LIRA-198 |
 
@@ -4750,7 +4750,7 @@ A new migration re-asserting the three `sort_order` values to the `create_db.sql
 | **Epic**             | Inventory                                                         |
 | **Type**             | Bug — silent data loss                                            |
 | **Priority**         | Low                                                               |
-| **Status**           | TODO                                                              |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — the warranty edit survives minimize/restore |
 | **Affected Modules** | inventory                                                         |
 | **Source Plan**      | Found reviewing LIRA-208; pre-existing                            |
 
@@ -5204,7 +5204,7 @@ The typed rate also converts the account-first part of a session item refund.
 | **Epic**             | Dual transport / dates (rule 27)                                                   |
 | **Type**             | Investigation (possible bug)                                                       |
 | **Priority**         | High                                                                               |
-| **Status**           | TODO — proposed 2026-09-28; unverified                                             |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — CONFIRMED and fixed the rule-27 way: the browser sends `X-Client-Tz-Offset` → tenant context → `repositories/reportingTimeFragments.ts`; Profit, Closing, Sales, Exchange, FinancialService, CustomService, CustomerSession and Product queries converted; desktop falls back to `localtime` |
 | **Affected Modules** | profits, closing, dashboard, every daily report on web                             |
 | **Source**           | Found while fixing the flaky "today" core tests (2026-09-27)                       |
 
@@ -5260,7 +5260,7 @@ shop line's balance matches the credits actually left after SMS fees.
 | **Epic**             | Owner notes 2026-09-21 — follow-ups (#28)                                          |
 | **Type**             | Execution-based verification                                                       |
 | **Priority**         | Medium                                                                             |
-| **Status**           | TODO — proposed 2026-09-28; flagged in the plan, never run                         |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — REAL bug: voiding the days sale and then the later self-charge left the line wrong. A CHARGE reversal is now refused when out of order, with a plain message; newest-first nets every ledger to 0. "Refund basket" is unaffected (a self-charge is never a session member) |
 | **Affected Modules** | recharge (carrier lines), sessions, dashboard (owed days)                          |
 | **Source**           | `OWNER_NOTES_2026-09-21.md` §00.5                                                  |
 
@@ -5280,3 +5280,227 @@ If it doesn't, fix it with a failing-first test (rule 17).
 
 **What users will notice:** (if a fix is needed) refunding a sold-ahead days sale restores the line
 and the owed-days list exactly.
+
+---
+
+## LIRA-240: the ±15% payment-rate check blocks payments; make it an alert — HIGH
+
+| Field | Value |
+| --- | --- |
+| **Type** | Behaviour change (owner decision) |
+| **Priority** | High |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — the server no longer refuses a far-off rate; the payment form shows an amber warning past 15% ("check for a typo" past 50%) |
+| **Affected Modules** | recharge, omt_whish, all payment forms |
+| **Source** | Owner note #17 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+The payment form refuses a typed exchange rate more than 15% from the shop rate (`TENDER_RATE_BAND_PCT`). It also refused a same-currency payment where no conversion happens.
+
+**Owner decision:** show a non-blocking alert in the payment form (a text line or a warning sign), with no confirmation step; the server no longer refuses. Skip the check when no conversion happens.
+
+**What users will notice:** the payment form warns when the exchange rate is far from the shop rate, but never blocks the payment.
+
+---
+
+## LIRA-241: Debts history has no User column — LOW
+
+| Field | Value |
+| --- | --- |
+| **Type** | Feature (owner decision) |
+| **Priority** | Low |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — User column in both Debts history tables; the Sale Debt `created_by` actor fixed |
+| **Affected Modules** | debts |
+| **Source** | Owner note #1 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+The Debts page client history shows Date / Note / USD / LBP but not who recorded each entry.
+
+**Owner decision:** add a User column there only; no "By" name on the sale detail or receipt.
+
+**What users will notice:** the Debts history shows which user recorded each entry.
+
+---
+
+## LIRA-242: staff are silently refused for recharges, expenses and maintenance — HIGH
+
+| Field | Value |
+| --- | --- |
+| **Type** | Permissions (owner decision) |
+| **Priority** | High |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — staff may process recharges (incl. buy-back and shop-line use), add expenses, and create/start/update repair jobs; deletes, cash-out to supplier and line settings stay admin. OWNER TO CONFIRM staff buy-backs |
+| **Affected Modules** | recharge, expenses, maintenance |
+| **Source** | Owner note #25 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+Staff get a 403 with no message for MTC/Alfa recharges, adding expenses, and creating or starting repair jobs, on both web and desktop. This is very likely the customer's note #25.
+
+**Owner decision:** staff may do all four; void/delete stays admin. Every refusal shows the server's reason.
+
+**What users will notice:** staff can sell MTC/Alfa credits, add expenses and create or start repair jobs, and any refusal now says why.
+
+---
+
+## LIRA-243: Audit Log times show 3 hours ahead on the web — MEDIUM
+
+| Field | Value |
+| --- | --- |
+| **Type** | Bug (rule 27) |
+| **Priority** | Medium |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — `AuditRepository.log` stamps UTC; entries written before the fix keep the old time (owner to decide on a backfill) |
+| **Affected Modules** | audit |
+| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+The same moment shows 20:53 on Transactions and 23:53 on the Audit Log. Audit rows are stored in local time and then rendered as UTC.
+
+**What users will notice:** Audit Log times match the Transactions page.
+
+---
+
+## LIRA-244: Dashboard "Cash Collected (Today)" counts a debt repayment twice — MEDIUM
+
+| Field | Value |
+| --- | --- |
+| **Type** | Bug (money display) |
+| **Priority** | Medium |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — Cash Collected sums payment legs by their own day (sale transactions + session checkouts) plus repayments; a 12-case matrix matches the drawer (`SalesRepository.dashboardCashCollected.matrix.test.ts`) |
+| **Affected Modules** | dashboard |
+| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+Measured twice: $8.00 shown against a $4.00 drawer, and $21.37 against $17.37. In both runs the gap is exactly the repayment. The cause has not been traced.
+
+**What users will notice:** "Cash Collected (Today)" matches the cash actually taken.
+
+---
+
+## LIRA-245: Escape in POS checkout empties the cart without asking — MEDIUM
+
+| Field | Value |
+| --- | --- |
+| **Type** | Bug (UX / lost work) |
+| **Priority** | Medium |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — Escape closes only the top panel; POS passes a non-destructive `onClose` |
+| **Affected Modules** | pos |
+| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+Pressing Escape in checkout, even with only the receipt preview open, cancels the whole order and empties the cart, with no confirmation.
+
+**What users will notice:** Escape no longer throws away the cart by accident.
+
+---
+
+## LIRA-246: maintenance: status changes keep no user, Lebanese phone formats rejected, name-only client linking — MEDIUM
+
+| Field | Value |
+| --- | --- |
+| **Type** | Bug |
+| **Priority** | Medium |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — `changed_by` set from the actor; phones normalised (`normalizeLineNumber`); no name-only client link |
+| **Affected Modules** | maintenance |
+| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+`maintenance_status_history.changed_by` is NULL on web. "03 123 456" / "+961 3 654 321" are rejected as invalid. A job with no phone is linked to a client by name alone.
+
+**What users will notice:** repair jobs accept phone numbers typed with spaces or +961, record who changed their status, and are no longer attached to a same-name client by mistake.
+
+---
+
+## LIRA-247: refusals returned as HTTP 400/403 lose their reason on the web — MEDIUM
+
+| Field | Value |
+| --- | --- |
+| **Type** | Bug (rule 19c) |
+| **Priority** | Medium |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — about 35 sites use `getApiErrorMessage`; also added the missing success checks (Binance submit, preset on/off) |
+| **Affected Modules** | inventory, recharge, expenses, maintenance, others |
+| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+Inventory "retail below cost" shows "An unexpected error occurred"; staff 403s show nothing at all. Refusals should use the 200 `{ success: false, error }` envelope, or the UI should surface the thrown `{status, message}`.
+
+**What users will notice:** when something is refused, the screen says why.
+
+---
+
+## LIRA-248: OMT: an edited exchange rate carries over to the next transaction — LOW
+
+| Field | Value |
+| --- | --- |
+| **Type** | Bug |
+| **Priority** | Low |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — the edited rate resets after each transfer and before opening the payment sheet |
+| **Affected Modules** | omt_whish |
+| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+After a rate is edited in the payment form, the next OMT transaction starts with that rate until the page is left or reloaded.
+
+**What users will notice:** each new OMT/Whish transaction starts at the shop rate.
+
+---
+
+## LIRA-249: toasts cover the payment panel's Pay button — LOW
+
+| Field | Value |
+| --- | --- |
+| **Type** | Bug (UX) |
+| **Priority** | Low |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — toasts are click-through; their close button still works |
+| **Affected Modules** | ui |
+| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+Toasts sit at the bottom right for about 3–5 seconds, on top of the Pay button, and block clicks.
+
+**What users will notice:** messages no longer cover the Pay button.
+
+---
+
+## LIRA-250: Recharge page COUNT / PROFIT cards read 0 after recharges — LOW
+
+| Field | Value |
+| --- | --- |
+| **Type** | Verify |
+| **Priority** | Low |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — CONFIRMED real (the cards read `financial_services`, which never holds recharges). New core read `RechargeRepository.getTodayStats(provider)` (IPC `recharge:get-today-stats` + `GET /api/recharge/today-stats`) reuses the Profits page's own recharge gates (`type='RECHARGE'`, `notRefunded`, `notDebtPending`, stamped profit, `isToday`); feeds Count, Profit and Total Profit. NOT proven failing-first |
+| **Affected Modules** | recharge |
+| **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
+
+### Summary
+
+After 8 successful recharges the cards still read 0. Not yet checked after a reload.
+
+**What users will notice:** (if confirmed) the Recharge page cards count today's recharges.
+
+---
+
+## LIRA-251: `getUsdLbpSellRate()` has no tenant filter — MEDIUM
+
+| Field | Value |
+| --- | --- |
+| **Type** | Security / tenant isolation |
+| **Priority** | Medium |
+| **Status** | DONE 2026-09-28 (built, not yet committed) — the filter was ALREADY fixed in `9ed8d90f` (guard `utils/__tests__/exchangeRate.tenantScoping.test.ts`, re-run 9/9). The real gap: `check-tenant-scoping.mjs` never scanned `packages/core/src/utils/`; now it does (216 files, 0 violations) |
+| **Affected Modules** | exchange rates (all money flows) |
+| **Source** | Found while building LIRA-240 (2026-09-28) |
+
+### Summary
+
+A comment claimed `getUsdLbpSellRate()` read the rate without a tenant filter. Measured: it was already
+fixed. The linter that should have caught it could not, because it never scanned `utils/`. The stale
+comment in `constants/tenderRateBand.ts` was corrected.
+
+**What users will notice:** nothing.

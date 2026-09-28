@@ -7,6 +7,7 @@ import type { Product } from "@liratek/ui";
 import { isPhoneLineCategoryName } from "@liratek/core";
 import JsBarcode from "jsbarcode";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { ProductUnitsSection } from "../../components/ProductUnitsSection";
 import { PRODUCT_UNITS_KEYS } from "../../hooks/useProductUnits";
 
@@ -27,6 +28,13 @@ interface ProductFormProps {
       stock_quantity: number;
       supplier: string;
     };
+    /** LIRA-228 — `warrantyMonths` is free-standing state in this component,
+     *  not part of `formData` above (see that state's own comment), so the
+     *  minimize snapshot must carry it as a SIBLING key or a restore has no
+     *  way to recover an in-progress warranty edit — it silently re-seeds
+     *  from `product.warranty_months` instead, discarding what the operator
+     *  typed. */
+    warrantyMonths: string;
     editingProduct: Product | null;
   }) => void;
   initialFormData?: {
@@ -39,6 +47,12 @@ interface ProductFormProps {
     stock_quantity: number;
     supplier: string;
   } | null;
+  /** LIRA-228 — companion to `initialFormData`, restoring the free-standing
+   *  `warrantyMonths` state on a minimize/restore round-trip. `undefined`/
+   *  `null` (a fresh Edit open, a create, or a `minimizedProducts` entry
+   *  persisted before this fix existed) falls back to seeding from
+   *  `product.warranty_months`, exactly as before this fix. */
+  initialWarrantyMonths?: string | null;
   /** LIRA-208 — opens the product list's existing AdjustStockModal for this
    *  product. OPTIONAL by design: only the Inventory list supplies it. POS
    *  renders this form create-only (`frontend/src/features/sales/pages/POS/index.tsx`,
@@ -58,6 +72,7 @@ export default function ProductForm({
   prefillBarcode,
   onMinimize,
   initialFormData,
+  initialWarrantyMonths,
   onAdjustStock,
 }: ProductFormProps) {
   useModalFocusFix(true);
@@ -71,9 +86,19 @@ export default function ProductForm({
   // part of `formData`: `formData`'s inferred type is a union with the
   // `initialFormData` prop's fixed shape (the minimize/restore snapshot),
   // which doesn't carry this field. Empty string = "no warranty" (-> null).
-  const [warrantyMonths, setWarrantyMonths] = useState<string>(
-    product?.warranty_months != null ? String(product.warranty_months) : "",
-  );
+  //
+  // LIRA-228 — `initialWarrantyMonths` (set on a RESTORED minimized form)
+  // takes precedence over `product`'s stored value, the same way
+  // `initialFormData` already overrides `product` for `formData` above.
+  // Before this fix there was no such prop, so a restore always fell through
+  // to `product?.warranty_months`, silently discarding a warranty-only edit
+  // made before minimizing.
+  const [warrantyMonths, setWarrantyMonths] = useState<string>(() => {
+    if (initialWarrantyMonths != null) return initialWarrantyMonths;
+    return product?.warranty_months != null
+      ? String(product.warranty_months)
+      : "";
+  });
   // LIRA-143 Phase 6b — categories with their `tracks_imei_units` flag,
   // fetched once so the Units/IMEIs section's visibility follows the
   // CURRENTLY SELECTED category live (including a category the operator
@@ -433,8 +458,15 @@ ${labels}
     }
   }, [formData.barcode, printCopies, api]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /** The save request itself — validation, the API call, duplicate-barcode
+   *  and error handling — WITHOUT deciding what happens next on success.
+   *  `handleSubmit` ("Save Product") and `handleSaveAndAdjust` (LIRA-224's
+   *  "Save & adjust") each supply their own "then what": the former closes
+   *  the form via `onSave()`, the latter hands off to Adjust Stock via
+   *  `onAdjustStock()` — and ONLY on a successful save, per that ticket
+   *  ("a save failure shows the error and stays on the form"). Returns
+   *  `true` only when the product was actually persisted. */
+  const performSave = async (): Promise<boolean> => {
     setError("");
     setDuplicateInfo(null);
     setIsLoading(true);
@@ -481,22 +513,52 @@ ${labels}
         queryClient.invalidateQueries({
           queryKey: PRODUCT_UNITS_KEYS.storyRoot,
         });
-        onSave();
-      } else {
-        if (result.code === "DUPLICATE_BARCODE" && result.suggested_barcode) {
-          setDuplicateInfo({
-            attempted: formData.barcode,
-            suggested: result.suggested_barcode,
-          });
-          return;
-        }
-        setError(result.error || "Failed to save product");
+        return true;
       }
+
+      if (result.code === "DUPLICATE_BARCODE" && result.suggested_barcode) {
+        setDuplicateInfo({
+          attempted: formData.barcode,
+          suggested: result.suggested_barcode,
+        });
+        return false;
+      }
+      // Error-message fix — `result.error` is the server's real refusal
+      // (e.g. "Selling price must be greater than cost price") once the REST
+      // write routes answer envelope-parity 200s instead of a thrown 4xx
+      // (rule 19c; see backend/src/api/inventory.ts's PUT /products/:id).
+      setError(result.error || "Failed to save product");
+      return false;
     } catch (err) {
       logger.error("Operation failed", { error: err });
-      setError("An unexpected error occurred");
+      // LIRA-247: a thrown ApiError (a web 403 role refusal, a network
+      // failure) used to be discarded here in favor of this generic string.
+      setError(getApiErrorMessage(err, "An unexpected error occurred"));
+      return false;
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const saved = await performSave();
+    if (saved) onSave();
+  };
+
+  /** LIRA-224 — "Save & adjust": the primary action on the unsaved-changes
+   *  confirm strip. Saves through the SAME path as "Save Product", and only
+   *  on success hands off to Adjust Stock (closing this form, matching
+   *  "Discard & adjust"'s hand-off). A failed save leaves `error` set by
+   *  `performSave` and never calls `onAdjustStock` — the operator stays on
+   *  the form exactly as a plain failed "Save Product" would. */
+  const handleSaveAndAdjust = async () => {
+    if (!onAdjustStock) return;
+    const saved = await performSave();
+    if (saved) {
+      setConfirmDiscardForAdjust(false);
+      onSave();
+      onAdjustStock();
     }
   };
 
@@ -566,6 +628,7 @@ ${labels}
                 onClick={() =>
                   onMinimize({
                     formData,
+                    warrantyMonths,
                     editingProduct: product || null,
                   })
                 }
@@ -883,6 +946,20 @@ ${labels}
                       closes this form and discards them.
                     </p>
                     <div className="flex gap-2">
+                      {/* LIRA-224 — the primary action: save the edits
+                          through the normal path, then open Adjust Stock.
+                          Disabled while saving so a slow save can't be
+                          double-submitted; `isLoading`'s label mirrors the
+                          main Save Product button below. */}
+                      <button
+                        type="button"
+                        onClick={handleSaveAndAdjust}
+                        disabled={isLoading}
+                        data-testid="product-form-save-and-adjust"
+                        className="px-2 py-1 rounded bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium disabled:opacity-50"
+                      >
+                        {isLoading ? "Saving…" : "Save & adjust"}
+                      </button>
                       <button
                         type="button"
                         onClick={() => {

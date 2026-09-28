@@ -2042,6 +2042,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
     -- Set only on rows written during an impersonated session: the real
     -- super_admin acting behind the tenant-admin identity in user_id.
     impersonator_id INTEGER REFERENCES users(id),
+    -- AuditRepository.log() writes both columns explicitly in UTC
+    -- (LIRA-243); this default is deliberately left matching the migrated
+    -- schema (changing it needs a table rebuild), so any new writer must
+    -- supply both columns itself.
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
@@ -2413,4 +2417,10 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- table declaration above (near the top of this file) already carries
     -- the widened CHECK directly, so a fresh DB needs no separate rebuild —
     -- same shape as v185/v186's marker notes above.
-    (187, 'tenants_status_provisioning');
+    (187, 'tenants_status_provisioning'),
+    -- v188 (LIRA-227) re-asserts sort_order for custom_services/profits/loto
+    -- to the values v49 never re-set; the toggleable-modules seed above
+    -- already inserts custom_services=12, profits=13, loto=16 directly, so a
+    -- fresh DB needs no separate UPDATE — same shape as v162/v163/v178's
+    -- marker notes above.
+    (188, 'reorder_modules_loto_custom_services_profits_v188');

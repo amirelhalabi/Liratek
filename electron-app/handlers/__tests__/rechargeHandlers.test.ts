@@ -66,6 +66,13 @@ describe("RechargeHandlers", () => {
     mockService = {
       getStock: jest.fn().mockReturnValue({ mtc: 500, alfa: 300 }),
       processRecharge: jest.fn().mockReturnValue({ success: true, id: 1 }),
+      // LIRA-250 follow-up.
+      getTodayStats: jest.fn().mockReturnValue({
+        count: 3,
+        profit_usd: 12.5,
+        profit_lbp: 0,
+        byCurrency: [{ currency: "USD", commission: 12.5, count: 3 }],
+      }),
     };
     (getRechargeService as jest.Mock).mockReturnValue(mockService);
 
@@ -107,6 +114,32 @@ describe("RechargeHandlers", () => {
     });
   });
 
+  describe("recharge:get-today-stats (LIRA-250 follow-up)", () => {
+    it("is registered with no requireRole gate — a read, open to any authenticated session", () => {
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "recharge:get-today-stats",
+        expect.any(Function),
+      );
+    });
+
+    it("delegates to RechargeService.getTodayStats(provider) and returns its result verbatim", async () => {
+      const handler = handlers.get("recharge:get-today-stats")!;
+      const result = await handler({}, "MTC");
+
+      expect(mockService.getTodayStats).toHaveBeenCalledWith("MTC");
+      expect(result).toEqual({
+        count: 3,
+        profit_usd: 12.5,
+        profit_lbp: 0,
+        byCurrency: [{ currency: "USD", commission: 12.5, count: 3 }],
+      });
+      // No requireRole call for this channel (unlike recharge:process) —
+      // profit figures stay hidden from staff via the frontend's isAdmin
+      // gate on CompactStats, same as recharge:get-history today.
+      expect(requireRole).not.toHaveBeenCalled();
+    });
+  });
+
   describe("recharge:process", () => {
     it("should process MTC recharge when admin", async () => {
       const handler = handlers.get("recharge:process")!;
@@ -121,7 +154,9 @@ describe("RechargeHandlers", () => {
 
       const result = await handler({ sender: { id: 1 } }, rechargeData);
 
-      expect(requireRole).toHaveBeenCalledWith(1, ["admin"]);
+      // LIRA-242 (owner decision 2026-09-28): widened to admin+staff — the
+      // ordinary MTC/Alfa sale flow a cashier does.
+      expect(requireRole).toHaveBeenCalledWith(1, ["admin", "staff"]);
       // The handler forwards `{ ...validatedData, userId }`, not the raw
       // input — RechargeSchema fills in `currency`/`paid_by_method` defaults
       // (rule 24 spirit: assert the schema's actual merged shape, not a

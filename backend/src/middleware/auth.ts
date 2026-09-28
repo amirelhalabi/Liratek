@@ -305,7 +305,22 @@ export function authenticateJWT(
         const clientDayHeader = req.headers["x-client-day"];
         const clientDay =
           typeof clientDayHeader === "string" ? clientDayHeader : undefined;
-        runWithTenant(tenantId, () => next(), { clientDay });
+        // LIRA-237: the browser's own UTC offset (minutes to ADD to UTC to
+        // reach its local wall clock), so `ProfitRepository.localtimeModifier()`
+        // can bucket a stored UTC row into the CLIENT's day on a web host
+        // whose own zone (Fly, UTC) is not the shop's — see that function's
+        // doc comment. `runWithTenant` range-validates and silently drops an
+        // out-of-range/non-numeric value (rule 27 — a malformed header never
+        // fails the request).
+        const clientTzOffsetHeader = req.headers["x-client-tz-offset"];
+        const clientTzOffsetMinutes =
+          typeof clientTzOffsetHeader === "string"
+            ? clientTzOffsetHeader
+            : undefined;
+        runWithTenant(tenantId, () => next(), {
+          clientDay,
+          clientTzOffsetMinutes,
+        });
       })
       .catch((error: unknown) => {
         // A THROWN error means validateSession could not answer the question

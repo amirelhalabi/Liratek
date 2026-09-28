@@ -45,6 +45,14 @@ import {
   type CounterpartyFlow,
 } from "../validators/counterparty.js";
 import { isDrawerAffectingMethod } from "../utils/payments.js";
+import { TENDER_RATE_BAND_PCT } from "../constants/tenderRateBand.js";
+
+// Re-exported for every existing caller/test that imports the band constant
+// from THIS module (its home before LIRA-240) — the constant itself now
+// lives in constants/tenderRateBand.ts (rule 29: a pure leaf module reachable
+// from BOTH @liratek/core entry points, since the UI warning needs it too and
+// this file is Node-only). One definition (rule 14), two import paths.
+export { TENDER_RATE_BAND_PCT };
 
 /** Minimal leg shape this module needs — a structural subset of every
  *  repo's own `payments[]` leg type (CreateFinancialServiceData, RechargeData, …). */
@@ -94,9 +102,10 @@ export interface ReconcileLegsInput {
   /**
    * The server rate-of-record for THIS reconciliation — normally the same
    * rate the caller stamps on `transactions.exchange_rate`
-   * (`data.exchangeRate ?? getUsdLbpSellRate(db)`). Used as-is when
-   * `tenderExchangeRate` is absent, and as the band anchor when it is
-   * present (see `tenderExchangeRate` below). Never an independent/live
+   * (`data.exchangeRate ?? getUsdLbpSellRate(db)`). Used as the fallback
+   * conversion rate whenever `tenderExchangeRate` is absent (see
+   * `tenderExchangeRate` below — LIRA-240 retired the ±15% band that used to
+   * compare it against a supplied tender rate). Never an independent/live
    * lookup performed by this function itself.
    */
   exchangeRate: number;
@@ -110,16 +119,20 @@ export interface ReconcileLegsInput {
    * change, or a legitimate buy/sell-spread checkout with change
    * false-rejects even though the till's own math nets to zero.
    *
-   * When present AND within `TENDER_RATE_BAND_PCT` of `exchangeRate`,
-   * reconciliation converts cross-currency legs at THIS rate instead.
-   * When present but OUTSIDE the band, throws a distinct error naming both
-   * rates rather than silently accepting an implausible value or silently
-   * falling back to `exchangeRate` — a tender rate that far off the day's
-   * server rate is more likely a bug (wrong units, stale rate, a typo'd
-   * operator edit) than a real spread, and quietly accepting it would let a
-   * genuine leg mismatch launder itself as "just a rate difference".
+   * When present (and a valid positive/finite number), reconciliation
+   * converts cross-currency legs at THIS rate instead — regardless of how
+   * far it sits from `exchangeRate`. Owner decision 2026-09-28 (LIRA-240):
+   * a ±band refusal used to gate this (see `TENDER_RATE_BAND_PCT`'s doc,
+   * `constants/tenderRateBand.ts`), but it produced a false refusal on a
+   * same-currency payment (a 300,000 LBP recharge paid with 300,000 LBP —
+   * the rate plays no part in that math at all, yet the refusal fired
+   * anyway) and, more generally, the owner ruled that a payment form must
+   * never block on a typed rate — only warn. The band constant still exists
+   * (it now feeds ONLY a non-blocking UI warning, `@liratek/ui`'s
+   * MultiPaymentInput) but no longer gates anything here.
    *
-   * Omitted → current/legacy behavior, reconciles at `exchangeRate` alone.
+   * Omitted (or not a valid positive/finite number) → reconciles at
+   * `exchangeRate` alone, same as before.
    */
   tenderExchangeRate?: number;
   /** Human-readable label for the thrown error (e.g. "WHISH_APP SEND"). */
@@ -131,96 +144,61 @@ export interface ReconcileLegsInput {
 export const LEG_RECONCILIATION_EPSILON_USD = 0.05;
 
 /**
- * ±15% sanity band for `tenderExchangeRate` against the server rate.
- *
- * Widened from ±10% (2026-09-12, live report from cornertech.liratek.shop):
- * a WHISH_APP RECEIVE cashout was refused with server rate 90,000 vs.
- * tendered 100,000 — an 11.1% gap that the old ±10% band rejected outright.
- * Lebanese USD/LBP practice is part of why a gap that size shows up at all:
- * shops routinely work the counter at a round, easy-to-count number like
- * 100,000 while the tenant's configured rate lags behind it, rather than the
- * ~1-2% buy/sell spread the original band was sized for. ±15% clears that
- * 11.1% gap with headroom (and also clears 11.7%, the gap against
- * `FALLBACK_USD_LBP_RATE` = 89,500 in `utils/exchangeRate.ts`).
- *
- * The band still exists for the same reason it always did: it is not a
- * rubber stamp. A tender rate outside ±15% of the server rate is not a
- * legitimate spread or a round-number counter edit — it's either a bug
- * (wrong units, e.g. 90,000 vs. 9,000 is 90% off), a stale cached rate, or
- * an attempt to launder a real leg discrepancy as "just a rate difference".
- * Outside the band, reconciliation throws a distinct, clearly-labeled error
- * instead of silently accepting the value or silently falling back to the
- * server rate (either of which would hide the underlying problem).
- *
- * KNOWN OPEN ISSUE (not fixed by this widening, and not fixed here by
- * owner's choice): the "server rate" this band compares against comes from
- * `getUsdLbpSellRate()` (`utils/exchangeRate.ts`), which runs
- * `SELECT sell_rate, market_rate FROM exchange_rates WHERE to_code = ?
- * LIMIT 1` with NO `tenant_id` filter, even though `exchange_rates` is
- * tenant-scoped (`tenant_id` column, `UNIQUE (tenant_id, to_code)`). Every
- * other reader of that table scopes correctly (`RateRepository.ts:50/75/113`,
- * `DebtRepository.ts:180`). On the multi-tenant web server this can return
- * an arbitrary tenant's rate — invisible on desktop, which has one tenant
- * and one row. It feeds 7 money-path call sites: DebtRepository (x2),
- * ExchangeRepository, FinancialServiceRepository (x2), RechargeRepository
- * (x2). If that is the real cause behind a given tenant's band rejection,
- * widening this band only stops the error message — the shop still BOOKS
- * money (profit stamps, conversions, drawer postings) at another tenant's
- * rate.
+ * Prefers the operator's tendered rate over a reference/server rate, with no
+ * band check — the ONE place both `reconcileLegs`' internal rate choice and
+ * the exported `resolveStampedExchangeRate` (below) get their answer from
+ * (rule 14: these were two independently-hand-rolled ±15%-banded functions —
+ * one threw, one silently fell back — until LIRA-240 retired the band from
+ * both). Falls back to `referenceRate` only when `tenderRate` itself is
+ * missing or not a valid positive/finite number (a genuine sanity check,
+ * unrelated to plausibility banding — a scripted caller passing `NaN`/`0`/a
+ * negative number must not corrupt a drawer or a ledger stamp).
  */
-export const TENDER_RATE_BAND_PCT = 0.15;
+function preferTenderRate(
+  referenceRate: number,
+  tenderRate: number | null | undefined,
+): number {
+  if (
+    tenderRate == null ||
+    !Number.isFinite(tenderRate) ||
+    !(tenderRate > 0)
+  ) {
+    return referenceRate;
+  }
+  return tenderRate;
+}
 
 /**
  * Resolves which rate `reconcileLegs` actually converts cross-currency legs
- * at: the tender rate when supplied and within `TENDER_RATE_BAND_PCT` of the
- * server rate, the server rate otherwise (when no tender rate was passed).
- * Throws when a supplied tender rate falls outside the band — see
- * `tenderExchangeRate`'s doc on `ReconcileLegsInput` for the rationale.
+ * at: the tender rate whenever one was supplied (see `preferTenderRate`),
+ * the server rate otherwise. Never throws — see `tenderExchangeRate`'s doc
+ * on `ReconcileLegsInput` for the LIRA-240 history of why this no longer
+ * bands/rejects.
  */
 function resolveReconciliationRate(
   exchangeRate: number,
   tenderExchangeRate: number | undefined,
-  context: string,
 ): number {
-  if (tenderExchangeRate == null) return exchangeRate;
-  // No valid server rate to band against (e.g. a scripted caller passing 0)
-  // — nothing to compare, so trust the caller's tender rate as-is.
-  if (!(exchangeRate > 0)) return tenderExchangeRate;
-
-  const deviation = Math.abs(tenderExchangeRate - exchangeRate) / exchangeRate;
-  if (deviation > TENDER_RATE_BAND_PCT) {
-    throw new Error(
-      `${context}: tender exchange rate ${tenderExchangeRate} is outside the accepted ` +
-        `±${(TENDER_RATE_BAND_PCT * 100).toFixed(0)}% band of the server rate ${exchangeRate} ` +
-        `(diff ${(deviation * 100).toFixed(1)}%) — refusing to reconcile payment legs at an implausible rate`,
-    );
-  }
-  return tenderExchangeRate;
+  return preferTenderRate(exchangeRate, tenderExchangeRate);
 }
 
 /**
- * Non-throwing sibling of `resolveReconciliationRate`, for stamping
- * `transactions.exchange_rate` (owner decision, 2026-08-08: the stamp should
- * reflect what the operator actually tendered, when that's a plausible
- * edit — repro: buy 89,000 vs. sell 90,000). Reuses the SAME
- * `TENDER_RATE_BAND_PCT` band as `resolveReconciliationRate` (one threshold,
- * not two) but never throws: an absent or implausible (>15% off) tender rate
- * falls back to the server rate SILENTLY, because this function only decides
- * what gets written to a display/audit column, not whether the flow's money
- * math is valid. `reconcileLegs`/`postPayoutLegs` (unchanged) remain the ONLY
- * place an out-of-band tender rate causes a thrown error, and only for the
- * branches that actually call them today — `isForPartner`/`deferPayment`
- * branches skip reconciliation entirely and must keep doing so; this function
- * does not change that.
+ * Stamps `transactions.exchange_rate`: the operator's tendered rate whenever
+ * one was supplied (owner decision, 2026-08-08: the stamp should reflect
+ * what the operator actually tendered — repro: buy 89,000 vs. sell 90,000),
+ * the server rate otherwise. Used to fall back to the server rate SILENTLY
+ * for a tender rate more than `TENDER_RATE_BAND_PCT` from it — LIRA-240
+ * (owner decision 2026-09-28) retired that fallback along with the
+ * `reconcileLegs` refusal it mirrored: the stamp now always reflects
+ * EXACTLY what was typed, however far from the server rate, matching
+ * `resolveReconciliationRate`'s new behavior (rule 14: one function,
+ * `preferTenderRate`, now backs both).
  */
 export function resolveStampedExchangeRate(
   serverRate: number,
   tenderRate: number | undefined,
 ): number {
-  if (tenderRate == null) return serverRate;
-  if (!(serverRate > 0)) return tenderRate;
-  const deviation = Math.abs(tenderRate - serverRate) / serverRate;
-  return deviation > TENDER_RATE_BAND_PCT ? serverRate : tenderRate;
+  return preferTenderRate(serverRate, tenderRate);
 }
 
 /**
@@ -309,11 +287,7 @@ export function reconcileLegs(input: ReconcileLegsInput): void {
   } = input;
   if (!inLegs || inLegs.length === 0) return;
 
-  const rate = resolveReconciliationRate(
-    exchangeRate,
-    tenderExchangeRate,
-    context,
-  );
+  const rate = resolveReconciliationRate(exchangeRate, tenderExchangeRate);
 
   const inSums = sumLegsByCurrency(inLegs, context);
   const outSums =

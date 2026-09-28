@@ -565,6 +565,10 @@ contextBridge.exposeInMainWorld("api", {
     getStock: () => ipcRenderer.invoke("recharge:get-stock"),
     getHistory: (provider: "MTC" | "Alfa") =>
       ipcRenderer.invoke("recharge:get-history", provider),
+    // LIRA-250 follow-up — today's MTC/Alfa sales count/profit for the
+    // Recharge page's stat cards.
+    getTodayStats: (provider: "MTC" | "Alfa") =>
+      ipcRenderer.invoke("recharge:get-today-stats", provider),
     getDrawerBalances: () => ipcRenderer.invoke("recharge:get-drawer-balances"),
     process: (data: {
       provider: "MTC" | "Alfa";

@@ -26,7 +26,7 @@ a named plan with no number · 22 need new tickets (21 new IDs; two notes share 
 > 2026-09-24 Profits audit (§6.9), and **LIRA-231** from the owner's 2026-09-26 refund test, so the
 > next free ID is **LIRA-240** (LIRA-232 … LIRA-235 filed 2026-09-26, LIRA-236 on 2026-09-27, LIRA-237 … LIRA-239 proposed 2026-09-28).
 >
-> **Progress, 2026-09-28: see §00 at the top.** 24 of 29 notes are done and live; 1 was closed as "no change"; 4 wait on information. The open follow-ups, old-data repairs and items still to verify are listed there.
+> **Progress, 2026-09-28: see §00 at the top (§00.0 is the latest).** 24 of 29 notes are done and live; 1 was closed as "no change"; 4 wait on information. The open follow-ups, old-data repairs and items still to verify are listed there.
 
 **Status glyphs, used consistently throughout:**
 ✅ done and verified in source · 🟡 partially shipped (the row says which half) ·
@@ -53,6 +53,27 @@ and its "status" column is out of date.
 - ✅ 24 done and live.
 - ✅ 1 closed as "no change" by the owner (#3).
 - 🟠 4 open, each waiting on information, not code (#1, #5, #17, #25).
+
+### 00.0 Update — end of 2026-09-28: waves 1 and 2 built, NOT yet committed
+
+Everything below is in the working tree. The full test gate, desktop e2e and web e2e have not run yet.
+User-facing lines are in `docs/release-notes/UNRELEASED.md`.
+
+**Owner notes moved by this work:**
+- **#17 → LIRA-240:** the rate check is now a warning in the payment form; it never blocks.
+- **#25 → LIRA-242 + LIRA-211:** staff can create, start and update repair jobs, and a refusal shows why.
+- **#1 → LIRA-241:** User column on the Debts history (no name on the sale detail or receipt, per the owner).
+- **#28 → LIRA-239:** verified with real writers. One wrong-order refund case was a real bug; it is now refused with a clear message.
+- **#5:** kept for later (owner, 2026-09-28).
+
+**Tickets built:** LIRA-220 … 228, 237 and 239 … 251 (see `current_sprint.md` for each).
+
+**Still open after this batch:**
+- **LIRA-238** (old-data repairs + the SMS fee on the shop line): needs read-only reports, then the owner's OK.
+- **Owner questions:** staff credit buy-backs (open to staff now, via the same route); a backfill for audit times written before the fix, or leave them.
+- **The desktop app** has none of this until a desktop release.
+
+**Next free ticket ID: LIRA-252.**
 
 ### 00.1 Every note: current status
 
@@ -90,10 +111,10 @@ and its "status" column is out of date.
 
 ### 00.2 Open — waiting on information (no code can start)
 
-- **#1** — the customer: which page should show the staff user's name?
+- **#1** — clarified by the owner and TESTED (§00.8): the name is correct where shown, but missing on sale detail, receipt and Debts history → LIRA-241.
 - **#5** — the voice note about the UNICEF cash-out.
-- **#17** — the owner: the payment-form rate band, or a selling-price rule?
-- **#25** — the customer: does "Start" work now? If it does, close #25 and keep only LIRA-211's one-line error message.
+- **#17** — ANSWERED BY TEST (§00.8): it is the payment-form rate band. Proposed fix LIRA-240: alert, not block.
+- **#25** — TESTED (§00.8): it works for admin and fails silently for staff (403). Owner decision: should staff create and start jobs? Plus LIRA-211.
 
 ### 00.3 Open follow-up tickets that came out of building these notes
 
@@ -146,6 +167,95 @@ These are all live, in the same commits:
 For the user-facing summary of all of it, see `docs/release-notes/v1.31.0.md`.
 
 **Next free ticket ID: LIRA-240** (LIRA-237 … LIRA-239 proposed 2026-09-28).
+
+### 00.8 Test findings — 2026-09-28 (real web app, fresh DB, driven through the UI)
+
+**How these were found.** Exploratory Playwright runs against the real backend and the Vite
+frontend, on a fresh test database, following the owner's request to test #17, #1, #25 and
+LIRA-224. The 131 screenshots are in the session scratchpad (`explore/`). Nothing was run against
+production.
+
+**#17 — the 15% rule is the payment-form EXCHANGE-RATE check, not a selling-price rule.**
+- The ±15% band (`TENDER_RATE_BAND_PCT = 0.15`, `moneyPosting.ts`) **blocks** a payment whose typed
+  rate is more than 15% from the shop rate:
+  - on MTC/Alfa recharges, shown as a native alert;
+  - on OMT/Whish, shown as a toast;
+  - the message is "tender exchange rate 104400 is outside the accepted ±15% band of the server
+    rate 90000 (diff 16.0%) — refusing to reconcile payment legs at an implausible rate".
+- **POS never blocks:** any rate and any price is accepted, including a price below cost.
+- Changing the recharge "Price to Client" never blocks. Its history "Margin" badge is a fixed
+  100,000 LBP margin, not 15%.
+- **Bug:** a 300,000 LBP recharge paid with 300,000 LBP was still refused at +16%, although no
+  conversion was involved.
+- **Proposed fix (owner: "alert, not block"):** turn the band into a warning the cashier confirms,
+  and skip it entirely when no leg needs converting. → **LIRA-240**.
+
+**LIRA-224 — the product form.**
+- Confirmed: **Adjust Stock** and **Save Product** are separate buttons, and Quantity is disabled.
+- With unsaved edits, Adjust Stock offers only "Discard & adjust" (the edits are really lost) or
+  "Keep editing".
+- Cancelling the Adjust Stock modal does not bring the edit form back.
+- **Proposed:** add a **"Save & adjust"** button to that warning; LIRA-224 now only needs the owner's
+  yes.
+
+**#1 — staff user name.**
+- **Correct:** the Transactions page User column, the audit log, and Profits → By Cashier. No staff
+  action was credited to admin.
+- **Not shown:** POS sale detail, receipt, Debts history.
+- **Proposed:** show "By: <user>" on the sale detail and receipt, and a User column on the Debts
+  history. → **LIRA-241**.
+
+**#25 — Maintenance "Start".**
+- **Admin:** works in every variant and persists after a reload.
+- **Staff:** fails SILENTLY. The server answers 403 (maintenance writes are admin-only on web and
+  desktop), nothing is shown, and the job stays "Received". Creating a job as staff also fails, with
+  no message.
+- This is very likely what the customer hit.
+- **Owner decision needed (with #1):** should staff create and start repair jobs? Either way, show
+  the error (LIRA-211).
+
+**Staff role gaps (owner decision needed).** Staff are refused, with no message, for MTC/Alfa
+recharges, expenses and maintenance, on web and desktop alike. A staff-run shop cannot sell
+credits. → decide per module which actions staff may do, and always surface a refusal. →
+**LIRA-242**.
+
+**Other bugs found (proposed tickets):**
+
+| Proposed | Finding | Severity |
+|---|---|---|
+| **LIRA-243** | Audit Log times show 3 hours ahead on the web: rows are stored in local time and rendered as UTC (rule 27 class). | MEDIUM |
+| **LIRA-244** | Dashboard "Cash Collected (Today)" counts a debt repayment twice ($8.00 shown vs a $4.00 drawer). Cause not traced. | MEDIUM (money display) |
+| **LIRA-245** | Escape in POS checkout cancels the order and empties the cart with no confirmation, even from the receipt preview. | MEDIUM (UX / lost work) |
+| **LIRA-246** | Maintenance: `maintenance_status_history.changed_by` is NULL on web; "03 123 456" / "+961 3 654 321" are rejected as an invalid phone; a job with no phone gets linked to a client by name alone. | LOW–MEDIUM |
+| **LIRA-247** | Refusals that come back as HTTP 400/403 lose their reason: Inventory "retail below cost" shows "An unexpected error occurred", and staff 403s show nothing (rule 19c). | MEDIUM |
+| **LIRA-248** | OMT: an edited exchange rate carries over to the next transaction. | LOW |
+| **LIRA-249** | Toasts cover the payment panel's Pay button for 3–5 s and block clicks. | LOW |
+| **LIRA-250** | Recharge page COUNT / PROFIT cards read 0 after 8 recharges. Unverified after a reload. | LOW — verify |
+
+
+**Owner decisions on these findings (2026-09-28):**
+1. **LIRA-240 (#17):** yes, but a NON-BLOCKING alert only (a text line or a warning sign), with no
+   confirmation step. Skip the check when no conversion happens.
+2. **LIRA-224:** yes, add "Save & adjust".
+3. **LIRA-242 (staff):** staff MAY do all four: MTC/Alfa recharges, add expenses, create repair
+   jobs, and start/update repair jobs. Refusals always show a message.
+4. **LIRA-241 (#1):** no "By" name on the sale detail or receipt (the sale id is enough to trace
+   it). DO add a User column to the Debts history.
+
+**Status:** wave 1 is being built:
+- LIRA-240, 241, 242 (+211, 246);
+- LIRA-224, 225, 228, 222;
+- LIRA-220;
+- LIRA-237, 243.
+
+Wave 2 follows:
+- LIRA-239;
+- LIRA-244, 245, 247 (rest), 248, 249, 250;
+- LIRA-221, 223, 226, 227.
+
+LIRA-238 (old-data repairs) waits: read-only reports first, then the owner's OK.
+
+**Next free ticket ID: LIRA-251** (LIRA-240 … LIRA-250 filed in `current_sprint.md` on 2026-09-28).
 
 ---
 

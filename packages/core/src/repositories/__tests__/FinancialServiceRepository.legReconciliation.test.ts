@@ -512,32 +512,79 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
       expect(txn.exchange_rate).toBe(89000);
     });
 
-    it("REJECTS a tender_exchange_rate outside the ±15% band with a distinct error (not a leg mismatch)", () => {
+    it("LIRA-240: a wildly implausible tender_exchange_rate (40,000 vs. 90,000) no longer throws 'outside the accepted' — but these SPECIFIC legs only balance at 89,000, so a genuine mismatch still throws 'do not reconcile'", () => {
+      // Owner decision 2026-09-28: the ±15% band no longer refuses a
+      // payment outright. These particular legs (5 USD IN + 132,000 LBP
+      // OUT against a 313,000 LBP price) only mathematically reconcile at
+      // 89,000 (see the "FIXED" test above) — reconciling them at 40,000 is
+      // a REAL mismatch, not a banding decision, so it still throws, just
+      // with the ordinary message, never the retired band message.
       const before = counts(db);
-      expect(() =>
+      let message = "";
+      expect(() => {
+        try {
+          repo.createTransaction({
+            provider: "Katsh",
+            serviceType: "SEND",
+            amount: 313000,
+            cost: 313000,
+            price: 313000,
+            currency: "LBP",
+            commission: 0,
+            payments: [
+              {
+                method: "CASH",
+                currencyCode: "USD",
+                amount: 5,
+                direction: "IN",
+              },
+              {
+                method: "CASH",
+                currencyCode: "LBP",
+                amount: 132000,
+                direction: "OUT",
+              },
+            ],
+            checkoutTotal: { usd: 0, lbp: 313000 },
+            exchangeRate: 90000,
+            tender_exchange_rate: 40000,
+          });
+        } catch (e) {
+          message = (e as Error).message;
+          throw e;
+        }
+      }).toThrow(/do not reconcile/);
+      expect(message).not.toMatch(/outside the accepted/);
+      expect(counts(db)).toEqual(before);
+    });
+
+    it("LIRA-240: a $10 SEND paid entirely in LBP at +16%/+30% off the server rate — ACCEPTED and stamped with the typed rate", () => {
+      // The customer pays a USD-priced transfer entirely in LBP at the
+      // operator's own typed rate — internally consistent with any rate,
+      // including one far outside the old ±15% band.
+      for (const tender of [90000 * 1.16, 90000 * 1.3]) {
+        const before = counts(db);
         repo.createTransaction({
-          provider: "Katsh",
+          provider: "WHISH_APP",
           serviceType: "SEND",
-          amount: 313000,
-          cost: 313000,
-          price: 313000,
-          currency: "LBP",
+          amount: 10,
+          currency: "USD",
           commission: 0,
           payments: [
-            { method: "CASH", currencyCode: "USD", amount: 5, direction: "IN" },
-            {
-              method: "CASH",
-              currencyCode: "LBP",
-              amount: 132000,
-              direction: "OUT",
-            },
+            { method: "CASH", currencyCode: "LBP", amount: 10 * tender },
           ],
-          checkoutTotal: { usd: 0, lbp: 313000 },
+          checkoutTotal: { usd: 10, lbp: 0 },
           exchangeRate: 90000,
-          tender_exchange_rate: 40000, // wildly off the stamped rate
-        }),
-      ).toThrow(/outside the accepted/);
-      expect(counts(db)).toEqual(before);
+          tender_exchange_rate: tender,
+        });
+        expect(counts(db).transactions).toBe(before.transactions + 1);
+        const txn = db
+          .prepare(
+            `SELECT exchange_rate FROM transactions ORDER BY id DESC LIMIT 1`,
+          )
+          .get() as { exchange_rate: number };
+        expect(txn.exchange_rate).toBe(tender);
+      }
     });
   });
 

@@ -238,4 +238,19 @@ describe("LIRA-234: POST /api/expenses — service failure returns HTTP 200", ()
     expect(res.body.success).toBe(false);
     expect(addSpy).not.toHaveBeenCalled();
   });
+
+  it("LIRA-242 (owner decision 2026-09-28): staff CAN add an expense — routine cashier work, unlike DELETE above which stays admin-only", async () => {
+    const addSpy = jest
+      .spyOn(expenseService, "addExpense")
+      .mockReturnValue({ success: true, id: 11 } as any);
+
+    const res = await request(app)
+      .post("/api/expenses")
+      .set("x-test-role", "staff")
+      .send(validBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, id: 11 });
+    expect(addSpy).toHaveBeenCalled();
+  });
 });

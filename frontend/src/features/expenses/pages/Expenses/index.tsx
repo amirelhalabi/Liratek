@@ -15,6 +15,7 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 
 interface Expense {
   id?: number;
@@ -153,7 +154,11 @@ export default function Expenses() {
       }
     } catch (error) {
       logger.error("Operation failed", { error });
-      alert("Failed to add expense");
+      // LIRA-242 fallout: a thrown ApiError (e.g. requestJson's web 403,
+      // `{status,message,details}` — NOT an `Error` instance) used to be
+      // discarded here in favor of this hardcoded string, hiding the real
+      // reason (a role refusal, a business-rule error, anything).
+      alert(getApiErrorMessage(error, "Failed to add expense"));
     }
   };
 
@@ -173,7 +178,10 @@ export default function Expenses() {
       }
     } catch (error) {
       logger.error("Operation failed", { error });
-      alert("Failed to void expense");
+      // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to be
+      // discarded here in favor of this hardcoded string, mirroring the same
+      // fix already applied to handleAddExpense above.
+      alert(getApiErrorMessage(error, "Failed to void expense"));
     }
   };
 

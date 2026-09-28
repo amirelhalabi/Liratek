@@ -259,6 +259,8 @@ export type {
   VirtualStock,
   RechargeData,
   RechargeEntity,
+  RechargeTodayStats,
+  RechargeCurrencyStat,
 } from "./RechargeRepository.js";
 
 // Supplier Repository
@@ -719,7 +721,9 @@ export {
   TenantRepository,
   getTenantRepository,
   resetTenantRepository,
+  MODULE_SEED_ROWS,
 } from "./TenantRepository.js";
+export type { ModuleSeedRow } from "./TenantRepository.js";
 
 // Subscription Repository (control plane — commercial standing, v173)
 export {

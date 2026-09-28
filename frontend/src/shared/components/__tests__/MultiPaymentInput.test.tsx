@@ -1460,4 +1460,85 @@ describe("MultiPaymentInput", () => {
       expect(optionValues).toContain("CUSTOMER_ACCOUNT");
     });
   });
+
+  // ── Tender-rate sanity warning (LIRA-240, owner decision 2026-09-28) ──
+  // The ±15% band used to REFUSE a payment server-side; it now only drives
+  // this non-blocking warning. `renderMpi`'s default exchangeRate is
+  // EXCHANGE_RATE = 90000 — that is the "shop rate" the warning compares
+  // the typed rate against.
+  describe("tender-rate sanity warning (not proven failing-first — LIRA-223: written alongside the LIRA-240 fix, not independently ahead of it)", () => {
+    it("shows no warning when the typed rate equals the shop rate", () => {
+      renderMpi();
+      expect(
+        screen.queryByTestId("tender-rate-warning"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows no warning at exactly the +15% band boundary (103,500)", () => {
+      renderMpi();
+      setRate("103500");
+      expect(
+        screen.queryByTestId("tender-rate-warning"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows no warning at exactly the -15% band boundary (76,500)", () => {
+      renderMpi();
+      setRate("76500");
+      expect(
+        screen.queryByTestId("tender-rate-warning"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows a warning just past the +15% band (103,501)", () => {
+      renderMpi();
+      setRate("103501");
+      expect(screen.getByTestId("tender-rate-warning")).toBeInTheDocument();
+    });
+
+    it("shows the owner's exact +16% example (104,400) with the shop rate named in the text", () => {
+      renderMpi();
+      setRate("104400");
+      const warning = screen.getByTestId("tender-rate-warning");
+      expect(warning).toHaveTextContent(/16% away/);
+      expect(warning).toHaveTextContent(/90,000/);
+      expect(warning).not.toHaveTextContent(/typo/i);
+    });
+
+    it("uses the stronger 'check for a typo' wording past 50% deviation", () => {
+      renderMpi();
+      setRate("135000"); // 90,000 * 1.5 = exactly +50% (not yet typo-level)
+      expect(screen.getByTestId("tender-rate-warning")).not.toHaveTextContent(
+        /typo/i,
+      );
+
+      setRate("135001"); // just past +50%
+      expect(screen.getByTestId("tender-rate-warning")).toHaveTextContent(
+        /typo/i,
+      );
+    });
+
+    it("never disables the amount input, method select, or rate field — the warning is advisory only, never blocking", () => {
+      renderMpi();
+      setRate("300000"); // wildly off (~233% deviation)
+      expect(screen.getByTestId("tender-rate-warning")).toBeInTheDocument();
+
+      expect(firstAmountInput()).not.toBeDisabled();
+      expect(screen.getByTestId("payment-exchange-rate")).not.toBeDisabled();
+      const id = firstLineId();
+      expect(screen.getByTestId(`payment-method-${id}`)).not.toBeDisabled();
+    });
+
+    it("keeps emitting onChange normally while the warning is showing — typing a payment amount is never suppressed", () => {
+      const { onChange } = renderMpi();
+      setRate("300000");
+      onChange.mockClear();
+
+      fireEvent.change(firstAmountInput(), { target: { value: "55" } });
+
+      expect(onChange).toHaveBeenCalled();
+      const lastCall = onChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastCall[0].amount).toBe(55);
+    });
+  });
 });

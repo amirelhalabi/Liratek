@@ -80,6 +80,14 @@ export interface DebtLedgerEntity {
    *  `item.is_refunded`) stayed dormant. */
   is_refunded: number;
   refunded_at: string | null;
+  /** LIRA-241 — display name of the user who recorded this ledger entry
+   *  (`created_by` joined to `users.username`), the same shape
+   *  `TransactionRepository.getRecent()` uses for the Transactions page's
+   *  User column. Null when `created_by` is null (a system-authored row —
+   *  see `moneyPosting.ts`'s `bookClientDebtCharge` doc) or the user was
+   *  deleted. Only `findClientHistory()` joins `users` and populates this;
+   *  `findById()`/`findAll()` (sharing `getColumns()`) leave it undefined. */
+  created_by_username?: string | null;
 }
 
 export interface DebtorSummary {
@@ -133,12 +141,12 @@ export interface CreateRepaymentData {
    * `repayModalRate` state the Debts page feeds into both the repayment and
    * cash-out modals). Owner decision (2026-08-08, repro: buy 89,000 vs. sell
    * 90,000): used to stamp `transactions.exchange_rate` via
-   * `resolveStampedExchangeRate` (moneyPosting.ts) — preferred when within
-   * `TENDER_RATE_BAND_PCT` (±15%) of the server sell rate
-   * (`getUsdLbpSellRate`), else falls back to the server rate SILENTLY
-   * (never throws — this repository has no `reconcileLegs` hard-reject for
-   * repayments/cash-outs to weaken). Omitted → unchanged legacy behavior,
-   * stamps the server sell rate exactly as before.
+   * `resolveStampedExchangeRate` (moneyPosting.ts) — stamped EXACTLY as
+   * typed (LIRA-240, 2026-09-28, retired the old ±15%-band fallback to the
+   * server sell rate, `getUsdLbpSellRate`); falls back to the server rate
+   * only when absent (never throws — this repository has no `reconcileLegs`
+   * hard-reject for repayments/cash-outs to weaken). Omitted → unchanged
+   * legacy behavior, stamps the server sell rate exactly as before.
    */
   tender_exchange_rate?: number;
 }
@@ -260,15 +268,25 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * exact `= 0` silently let through as a visible "−$0.00" row).
    */
   findClientHistory(clientId: number): DebtLedgerEntity[] {
+    // LIRA-241 — own SELECT (not the shared `getColumns()`) because this is
+    // the one read path that also needs `created_by_username`: a `dl.`-
+    // qualified column list plus a `users` LEFT JOIN. findById()/findAll()
+    // keep using getColumns() unqualified against the bare table, so this
+    // must not touch that shared method (it has no JOIN to alias against).
     const stmt = this.db.prepare(`
-      SELECT ${this.getColumns()} FROM debt_ledger
-      WHERE client_id = ? AND tenant_id = ?
+      SELECT dl.id, dl.client_id, dl.transaction_type, dl.amount_usd, dl.amount_lbp,
+             dl.transaction_id, dl.note, dl.created_at, dl.created_by, dl.edited_by,
+             dl.edited_at, dl.session_id, dl.is_refunded, dl.refunded_at,
+             u.username AS created_by_username
+      FROM debt_ledger dl
+      LEFT JOIN users u ON u.id = dl.created_by AND u.tenant_id = dl.tenant_id
+      WHERE dl.client_id = ? AND dl.tenant_id = ?
         AND NOT (
-          transaction_type = 'Refund Reversal'
-          AND ABS(amount_usd) < 0.005
-          AND ABS(amount_lbp) < 0.5
+          dl.transaction_type = 'Refund Reversal'
+          AND ABS(dl.amount_usd) < 0.005
+          AND ABS(dl.amount_lbp) < 0.5
         )
-      ORDER BY created_at DESC
+      ORDER BY dl.created_at DESC
     `);
     return stmt.all(clientId, getCurrentTenantId()) as DebtLedgerEntity[];
   }
@@ -369,10 +387,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         uniqueMethods.length === 1 ? uniqueMethods[0] : "SPLIT";
 
       // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): the
-      // `transactions.exchange_rate` stamp should reflect what the operator
-      // actually tendered, when that's a plausible edit — within
-      // `TENDER_RATE_BAND_PCT` of the server sell rate. Outside that band (or
-      // absent), falls back to the server rate SILENTLY (never throws — see
+      // `transactions.exchange_rate` stamp reflects what the operator
+      // actually tendered, EXACTLY as typed (LIRA-240, 2026-09-28, retired
+      // the old ±15%-band fallback to the server sell rate). Falls back to
+      // the server rate only when absent (never throws — see
       // `CreateRepaymentData.tender_exchange_rate`'s doc). This repository has
       // no `reconcileLegs` anchor to preserve for repayments — nothing else
       // depends on this rate here.

@@ -26,6 +26,7 @@
 import { ipcMain } from "electron";
 import { registerMaintenanceHandlers } from "../maintenanceHandlers";
 import { getMaintenanceService } from "@liratek/core";
+import { requireRole } from "../../session";
 
 // Mock dependencies
 jest.mock("electron", () => ({
@@ -105,13 +106,21 @@ describe("MaintenanceHandlers", () => {
 
       const result = await handler({ sender: { id: 1 } }, jobData);
 
+      // LIRA-242 (owner decision 2026-09-28): widened to admin+staff —
+      // creating/advancing a job is routine cashier work.
+      expect(requireRole).toHaveBeenCalledWith(1, ["admin", "staff"]);
       // The handler forwards `v.data` (the VALIDATED payload), not the raw
       // input — MaintenanceJobSchema fills in `currency`/`status` defaults.
-      expect(mockService.saveJob).toHaveBeenCalledWith({
-        ...jobData,
-        currency: "USD",
-        status: "Received",
-      });
+      // actorUserId (LIRA-246a) — the mocked requireRole's userId, forwarded
+      // as saveJob's 2nd argument, never read off the payload.
+      expect(mockService.saveJob).toHaveBeenCalledWith(
+        {
+          ...jobData,
+          currency: "USD",
+          status: "Received",
+        },
+        1,
+      );
       expect(result).toEqual({ success: true, id: 1 });
     });
 

@@ -17,6 +17,10 @@ import { getProductSupplierRepository } from "./ProductSupplierRepository.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import type { ProductListFilters } from "../validators/product.js";
+// LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
+// module (no other repository import), so importing it directly here never
+// risks a require cycle.
+import { localDayExpr } from "./reportingTimeFragments.js";
 
 // =============================================================================
 // Types
@@ -275,20 +279,24 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     // 'YYYY-MM-DD HH:MM:SS' and the ISO 'YYYY-MM-DDTHH:MM:SS.sssZ' form.
     // Both bounds are inclusive whole days.
     //
-    // 'localtime' on the COLUMN side only. `created_at` is stamped by
-    // CURRENT_TIMESTAMP (UTC) while the list's "Added" column renders it with
-    // toLocaleDateString() — bucketing by the UTC day would put a product the
-    // operator sees as added today into yesterday's (or tomorrow's) filter
-    // window for part of every 24h. Local-day bucketing is the app-wide
-    // convention for user-facing date ranges (see ClosingRepository).
+    // localDayExpr() (LIRA-237 wave 2) on the COLUMN side only. `created_at`
+    // is stamped by CURRENT_TIMESTAMP (UTC) while the list's "Added" column
+    // renders it with toLocaleDateString() — bucketing by the UTC day would
+    // put a product the operator sees as added today into yesterday's (or
+    // tomorrow's) filter window for part of every 24h. Local-day bucketing
+    // is the app-wide convention for user-facing date ranges (see
+    // ClosingRepository). On desktop `localDayExpr` reduces to the OS zone
+    // ('localtime') exactly as before; on web it shifts by the CLIENT's own
+    // offset instead of the Fly host's UTC day (rule 27) — see
+    // reportingTimeFragments.ts's doc comment for the full mechanism.
     // The bound is already a LOCAL 'YYYY-MM-DD' the user picked, so it stays
     // a bare date(?) — converting it too would shift it twice.
     if (filters.addedFrom !== undefined) {
-      clauses.push(`date(p.created_at, 'localtime') >= date(?)`);
+      clauses.push(`${localDayExpr("p.created_at")} >= date(?)`);
       params.push(filters.addedFrom);
     }
     if (filters.addedTo !== undefined) {
-      clauses.push(`date(p.created_at, 'localtime') <= date(?)`);
+      clauses.push(`${localDayExpr("p.created_at")} <= date(?)`);
       params.push(filters.addedTo);
     }
 
@@ -997,6 +1005,15 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    * (and without the pre-2026-08-26 behaviour, where an unvalidated REST PUT
    * body with no `category` NULLed both columns). Clearing `category_id` is
    * `CategoryRepository.delete`'s job, which nullifies orphans itself.
+   *
+   * `image_url` is COALESCE'd the same way (LIRA-222 fix): the edit form has
+   * no image-upload UI, so `InventoryService.updateProduct` only forwards
+   * `image_url` in the payload when the caller explicitly set one
+   * (`data.image_url != null`) — every ordinary edit reaches here with the
+   * key ABSENT. Writing it unconditionally (`image_url = ?` bound to
+   * `data.image_url ?? null`) silently NULLed a previously-set image on
+   * every unrelated field edit; see
+   * InventoryService.imageUrlPreserved.test.ts.
    */
   updateProductFull(
     id: number,
@@ -1033,7 +1050,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           category = COALESCE(?, category),
           category_id = COALESCE(?, category_id),
           cost_price_usd = ?,
-          selling_price_usd = ?, min_stock_level = ?, image_url = ?,
+          selling_price_usd = ?, min_stock_level = ?,
+          image_url = COALESCE(?, image_url),
           supplier = ?,
           warranty_months = ?,
           updated_at = datetime('now')

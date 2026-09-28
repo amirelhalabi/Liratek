@@ -55,13 +55,19 @@ export function registerDatabaseHandlers(): void {
     } catch {}
     settingsLogger.info({ key }, "Updating setting");
     const result = settingsService.updateSetting(key, value);
-    audit(e.sender.id, {
-      action: "update",
-      entity_type: "setting",
-      entity_id: key,
-      summary: `Updated setting "${key}"`,
-      new_values: { value },
-    });
+    // LIRA-220: no audit row for a write that was rejected, not performed
+    // (e.g. the SENSITIVE_SETTING_KEYS write guard in SettingsService)  —
+    // mirrors backend/src/api/settings.ts's PUT /:key, which already
+    // returns before auditRest() on !result.success.
+    if (result.success) {
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "setting",
+        entity_id: key,
+        summary: `Updated setting "${key}"`,
+        new_values: { value },
+      });
+    }
     return result;
   });
 
@@ -72,19 +78,24 @@ export function registerDatabaseHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
     const result = settingsService.updateSetting(key, value);
-    audit(e.sender.id, {
-      action: "update",
-      entity_type: "setting",
-      entity_id: key,
-      summary: `Updated setting "${key}"`,
-      new_values: { value },
-    });
+    // LIRA-220: see the identical note on db:update-setting above.
+    if (result.success) {
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "setting",
+        entity_id: key,
+        summary: `Updated setting "${key}"`,
+        new_values: { value },
+      });
+    }
     return result;
   });
 
   // ==================== EXPENSES ====================
 
-  // Add Expense
+  // Add Expense (admin and staff — LIRA-242 owner decision 2026-09-28: adding
+  // an expense is routine cashier work; db:delete-expense below stays
+  // admin-only).
   ipcMain.handle(
     "db:add-expense",
     (
@@ -99,7 +110,7 @@ export function registerDatabaseHandlers(): void {
         expense_date: string;
       },
     ) => {
-      const auth = requireRole(e.sender.id, ["admin"]);
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
       // Validation

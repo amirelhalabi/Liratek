@@ -27,6 +27,7 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   ForPartnerToggle,
   ForPartnerNotice,
@@ -211,9 +212,13 @@ export function LotoPage() {
         alert("Failed to create checkpoint: " + result.error);
       }
     } catch (error) {
+      // LIRA-247: `error instanceof Error` is false for a thrown ApiError
+      // (a plain `{status,message,details}` object, e.g. a web 403 role
+      // refusal), so it used to fall back to "Unknown error" and hide the
+      // real reason.
       alert(
         "Error creating checkpoint: " +
-          (error instanceof Error ? error.message : "Unknown error"),
+          getApiErrorMessage(error, "Unknown error"),
       );
     } finally {
       setIsCreatingCheckpoint(false);
@@ -383,8 +388,11 @@ export function LotoPage() {
       } else {
         alert("Failed to sell ticket: " + result.error);
       }
-    } catch {
-      alert("Failed to sell ticket");
+    } catch (error) {
+      // LIRA-247: the bare `catch {}` used to discard the thrown ApiError
+      // entirely (e.g. a web 403 role refusal), always showing this generic
+      // string regardless of the real reason.
+      alert(getApiErrorMessage(error, "Failed to sell ticket"));
     } finally {
       setIsSubmitting(false);
     }
@@ -443,8 +451,10 @@ export function LotoPage() {
       } else {
         alert("Failed to record cash prize: " + result.error);
       }
-    } catch {
-      alert("Failed to record cash prize");
+    } catch (error) {
+      // LIRA-247: the bare `catch {}` used to discard the thrown ApiError
+      // entirely, always showing this generic string.
+      alert(getApiErrorMessage(error, "Failed to record cash prize"));
     } finally {
       setIsSubmittingCashPrize(false);
     }

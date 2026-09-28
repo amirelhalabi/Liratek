@@ -74,7 +74,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: install
     steps:
+      # fetch-depth: 0 (full history) — the schema-equivalence step below
+      # (LIRA-226) needs `git show <base ref>:electron-app/create_db.sql` for
+      # a ref that PREDATES this run (the PR base SHA, or the previous
+      # commit on a push to main), not just the single commit actions/
+      # checkout would otherwise shallow-clone. Every other step in this job
+      # only reads the working tree, so the extra clone cost is scoped to
+      # exactly the step that needs it.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
 
       - name: Restore dependencies
@@ -169,7 +178,29 @@ jobs:
       - name: Ensure better-sqlite3 is built for Node (not Electron)
         run: yarn rebuild:node
 
+      # LIRA-226 guard tests for the checker itself, run AFTER the Node-ABI
+      # rebuild above (this test file opens real better-sqlite3 DBs, both
+      # directly and via a throwaway git-repo fixture that shells out to the
+      # real script) and BEFORE the real check below, so a regression in the
+      # checker's own logic (the base-ref resolution, the duplicate-version
+      # detection) is caught before trusting that check's exit code.
+      - name: Schema-equivalence checker guard tests (LIRA-226)
+        run: yarn test:scripts:schema-equivalence
+
+      # LIRA-226 (a): SCHEMA_CHECK_BASE_REF pins DB (A)'s create_db.sql to a
+      # commit that PREDATES this run, so a rule-10 miss (create_db.sql
+      # changed, the matching migration didn't, or vice versa) produces a
+      # real diff instead of comparing the same commit's file against
+      # itself. `pull_request`: the PR's base SHA. `push` (to main): the
+      # previous commit — `github.event.before` is the SHA main pointed at
+      # immediately before this push (available thanks to the fetch-depth: 0
+      # checkout above), except on the one-time event of main's very first
+      # push, where GitHub reports it as all-zeros — that falls back to
+      # HEAD~1. Any other trigger (e.g. workflow_dispatch) falls back to
+      # unset, i.e. the script's own "HEAD" default.
       - name: Schema equivalence check (create_db.sql <-> migrations/index.ts drift, incl. seed contents)
+        env:
+          SCHEMA_CHECK_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && (github.event.before != '0000000000000000000000000000000000000000' && github.event.before || 'HEAD~1') || '' }}
         run: yarn check:schema-equivalence
 
   backend-tests:

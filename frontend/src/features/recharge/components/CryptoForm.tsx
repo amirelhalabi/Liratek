@@ -23,6 +23,7 @@ import {
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 
 interface CryptoFormProps {
   activeConfig: ProviderConfig | undefined;
@@ -248,11 +249,12 @@ export function CryptoForm({
       loadCryptoData();
     } catch (err) {
       logger.error("Failed to submit partner crypto transaction:", err);
+      // LIRA-247: `err instanceof Error` is false for a thrown ApiError (a
+      // plain object, e.g. a web 403 role refusal), so it used to fall back
+      // to this generic string and hide the real reason.
       appEvents.emit(
         "notification:show",
-        err instanceof Error
-          ? err.message
-          : "Failed to process partner transaction",
+        getApiErrorMessage(err, "Failed to process partner transaction"),
         "error",
       );
     } finally {

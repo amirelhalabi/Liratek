@@ -21,6 +21,7 @@ import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 
 // LIRA-176 phase 6 — a job's attached part line, as returned by getJobs.
 type JobPart = {
@@ -483,10 +484,25 @@ export default function Maintenance() {
       priorJob: job,
       // No `parts` key — a status transition never touches parts.
     });
-    const result = await api.saveMaintenanceJob(payload);
-    if (result.success) {
-      const data = await api.getMaintenanceJobs(filter);
-      setJobs(data);
+    // LIRA-211: this used to be `if (result.success) {...}` with no `else`
+    // AND no try/catch — a refused status change (e.g. a staff-role 403 on
+    // web) was completely silent, and since `requestJson` THROWS a plain
+    // {status,message,details} object on a non-2xx response (never an
+    // `Error`), it was an uncaught promise rejection, not merely silent.
+    try {
+      const result = await api.saveMaintenanceJob(payload);
+      if (result.success) {
+        const data = await api.getMaintenanceJobs(filter);
+        setJobs(data);
+      } else {
+        alert("Error: " + (result.error || "Failed to update status"));
+      }
+    } catch (err) {
+      logger.error("Failed to change job status:", err);
+      alert(
+        "Error: " +
+          getApiErrorMessage(err, "Failed to update status"),
+      );
     }
   };
 
@@ -550,14 +566,23 @@ export default function Maintenance() {
       transactionTime,
     });
 
-    const result = await api.saveMaintenanceJob(jobData);
-    if (result.success) {
-      setIsCheckoutOpen(false);
-      handleNewJob();
-      const data = await api.getMaintenanceJobs(filter);
-      setJobs(data);
-    } else {
-      alert("Error: " + result.error);
+    // This call was never wrapped in try/catch — on web, a refused save
+    // (e.g. a staff-role 403 before LIRA-242) THREW a plain
+    // {status,message,details} object (requestJson), which is an uncaught
+    // promise rejection, not a caught `result.success === false`.
+    try {
+      const result = await api.saveMaintenanceJob(jobData);
+      if (result.success) {
+        setIsCheckoutOpen(false);
+        handleNewJob();
+        const data = await api.getMaintenanceJobs(filter);
+        setJobs(data);
+      } else {
+        alert("Error: " + result.error);
+      }
+    } catch (err) {
+      logger.error("Failed to save maintenance draft:", err);
+      alert("Error: " + getApiErrorMessage(err, "Failed to save job"));
     }
   };
 
@@ -642,25 +667,33 @@ export default function Maintenance() {
       return;
     }
 
-    const result = await api.saveMaintenanceJob(jobData);
-    if (result.success) {
-      appEvents.emit(
-        "notification:show",
-        "Maintenance payment processed successfully",
-        "success",
-      );
-      void autoPrintReceipt({
-        type: "MAINTENANCE",
-        sourceTable: "maintenance",
-        sourceId: result.id,
-        hasActiveSession: !!activeSession,
-      });
-      setIsCheckoutOpen(false);
-      handleNewJob();
-      const data = await api.getMaintenanceJobs(filter);
-      setJobs(data);
-    } else {
-      alert("Error: " + result.error);
+    // Same uncaught-rejection trap as handleSaveDraft above (LIRA-211) — this
+    // call had no try/catch, so a thrown ApiError (web 403, etc.) never
+    // reached the `else` branch below at all.
+    try {
+      const result = await api.saveMaintenanceJob(jobData);
+      if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          "Maintenance payment processed successfully",
+          "success",
+        );
+        void autoPrintReceipt({
+          type: "MAINTENANCE",
+          sourceTable: "maintenance",
+          sourceId: result.id,
+          hasActiveSession: !!activeSession,
+        });
+        setIsCheckoutOpen(false);
+        handleNewJob();
+        const data = await api.getMaintenanceJobs(filter);
+        setJobs(data);
+      } else {
+        alert("Error: " + result.error);
+      }
+    } catch (err) {
+      logger.error("Failed to process maintenance checkout:", err);
+      alert("Error: " + getApiErrorMessage(err, "Failed to process payment"));
     }
   };
 

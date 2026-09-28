@@ -68,6 +68,10 @@ import {
 } from "../constants/walletProviders.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { BusinessRuleError } from "../utils/errors.js";
+// LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
+// module (no other repository import), so importing it directly here never
+// risks a require cycle.
+import { isToday, isThisMonth } from "./reportingTimeFragments.js";
 import {
   calculateCommission,
   lookupOmtFee,
@@ -479,9 +483,9 @@ export interface CreateFinancialServiceData {
    *
    * Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): ALSO used
    * to stamp `transactions.exchange_rate` — via `resolveStampedExchangeRate`
-   * (moneyPosting.ts), a non-throwing sibling of the reconciliation
-   * band-check that falls back to the server rate silently outside the ±15%
-   * band or when absent. This does NOT change what `reconcileLegs`/
+   * (moneyPosting.ts), which stamps this value EXACTLY as typed (falling
+   * back to the server rate only when absent — LIRA-240, 2026-09-28, retired
+   * the old ±15%-band fallback). This does NOT change what `reconcileLegs`/
    * `postPayoutLegs` reconcile against — they keep anchoring at the server
    * rate (`exchangeRate`), unchanged.
    */
@@ -1228,23 +1232,21 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // ANCHOR every reconcileLegs call site in this method passes as
       // `exchangeRate`, alongside `data.tender_exchange_rate` (as
       // `tenderExchangeRate`) — the gate itself (moneyPosting.ts's
-      // reconcileLegs/resolveReconciliationRate) decides which one to
-      // reconcile at, banding the tender rate against this one (±15%) so an
-      // implausible tender value can't launder a real leg discrepancy as
-      // "just a rate difference". This anchor is UNCHANGED by the owner's
-      // 2026-08-08 stamping decision below — only the value written to
-      // `transactions.exchange_rate` differs from it now, never the
-      // reconciliation math.
+      // reconcileLegs/resolveReconciliationRate) prefers the tender rate
+      // whenever one was supplied. LIRA-240 (owner decision 2026-09-28)
+      // retired the old ±15% band that used to refuse an implausible tender
+      // value outright — a payment form must never block on the typed rate.
+      // This anchor is UNCHANGED by the owner's 2026-08-08 stamping decision
+      // below — only the value written to `transactions.exchange_rate`
+      // differs from it now, never the reconciliation math.
       const stampedExchangeRate =
         data.exchangeRate ?? getUsdLbpSellRate(this.db);
       // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): the
-      // `transactions.exchange_rate` stamp should reflect what the operator
-      // actually tendered, when that's a plausible edit — within
-      // `TENDER_RATE_BAND_PCT` of the server rate. Outside that band (or
-      // absent), falls back to `stampedExchangeRate` SILENTLY — this never
-      // throws (see `resolveStampedExchangeRate`'s doc); the hard-reject path
-      // for an implausible tender rate stays exclusively in `reconcileLegs`/
-      // `postPayoutLegs` below, which keep anchoring at `stampedExchangeRate`.
+      // `transactions.exchange_rate` stamp reflects what the operator
+      // actually tendered, EXACTLY as typed (LIRA-240, 2026-09-28: the old
+      // ±15%-band silent fallback to `stampedExchangeRate` was retired).
+      // Falls back to `stampedExchangeRate` only when absent — never throws
+      // (see `resolveStampedExchangeRate`'s doc).
       const recordExchangeRate = resolveStampedExchangeRate(
         stampedExchangeRate,
         data.tender_exchange_rate,
@@ -2295,8 +2297,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             : {}),
         },
         // Stamped rate-of-record — `recordExchangeRate`, which reflects the
-        // operator's tendered rate when it's within `TENDER_RATE_BAND_PCT` of
-        // the server rate (owner decision 2026-08-08), else falls back to
+        // operator's tendered rate EXACTLY as typed (owner decision
+        // 2026-08-08, unbanded since LIRA-240 2026-09-28), else falls back to
         // `stampedExchangeRate` (see the field's doc and the comment at this
         // method's top). The RECONCILIATION anchor below is unaffected —
         // every `reconcileLegs`/`postPayoutLegs` call in this method still
@@ -4962,7 +4964,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as today_count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as today_awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND DATE(created_at, 'localtime') = DATE('now', 'localtime')${providerFilter}`,
+        WHERE tenant_id = ? AND ${isToday("created_at")}${providerFilter}`,
       )
       .get(tenantId, ...providerParams) as {
       today_commission: number;
@@ -4980,7 +4982,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND DATE(created_at, 'localtime') = DATE('now', 'localtime')${providerFilter}
+        WHERE tenant_id = ? AND ${isToday("created_at")}${providerFilter}
         GROUP BY currency`,
       )
       .all(tenantId, ...providerParams) as CurrencyStats[];
@@ -4994,7 +4996,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as month_count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as month_awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')${providerFilter}`,
+        WHERE tenant_id = ? AND ${isThisMonth("created_at")}${providerFilter}`,
       )
       .get(tenantId, ...providerParams) as {
       month_commission: number;
@@ -5012,7 +5014,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')${providerFilter}
+        WHERE tenant_id = ? AND ${isThisMonth("created_at")}${providerFilter}
         GROUP BY currency`,
       )
       .all(tenantId, ...providerParams) as CurrencyStats[];
@@ -5027,7 +5029,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COUNT(*) as count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
-        WHERE tenant_id = ? AND DATE(created_at, 'localtime') = DATE('now', 'localtime')${providerFilter}
+        WHERE tenant_id = ? AND ${isToday("created_at")}${providerFilter}
         GROUP BY provider, currency`,
       )
       .all(tenantId, ...providerParams) as ProviderStats[];

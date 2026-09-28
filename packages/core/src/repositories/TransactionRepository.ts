@@ -8190,7 +8190,30 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     const carrierLineService = getCarrierLineService();
     for (const m of movements) {
-      carrierLineService.reverseMovement(m.id);
+      // LIRA-239 — propagate a refusal (e.g. the LIFO guard in
+      // `CarrierLineRepository.reverseMovement`: a later validity movement
+      // on the same line is still active) instead of silently swallowing
+      // it. The caller (voidTransaction/_refundTransactionInternal) runs
+      // this inside its own db transaction, so throwing here rolls the
+      // WHOLE void/refund back — the transaction stays ACTIVE and nothing
+      // partially reverses, rather than committing a void that quietly
+      // left the carrier line's validity/days_owed wrong forever.
+      //
+      // Coordinator follow-up (2026-09-28) — pass `result.error` through
+      // UNDECORATED (no "Failed to reverse carrier line movement #X:"
+      // wrap): `reverseMovement`'s LIFO guard now hands back a
+      // plain-language, cashier-facing message naming the LINE, not a
+      // movement id (`CarrierLineRepository.reverseMovement`'s doc). A
+      // wrapper prefix built from the same id the message deliberately
+      // stopped mentioning would silently reintroduce the jargon it was
+      // fixed to remove — same principle as `selfChargeTelecomItem`'s own
+      // "pass the movement's own message through UNDECORATED" comment.
+      const result = carrierLineService.reverseMovement(m.id);
+      if (!result.success) {
+        throw new Error(
+          result.error ?? `Failed to reverse carrier line movement #${m.id}`,
+        );
+      }
     }
   }
 

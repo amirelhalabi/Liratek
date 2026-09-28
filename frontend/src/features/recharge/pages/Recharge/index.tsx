@@ -9,6 +9,7 @@ import {
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { appEvents, useApi } from "@liratek/ui";
 import { costOfValidityDaysUsd } from "@liratek/core";
 import type { TopUpFromClientInput } from "@liratek/core";
@@ -48,6 +49,7 @@ import type {
   RechargeType,
   ServiceType,
   ProviderAnalytics,
+  CurrencyStats,
 } from "../../types";
 import { PROVIDER_CONFIGS } from "../../types";
 import { deriveSubmittedRechargeType } from "@/shared/utils/rechargeLabels";
@@ -62,6 +64,16 @@ import { deriveSubmittedRechargeType } from "@/shared/utils/rechargeLabels";
 // infinite loop (the "Jest worker ran out of memory" signature FeatureFlag
 // Context.tsx documents, not a real OOM).
 const NO_SHOP_LINES: CarrierLineEntity[] = [];
+
+// LIRA-250 follow-up — same rule-25 rationale as NO_SHOP_LINES above: a
+// SINGLE stable module-level "empty" reference for
+// `loadRechargeTodayStats`'s non-telecom/error reset paths, so resetting to
+// "no data" never itself creates a fresh object identity on every fire.
+const NO_RECHARGE_TODAY_STATS: {
+  count: number;
+  commission: number;
+  byCurrency: CurrencyStats[];
+} = { count: 0, commission: 0, byCurrency: [] };
 
 export default function MobileRecharge() {
   const api = useApi();
@@ -109,6 +121,20 @@ export default function MobileRecharge() {
     totalReceived: 0,
     count: 0,
   });
+
+  // LIRA-250 follow-up — today's MTC/Alfa sales count/profit (a real server
+  // read: `RechargeRepository.getTodayStats`, gated the SAME way the
+  // Profits page's own recharge figures are — notRefunded, notDebtPending,
+  // `t.type = 'RECHARGE'`, "today" via isToday). Feeds this provider's
+  // Count/Profit card AND the Total Profit card while a telecom (MTC/Alfa)
+  // tab is active — `finAnalytics` below only ever reads `financial_services`
+  // (OMT/Whish/Binance), a table a recharge never lands in, so it always
+  // read $0.00 for a telecom provider.
+  const [rechargeTodayStats, setRechargeTodayStats] = useState<{
+    count: number;
+    commission: number;
+    byCurrency: CurrencyStats[];
+  }>(NO_RECHARGE_TODAY_STATS);
 
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
   const [clientName, setClientName] = useState("");
@@ -446,12 +472,21 @@ export default function MobileRecharge() {
     [activeProvider],
   );
 
+  // LIRA-250: `api` read via `apiRef` (declared above near `loadShopLines`),
+  // not the `api` identity directly — this function sits in the
+  // mount/provider-switch effect's dependency array below, which now
+  // ALWAYS calls a state-setting loader on every fire (the new telecom
+  // branch added for LIRA-250). Leaving `api` as a direct dependency here
+  // reproduced the render-loop hazard this file's own NO_SHOP_LINES comment
+  // documents: an unstable `useApi()` mock (several existing Recharge page
+  // test suites) recreates this callback every render, which changes the
+  // effect's own deps, which re-fires it, which sets state, forever.
   const loadFinancialData = useCallback(async () => {
     if (!activeProvider) return;
     try {
       const [transactions, analytics] = await Promise.all([
-        api.getOMTHistory(activeProvider),
-        api.getOMTAnalytics([activeProvider]),
+        apiRef.current.getOMTHistory(activeProvider),
+        apiRef.current.getOMTAnalytics([activeProvider]),
       ]);
       setFinTransactions(transactions ?? []);
       setFinAnalytics(
@@ -463,11 +498,13 @@ export default function MobileRecharge() {
     } catch (err) {
       logger.error("Failed to load financial data:", err);
     }
-  }, [activeProvider, api]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef.current is read at call time, not captured; intentionally excluding the unstable `api` identity (see comment above)
+  }, [activeProvider]);
 
+  // LIRA-250: same reason as loadFinancialData immediately above.
   const loadBinanceData = useCallback(async () => {
     try {
-      const history = await api.getOMTHistory("BINANCE");
+      const history = await apiRef.current.getOMTHistory("BINANCE");
       setBinanceTransactions(
         (history ?? []).map((tx: any) => ({
           id: tx.id,
@@ -505,8 +542,14 @@ export default function MobileRecharge() {
     } catch (err) {
       logger.error("Failed to load binance data:", err);
     }
-  }, [api]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef.current is read at call time, not captured; intentionally excluding the unstable `api` identity (see comment above)
+  }, []);
 
+  // LIRA-250: unlike loadFinancialData/loadBinanceData/loadRechargeHistory
+  // above, this one is NOT in the mount/provider-switch effect's dependency
+  // array (it's called imperatively after writes, and on its own separate
+  // mount effect keyed only on `activeProvider`), so its `api` dependency
+  // was never part of that particular render-loop. Left as-is.
   const loadDrawerBalances = useCallback(async () => {
     try {
       const drawers = await api.getRechargeDrawerBalances();
@@ -515,6 +558,98 @@ export default function MobileRecharge() {
       logger.error("Failed to load drawer balances:", error);
     }
   }, [api]);
+
+  // LIRA-250: MTC/Alfa recharges live in the `recharges` table, read via
+  // this call — a DIFFERENT table/endpoint from `loadFinancialData`'s
+  // `financial_services` history (OMT App/Whish App/Binance), which can
+  // never contain a recharge row. `getTelecomStats` below reads
+  // `rechargeHistory`, not `finTransactions`. Declared here (before the
+  // mount/provider-switch effect that now calls it) rather than further
+  // down where it used to live, purely to avoid a temporal-dead-zone
+  // reference — its own logic is unchanged.
+  //
+  // Reads `api` via `apiRef` (declared above, near `loadShopLines`), NOT
+  // the `api` identity directly (rule 25 / this file's own NO_SHOP_LINES
+  // comment): this function is now called from the mount/provider-switch
+  // effect below, and putting `api` straight in its dep array made THAT
+  // effect refire every render whenever `api`'s identity is unstable
+  // (several existing Recharge page test suites' `useApi()` mocks return a
+  // new object per render) — each fire calls this, which sets state, which
+  // re-renders, which changes `api` again: a synchronous infinite loop
+  // (proven failing-first — this exact function, wired with `api` as a dep,
+  // reproduced the "Jest worker ran out of memory" signature under
+  // Recharge.telecomStatsRefresh.test.tsx before this fix).
+  const loadRechargeHistory = useCallback(async () => {
+    if (!activeProvider || !["MTC", "Alfa"].includes(activeProvider)) return;
+    try {
+      const history = await apiRef.current.getRechargeHistory(
+        activeProvider as "MTC" | "Alfa",
+      );
+      setRechargeHistory(
+        (history ?? []).map(
+          (r: any): FinancialTransaction => ({
+            id: r.id,
+            provider: r.carrier,
+            service_type: "SEND",
+            amount: r.amount,
+            currency: r.currency_code || "USD",
+            cost: r.cost,
+            commission: r.price - r.cost,
+            client_name: r.client_name,
+            phone_number: r.phone_number ?? null,
+            note: r.note ?? undefined,
+            edited_by: r.edited_by ?? null,
+            edited_at: r.edited_at ?? null,
+            default_price_to_client: r.default_price_to_client ?? null,
+            paid_by: r.paid_by ?? undefined,
+            reference_number: r.phone_number || undefined,
+            created_at: r.created_at,
+          }),
+        ),
+      );
+    } catch (error) {
+      logger.error("Failed to load recharge history:", error);
+      setRechargeHistory([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef.current is read at call time, not captured; intentionally excluding the unstable `api` identity (see comment above)
+  }, [activeProvider]);
+
+  // LIRA-250 follow-up — today's MTC/Alfa sales count/profit, a REAL server
+  // read (`RechargeRepository.getTodayStats`, gated the same way the
+  // Profits page's own recharge figures are). Replaces the mount/provider-
+  // switch effect's old `loadRechargeHistory()` call for the telecom
+  // branch — that call fed the Count/Profit cards from raw price-minus-cost
+  // arithmetic over EVERY `recharges` row for the provider (refunds,
+  // TOP_UP drawer moves, CREDIT_BUYBACK payouts included), not the stamped
+  // profit of today's actual sales. `loadRechargeHistory` itself is
+  // unchanged and still feeds the on-demand History modal.
+  //
+  // Reads `api` via `apiRef` (rule 25 — same reasoning as `loadShopLines`/
+  // `loadRechargeHistory` above): this is called from the mount/provider-
+  // switch effect, so `api` must not sit in its own dependency list or an
+  // unstable `useApi()` identity (several test suites' mocks return a fresh
+  // object per render) re-fires it every render.
+  const loadRechargeTodayStats = useCallback(async (provider: AnyProvider) => {
+    if (provider !== "MTC" && provider !== "Alfa") {
+      setRechargeTodayStats(NO_RECHARGE_TODAY_STATS);
+      return;
+    }
+    try {
+      const stats = await apiRef.current.getRechargeTodayStats(provider);
+      setRechargeTodayStats({
+        count: stats?.count ?? 0,
+        // The scalar `commission` fallback CompactStats renders only when
+        // `byCurrency` is empty (no sales today) — profit_usd is the
+        // natural default for that all-zero case.
+        commission: stats?.profit_usd ?? 0,
+        byCurrency: stats?.byCurrency ?? [],
+      });
+    } catch (error) {
+      logger.error("Failed to load recharge today stats:", error);
+      setRechargeTodayStats(NO_RECHARGE_TODAY_STATS);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apiRef.current is read at call time, not captured; intentionally excluding the unstable `api` identity (see comment above)
+  }, []);
 
   const activeDrawerBalance = useMemo(() => {
     if (!activeConfig) return undefined;
@@ -537,9 +672,21 @@ export default function MobileRecharge() {
         loadBinanceData();
       } else if (config?.formMode === "financial") {
         loadFinancialData();
+      } else if (config?.formMode === "telecom") {
+        // LIRA-250 follow-up: the Count/Profit + Total Profit cards for
+        // MTC/Alfa now read `rechargeTodayStats` (a real server read —
+        // `RechargeRepository.getTodayStats`), refreshed here on mount and
+        // provider switch. `loadRechargeHistory` (the `recharges` table's
+        // raw row list) stays on-demand only, for the History modal.
+        loadRechargeTodayStats(activeProvider);
       }
     }
-  }, [activeProvider, loadFinancialData, loadBinanceData]);
+  }, [
+    activeProvider,
+    loadFinancialData,
+    loadBinanceData,
+    loadRechargeTodayStats,
+  ]);
 
   // Load drawer balances on mount and when provider changes
   useEffect(() => {
@@ -789,8 +936,21 @@ export default function MobileRecharge() {
       setTelecomTransactionTime(undefined);
       loadFinancialData();
       loadDrawerBalances();
+      // LIRA-250: `loadFinancialData` above reads the OMT/Whish/Binance
+      // `financial_services` history — a recharge never lands there. Keeps
+      // the on-demand History modal warm for its next open.
+      loadRechargeHistory();
+      // LIRA-250 follow-up: the Count/Profit + Total Profit cards read
+      // `rechargeTodayStats`, not `rechargeHistory` — refresh it too, or it
+      // stays stuck at whatever it read before this submit.
+      loadRechargeTodayStats(activeProvider);
     } catch (err) {
+      // LIRA-242 fallout: `processRecharge` on web THROWS a plain
+      // {status,message,details} object (requestJson) on any non-2xx
+      // response — a staff-role 403 before this ticket closed silently here
+      // with nothing shown ("the payment panel just closes").
       logger.error("Failed to submit telecom recharge:", err);
+      alert(getApiErrorMessage(err, "Failed to process recharge"));
     } finally {
       setIsSubmitting(false);
     }
@@ -820,41 +980,9 @@ export default function MobileRecharge() {
     autoPrintReceipt,
     telecomTenderRate,
     exchangeRate,
+    loadRechargeHistory,
+    loadRechargeTodayStats,
   ]);
-
-  const loadRechargeHistory = useCallback(async () => {
-    if (!activeProvider || !["MTC", "Alfa"].includes(activeProvider)) return;
-    try {
-      const history = await api.getRechargeHistory(
-        activeProvider as "MTC" | "Alfa",
-      );
-      setRechargeHistory(
-        (history ?? []).map(
-          (r: any): FinancialTransaction => ({
-            id: r.id,
-            provider: r.carrier,
-            service_type: "SEND",
-            amount: r.amount,
-            currency: r.currency_code || "USD",
-            cost: r.cost,
-            commission: r.price - r.cost,
-            client_name: r.client_name,
-            phone_number: r.phone_number ?? null,
-            note: r.note ?? undefined,
-            edited_by: r.edited_by ?? null,
-            edited_at: r.edited_at ?? null,
-            default_price_to_client: r.default_price_to_client ?? null,
-            paid_by: r.paid_by ?? undefined,
-            reference_number: r.phone_number || undefined,
-            created_at: r.created_at,
-          }),
-        ),
-      );
-    } catch (error) {
-      logger.error("Failed to load recharge history:", error);
-      setRechargeHistory([]);
-    }
-  }, [activeProvider, api]);
 
   const handleTopUpClick = useCallback(async () => {
     if (!activeProvider) return;
@@ -918,8 +1046,10 @@ export default function MobileRecharge() {
       });
       setShowTopUpModal(true);
     } catch (error) {
+      // LIRA-247: a thrown ApiError used to be discarded in favor of this
+      // hardcoded string.
       logger.error("Failed to load drawer balances:", error);
-      alert("Failed to load drawer balances");
+      alert(getApiErrorMessage(error, "Failed to load drawer balances"));
     }
   }, [activeProvider, api]);
 
@@ -1192,8 +1322,20 @@ export default function MobileRecharge() {
       resetGiftForm();
       loadFinancialData();
       loadDrawerBalances();
+      // LIRA-250: same reason as handleTelecomSubmit's own call — an Alfa
+      // Gift sale lands in `recharges`, not `financial_services`. Keeps the
+      // on-demand History modal warm for its next open.
+      loadRechargeHistory();
+      // LIRA-250 follow-up: refresh the Count/Profit + Total Profit cards —
+      // Alfa Gift is always provider "Alfa" (hardcoded above), matching the
+      // provider this submit actually posted under, not necessarily
+      // whatever `activeProvider` happens to read.
+      loadRechargeTodayStats("Alfa");
     } catch (err) {
+      // Same uncaught/silent trap as handleTelecomSubmit above (LIRA-242
+      // fallout) — a thrown ApiError never reached the operator.
       logger.error("Failed to submit alfa gift:", err);
+      alert(getApiErrorMessage(err, "Failed to process Alfa gift"));
     } finally {
       setIsSubmitting(false);
     }
@@ -1218,6 +1360,8 @@ export default function MobileRecharge() {
     autoPrintReceipt,
     telecomTenderRate,
     exchangeRate,
+    loadRechargeHistory,
+    loadRechargeTodayStats,
   ]);
 
   const handleCryptoSubmit = useCallback(async () => {
@@ -1381,6 +1525,16 @@ export default function MobileRecharge() {
         transaction_time: cryptoTransactionTime,
       });
 
+      // LIRA-247: `addOMTTransaction` can RESOLVE `{success:false, error}`
+      // (a business-rule refusal) rather than throw — this branch was
+      // missing entirely, so a refused crypto transaction fell straight
+      // through to the "recorded successfully" notification below with the
+      // real reason never shown and the form silently reset.
+      if (result && !result.success) {
+        alert(result.error || "Failed to process crypto transaction");
+        return;
+      }
+
       // Link to active customer session
       if (activeSession && result?.id) {
         try {
@@ -1420,7 +1574,12 @@ export default function MobileRecharge() {
       loadBinanceData();
       loadDrawerBalances();
     } catch (err) {
+      // LIRA-247: a thrown ApiError (web: requestJson throws a plain
+      // {status,message,details} object on a non-2xx response) used to
+      // reach only logger.error here — nothing was ever shown to the
+      // operator (the "payment panel just closes" symptom).
       logger.error("Failed to submit crypto transaction:", err);
+      alert(getApiErrorMessage(err, "Failed to process crypto transaction"));
     } finally {
       setIsSubmitting(false);
     }
@@ -1486,7 +1645,11 @@ export default function MobileRecharge() {
   const isMTC = activeProvider === "MTC";
 
   const getTelecomStats = useCallback(() => {
-    const providerTx = finTransactions.filter(
+    // LIRA-250: MTC/Alfa recharges live in `rechargeHistory` (the
+    // `recharges` table), never in `finTransactions` (the OMT/Whish/
+    // Binance `financial_services` table) — using the latter here made
+    // these cards read 0 no matter how many recharges succeeded.
+    const providerTx = rechargeHistory.filter(
       (tx) => tx.provider === activeProvider,
     );
     const today = new Date().toDateString();
@@ -1515,9 +1678,16 @@ export default function MobileRecharge() {
       count: todayTx.length,
       byCurrency,
     };
-  }, [finTransactions, activeProvider]);
+  }, [rechargeHistory, activeProvider]);
 
+  // LIRA-250 follow-up: `getTelecomStats()` above still computes from
+  // `rechargeHistory` — left UNCHANGED (including its pre-existing
+  // limitation that `rechargeHistory` only ever holds MTC/Alfa rows, so
+  // this reads 0 for OMT/Whish/Binance) because those non-telecom cards are
+  // deliberately out of scope for this ticket. Only the telecom (MTC/Alfa)
+  // branch below is repointed to the new, correct read.
   const telecomStats = getTelecomStats();
+  const isTelecomFormMode = activeConfig?.formMode === "telecom";
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col overflow-hidden animate-in fade-in duration-500">
@@ -1538,23 +1708,53 @@ export default function MobileRecharge() {
           <div className="flex shrink-0 items-center gap-3">
             <CompactStats
               activeConfig={activeConfig}
-              todayCommission={telecomStats.commission}
-              todayCount={telecomStats.count}
-              todayByCurrency={telecomStats.byCurrency}
+              // LIRA-250 follow-up: MTC/Alfa's Count/Profit card is fed by
+              // the new server-side read (`rechargeTodayStats`) instead of
+              // the `rechargeHistory`-derived `telecomStats` — see
+              // `getTelecomStats`'s doc comment above for why that source
+              // stays unchanged for the OMT/Whish/Binance cards.
+              todayCommission={
+                isTelecomFormMode
+                  ? rechargeTodayStats.commission
+                  : telecomStats.commission
+              }
+              todayCount={
+                isTelecomFormMode ? rechargeTodayStats.count : telecomStats.count
+              }
+              todayByCurrency={
+                isTelecomFormMode
+                  ? rechargeTodayStats.byCurrency
+                  : telecomStats.byCurrency
+              }
+              // "Total Profit" has no meaningful OTHER source for a telecom
+              // provider — `finAnalytics` only ever reads
+              // `financial_services` (OMT/Whish/Binance), a table a
+              // recharge never lands in, so it always read a bare $0.00
+              // here pre-fix. With only one carrier active at a time on
+              // this tab, "total" and "this provider's" are the same
+              // number, so it's fed the SAME read as the Profit card above.
               allProvidersCommission={
-                activeConfig.formMode !== "crypto"
-                  ? finAnalytics.today.commission
-                  : undefined
+                isTelecomFormMode
+                  ? rechargeTodayStats.commission
+                  : activeConfig.formMode !== "crypto"
+                    ? finAnalytics.today.commission
+                    : undefined
               }
               allProvidersByCurrency={
-                activeConfig.formMode !== "crypto"
-                  ? finAnalytics.today.byCurrency
-                  : undefined
+                isTelecomFormMode
+                  ? rechargeTodayStats.byCurrency
+                  : activeConfig.formMode !== "crypto"
+                    ? finAnalytics.today.byCurrency
+                    : undefined
               }
               allProvidersAwaitingSettlementCount={
-                activeConfig.formMode !== "crypto"
-                  ? finAnalytics.today.awaiting_settlement_count
-                  : undefined
+                // Recharges have no settlement concept (unlike OMT/Whish
+                // commission_model=1 rows) — never "awaiting".
+                isTelecomFormMode
+                  ? undefined
+                  : activeConfig.formMode !== "crypto"
+                    ? finAnalytics.today.awaiting_settlement_count
+                    : undefined
               }
               cryptoOutToday={binanceStats.totalSent}
               cryptoInToday={binanceStats.totalReceived}

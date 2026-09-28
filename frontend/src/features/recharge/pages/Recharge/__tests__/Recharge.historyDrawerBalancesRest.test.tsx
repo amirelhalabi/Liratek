@@ -24,6 +24,17 @@
  * `toHaveBeenCalledWith` assertions below would fail — which is exactly what
  * happens if you revert the two Recharge/index.tsx call-site edits (rule 17;
  * verified failing pre-fix, see commit message).
+ *
+ * LIRA-250 FOLLOW-UP (this revision): the mount/provider-switch effect used
+ * to ALSO call `loadRechargeHistory()` for a "telecom" provider (MTC/Alfa),
+ * so the "History tab" test below used to see an automatic
+ * `getRechargeHistory("MTC")` call on mount, before the button was ever
+ * clicked. That automatic call fed the Count/Profit cards from
+ * `rechargeHistory` — a source LIRA-250's follow-up fix replaced with a real
+ * server-side read (`api.getRechargeTodayStats`, `RechargeRepository
+ * .getTodayStats`), so the mount effect no longer needs `rechargeHistory`
+ * warm at all. `getRechargeHistory` is now ONLY ever called on demand, by
+ * the History button — updated below.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -90,6 +101,15 @@ const mockApi = {
   getActiveCarrierLines: jest.fn().mockResolvedValue([]),
   getRechargeHistory: mockGetRechargeHistory,
   getRechargeDrawerBalances: mockGetRechargeDrawerBalances,
+  // LIRA-250 follow-up: the mount/provider-switch effect now calls this
+  // instead of getRechargeHistory for a telecom provider — mocked so that
+  // (caught, harmless) call resolves cleanly rather than logging noise.
+  getRechargeTodayStats: jest.fn().mockResolvedValue({
+    count: 0,
+    profit_usd: 0,
+    profit_lbp: 0,
+    byCurrency: [],
+  }),
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -187,13 +207,23 @@ describe("Recharge page — history tab + drawer-balance readout go through useA
   it("history tab: the History button loads via api.getRechargeHistory(provider), not window.api", async () => {
     await renderPage();
 
+    // LIRA-250 follow-up: the mount/provider-switch effect no longer calls
+    // loadRechargeHistory() for a "telecom" formMode provider (MTC/Alfa) —
+    // the Count/Profit cards now read a dedicated server-side stats read
+    // (api.getRechargeTodayStats) instead, so rechargeHistory has no reason
+    // to be warmed eagerly any more. getRechargeHistory must therefore stay
+    // uncalled until the operator actually opens History.
+    expect(mockGetRechargeHistory).not.toHaveBeenCalled();
+
     // Default provider is MTC (first PROVIDER_CONFIGS entry, formMode
     // "telecom"), so the page-level History button is already visible.
+    // This LIRA-103 test's real assertion (never window.api) still holds:
+    // the click's call resolves through the mock, never throwing on an
+    // undefined window.api.
     fireEvent.click(screen.getByText("History"));
 
     await waitFor(() =>
       expect(mockGetRechargeHistory).toHaveBeenCalledWith("MTC"),
     );
-    expect(mockGetRechargeHistory).toHaveBeenCalledTimes(1);
   });
 });

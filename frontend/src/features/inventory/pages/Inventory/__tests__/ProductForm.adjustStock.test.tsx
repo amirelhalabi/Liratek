@@ -18,6 +18,12 @@
  * for the wrong reason. They instead pin the render gate
  * (`product && onAdjustStock`) down as two independent conditions, each
  * tested with the OTHER one satisfied, so neither can pass by accident.
+ *
+ * LIRA-223: the failing-first proof described above was never actually
+ * executed (this batch's process forbade running tests mid-batch) — the
+ * presence/click cases below are labelled "(not proven failing-first)"
+ * accordingly. Under the reworded rule 17 (owner decision 2026-09-26), the
+ * fix is that label, not a retroactive revert/run/revert.
  */
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -116,7 +122,7 @@ beforeEach(() => {
 });
 
 describe("ProductForm — Adjust Stock discoverability (LIRA-208)", () => {
-  it("shows a focusable Adjust Stock button in edit mode, with Quantity still disabled", () => {
+  it("shows a focusable Adjust Stock button in edit mode, with Quantity still disabled (not proven failing-first — LIRA-223)", () => {
     const onAdjustStock = jest.fn();
     renderForm({ product: product(), onAdjustStock });
 
@@ -150,7 +156,7 @@ describe("ProductForm — Adjust Stock discoverability (LIRA-208)", () => {
     expect(screen.getByLabelText("Quantity")).toBeEnabled();
   });
 
-  it("a pristine edit form hands off to Adjust Stock on one click", () => {
+  it("a pristine edit form hands off to Adjust Stock on one click (not proven failing-first — LIRA-223)", () => {
     const onAdjustStock = jest.fn();
     renderForm({ product: product(), onAdjustStock });
 
@@ -163,7 +169,7 @@ describe("ProductForm — Adjust Stock discoverability (LIRA-208)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("a dirty edit form confirms before discarding, then hands off", () => {
+  it("a dirty edit form confirms before discarding, then hands off (not proven failing-first — LIRA-223)", () => {
     const onAdjustStock = jest.fn();
     renderForm({ product: product(), onAdjustStock });
 
@@ -187,7 +193,7 @@ describe("ProductForm — Adjust Stock discoverability (LIRA-208)", () => {
     expect(onAdjustStock).toHaveBeenCalledTimes(1);
   });
 
-  it("the Adjust Stock button is type=button and never submits the form", () => {
+  it("the Adjust Stock button is type=button and never submits the form (not proven failing-first — LIRA-223)", () => {
     const onAdjustStock = jest.fn();
     renderForm({ product: product(), onAdjustStock });
 

@@ -10,12 +10,17 @@
  * phase's own guard, `backend/src/api/__tests__/recharge.api.test.ts`.
  *
  * Also covers the hard-reject `processCreditBuyback` owns itself (empty
- * `payments[]`) and the role-parity gate Phase 0b added to this exact route
- * (`requireRole(["admin"])`, matching the IPC twin) — re-asserted here
- * because Phase 6 turned this same route into a cash-payout endpoint, the
- * highest-stakes moment for a role-escalation regression to slip in
- * unnoticed for a NEW type specifically. It should already pass (no
- * type-specific bypass exists), but the assertion costs nothing.
+ * `payments[]`).
+ *
+ * LIRA-242 (owner decision 2026-09-28) UPDATE: test (c) below used to assert
+ * that a staff-role JWT was REFUSED on this route (Phase 0b's
+ * `requireRole(["admin"])`). The owner has since decided staff MAY process
+ * MTC/Alfa recharges — the ordinary sale flow a cashier does — and
+ * CREDIT_BUYBACK shares this SAME `/process` route (only the `type` field
+ * distinguishes it), so it opened to staff too. (c) now asserts the OPPOSITE:
+ * staff CAN process a buy-back here. See
+ * `backend/src/api/__tests__/recharge.api.test.ts`'s own staff-success guard
+ * for the role-parity fix on the plain (non-buyback) sale body.
  *
  * Rule 15: identity via a freshly created client + carrier line (never a
  * prior spec's row), deltas snapshotted immediately before the action.
@@ -236,28 +241,64 @@ test.describe("Telecom credit buy-back over REST (CARRIER_LINES_VALIDITY_PLAN.md
     expect(after.generalUsd - before.generalUsd).toBeCloseTo(0, 2);
   });
 
-  test("(c) a staff-role JWT is refused on /process (role parity, Phase 0b)", async ({
+  test("(c) a staff-role JWT CAN process a buy-back on /process (LIRA-242, owner decision 2026-09-28: staff may do recharge sales, and CREDIT_BUYBACK shares this same route)", async ({
     page,
   }) => {
+    await loginAsAdmin(page);
+    const adminToken = await page.evaluate(() =>
+      localStorage.getItem("liratek.jwt"),
+    );
+    const adminHeaders = { Authorization: `Bearer ${adminToken}` };
+
+    // A fresh primary MTC line (admin-only create + set-primary — unaffected
+    // by LIRA-242, which only widens /process itself).
+    const phone = `03${Date.now().toString().slice(-6)}`;
+    const created = await (
+      await page.request.post(`${BACKEND_URL}/api/carrier-lines`, {
+        headers: adminHeaders,
+        data: { carrier: "mtc", phone_number: phone, credits: 20 },
+      })
+    ).json();
+    expect(created.success, JSON.stringify(created)).toBeTruthy();
+    const lineId = created.data.id as number;
+    const setPrimary = await (
+      await page.request.put(
+        `${BACKEND_URL}/api/carrier-lines/${lineId}/set-primary`,
+        { headers: adminHeaders },
+      )
+    ).json();
+    expect(setPrimary.success, JSON.stringify(setPrimary)).toBeTruthy();
+
     seedStaffUser(STAFF_USERNAME, STAFF_PASSWORD);
     const headers = await staffHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
 
-    const res = await page.request.post(`${BACKEND_URL}/api/recharge/process`, {
-      headers,
-      data: {
-        provider: "MTC",
-        type: "CREDIT_BUYBACK",
-        amount: 5,
-        price: 100_000,
-        currency: "LBP",
-        payments: [{ method: "CASH", currencyCode: "LBP", amount: 100_000 }],
-      },
-    });
+    const before = await drawers(page, headers);
 
-    // requireRole(["admin"]) (backend/src/middleware/auth.ts) — 403, no
-    // `success` envelope at this layer (matches the middleware's existing,
-    // pre-Phase-6 shape; not something this plan changes).
-    expect(res.status()).toBe(403);
+    const res = await (
+      await page.request.post(`${BACKEND_URL}/api/recharge/process`, {
+        headers,
+        data: {
+          provider: "MTC",
+          type: "CREDIT_BUYBACK",
+          amount: 5,
+          price: 100_000,
+          currency: "LBP",
+          payments: [{ method: "CASH", currencyCode: "LBP", amount: 100_000 }],
+        },
+      })
+    ).json();
+
+    // LIRA-242: this is the ONE line that flipped from the old "(c) staff
+    // is refused" (403, no envelope) test — see git history for the pre-fix
+    // assertion, proven failing per rule 17 in
+    // backend/src/api/__tests__/recharge.api.test.ts's own guard.
+    expect(res.success, JSON.stringify(res)).toBeTruthy();
+
+    const after = await drawers(page, headers);
+    // CASH leg debits General LBP (paymentMethodToDrawerName("CASH") =
+    // "General" — moneyPosting.ts's postPayoutLegs posts `-legAmount`),
+    // mirroring test (a)'s own drawer-delta assertion above.
+    expect(after.generalLbp - before.generalLbp).toBeCloseTo(-100_000, 0);
   });
 
   /**

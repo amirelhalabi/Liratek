@@ -306,14 +306,13 @@ describe("FinancialServiceRepository — transactions.exchange_rate stamps the t
     expect(lastTransactionExchangeRate(db)).toBe(89000);
   });
 
-  it("out-of-band tender (50,000 vs. server 90,000) still stamps the server rate (90,000) — never throws", () => {
-    // deferPayment skips leg reconciliation entirely for this branch (the
-    // session-basket case) — used here purely to isolate the STAMP's
-    // fallback behavior from the (unmodified, still-active) reconciliation
-    // hard-reject, which legitimately still throws on a genuinely
-    // out-of-band tender rate whenever reconciliation actually runs (see
-    // FinancialServiceRepository.legReconciliation.test.ts's "REJECTS a
-    // tender_exchange_rate outside the ±15% band" cases — untouched).
+  it("LIRA-240: out-of-band tender (50,000 vs. server 90,000) is stamped EXACTLY as typed, not the server rate — the silent fallback is retired", () => {
+    // Owner decision 2026-09-28: `resolveStampedExchangeRate` no longer
+    // falls back to the server rate beyond ±15% — the stamp always reflects
+    // what the operator actually typed. deferPayment still isolates the
+    // STAMP from leg reconciliation (unrelated concern, unchanged) — and
+    // reconciliation itself no longer throws on an out-of-band rate either
+    // (see FinancialServiceRepository.legReconciliation.test.ts).
     expect(() =>
       repo.createTransaction({
         provider: "OMT",
@@ -327,7 +326,7 @@ describe("FinancialServiceRepository — transactions.exchange_rate stamps the t
       }),
     ).not.toThrow();
 
-    expect(lastTransactionExchangeRate(db)).toBe(90000);
+    expect(lastTransactionExchangeRate(db)).toBe(50000);
   });
 
   it("no tender_exchange_rate at all: stamps the server rate exactly as before (backward compatible)", () => {

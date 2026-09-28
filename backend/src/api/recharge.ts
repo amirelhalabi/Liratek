@@ -69,11 +69,51 @@ router.get(
   },
 );
 
+// GET /api/recharge/today-stats - today's MTC/Alfa sales count/profit for
+// the Recharge page's Count/Profit + Total Profit cards (LIRA-250 follow-up).
+// Deliberately NOT role-gated: `recharge:get-today-stats`
+// (rechargeHandlers.ts) has no requireRole either — same rule-19c rationale
+// as `/history`/`/stock` above. Profit figures stay hidden from staff the
+// SAME way they already are today: `CompactStats` (Recharge/index.tsx) only
+// renders the Profit/Total Profit metrics when the logged-in user is an
+// admin — a staff session already receives full price/cost via `/history`
+// with nothing gating that at the transport layer either, so this read
+// introduces no new exposure. Reuses `getRechargeHistorySchema` (rules 14 +
+// 19b) — both routes take the exact same `{ provider: "MTC" | "Alfa" }`
+// query contract, so a second near-identical schema would only be a second
+// copy to drift.
+router.get(
+  "/today-stats",
+  validateQuery(getRechargeHistorySchema),
+  (req, res): void => {
+    try {
+      const provider = req.query.provider as "MTC" | "Alfa";
+      const rechargeService = getRechargeService();
+      const stats = rechargeService.getTodayStats(provider);
+      res.json({ success: true, stats });
+    } catch (error) {
+      logger.error({ error }, "Get recharge today stats error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to fetch recharge stats" });
+    }
+  },
+);
+
 // POST /api/recharge/process - Process recharge transaction
 // Role-parity with the desktop IPC handler (recharge:process requires
-// requireRole(["admin"]) — rechargeHandlers.ts:51); this route previously had
-// no role check at all, so any authenticated web user (any role) could move
-// the MTC/Alfa drawers.
+// requireRole(["admin", "staff"]) — rechargeHandlers.ts:53); this route
+// previously had no role check at all, so any authenticated web user (any
+// role) could move the MTC/Alfa drawers.
+//
+// LIRA-242 (owner decision 2026-09-28): widened from admin-only to
+// admin+staff — an MTC/Alfa recharge (credit transfer, days, gift cards) is
+// the ordinary sale flow a cashier does, not an admin-only action. This is
+// the SAME route CREDIT_BUYBACK and SHOP_LINE_USE also flow through (the
+// `type` field alone distinguishes them — see createRechargeSchema), so both
+// opened to staff too; only `/cashout-to-supplier` below (a supplier-ledger
+// cash-out that stamps a commission and can push the account negative) stays
+// admin-only.
 //
 // `createRechargeSchema` is THE shared contract (rules 14 + 19b): the IPC
 // handler validates against the same object, re-exported as `RechargeSchema`
@@ -85,7 +125,7 @@ router.get(
 // to the core schema, never to a local copy.
 router.post(
   "/process",
-  requireRole(["admin"]),
+  requireRole(["admin", "staff"]),
   validateRequest(createRechargeSchema),
   async (req, res): Promise<void> => {
     try {

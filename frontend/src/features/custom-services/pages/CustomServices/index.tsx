@@ -36,6 +36,7 @@ import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useCustomServices } from "../../hooks/useCustomServices";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { MultiPaymentInput, type PaymentLine, SearchBar } from "@liratek/ui";
 import { toSnakeLegs } from "@/utils/paymentUtils";
 import { HistoryModal } from "./components/HistoryModal";
@@ -581,7 +582,9 @@ export default function CustomServices() {
       }
     } catch (error) {
       logger.error("Custom service submit failed:", error);
-      alert("Failed to record service.");
+      // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to be
+      // discarded here in favor of this hardcoded string.
+      alert(getApiErrorMessage(error, "Failed to record service."));
     } finally {
       setIsSubmitting(false);
     }
@@ -599,7 +602,9 @@ export default function CustomServices() {
       }
     } catch (error) {
       logger.error("Void failed:", error);
-      alert("Failed to void service.");
+      // LIRA-247: surface the real refusal reason instead of this hardcoded
+      // string.
+      alert(getApiErrorMessage(error, "Failed to void service."));
     }
   };
 

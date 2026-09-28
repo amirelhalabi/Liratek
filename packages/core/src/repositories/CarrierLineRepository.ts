@@ -880,6 +880,64 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
         return { line, movement };
       }
 
+      // LIRA-239 (rule 20) — reversal-order guard for CHARGE-shaped
+      // movements ONLY (`validity_days_delta > 0`). A CHARGE's reversal
+      // restores validity via a VERBATIM snapshot captured at its own
+      // creation time, which is safe only in strict reverse-creation order
+      // relative to every other validity movement on the line — see
+      // `CarrierLineMovementRepository.getLaterUnreversedValidityMovement`'s
+      // doc for the full reasoning and why a SELL (`validity_days_delta <
+      // 0`, reclaim-based, always reads CURRENT state) is deliberately
+      // exempt from this check — blocking SELL here would break the
+      // sold-ahead design's own load-bearing case (M1/m3,
+      // `CarrierLineRepository.soldAheadDays.test.ts`: reversing a SELL
+      // while a later charge remains fully active).
+      if (movement.validity_days_delta > 0) {
+        // Coordinator follow-up (2026-09-28) — the two blockers below are
+        // NOT interchangeable and must not share one message. A cashier
+        // reads this text in the refund window, so it must say something
+        // they can act on, in plain language, naming the LINE (never a
+        // "carrier line movement #id" — that's internal bookkeeping, not
+        // something the refund UI shows). See
+        // `CarrierLine.soldAheadSessionReversal.test.ts`'s (a)/(b) tests for
+        // the real-writer scenarios each message covers.
+        const lineLabel = line.phone_number || "this line";
+
+        // (a) A NEWER validity movement on the same line is still active —
+        // the cashier CAN act: reverse that one first, then come back to
+        // this one.
+        const newerBlocker = this.movementRepo.getLaterUnreversedValidityMovement(
+          movement.carrier_line_id,
+          movement.id,
+        );
+        if (newerBlocker) {
+          throw new Error(
+            `Refund the later recharge of line ${lineLabel} first, then this one.`,
+          );
+        }
+
+        // (b) An OLDER validity movement was already reversed — always, in
+        // practice, the "sold ahead" days sale, the only movement type
+        // exempt from THIS guard (a SELL's reversal always reads the
+        // line's CURRENT state, so it can safely go first — see the
+        // comment above this block). There is nothing left for the cashier
+        // to reverse "first": that already happened, out of the required
+        // order, so this recharge cannot be safely reversed on its own —
+        // explain why instead of telling them to do something that's
+        // already done.
+        const olderBlocker = this.movementRepo.getOlderReversedValidityMovement(
+          movement.carrier_line_id,
+          movement.id,
+        );
+        if (olderBlocker) {
+          throw new Error(
+            `This line recharge can no longer be refunded on its own — the days sale that sold days ` +
+              `from line ${lineLabel} was already voided or refunded before this recharge. To undo both, ` +
+              `the recharge has to be refunded first, before the days sale.`,
+          );
+        }
+      }
+
       const newCredits = (line.credits ?? 0) - movement.credits_delta;
 
       // Validity (#28 item 6): a SELL's recorded delta is the REAL amount

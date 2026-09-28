@@ -467,7 +467,16 @@ router.put("/products/:id", requireRole(["admin", "staff"]), (req, res) => {
       },
     });
   }
-  res.status(result.success ? 200 : 400).json(result);
+  // Rule 19c envelope parity (error-message fix, LIRA-224 batch): this used
+  // to answer HTTP 400 on a business-rule refusal (e.g. "Selling price must
+  // be greater than cost price"), unlike every sibling write route on this
+  // router. `requestJson` (frontend/src/api/httpClient.ts) THROWS a plain
+  // object on any non-2xx, and `backendApi.ts`'s `updateProduct` has no
+  // try/catch to recover the real message from it — the throw reached
+  // `ProductForm.handleSubmit`'s generic catch and showed "An unexpected
+  // error occurred" instead of the server's actual refusal. See
+  // inventoryProductUpdatePriceValidation.api.test.ts.
+  res.status(200).json(result);
 });
 
 // DELETE /api/inventory/products/:id (admin/staff — matches the IPC

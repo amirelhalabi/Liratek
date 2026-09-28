@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import type { DrawerType } from "../../types";
 import { DRAWER_CONFIGS, DRAWER_CARRIER } from "../../config/drawers";
 import type { CarrierLineEntity } from "@liratek/ui";
@@ -361,9 +362,10 @@ export default function CheckpointModal({
       onClose();
     } catch (error) {
       logger.error("[Checkpoint] Save error:", error);
-      setSaveError(
-        error instanceof Error ? error.message : "An unexpected error occurred",
-      );
+      // LIRA-247: `error instanceof Error` is false for a thrown ApiError
+      // (e.g. a web 403 role refusal), so it used to fall back to this
+      // generic string and hide the real reason.
+      setSaveError(getApiErrorMessage(error, "An unexpected error occurred"));
     } finally {
       setSaving(false);
     }

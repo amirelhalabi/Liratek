@@ -843,6 +843,32 @@ export async function getProductByBarcode(
   );
 }
 
+/** LIRA-225 — single-row product read by id (null when missing or the read
+ *  failed). The product edit form's Adjust Stock hand-off
+ *  (`ProductList.tsx`'s `handleAdjustFromForm`) uses this instead of
+ *  searching the list's current (filtered/searched) `products` array, which
+ *  dead-ends when the active filters hide the product being edited. The IPC
+ *  channel (`inventory:get-product`) already catches and returns null on a
+ *  missing id; the REST branch mirrors that rather than letting a 404
+ *  `requestJson` throw propagate to a caller that only expects a value. */
+export async function getProductById(
+  id: number,
+): Promise<import("@liratek/core").Product | null> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.getProduct(id),
+    async () => {
+      try {
+        const res = await requestJson<{ success: boolean; product?: any }>(
+          `/api/inventory/products/${id}`,
+        );
+        return res.product ?? null;
+      } catch {
+        return null;
+      }
+    },
+  );
+}
+
 export async function createProduct(payload: any): Promise<ProductWriteResult> {
   if (isElectron()) {
     return (window as any).api.inventory.createProduct(payload);
@@ -2099,6 +2125,39 @@ export async function getRechargeHistory(
     history: RechargeHistoryEntry[];
   }>(`/api/recharge/history?provider=${encodeURIComponent(provider)}`);
   return res.history;
+}
+
+export type RechargeCurrencyStat = {
+  currency: string;
+  commission: number;
+  count: number;
+};
+
+export type RechargeTodayStats = {
+  count: number;
+  profit_usd: number;
+  profit_lbp: number;
+  byCurrency: RechargeCurrencyStat[];
+};
+
+// LIRA-250 follow-up — today's MTC/Alfa sales count/profit for the Recharge
+// page's Count/Profit + Total Profit cards (Recharge/index.tsx). Types are
+// the frontend twin of `@liratek/core`'s `RechargeTodayStats`/
+// `RechargeCurrencyStat` (`RechargeRepository.getTodayStats`) — not imported
+// directly since this is a plain read shape, not a Zod-schema input (rule 21
+// applies to WRITE payloads; a read's row shape has no schema to derive
+// from).
+export async function getRechargeTodayStats(
+  provider: "MTC" | "Alfa",
+): Promise<RechargeTodayStats> {
+  if (isElectron()) {
+    return (window as any).api.recharge.getTodayStats(provider);
+  }
+  const res = await requestJson<{
+    success: boolean;
+    stats: RechargeTodayStats;
+  }>(`/api/recharge/today-stats?provider=${encodeURIComponent(provider)}`);
+  return res.stats;
 }
 
 export async function processRecharge(payload: any) {

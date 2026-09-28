@@ -425,7 +425,14 @@ describe("POST /api/admin/tenants (provisioning)", () => {
   // 'audit'/'profits' rows carrying admin_only=1), this test fails —
   // newRow.admin_only (1) !== t1Row.admin_only (0) — for both keys; it only
   // passes once seedModules agrees with create_db.sql's tenant-1 seed.
-  it("seeds every module row's admin_only / is_enabled / is_system identical to tenant 1's, key for key", async () => {
+  //
+  // LIRA-223 (not proven failing-first): the paragraph above states the
+  // expected pre-fix failure but was never actually run against the pre-fix
+  // TenantRepository.ts — this batch's process forbade running tests
+  // mid-batch (see LIRA-223). Under the reworded rule 17 (owner decision
+  // 2026-09-26), the resolution is to label this honestly rather than
+  // revert finished code to manufacture the proof after the fact.
+  it("seeds every module row's admin_only / is_enabled / is_system identical to tenant 1's, key for key (not proven failing-first)", async () => {
     const token = await loginToken("root");
     const res = await request(app)
       .post("/api/admin/tenants")

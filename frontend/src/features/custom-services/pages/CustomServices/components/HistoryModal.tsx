@@ -31,6 +31,7 @@ import {
 import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
 import { isReceiptableTransaction } from "@/features/audit/receiptGating";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import type { CustomServiceEntry } from "../../../hooks/useCustomServices";
 
 /** LIRA-155 — the category that is fulfilment-tracked. Matches
@@ -176,7 +177,9 @@ export function HistoryModal({
       }
     } catch (error) {
       logger.error("Advance fulfilment status failed:", error);
-      alert("Failed to update status.");
+      // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to be
+      // discarded here in favor of this hardcoded string.
+      alert(getApiErrorMessage(error, "Failed to update status."));
     } finally {
       setAdvancingId(null);
     }
@@ -212,7 +215,9 @@ export function HistoryModal({
       }
     } catch (error) {
       logger.error("Cancel insurance failed:", error);
-      alert("Failed to cancel insurance.");
+      // LIRA-247: surface the real refusal reason instead of this hardcoded
+      // string, mirroring the fix above in handleAdvanceFulfillment.
+      alert(getApiErrorMessage(error, "Failed to cancel insurance."));
     } finally {
       setCancellingId(null);
     }

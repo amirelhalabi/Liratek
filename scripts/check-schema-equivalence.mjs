@@ -5,12 +5,36 @@
  * Guards the twice-bitten create_db.sql <-> migrations/index.ts drift:
  * builds two in-memory SQLite databases and diffs their final schema.
  *
- *   DB (A) "migrated": exec the OLD create_db.sql (as of the last commit,
- *   i.e. pre-this-change / v122) then run core's runMigrations() on it —
- *   this is what an existing desktop/backend DB looks like after upgrading.
+ *   DB (A) "migrated": exec an OLD create_db.sql, then run core's
+ *   runMigrations() (built from the CURRENT working tree, including any
+ *   migration this run is testing) on it — this is what an existing
+ *   desktop/backend DB looks like after upgrading.
  *
  *   DB (B) "fresh": exec the CURRENT create_db.sql in the working tree —
  *   this is what a brand new install looks like.
+ *
+ * LIRA-226 (a) — WHICH commit "old" resolves to matters, and used to make
+ * this half of the check vacuous in CI. `SCHEMA_CHECK_BASE_REF` (env var,
+ * resolved by `resolveBaseRef()` below) controls it:
+ *
+ *   - Unset (the local-dev default): "HEAD" — DB (A) is built from the LAST
+ *     COMMIT's create_db.sql, so this compares committed schema against
+ *     your uncommitted working-tree edits. Useful locally, but on `push:
+ *     [main]` HEAD **is** the pushed commit, and on `pull_request`
+ *     actions/checkout resolves HEAD to the merge ref — either way A's
+ *     create_db.sql source file is byte-identical to B's. Once every
+ *     version is already seeded (which the seed-contents check below
+ *     enforces), `runMigrations()` then applies nothing, so A and B are
+ *     equal **by construction** and a genuine rule-10 miss ("added the seed
+ *     row, forgot the column") produces zero diffs. Proven, not reasoned:
+ *     see `scripts/__tests__/checkSchemaEquivalence.baseRef.test.mjs`,
+ *     which reproduces this exact vacuous pass against a fixture repo.
+ *   - Set (CI): a ref that predates the change under test — the PR's base
+ *     SHA on `pull_request`, the previous commit on `push` — so A's
+ *     create_db.sql genuinely lacks whatever this change added, and only
+ *     `runMigrations()` (which DOES include the new migration, since it's
+ *     built from the current working tree) can supply it. A column added to
+ *     create_db.sql with no matching migration then shows up as a real diff.
  *
  * The two must describe the same schema: same columns (name/type/notnull/
  * default), same primary key, same foreign keys, same indexes (unique
@@ -84,8 +108,30 @@ const CORE_MIGRATIONS_DIST = path.join(
   "packages/core/dist/db/migrations/index.js",
 );
 
-function loadOldCreateDbSql() {
-  return execSync("git show HEAD:electron-app/create_db.sql", {
+/**
+ * Resolves the git ref DB (A)'s create_db.sql is read from. Exported for
+ * direct unit testing (no git/filesystem needed — it's pure string logic).
+ * Only accepts a conservative ref-name character set (hex SHAs, "HEAD",
+ * "HEAD~N", branch-ish names): this value flows into a shell command
+ * (`git show <ref>:...`) via execSync, so anything else is rejected rather
+ * than interpolated.
+ */
+export function resolveBaseRef(env = process.env) {
+  const ref = env.SCHEMA_CHECK_BASE_REF?.trim();
+  if (!ref) return "HEAD";
+  if (!/^[A-Za-z0-9_./~^-]+$/.test(ref)) {
+    throw new Error(
+      `SCHEMA_CHECK_BASE_REF="${ref}" contains characters outside the ` +
+        `conservative git-ref set this script allows — refusing to pass it ` +
+        `to a shell command.`,
+    );
+  }
+  return ref;
+}
+
+function loadOldCreateDbSql(env = process.env) {
+  const baseRef = resolveBaseRef(env);
+  return execSync(`git show ${baseRef}:electron-app/create_db.sql`, {
     cwd: repoRoot,
     encoding: "utf8",
   });
@@ -371,14 +417,41 @@ function diffTableSchemas(a, b) {
 // why DB (A) is not a useful oracle for this specific check).
 // ---------------------------------------------------------------------------
 
-function diffMigrationSeedContents(dbB, migrations) {
+export function diffMigrationSeedContents(dbB, migrations) {
+  const diffs = [];
+
+  // LIRA-226 (b) — a duplicated `version:` in MIGRATIONS silently collapses
+  // to its LAST entry once `new Map(migrations.map(m => [m.version, m.name]))`
+  // runs below (Map construction keeps only the last of a repeated key), so
+  // the earlier migration with that version — including whatever schema
+  // change its up() makes — drops out of every check past this point with
+  // no diagnostic at all. This is the exact accident the LIRA-176 v167/v168
+  // renumber note in create_db.sql describes recovering from. The seed side
+  // (create_db.sql) cannot itself duplicate a version — `schema_migrations.
+  // version` is the table's PRIMARY KEY — so this direction-only check is
+  // run BEFORE the Map is built, against the raw array.
+  const versionCounts = new Map();
+  for (const m of migrations) {
+    versionCounts.set(m.version, (versionCounts.get(m.version) ?? 0) + 1);
+  }
+  for (const [version, count] of versionCounts) {
+    if (count > 1) {
+      const names = migrations
+        .filter((m) => m.version === version)
+        .map((m) => m.name);
+      diffs.push(
+        `version ${version} is declared ${count} times in MIGRATIONS ` +
+          `(names: ${names.join(", ")}) — only the LAST is applied/checked, ` +
+          `the earlier one(s) are silently dropped. Renumber one of them.`,
+      );
+    }
+  }
+
   const seedRows = dbB
     .prepare(`SELECT version, name FROM schema_migrations ORDER BY version`)
     .all();
   const seedByVersion = new Map(seedRows.map((r) => [r.version, r.name]));
   const migByVersion = new Map(migrations.map((m) => [m.version, m.name]));
-
-  const diffs = [];
 
   for (const [version, name] of migByVersion) {
     const seededName = seedByVersion.get(version);
@@ -410,8 +483,11 @@ function diffMigrationSeedContents(dbB, migrations) {
 
 async function main() {
   const { runMigrations, MIGRATIONS } = await loadMigrationsModule();
+  const baseRef = resolveBaseRef();
 
-  console.log("Building DB (A): old create_db.sql (HEAD) + runMigrations()...");
+  console.log(
+    `Building DB (A): old create_db.sql (${baseRef}) + runMigrations()...`,
+  );
   const dbA = new Database(":memory:");
   dbA.pragma("foreign_keys = ON");
   dbA.exec(loadOldCreateDbSql());
@@ -477,7 +553,19 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("check-schema-equivalence.mjs failed:", err);
-  process.exit(1);
-});
+// Entry-point guard: only run main() when this file is executed directly
+// (`node scripts/check-schema-equivalence.mjs` / `yarn check:schema-equivalence`),
+// not when it's imported — e.g. by
+// scripts/__tests__/checkSchemaEquivalence.test.mjs, which imports
+// `resolveBaseRef`/`diffMigrationSeedContents` as pure functions and must
+// not trigger a real git/core-dist/database run as a side effect of import.
+const isDirectRun =
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  main().catch((err) => {
+    console.error("check-schema-equivalence.mjs failed:", err);
+    process.exit(1);
+  });
+}

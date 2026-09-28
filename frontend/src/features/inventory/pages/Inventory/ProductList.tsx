@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   Plus,
   Search,
@@ -220,6 +221,13 @@ export default function ProductList() {
       stock_quantity: number;
       supplier: string;
     };
+    /** LIRA-228 — `formData` above has no warranty field (it's free-standing
+     *  state in ProductForm, not part of `formData` there either — see that
+     *  file's comment on `warrantyMonths`). Optional so a `minimizedProducts`
+     *  entry written by pre-fix code (already in a user's localStorage) still
+     *  parses; `undefined` here falls back to the product's stored warranty
+     *  on restore, same as before this fix, rather than crashing. */
+    warrantyMonths?: string;
     editingProduct: Product | null;
     createdAt: string;
   };
@@ -386,7 +394,13 @@ export default function ProductList() {
         );
       }
     } catch (err) {
-      appEvents.emit("notification:show", "Error: " + String(err), "error");
+      // LIRA-247: `String(err)` on a thrown ApiError (a plain object, not an
+      // Error) stringifies to "[object Object]", hiding the real refusal.
+      appEvents.emit(
+        "notification:show",
+        "Error: " + getApiErrorMessage(err, "Batch update failed"),
+        "error",
+      );
     } finally {
       setBatchSaving(false);
     }
@@ -613,7 +627,13 @@ export default function ProductList() {
       // a safe no-op in the browser.
       window.api?.display?.fixFocus();
     } catch (error) {
-      appEvents.emit("notification:show", "Failed to delete product", "error");
+      // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to be
+      // discarded here in favor of this hardcoded string.
+      appEvents.emit(
+        "notification:show",
+        getApiErrorMessage(error, "Failed to delete product"),
+        "error",
+      );
       logger.error("Failed to delete:", error);
     }
   };
@@ -651,7 +671,13 @@ export default function ProductList() {
       // a safe no-op in the browser.
       window.api?.display?.fixFocus();
     } catch (error) {
-      appEvents.emit("notification:show", "Failed to delete products", "error");
+      // LIRA-247: surface the real refusal reason instead of this hardcoded
+      // string (a thrown ApiError is a plain object, not an Error).
+      appEvents.emit(
+        "notification:show",
+        getApiErrorMessage(error, "Failed to delete products"),
+        "error",
+      );
       logger.error("Batch delete failed:", error);
     }
 
@@ -666,6 +692,7 @@ export default function ProductList() {
     // A restored-minimized snapshot belongs to the form that just closed —
     // leaving it set would re-apply it to the NEXT form opened.
     setInitialFormData(null);
+    setInitialWarrantyMonths(null);
     loadProducts();
     loadFilterOptions();
     appEvents.emit(
@@ -687,6 +714,7 @@ export default function ProductList() {
     // A restored-minimized snapshot belongs to the form that just closed —
     // leaving it set would re-apply it to the NEXT form opened.
     setInitialFormData(null);
+    setInitialWarrantyMonths(null);
     // Desktop-only: Windows focus-fix workaround (electron-app main
     // process). No web equivalent exists — optional chaining makes this
     // a safe no-op in the browser.
@@ -695,11 +723,18 @@ export default function ProductList() {
 
   const handleMinimizeProduct = (data: {
     formData: MinimizedProduct["formData"];
+    /** LIRA-228 — free-standing sibling of `formData`, matching
+     *  ProductForm's own `warrantyMonths` state (not part of its
+     *  `formData`). Snapshotting it here is what lets a restore put the
+     *  operator's in-progress warranty edit back, instead of re-seeding it
+     *  from `product.warranty_months` (the bug this fixes). */
+    warrantyMonths: string;
     editingProduct: Product | null;
   }) => {
     const minimizedProduct: MinimizedProduct = {
       id: `product-${Date.now()}`,
       formData: data.formData,
+      warrantyMonths: data.warrantyMonths,
       editingProduct: data.editingProduct,
       createdAt: new Date().toISOString(),
     };
@@ -711,6 +746,7 @@ export default function ProductList() {
     // just-restored form) belongs to the form that just closed. Leaving it
     // set would re-apply it to the NEXT form opened.
     setInitialFormData(null);
+    setInitialWarrantyMonths(null);
   };
 
   const handleRestoreProduct = (productId: string) => {
@@ -719,6 +755,10 @@ export default function ProductList() {
 
     setEditingProduct(minimized.editingProduct);
     setInitialFormData(minimized.formData);
+    // `?? null`: a `minimizedProducts` entry persisted by pre-fix code has no
+    // `warrantyMonths` key — falls back to ProductForm re-seeding from the
+    // product's stored value, exactly like before this fix.
+    setInitialWarrantyMonths(minimized.warrantyMonths ?? null);
     setIsFormOpen(true);
     setMinimizedProducts((prev) => prev.filter((p) => p.id !== productId));
   };
@@ -734,6 +774,14 @@ export default function ProductList() {
   const [initialFormData, setInitialFormData] = useState<
     MinimizedProduct["formData"] | null
   >(null);
+  /** LIRA-228 — companion to `initialFormData` above, restoring
+   *  ProductForm's free-standing `warrantyMonths` state on a minimize/restore
+   *  round-trip. `null` (not just "absent") means "no snapshot — let
+   *  ProductForm seed from `product.warranty_months` as usual", same as a
+   *  fresh Edit open or a pre-fix `minimizedProducts` entry. */
+  const [initialWarrantyMonths, setInitialWarrantyMonths] = useState<
+    string | null
+  >(null);
 
   /** LIRA-208 — the "Adjust Stock" button inside the edit form. D13 keeps the
    *  Quantity field non-editable there, so the form HANDS OFF to the single
@@ -745,27 +793,38 @@ export default function ProductList() {
    *
    *  Takes an ID, NOT the `editingProduct` object: `editingProduct` is the
    *  row captured when the form was OPENED (`handleEdit`) and can go stale
-   *  while the form sits open (e.g. `loadProducts()` re-fetches after some
-   *  other mutation elsewhere on this page, updating `products` but not the
-   *  standalone `editingProduct` snapshot). AdjustStockModal computes its
-   *  delta against `product.stock_quantity` and books a real stock movement,
-   *  so handing it a stale row would compute that delta against the wrong
-   *  baseline. `products` is this page's own live list — refreshed by
-   *  `loadProducts()` after every mutation — so looking the row up there by
-   *  id is the freshest read available without a dedicated single-product
-   *  fetch (none is wired through `useApi()` yet). */
-  const handleAdjustFromForm = (productId: number) => {
+   *  while the form sits open. AdjustStockModal computes its delta against
+   *  `product.stock_quantity` and books a real stock movement, so handing it
+   *  a stale row would compute that delta against the wrong baseline.
+   *
+   *  LIRA-225 — this used to look the row up in `products`, this page's OWN
+   *  live list state. That is the FILTERED/SEARCHED result set, not the
+   *  whole catalogue: a product found via search, then hidden by a filter
+   *  change made while the form sat open (or minimized — `minimizedProducts`
+   *  survives a restart via localStorage), made `products.find` return
+   *  `undefined` — a dead end, with a misleading "no longer in the list"
+   *  message for a product that still existed. Fetching the single row by id
+   *  (`api.getProductById`, dual-mode via `useApi()`) sidesteps the list's
+   *  filters entirely and is also strictly fresher than a cached list entry
+   *  (e.g. right after LIRA-224's "Save & adjust" persists an edit). */
+  const handleAdjustFromForm = async (productId: number) => {
     setIsFormOpen(false);
     setEditingProduct(null);
     // The restore snapshot goes with the form the operator just discarded;
     // leaving it set would re-apply it to the NEXT form opened.
     setInitialFormData(null);
-    const fresh = products.find((p) => p.id === productId) ?? null;
+    setInitialWarrantyMonths(null);
+    let fresh: Product | null = null;
+    try {
+      fresh = await api.getProductById(productId);
+    } catch (error) {
+      logger.error("Failed to fetch product before Adjust Stock:", error);
+    }
     if (fresh) {
       setAdjustingProduct(fresh);
     } else {
-      // The row is no longer in the current list (e.g. deleted elsewhere
-      // while this form was open) — surface that instead of opening a stale
+      // The row could not be read (deleted elsewhere while this form was
+      // open, or the read failed) — surface that instead of opening a stale
       // snapshot against a product that may no longer exist.
       appEvents.emit(
         "notification:show",
@@ -851,7 +910,14 @@ export default function ProductList() {
           }
           results.push(importResult);
         } catch (err) {
-          results.push({ name: rec.name, success: false, error: String(err) });
+          // LIRA-247: `String(err)` on a thrown ApiError (a plain object, not
+          // an Error) stringifies to "[object Object]", hiding the real
+          // per-record refusal reason (e.g. a role gate on createProduct).
+          results.push({
+            name: rec.name,
+            success: false,
+            error: getApiErrorMessage(err, "Unknown error"),
+          });
         }
       }
 
@@ -1288,6 +1354,9 @@ export default function ProductList() {
                         handleEdit(product);
                       }}
                       className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
+                      title="Edit"
+                      data-testid={`inventory-edit-${product.id}`}
+                      aria-label={`Edit ${product.name}`}
                     >
                       <Edit2 size={16} />
                     </button>
@@ -1441,6 +1510,7 @@ export default function ProductList() {
           product={editingProduct}
           onMinimize={handleMinimizeProduct}
           initialFormData={initialFormData}
+          initialWarrantyMonths={initialWarrantyMonths}
           {...(editingProduct
             ? { onAdjustStock: () => handleAdjustFromForm(editingProduct.id) }
             : {})}

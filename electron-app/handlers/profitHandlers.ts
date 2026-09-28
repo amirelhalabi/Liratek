@@ -127,8 +127,16 @@ export function registerProfitHandlers(): void {
       const result = accessSvc.setPassword(validation.data.password);
       if (result.success) {
         // Never put the password or its hash in new_values — audit the
-        // fact a change happened, not the secret itself. Same shape dbHandlers
-        // uses for db:update-setting / settings:update.
+        // fact a change happened, not the secret itself. `db:update-setting`
+        // / `settings:update` (electron-app/handlers/dbHandlers.ts) cannot
+        // reach PROFITS_PASSWORD_SETTING_KEY at all (SettingsService.
+        // updateSetting refuses it categorically), so this write path is the
+        // one that actually needs its own care here. As of LIRA-220,
+        // AuditService.log() (packages/core/src/services/AuditService.ts)
+        // ALSO redacts old_values/new_values for any SENSITIVE_SETTING_KEYS
+        // entity — defense in depth for every audit() caller, this one
+        // included — but that is a second, independent layer, not a reason
+        // to start passing the value here.
         audit(e.sender.id, {
           action: "update",
           entity_type: "setting",

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import releaseNotesData from "./releaseNotes.generated.json";
+import { WHATS_NEW_STORAGE_KEY } from "./storageKey";
 import type { ReleaseNoteEntry } from "./types";
 
-/** localStorage key — per owner spec, deliberately namespaced. */
-const STORAGE_KEY = "liratek.whatsNew.lastSeenVersion";
+export { WHATS_NEW_STORAGE_KEY };
 
 const entries = releaseNotesData as ReleaseNoteEntry[];
 
@@ -21,7 +21,7 @@ function compareSemver(a: string, b: string): number {
 /** Private mode / blocked storage must never crash the app — see CLAUDE.md rule 19 spirit. */
 function readLastSeen(): string | null {
   try {
-    return localStorage.getItem(STORAGE_KEY);
+    return localStorage.getItem(WHATS_NEW_STORAGE_KEY);
   } catch {
     return null;
   }
@@ -29,7 +29,7 @@ function readLastSeen(): string | null {
 
 function writeLastSeen(version: string): void {
   try {
-    localStorage.setItem(STORAGE_KEY, version);
+    localStorage.setItem(WHATS_NEW_STORAGE_KEY, version);
   } catch {
     // Ignored — a blocked/quota-exceeded write just means the modal shows
     // again next load, which is the documented "once per session" fallback.

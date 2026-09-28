@@ -108,7 +108,7 @@ export interface ModuleSeedRow {
  * cross-file build-tooling change outside this repository's scope; see the
  * task notes for where it should land.
  */
-export const MODULE_SEED_ROWS: ModuleSeedRow[] = [
+export const MODULE_SEED_ROWS: readonly ModuleSeedRow[] = [
   // System modules (always visible, not toggleable)
   {
     key: "dashboard",

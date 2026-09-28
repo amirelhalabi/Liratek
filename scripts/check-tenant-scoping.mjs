@@ -5,7 +5,7 @@
  * WP1a static safety net for the multi-tenant retrofit
  * (see docs/plans/WEBAPP_MULTI_TENANT_PLAN.md).
  *
- * Scans, by default, three roots for SQL statement sites and flags every
+ * Scans, by default, four roots for SQL statement sites and flags every
  * statement that touches a tenant-scoped table without referencing
  * `tenant_id`:
  *   - packages/core/src/repositories/**\/*.ts — the primary DB access layer.
@@ -13,6 +13,16 @@
  *     repository-only (see CLAUDE.md rule 13), but a handful of legacy
  *     violations (ProfitService, SessionPaymentService, ActivityService) do
  *     run raw SQL directly, so this must be covered too.
+ *   - packages/core/src/utils/**\/*.ts — LIRA-251: `utils/exchangeRate.ts`'s
+ *     `getUsdLbpSellRate()` ran a raw `.prepare(...)` reading the
+ *     tenant-scoped `exchange_rates` table directly (PA-1.8; fixed
+ *     2026-09-23, before this root was added) and this checker's default
+ *     scan never saw it — repositories/, services/ and backend/src/ are all
+ *     one-table-per-call-site request-time code, but `utils/` is plain
+ *     helper functions and a handful (this one included) run their own SQL
+ *     against `this.db`/`db` arguments passed in from a repository, outside
+ *     any repository class the other two roots would catch. Covering it
+ *     closes that blind spot for this file and any future one like it.
  *   - backend/src/**\/*.ts — the web-reachable Express layer. This is the
  *     layer a security review found blind: `backend/src/api/health.ts` ran
  *     a raw, unscoped cross-tenant aggregate (`COUNT(*) FROM clients` etc.)
@@ -65,6 +75,7 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const DEFAULT_SCAN_ROOTS = [
   path.join(REPO_ROOT, "packages", "core", "src", "repositories"),
   path.join(REPO_ROOT, "packages", "core", "src", "services"),
+  path.join(REPO_ROOT, "packages", "core", "src", "utils"),
   path.join(REPO_ROOT, "backend", "src"),
 ];
 

@@ -85,6 +85,9 @@ export class ElectronApiAdapter implements ApiAdapter {
   /** Look up a product by its exact barcode (null when no match) — the
    *  ProductForm barcode generator's uniqueness check. */
   getProductByBarcode = (barcode: string) => api.getProductByBarcode(barcode);
+  /** LIRA-225 — single-row product read by id (null when missing), used by
+   *  the edit form's Adjust Stock hand-off instead of a filtered list scan. */
+  getProductById = (id: number) => api.getProductById(id);
   /** Plain category NAMES, distinct from `getCategoriesFull` below (which
    *  carries id/sort_order/tracks_imei_units). */
   getCategories = () => api.getCategories();
@@ -258,6 +261,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   getRechargeStock = () => api.getRechargeStock();
   getRechargeHistory = (provider: "MTC" | "Alfa") =>
     api.getRechargeHistory(provider);
+  getRechargeTodayStats = (provider: "MTC" | "Alfa") =>
+    api.getRechargeTodayStats(provider);
   getRechargeDrawerBalances = () => api.getRechargeDrawerBalances();
   processRecharge = (payload: any) => api.processRecharge(payload);
   updateRechargeMetadata = (payload: {

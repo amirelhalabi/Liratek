@@ -1161,6 +1161,9 @@ export interface ElectronAPI {
         // LIRA-131: now projected by DebtRepository.getColumns().
         is_refunded?: number;
         refunded_at?: string | null;
+        /** LIRA-241 — display name of the recording user (created_by joined
+         *  to users.username), for the Debts page's User column. */
+        created_by_username?: string | null;
       }>
     >;
     addRepayment: (data: {
@@ -1608,6 +1611,14 @@ export interface ElectronAPI {
         refunded_at?: string | null;
       }>
     >;
+    // LIRA-250 follow-up — today's MTC/Alfa sales count/profit for the
+    // Recharge page's Count/Profit + Total Profit cards.
+    getTodayStats: (provider: "MTC" | "Alfa") => Promise<{
+      count: number;
+      profit_usd: number;
+      profit_lbp: number;
+      byCurrency: Array<{ currency: string; commission: number; count: number }>;
+    }>;
     process: (data: {
       provider: "MTC" | "Alfa";
       type:

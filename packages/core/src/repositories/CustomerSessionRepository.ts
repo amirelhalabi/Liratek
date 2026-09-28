@@ -1,6 +1,10 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+// LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
+// module (no other repository import), so importing it directly here never
+// risks a require cycle.
+import { isToday, localDayExpr } from "./reportingTimeFragments.js";
 
 export interface CustomerSession {
   id: number;
@@ -226,7 +230,7 @@ export class CustomerSessionRepository {
   getTodayAllSessions(): CustomerSession[] {
     const query = this.db.prepare(`
       SELECT ${this.columns} FROM ${this.tableName}
-      WHERE date(started_at, 'localtime') = date('now', 'localtime')
+      WHERE ${isToday("started_at")}
         AND tenant_id = ?
       ORDER BY is_active DESC, started_at DESC
     `);
@@ -405,8 +409,8 @@ export class CustomerSessionRepository {
         WHERE tenant_id = ?
         GROUP BY session_id
       ) t ON t.session_id = cs.id
-      WHERE date(cs.started_at, 'localtime') >= ?
-        AND date(cs.started_at, 'localtime') <= ?
+      WHERE ${localDayExpr("cs.started_at")} >= ?
+        AND ${localDayExpr("cs.started_at")} <= ?
         AND cs.tenant_id = ?
       ORDER BY cs.started_at DESC
     `);
@@ -470,7 +474,7 @@ export class CustomerSessionRepository {
         WHERE tenant_id = ?
         GROUP BY session_id
       ) t ON t.session_id = cs.id
-      WHERE date(cs.started_at, 'localtime') = date('now', 'localtime')
+      WHERE ${isToday("cs.started_at")}
         AND cs.tenant_id = ?
       ORDER BY cs.started_at DESC
     `);

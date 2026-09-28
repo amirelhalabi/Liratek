@@ -13,7 +13,10 @@
  * module must stay a leaf.
  */
 
-import { getContextClientDay } from "../db/tenantContext.js";
+import {
+  getContextClientDay,
+  getContextClientTzOffsetMinutes,
+} from "../db/tenantContext.js";
 import { localDay } from "./localDate.js";
 
 /**
@@ -40,4 +43,19 @@ import { localDay } from "./localDate.js";
  */
 export function clientDay(): string {
   return getContextClientDay() ?? localDay();
+}
+
+/**
+ * LIRA-237 — the CLIENT browser's own UTC offset in minutes (the JS
+ * convention `-date.getTimezoneOffset()`; Beirut/UTC+3 is `180`), for a
+ * REQUEST-path caller that needs to convert a stored UTC timestamp to the
+ * client's wall-clock DAY inside SQL (a numeric shift, unlike `clientDay()`'s
+ * day-label string). `undefined` — never a machine fallback — when no
+ * request supplied one: `ProfitRepository.localtimeModifier()` is the only
+ * caller today, and it falls back to SQLite's own `'localtime'` modifier
+ * itself in that case (desktop/CLI/migrations — unchanged behavior, since
+ * `'localtime'` already reads the machine's OS zone correctly there).
+ */
+export function clientTzOffsetMinutes(): number | undefined {
+  return getContextClientTzOffsetMinutes();
 }

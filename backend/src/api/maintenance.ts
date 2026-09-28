@@ -32,14 +32,19 @@ router.get(
   },
 );
 
-// POST /api/maintenance/jobs - Create or update maintenance job
+// POST /api/maintenance/jobs - Create or update maintenance job (admin and
+// staff — LIRA-242 owner decision 2026-09-28: creating a job AND advancing
+// its status/editing it are routine cashier work; DELETE below stays
+// admin-only). `req.user!.userId` is the acting user (LIRA-246a) — taken
+// from the JWT, never the body — recorded on the status-history row this
+// save appends.
 router.post(
   "/jobs",
-  requireRole(["admin"]),
+  requireRole(["admin", "staff"]),
   validateRequest(saveMaintenanceJobSchema),
   async (req, res): Promise<void> => {
     try {
-      const result = maintenanceService.saveJob(req.body);
+      const result = maintenanceService.saveJob(req.body, req.user!.userId);
 
       if (!result.success) {
         res.status(400).json(result);

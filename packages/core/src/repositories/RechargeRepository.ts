@@ -53,6 +53,23 @@ import { getCarrierLineOwedDeliveryRepository } from "./CarrierLineOwedDeliveryR
 import { isSameLebanesePhone } from "../utils/phoneNumber.js";
 import { getExpenseRepository } from "./ExpenseRepository.js";
 import { omtAppCashoutCommission } from "../constants/omtAppCashout.js";
+// LIRA-250 follow-up — "today's MTC/Alfa sales" read (getTodayStats below).
+// `isToday` is the shared "today" gate (rule 27: reads the request's own
+// client-tz offset via tenantContext, so a web request buckets by the
+// BROWSER's day, not the Fly host's UTC day — see reportingTimeFragments.ts).
+// `notRefunded`/`notDebtPending`/`ownCurrencyProfit` are reused VERBATIM
+// (rule 14) from ProfitRepository.ts — they are the SAME three predicates
+// `ProfitRepository.getRechargesByCarrier`/`getRechargesByCurrency` already
+// gate/derive the Profits page's own recharge figures with, so this method
+// and the Profits page can never silently disagree about which rows count.
+// No import cycle: ProfitRepository.ts does not import RechargeRepository.ts
+// (verified), so this is a one-way dependency.
+import { isToday } from "./reportingTimeFragments.js";
+import {
+  notRefunded,
+  notDebtPending,
+  ownCurrencyProfit,
+} from "./ProfitRepository.js";
 
 // =============================================================================
 // SMS transfer fee → expense constants (owner decision 2026-09-06) — rule 14:
@@ -164,17 +181,19 @@ export interface RechargeData {
    * used, so a legitimate buy/sell-spread checkout with change doesn't
    * false-reject (the owner's MTC CREDIT_TRANSFER repro: 720,000 LBP price,
    * $10 IN, 170,000 LBP OUT, till rate 89,000 vs. stamped sell rate 90,000).
-   * `reconcileLegs` bands this against the stamped rate (±15%) and throws a
-   * distinct error if it's implausibly far off. Omitted → current behavior,
-   * reconciles at the stamped sell rate alone.
+   * LIRA-240 (owner decision 2026-09-28): `reconcileLegs` used to band this
+   * against the stamped rate (±15%) and throw a distinct error if it was
+   * implausibly far off — retired, a payment form must never block on the
+   * typed rate. Omitted → current behavior, reconciles at the stamped sell
+   * rate alone.
    *
    * Owner decision (2026-08-08, same repro): ALSO used to stamp
    * `transactions.exchange_rate` — via `resolveStampedExchangeRate`
-   * (moneyPosting.ts), a non-throwing sibling of the reconciliation
-   * band-check that falls back to the server (sell) rate silently outside
-   * the band or when absent. This does NOT change what `reconcileLegs`/
-   * `postPayoutLegs` reconcile against — they keep anchoring at the server
-   * sell rate, unchanged.
+   * (moneyPosting.ts), which stamps this value EXACTLY as typed (falling
+   * back to the server (sell) rate only when absent — the old ±15%-band
+   * fallback is retired too, LIRA-240). This does NOT change what
+   * `reconcileLegs`/`postPayoutLegs` reconcile against — they keep anchoring
+   * at the server sell rate, unchanged.
    */
   tender_exchange_rate?: number;
   /**
@@ -223,6 +242,32 @@ export interface RechargeEntity {
    *  .tsx`, gated on `tx.is_refunded`) stayed dormant. */
   is_refunded: number;
   refunded_at: string | null;
+}
+
+/**
+ * `RechargeRepository.getTodayStats`'s per-currency breakdown row — mirrors
+ * `FinancialServiceRepository.CurrencyStats`'s `{currency, commission,
+ * count}` shape (the Recharge page's `CurrencyStats` frontend type already
+ * expects exactly this), deliberately WITHOUT that type's
+ * `awaiting_settlement_count` field — recharges have no settlement concept,
+ * so a required field with no meaning here would only invite a bogus stamp.
+ */
+export interface RechargeCurrencyStat {
+  currency: string;
+  commission: number;
+  count: number;
+}
+
+/**
+ * `RechargeRepository.getTodayStats`'s return shape — see that method's own
+ * doc comment for the full definition (which `recharge_type`s count as a
+ * sale, why, and the notRefunded/notDebtPending/isToday gates).
+ */
+export interface RechargeTodayStats {
+  count: number;
+  profit_usd: number;
+  profit_lbp: number;
+  byCurrency: RechargeCurrencyStat[];
 }
 
 // =============================================================================
@@ -491,6 +536,100 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       .all(provider, getCurrentTenantId()) as RechargeEntity[];
 
     return rows;
+  }
+
+  /**
+   * LIRA-250 follow-up — "today's MTC/Alfa sales" for the Recharge page's
+   * Count/Profit cards (and the Total Profit card, which has no other
+   * meaningful source for a telecom provider — `FinancialServiceRepository
+   * .getAnalytics` only ever reads `financial_services`, a table a recharge
+   * never lands in).
+   *
+   * **Which `recharges.recharge_type` rows count as a "sale" — deliberate,
+   * not incidental:** this joins `transactions t ON t.type = 'RECHARGE'`,
+   * the SAME join `ProfitRepository.getRechargesByCarrier`/
+   * `getRechargesByCurrency` use for the Profits page's own recharge
+   * figures. `t.type = 'RECHARGE'` is written by `processRecharge`'s normal
+   * sale body for EVERY `recharge_type` that flows through it — CREDIT_
+   * TRANSFER, VOUCHER, DAYS, ALFA_GIFT, SHOP_LINE_USE — and by nothing else:
+   * `TOP_UP` (a drawer top-up, `topUpApp`/`topUpFromSupplier`/`topUpFrom
+   * Partner`/`topUpFromClient`) stamps `RECHARGE_TOPUP` and `CREDIT_BUYBACK`
+   * (`processCreditBuyback`, a cash-OUT payout) stamps `TELECOM_CREDIT_
+   * BUYBACK` — see `RechargeData.type`'s own doc comment. Gating on the join
+   * type therefore excludes both WITHOUT a hand-rolled `recharge_type NOT IN
+   * (...)` list that could silently miss a future non-sale type; a new sale
+   * shape only counts here once it, too, is written through the `RECHARGE`
+   * join (matching the Profits page automatically, by construction).
+   *
+   * Gated by {@link notRefunded} (a voided/refunded recharge is excluded —
+   * rule 20's reversal convention, not a second negated row) and
+   * {@link notDebtPending} (a CUSTOMER_ACCOUNT-charged recharge recognises
+   * its profit only once repaid, same as every other module-debt charge —
+   * `ProfitRepository.getRechargesByCarrier`'s own hard WHERE) — both
+   * REUSED verbatim (rule 14), never re-typed, so this can't quietly drift
+   * from what the Profits page counts for the same day.
+   *
+   * "Today" is {@link isToday} on `r.created_at` (rule 27) — the request's
+   * own client-tz offset (threaded through `tenantContext` from the
+   * `X-Client-Tz-Offset` header on web, the OS zone on desktop), NOT the
+   * query host's clock, so a Beirut shop's "today" is correct even from a
+   * Fly container running UTC.
+   *
+   * `byCurrency` buckets by the recharge's OWN sale currency
+   * (`r.currency_code`) and reports {@link ownCurrencyProfit} — the SAME
+   * currency the sale itself was denominated in, which already includes any
+   * SAME-currency kept change (`RechargeRepository.processRecharge` stamps
+   * `profit_usd`/`profit_lbp` as commission + kept_change_usd/lbp in ONE
+   * column each). A kept-change leg returned in the OTHER currency from the
+   * sale (rare — cash-currency change on a recharge) is deliberately NOT
+   * folded into a second currency bucket here, matching
+   * `getRechargesByCurrency`'s own established `profit`-column convention
+   * (its cross-currency kept change is reported as a SEPARATE field, never
+   * merged into a currency bucket) — this keeps the two aggregates
+   * consistent with each other rather than inventing a new split.
+   */
+  getTodayStats(provider: "MTC" | "Alfa"): RechargeTodayStats {
+    const tenantId = getCurrentTenantId();
+    const rechargeSaleJoin = `FROM recharges r
+        JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
+        WHERE t.status = 'ACTIVE'
+          AND r.carrier = ?
+          AND ${notRefunded("r")}
+          AND ${notDebtPending("t.id")}
+          AND ${isToday("r.created_at")}
+          AND r.tenant_id = ? AND t.tenant_id = ?`;
+
+    const totals = this.db
+      .prepare(
+        `SELECT
+          COUNT(*) AS count,
+          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+        ${rechargeSaleJoin}`,
+      )
+      .get(provider, tenantId, tenantId) as {
+      count: number;
+      profit_usd: number;
+      profit_lbp: number;
+    };
+
+    const byCurrency = this.db
+      .prepare(
+        `SELECT
+          r.currency_code AS currency,
+          COALESCE(SUM(${ownCurrencyProfit("r.currency_code")}), 0) AS commission,
+          COUNT(*) AS count
+        ${rechargeSaleJoin}
+        GROUP BY r.currency_code`,
+      )
+      .all(provider, tenantId, tenantId) as RechargeCurrencyStat[];
+
+    return {
+      count: totals.count,
+      profit_usd: totals.profit_usd,
+      profit_lbp: totals.profit_lbp,
+      byCurrency,
+    };
   }
 
   /**
@@ -829,10 +968,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const sellRate = getUsdLbpSellRate(this.db);
         // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000):
         // the `transactions.exchange_rate` stamp reflects the operator's
-        // tendered rate when it's within the reconciliation band of `sellRate`
-        // (see `resolveStampedExchangeRate`'s doc on `RechargeData.
-        // tender_exchange_rate`); falls back to `sellRate` silently otherwise.
-        // `reconcileLegs` below keeps anchoring at `sellRate` — unaffected.
+        // tendered rate EXACTLY as typed (see `resolveStampedExchangeRate`'s
+        // doc on `RechargeData.tender_exchange_rate`; LIRA-240, 2026-09-28,
+        // retired the old ±15%-band fallback); falls back to `sellRate` only
+        // when absent. `reconcileLegs` below keeps anchoring at `sellRate` —
+        // unaffected.
         const recordExchangeRate = resolveStampedExchangeRate(
           sellRate,
           data.tender_exchange_rate,
@@ -1562,10 +1702,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const sellRate = getUsdLbpSellRate(this.db);
       // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): the
       // `transactions.exchange_rate` stamp reflects the operator's tendered
-      // rate when it's within the reconciliation band of `sellRate` (see
-      // `resolveStampedExchangeRate`'s doc on `RechargeData.
-      // tender_exchange_rate`); falls back to `sellRate` silently otherwise.
-      // `postPayoutLegs` below keeps anchoring at `sellRate` — unaffected.
+      // rate EXACTLY as typed (see `resolveStampedExchangeRate`'s doc on
+      // `RechargeData.tender_exchange_rate`; LIRA-240, 2026-09-28, retired
+      // the old ±15%-band fallback); falls back to `sellRate` only when
+      // absent. `postPayoutLegs` below keeps anchoring at `sellRate` —
+      // unaffected.
       const recordExchangeRate = resolveStampedExchangeRate(
         sellRate,
         data.tender_exchange_rate,
@@ -2377,8 +2518,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     }>;
     /** Rate to reconcile a payout leg whose currency differs from `currency`
      *  at, and to stamp on `transactions.exchange_rate`. Falls back to the
-     *  server's USD/LBP sell rate when omitted or outside the band (see
-     *  `resolveStampedExchangeRate`/`reconcileLegs`). Does NOT affect the
+     *  server's USD/LBP sell rate only when omitted (see
+     *  `resolveStampedExchangeRate`/`reconcileLegs`; LIRA-240, 2026-09-28,
+     *  retired the old ±15%-band fallback/refusal). Does NOT affect the
      *  profit stamp — profit is `fee`, native, unconverted. */
     exchangeRate?: number;
     clientName?: string;

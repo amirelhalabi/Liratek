@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { printReceipt } from "@/shared/utils/printReceipt";
 import { X, User, Printer, Inbox, Pencil, Minus } from "lucide-react";
 import {
@@ -425,16 +426,29 @@ export default function CheckoutModal({
     .filter((l) => l.currencyCode === "LBP")
     .reduce((sum, l) => sum + (l.amount || 0), 0);
 
-  // Close on Escape key (prefer onClose, fall back to onCancel)
+  // Escape closes only the TOPMOST panel (LIRA-245) — it must never empty
+  // the cart, which stays an explicit action (the "Cancel Order" button).
+  // The receipt preview renders as a sibling overlay, not a descendant of
+  // this modal's own DOM node, so a document-level listener is required to
+  // catch Escape while it's open; that submodal is checked FIRST so Escape
+  // closes it alone and never falls through to closing the checkout itself
+  // in the same keypress. With no submodal open, prefer onClose (a
+  // non-destructive "return to cart" close) over onCancel (which clears the
+  // cart/deletes the draft) — onCancel is only the fallback for a host that
+  // wires no onClose at all.
   useEffect(() => {
-    const closeHandler = onClose ?? onCancel;
-    if (!closeHandler) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeHandler();
+      if (e.key !== "Escape") return;
+      if (showReceiptPreview) {
+        setShowReceiptPreview(false);
+        return;
+      }
+      const closeHandler = onClose ?? onCancel;
+      closeHandler?.();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onClose, onCancel]);
+  }, [onClose, onCancel, showReceiptPreview]);
 
   // Auto-select CUSTOMER_ACCOUNT as MultiPaymentInput's initialMethod once a
   // chargeable client is present. Gated on canCreateDebt so a phone-less
@@ -567,6 +581,16 @@ export default function CheckoutModal({
       setTransactionTime(undefined);
     } catch (error) {
       logger.error("Operation failed", { error });
+      // LIRA-247: onComplete's real callers (POS/Maintenance) catch and
+      // surface their own errors internally and never re-throw, but a
+      // thrown ApiError reaching THIS boundary (any other/future host of
+      // this shared modal, or a bug in a caller's own catch) used to vanish
+      // — nothing was shown here at all.
+      appEvents.emit(
+        "notification:show",
+        getApiErrorMessage(error, "Failed to complete the sale."),
+        "error",
+      );
       setIsLoading(false);
     }
   };
@@ -577,6 +601,13 @@ export default function CheckoutModal({
       await onSaveDraft(getPaymentData());
     } catch (error) {
       logger.error("Operation failed", { error });
+      // LIRA-247: same reasoning as handleComplete's catch above — a thrown
+      // ApiError reaching this boundary used to show nothing.
+      appEvents.emit(
+        "notification:show",
+        getApiErrorMessage(error, "Failed to save the draft."),
+        "error",
+      );
       setIsLoading(false);
     }
   };
@@ -702,12 +733,6 @@ export default function CheckoutModal({
       <div
         className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
         role="presentation"
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            const closeHandler = onClose ?? onCancel;
-            closeHandler?.();
-          }
-        }}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget && onClose) {
             onClose();

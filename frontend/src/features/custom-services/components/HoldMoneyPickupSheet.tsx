@@ -12,6 +12,7 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { toHoldMoneyLegs } from "@/utils/paymentUtils";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 
 /** Shape shared by every Hold Money list/active/collect read — the fields
  *  this sheet actually needs. A structural subset so both HoldMoneySection
@@ -110,8 +111,14 @@ export function HoldMoneyPickupSheet({
         );
       }
     } catch (err) {
+      // LIRA-247: a thrown ApiError used to be discarded in favor of this
+      // hardcoded string.
       logger.error("[HoldMoney] pickup failed", err);
-      appEvents.emit("notification:show", "Failed to collect hold.", "error");
+      appEvents.emit(
+        "notification:show",
+        getApiErrorMessage(err, "Failed to collect hold."),
+        "error",
+      );
     } finally {
       setIsSubmitting(false);
     }

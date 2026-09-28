@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   appEvents,
   canChargeToCustomerAccount,
@@ -854,7 +855,11 @@ export function SessionCheckoutModal({
         logger.error(`Session checkout failed: ${result.error}`);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Checkout failed";
+      // LIRA-247: `err instanceof Error` is false for a thrown ApiError (a
+      // plain `{status,message,details}` object, e.g. a web 403 role
+      // refusal), so it used to fall back to "Checkout failed" and hide the
+      // real reason.
+      const msg = getApiErrorMessage(err, "Checkout failed");
       setError(msg);
       logger.error(`Session checkout error: ${msg}`);
     } finally {

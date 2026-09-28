@@ -12901,6 +12901,82 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 188,
+    name: "reorder_modules_loto_custom_services_profits_v188",
+    description:
+      "LIRA-227. v49's up() set sort_order to loto=13, custom_services=14, " +
+      "profits=15 — but both fresh-seed definitions of the module catalog " +
+      "(electron-app/create_db.sql's tenant-1 INSERTs and " +
+      "TenantRepository.MODULE_SEED_ROWS) have always used custom_services=12, " +
+      "profits=13, loto=16, and no migration between v49 and this one re-set " +
+      "them (`grep \"UPDATE modules SET sort_order\"` over migrations/index.ts " +
+      "returns only v49's up()/down()). So a genuinely UPGRADED tenant 1 " +
+      "(migrated from v49 onward) and a FRESHLY INSTALLED one have disagreed " +
+      "on sidebar order for these three modules ever since — presentation " +
+      "only, no visibility/permission/money column. This migration re-asserts " +
+      "the fresh-seed sort_order values so both converge. " +
+      "" +
+      "Exact shape of v163/v178 (module rows): idempotent (keyed on `key`, " +
+      "not the old sort_order value, so a re-run reads the same), and " +
+      "deliberately UNSCOPED by tenant_id — sidebar order is a compiled-once " +
+      "presentation rule, not a per-tenant setting, so every tenant's row " +
+      "moves at once (v162/v163/v178/v179 precedent). Guarded by tableExists " +
+      "because migration-runner test harnesses replay every migration over " +
+      "minimal fixture schemas that may have no 'modules' table. " +
+      "electron-app/create_db.sql already carries the target values " +
+      "(custom_services=12, profits=13, loto=16) directly on its tenant-1 " +
+      "seed rows, so a fresh DB needs no separate UPDATE — same shape as " +
+      "v162/v163/v178's marker notes in create_db.sql's schema_migrations seed.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "modules")) {
+        console.log("Migration v188 skipped: 'modules' table not present");
+        return;
+      }
+
+      const custom = db
+        .prepare(`UPDATE modules SET sort_order = 12 WHERE key = ?`)
+        .run("custom_services");
+      const profits = db
+        .prepare(`UPDATE modules SET sort_order = 13 WHERE key = ?`)
+        .run("profits");
+      const loto = db
+        .prepare(`UPDATE modules SET sort_order = 16 WHERE key = ?`)
+        .run("loto");
+
+      console.log(
+        `Migration v188: module sort_order re-asserted to fresh-seed values ` +
+          `(custom_services=12 on ${custom.changes} row(s), profits=13 on ` +
+          `${profits.changes} row(s), loto=16 on ${loto.changes} row(s))`,
+      );
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "modules")) {
+        console.log(
+          "Migration v188 rollback skipped: 'modules' table not present",
+        );
+        return;
+      }
+
+      // Exact reverse of up() — restores v49's post-migration values, same
+      // deliberate cross-tenant scope, same identity-keyed predicate.
+      db.prepare(`UPDATE modules SET sort_order = 14 WHERE key = ?`).run(
+        "custom_services",
+      );
+      db.prepare(`UPDATE modules SET sort_order = 15 WHERE key = ?`).run(
+        "profits",
+      );
+      db.prepare(`UPDATE modules SET sort_order = 13 WHERE key = ?`).run(
+        "loto",
+      );
+
+      console.log(
+        "Migration v188 rolled back: module sort_order restored to v49's " +
+          "values (custom_services=14, profits=15, loto=13)",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

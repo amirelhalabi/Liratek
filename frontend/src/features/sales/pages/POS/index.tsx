@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { FileText, X, ShoppingCart, Trash2 } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
 import ProductSearch from "./components/ProductSearch";
@@ -561,9 +562,14 @@ export default function POS() {
       }
     } catch (error) {
       logger.error("Save draft error:", error);
+      // LIRA-247: a thrown ApiError (e.g. a web role-refusal) used to be
+      // discarded here in favor of this hardcoded string.
       appEvents.emit(
         "notification:show",
-        "An unexpected error occurred saving the draft.",
+        getApiErrorMessage(
+          error,
+          "An unexpected error occurred saving the draft.",
+        ),
         "error",
       );
     }
@@ -731,9 +737,14 @@ export default function POS() {
       }
     } catch (error) {
       logger.error("Checkout error:", error);
+      // LIRA-247: a thrown ApiError (e.g. a web role-refusal) used to be
+      // discarded here in favor of this hardcoded string.
       appEvents.emit(
         "notification:show",
-        "An unexpected error occurred processing the sale.",
+        getApiErrorMessage(
+          error,
+          "An unexpected error occurred processing the sale.",
+        ),
         "error",
       );
     }
@@ -791,6 +802,12 @@ export default function POS() {
           )}
           onMinimize={handleMinimizeOrder}
           onCancel={handleCancelOrder}
+          // LIRA-245: a non-destructive close (e.g. Escape with no submodal
+          // open) must return to the cart WITHOUT emptying it — unlike
+          // onCancel/handleCancelOrder above, which explicitly clears the
+          // cart and deletes any in-progress draft. Cart/draft state is left
+          // untouched here on purpose.
+          onClose={() => setIsCheckoutOpen(false)}
           onEdit={(checkoutData) => {
             setPendingCheckoutData(checkoutData);
             setIsCheckoutOpen(false);

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test as base, expect, type Page } from "@playwright/test";
@@ -7,10 +8,51 @@ import { test as base, expect, type Page } from "@playwright/test";
 import Database from "better-sqlite3";
 import { hashPassword } from "@liratek/core";
 import { BACKEND_PORT } from "../../playwright.web.config";
+// Imported from storageKey.ts, NOT useWhatsNew.ts: the hook module also
+// imports releaseNotes.generated.json as a plain (non-asserted) ESM JSON
+// import, which Node's native loader (this fixture runs under it) rejects —
+// see storageKey.ts's own comment.
+import { WHATS_NEW_STORAGE_KEY } from "../../src/features/whatsNew/storageKey";
+import type { ReleaseNoteEntry } from "../../src/features/whatsNew/types";
 
 export const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// The "What's new" modal (frontend/src/features/whatsNew/) auto-opens once
+// per fresh browser context whenever the seen version in localStorage is
+// older than the newest entry here (useWhatsNew.ts) — which every context
+// in this suite always is, since nothing has ever written the key. Its
+// backdrop (`div.fixed.inset-0.z-[100]`) then intercepts pointer events for
+// whichever spec runs first in a given worker/context, timing out that
+// spec's first click. Pre-seed the "already seen" state below so the modal
+// never auto-opens. Read from the generated JSON at fixture load (not
+// hardcoded, and read with fs rather than a JSON import — the playwright
+// tsconfig here has no `resolveJsonModule`/import-assertion setup) so this
+// keeps working after every future release — the file's first entry is
+// newest, mirroring useWhatsNew.ts's own `entries[0] ?? null`.
+const WHATS_NEW_LATEST_VERSION: string | null = (() => {
+  try {
+    const raw = fs.readFileSync(
+      path.join(
+        __dirname,
+        "..",
+        "..",
+        "src",
+        "features",
+        "whatsNew",
+        "releaseNotes.generated.json",
+      ),
+      "utf8",
+    );
+    const entries = JSON.parse(raw) as ReleaseNoteEntry[];
+    return entries[0]?.version ?? null;
+  } catch {
+    // Worst case the modal auto-opens as it would for a real fresh user —
+    // never let a missing/malformed file break test setup itself.
+    return null;
+  }
+})();
 // Mirrors global-setup.ts's own path resolution exactly — same DB file,
 // this module lives in the same directory as global-setup.ts and every spec.
 const DB_PATH = path.join(
@@ -34,6 +76,20 @@ export const test = base.extend({
       (globalThis as { __LIRATEK_BACKEND_URL?: string }).__LIRATEK_BACKEND_URL =
         url;
     }, BACKEND_URL);
+    if (WHATS_NEW_LATEST_VERSION) {
+      await context.addInitScript(
+        ({ key, version }: { key: string; version: string }) => {
+          try {
+            localStorage.setItem(key, version);
+          } catch {
+            // Private mode / blocked storage — same no-op fallback the app
+            // itself uses (useWhatsNew.ts's writeLastSeen); worst case the
+            // modal auto-opens as it would in a real fresh browser.
+          }
+        },
+        { key: WHATS_NEW_STORAGE_KEY, version: WHATS_NEW_LATEST_VERSION },
+      );
+    }
     // eslint-disable-next-line react-hooks/rules-of-hooks -- Playwright fixture `use`, not a React hook
     await use(context);
   },

@@ -5,6 +5,7 @@ import {
   optionalPhoneNumberSchema,
   transactionTimeSchema,
 } from "./common.js";
+import { normalizeLineNumber } from "../utils/phoneNumber.js";
 
 /**
  * Maintenance job validation schemas
@@ -31,7 +32,20 @@ export const saveMaintenanceJobSchema = z.object({
   // Blank is a valid "no phone left" state — the maintenance form always
   // sends `""` (never omits the key) when the field is empty. See
   // `optionalPhoneNumberSchema`'s doc comment / recharge.ts's identical note.
-  client_phone: optionalPhoneNumberSchema,
+  //
+  // LIRA-246b: a phone typed "03 123 456" or "+961 3 654 321" (both formats
+  // the live form accepts) was rejected outright by `optionalPhoneNumberSchema`
+  // (`/^\+?[0-9]{8,15}$/`, no tolerance for spaces) with "Invalid phone number
+  // format" — on REST this 400'd before the service ever ran. Normalize with
+  // `normalizeLineNumber` (the "keep the leading 0" canonical-storage
+  // normalizer, note #13) BEFORE the regex check, via `.transform().pipe(...)`
+  // — an empty string / undefined pass through unchanged (falsy guard below),
+  // so `optionalPhoneNumberSchema`'s blank/omitted cases are untouched.
+  client_phone: z
+    .string()
+    .optional()
+    .transform((v) => (v ? normalizeLineNumber(v) : v))
+    .pipe(optionalPhoneNumberSchema),
   issue_description: z.string().max(1000).optional(),
   cost_usd: z.number().min(0).optional(),
   price_usd: positiveDecimalSchema,

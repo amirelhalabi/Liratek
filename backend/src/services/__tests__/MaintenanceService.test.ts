@@ -70,6 +70,9 @@ describe("MaintenanceService", () => {
         const result = service.saveJob(params);
 
         expect(result).toEqual({ success: true, id: 1 });
+        // actorUserId (LIRA-246a) is now createJob's 2nd argument — undefined
+        // here since `service.saveJob(params)` is called with no actor, the
+        // same way an untouched legacy call site would.
         expect(mockRepo.createJob).toHaveBeenCalledWith(
           expect.objectContaining({
             device_name: "iPhone 14",
@@ -77,10 +80,11 @@ describe("MaintenanceService", () => {
             price_usd: 150,
             status: "In Progress",
           }),
+          undefined,
         );
       });
 
-      it("should auto-create client if name provided but no id", () => {
+      it("should auto-create client if name AND phone are provided but no id", () => {
         const params: SaveJobParams = {
           client_name: "John Doe",
           client_phone: "1234567890",
@@ -104,12 +108,14 @@ describe("MaintenanceService", () => {
             client_name: "John Doe",
             device_name: "Samsung S23",
           }),
+          undefined,
         );
       });
 
-      it("should handle client auto-creation failure gracefully", () => {
+      it("should handle client auto-creation failure gracefully (with a phone present, so auto-create is attempted)", () => {
         const params: SaveJobParams = {
           client_name: "Jane Doe",
+          client_phone: "5551234",
           device_name: "Pixel 7",
           price_usd: 80,
         };
@@ -123,11 +129,40 @@ describe("MaintenanceService", () => {
 
         // Should still succeed with null client_id
         expect(result).toEqual({ success: true, id: 3 });
+        expect(mockRepo.findOrCreateClient).toHaveBeenCalled();
         expect(mockRepo.createJob).toHaveBeenCalledWith(
           expect.objectContaining({
             client_id: null,
             device_name: "Pixel 7",
           }),
+          undefined,
+        );
+      });
+
+      // LIRA-246c: a name with NO phone must never name-match/auto-create —
+      // `findOrCreateClient` matches an EXISTING client by full_name ALONE,
+      // so a same-named walk-in with no phone to disambiguate used to attach
+      // to the wrong person. See the exhaustive guard at
+      // packages/core/src/services/__tests__/MaintenanceService.noPhoneClientLink.test.ts.
+      it("does NOT auto-create/match a client when a name is given but no phone", () => {
+        const params: SaveJobParams = {
+          client_name: "No Phone Walkin",
+          device_name: "Nokia 3310",
+          price_usd: 5,
+        };
+
+        mockRepo.createJob.mockReturnValue(6);
+
+        const result = service.saveJob(params);
+
+        expect(result).toEqual({ success: true, id: 6 });
+        expect(mockRepo.findOrCreateClient).not.toHaveBeenCalled();
+        expect(mockRepo.createJob).toHaveBeenCalledWith(
+          expect.objectContaining({
+            client_id: null,
+            client_name: "No Phone Walkin",
+          }),
+          undefined,
         );
       });
 
@@ -149,6 +184,7 @@ describe("MaintenanceService", () => {
           expect.objectContaining({
             client_id: 10,
           }),
+          undefined,
         );
       });
     });
@@ -165,12 +201,14 @@ describe("MaintenanceService", () => {
         const result = service.saveJob(params);
 
         expect(result).toEqual({ success: true, id: 1 });
+        // actorUserId (LIRA-246a) is now updateJob's 3rd argument.
         expect(mockRepo.updateJob).toHaveBeenCalledWith(
           1,
           expect.objectContaining({
             device_name: "iPhone 14 Pro",
             price_usd: 200,
           }),
+          undefined,
         );
         expect(mockRepo.createJob).not.toHaveBeenCalled();
       });
@@ -186,27 +224,30 @@ describe("MaintenanceService", () => {
 
         service.saveJob(params);
 
-        expect(mockRepo.createJob).toHaveBeenCalledWith({
-          client_id: null,
-          client_name: null,
-          device_name: "Basic Phone",
-          issue_description: null,
-          cost_usd: 0,
-          price_usd: 0,
-          cost_lbp: 0,
-          price_lbp: 0,
-          discount_usd: 0,
-          final_amount_usd: 0,
-          final_amount_lbp: 0,
-          currency: "USD",
-          paid_usd: 0,
-          paid_lbp: 0,
-          exchange_rate: 0,
-          status: "Received",
-          paid_by: "CASH",
-          note: null,
-          transaction_time: undefined,
-        });
+        expect(mockRepo.createJob).toHaveBeenCalledWith(
+          {
+            client_id: null,
+            client_name: null,
+            device_name: "Basic Phone",
+            issue_description: null,
+            cost_usd: 0,
+            price_usd: 0,
+            cost_lbp: 0,
+            price_lbp: 0,
+            discount_usd: 0,
+            final_amount_usd: 0,
+            final_amount_lbp: 0,
+            currency: "USD",
+            paid_usd: 0,
+            paid_lbp: 0,
+            exchange_rate: 0,
+            status: "Received",
+            paid_by: "CASH",
+            note: null,
+            transaction_time: undefined,
+          },
+          undefined,
+        );
       });
     });
 

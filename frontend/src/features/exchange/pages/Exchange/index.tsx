@@ -23,6 +23,7 @@ import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { HistoryModal } from "./components/HistoryModal";
 import { LiveRatesPanel } from "./components/LiveRatesPanel";
 import { YourRatesModal } from "./components/YourRatesModal";
@@ -1104,7 +1105,9 @@ export default function Exchange() {
       }
     } catch (error) {
       logger.error("Operation failed", { error });
-      alert("Transaction failed");
+      // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to be
+      // discarded here in favor of this hardcoded string.
+      alert(getApiErrorMessage(error, "Transaction failed"));
     } finally {
       setIsSubmitting(false);
       setIsSubmittingPartner(false);

@@ -52,6 +52,21 @@ interface TenantStore {
    * absent/invalid value is always harmless.
    */
   clientDay: string | null;
+  /**
+   * The CLIENT browser's own UTC offset, in MINUTES TO ADD to a UTC instant
+   * to reach the client's local wall clock (the JS convention
+   * `-date.getTimezoneOffset()` — Beirut, UTC+3, is `180`). LIRA-237: this is
+   * what `ProfitRepository.localtimeModifier()` needs to view a stored UTC
+   * timestamp as the client's day on a web host whose OWN zone (Fly, UTC) is
+   * not the shop's — `clientDay` alone (a day STRING) cannot do this, since
+   * per-row SQL bucketing needs a numeric shift, not a label. Null when the
+   * caller supplied nothing, or a value outside a real-world offset range
+   * (`CLIENT_TZ_OFFSET_MIN`..`CLIENT_TZ_OFFSET_MAX`).
+   * `clientTzOffsetMinutes()` (`utils/requestDay.ts`) is the public
+   * accessor — it returns `undefined` (not this raw `null`) so every caller
+   * can `??`/`===undefined`-fall back to `'localtime'` uniformly.
+   */
+  clientTzOffsetMinutes: number | null;
 }
 
 const tenantAls = new AsyncLocalStorage<TenantStore>();
@@ -69,6 +84,38 @@ function normalizeClientDay(value: string | null | undefined): string | null {
   return typeof value === "string" && CLIENT_DAY_PATTERN.test(value)
     ? value
     : null;
+}
+
+/**
+ * Real-world UTC-offset bounds (UTC-14..UTC+14, the widest gap any IANA zone
+ * actually uses — Kiribati's Line Islands to Baker Island) a client-supplied
+ * `X-Client-Tz-Offset` header must fall inside to be trusted. Exported for
+ * the same reason `CLIENT_DAY_PATTERN` is (rule 14 — one definition, shared
+ * by `backend/src/middleware/auth.ts` if it ever needs to pre-validate).
+ */
+export const CLIENT_TZ_OFFSET_MIN = -840;
+export const CLIENT_TZ_OFFSET_MAX = 840;
+
+function normalizeClientTzOffsetMinutes(
+  value: number | string | null | undefined,
+): number | null {
+  // `Number("")` is `0`, not `NaN` — an empty/whitespace-only header must be
+  // rejected explicitly BEFORE the numeric conversion below, or it silently
+  // normalizes to a valid, in-range "UTC" offset instead of being dropped as
+  // malformed (caught by this file's own guard test).
+  if (typeof value === "string" && value.trim() === "") return null;
+  const n = typeof value === "string" ? Number(value) : value;
+  if (
+    typeof n !== "number" ||
+    !Number.isFinite(n) ||
+    n < CLIENT_TZ_OFFSET_MIN ||
+    n > CLIENT_TZ_OFFSET_MAX
+  ) {
+    return null;
+  }
+  // Rounded: this becomes a literal SQL modifier text (`'<n> minutes'`,
+  // ProfitRepository.localtimeModifier) — never a fractional minute.
+  return Math.round(n);
 }
 
 /**
@@ -93,17 +140,29 @@ let fixedTenantId: number | null = null;
  * `CLIENT_DAY_PATTERN` is silently dropped (stored as `null`, same as
  * omitting it) — never throws, so a malformed or spoofed header can never
  * fail a request over this alone (rule 27).
+ *
+ * `options.clientTzOffsetMinutes` (LIRA-237) is the CLIENT browser's own UTC
+ * offset in minutes (see {@link TenantStore.clientTzOffsetMinutes}'s doc
+ * comment) — set the same way, from the `X-Client-Tz-Offset` header. Same
+ * fail-soft contract: out-of-range/non-numeric is silently dropped, never
+ * throws.
  */
 export function runWithTenant<T>(
   tenantId: number,
   fn: () => T,
-  options?: { clientDay?: string | null },
+  options?: {
+    clientDay?: string | null;
+    clientTzOffsetMinutes?: number | string | null;
+  },
 ): T {
   return tenantAls.run(
     {
       tenantId,
       bypass: false,
       clientDay: normalizeClientDay(options?.clientDay),
+      clientTzOffsetMinutes: normalizeClientTzOffsetMinutes(
+        options?.clientTzOffsetMinutes,
+      ),
     },
     fn,
   );
@@ -120,7 +179,10 @@ export function runWithTenant<T>(
  * for review.
  */
 export function runWithoutTenant<T>(fn: () => T): T {
-  return tenantAls.run({ tenantId: null, bypass: true, clientDay: null }, fn);
+  return tenantAls.run(
+    { tenantId: null, bypass: true, clientDay: null, clientTzOffsetMinutes: null },
+    fn,
+  );
 }
 
 /**
@@ -178,6 +240,20 @@ export function isTenantBypass(): boolean {
  */
 export function getContextClientDay(): string | undefined {
   return tenantAls.getStore()?.clientDay ?? undefined;
+}
+
+/**
+ * The CLIENT browser's own UTC offset (minutes, see
+ * {@link TenantStore.clientTzOffsetMinutes}'s doc comment) for the current
+ * async scope, if `runWithTenant()` was given one and it passed range
+ * validation. `undefined` outside any scope, inside a `runWithoutTenant()`
+ * bypass, or when none/an invalid one was supplied.
+ *
+ * Low-level accessor — request-path code should call
+ * `clientTzOffsetMinutes()` (`utils/requestDay.ts`) instead.
+ */
+export function getContextClientTzOffsetMinutes(): number | undefined {
+  return tenantAls.getStore()?.clientTzOffsetMinutes ?? undefined;
 }
 
 /**

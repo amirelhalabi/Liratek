@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { Phone, User, Search, X, CreditCard } from "lucide-react";
 import {
   ServiceTypeTabs,
@@ -523,11 +524,13 @@ export function TelecomForm({
       onRefreshBalances?.();
     } catch (err) {
       logger.error("Failed to submit partner recharge:", err);
+      // `err instanceof Error` was false for the shape `requestJson` (web)
+      // actually throws — a plain {status,message,details} object, never an
+      // Error instance — so every web refusal here silently fell back to the
+      // generic string instead of the real reason.
       appEvents.emit(
         "notification:show",
-        err instanceof Error
-          ? err.message
-          : "Failed to process partner recharge",
+        getApiErrorMessage(err, "Failed to process partner recharge"),
         "error",
       );
     } finally {

@@ -31,6 +31,18 @@ import {
   PROVIDER_STOCK_DRAWERS,
   sessionBasketNotReversedSql,
 } from "./TransactionRepository.js";
+// LIRA-237 — day/time-bucketing fragments (localtimeModifier/localDayExpr/
+// isToday/dateRange). Imported from the LEAF module (not defined here) so
+// `SalesRepository.ts` can use them without creating a require cycle — see
+// `reportingTimeFragments.ts`'s own doc comment for why — and re-exported
+// below so every EXISTING external importer of `dateRange` from THIS file
+// (`ClosingRepository.ts`) keeps working unchanged.
+import {
+  localtimeModifier,
+  localDayExpr,
+  isToday,
+  dateRange,
+} from "./reportingTimeFragments.js";
 import {
   TRANSACTION_TYPES,
   SESSION_ITEM_REFUND_LINK_TYPE,
@@ -1291,32 +1303,10 @@ export function activeExpense(alias = "expenses"): string {
   return `${alias}.status = 'active' AND ${notRefunded(alias)}`;
 }
 
-/**
- * Inclusive [from, to] date-range bound on a timestamp column (two bind params).
- *
- * The column is converted to machine-local wall-clock before comparison, so the
- * range is interpreted in the operator's local day, not UTC. ProfitService
- * passes `"${from} 00:00:00"` / `"${to} 23:59:59"`, so a sale at 01:00 Beirut
- * (stored as the previous UTC day) lands in the local day the operator expects.
- * `'localtime'` follows the machine TZ (Beirut on desktop; pin `TZ=Asia/Beirut`
- * on the web server). Non-sargable (defeats a `created_at` index) — same cost the
- * other `'localtime'` reporting queries already pay.
- *
- * Exported (same precedent as {@link notRefunded}/{@link activeExpense}) so
- * every caller in this file and in `ClosingRepository` binds the SAME
- * predicate text — the daily closing snapshot and the Profits page then
- * bound their windows identically (rule 14) instead of a second hand-written
- * `strftime('%Y-%m', …)` form drifting from this one.
- * REV-4 (verifier round-1 fix, 2026-09-24): this used to also name
- * `FinancialRepository.getMonthlyPL` as a caller binding this fragment via
- * `monthBounds()` (`utils/localDate.ts`) — `getMonthlyPL` has since been
- * deleted (`FinancialRepository` exposes no report methods at all now); see
- * `SalesService.ts`'s own doc comment on the Dashboard tile it replaced it
- * with, sourced from `ProfitRepository.getByDate` instead.
- */
-export function dateRange(col: string): string {
-  return `datetime(${col}, 'localtime') >= ? AND datetime(${col}, 'localtime') <= ?`;
-}
+// Re-exported (see the import above) so every EXISTING external importer of
+// `dateRange` from THIS file (`ClosingRepository.ts`) keeps working
+// unchanged.
+export { localtimeModifier, localDayExpr, isToday, dateRange };
 
 /**
  * Rule 14 — the ONE "does this row belong in the USD column" predicate, in
@@ -5689,13 +5679,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             ${saleAggBody(
               "s",
               "si",
-              "DATE(s.created_at, 'localtime') AS d,",
+              `DATE(s.created_at, ${localtimeModifier()}) AS d,`,
               `${dateRange("s.created_at")} AND si.tenant_id = ? AND s.tenant_id = ?`,
             )}
           ) daily_sale_agg
           GROUP BY d`
       : `SELECT
-            DATE(s.created_at, 'localtime') AS d,
+            ${localDayExpr("s.created_at")} AS d,
             COALESCE(SUM(si.sold_price_usd * si.quantity * (${saleRecognitionWeight("s")})), 0) AS revenue_usd,
             COALESCE(SUM(si.cost_price_snapshot_usd * si.quantity * (${saleRecognitionWeight("s")})), 0) AS cost_usd
           FROM sale_items si
@@ -5704,7 +5694,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND si.is_refunded = 0
             AND ${dateRange("s.created_at")}
             AND si.tenant_id = ? AND s.tenant_id = ?
-          GROUP BY DATE(s.created_at, 'localtime')`;
+          GROUP BY ${localDayExpr("s.created_at")}`;
     // Rule 14 — same fix as getExchangeTotals (owner ticket #27, 2026-09-23):
     // the daily_exchange CTE below used to sum raw amount_in, wrongly
     // treating an LBP-denominated leg as dollars.
@@ -5758,7 +5748,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       ? `
           UNION ALL
           SELECT
-            DATE(sca.created_at, 'localtime') AS d,
+            ${localDayExpr("sca.created_at")} AS d,
             COALESCE(SUM(sca.commission_usd * (${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_usd,
             COALESCE(SUM(sca.commission_lbp * (${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_lbp,
             0 AS revenue_usd,
@@ -5770,7 +5760,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${allocationNotDebtPending("sca")}
             AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
             AND ${dateRange("sca.created_at")}
-          GROUP BY DATE(sca.created_at, 'localtime')`
+          GROUP BY ${localDayExpr("sca.created_at")}`
       : "";
 
     const params: (string | number)[] = [];
@@ -5824,7 +5814,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- Weighted by saleRecognitionWeight (Task 3) — same rationale as
           -- daily_sales above.
           SELECT
-            DATE(s.created_at, 'localtime') AS d,
+            ${localDayExpr("s.created_at")} AS d,
             COALESCE(SUM(t.profit_usd * (${saleRecognitionWeight("s")})), 0) AS profit_usd,
             -- PA-3.1: kept change stamped in LBP (transactions.profit_lbp =
             -- kept_change_lbp, SalesRepository.ts) used to be dropped here.
@@ -5837,7 +5827,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND s.status IN ('completed', 'refunded')
             AND ${dateRange("s.created_at")}
             AND t.tenant_id = ? AND s.tenant_id = ?
-          GROUP BY DATE(s.created_at, 'localtime')
+          GROUP BY ${localDayExpr("s.created_at")}
         ),
         daily_commissions AS (
           SELECT
@@ -5848,7 +5838,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             COALESCE(SUM(revenue_lbp), 0) AS revenue_lbp
           FROM (
             SELECT
-              DATE(fs.created_at, 'localtime') AS d,
+              ${localDayExpr("fs.created_at")} AS d,
               -- PA-1.4: EXACT currency match — see getFinancialSettledByProvider's
               -- own comment for the full rationale (a third currency used to
               -- be lumped into the USD bucket via '!= LBP'). Applies to
@@ -5889,14 +5879,14 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${notDebtPending("t.id")}
               AND ${dateRange("fs.created_at")}
               AND fs.tenant_id = ? AND t.tenant_id = ?
-            GROUP BY DATE(fs.created_at, 'localtime')
+            GROUP BY ${localDayExpr("fs.created_at")}
             ${dailyCommissionsAllocationArm}
           ) daily_commissions_combined
           GROUP BY d
         ),
         daily_recharges AS (
           SELECT
-            DATE(r.created_at, 'localtime') AS d,
+            ${localDayExpr("r.created_at")} AS d,
             -- LO-V10 (round 2, rule 14 consistency): EXACT 'USD' match, not
             -- '!= LBP' — see getRechargesByCarrier's identical fix.
             COALESCE(SUM(CASE WHEN r.currency_code = 'USD' THEN r.price * (${partnerCoverageRatio("recharges", "r.id")}) ELSE 0 END), 0) AS revenue_usd,
@@ -5924,11 +5914,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${notDebtPending("t.id")}
             AND ${dateRange("r.created_at")}
             AND r.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(r.created_at, 'localtime')
+          GROUP BY ${localDayExpr("r.created_at")}
         ),
         daily_custom AS (
           SELECT
-            DATE(cs.created_at, 'localtime') AS d,
+            ${localDayExpr("cs.created_at")} AS d,
             COALESCE(SUM(cs.price_usd * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS revenue_usd,
             COALESCE(SUM(cs.price_lbp * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS revenue_lbp,
             COALESCE(SUM(cs.cost_usd * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS cost_usd,
@@ -5943,11 +5933,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${notDebtPending("t.id")}
             AND ${dateRange("cs.created_at")}
             AND cs.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(cs.created_at, 'localtime')
+          GROUP BY ${localDayExpr("cs.created_at")}
         ),
         daily_maint AS (
           SELECT
-            DATE(m.created_at, 'localtime') AS d,
+            ${localDayExpr("m.created_at")} AS d,
             COALESCE(SUM(m.final_amount_usd), 0) AS revenue_usd,
             COALESCE(SUM(m.final_amount_lbp), 0) AS revenue_lbp,
             COALESCE(SUM(${maintenanceCostUsd("m")}), 0) AS cost_usd,
@@ -5962,11 +5952,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${notDebtPending("t.id")}
             AND ${dateRange("m.created_at")}
             AND m.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(m.created_at, 'localtime')
+          GROUP BY ${localDayExpr("m.created_at")}
         ),
         daily_loto AS (
           SELECT
-            DATE(lt.created_at, 'localtime') AS d,
+            ${localDayExpr("lt.created_at")} AS d,
             COALESCE(SUM(lt.sale_amount * (${partnerCoverageRatio("loto_tickets", "lt.id")})), 0) AS revenue_lbp,
             COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("loto_tickets", "lt.id")})), 0) AS profit_lbp,
             -- LO-V1/PA-3.1: a loto ticket is always LBP-native, so ANY
@@ -5980,29 +5970,29 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${notDebtPending("t.id")}
             AND ${dateRange("lt.created_at")}
             AND lt.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(lt.created_at, 'localtime')
+          GROUP BY ${localDayExpr("lt.created_at")}
         ),
         daily_expenses AS (
           SELECT
-            DATE(expense_date, 'localtime') AS d,
+            ${localDayExpr("expense_date")} AS d,
             COALESCE(SUM(amount_usd), 0) AS expenses_usd,
             COALESCE(SUM(amount_lbp), 0) AS expenses_lbp
           FROM expenses
           WHERE ${activeExpense()}
             AND ${dateRange("expense_date")}
             AND tenant_id = ?
-          GROUP BY DATE(expense_date, 'localtime')
+          GROUP BY ${localDayExpr("expense_date")}
         ),
         daily_exchange AS (
           SELECT
-            DATE(created_at, 'localtime') AS d,
+            ${localDayExpr("created_at")} AS d,
             COALESCE(SUM((${dailyExchangeUsdRevenue}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS revenue_usd,
             COALESCE(SUM((${EXCHANGE_LEG_PROFIT}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS profit_usd
           FROM exchange_transactions
           WHERE ${notRefunded("exchange_transactions")}
             AND ${dateRange("created_at")}
             AND tenant_id = ?
-          GROUP BY DATE(created_at, 'localtime')
+          GROUP BY ${localDayExpr("created_at")}
         ),
         daily_pmfee AS (
           -- Payment-method fees from financial_services (notRefunded, dated by
@@ -6013,7 +6003,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- to be lumped into profit_usd; it now contributes to neither,
           -- matching PA-1.4's own "dropped, not given a bucket" policy.
           SELECT
-            DATE(fs.created_at, 'localtime') AS d,
+            ${localDayExpr("fs.created_at")} AS d,
             COALESCE(SUM(CASE WHEN fs.currency = 'USD' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_usd,
             COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_lbp
           FROM financial_services fs
@@ -6021,7 +6011,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${notRefunded("fs")}
             AND ${dateRange("fs.created_at")}
             AND fs.tenant_id = ?
-          GROUP BY DATE(fs.created_at, 'localtime')
+          GROUP BY ${localDayExpr("fs.created_at")}
         ),
         -- PA-2.2 (OWNER_NOTES_2026-09-21.md §6.4) — the same three sources
         -- PA-2.1 added to getByModule (see that block's own comments there
@@ -6032,7 +6022,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- fragment getDebtRepaymentProfit uses, instead of a pasted copy
           -- of its predicate (T3 KC-2).
           SELECT
-            DATE(t.created_at, 'localtime') AS d,
+            ${localDayExpr("t.created_at")} AS d,
             COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
             COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
           FROM transactions t
@@ -6040,13 +6030,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${keptChangeSource("t")}
             AND ${dateRange("t.created_at")}
             AND t.tenant_id = ?
-          GROUP BY DATE(t.created_at, 'localtime')
+          GROUP BY ${localDayExpr("t.created_at")}
         ),
         daily_discounts AS (
           -- LO-V5: now calls counterpartyDiscountSource, the SAME fragment
           -- getCounterpartyDiscountTotals uses (CQ-10/D1).
           SELECT
-            DATE(t.created_at, 'localtime') AS d,
+            ${localDayExpr("t.created_at")} AS d,
             COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
             COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
           FROM transactions t
@@ -6054,7 +6044,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${counterpartyDiscountSource("t")}
             AND ${dateRange("t.created_at")}
             AND t.tenant_id = ?
-          GROUP BY DATE(t.created_at, 'localtime')
+          GROUP BY ${localDayExpr("t.created_at")}
         ),
         daily_bills_commission AS (
           -- LO-V5: now calls supplierSettlementSource, the SAME fragment
@@ -6066,7 +6056,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- this CTE excludes it via NOT cashlessCommissionBatch to avoid
           -- double-counting, same as getByModule's own split.
           SELECT
-            DATE(t.created_at, 'localtime') AS d,
+            ${localDayExpr("t.created_at")} AS d,
             COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
             COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
           FROM transactions t
@@ -6075,13 +6065,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             ${hasAllocations ? `AND NOT (${cashlessCommissionBatch("t.source_id")})` : ""}
             AND ${dateRange("t.created_at")}
             AND t.tenant_id = ?
-          GROUP BY DATE(t.created_at, 'localtime')
+          GROUP BY ${localDayExpr("t.created_at")}
         ),
         daily_topup_buyback AS (
           -- LO-V5: now calls topupBuybackSource, the SAME fragment
           -- getTopupBuybackProfit uses (PA-2.3).
           SELECT
-            DATE(r.created_at, 'localtime') AS d,
+            ${localDayExpr("r.created_at")} AS d,
             COALESCE(SUM(t.profit_usd * (${partnerCoverageRatio("recharges", "r.id")})), 0) AS profit_usd,
             COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("recharges", "r.id")})), 0) AS profit_lbp
           FROM recharges r
@@ -6092,7 +6082,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${notDebtPending("t.id")}
             AND ${dateRange("r.created_at")}
             AND r.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(r.created_at, 'localtime')
+          GROUP BY ${localDayExpr("r.created_at")}
         )
         SELECT
           dates.d AS date,

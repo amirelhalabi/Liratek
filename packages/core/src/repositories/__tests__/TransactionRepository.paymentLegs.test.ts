@@ -996,6 +996,11 @@ describe("TransactionRepository.getCashFlowByDate — D1 currency in/out report"
 // accumulator; that failing-first run, if wanted, is for whoever runs the
 // gate at the end of this batch to do by reverting the currency guard above
 // and confirming the "excludes a non-USD CREDIT_RETURN leg" test below fails.
+//
+// LIRA-223 resolution: under the reworded rule 17 (owner decision
+// 2026-09-26), that revert/run/revert is explicitly NOT to be done as a
+// retroactive proof — the test below is labelled "(not proven
+// failing-first)" instead.
 describe("TransactionRepository.getRecent — returned_credits_usd (LIRA-205)", () => {
   let db: Database.Database;
   let repo: TransactionRepository;
@@ -1049,7 +1054,7 @@ describe("TransactionRepository.getRecent — returned_credits_usd (LIRA-205)", 
     expect(row.returned_credits_usd).toBe(5);
   });
 
-  it("excludes a non-USD CREDIT_RETURN leg from the USD figure instead of mislabeling it with a $ prefix", () => {
+  it("excludes a non-USD CREDIT_RETURN leg from the USD figure instead of mislabeling it with a $ prefix (not proven failing-first — LIRA-223)", () => {
     // Money-display bug (LIRA-205 MAJOR): pre-fix, `_attachPaymentLegs` summed
     // `p.amount` across every currency into `returned_credits_usd`, which the
     // UI renders with a hard "$" prefix — an LBP leg would have rendered as

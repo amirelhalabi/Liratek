@@ -25,6 +25,13 @@ function createTestDb(): Database.Database {
       full_name TEXT NOT NULL
     );
 
+    -- LIRA-241: findClientHistory() now LEFT JOINs users for created_by_username.
+    CREATE TABLE users (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      username  TEXT NOT NULL
+    );
+
     CREATE TABLE debt_ledger (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id        INTEGER NOT NULL,

@@ -238,6 +238,11 @@ export type DebtLedgerEntity = {
   /** LIRA-131: now projected by DebtRepository.getColumns(). */
   is_refunded?: number;
   refunded_at?: string | null;
+  /** LIRA-241 — display name of the user who recorded this ledger entry
+   *  (`created_by` joined to `users.username`), for the Debts page's User
+   *  column. Null/absent when `created_by` is null (system-authored row) or
+   *  the user was deleted — render as "—". */
+  created_by_username?: string | null;
 };
 
 export type DashboardStats = {
@@ -1007,6 +1012,11 @@ export type ApiAdapter = {
   /** Look up a product by its exact barcode (null when no match) — the
    *  ProductForm barcode generator's uniqueness check. */
   getProductByBarcode: (barcode: string) => Promise<any | null>;
+  /** LIRA-225 — single-row product read by id (null when missing). The
+   *  Adjust Stock hand-off from the product edit form uses this instead of
+   *  searching `ProductList`'s current (filtered/searched) `products` array,
+   *  which can dead-end on a product the active filters hide. */
+  getProductById: (id: number) => Promise<any | null>;
   /** Plain category NAMES, distinct from `getCategoriesFull` below (which
    *  carries id/sort_order/tracks_imei_units). */
   getCategories: () => Promise<string[]>;
@@ -1290,6 +1300,15 @@ export type ApiAdapter = {
   getRechargeHistory: (
     provider: "MTC" | "Alfa",
   ) => Promise<RechargeHistoryEntry[]>;
+  /** LIRA-250 follow-up — today's MTC/Alfa sales count/profit for the
+   *  Recharge page's Count/Profit + Total Profit cards
+   *  (`RechargeRepository.getTodayStats`). */
+  getRechargeTodayStats: (provider: "MTC" | "Alfa") => Promise<{
+    count: number;
+    profit_usd: number;
+    profit_lbp: number;
+    byCurrency: Array<{ currency: string; commission: number; count: number }>;
+  }>;
   processRecharge: (payload: any) => Promise<ApiResult>;
   /** Funding-source drawer balances for the top-up modal opened by
    *  `handleTopUpClick` — feeds all four top-up arms below. Previously a

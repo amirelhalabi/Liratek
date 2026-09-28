@@ -165,7 +165,7 @@ describe("reconcileLegs", () => {
     });
   });
 
-  describe("tenderExchangeRate — reconcile at the till's own rate, banded against the server rate", () => {
+  describe("tenderExchangeRate — reconcile at the till's own rate (LIRA-240: never banded/blocked)", () => {
     it("band constant is exactly 0.15 (±15%)", () => {
       expect(TENDER_RATE_BAND_PCT).toBe(0.15);
     });
@@ -250,42 +250,100 @@ describe("reconcileLegs", () => {
       ).not.toThrow();
     });
 
-    it("REJECTS a tender rate just outside the +15% band with a DISTINCT error (not 'do not reconcile')", () => {
-      // 103,500 is the exact +15% boundary (accepted, proven above);
-      // 103,501 is one LBP unit past it — genuinely outside the band.
+    it("LIRA-240: ACCEPTS a tender rate just outside the +15% band — the band no longer blocks at all", () => {
+      // 103,500 is the exact +15% boundary (accepted even before this
+      // ticket); 103,501 is one LBP unit past it. Before LIRA-240 this threw
+      // "outside the accepted ±15% band" (owner decision 2026-09-28: a
+      // payment form must never block on the typed rate — only warn).
+      // Single-currency legs make the math rate-independent (division by
+      // rate on a zero LBP amount), isolating the band decision itself.
       const justOutside = 90_000 * (1 + TENDER_RATE_BAND_PCT) + 1; // 103,501
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("USD", 100)],
+          expectedTotals: expectedTotalIn(100, "USD"),
+          exchangeRate: 90_000,
+          tenderExchangeRate: justOutside,
+          context: "test",
+        }),
+      ).not.toThrow();
+    });
+
+    it("LIRA-240: a wildly implausible tender rate (40,000 vs. 90,000 server) no longer throws 'outside the accepted' — but a GENUINE leg mismatch at that rate still throws 'do not reconcile'", () => {
+      // These specific legs (owner's MTC CREDIT_TRANSFER repro) only
+      // mathematically balance at 89,000 (the till's own buy rate) — see
+      // the "FIXED" test above. Reconciling them at 40,000 is a REAL
+      // mismatch, not a banding decision, so this must still throw — just
+      // with the ordinary "do not reconcile" message, never the retired
+      // band message.
       let message = "";
       expect(() => {
         try {
           reconcileLegs({
-            inLegs: [leg("USD", 100)],
-            expectedTotals: expectedTotalIn(100, "USD"),
+            inLegs: [leg("USD", 10)],
+            outLegs: [leg("LBP", 170_000, { direction: "OUT" })],
+            expectedTotals: expectedTotalIn(720_000, "LBP"),
             exchangeRate: 90_000,
-            tenderExchangeRate: justOutside,
-            context: "test",
+            tenderExchangeRate: 40_000,
+            context: "MTC CREDIT_TRANSFER recharge",
           });
         } catch (e) {
           message = (e as Error).message;
           throw e;
         }
-      }).toThrow();
-      expect(message).not.toMatch(/do not reconcile/);
-      expect(message).toMatch(/outside the accepted/);
-      expect(message).toContain(String(justOutside));
-      expect(message).toContain("90000");
+      }).toThrow(/do not reconcile/);
+      expect(message).not.toMatch(/outside the accepted/);
     });
 
-    it("REJECTS a wildly implausible tender rate (e.g. 40,000 vs. a 90,000 server rate)", () => {
+    it("LIRA-240 owner repro: recharge priced $6 USD paid entirely in LBP at +16% off the server rate — ACCEPTED, no throw at all", () => {
+      // The customer pays a USD-priced recharge entirely in LBP at the
+      // OPERATOR'S typed rate (a legitimate, if generous, counter rate) —
+      // the LBP amount is internally consistent with the typed rate, so it
+      // reconciles at ANY tender rate, including one 16% off the server's.
+      const tender = 90_000 * 1.16; // 104,400 — the exact owner-reported deviation
       expect(() =>
         reconcileLegs({
-          inLegs: [leg("USD", 10)],
-          outLegs: [leg("LBP", 170_000, { direction: "OUT" })],
-          expectedTotals: expectedTotalIn(720_000, "LBP"),
+          inLegs: [leg("LBP", 6 * tender)],
+          expectedTotals: expectedTotalIn(6, "USD"),
           exchangeRate: 90_000,
-          tenderExchangeRate: 40_000,
+          tenderExchangeRate: tender,
           context: "MTC CREDIT_TRANSFER recharge",
         }),
-      ).toThrow(/outside the accepted/);
+      ).not.toThrow();
+    });
+
+    it("LIRA-240: an OMT/Whish SEND priced $10 USD paid entirely in LBP at +30% off the server rate — ACCEPTED, no throw at all", () => {
+      const tender = 90_000 * 1.3; // 117,000
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("LBP", 10 * tender)],
+          expectedTotals: expectedTotalIn(10, "USD"),
+          exchangeRate: 90_000,
+          tenderExchangeRate: tender,
+          context: "WHISH_APP SEND",
+        }),
+      ).not.toThrow();
+    });
+
+    it("LIRA-240 exact bug repro: a 300,000 LBP recharge paid with 300,000 LBP cash reconciles at ANY typed rate — no conversion is needed, so the rate must never matter", () => {
+      // Live report: this was refused at "+16%" even though both the price
+      // and the payment are LBP — the rate plays no part in the math
+      // whatsoever (usdEquivalent divides the SAME LBP amount by the SAME
+      // rate on both sides of the equation, so it cancels regardless of
+      // what the rate is). Proven here for the reported deviation (+16%)
+      // AND a much larger one, to show the invariant holds independent of
+      // magnitude, not just inside some new wider band.
+      for (const tender of [90_000 * 1.16, 90_000 * 5, 1]) {
+        expect(() =>
+          reconcileLegs({
+            inLegs: [leg("LBP", 300_000)],
+            expectedTotals: expectedTotalIn(300_000, "LBP"),
+            exchangeRate: 90_000,
+            tenderExchangeRate: tender,
+            context: "MTC CREDIT_TRANSFER recharge",
+          }),
+        ).not.toThrow();
+      }
     });
 
     it("no tenderExchangeRate at all: reconciles at exchangeRate exactly as before (backward compatible)", () => {
@@ -507,10 +565,22 @@ describe("resolveStampedExchangeRate (stamp-only, never throws)", () => {
     expect(resolveStampedExchangeRate(90_000, undefined)).toBe(90_000);
   });
 
-  it("tender more than 15% off falls back to the server rate — and does NOT throw", () => {
-    // 50,000 vs. 90,000 is 44.4% off — genuinely outside ±15%, not just ±10%.
+  it("LIRA-240: tender more than 15% off still WINS — the stamp no longer falls back to the server rate", () => {
+    // 50,000 vs. 90,000 is 44.4% off — genuinely outside the old ±15% band.
+    // Owner decision 2026-09-28: the stamp must reflect EXACTLY what was
+    // typed, however far from the server rate — the silent server-rate
+    // fallback (and the reconcileLegs refusal it mirrored) is retired.
     expect(() => resolveStampedExchangeRate(90_000, 50_000)).not.toThrow();
-    expect(resolveStampedExchangeRate(90_000, 50_000)).toBe(90_000);
+    expect(resolveStampedExchangeRate(90_000, 50_000)).toBe(50_000);
+  });
+
+  it("LIRA-240: +16%/+30% owner-reported deviations are stamped exactly as typed, not the server rate", () => {
+    expect(resolveStampedExchangeRate(90_000, 90_000 * 1.16)).toBe(
+      90_000 * 1.16,
+    );
+    expect(resolveStampedExchangeRate(90_000, 90_000 * 1.3)).toBe(
+      90_000 * 1.3,
+    );
   });
 
   it("passes at exactly the +15% band boundary — tender wins", () => {
@@ -525,9 +595,9 @@ describe("resolveStampedExchangeRate (stamp-only, never throws)", () => {
     expect(resolveStampedExchangeRate(90_000, tender)).toBe(tender);
   });
 
-  it("falls back just outside the +15% band", () => {
+  it("LIRA-240: still wins just outside the +15% band — no fallback boundary anymore", () => {
     const tender = 90_000 * (1 + TENDER_RATE_BAND_PCT) + 1; // 103,501
-    expect(resolveStampedExchangeRate(90_000, tender)).toBe(90_000);
+    expect(resolveStampedExchangeRate(90_000, tender)).toBe(tender);
   });
 
   it("no valid server rate (e.g. 0) — trusts the tender rate as-is, does not throw", () => {
@@ -535,7 +605,7 @@ describe("resolveStampedExchangeRate (stamp-only, never throws)", () => {
     expect(resolveStampedExchangeRate(0, 89_000)).toBe(89_000);
   });
 
-  it("reuses TENDER_RATE_BAND_PCT (0.15) rather than a duplicated threshold", () => {
+  it("LIRA-240: TENDER_RATE_BAND_PCT still exists (the UI warning needs it) but no longer gates this stamp", () => {
     expect(TENDER_RATE_BAND_PCT).toBe(0.15);
   });
 });

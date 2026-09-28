@@ -51,6 +51,7 @@ import { HistoryModal } from "./HistoryModal";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import logger from "@/utils/logger";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { SUPPLIER_KEYS } from "@/features/suppliers/hooks/useSuppliers";
 
 // ─── Module-level pure helpers ────────────────────────────────────────────────
@@ -1095,9 +1096,10 @@ function KatchFormInner({
       });
       await loadPrimaryLines();
     } catch (err) {
-      setSelfChargeError(
-        err instanceof Error ? err.message : "Self-charge failed",
-      );
+      // LIRA-247: `err instanceof Error` is false for a thrown ApiError
+      // (e.g. a web 403 role refusal), so it used to fall back to this
+      // generic string and hide the real reason.
+      setSelfChargeError(getApiErrorMessage(err, "Self-charge failed"));
     } finally {
       setSelfChargeSubmitting(false);
     }

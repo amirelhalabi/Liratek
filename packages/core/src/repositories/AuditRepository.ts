@@ -79,6 +79,24 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
    * audit rows were silently dropped — `AuditService.log()` swallows the
    * throw — see `logAdminAction()`, which now wraps its platform write in
    * `runWithoutTenant()` explicitly instead of relying on ambient scope).
+   *
+   * `created_at`/`updated_at`: `CURRENT_TIMESTAMP` (plain UTC), matching
+   * every other table's convention (`transactions.created_at`, the
+   * repository template in `packages/core/CLAUDE.md`). LIRA-243: this used
+   * to be `datetime('now', 'localtime')` — the QUERY HOST's wall-clock time
+   * (the shop's PC on desktop, always non-UTC; the Fly container's own zone
+   * on web). The frontend renders every timestamp through
+   * `parseDbDate.ts`, which pins a marker-less string to UTC before
+   * converting to the viewer's local zone — correct for `CURRENT_TIMESTAMP`,
+   * but a value that was ALREADY local got double-shifted, showing the
+   * Audit Log 3h ahead of the Transactions tab for the same real moment
+   * (Beirut's offset). Fixing the write side (not the renderer, which was
+   * already doing the right thing for a value that should have been UTC) is
+   * what rule 27 calls for — never derive a wall-clock value from the query
+   * host's own OS zone on a request path. NOTE: rows written before this fix
+   * remain stamped in whatever the writing machine's local zone was — this
+   * change does not rewrite them (see LIRA-243 investigation notes on old
+   * rows).
    */
   log(data: CreateAuditLogData): number {
     const tenantId = isTenantBypass() ? null : getCurrentTenantId();
@@ -88,7 +106,7 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
          summary, old_values, new_values, metadata,
          impersonator_id, tenant_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-              datetime('now', 'localtime'), datetime('now', 'localtime'))
+              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `);
     const result = stmt.run(
       data.user_id,

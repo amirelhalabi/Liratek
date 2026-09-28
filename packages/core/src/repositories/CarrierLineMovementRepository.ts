@@ -127,6 +127,81 @@ export class CarrierLineMovementRepository extends BaseRepository<CarrierLineMov
       .all(transactionId, getCurrentTenantId()) as CarrierLineMovementEntity[];
   }
 
+  /**
+   * LIRA-239 — reversal-order guard lookups for CHARGE-shaped movements
+   * (`validity_days_delta > 0`) ONLY. `CarrierLineRepository.reverseMovement`
+   * restores a CHARGE's validity by a VERBATIM snapshot
+   * (`previous_validity_expires_at`, captured at the charge's own creation),
+   * which is safe only when reversed in strict reverse-creation order
+   * relative to every OTHER validity-affecting movement on the same line:
+   *
+   *  - A NEWER unreversed validity movement is still stacked on top of this
+   *    charge's own effect — restoring straight to this charge's
+   *    pre-mutation snapshot would silently erase that newer movement's
+   *    contribution instead of just this charge's own.
+   *  - An OLDER validity movement that has ALREADY been reversed means this
+   *    charge's snapshot (captured back when that older movement's effect
+   *    was still live) no longer reflects the line's actual history —
+   *    restoring it would resurrect a value that was never truly "current"
+   *    once that older movement's own (order-safe, current-state-based)
+   *    reversal ran.
+   *
+   * A SELL's reversal (`validity_days_delta < 0`) is deliberately EXEMPT
+   * from both checks — its reclaim arithmetic always reads the line's
+   * CURRENT `validity_expires_at`/`days_owed` (never a frozen snapshot for
+   * the addback), so it composes correctly regardless of what has or hasn't
+   * been reversed around it. That is exactly what the M1/m3 tests
+   * (`CarrierLineRepository.soldAheadDays.test.ts`) already prove: reversing
+   * a SELL while a LATER charge remains fully active is the sold-ahead
+   * design's own load-bearing case, not a hazard to block.
+   *
+   * `credits_delta` is untouched by either check: it reverses by plain
+   * arithmetic subtraction, which is commutative and always correct in any
+   * order — a pure credits movement must never be blocked here.
+   */
+  getLaterUnreversedValidityMovement(
+    carrierLineId: number,
+    afterMovementId: number,
+  ): CarrierLineMovementEntity | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT ${this.getColumns()} FROM carrier_line_movements
+           WHERE carrier_line_id = ? AND id > ? AND is_reversed = 0
+             AND validity_days_delta != 0 AND tenant_id = ?
+           ORDER BY id ASC LIMIT 1`,
+        )
+        .get(
+          carrierLineId,
+          afterMovementId,
+          getCurrentTenantId(),
+        ) as CarrierLineMovementEntity | undefined) ?? null
+    );
+  }
+
+  /** See {@link getLaterUnreversedValidityMovement}'s doc — the second half
+   *  of the same CHARGE-only reversal-order guard: an OLDER validity
+   *  movement that has ALREADY been reversed. */
+  getOlderReversedValidityMovement(
+    carrierLineId: number,
+    beforeMovementId: number,
+  ): CarrierLineMovementEntity | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT ${this.getColumns()} FROM carrier_line_movements
+           WHERE carrier_line_id = ? AND id < ? AND is_reversed = 1
+             AND validity_days_delta != 0 AND tenant_id = ?
+           ORDER BY id DESC LIMIT 1`,
+        )
+        .get(
+          carrierLineId,
+          beforeMovementId,
+          getCurrentTenantId(),
+        ) as CarrierLineMovementEntity | undefined) ?? null
+    );
+  }
+
   /** Not-yet-reversed movements tied to a transaction — exactly what the
    *  generic void/refund path reverses. Idempotent re-invocation naturally
    *  excludes rows already flipped. */

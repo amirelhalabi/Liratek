@@ -289,10 +289,10 @@ export const topUpFromClientSchema = z.object({
   /**
    * The USD/LBP rate to convert a payout leg whose `currencyCode` differs
    * from `currency` at. Also stamped on `transactions.exchange_rate` (via
-   * `resolveStampedExchangeRate`, same band-checked fallback-to-server-rate
-   * convention every other RechargeRepository flow's `tender_exchange_rate`
-   * already uses). Optional; falls back to the server's own USD/LBP sell
-   * rate when omitted or implausible.
+   * `resolveStampedExchangeRate`, same exact-as-typed convention every other
+   * RechargeRepository flow's `tender_exchange_rate` already uses — LIRA-240,
+   * 2026-09-28, retired the old ±15%-band fallback). Optional; falls back to
+   * the server's own USD/LBP sell rate only when omitted.
    */
   exchangeRate: z.number().positive().optional(),
   clientName: z.string().optional(),
