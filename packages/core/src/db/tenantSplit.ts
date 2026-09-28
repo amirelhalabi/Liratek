@@ -75,6 +75,29 @@ const EXPECTED_GLOBAL_TABLES = new Set(["users", "sessions", "audit_log"]);
 const SPECIAL_CASED_TABLES = new Set(["tenants", "tenant_subscriptions"]);
 
 /**
+ * Prefix of Litestream's own replication-bookkeeping tables, created inside
+ * EVERY database Litestream replicates (verified against Litestream's own
+ * source, `db.go`, 2026-09-28): `_litestream_seq (id INTEGER PRIMARY KEY, seq
+ * INTEGER)` — "to force writes to the WAL when empty" — and `_litestream_lock
+ * (id INTEGER)` — "to force write locks during sync". Neither carries a
+ * `tenant_id` and neither is shop data; a real production snapshot's dry run
+ * came back `ok: false` over exactly these two tables before this exclusion
+ * existed. Matched by PREFIX (not an exact-name set like
+ * `KNOWN_TABLES_WITHOUT_TENANT_ID` above) since a future Litestream version
+ * could add more `_litestream_*` tables and this must not need a new release
+ * to keep recognizing them. These tables are never copied into an output
+ * file: Litestream recreates them itself the moment it starts replicating
+ * that file, so `buildTenantFile`/`buildPlatformFile` DROP them after the
+ * `VACUUM INTO` copy (rule 14: one constant, checked at every site that cares
+ * about these tables).
+ */
+const LITESTREAM_TABLE_PREFIX = "_litestream_";
+
+function isLitestreamTable(name: string): boolean {
+  return name.startsWith(LITESTREAM_TABLE_PREFIX);
+}
+
+/**
  * The only tables allowed to have NO `tenant_id` column at all. Every one of
  * these is intentionally global (the tenant registry itself, or process-
  * level plumbing that never carries shop data). Any OTHER table discovered
@@ -132,6 +155,21 @@ export interface TenantSplitReport {
    * consequence as `unexpectedTablesWithoutTenantId`: non-empty ⇒
    * `ok: false`, nothing written. */
   unsafeTableNames: string[];
+  /** Litestream's own replication-bookkeeping tables (`_litestream_seq`,
+   * `_litestream_lock`, …) found in the source and DROPPED from every output
+   * file after the `VACUUM INTO` copy — see `LITESTREAM_TABLE_PREFIX`. Empty
+   * when the source was never replicated by Litestream. Reported so an
+   * operator reviewing the split sees this happened rather than wondering
+   * whether it was missed. */
+  droppedReplicationTables: string[];
+  /** `audit_log` rows written before 2026-09-27 (B-D3) whose
+   * `impersonator_id` pointed at a PLATFORM user's id — rewritten to the
+   * current shape (`impersonator_id NULL`, identity folded into `metadata`
+   * under the same keys the current code uses) rather than left to fail
+   * the split. See `LEGACY_IMPERSONATOR_TABLE` for the full story. Empty
+   * when the source has no such row (the common case going forward — new
+   * code never writes this shape). */
+  rewrittenLegacyImpersonatorRows: RewrittenLegacyImpersonatorRow[];
   /** Per-file `PRAGMA foreign_key_check` / `integrity_check` results. */
   fileChecks: {
     file: string;
@@ -159,6 +197,43 @@ export interface ForeignKeyViolationRow {
   rowid: number | null;
   parent: string;
   fkid: number;
+}
+
+/**
+ * Legacy pre-B-D3 impersonation-audit shape (production finding, real dry
+ * run 2026-09-28: shop 5's `audit_log` row 158, `IMPERSONATION_START`,
+ * `tenant_id 5`, `impersonator_id = 4` — user 4 is a `super_admin` with
+ * `tenant_id NULL`, a PLATFORM-only user). Before 2026-09-27, the
+ * impersonation-start shop-note row put the platform user's id directly in
+ * this tenant-scoped FK column (`audit_log.impersonator_id REFERENCES
+ * users(id)`). Current code (`backend/src/api/admin.ts`,
+ * `AuditService.ts`) never does this — it always writes `impersonator_id:
+ * null` and folds the impersonator's identity into `metadata` instead.
+ * Once split per-tenant, a legacy row's `impersonator_id` points at a user
+ * that exists only in `platform.db`, never in the shop file, so it dangles.
+ * Fixed, named constants (rule 14) — never discovered — because this
+ * encodes one exact, dated shape, not a generic rule. */
+const LEGACY_IMPERSONATOR_TABLE = "audit_log";
+const LEGACY_IMPERSONATOR_COLUMN = "impersonator_id";
+
+/** The SAME metadata keys the current B-D3 impersonation-start write uses
+ * (`backend/src/api/admin.ts`, the shop-note `audit_log` row) — a rewritten
+ * legacy row must be indistinguishable from one the current code wrote
+ * directly, never a second, drifting definition of the same contract
+ * (rule 14). */
+const LEGACY_IMPERSONATOR_METADATA_KEYS = {
+  impersonatedBy: "impersonatedBy",
+  impersonatorUserId: "impersonatorUserId",
+} as const;
+
+/** One `audit_log` row rewritten from the legacy impersonator_id shape to
+ * the current one, reported so a human reviewing a real split sees exactly
+ * what changed instead of it happening silently. */
+export interface RewrittenLegacyImpersonatorRow {
+  file: string;
+  table: string;
+  rowid: number;
+  impersonatorUserId: number;
 }
 
 /** Cap on how many violating rows a single file's `fileChecks` entry lists
@@ -255,6 +330,7 @@ function discoverUnsafeAndUnscopedTables(db: Database.Database): {
   const unexpectedTablesWithoutTenantId: string[] = [];
 
   for (const t of tables) {
+    if (isLitestreamTable(t.name)) continue; // replication bookkeeping — dropped separately, never a finding
     if (!isSimpleIdentifier(t.name)) {
       unsafeTableNames.push(t.name);
       continue;
@@ -266,6 +342,141 @@ function discoverUnsafeAndUnscopedTables(db: Database.Database): {
   }
 
   return { unsafeTableNames, unexpectedTablesWithoutTenantId };
+}
+
+/**
+ * Every `_litestream_*` table present in `db` (source or a freshly
+ * `VACUUM INTO`-ed output file share the same schema, so discovering this
+ * once against the source is enough for every output file). Filtered through
+ * `isSimpleIdentifier()` for the same reason every other identifier here is
+ * — Litestream's own naming is trusted, but nothing gets spliced into a
+ * `DROP TABLE` statement unchecked (rule 2).
+ */
+function discoverLitestreamTables(db: Database.Database): string[] {
+  const tables = db
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
+    )
+    .all() as { name: string }[];
+  return tables.map((t) => t.name).filter(isLitestreamTable).filter(isSimpleIdentifier);
+}
+
+/** Drops every table in `tables` from `file`, if present. Used to remove
+ * Litestream's replication bookkeeping from a freshly copied output file —
+ * see `LITESTREAM_TABLE_PREFIX` above for why these are never carried into a
+ * shop or platform file. */
+function dropTables(file: Database.Database, tables: string[]): void {
+  for (const table of tables) {
+    file.exec(`DROP TABLE IF EXISTS ${quoteIdent(table)}`);
+  }
+}
+
+/**
+ * Merges the legacy impersonator's identity into a row's existing
+ * `metadata` JSON, under the SAME keys the current B-D3 write uses
+ * (`LEGACY_IMPERSONATOR_METADATA_KEYS`). Never loses existing keys: a
+ * NULL/missing metadata starts from `{}`; metadata that isn't valid JSON,
+ * or is valid JSON but not a plain object (e.g. an array), is preserved
+ * verbatim under `legacyMetadata` rather than dropped — a split must never
+ * silently discard data it doesn't recognize.
+ */
+function mergeLegacyImpersonatorMetadata(
+  existingMetadataJson: string | null,
+  impersonatorUsername: string,
+  impersonatorUserId: number,
+): string {
+  let existing: Record<string, unknown> = {};
+  if (existingMetadataJson) {
+    try {
+      const parsed: unknown = JSON.parse(existingMetadataJson);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        existing = parsed as Record<string, unknown>;
+      } else {
+        existing = { legacyMetadata: existingMetadataJson };
+      }
+    } catch {
+      existing = { legacyMetadata: existingMetadataJson };
+    }
+  }
+
+  return JSON.stringify({
+    ...existing,
+    [LEGACY_IMPERSONATOR_METADATA_KEYS.impersonatedBy]: impersonatorUsername,
+    [LEGACY_IMPERSONATOR_METADATA_KEYS.impersonatorUserId]: impersonatorUserId,
+  });
+}
+
+/**
+ * Rewrites legacy pre-B-D3 impersonation rows in ONE freshly narrowed
+ * tenant file (`file`) — must run AFTER the per-table tenant-narrowing
+ * DELETEs (so only this tenant's own audit rows remain) and BEFORE the
+ * FK check. `sourceDb` is read-only here (never mutated) purely to resolve
+ * whether a referenced `impersonator_id` is a genuine platform user
+ * (`tenant_id IS NULL`) — the file's own `users` table has already been
+ * narrowed to this tenant, so it can no longer answer that question about
+ * a platform user by itself.
+ *
+ * Only rewrites a row when `impersonator_id` resolves, in the SOURCE, to a
+ * user with `tenant_id IS NULL` — the exact, and only, shape the old code
+ * ever wrote. Any other non-NULL `impersonator_id` (pointing at a real
+ * tenant user, or at nothing at all) is left untouched and falls through to
+ * the ordinary FK check, which must still fail the split — that is a real
+ * data problem, not this legacy shape, and rewriting it away would hide a
+ * genuine corruption.
+ */
+function rewriteLegacyImpersonatorRows(
+  file: Database.Database,
+  sourceDb: Database.Database,
+  destPath: string,
+): RewrittenLegacyImpersonatorRow[] {
+  if (
+    !tableColumnNames(file, LEGACY_IMPERSONATOR_TABLE).includes(
+      LEGACY_IMPERSONATOR_COLUMN,
+    )
+  ) {
+    return []; // schema without this column at all — nothing to rewrite
+  }
+
+  const rows = file
+    .prepare(
+      `SELECT id, ${quoteIdent(LEGACY_IMPERSONATOR_COLUMN)} AS impersonator_id, metadata
+         FROM ${quoteIdent(LEGACY_IMPERSONATOR_TABLE)}
+        WHERE ${quoteIdent(LEGACY_IMPERSONATOR_COLUMN)} IS NOT NULL`,
+    )
+    .all() as { id: number; impersonator_id: number; metadata: string | null }[];
+
+  const rewritten: RewrittenLegacyImpersonatorRow[] = [];
+
+  for (const row of rows) {
+    const platformUser = sourceDb
+      .prepare(`SELECT username FROM users WHERE id = ? AND tenant_id IS NULL`)
+      .get(row.impersonator_id) as { username: string } | undefined;
+
+    if (!platformUser) continue; // not the legacy platform-user shape — leave for the FK check
+
+    const mergedMetadata = mergeLegacyImpersonatorMetadata(
+      row.metadata,
+      platformUser.username,
+      row.impersonator_id,
+    );
+
+    file
+      .prepare(
+        `UPDATE ${quoteIdent(LEGACY_IMPERSONATOR_TABLE)}
+            SET ${quoteIdent(LEGACY_IMPERSONATOR_COLUMN)} = NULL, metadata = ?
+          WHERE id = ?`,
+      )
+      .run(mergedMetadata, row.id);
+
+    rewritten.push({
+      file: destPath,
+      table: LEGACY_IMPERSONATOR_TABLE,
+      rowid: row.id,
+      impersonatorUserId: row.impersonator_id,
+    });
+  }
+
+  return rewritten;
 }
 
 function countWhere(
@@ -332,12 +543,14 @@ function vacuumFile(filePath: string): void {
 function buildTenantFile(
   sourceDb: Database.Database,
   tenantScopedTables: string[],
+  litestreamTables: string[],
   tenantId: number,
   destPath: string,
-): void {
+): RewrittenLegacyImpersonatorRow[] {
   vacuumInto(sourceDb, destPath);
 
   const file = new Database(destPath);
+  let rewrittenLegacyImpersonatorRows: RewrittenLegacyImpersonatorRow[] = [];
   try {
     file.pragma("foreign_keys = OFF");
     file.transaction(() => {
@@ -351,11 +564,21 @@ function buildTenantFile(
       }
       file.prepare(`DELETE FROM tenants WHERE id != ?`).run(tenantId);
       file.exec(`DELETE FROM tenant_subscriptions`);
+      // Rewrite legacy impersonator rows AFTER narrowing (only this
+      // tenant's own audit rows remain) and BEFORE dropping the Litestream
+      // tables / this function's caller running the FK check.
+      rewrittenLegacyImpersonatorRows = rewriteLegacyImpersonatorRows(
+        file,
+        sourceDb,
+        destPath,
+      );
+      dropTables(file, litestreamTables);
     })();
   } finally {
     file.close();
   }
   vacuumFile(destPath);
+  return rewrittenLegacyImpersonatorRows;
 }
 
 /** Builds the platform file: every tenant-scoped table (except
@@ -363,6 +586,7 @@ function buildTenantFile(
 function buildPlatformFile(
   sourceDb: Database.Database,
   tenantScopedTables: string[],
+  litestreamTables: string[],
   destPath: string,
 ): void {
   vacuumInto(sourceDb, destPath);
@@ -375,6 +599,7 @@ function buildPlatformFile(
         if (table === "tenant_subscriptions") continue;
         file.prepare(`DELETE FROM ${quoteIdent(table)} WHERE tenant_id IS NOT NULL`).run();
       }
+      dropTables(file, litestreamTables);
     })();
   } finally {
     file.close();
@@ -423,6 +648,7 @@ export function splitTenantDatabase(options: TenantSplitOptions): TenantSplitRep
     const tenantScopedTables = discoverTenantScopedTables(sourceDb);
     const { unsafeTableNames, unexpectedTablesWithoutTenantId } =
       discoverUnsafeAndUnscopedTables(sourceDb);
+    const droppedReplicationTables = discoverLitestreamTables(sourceDb);
 
     // Unexpected-global-rows finding: computed regardless of dry-run, since
     // it needs only reads against the source.
@@ -466,6 +692,8 @@ export function splitTenantDatabase(options: TenantSplitOptions): TenantSplitRep
         unexpectedGlobalRows,
         unexpectedTablesWithoutTenantId,
         unsafeTableNames,
+        droppedReplicationTables,
+        rewrittenLegacyImpersonatorRows: [],
         fileChecks: [],
         ok: false,
       };
@@ -487,6 +715,8 @@ export function splitTenantDatabase(options: TenantSplitOptions): TenantSplitRep
         unexpectedGlobalRows,
         unexpectedTablesWithoutTenantId,
         unsafeTableNames,
+        droppedReplicationTables,
+        rewrittenLegacyImpersonatorRows: [],
         fileChecks: [],
         ok: unexpectedGlobalRows.length === 0,
       };
@@ -494,10 +724,22 @@ export function splitTenantDatabase(options: TenantSplitOptions): TenantSplitRep
 
     fs.mkdirSync(path.join(outputDir, "tenants"), { recursive: true });
 
+    const rewrittenLegacyImpersonatorRows: RewrittenLegacyImpersonatorRow[] = [];
     for (const id of tenantIds) {
-      buildTenantFile(sourceDb, tenantScopedTables, id, tenantFiles[id]);
+      rewrittenLegacyImpersonatorRows.push(
+        ...buildTenantFile(
+          sourceDb,
+          tenantScopedTables,
+          droppedReplicationTables,
+          id,
+          tenantFiles[id],
+        ),
+      );
     }
-    buildPlatformFile(sourceDb, tenantScopedTables, platformFile);
+    // The platform file needs no rewrite: it keeps only `tenant_id IS NULL`
+    // rows, so it never contains a tenant-scoped audit_log row in the first
+    // place (the legacy shape only ever showed up in a SHOP file).
+    buildPlatformFile(sourceDb, tenantScopedTables, droppedReplicationTables, platformFile);
 
     const verifiedCounts: TableCountFinding[] = [];
     const mismatches: TableCountFinding[] = [];
@@ -631,6 +873,8 @@ export function splitTenantDatabase(options: TenantSplitOptions): TenantSplitRep
       unexpectedGlobalRows,
       unexpectedTablesWithoutTenantId,
       unsafeTableNames,
+      droppedReplicationTables,
+      rewrittenLegacyImpersonatorRows,
       fileChecks,
       ok,
     };

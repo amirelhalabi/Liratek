@@ -76,6 +76,23 @@ describe("listTenantDatabaseIdsFromDir", () => {
     expect(listTenantDatabaseIdsFromDir(dir)).toEqual([1]);
   });
 
+  it("ignores Litestream's own hidden .<filename>-litestream metadata directory", () => {
+    // Litestream's default `meta-path` is a hidden `.<filename>-litestream`
+    // directory next to the database file it replicates (litestream.io/reference/config/,
+    // verified 2026-09-28) — so once Phase D's per-tenant replication is live,
+    // `/data/tenants/` holds `5.db` AND `.5.db-litestream/` side by side. This
+    // must never be misread as a tenant id: it is a directory (skipped by the
+    // existing `entry.isFile()` check) and its name doesn't end in `.db`
+    // anyway, so this pins down the existing protection rather than adding
+    // new logic.
+    touch(dir, "5.db");
+    const metaDir = path.join(dir, ".5.db-litestream");
+    fs.mkdirSync(metaDir);
+    touch(metaDir, "generation-info.json"); // contents don't matter — non-recursive read
+
+    expect(listTenantDatabaseIdsFromDir(dir)).toEqual([5]);
+  });
+
   it("propagates a real error that is NOT 'directory missing' (e.g. dir is actually a file)", () => {
     const filePath = path.join(dir, "not-a-directory");
     touch(dir, "not-a-directory");

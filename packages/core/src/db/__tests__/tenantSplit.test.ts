@@ -84,9 +84,11 @@ function buildSourceDb(sourceDbPath: string): Database.Database {
     `INSERT INTO sessions (tenant_id, user_id, token, expires_at) VALUES (NULL, ?, 'tok-super', datetime('now', '+1 day'))`,
   ).run(superAdmin);
 
-  // impersonator_id left NULL throughout — cross-file impersonator FK
-  // dangling is a real, separately-tracked pre-existing issue (plan § 12
-  // finding #5 / owner decision B-D3), not this tool's to fix.
+  // impersonator_id left NULL throughout in this shared seed — the legacy
+  // (pre-B-D3) shape that DOES set it is exercised by dedicated tests below
+  // ("rewrites a legacy pre-B-D3 impersonation audit row..." /
+  // "does NOT rewrite... regular tenant user"), which build their own rows
+  // on top of this fixture rather than perturbing these shared counts.
   db.prepare(
     `INSERT INTO audit_log (tenant_id, user_id, username, role, action, entity_type, summary) VALUES (1, 1, 'admin', 'admin', 'CREATE', 'client', 'tenant 1 audit row A')`,
   ).run();
@@ -399,5 +401,159 @@ describe("splitTenantDatabase", () => {
       expect(check.foreignKeyViolations).toBe(0);
       expect(check.foreignKeyViolationRows).toEqual([]);
     }
+  });
+
+  // ---------------------------------------------------------------------
+  // Litestream artifact finding (dry run against a real production
+  // snapshot, 2026-09-28): Litestream creates its OWN bookkeeping tables
+  // inside every database it replicates — verified against Litestream's own
+  // source (`db.go`): `_litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER)`
+  // "to force writes to the WAL when empty" and `_litestream_lock (id
+  // INTEGER)` "to force write locks during sync". Neither carries a
+  // `tenant_id`, and today's hard-fail scan (`discoverUnsafeAndUnscopedTables`)
+  // does not know they are special, so a real snapshot came back `ok: false`
+  // with `unexpectedTablesWithoutTenantId: ["_litestream_seq",
+  // "_litestream_lock"]` — a false-positive refusal, not a real leak: these
+  // are Litestream's own plumbing, not shop data, and Litestream recreates
+  // them on its own the moment it starts replicating a file. Guard written
+  // FIRST against the pre-fix code and seen failing (rule 17).
+  // ---------------------------------------------------------------------
+
+  it("excludes Litestream's own replication-bookkeeping tables from the unknown-table refusal, and drops them from every output file", () => {
+    sourceDb!.exec(`CREATE TABLE _litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER)`);
+    sourceDb!.prepare(`INSERT INTO _litestream_seq (id, seq) VALUES (1, 42)`).run();
+    sourceDb!.exec(`CREATE TABLE _litestream_lock (id INTEGER)`);
+
+    const outputDir = path.join(tmpDir, "out-litestream");
+    const report = splitTenantDatabase({ sourceDbPath, outputDir, write: true });
+
+    expect(report.ok).toBe(true);
+    expect(report.unexpectedTablesWithoutTenantId).toEqual([]);
+    expect(report.unsafeTableNames).toEqual([]);
+    expect(new Set(report.droppedReplicationTables)).toEqual(
+      new Set(["_litestream_seq", "_litestream_lock"]),
+    );
+
+    const allFiles = [report.platformFile, ...Object.values(report.tenantFiles)];
+    expect(allFiles.length).toBeGreaterThan(0);
+    for (const filePath of allFiles) {
+      const file = new Database(filePath, { readonly: true });
+      try {
+        const remaining = file
+          .prepare(
+            `SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '\\_litestream\\_%' ESCAPE '\\'`,
+          )
+          .all() as { name: string }[];
+        expect(remaining).toEqual([]);
+      } finally {
+        file.close();
+      }
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Production-snapshot finding (real dry run, 2026-09-28): shop 5's
+  // audit_log row 158, IMPERSONATION_START, tenant_id 5, impersonator_id =
+  // 4 — user 4 is a super_admin (tenant_id NULL), a platform-only user. This
+  // is the pre-B-D3 shape: before 2026-09-27, the impersonation-start
+  // shop-note row put the PLATFORM user's id directly in the tenant-scoped
+  // `audit_log.impersonator_id REFERENCES users(id)` FK column. Current code
+  // (`backend/src/api/admin.ts`, `AuditService.ts`) always writes
+  // `impersonator_id: null` and keeps the impersonator's identity in
+  // `metadata` (`impersonatedBy`, `impersonatorUserId`) instead — so once
+  // split, the platform user referenced by a legacy row does not exist in
+  // the shop's own `users` table (narrowed to that shop's tenant_id only)
+  // and `PRAGMA foreign_key_check` reports it. Guard written FIRST against
+  // the pre-fix `tenantSplit.ts` (rule 17) — no rewrite exists yet, so this
+  // must fail with exactly that dangling reference.
+  // ---------------------------------------------------------------------
+
+  it("rewrites a legacy pre-B-D3 impersonation audit row (impersonator_id pointing at a platform user) instead of failing the split", () => {
+    const superAdminId = (
+      sourceDb!.prepare(`SELECT id FROM users WHERE username = 'super-admin'`).get() as {
+        id: number;
+      }
+    ).id;
+    const tenant5AdminId = (
+      sourceDb!.prepare(`SELECT id FROM users WHERE username = 'admin-five'`).get() as {
+        id: number;
+      }
+    ).id;
+
+    const legacyRowId = sourceDb!
+      .prepare(
+        `INSERT INTO audit_log
+           (tenant_id, user_id, username, role, action, entity_type, entity_id, summary, metadata, impersonator_id)
+         VALUES (5, ?, 'admin-five', 'admin', 'IMPERSONATION_START', 'session', '999', 'legacy impersonation row', ?, ?)`,
+      )
+      .run(tenant5AdminId, JSON.stringify({ preExisting: "keep-me" }), superAdminId)
+      .lastInsertRowid as number;
+
+    const outputDir = path.join(tmpDir, "out-legacy-impersonator");
+    const report = splitTenantDatabase({ sourceDbPath, outputDir, write: true });
+
+    expect(report.ok).toBe(true);
+    expect(report.rewrittenLegacyImpersonatorRows).toEqual([
+      {
+        file: report.tenantFiles[5],
+        table: "audit_log",
+        rowid: legacyRowId,
+        impersonatorUserId: superAdminId,
+      },
+    ]);
+
+    const t5 = new Database(report.tenantFiles[5], { readonly: true });
+    try {
+      const row = t5
+        .prepare(
+          `SELECT impersonator_id, metadata FROM audit_log WHERE action = 'IMPERSONATION_START'`,
+        )
+        .get() as { impersonator_id: number | null; metadata: string | null };
+      expect(row.impersonator_id).toBeNull();
+      const metadata = JSON.parse(row.metadata!) as Record<string, unknown>;
+      expect(metadata.impersonatedBy).toBe("super-admin");
+      expect(metadata.impersonatorUserId).toBe(superAdminId);
+      expect(metadata.preExisting).toBe("keep-me"); // pre-existing metadata is preserved, not clobbered
+    } finally {
+      t5.close();
+    }
+
+    const t5FileCheck = report.fileChecks.find((c) => c.file === report.tenantFiles[5]);
+    expect(t5FileCheck!.foreignKeyViolations).toBe(0);
+  });
+
+  it("does NOT rewrite, and still fails the split on, an audit row whose impersonator_id points at a regular (non-platform) tenant user", () => {
+    const tenant1UserId = (
+      sourceDb!.prepare(`SELECT id FROM users WHERE username = 'staff-one'`).get() as {
+        id: number;
+      }
+    ).id;
+    const tenant5AdminId = (
+      sourceDb!.prepare(`SELECT id FROM users WHERE username = 'admin-five'`).get() as {
+        id: number;
+      }
+    ).id;
+
+    sourceDb!
+      .prepare(
+        `INSERT INTO audit_log
+           (tenant_id, user_id, username, role, action, entity_type, entity_id, summary, impersonator_id)
+         VALUES (5, ?, 'admin-five', 'admin', 'IMPERSONATION_START', 'session', '998', 'bogus cross-tenant impersonator', ?)`,
+      )
+      .run(tenant5AdminId, tenant1UserId);
+
+    const outputDir = path.join(tmpDir, "out-bogus-impersonator");
+    const report = splitTenantDatabase({ sourceDbPath, outputDir, write: true });
+
+    expect(report.ok).toBe(false);
+    expect(report.rewrittenLegacyImpersonatorRows).toEqual([]);
+
+    const t5FileCheck = report.fileChecks.find((c) => c.file === report.tenantFiles[5]);
+    expect(t5FileCheck!.foreignKeyViolations).toBeGreaterThan(0);
+    expect(t5FileCheck!.foreignKeyViolationRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ table: "audit_log", parent: "users" }),
+      ]),
+    );
   });
 });

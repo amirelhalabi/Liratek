@@ -164,6 +164,31 @@ describe("checkPlatformSplitStatus", () => {
     expect(status.splitRequired).toBe(false);
   });
 
+  it("never treats Litestream's own replication-bookkeeping tables as shop data", () => {
+    // Litestream creates `_litestream_seq`/`_litestream_lock` inside every
+    // database it replicates (see `tenantSplit.ts`'s `LITESTREAM_TABLE_PREFIX`
+    // — a real production dry run tripped over these). Neither has a
+    // `tenant_id` column, so `discoverTenantScopedTables()` never returns
+    // them regardless of how many rows they hold — this pins that down
+    // explicitly rather than relying on it being true by accident.
+    tmpDir = makeTmpDir();
+    const db = buildUnsplitPlatformDb(path.join(tmpDir, "liratek.db"));
+    db.pragma("foreign_keys = OFF");
+    for (const table of discoverTenantScopedTables(db)) {
+      if (table === "tenant_subscriptions") continue; // NOT NULL tenant_id — not this test's concern
+      db.exec(`UPDATE ${quoteIdent(table)} SET tenant_id = NULL`);
+    }
+    db.exec(`DELETE FROM tenant_subscriptions`);
+    db.exec(`CREATE TABLE _litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER)`);
+    db.prepare(`INSERT INTO _litestream_seq (id, seq) VALUES (1, 42)`).run();
+    db.exec(`CREATE TABLE _litestream_lock (id INTEGER)`);
+
+    const status = checkPlatformSplitStatus(db);
+
+    expect(status.splitRequired).toBe(false);
+    expect(status.tablesWithShopRows).toEqual([]);
+  });
+
   it("reports splitRequired: false against a genuinely fresh (never-migrated) file", () => {
     tmpDir = makeTmpDir();
     const db = new Database(path.join(tmpDir, "fresh.db"));

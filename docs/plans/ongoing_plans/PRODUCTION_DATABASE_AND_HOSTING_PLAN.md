@@ -780,6 +780,26 @@ yarn api:ssh
    re-run from step 2's snapshot once the source is fixed), then repeat from
    step 2.
 
+   **`droppedReplicationTables` listing `_litestream_seq`/`_litestream_lock`
+   is expected, not a finding** — production runs Litestream, which creates
+   these two bookkeeping tables inside every database it replicates; the
+   split drops them from every output file (they carry no `tenant_id` and are
+   not shop data) and Litestream recreates them on its own the moment it
+   starts replicating `/data/liratek.db.new`/`/data/tenants/<id>.db`. An
+   EMPTY `droppedReplicationTables` on a source that Litestream has been
+   replicating is the surprising case, not a full one.
+
+   **`rewrittenLegacyImpersonatorRows` listing one or more `audit_log` rows
+   is also expected, not a finding** — an impersonation-start row written
+   before 2026-09-27 (B-D3) put the PLATFORM super admin's id directly in
+   the tenant-scoped `impersonator_id` FK column; the split now rewrites
+   each one to the current shape (`impersonator_id NULL`, the impersonator's
+   id/username folded into `metadata`) instead of failing on the dangling
+   reference. Production has exactly one such row as of this writing (the
+   Test shop, tenant 5, dated 2026-09-09) — confirm the count you see here
+   matches what you expect before moving on; anything else the FK check
+   flags is a REAL problem and follows the paragraph above, not this one.
+
 5. **Inspect the report**, then move the files into place (the tool refuses
    to write into `/data` directly — it only ever writes into an empty output
    directory you gave it, so this move is a separate, deliberate step):
