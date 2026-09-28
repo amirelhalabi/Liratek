@@ -19,6 +19,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const APP = "liratek-api";
 
@@ -83,9 +84,17 @@ export function flyCapture(args, { app = APP } = {}) {
 
 // Direct invocation: pure passthrough. argv[1] is undefined when this module is
 // imported (e.g. `node -e "import('./scripts/fly.mjs')"`), so guard it.
+//
+// NOTE: comparing `import.meta.url` to a hand-built `file://${argv[1]}` string
+// is broken on Windows — an absolute path with a drive letter produces
+// `file:///C:/...` (three slashes) while the hand-built string is
+// `file://C:/...` (two), so they never match and this block silently never
+// ran (`yarn api`, `yarn api:logs`, `yarn api:status`, `yarn api:ssh` all
+// printed nothing and exited 0 on Windows). Compare resolved filesystem paths
+// instead, same as `scripts/run-e2e.mjs`.
 if (
   process.argv[1] &&
-  import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}`
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   const args = process.argv.slice(2);
   if (args.length === 0) {

@@ -92,27 +92,36 @@ jobs:
       - name: Bind-arity check (prepared statements' ? count == bound args)
         run: yarn check:bind-arity
 
-      # scripts/__tests__/tenantMigrationLogCheck.test.mjs (node:test, pure
-      # JS, no build/native-module dependency) guards
-      # scripts/lib/tenantMigrationLogCheck.mjs — the per-tenant deploy
-      # verifier's log check that `scripts/deploy-api.mjs` runs after every
-      # Fly deploy. It was previously wired into neither `yarn test` nor CI,
-      # so a regression here (e.g. re-loosening the `missing` check that
-      # guards the "TENANT_DB_MODE=per-tenant flipped before the Phase D
-      # split ran" silent-outage scenario, see that file's header) would
-      # have shipped unnoticed.
+      # `yarn test:scripts` runs two node:test files (pure JS, no
+      # build/native-module dependency), named explicitly rather than via a
+      # glob (see the LIRA-123 note below):
+      #
+      #   - scripts/__tests__/tenantMigrationLogCheck.test.mjs guards
+      #     scripts/lib/tenantMigrationLogCheck.mjs — the per-tenant deploy
+      #     verifier's log check that `scripts/deploy-api.mjs` runs after
+      #     every Fly deploy. A regression here (e.g. re-loosening the
+      #     `missing` check that guards the "TENANT_DB_MODE=per-tenant
+      #     flipped before the Phase D split ran" silent-outage scenario, see
+      #     that file's header) would otherwise ship unnoticed.
+      #   - scripts/__tests__/flyEntryGuard.test.mjs guards the
+      #     direct-invocation check in scripts/fly.mjs (the flyctl
+      #     passthrough behind `yarn api`/`api:logs`/`api:status`/`api:ssh`).
+      #     Its old guard compared `import.meta.url` to a hand-built
+      #     `file://${argv[1]}` string, which never matches on Windows
+      #     (`file:///C:/...` vs `file://C:/...`), so the whole passthrough
+      #     silently no-op'd (exit 0, no output) on the owner's machine.
       #
       # LIRA-123 lesson (rule 28a): a step that runs nothing and exits 0 is
       # indistinguishable from a pass. Empirically (2026-09-27), `node --test`
       # given a bare directory or an unmatched glob does NOT reliably error —
       # an unmatched glob prints "# tests 0" and exits 0. Naming the exact
-      # file sidesteps the unmatched-glob trap (a missing file makes `node
+      # files sidesteps the unmatched-glob trap (a missing file makes `node
       # --test` exit non-zero on its own), and the floor check below catches
       # the other silent-pass shape: a file that still loads as valid JS but
       # whose test() calls were all removed is wrapped by node:test as ONE
       # implicit passing test ("# tests 1"), not zero — so exit-code-only
-      # would miss it. Floor is 3, comfortably below the current 6.
-      - name: Deploy-verifier script tests (tenant migration log check)
+      # would miss it. Floor is 3, comfortably below the current 8.
+      - name: Deploy-verifier script tests (tenant migration log check + fly.mjs entry guard)
         run: |
           MIN_TESTS=3
 
