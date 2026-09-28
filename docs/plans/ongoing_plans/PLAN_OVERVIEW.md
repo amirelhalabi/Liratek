@@ -45,7 +45,7 @@ D13 no-op closed). Alongside them, `electron-app/create_db.sql`'s **rule-10 brea
 fails loudly from now on. **Two owner decisions** were taken and are recorded in `OWNER_NOTES` §0.5:
 audit scope is **BROAD** (staff keep both the Transactions and the Audit Log tabs), and the row
 actions stay **visible** to staff rather than being hidden behind a role check. Nine follow-up
-tickets — **LIRA-220 … LIRA-228** — were filed out of that work; **LIRA-229** and **LIRA-230** came out of the 2026-09-24 Profits audit, and **LIRA-231** (POS refunds via the payment form) out of the owner's 2026-09-26 test; **LIRA-232 … LIRA-235** (session item refund, #14 slice 3, two transport fixes, the web staff-login helper) were filed the same day; **LIRA-236** (refund form exchange rate) on 2026-09-27. The next free ID is **LIRA-237**.
+tickets — **LIRA-220 … LIRA-228** — were filed out of that work; **LIRA-229** and **LIRA-230** came out of the 2026-09-24 Profits audit, and **LIRA-231** (POS refunds via the payment form) out of the owner's 2026-09-26 test; **LIRA-232 … LIRA-235** (session item refund, #14 slice 3, two transport fixes, the web staff-login helper) were filed the same day; **LIRA-236** (refund form exchange rate) on 2026-09-27. **LIRA-237 … LIRA-239** (web timezone reports, old-data repairs, #28 verify) were filed on 2026-09-28. The next free ID is **LIRA-240**.
 
 **2026-09-25 — the rest of `OWNER_NOTES_2026-09-21.md` implemented and unit-verified, still
 uncommitted.** All four money bugs (#4/#15 D1, #6, #7/LIRA-203, #8/LIRA-204, #10/LIRA-206,
@@ -99,8 +99,8 @@ writes transactions, payments, drawers, ledgers or profit.
 | `TRANSPORT_PARITY_AUDIT_PLAN.md` | Phase 3 (type the 31 `any` adapter fns, money paths first), Phase 4 (rule C1 + allowlist across 19 `window.api?.` components), and `scripts/check-transport-parity.mjs` — **which does not exist**. One of the few headers that tells the truth | Medium | yes |
 | `OWNER_NOTES_TASK_PLAN.md` | LIRA-083 (custom-service work-status lifecycle), LIRA-084 (partial keep-change), LIRA-086 (checkpoint value-drift colouring). Plus LIRA-088, blocked on your answer | Medium | LIRA-088 only |
 | `DESKTOP_LICENSING_PLAN.md` | Phases 1-5: `last_check_in` + machine fingerprint, Ed25519-signed licence blob, key moved to `userData`/`safeStorage`, 30-day grace UI, clock-tamper freeze. Its own "🔴 URGENT" hazard was already fixed by `805fc45a` — *one minute before the doc was committed* | Large | yes |
-| `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` | Phases A-D, the per-tenant database split. Phase 0 passed; Fly + Litestream are live. `connection.ts` still has one module-level `db` and a parameterless `getDatabase()`, untouched since April | Large | yes |
-| `NEXT_STEPS_AFTER_FLY_MIGRATION.md` | `DATABASE_KEY` log line still lies (no canary in `sqlcipher.ts:39`); signup URL-code prefill; **plus the per-tenant split, which is the same work as the row above** — see §4 | Large | yes |
+| `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` | **Only Phase D left** (the switch to per-tenant files). Phases A–C shipped 2026-09-27/28 (`4dcd16c0`…`7c150b2f`, deployed, prod still `TENANT_DB_MODE=shared`); the split was dry-run on a production snapshot and passed. Runbook § 12.4; owner schedules the window | Small | yes |
+| `NEXT_STEPS_AFTER_FLY_MIGRATION.md` | `DATABASE_KEY` log line still lies (no canary in `sqlcipher.ts:39`); signup URL-code prefill. Its per-tenant-split item now points at the hosting plan (resolved 2026-09-28, see §4) | Medium | yes |
 | `WEB_PARITY_ROADMAP.md` 📖 | **Living tracker — never archive.** Phase 3 count is badly stale: it says "7 of 87 specs, ~43 remain"; today there are **117 desktop specs against the same 7-spec allowlist, so ~110 remain**. Two §9 items are already fixed but still listed | Large | yes |
 
 ### `todo_plans/` — genuinely not started (6)
@@ -138,7 +138,7 @@ writes transactions, payments, drawers, ledgers or profit.
 | **Money correctness** | `profit-audit-2026-09` | The only open item where the map itself is wrong about money (§3) |
 | **Web maturity** | `TRANSPORT_PARITY_AUDIT` → `WEB_PARITY_ROADMAP` | The guard script *prevents* the defect class the 110 specs merely *detect* |
 | **Commercial** | `SUBSCRIPTION_MANAGEMENT` → `DESKTOP_LICENSING` → `OPEN_PUBLIC_SIGNUP` | The only chain with real sequencing; needs an email capability nothing has built |
-| **Infrastructure** | `PRODUCTION_DATABASE_AND_HOSTING` | Per-tenant DB split; resolve the duplicate in §4 first |
+| **Infrastructure** | `PRODUCTION_DATABASE_AND_HOSTING` → `OFFLINE_DESKTOP_FALLBACK` | Phase D (the switch) is the last step of the split; it unblocks the offline-desktop plan |
 
 ### 2d. Blocked on you — five entries, no code possible until answered
 
@@ -177,10 +177,9 @@ directory, and treat the 19 as an open money-correctness backlog.**
 
 ## 4. One duplicate to resolve
 
-**The per-tenant database split is specified twice** — `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md`
-Phases A-D and `NEXT_STEPS_AFTER_FLY_MIGRATION.md` item 3 are the same work in two documents.
-Pick one owner (the former is far more detailed) and have the other point at it. Until then, two
-plans both look Large for the same reason and the board over-counts the work.
+~~**The per-tenant database split is specified twice**~~ — **resolved 2026-09-28.**
+`PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` owns it; `NEXT_STEPS_AFTER_FLY_MIGRATION.md` item 3 now
+points there and keeps its original text only as history.
 
 ---
 
@@ -256,7 +255,7 @@ and the payout posting shape all already exist.
 ```mermaid
 graph TD
   MT["🔶 MULTI_TENANT<br/>one e2e short"]
-  PDH["🔶 PRODUCTION_DATABASE_AND_HOSTING<br/>Fly done · split not"]
+  PDH["🔶 PRODUCTION_DATABASE_AND_HOSTING<br/>A–C shipped · Phase D (switch) left"]
   NSF["🔶 NEXT_STEPS_AFTER_FLY_MIGRATION<br/>post-migration punch list"]
   SUB["🔶 SUBSCRIPTION_MANAGEMENT<br/>needs email capability"]
   LIC["🔶 DESKTOP_LICENSING<br/>Ed25519 + grace + fingerprint"]

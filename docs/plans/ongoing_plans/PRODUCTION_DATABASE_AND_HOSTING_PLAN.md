@@ -1,12 +1,12 @@
 # Production Database & Hosting Plan
 
-> **Status (2026-09-27, end of session)**: Phase 0 ✅. Hosting ✅ as Fly.io. **Phases A, B, C
-> BUILT and verified (UNCOMMITTED at time of writing)**: full `yarn test` green (core 4242,
-> backend 1082, electron-app 246, frontend 2144), typecheck/lint/tenant-scoping/schema-equivalence/
-> bind-arity clean, and `backend/src/__tests__/perTenantMode.e2e.api.test.ts` passes 11/11 in
-> per-tenant mode. Production still runs `TENANT_DB_MODE=shared`. **Remaining: desktop e2e
-> (migration v187 rebuilds `tenants` on every desktop DB), then Phase D (runbook § 12.4) and the
-> Litestream restore drill (§ 12.4, unverified until run).**
+> **Status (2026-09-28)**: Phases 0, A, B, C ✅ **shipped** — commits `4dcd16c0`, `161dd1c0`,
+> `a4c791d4`, `7c150b2f`, all pushed and deployed; CI green; desktop e2e 315/315 green (v187 safe
+> on desktop). Production runs **`TENANT_DB_MODE=shared`** (verified on the machine: env unset,
+> `/data/tenants` empty, schema v187). The split was **dry-run on a production snapshot**
+> (2026-09-28): `ok`, 70 tables × 2 shops match, 0 FK violations, boot guards pass — after two
+> real-data fixes (§ 12.7). **Only Phase D remains** (runbook § 12.4), incl. the Litestream
+> restore drill (unverified until run). Owner schedules it.
 > Blocks `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (its Step 1).
 > **Written**: 2026-09-09. Supersedes the "one shared file" assumption in
 > `MULTI_TENANT_IMPLEMENTATION_PLAN.md`.
@@ -320,7 +320,7 @@ load-bearing for tenant resolution).
 | **A** | Tenant-aware `getDatabase()`: connection map keyed by tenant id, migrate-on-open, idle close. Failing-first tests.                                                                         | ~1 day   | 0          | ✅ Built (§ 11)                                                                                       |
 | **B** | Control-plane split: `tenants`, `tenant_subscriptions`, super-admin users/sessions, platform audit. **Touches login, impersonation, subscriptions.**                                       | 2–3 days | A          | ✅ Built (§ 12)                                                                                       |
 | **C** | Provisioning creates a tenant database from `create_db.sql` + migrations + config seed + first admin. Tenant delete becomes "archive the file" — the 68-table cascade becomes unnecessary. | ~1 day   | A, B       | ✅ Built (§ 12; migration v187 adds `provisioning` status)                                            |
-| **D** | Move the live tenants (**CornerTech id 1, Test id 5**, not N=1) into `/data/tenants/<id>.db`; extract control-plane rows; flip the mode flag (§ 11.1).                                    | hours    | C          | ⬜                                                                                                    |
+| **D** | Move the live tenants (**CornerTech id 1, Test id 5**, not N=1) into `/data/tenants/<id>.db`; extract control-plane rows; flip the mode flag (§ 11.1).                                    | hours    | C          | ⬜ Next — runbook § 12.4, dry-run on a prod snapshot passed 2026-09-28                                |
 | **E** | Hosting. **Done as Fly.io** (`fly.toml`, `fra`, one machine); tunnel out of the serving path. Remaining, optional: Cloudflare proxied + wildcard `*.liratek.shop`, retiring `tenantDomains.ts`. | —        | D          | ✅ core / ⬜ wildcard                                                                                 |
 | **F** | Durability. **Litestream → R2 live** for the shared file, restore proven (§ 10). Remaining: switch `backend/litestream.yml` to the `dir` + `watch` layout, prove a restore from it, delete the `web/liratek` prefix. | ~½ day   | D          | ✅ single file / ⬜ per-tenant                                                                        |
 
@@ -952,3 +952,23 @@ metadata leak it would close. Revisit before the offline-desktop plan
 own file, since that plan's whole premise is a shop holding only its own
 data. Characterized (not "unfixed bug") by
 `packages/core/src/db/__tests__/tenantSplitSqliteSequenceLeak.characterization.test.ts`.
+
+
+### 12.7 Production-snapshot dry run (2026-09-28)
+
+A consistent snapshot of the live database (`VACUUM INTO` from a read-only connection on the
+machine, downloaded with `flyctl ssh sftp get`, server copy deleted) was split locally with the
+shipped tool. It surfaced two things synthetic data never had — both fixed in `7c150b2f`:
+
+1. **Litestream's own tables** (`_litestream_seq`, `_litestream_lock`) tripped the unknown-table
+   refusal. They are now dropped from every output file (Litestream recreates them) and listed
+   in `droppedReplicationTables`.
+2. **One legacy impersonation audit row** (Test shop, 2026-09-09, before B-D3) had the super
+   admin's id in `audit_log.impersonator_id`. Such rows are rewritten to the current shape and
+   listed in `rewrittenLegacyImpersonatorRows`.
+
+Rerun: `ok`; an independent check (separate code) confirmed per-table counts for both shops, no
+cross-shop rows, a platform file holding only `tenants`, `tenant_subscriptions`, the super admin
+and its session; the boot guards report split done and no missing shops. Facts confirmed on the
+way: production shops are ids **1 cornertech** and **5 test**; most web data belongs to the Test
+shop; the 179 MB `liratek.db-wal` is a harmless high-water mark (1 live frame).

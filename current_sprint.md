@@ -4231,7 +4231,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-237**, LIRA-236 filed 2026-09-27).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-240**, LIRA-236 filed 2026-09-27, LIRA-237..239 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -5194,3 +5194,89 @@ The typed rate also converts the account-first part of a session item refund.
   - Fixtures are now anchored at noon UTC, and a guard test pins the 22:45 UTC case. Production is not affected, because desktop never sets `TZ`.
 
 **New, NOT fixed — proposed LIRA-237 (investigate):** many reporting queries bucket by `DATE(col, 'localtime')` / `dateRange()`. On the web backend (Fly, host UTC, `TZ` unset per rule 27), that is the SERVER's UTC day. So rows written between 00:00 and 03:00 Beirut may land on the previous day in web daily reports, unless something in that path already compensates. This is unverified.
+
+---
+
+## LIRA-237: web daily reports may put 00:00–03:00 Beirut rows on the previous day — HIGH — INVESTIGATE
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Dual transport / dates (rule 27)                                                   |
+| **Type**             | Investigation (possible bug)                                                       |
+| **Priority**         | High                                                                               |
+| **Status**           | TODO — proposed 2026-09-28; unverified                                             |
+| **Affected Modules** | profits, closing, dashboard, every daily report on web                             |
+| **Source**           | Found while fixing the flaky "today" core tests (2026-09-27)                       |
+
+### Summary
+
+Many reporting queries bucket by SQLite `DATE(col, 'localtime')` / `dateRange()`. On the web
+backend (Fly, host UTC, `TZ` unset by design, rule 27), `'localtime'` is the SERVER's UTC day, so
+a row written between 00:00 and 03:00 Beirut may land on the previous day in web daily reports.
+Something in that path may already compensate — verify first.
+
+**Steps:**
+1. Reproduce with a fixed UTC instant and a Beirut client day, over REST.
+2. If it is real, fix it the rule-27 way: the client supplies its day, the server's day is only a
+   fallback. Never fix it by setting `TZ` on the server.
+
+**What users will notice:** (if confirmed) web daily totals include sales made just after midnight.
+
+---
+
+## LIRA-238: repair old data the owner-notes fixes left behind, and take the SMS fee off the shop line — MEDIUM
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Owner notes 2026-09-21 — follow-ups                                                |
+| **Type**             | Data repair + one code gap                                                         |
+| **Priority**         | Medium                                                                             |
+| **Status**           | TODO — proposed 2026-09-28; each repair needs a dry run and the owner's OK         |
+| **Affected Modules** | debts, expenses, recharge, settings (shop lines)                                   |
+| **Source**           | `OWNER_NOTES_2026-09-21.md` §00.4                                                  |
+
+### Summary
+
+The fixes for notes #8, #26, #10 and #22 work from now on; past records were not repaired.
+1. **#8:** debt balances left at a few hundred LBP (e.g. −340 LBP) by settlements made before
+   the fix. A one-off repair per tenant, after a dry-run listing.
+2. **#26:** web expenses saved before 2026-09-25 have no `expense_date`, so they don't show on
+   Profits. Backfill from `created_at`, dry run first.
+3. **#10 / #22:** past drift between an MTC/Alfa shop line's credits and its drawer. A
+   reconciliation report per line, then an owner-approved correction entry.
+4. **#22 (code):** the SMS fee is still not taken off the shop line when credits are sold
+   (`RechargeRepository.ts` ~1222-1230). Add the signed line movement, and decide with the owner
+   whether past sales are corrected.
+
+**What users will notice:** old leftover balances and missing past expenses are corrected, and a
+shop line's balance matches the credits actually left after SMS fees.
+
+---
+
+## LIRA-239: verify that refunding a "sold ahead" days sale plus the later line recharge nets to zero — MEDIUM — VERIFY
+
+| Field                | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Owner notes 2026-09-21 — follow-ups (#28)                                          |
+| **Type**             | Execution-based verification                                                       |
+| **Priority**         | Medium                                                                             |
+| **Status**           | TODO — proposed 2026-09-28; flagged in the plan, never run                         |
+| **Affected Modules** | recharge (carrier lines), sessions, dashboard (owed days)                          |
+| **Source**           | `OWNER_NOTES_2026-09-21.md` §00.5                                                  |
+
+### Summary
+
+Note #28 (selling more days than a line holds) shipped in `9ed8d90f` (v184). The plan left one
+open item: refunding the days sale together with the later line recharge, in the same session,
+may not net to zero on every ledger.
+
+With real writers, check that create + refund nets to 0 on:
+- line credits;
+- the drawer;
+- the "days still to send" list;
+- profit.
+
+If it doesn't, fix it with a failing-first test (rule 17).
+
+**What users will notice:** (if a fix is needed) refunding a sold-ahead days sale restores the line
+and the owed-days list exactly.

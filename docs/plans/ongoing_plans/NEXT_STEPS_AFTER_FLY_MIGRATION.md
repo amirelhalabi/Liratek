@@ -61,6 +61,11 @@ for the web database and has never been exercised on a desktop file.
 
 ## 3. The per-tenant database split — Phases A–E 🟢
 
+> **Update 2026-09-28**: Phases A–C are **shipped** (see `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md`
+> status header and § 11–§ 12). Only Phase D (the switch) remains; its runbook is § 12.4 and it has
+> been dry-run on a production snapshot. E is done as Fly.io (wildcard DNS still optional). The
+> text below is the original 2026-09-09 plan, kept for history.
+
 Fully specified in `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` § 6. Not repeated
 here; the ordering that matters:
 

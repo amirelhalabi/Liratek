@@ -24,13 +24,128 @@ a named plan with no number · 22 need new tickets (21 new IDs; two notes share 
 > failure message rather than being hidden behind a role check. Nine follow-up tickets —
 > **LIRA-220 … LIRA-228** — came out of building the three. **LIRA-229** and **LIRA-230** came out of the
 > 2026-09-24 Profits audit (§6.9), and **LIRA-231** from the owner's 2026-09-26 refund test, so the
-> next free ID is **LIRA-237** (LIRA-232 … LIRA-235 filed 2026-09-26, LIRA-236 on 2026-09-27).
+> next free ID is **LIRA-240** (LIRA-232 … LIRA-235 filed 2026-09-26, LIRA-236 on 2026-09-27, LIRA-237 … LIRA-239 proposed 2026-09-28).
+>
+> **Progress, 2026-09-28: see §00 at the top.** 24 of 29 notes are done and live; 1 was closed as "no change"; 4 wait on information. The open follow-ups, old-data repairs and items still to verify are listed there.
 
 **Status glyphs, used consistently throughout:**
 ✅ done and verified in source · 🟡 partially shipped (the row says which half) ·
 🟠 open, blocked on an owner answer · ⬜ not started · ⚠ a doc or ID disagrees with the code.
 
 **The verbatim customer notes are in Appendix A** — everything in §1 is a paraphrase.
+
+---
+
+## 00. ⭐ CURRENT STATUS — 2026-09-28 (read this first; it supersedes §1's status column)
+
+This status was verified on 2026-09-27/28 against the source code and the git history, not
+against this file's older status lines. §1's table is kept as the record of the original triage,
+and its "status" column is out of date.
+
+**What is live:**
+- Commit `9ed8d90f` (pushed 2026-09-25) and commit `24651e83` (pushed 2026-09-27).
+- Web v1.31.0 with the in-app "What's new" window (`573b7df5` + `bd2540ba`, 2026-09-27).
+  User-facing notes are in `docs/release-notes/v1.31.0.md`.
+- **The desktop app is still v1.30.5 (2026-09-04).** Desktop shops have NONE of this until a
+  desktop release (`yarn release 1.31.0`).
+
+**Tally of the 29 notes:**
+- ✅ 24 done and live.
+- ✅ 1 closed as "no change" by the owner (#3).
+- 🟠 4 open, each waiting on information, not code (#1, #5, #17, #25).
+
+### 00.1 Every note: current status
+
+| # | Note (short) | Status | Where / notes |
+|---|---|---|---|
+| 1 | staff name on the txn table | 🟠 needs the customer | The User column already shows who recorded each row. Ask which page/module (§0.9). |
+| 2 | staff: no settings/profits; yes txn + audit | ✅ | Staff see Transactions & Audit (`89fa939e`, v178). Settings stays admin-only; Profits is behind its password (LIRA-177). Spin-off **LIRA-220** is still open (§00.3). |
+| 3 | fold −0.32$ into the 90,000 LBP | ✅ closed, no change | Owner decision 2026-09-24 (§2b #3). |
+| 4 | OMT receive fee must not touch drawers/supplier | ✅ new transactions | `9ed8d90f`, v180. Old rows are not restated (owner). |
+| 5 | UNICEF cash-out — check the voice note | 🟠 blocked | Waiting for the voice note. |
+| 6 | OMT receive without a fee is refused | ✅ | `9ed8d90f` (`validators/financial.ts`). |
+| 7 | overpay OMT → credit, auto-apply | ✅ owner's scope | The credit is kept and applied manually at the next settlement. The owner dropped auto-apply. `9ed8d90f`. |
+| 8 | debt settle leaves −340 LBP | ✅ new settlements | `9ed8d90f`. Existing leftover balances were NOT repaired → **LIRA-238** (§00.4). |
+| 9 | returned credits column | ✅ | `89fa939e`. |
+| 10 | buy back $9 shows +$18 | ✅ | `9ed8d90f`. Past line-vs-drawer drift was NOT repaired → **LIRA-238**. |
+| 11 | loto in a session: summary twice, missing money, no refund | ✅ | `9ed8d90f` (netted checkout, group summary, basket void/refund) + `24651e83` (single-item refund, LIRA-232). |
+| 12 | maintenance phone not required | ✅ | `ed211887`. |
+| 13 | buy and sell phone lines | ✅ | `9ed8d90f`. |
+| 14 | Profits per-module detail | ✅ | Slices 1–2 in `9ed8d90f`; every other module in `24651e83` (LIRA-233). |
+| 15 | OMT receive fee = commission only | ✅ | Same change as #4. |
+| 16 | Syria transfer OUT | ✅ | `9ed8d90f`, v185. |
+| 17 | +15% should alert, not block | 🟠 parked with the owner | Which rule is meant: the payment-form rate band (±15%) or a selling price? |
+| 18 | can't edit quantity after adding | ✅ by design + button | An "Adjust Stock" button is on the edit form (`89fa939e`). Follow-ups **LIRA-224 / 225 / 228** are open (§00.3). |
+| 19 | account entry doesn't reach the open session | ✅ owner's scope | Display only: the balance badge updates (`9ed8d90f`). |
+| 20 | exchange "customer gets" / right drawer | ✅ part A | The owner dropped part B (the drawer). |
+| 21 | shop-line checkbox: buy back vs charge | ✅ | `9ed8d90f`, v182. |
+| 22 | selling credits doesn't reduce the shop line | ✅ | `9ed8d90f`. The SMS fee is still NOT taken off the line → **LIRA-238**. |
+| 23 | top-ups refundable | ✅ | `9c0194cd`. |
+| 24 | payment form everywhere (hold money) | ✅ | `9ed8d90f`, v183. |
+| 25 | maintenance "Start" does nothing | 🟠 confirm with the customer | Probably fixed by `ed211887`. The one-line "show the save error" fix (**LIRA-211**) is not built. |
+| 26 | expenses don't affect Profits | ✅ new expenses | `9ed8d90f`. Web expenses saved before 2026-09-25 have no date and still don't show → **LIRA-238**. |
+| 27 | revenue $68M; debts must not feed Profits | ✅ | `9ed8d90f`. |
+| 28 | sell 1 year from a 5-month line, seamlessly | ✅ | `9ed8d90f`, v184. One behaviour is still unverified → **LIRA-239** (§00.5). |
+| 29 | total profit = net − expenses | ✅ | `9ed8d90f`. |
+
+### 00.2 Open — waiting on information (no code can start)
+
+- **#1** — the customer: which page should show the staff user's name?
+- **#5** — the voice note about the UNICEF cash-out.
+- **#17** — the owner: the payment-form rate band, or a selling-price rule?
+- **#25** — the customer: does "Start" work now? If it does, close #25 and keep only LIRA-211's one-line error message.
+
+### 00.3 Open follow-up tickets that came out of building these notes
+
+| Ticket | What | Status |
+|---|---|---|
+| **LIRA-211** (#25) | Maintenance: show the error when saving a status change fails (`Maintenance/index.tsx` ~486-490 has no `else`). | ⬜ one line |
+| **LIRA-220** (#2) | Settings audit rows can show sensitive values to staff (who can read audit now), and they are written even for writes that never happened. | ⬜ HIGH (security) |
+| **LIRA-221** | `MODULE_SEED_ROWS` is not yet the single source of the module seed. | ⬜ |
+| **LIRA-222** | Every product edit silently clears the product's image. Found by reading the code, not reproduced yet. | ⬜ MEDIUM (data loss) — reproduce first |
+| **LIRA-223** | The 2026-09-23 batch's guard tests were never shown to fail. | ⬜ |
+| **LIRA-224** (#18) | Should the product form offer "Save & adjust"? | 🟠 needs the owner's answer |
+| **LIRA-225** (#18) | Adjust-stock hand-off: a product hidden by the list filter dead-ends; no regression test. | ⬜ |
+| **LIRA-226** | The shape half of `check-schema-equivalence` is vacuous in CI; duplicate migration versions go unreported. | ⬜ |
+| **LIRA-227** | An upgraded tenant 1 and a fresh install disagree on the sidebar module order. | ⬜ LOW |
+| **LIRA-228** (#18) | The product form loses a warranty edit on minimize/restore. | ⬜ LOW |
+
+### 00.4 Old data the fixes did not repair, plus one remaining gap (proposed **LIRA-238**)
+
+The fixes work from now on; past records keep the old values unless we repair them.
+
+| From | What is left | Suggested action |
+|---|---|---|
+| #8 | Debt balances left at a few hundred LBP (e.g. −340 LBP) by settlements made before the fix. | A one-off repair per tenant, run after a dry run that lists the affected clients. |
+| #26 | Web expenses saved before 2026-09-25 have no `expense_date`, so they don't show on Profits. | Backfill `expense_date` from `created_at` (dry run first). |
+| #10 / #22 | Past drift between an MTC/Alfa shop line's credits and its drawer. | A reconciliation report per line, then an owner-approved correction entry. |
+| #22 | The SMS fee is still not taken off the shop line when credits are sold (`RechargeRepository.ts` ~1222-1230). | A code change (a new signed line movement), then decide how to handle past sales. |
+
+### 00.5 To verify (proposed **LIRA-239**)
+
+- **#28:** check whether refunding a "sold ahead" days sale, together with the later line recharge
+  in the SAME session, nets to zero on every ledger (line credits, drawer, owed-days list, profit).
+  The plan flagged it and it was never run. Needs an execution-based check with real writers.
+
+### 00.6 Found along the way (not an owner note) — proposed **LIRA-237**
+
+- **Web daily reports may put rows recorded between 00:00 and 03:00 Beirut on the previous day.**
+  Many reporting queries bucket by SQLite `'localtime'` / `dateRange()`, and on the web server
+  (Fly, UTC) that is the server's day (rule 27). This is unverified; investigate it first, because
+  it would affect every web shop every night.
+
+### 00.7 Delivered under this plan beyond the 29 notes
+
+These are all live, in the same commits:
+- the Profits audit fixes (§6);
+- closing report = Profits (LIRA-219);
+- the Dashboard chart and tile (§7);
+- POS drafts no longer counted as sales (LIRA-229);
+- a named walk-in's kept change stays under their name (LIRA-230).
+
+For the user-facing summary of all of it, see `docs/release-notes/v1.31.0.md`.
+
+**Next free ticket ID: LIRA-240** (LIRA-237 … LIRA-239 proposed 2026-09-28).
 
 ---
 
