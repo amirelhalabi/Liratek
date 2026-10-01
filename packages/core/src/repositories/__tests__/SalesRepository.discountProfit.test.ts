@@ -339,4 +339,38 @@ describe("SalesRepository — discount reduces stamped profit", () => {
     });
     expect(netProfit()).toBe(0);
   });
+
+  // ── LIRA-184 guard: the stamp (a multi-unit line) must agree with the
+  // naive per-unit view scaled by quantity. The audit that opened LIRA-184
+  // found three OTHER call sites (ClosingRepository, the old SalesRepository
+  // chart query, FinancialRepository) that dropped `* quantity` entirely, so
+  // a 3-unit line reported the margin of ONE unit. Those three were already
+  // removed by LIRA-219 and the DC-10 chart-data refactor before this test
+  // was written — run against the CURRENT (pre-lineGrossMarginUsd-extraction)
+  // code, this already passes, because `processSale`'s own per-item loop
+  // already multiplied by quantity. That is the real, recorded result: there
+  // is no live "ignores quantity" bug left to turn red here. What this test
+  // locks in going forward is that the shared `lineGrossMarginUsd` helper
+  // (rule 14 dedup of this loop's identical subexpression with the refund
+  // arm's) keeps producing the same quantity-scaled number.
+  it("stamps a 3-unit line's margin as 3× the per-unit margin, not 1×", () => {
+    const res = repo.processSale(
+      {
+        client_id: null,
+        items: [{ product_id: 1, quantity: 3, price: 70 }], // product_id 1 costs $60
+        total_amount: 210,
+        discount: 0,
+        final_amount: 210,
+        payment_usd: 210,
+        payment_lbp: 0,
+        exchange_rate: 90_000,
+      },
+      1,
+    );
+    expect(res.success).toBe(true);
+    // (70 - 60) * 3 = 30, i.e. 30 / 210 ≈ 14.3% — NOT (70-60)*1 = 10 (≈4.8%),
+    // which is what a quantity-dropping copy of the formula would stamp.
+    expect(stampedSaleProfit(db)).toBe(30);
+    expect(stampedSaleProfit(db) / 210).toBeCloseTo(30 / 210, 10);
+  });
 });

@@ -1224,7 +1224,7 @@ scope and go with LIRA-173.
 **12:50 — design approved, build started** (`lira-219-build`, `wf_41c5e5a9-2b5`). Design, owner answers
 E-Q1..E-Q7 (net line added; PDF converted totals kept; profit hidden from staff unless the Profits page is
 unlocked, server-enforced; "as of HH:MM" line; "unavailable" never $0.00) and the measured closing-vs-Profits
-table: `docs/plans/ongoing_plans/LIRA-219_CLOSING_PROFIT_PARITY.md`. The design also found that closing counts a
+table: `docs/plans/done_plans/LIRA-219_CLOSING_PROFIT_PARITY.md`. The design also found that closing counts a
 credit buyback's whole cash payout as profit ($18 on a $20-credit buyback instead of $2).
 *Exposure, measured 2026-09-24 (read-only):* production has 3 loto tickets and 4 sale lines, all on
 tenant 5; the local desktop DB has 1 and 3. Neither has a partner loto ticket, USD kept change on loto,

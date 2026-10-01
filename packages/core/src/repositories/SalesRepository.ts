@@ -13,6 +13,7 @@ import {
   BusinessRuleError,
 } from "../utils/errors.js";
 import { salesLogger } from "../utils/logger.js";
+import { lineGrossMarginUsd } from "../utils/saleMargin.js";
 import {
   getTransactionRepository,
   isOverridableLeg,
@@ -613,7 +614,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               }
             | undefined;
           const costPrice = productRow?.cost_price_usd ?? 0;
-          saleProfitUsd += (item.price - costPrice) * item.quantity;
+          saleProfitUsd += lineGrossMarginUsd(
+            item.price,
+            costPrice,
+            item.quantity,
+          );
           const name = productRow?.name ?? "Unknown Product";
           saleItemDetails.push({ name, quantity: item.quantity });
           productMetaByIndex.push({
@@ -1983,8 +1988,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // "finding #1" case for the failing-first proof.
     const discountShareUsd = (sale.discount_usd || 0) * lineShareOfSale;
     const refundAmount = item.sold_price_usd * refundQuantity - discountShareUsd;
-    const grossMarginUsd =
-      (item.sold_price_usd - item.cost_price_snapshot_usd) * refundQuantity;
+    const grossMarginUsd = lineGrossMarginUsd(
+      item.sold_price_usd,
+      item.cost_price_snapshot_usd,
+      refundQuantity,
+    );
     const refundProfitUsd = grossMarginUsd - discountShareUsd;
     return { refundAmount, refundProfitUsd };
   }

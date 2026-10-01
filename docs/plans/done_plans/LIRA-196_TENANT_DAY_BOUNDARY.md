@@ -1,7 +1,50 @@
 # LIRA-196 — "today" means the server's day, not the shop's
 
-**Priority: MEDIUM** · **Status: TODO, not started** · **Type: money reporting / dual-transport (CLAUDE.md rule 27)**
+**Priority: MEDIUM** · **Status: DONE (re-audited and closed 2026-10-02)** · **Type: money reporting / dual-transport (CLAUDE.md rule 27)**
 **Written 2026-09-21**, split out of the `lira-web-027` investigation so the narrow fix could ship on its own.
+
+## Closing note (2026-10-02)
+
+Re-audited per rule 27's detection recipe (grep `packages/core/src` request paths for `'now'`,
+`'localtime'`, `date('now'`/`datetime('now'`, `new Date()`, `Date.now()`, bare `localDay()`
+defaults, `toLocaleString`, and any `DATE(col, 'localtime')` outside `reportingTimeFragments.ts`).
+
+**The "Suggested order" §1 owner decision below turned out to be moot.** LIRA-237
+(`8cf9361d`, after this ticket was written) converted the bulk of the ~43 queries across all 9
+originally-scoped repositories (`ClosingRepository`, `CustomerSessionRepository`,
+`CustomServiceRepository`, `ExchangeRepository`, `FinancialServiceRepository`,
+`ProductRepository`, `ProfitRepository`, `SalesRepository`) plus `CarrierLineRepository` and
+`VoucherRepository` using the **per-request client offset** (`X-Client-Tz-Offset` →
+`clientTzOffsetMinutes()` → `reportingTimeFragments.ts`'s `isToday`/`isThisMonth`/`localDayExpr`/
+`dateRange`, or `utils/requestDay.ts`'s `clientDay()`) — not a stored tenant timezone column. That
+sidesteps the owner decision entirely: the browser already tells the server its own offset on every
+request. `AuditRepository` was separately fixed by LIRA-243 (switched to plain `CURRENT_TIMESTAMP`).
+
+**One instance LIRA-237 missed, found by this re-audit and fixed:**
+`ExpenseRepository.getTodayExpenses()` — `WHERE DATE(expense_date) = DATE('now')`, with **no**
+`'localtime'` modifier at all (worse than the original bug class: wrong on desktop too, not just
+web). Fixed by reusing `isToday("expense_date")` from `reportingTimeFragments.ts` (rule 14) instead
+of a fifth hand-rolled predicate. Guarded by
+`packages/core/src/repositories/__tests__/ExpenseRepository.webTodayTzOffset.test.ts`
+(failing-first, rule 17 — recorded red: 3/3 failed on the old predicate, including the
+`matchesToday`-conditional desktop-fallback test, because the old code had no `'localtime'` shift to
+fall back to).
+
+`TransactionRepository`'s `julianday('now') - julianday(due_date)` debt-aging buckets were checked
+and are **not** a rule-27 bug: both operands are absolute instants (UTC), so the subtraction is
+timezone-independent — there is no calendar-day truncation to disagree about.
+
+Verification: `npx tsc --noEmit` in `packages/core` (10s, 0 errors); `yarn workspace @liratek/core
+test` from repo root — **454 suites / 4420 tests, all green**; `node scripts/check-tenant-scoping.mjs`
+and `node scripts/check-bind-arity.mjs` both clean (0 violations). Two pre-existing tests
+(`ExpenseRepository.refundedRead.test.ts`, `PostRefactorVerification.test.ts`) had fixtures that
+inserted `expense_date` as a bare UTC date (`DATE('now')` / a `toISOString().split("T")[0]` string,
+losing all time-of-day information) — unrepresentative of real rows, which always carry a full
+instant. Those fixtures were corrected to a full timestamp; they now pass against the fixed code for
+the right reason instead of passing by coincidence against the old one.
+
+**Verdict: no rule-27 day-boundary bug remains in `packages/core/src` reachable from a request
+path.** Closing.
 
 ## What was already fixed, and why that is not this
 

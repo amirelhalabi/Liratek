@@ -35,6 +35,7 @@ export * from "./utils/logger.js";
 export * from "./utils/errors.js";
 export * from "./utils/barcode.js";
 export * from "./utils/payments.js";
+export * from "./utils/saleMargin.js";
 export * from "./utils/formatMoney.js";
 export * from "./utils/currency.js";
 export * from "./utils/currencyConverter.js";

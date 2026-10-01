@@ -7,6 +7,7 @@ import {
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import { isToday } from "./reportingTimeFragments.js";
 
 export interface ExpenseEntity {
   id: number;
@@ -278,13 +279,24 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   }
 
   /**
-   * Get today's expenses
+   * Get today's expenses.
+   *
+   * LIRA-196: used to hand-roll `DATE(expense_date) = DATE('now')` — bare
+   * UTC on both sides, no `'localtime'` shift at all. On the Fly web host
+   * (UTC, no `TZ` pinned — rule 27) an expense logged between 00:00 and
+   * 03:00 Beirut (still "today" in the shop's own calendar) failed this
+   * predicate until the container's own UTC day caught up, silently
+   * dropping it from the "Today's Expenses" list for up to 3 hours a
+   * night. `isToday()` (`reportingTimeFragments.ts`, rule 14) shifts both
+   * sides by the request's `clientTzOffsetMinutes` instead — the browser's
+   * offset on web, SQLite's own `'localtime'` (the shop's own machine) on
+   * desktop, so desktop behavior is unchanged.
    */
   getTodayExpenses(): ExpenseEntity[] {
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM expenses
-         WHERE DATE(expense_date) = DATE('now') AND status != 'voided' AND tenant_id = ?
+         WHERE ${isToday("expense_date")} AND status != 'voided' AND tenant_id = ?
          ORDER BY expense_date DESC`,
       )
       .all(getCurrentTenantId()) as ExpenseEntity[];

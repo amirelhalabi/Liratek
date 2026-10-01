@@ -71,10 +71,15 @@ describe("ExpenseRepository — is_refunded/refunded_at read model (LIRA-131)", 
   });
 
   function insertExpense(): number {
+    // LIRA-196: `expense_date` is a full instant in real rows (the frontend
+    // always sends `new Date(...).toISOString()`); `datetime('now')`, not
+    // the date-only `DATE('now')`, keeps this fixture representative now
+    // that `getTodayExpenses()` compares via `isToday()`'s local-day shift
+    // (a midnight-only value can land on the wrong side of that shift).
     const result = db
       .prepare(
         `INSERT INTO expenses (tenant_id, description, category, amount_usd, amount_lbp, expense_date)
-         VALUES (1, 'Shop supplies', 'Shop_Supply', 25, 0, DATE('now'))`,
+         VALUES (1, 'Shop supplies', 'Shop_Supply', 25, 0, datetime('now'))`,
       )
       .run();
     return Number(result.lastInsertRowid);

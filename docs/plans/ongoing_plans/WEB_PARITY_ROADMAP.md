@@ -4,6 +4,16 @@
 
 **Last updated:** 2026-08-26 · **Branch of record:** `feat/multi-tenant-shared-db` (== `main` tip `ce45a2e`, v1.29.4 — the web-parity work and the multi-tenant work are now unified on this branch).
 
+> **2026-10-02 docs-sweep note — fresh count, old percentages below are STALE.**
+> `frontend/tests/e2e-web/lira-web-*.spec.ts` currently has **38 spec files**. A cheap mechanical
+> diff of IPC-channels-with-no-REST-twin was NOT attempted: `electron-app/handlers/` has 240
+> `ipcMain.handle(...)` channel names and `backend/src/api/` has 252 `router.<verb>(...)`
+> registrations, but channel names (`module:action`) don't correspond 1:1 to REST paths
+> (`/api/module/action`), so a raw count difference is not a trustworthy "N channels missing a
+> REST twin" figure — that would need a per-channel judgment call this sweep did not do. Any
+> older spec-count or coverage-percentage figure elsewhere in this document predates this note and
+> should not be trusted without re-verifying against source.
+
 ---
 
 ## 1. The model (why this works at all)

@@ -51,6 +51,7 @@
 
 ## 🌙 Work done after midnight (00:00 – 03:00)
 - Web app: Profits, the closing report and each page's "today" totals now put work done after midnight on the right day.
+- Web app: an expense logged after midnight now shows up in Today's Expenses right away, instead of only once the server's own day catches up.
 
 ## 🧩 General
 - Messages in the bottom corner no longer block clicks on the buttons under them, such as Pay.

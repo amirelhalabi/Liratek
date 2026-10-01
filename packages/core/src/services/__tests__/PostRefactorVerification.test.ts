@@ -1641,7 +1641,14 @@ describe("Post-Refactor Verification", () => {
       const expenseService = new ExpenseService();
       const closingService = new ClosingService();
 
-      const today = new Date().toISOString().split("T")[0];
+      // LIRA-196: a real caller always sends a full ISO instant (the
+      // Expenses page does `new Date(formData.expense_date).toISOString()`)
+      // — a bare `YYYY-MM-DD` date (implicit midnight UTC) is not
+      // representative and, once getTodayExpenses() compares via
+      // `isToday()`'s local-day shift, a midnight-only value can land on the
+      // wrong side of the shift exactly during the 00:00-03:00 Beirut
+      // boundary window this ticket is about.
+      const expenseDate = new Date().toISOString();
 
       expenseService.addExpense(
         {
@@ -1650,7 +1657,7 @@ describe("Post-Refactor Verification", () => {
           paid_by_method: "CASH",
           amount_usd: 5,
           amount_lbp: 0,
-          expense_date: today,
+          expense_date: expenseDate,
         },
         1,
       );

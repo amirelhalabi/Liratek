@@ -1,7 +1,7 @@
 # LIRA-219 (widened) — design: closing's profit = the Profits page's profit for the day
 
-**Status:** implemented and verified 2026-09-25 (unit/typecheck/lint green; e2e re-run of 6 fixed
-specs pending with the owner); not yet committed at the time of writing.
+**Status:** DONE — shipped and committed `9ed8d90f` (2026-09-25); unit/typecheck/lint green; e2e
+re-run of 6 fixed specs pending with the owner at the time of writing.
 
 design APPROVED 2026-09-24; implemented 2026-09-24 (delegation + both transports +
 docs landed; parity-test coverage for the rewritten gate scenarios is now COMPLETE — 59 cases,
