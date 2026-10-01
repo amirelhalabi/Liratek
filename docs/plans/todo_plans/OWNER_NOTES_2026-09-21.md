@@ -70,7 +70,8 @@ User-facing lines are in `docs/release-notes/UNRELEASED.md`.
 
 **Still open after this batch:**
 - **LIRA-238** (old-data repairs + the SMS fee on the shop line): needs read-only reports, then the owner's OK.
-- **Owner questions:** staff credit buy-backs (open to staff now, via the same route); a backfill for audit times written before the fix, or leave them.
+- **Owner decisions (2026-09-29):** staff KEEP credit buy-backs; audit times written before the fix are LEFT as they are (no backfill).
+- **LIRA-238:** old-data repairs DROPPED by the owner (2026-10-02, "old data is fine"); a read-only check of cornertech found nothing to repair anyway. The SMS-fee-on-the-line code gap is being fixed, together with an OMT Send fee of 0 being refused.
 - **The desktop app** has none of this until a desktop release.
 
 **Next free ticket ID: LIRA-252.**

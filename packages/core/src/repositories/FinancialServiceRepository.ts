@@ -1941,7 +1941,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.senderClientId || null,
         data.receiverClientId || null,
         data.omtServiceType || null,
-        data.omtFee || null,
+        // `?? null` not `|| null`: an explicit `omtFee: 0` (the cashier
+        // typed "0" to waive the fee — owner decision, 2026-10-02) must
+        // persist as 0, not collapse to NULL the same way an omitted fee
+        // does. Every reader of this column already does `COALESCE(omt_fee,
+        // 0)` so this was functionally masked, but it is still the same
+        // 0-as-missing defect class the SEND validator fix (above) closes —
+        // the stored row should reflect what was actually entered.
+        data.omtFee ?? null,
         storedWhishFee,
         data.profitRate || null,
         data.payFee ? 1 : 0,

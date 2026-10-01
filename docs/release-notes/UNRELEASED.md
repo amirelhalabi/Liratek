@@ -26,6 +26,9 @@
 - A typed exchange rate more than 15% away from the shop rate now shows a warning instead of refusing the payment. The payment always goes through.
 - OMT App / Whish App transfers: an exchange rate you edit on one transfer no longer carries over to the next; each starts at the shop rate.
 
+## 💸 OMT / Whish & suppliers
+- OMT sends such as Cash to Business can now be saved with a fee of 0.
+
 ## 📦 Inventory
 - Editing a product no longer deletes its picture. Pictures lost to earlier edits need to be added again.
 - Adjust Stock with unsaved changes now offers "Save & adjust", so you no longer have to discard your edits.
@@ -44,6 +47,7 @@
 ## 📱 MTC / Alfa
 - The MTC/Alfa page's Count and Profit cards, and its Total Profit figure, now show today's real sales and their profit, and no longer read 0. Refunded recharges, drawer top-ups and credit buy-backs aren't counted.
 - Refunding a line recharge after the days sale that came before it was already refunded is now refused with a clear message, instead of leaving the line's days wrong. To undo both, refund the recharge first.
+- From now on, selling credits takes the SMS cost off the shop line as well as the drawer, so the line and the drawer stay equal.
 
 ## 🌙 Work done after midnight (00:00 – 03:00)
 - Web app: Profits, the closing report and each page's "today" totals now put work done after midnight on the right day.

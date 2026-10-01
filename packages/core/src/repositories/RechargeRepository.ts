@@ -1356,33 +1356,39 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           // `TransactionRepository._reverseCarrierLineMovements` picks this
           // movement up on void/refund with no new reversal code (rule 20).
           //
-          // Credits delta = `stockLeg.amountUsd` verbatim — the EXACT figure
-          // that just left the provider drawer two lines above (one
-          // definition, rule 14; never `data.amount` re-derived, so the two
-          // can't disagree the way the pre-LIRA-113 DAYS code once did).
+          // Credits delta = `stockLeg.amountUsd` + the SMS transfer cost
+          // (`-smsCostUsd`, both already negative/negated so they SUM into
+          // a bigger debit) — the EXACT combined figure that leaves the
+          // provider drawer: `stockLeg.amountUsd` two lines above, PLUS the
+          // `SMS_Transfer_Fee` expense's `drawer_override` a few lines below
+          // (CREDIT_TRANSFER only; `smsCostUsd` is always 0 for every other
+          // `data.type`, so this is a no-op addition there — one definition,
+          // rule 14, never `data.amount` re-derived).
           //
-          // Deliberately excludes two OTHER dollar movements that also touch
-          // this same provider drawer, so as not to double-count them here:
-          //   - The `SMS_Transfer_Fee` expense below (CREDIT_TRANSFER only)
-          //     debits this drawer via `drawer_override` for the cost of the
-          //     SMS *messages* the transfer required — a distinct real-world
-          //     cost from the credit *value* just moved, already booked once
-          //     as its own expense row. It has never updated
-          //     `carrier_lines.credits` (before or after this fix) — a
-          //     narrower, pre-existing, UN-reported gap between the drawer
-          //     and the line sum that this ticket does not attempt to close
-          //     (explicit brief: "do NOT repair existing production drift").
-          //   - `CarrierLineRepository.recordUsage` (LIRA-145,
-          //     `Line_Usage`) is a wholly separate, OPERATOR-initiated
-          //     "record consumption" flow that already writes
-          //     `carrier_lines.credits` directly; this method never calls
-          //     into it, so there is no double-write to guard against here.
+          // Owner-approved fix (2026-10-02, "the SMS fee isn't taken off
+          // the shop line" — see RechargeRepository.creditSaleSmsFeeOnLine
+          // .test.ts): the SMS cost really comes off the SIM, so the line
+          // must drop by credits + SMS fee, matching the drawer exactly
+          // (§0.1 invariant). Before this fix, the comment here explained
+          // why the SMS leg was DELIBERATELY excluded from this delta —
+          // that was a narrower, pre-existing, UN-reported gap between the
+          // drawer and the line sum; this closes it. Folding it into the
+          // SAME movement (rather than a second `applyMovement` call) keeps
+          // reversal free: `CarrierLineRepository.reverseMovement` reverses
+          // the whole `credits_delta` of one movement row by pure
+          // arithmetic addback (rule 20) — void/refund needs no new code.
+          //
+          // `CarrierLineRepository.recordUsage` (LIRA-145, `Line_Usage`) is
+          // a wholly separate, OPERATOR-initiated "record consumption" flow
+          // that already writes `carrier_lines.credits` directly; this
+          // method never calls into it, so there is no double-write to
+          // guard against here.
           const carrier: CarrierKey = data.provider === "MTC" ? "mtc" : "alfa";
           const primaryLine = getCarrierLineRepository().getPrimary(carrier);
           if (primaryLine) {
             const creditMovement = getCarrierLineService().applyMovement({
               carrierLineId: primaryLine.id,
-              creditsDelta: stockLeg.amountUsd,
+              creditsDelta: stockLeg.amountUsd - smsCostUsd,
               reason: `${data.type}_SALE`,
               transactionId: txnId,
               today: data.client_day,

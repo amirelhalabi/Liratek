@@ -381,6 +381,15 @@ export const createFinancialServiceSchema = z
       // guards and `RECEIVE_FEE_MODEL_CUTOVER`), so there is nothing here to
       // require an exact figure for. 0/absent is valid on a RECEIVE for
       // every omtServiceType, including CASH_TO_BUSINESS.
+      //
+      // Owner-approved fix (2026-10-02, financial.sendFeeZero.test.ts): a
+      // SEND's fee is still mandatory (real cash leg, exact figure needed),
+      // but a fee of 0 IS an exact figure — the cashier typed "0" to waive
+      // it. The guard used to read `!data.omtFee`, a truthy check that
+      // treats an explicit 0 the same as the key being absent entirely and
+      // rejects both. It must only reject MISSING (undefined/null), never a
+      // present 0 — mirrors `resolvedProviderFee`/`feePresenceSource`'s
+      // `!= null` convention elsewhere in this module.
       const hasFeeLookupTable =
         data.omtServiceType === "INTRA" ||
         data.omtServiceType === "WESTERN_UNION";
@@ -392,7 +401,7 @@ export const createFinancialServiceSchema = z
         data.omtServiceType !== "OMT_WALLET" &&
         data.omtServiceType !== "ONLINE_BROKERAGE" &&
         !hasFeeLookupTable &&
-        !data.omtFee
+        data.omtFee === undefined
       ) {
         return false;
       }

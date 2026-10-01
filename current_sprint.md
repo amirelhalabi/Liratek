@@ -5329,7 +5329,7 @@ The Debts page client history shows Date / Note / USD / LBP but not who recorded
 | --- | --- |
 | **Type** | Permissions (owner decision) |
 | **Priority** | High |
-| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — staff may process recharges (incl. buy-back and shop-line use), add expenses, and create/start/update repair jobs; deletes, cash-out to supplier and line settings stay admin. OWNER TO CONFIRM staff buy-backs |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — staff may process recharges (incl. buy-back and shop-line use), add expenses, and create/start/update repair jobs; deletes, cash-out to supplier and line settings stay admin. Owner confirmed 2026-09-29: staff KEEP buy-backs |
 | **Affected Modules** | recharge, expenses, maintenance |
 | **Source** | Owner note #25 + Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
 
@@ -5349,7 +5349,7 @@ Staff get a 403 with no message for MTC/Alfa recharges, adding expenses, and cre
 | --- | --- |
 | **Type** | Bug (rule 27) |
 | **Priority** | Medium |
-| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — `AuditRepository.log` stamps UTC; entries written before the fix keep the old time (owner to decide on a backfill) |
+| **Status** | DONE 2026-09-28 (built, not yet committed; full gate + e2e pending) — `AuditRepository.log` stamps UTC; entries written before the fix keep the old time (owner decision 2026-09-29: leave them, no backfill) |
 | **Affected Modules** | audit |
 | **Source** | Exploratory web-app test, 2026-09-28 (`OWNER_NOTES_2026-09-21.md` §00.8) |
 

@@ -1,30 +1,23 @@
 /**
- * BUG REPRO — owner report #22 (2026-09-23, web app): "set mtc drawer
- * amount -> sell credits -> check dashboard [affected correctly], check
- * settings-shop lines, the shop line that should be affected, is not
- * affected, the amount is showing the old amount and not deduced by the
- * sold credits — same in mtc page. make sure this fix is applied on alfa
- * shop line too."
+ * Owner-approved fix (2026-10-02): "The SMS fee isn't taken off the shop
+ * line." `RechargeRepository.processRecharge`'s CREDIT_TRANSFER arm debits
+ * the carrier drawer by BOTH the credits (`stockLeg`) AND the
+ * `SMS_Transfer_Fee` expense (`drawer_override`, $0.16 per SMS message), but
+ * `CarrierLineService.applyMovement` only ever decremented the shop's own
+ * primary line's `credits` by `stockLeg.amountUsd` — the credit value, never
+ * the SMS cost. That broke the §0.1 invariant (`drawer == Σ active line
+ * credits`) by $0.16 per SMS: the drawer moved more than the line did.
  *
- * Root cause (traced in source before this fix): `RechargeRepository
- * .processRecharge` debits the MTC/Alfa provider DRAWER for every credit-
- * consuming sale (`telecomStockLeg`) but, before this fix, NEVER touched
- * the shop's own `carrier_lines.credits` for a CREDIT_TRANSFER/VOUCHER/
- * TOP_UP/ALFA_GIFT sale — only the DAYS arm (LIRA-113) moved anything on
- * the line, and that only moved *validity*, never credits. The §0.1 sum
- * invariant (`drawer_balances[carrier][USD] == Σ credits of that carrier's
- * active lines`) was therefore never built for a credit sale — plan §0.6
- * explicitly grandfathered this gap "until multi-line ships." This ticket
- * closes it.
+ * Owner decision: the SMS cost really comes off the SIM, so the line must
+ * drop by credits + SMS fee, matching the drawer exactly.
  *
- * This is the DIRECT cause of owner report #10 (`RechargeRepository
- * .creditBuyback.driftAttribution.test.ts`) — every unrecorded credit sale
- * left the line's balance too HIGH relative to the drawer, and the buy-back
- * path folded that accumulated drift into the customer's own transaction.
- *
- * Harness copied from `RechargeRepository.daysChargeValidityDecrement
- * .test.ts` (same hand-rolled schema, same `__LIRATEK_TEST_DB__` global
- * this repo's `BaseRepository`/`getDatabase()` picks up in test mode).
+ * RULE 17 — PROVEN FAILING-FIRST 2026-10-02: ran this file against the
+ * unfixed repository (creditsDelta still read bare `stockLeg.amountUsd`,
+ * with no `smsCostUsd` term) — cases (a)/(b)/(c)/(d) below all failed:
+ * the line moved by exactly the face value (-3, -6) instead of face value +
+ * SMS fee (-3.16, -6.32). Recorded red, then applied the fix (creditsDelta
+ * now folds `smsCostUsd` into the SAME carrier-line movement so reversal
+ * stays free — rule 20).
  */
 
 import Database from "better-sqlite3";
@@ -46,6 +39,8 @@ import { getTransactionRepository } from "../TransactionRepository";
 
 const FUTURE_EXPIRY = "2099-01-01";
 
+// Schema copied verbatim from RechargeRepository.creditSaleLineDecrement.test.ts
+// (same hand-rolled, __LIRATEK_TEST_DB__-backed harness).
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
@@ -126,7 +121,6 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'USD', 5000);
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'LBP', 100000000);
 
-    -- Needed by the void path (_cancelDebt / _markSourceRefunded); empty here.
     CREATE TABLE debt_ledger (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id        INTEGER NOT NULL,
@@ -278,7 +272,7 @@ function drawerBalance(
   return row?.balance ?? 0;
 }
 
-describe("RechargeRepository — a credit sale must decrement the shop's OWN carrier line credits (owner report #22, 2026-09-23)", () => {
+describe("RechargeRepository — CREDIT_TRANSFER's SMS fee must also come off the shop line (owner-approved fix, 2026-10-02)", () => {
   let db: Database.Database;
   let repo: RechargeRepository;
   let carrierLineRepo: CarrierLineRepository;
@@ -309,15 +303,14 @@ describe("RechargeRepository — a credit sale must decrement the shop's OWN car
     db.close();
   });
 
-  it("selling $3 of MTC credits decrements the shop's primary MTC line from 50 to 46.84 (3 credits + 0.16 SMS fee — 2026-10-02 fix, see RechargeRepository.creditSaleSmsFeeOnLine.test.ts)", () => {
+  it("(a) $3 MTC CREDIT_TRANSFER: line drops by 3.16 (3 credits + 1 SMS × $0.16) — matching the drawer exactly", () => {
     const shopLine = carrierLineRepo.createLine({
       carrier: "mtc",
-      phone_number: "03999999", // the SHOP'S OWN line
+      phone_number: "03999999",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
     });
-    expect(shopLine.is_primary).toBe(1);
-    expect(getLineCredits(db, shopLine.id)).toBe(50);
+    const beforeDrawer = drawerBalance(db, "MTC");
 
     const result = repo.processRecharge({
       provider: "MTC",
@@ -327,21 +320,51 @@ describe("RechargeRepository — a credit sale must decrement the shop's OWN car
       price: 3,
       currency: "USD",
       paid_by_method: "CASH",
-      phoneNumber: "03123456", // the CUSTOMER's own phone
+      phoneNumber: "03123456",
       userId: 1,
     });
     expect(result.success).toBe(true);
 
-    // THE BUG (pre-fix): this read 50, unchanged — Settings → Shop Lines and
-    // the MTC Recharge-tab panel kept showing the line's original balance no
-    // matter how many credits were sold. 46.84 = 50 - 3 (credits) -
-    // 0.16 (1 SMS message's fee, ceil(3/3) * $0.16) — the 2026-10-02 fix
-    // folds the SMS cost into the same carrier-line movement so the line
-    // matches the drawer exactly (RechargeRepository.creditSaleSmsFeeOnLine.test.ts).
-    expect(getLineCredits(db, shopLine.id)).toBeCloseTo(46.84, 6);
+    const drawerDelta = beforeDrawer - drawerBalance(db, "MTC");
+    expect(drawerDelta).toBeCloseTo(3.16, 6);
+
+    const lineDelta = 50 - getLineCredits(db, shopLine.id);
+    expect(lineDelta).toBeCloseTo(3.16, 6);
+    // THE invariant this ticket exists to restore: drawer movement === line movement.
+    expect(lineDelta).toBeCloseTo(drawerDelta, 6);
   });
 
-  it("selling $5 of Alfa credits decrements the shop's primary Alfa line from 50 to 44.68 (5 credits + 0.32 SMS fee — 2026-10-02 fix)", () => {
+  it("(b) $6 MTC CREDIT_TRANSFER: line drops by 6.32 (6 credits + 2 SMS × $0.16)", () => {
+    const shopLine = carrierLineRepo.createLine({
+      carrier: "mtc",
+      phone_number: "03999998",
+      credits: 50,
+      validity_expires_at: FUTURE_EXPIRY,
+    });
+    const beforeDrawer = drawerBalance(db, "MTC");
+
+    const result = repo.processRecharge({
+      provider: "MTC",
+      type: "CREDIT_TRANSFER",
+      amount: 6,
+      cost: 5,
+      price: 6,
+      currency: "USD",
+      paid_by_method: "CASH",
+      phoneNumber: "03123457",
+      userId: 1,
+    });
+    expect(result.success).toBe(true);
+
+    const drawerDelta = beforeDrawer - drawerBalance(db, "MTC");
+    expect(drawerDelta).toBeCloseTo(6.32, 6);
+
+    const lineDelta = 50 - getLineCredits(db, shopLine.id);
+    expect(lineDelta).toBeCloseTo(6.32, 6);
+    expect(lineDelta).toBeCloseTo(drawerDelta, 6);
+  });
+
+  it("(c) Alfa CREDIT_TRANSFER also gets the SMS fee on the line (not MTC-only)", () => {
     const shopLine = carrierLineRepo.createLine({
       carrier: "alfa",
       phone_number: "70999999",
@@ -362,18 +385,17 @@ describe("RechargeRepository — a credit sale must decrement the shop's OWN car
     });
     expect(result.success).toBe(true);
 
-    // 5 credits + ceil(5/3)=2 SMS messages * $0.16 = 0.32 → 44.68.
+    // 5 credits + ceil(5/3)=2 messages * 0.16 = 0.32 → 44.68
     expect(getLineCredits(db, shopLine.id)).toBeCloseTo(44.68, 6);
   });
 
-  it("voiding a credit sale restores the line's credits AND the drawer to their pre-sale values", () => {
+  it("(d) void of a CREDIT_TRANSFER restores the line by the FULL amount including the SMS part, and the drawer too (rule 20)", () => {
     const shopLine = carrierLineRepo.createLine({
       carrier: "mtc",
       phone_number: "03999997",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
     });
-
     const beforeDrawer = drawerBalance(db, "MTC");
     const beforeGeneral = drawerBalance(db, "General");
 
@@ -389,19 +411,15 @@ describe("RechargeRepository — a credit sale must decrement the shop's OWN car
       userId: 1,
     });
     expect(result.success).toBe(true);
-    // 2026-10-02 fix: the line now ALSO drops by the SMS fee, matching the
-    // drawer exactly (RechargeRepository.creditSaleSmsFeeOnLine.test.ts).
     expect(getLineCredits(db, shopLine.id)).toBeCloseTo(46.84, 6);
-    // -3 for the credit value + -0.16 for the 1-message SMS transfer fee
-    // (ceil(3/3) messages * SMS_TRANSFER_FEE_USD) the CREDIT_TRANSFER also
-    // books as its own sibling expense against the same MTC drawer.
-    expect(drawerBalance(db, "MTC")).toBeCloseTo(beforeDrawer - 3 - 0.16, 6);
+    expect(drawerBalance(db, "MTC")).toBeCloseTo(beforeDrawer - 3.16, 6);
 
     const txn = db
       .prepare(`SELECT id FROM transactions WHERE type = 'RECHARGE'`)
       .get() as { id: number };
     getTransactionRepository().voidTransaction(txn.id, 1);
 
+    // Full restore — drawer, line, nets to the exact pre-sale values.
     expect(getLineCredits(db, shopLine.id)).toBe(50);
     expect(drawerBalance(db, "MTC")).toBeCloseTo(beforeDrawer, 6);
     expect(drawerBalance(db, "General")).toBeCloseTo(beforeGeneral, 6);
@@ -410,28 +428,39 @@ describe("RechargeRepository — a credit sale must decrement the shop's OWN car
       .prepare(
         `SELECT * FROM carrier_line_movements WHERE carrier_line_id = ?`,
       )
-      .get(shopLine.id) as { is_reversed: number };
+      .get(shopLine.id) as { is_reversed: number; credits_delta: number };
     expect(movement.is_reversed).toBe(1);
+    // The reversal pins against the SAME movement row that carries the
+    // combined delta — proving this is "free" via the single-movement
+    // reversal, not a second hand-rolled compensating write.
+    expect(movement.credits_delta).toBeCloseTo(-3.16, 6);
   });
 
-  it("no primary line configured: the sale still succeeds (drawer leg posts) and only logs a warning — mirrors the DAYS arm's established convention", () => {
-    // No carrier_lines row created at all for MTC.
+  it("(e) SHOP_LINE_USE and CREDIT_BUYBACK remain unaffected (no SMS fee, different types entirely)", () => {
+    // Sanity: a non-CREDIT_TRANSFER type never computes a nonzero smsCostUsd
+    // (planSmsTransfer is only consulted for CREDIT_TRANSFER — see
+    // processRecharge's smsCount derivation), so this is a documentation
+    // case, not a new code path.
+    const shopLine = carrierLineRepo.createLine({
+      carrier: "mtc",
+      phone_number: "03999996",
+      credits: 50,
+      validity_expires_at: FUTURE_EXPIRY,
+    });
+
     const result = repo.processRecharge({
       provider: "MTC",
-      type: "CREDIT_TRANSFER",
-      amount: 3,
-      cost: 2.5,
-      price: 3,
+      type: "TOP_UP",
+      amount: 10,
+      cost: 8,
+      price: 10,
       currency: "USD",
       paid_by_method: "CASH",
-      phoneNumber: "03123459",
+      phoneNumber: "03123460",
       userId: 1,
     });
     expect(result.success).toBe(true);
-    expect(
-      (db.prepare(`SELECT COUNT(*) c FROM carrier_line_movements`).get() as {
-        c: number;
-      }).c,
-    ).toBe(0);
+    // Bare face value — no SMS fee for TOP_UP.
+    expect(getLineCredits(db, shopLine.id)).toBe(40);
   });
 });
