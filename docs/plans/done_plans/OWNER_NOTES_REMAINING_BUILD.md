@@ -1,6 +1,6 @@
 # Remaining owner notes — build plan (2026-09-24)
 
-**Source notes:** `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` (verbatim in its Appendix A).
+**Source notes:** `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (verbatim in its Appendix A).
 **Status:** implemented and verified 2026-09-25 (unit/typecheck/lint green; e2e re-run of 6 fixed
 specs pending with the owner); not yet committed at the time of writing.
 
@@ -400,7 +400,7 @@ Worked examples. The LBP rates are tenant 1's (buy 89,000 / sell 90,000, from OW
 - packages/ui/src/money/registry.ts:24-39: `roundForCurrency` rounds to the nearest cent or lira, not up
 - electron-app/create_db.sql:205-208: decimal_places USD 2, LBP 0, EUR 2
 - frontend/src/features/exchange/pages/Exchange/__tests__/Exchange.payoutRounding.test.tsx:31-60: an explicit `@liratek/core` mock factory (the same pattern in 5 page tests)
-- docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md:550-553: owner answer, Part A only, all currencies incl. EUR, Part B dropped; :1166-1167 is the verbatim note
+- docs/plans/done_plans/OWNER_NOTES_2026-09-21.md:550-553: owner answer, Part A only, all currencies incl. EUR, Part B dropped; :1166-1167 is the verbatim note
 - git status: no change under frontend/src/features/exchange/pages/Exchange/ (working tree = HEAD for this note)
 
 ### Risks
@@ -690,7 +690,7 @@ Only if the owner's answers require it:
 
 ### Evidence
 
-- docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md:422, :657, :718 (triage rows), :1140 (verbatim note). No owner answer recorded in §2b.
+- docs/plans/done_plans/OWNER_NOTES_2026-09-21.md:422, :657, :718 (triage rows), :1140 (verbatim note). No owner answer recorded in §2b.
 - electron-app/create_db.sql:328-348 product_categories.tracks_imei_units, seeded on only for Phones
 - electron-app/create_db.sql:371-394 product_units + idx_product_units_active_imei (unique while IN_STOCK)
 - packages/core/src/validators/productUnit.ts:18 imeis only need to be non-blank, no format check
@@ -781,7 +781,7 @@ Both routes: commission and profit stamping per D2/D3, client_id propagation (ru
 ### Evidence
 
 - docs/plans/todo_plans/SYRIA_REMITTANCE_PLAN.md:249-262 — D1-D6 as written. D1: always a partner, or walk-in? D2: RECEIVE commission deducted from payout, or on top? D3: profit deferred until the partner settles, or immediate? D4: General, or its own drawer? D5: one corridor or several (written recommendation: build it generic)? D6: this plan reverses the 'Syria in Custom Services' position, still want it?
-- docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md:430, :517, :526, :641, :719 — every entry says 'blocked on D1-D6'. No owner answer recorded. Owner's verbatim note is at :1154
+- docs/plans/done_plans/OWNER_NOTES_2026-09-21.md:430, :517, :526, :641, :719 — every entry says 'blocked on D1-D6'. No owner answer recorded. Owner's verbatim note is at :1154
 - current_sprint.md:689 — 2026-08-10 decision log: 'Syria partners are served through Custom Services'
 - frontend/src/features/services/pages/Services/index.tsx:42 and :182 — provider list closed to OMT/WHISH
 - packages/core/src/repositories/FinancialServiceRepository.ts:3069 — useSystemDrawerFlow = isOMT || isWHISH

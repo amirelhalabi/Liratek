@@ -185,7 +185,7 @@ points there and keeps its original text only as history.
 
 ## 5. Suggested order
 
-> **⚠ `todo_plans/OWNER_NOTES_2026-09-21.md` outranks this list.** That document says so in its own
+> **⚠ `done_plans/OWNER_NOTES_2026-09-21.md` outranks this list.** That document says so in its own
 > header, and the reason is sound: everything else on this board is an audit finding, a doc chore or
 > an infrastructure track, while that one is the only record of what a human hit while running the
 > shop. The order below is what to do *around* it — it is not a competing ranking. Reconciled

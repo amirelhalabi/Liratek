@@ -42,6 +42,8 @@ This status was verified on 2026-09-27/28 against the source code and the git hi
 against this file's older status lines. §1's table is kept as the record of the original triage,
 and its "status" column is out of date.
 
+> **PLAN CLOSED 2026-10-02:** all 29 notes are done or closed (#3 no change; #5 verified live). Moved to `done_plans`. Remaining follow-ups live in `current_sprint.md`.
+
 **What is live:**
 - Commit `9ed8d90f` (pushed 2026-09-25) and commit `24651e83` (pushed 2026-09-27).
 - Web v1.31.0 with the in-app "What's new" window (`573b7df5` + `bd2540ba`, 2026-09-27).
@@ -64,7 +66,7 @@ User-facing lines are in `docs/release-notes/UNRELEASED.md`.
 - **#25 → LIRA-242 + LIRA-211:** staff can create, start and update repair jobs, and a refusal shows why.
 - **#1 → LIRA-241:** User column on the Debts history (no name on the sale detail or receipt, per the owner).
 - **#28 → LIRA-239:** verified with real writers. One wrong-order refund case was a real bug; it is now refused with a clear message.
-- **#5:** kept for later (owner, 2026-09-28).
+- **#5:** CLOSED 2026-10-02 — same case as #6 (OMT RECEIVE, Cash to Business, no fee), verified live on cornertech.
 
 **Tickets built:** LIRA-220 … 228, 237 and 239 … 251 (see `current_sprint.md` for each).
 
@@ -84,7 +86,7 @@ User-facing lines are in `docs/release-notes/UNRELEASED.md`.
 | 2 | staff: no settings/profits; yes txn + audit | ✅ | Staff see Transactions & Audit (`89fa939e`, v178). Settings stays admin-only; Profits is behind its password (LIRA-177). Spin-off **LIRA-220** is still open (§00.3). |
 | 3 | fold −0.32$ into the 90,000 LBP | ✅ closed, no change | Owner decision 2026-09-24 (§2b #3). |
 | 4 | OMT receive fee must not touch drawers/supplier | ✅ new transactions | `9ed8d90f`, v180. Old rows are not restated (owner). |
-| 5 | UNICEF cash-out — check the voice note | 🟠 blocked | Waiting for the voice note. |
+| 5 | UNICEF cash-out — check the voice note | ✅ | Owner: UNICEF is booked as an OMT RECEIVE, Cash to Business, no fee — the #6 fix. Verified live on cornertech 2026-10-02 (txn 4886, $1, no fee: saved, posted correctly, voided to net 0). |
 | 6 | OMT receive without a fee is refused | ✅ | `9ed8d90f` (`validators/financial.ts`). |
 | 7 | overpay OMT → credit, auto-apply | ✅ owner's scope | The credit is kept and applied manually at the next settlement. The owner dropped auto-apply. `9ed8d90f`. |
 | 8 | debt settle leaves −340 LBP | ✅ new settlements | `9ed8d90f`. Existing leftover balances were NOT repaired → **LIRA-238** (§00.4). |
@@ -1281,7 +1283,7 @@ or a multi-quantity sale line, so no stored closing figure is wrong yet and the 
   interviewed before they are built.
 
 **~18:15 — the REMAINING notes: scouted (read-only) and the owner interviewed (8 rounds).**
-- **Decisions and build spec:** `docs/plans/ongoing_plans/OWNER_NOTES_REMAINING_BUILD.md`.
+- **Decisions and build spec:** `docs/plans/done_plans/OWNER_NOTES_REMAINING_BUILD.md`.
 - **In scope:** #11 (A/B/C), #19 (Tier A), #20, #21, #24, #28, #13, #16, #14 slice 2 and lira-141.
 - **Out of scope:**
   - #17 is PARKED — the owner is unsure whether it is the rate band or a selling price;

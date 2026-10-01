@@ -5,7 +5,7 @@
 > **Last Restructured:** 2026-08-12 (see "How to keep this file honest" below)
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW` | `PARTIAL`
 
-> **⬆ HIGHEST PRIORITY, updated 2026-09-25: `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md`** — 29
+> **⬆ HIGHEST PRIORITY, updated 2026-09-25: `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md`** — 29
 > notes from the customer actually running the shop on the web app. **Implemented and unit-verified
 > 2026-09-25** (see the dated section near the end of this file for the full breakdown): the four
 > money bugs (D1/#4/#15, #6, #7/LIRA-203, #8/LIRA-204, #10/LIRA-206, #22/LIRA-088, #26/LIRA-215,
@@ -3506,7 +3506,7 @@ confirm or rule out this exact mechanism.
 > below is one of four symptoms: (1) kept change ignored for every module, including loto's USD kept
 > change (`LO-R10`); (2) the LBP slice below; (3) sales profit per unit, never × quantity
 > (`ClosingRepository.ts:880`); (4) partner loto tickets. Symptom (4) is OUT of scope and goes with LIRA-173.
-> Design + status: `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` §6.9.
+> Design + status: `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` §6.9.
 
 `getDailyStatsSnapshot` returns two profit figures and an LBP-denominated profit slice can fall
 outside **both** of them. This is a gap in the data, not in the PDF that displays it.
@@ -4228,7 +4228,7 @@ invariant it pins is the correct one.
 
 # 2026-09-23 batch — LIRA-198 / LIRA-205 / LIRA-208 shipped, LIRA-220 … LIRA-228 opened
 
-> These tickets were filed from `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` (the customer's
+> These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
 > 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-252**, LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
@@ -4253,7 +4253,7 @@ invariant it pins is the correct one.
 | **Priority**         | Medium                                                            |
 | **Status**           | **DONE** 2026-09-23                                               |
 | **Affected Modules** | audit, (all — `modules` table)                                    |
-| **Source Plan**      | `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` §0.5, note #2    |
+| **Source Plan**      | `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` §0.5, note #2    |
 
 ### What shipped
 
@@ -4318,7 +4318,7 @@ staff-readable.
 | **Priority**         | Medium                                                            |
 | **Status**           | **DONE** 2026-09-23                                               |
 | **Affected Modules** | audit, recharge, omt_whish                                        |
-| **Source Plan**      | `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` note #9          |
+| **Source Plan**      | `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` note #9          |
 | **Depends On**       | LIRA-180 (the number itself — already shipped)                    |
 
 ### What shipped
@@ -4367,7 +4367,7 @@ errors now surface their real reason, which the old `catch` branch did not do at
 | **Priority**         | Low → the second half is Medium (a control that did nothing)       |
 | **Status**           | **DONE** 2026-09-23                                               |
 | **Affected Modules** | inventory                                                         |
-| **Source Plan**      | `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` §0.7, note #18   |
+| **Source Plan**      | `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` §0.7, note #18   |
 
 ### What shipped
 
@@ -4873,7 +4873,7 @@ client, and an anonymous walk-in, which still goes to Walk-in.
 
 # 2026-09-25 — `OWNER_NOTES_2026-09-21.md` batch: implemented and unit-verified, uncommitted
 
-**Source:** `docs/plans/todo_plans/OWNER_NOTES_2026-09-21.md` §6.9 (dated status log) and §2b (owner
+**Source:** `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` §6.9 (dated status log) and §2b (owner
 decisions). Everything below is in the working tree, not yet committed. Gates run: core/backend/
 electron/frontend jest, `build:core`, `check:schema-equivalence`, tenant-scoping, bind-arity,
 `yarn typecheck`, `yarn lint` — all green. Desktop e2e 310 passed / 3 failed; web e2e 118 passed /
@@ -4894,7 +4894,7 @@ checks across the two build runs).
 - The Dashboard Sales/Profit chart and Net Profit tile, DC-1..DC-12 (§7).
 - The widened **LIRA-219** (see its own entry above): closing's profit now equals the Profits
   page's gross profit for the day, on both transports.
-- The remaining owner notes, per `docs/plans/ongoing_plans/OWNER_NOTES_REMAINING_BUILD.md`: #11
+- The remaining owner notes, per `docs/plans/done_plans/OWNER_NOTES_REMAINING_BUILD.md`: #11
   (A netted checkout, B session-group display, C whole-basket reversal, migration v181), #13 (buy
   and resell phone lines), #16 (Syria payout, migration v185, "as built — no change" per the
   owner's 2026-09-25 answer), #19 (Tier A), #20 (Part A only — "Customer gets" typeable for every
