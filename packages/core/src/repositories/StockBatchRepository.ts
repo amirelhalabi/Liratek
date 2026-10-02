@@ -455,6 +455,134 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
   }
 
   /**
+   * LIRA-147 — admin "Undo refund" for a per-item sale refund: the exact
+   * inverse of `restoreForSaleItem`. Only `is_restored = 1` rows (a
+   * consumption fully given back by a prior restore) are recoverable this
+   * way — `_restoreConsumptions` does not keep a distinct trace of a
+   * PARTIALLY-restored row's given-back portion (it just shrinks that row's
+   * `quantity` in place), so a refund whose restore split a consumption row
+   * leaves that split fraction unrecoverable by id. This check (and
+   * `unrestoreForSaleItem` below) is deliberately conservative: it reports
+   * only what CAN be exactly traced back, never approximates with a fresh
+   * FIFO draw that could silently attribute cost to the wrong batch or drive
+   * `quantity_remaining` negative if something else has consumed that
+   * capacity since the refund (e.g. a later unrelated sale). "Can't
+   * precisely trace it" and "something else used it since" both refuse —
+   * exactly the safe direction for a cost-bearing ledger (rule 26 invariant
+   * (a), applied to stock instead of money).
+   */
+  canUnrestoreForSaleItem(saleItemId: number, quantity: number): boolean {
+    const tenantId = getCurrentTenantId();
+
+    // Legacy / never-batch-tracked stock: this sale_item has NO consumption
+    // rows at all (not even unrestored ones), so its own refund never had
+    // anything to restore here either — `restoreForSaleItem` silently
+    // no-ops for exactly this case (see its own doc). Mirror that: nothing
+    // to undo on the batch side, so this is never the reason to refuse.
+    const anyConsumption = this.queryOne<{ cnt: number }>(
+      `SELECT COUNT(*) AS cnt FROM stock_batch_consumptions
+       WHERE sale_item_id = ? AND tenant_id = ?`,
+      saleItemId,
+      tenantId,
+    );
+    if (!anyConsumption || anyConsumption.cnt === 0) return true;
+
+    const rows = this.query<ConsumptionRow & { quantity_remaining: number }>(
+      `SELECT c.id, c.batch_id, c.quantity, c.is_restored, b.quantity_remaining
+       FROM stock_batch_consumptions c
+       JOIN product_stock_batches b ON b.id = c.batch_id AND b.tenant_id = c.tenant_id
+       WHERE c.sale_item_id = ? AND c.tenant_id = ? AND c.is_restored = 1
+       ORDER BY c.id ASC`,
+      saleItemId,
+      tenantId,
+    );
+
+    let remaining = quantity;
+    const plannedByBatch = new Map<number, number>();
+    for (const row of rows) {
+      if (remaining <= 0) break;
+      const give = Math.min(remaining, row.quantity);
+      if (give <= 0) continue;
+      const alreadyPlanned = plannedByBatch.get(row.batch_id) ?? 0;
+      const available = row.quantity_remaining - alreadyPlanned;
+      if (available < give) return false;
+      plannedByBatch.set(row.batch_id, alreadyPlanned + give);
+      remaining -= give;
+    }
+    return remaining <= 0;
+  }
+
+  /**
+   * LIRA-147 — performs what `canUnrestoreForSaleItem` verified is possible.
+   * Callers MUST check `canUnrestoreForSaleItem` first (inside the same db
+   * transaction) — this throws rather than silently under-applying if that
+   * invariant was violated between the check and the call.
+   */
+  unrestoreForSaleItem(saleItemId: number, quantity: number): void {
+    try {
+      const tenantId = getCurrentTenantId();
+
+      // Legacy / never-batch-tracked stock — see canUnrestoreForSaleItem's
+      // identical check. Nothing to undo here.
+      const anyConsumption = this.queryOne<{ cnt: number }>(
+        `SELECT COUNT(*) AS cnt FROM stock_batch_consumptions
+         WHERE sale_item_id = ? AND tenant_id = ?`,
+        saleItemId,
+        tenantId,
+      );
+      if (!anyConsumption || anyConsumption.cnt === 0) return;
+
+      const rows = this.query<ConsumptionRow>(
+        `SELECT id, batch_id, sale_item_id, quantity, unit_cost_usd, is_restored
+         FROM stock_batch_consumptions
+         WHERE sale_item_id = ? AND tenant_id = ? AND is_restored = 1
+         ORDER BY id ASC`,
+        saleItemId,
+        tenantId,
+      );
+
+      const decrementRemaining = this.db.prepare(
+        `UPDATE product_stock_batches
+         SET quantity_remaining = quantity_remaining - ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND tenant_id = ? AND quantity_remaining >= ?`,
+      );
+      const markRestoredFalse = this.db.prepare(
+        `UPDATE stock_batch_consumptions
+         SET is_restored = 0, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND tenant_id = ?`,
+      );
+
+      let remaining = quantity;
+      for (const row of rows) {
+        if (remaining <= 0) break;
+        const give = Math.min(remaining, row.quantity);
+        if (give <= 0) continue;
+
+        const result = decrementRemaining.run(give, row.batch_id, tenantId, give);
+        if (result.changes === 0) {
+          throw new DatabaseError(
+            "Insufficient restored stock to undo this refund — some of it may have been consumed by other sales since.",
+          );
+        }
+        markRestoredFalse.run(row.id, tenantId);
+        remaining -= give;
+      }
+
+      if (remaining > 0) {
+        throw new DatabaseError(
+          "Insufficient restored stock to undo this refund — some of it may have been consumed by other sales since.",
+        );
+      }
+    } catch (error) {
+      if (error instanceof DatabaseError) throw error;
+      throw new DatabaseError(
+        `Failed to undo stock batch restoration for sale_item ${saleItemId}`,
+        { cause: error, entityId: saleItemId },
+      );
+    }
+  }
+
+  /**
    * Void an intake batch. Refuses (returns `false`) when any unit of the
    * batch has already been consumed (`quantity_remaining < quantity`) — the
    * caller (the SUPPLIER_STOCK_INTAKE void path) must then refuse the void

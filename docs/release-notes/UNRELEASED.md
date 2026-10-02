@@ -68,6 +68,15 @@
 - In the OMT / Whish history list, the Fee and Profit of an LBP transfer now show in LBP (for example 5,000 LBP) instead of a dollar amount, and a commission that is only counted once the supplier settles is marked "est.".
 - On the OMT App and Whish App confirm screen, Shop Profit now shows the profit after the discount you give, which is the amount that gets recorded.
 
+## 🧾 Transactions
+
+- A row the Transactions page won't let you Refund or Void now tells you why, and where to make the correction instead (for example "Loto cash prizes are reversed only as part of their session basket").
+- Admins can now undo a per-item refund right from the Transactions page ("Undo refund"). It puts the stock, phone unit, drawer, customer account and profit back exactly where they were before the refund, and shows up as its own entry on the page. It can't be undone twice, and it's refused with a clear message if the returned item or unit was already sold again.
+
+## 🤝 Partners
+
+- The separate "Record Transaction" button on the Partners page is gone — "Add Credit / Debt" already covered everything it could do, so there's now one place to record a manual partner entry.
+
 ## 🌐 Web app
 
 - Reprinting a service receipt from the Transactions page now works in the web app.

@@ -140,4 +140,19 @@ describe("Partners page — Add Credit/Debt LBP currency (LIRA-097 / LIRA-120)",
     expect(payload.partnerId).toBe(1);
     expect(payload.transactionType).toBe("ADJUSTMENT");
   });
+
+  it("LIRA-096: has no 'Record Tx' / generic 'Record Transaction' action — Add Credit/Debt is the only manual ledger entry path", async () => {
+    render(<Partners />);
+
+    fireEvent.click(await screen.findByText("Acme Partner"));
+    await screen.findByRole("button", { name: "Add Credit / Debt" });
+
+    expect(
+      screen.queryByRole("button", { name: "Record Tx" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Record Transaction$/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Record Transaction – /)).not.toBeInTheDocument();
+  });
 });

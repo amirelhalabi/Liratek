@@ -2742,8 +2742,13 @@ function providerStockDrawersSql(): string {
  * them. `RECHARGE_TOPUP` profit surfaces via this constant only — By User, By
  * Client, and deferred profit — never the recharge-specific breakdown.
  */
+// 'REFUND_UNDO' (LIRA-147, 2026-10-02): an admin "Undo refund" stamps the
+// exact negated profit of the REFUND it reverses — same reasoning as REFUND
+// itself (comment above): without this, undoing a refund would correctly
+// restore the drawer/stock/debt but leave profit permanently short by the
+// refund's negative stamp, since nothing would ever net it back.
 const PROFIT_TXN_TYPES =
-  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP'";
+  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'REFUND_UNDO', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP'";
 
 /**
  * LCC-X1/X2 (Round 3 adversarial review, rule 14) — a REFUND row belongs in

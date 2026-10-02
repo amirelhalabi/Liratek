@@ -238,6 +238,12 @@ contextBridge.exposeInMainWorld("api", {
         unitExtras,
         exchangeRate,
       }),
+    /** LIRA-147 — admin-only "Undo refund" for a standalone per-item
+     *  refund. `refundTransactionId` is the REFUND row's own transaction
+     *  id — everything else undo needs is read back server-side from that
+     *  row's own metadata. */
+    undoItemRefund: (refundTransactionId: number) =>
+      ipcRenderer.invoke("sales:undo-item-refund", { refundTransactionId }),
     /** LIRA-231 — POS refund preview: the sale's (or, with `item`, one
      *  item's proportional share of the sale's) own customer-facing payment
      *  legs, plus whether the sale is session-linked (both POS refund

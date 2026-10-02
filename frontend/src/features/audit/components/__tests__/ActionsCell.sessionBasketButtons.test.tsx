@@ -46,6 +46,7 @@ function buildHandlers(): RowActionHandlers {
     onVoidSessionBasket: jest.fn(),
     onRefundSessionBasket: jest.fn(),
     onRefundSessionItem: jest.fn(),
+    onUndoRefund: jest.fn(),
   };
 }
 

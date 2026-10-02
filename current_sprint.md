@@ -814,7 +814,7 @@ nothing else in the whitelist is affected.
 | **Epic**             | Transactions / Reporting                                           |
 | **Type**             | Bug - pre-existing, table-wide                                     |
 | **Priority**         | Medium                                                             |
-| **Status**           | TODO - needs an owner decision on semantics                        |
+| **Status** | CLOSED 2026-10-02 (owner confirmed): shipped in 631d0930 (sort by USD equivalent) |
 | **Affected Modules** | audit (Transactions page)                                          |
 | **Source**           | Found 2026-08-12 during the LIRA-137 render-site sweep (`752e154`) |
 
@@ -860,7 +860,7 @@ what "sort by amount" should MEAN:
 | **Epic**             | Transactions / Reporting                                     |
 | **Type**             | UX - missing distinction (money is correct)                  |
 | **Priority**         | Low                                                          |
-| **Status**           | TODO - product call, not a defect                            |
+| **Status** | CLOSED 2026-10-02 (owner confirmed): shipped in cab27aa6 (provider-balance inflows marked apart from till cash) |
 | **Affected Modules** | audit (Transactions page), suppliers                         |
 | **Source**           | Found 2026-08-12 assessing the amber marker during `752e154` |
 
@@ -1156,7 +1156,7 @@ this ticket is what extends the SAME drawer-top-up/profit-stamp treatment to the
 | **Epic**             | Transactions               |
 | **Type**             | Enhancement / Decision     |
 | **Priority**         | Medium                     |
-| **Status**           | NEEDS INTERVIEW            |
+| **Status** | DONE 2026-10-02 (not yet committed) — verified: before this change, the Transactions page's Actions cell showed a bare "—" for all 24 `NON_REVERSIBLE_TRANSACTION_TYPES` members with no explanation (`frontend/src/features/audit/components/TransactionCells.tsx` `ActionsCell`). Added `frontend/src/features/audit/nonReversibleReasons.ts` — one plain-language "where to reverse it instead" message per type (sourced from each type's own rule-20 rationale comment in `transactionTypes.ts`), wired into `ActionsCell` as a "Can't refund here" label with the full explanation as its tooltip (falls back to "—" for any future type not yet classified, same as before). A guard test (`nonReversibleReasons.guard.test.ts`) pins the message map 1:1 against core's `NON_REVERSIBLE_TRANSACTION_TYPES` (24/24, no missing/stale entries) the same way `actionGating.guard.test.ts` already pins `ACTIONABLE_TYPES`. Also fixed a comment in `transactionTypes.ts` (PARTNER_ADJUSTMENT) that still pointed at the "Record Tx" button LIRA-096 just removed. Void stays next to Refund, unchanged — pure additive UI, no backend/IPC/REST change needed (reads only `row.type`, already present on both transports, rule 19 satisfied for free). `yarn workspace @liratek/frontend typecheck` (27.5s), `yarn workspace @liratek/core typecheck` (10.4s), eslint on touched files, and `src/features/audit/**` (35 suites / 368 tests) all green. |
 | **Affected Modules** | Audit > TransactionsViewer |
 | **Assigned To**      | —                          |
 | **Depends On**       | —                          |
@@ -1635,7 +1635,7 @@ IPC payloads bypass the frontend entirely and cannot catch a frontend↔reposito
 | **Epic**             | OMT App Topup                 |
 | **Type**             | Feature                       |
 | **Priority**         | Medium                        |
-| **Status**           | NEEDS INTERVIEW               |
+| **Status** | CLOSED 2026-10-02 (owner confirmed): delivered by the OMT open-credit work (LIRA-187..194): an OMT App top-up adds to what is owed to OMT instead of taking drawer cash; Cash Out to OMT returns it |
 | **Affected Modules** | Recharge > OMT App, Suppliers |
 | **Assigned To**      | —                             |
 | **Depends On**       | —                             |
@@ -1674,7 +1674,7 @@ Topping up OMT App from OMT System should:
 | **Epic**             | Partner System                                                      |
 | **Type**             | Cleanup / Decision                                                  |
 | **Priority**         | Low                                                                 |
-| **Status**           | NEEDS INTERVIEW                                                     |
+| **Status** | DONE 2026-10-02 (not yet committed) — confirmed no functional gap (the generic type picker's non-ADJUSTMENT types bucket identically to ADJUSTMENT in every balance/coverage query; `SETTLEMENT` is already written, better, by the dedicated "Settle" button, including its no-cash-moved paper case), then removed the "Record Tx" action/button/modal-branch/state from `frontend/src/features/partners/pages/Partners/index.tsx`, keeping `RecordTxModal` as the "Add Credit/Debt"-only modal (dropped the now-dead `adjustmentOnly` prop and `TRANSACTION_TYPE_GROUPS`). Backend `recordTransaction` IPC/REST path kept unchanged — still used by Add Credit/Debt. Guard test added confirming the button/modal title are gone. `yarn workspace @liratek/frontend typecheck` (27.6s) and eslint on touched files both clean. |
 | **Affected Modules** | Partners                                                            |
 | **Assigned To**      | —                                                                   |
 | **Depends On**       | LIRA-051 (DONE — prior Record Transaction type-list simplification) |
@@ -2227,6 +2227,17 @@ Fix: when all lines are fully refunded, throw a distinct message ("This sale has
 been fully refunded item-by-item — nothing remains to refund."). Repo-level test both ways.
 
 ## LIRA-147: Per-item refunds have no undo — NEEDS OWNER DESIGN (raised 2026-08-27)
+
+**Status:** DONE 2026-10-02 (not yet committed) — built for the STANDALONE per-item refund (`SalesRepository.refundSaleItem`/`undoSaleItemRefund`), both transports. NOT built for a session-basket item refund (`refundSessionBasketItem`, `metadata_json.refundType === "sessionItem"`) — reported as a scoped-out gap below, the button and REST/IPC path both explicitly refuse that case with a named reason rather than attempting a risky generic reversal.
+
+**What it does:** `SalesRepository.undoSaleItemRefund` inverts exactly what the refund itself wrote — negates the refund's own `payments` rows (+ matching drawer deltas, handles both plain pro-rata legs and an operator `refundLegs` override identically since both resolve to concrete payment rows), negates the refund's `debt_ledger` 'Refund Reversal' rows back into 'Sale Debt' rows, negates the refund's `profit_usd`/`profit_lbp` stamp onto the new row, decrements `sale_items.refunded_quantity`/`products.stock_quantity`, re-consumes FIFO cost batches via a new traced `StockBatchRepository.unrestoreForSaleItem` (the exact inverse of `restoreForSaleItem`, using the existing `is_restored` flag), and flips phone/IMEI units back to SOLD via the same `markSold` the original sale used. Refuses: a second undo of the same refund ("already been undone"); undoing when a returned unit has since been sold again under a different sale (detected via a `restoredUnitIds` snapshot stamped onto the refund's own metadata at refund time — added in this change, so it precisely identifies which units THIS refund flipped, not just a same-count heuristic); undoing when the stock the refund restored has since been consumed by other activity; undoing anything that isn't a standalone per-item refund (whole-sale refund, session-basket item refund). Posts a new `REFUND_UNDO` transaction type (added to `NON_REVERSIBLE_TRANSACTION_TYPES` — itself terminal, same as REFUND — and to `ProfitRepository.PROFIT_TXN_TYPES` so its profit is visible on the Profits page), visible on the Transactions page (not `is_auto` — operator-initiated per rule 26), linked to the refund it undoes via `metadata_json.refundTransactionId`. Admin-only on both transports (`requireRole(["admin"])` IPC + REST, plus a UI-level `isAdmin` gate on the Transactions-page button — defense in depth, backend remains the real authority). UI: an amber "Undo refund" button appears on an active per-item REFUND row's Actions cell for an admin, with a `window.confirm` step (same convention as Void/Refund).
+
+**Tests (failing-first per rule 17 where meaningful — see each file's own header for exactly what was proven red/green; this is new capability, so most "red" is the double-undo/dependent-activity guards proven directly within the test, not a before/after diff of finished code):** `packages/core/src/repositories/__tests__/SalesRepository.undoItemRefund.test.ts` (4 tests — full nets-to-zero across stock/batch/unit/drawer/profit, double-undo refusal, resold-unit refusal, whole-sale-refund refusal); `electron-app/handlers/__tests__/salesHandlers.undoItemRefund.test.ts` (5 tests — admin gate, payload validation, audit-on-success-only); `backend/src/api/__tests__/salesUndoItemRefund.api.test.ts` (6 tests — REST parity, 403 for staff, 401 unauthenticated, envelope parity on both business-rule and thrown failures); `frontend/src/features/audit/components/__tests__/ActionsCell.undoRefund.test.tsx` (5 tests — button visibility by admin/type/status). All green. 20 `SalesRepository.*` suites (88 tests), `StockBatchRepository.fifoAndReversal`, `profitRecognition.guard`, `TransactionRepository.nonReversibleGate`, `moduleDebtTypes.guard`, `ProfitRepository.itemRefundOriginalLink`, full `salesHandlers.*` (6 suites/34), related backend sales REST suites (22 tests), and the full frontend `features/audit` suite (36 suites/373 tests) all re-run green — no regressions. `yarn workspace @liratek/core typecheck` (10.7s), `@liratek/frontend typecheck` (27.7s), `@liratek/backend typecheck` (15s), `@liratek/electron-app typecheck` (4s), `@liratek/ui typecheck` (3.9s) all clean; eslint on touched files clean (pre-existing `any` warnings only, no new errors).
+
+**Known gaps for the owner:**
+1. **Session-basket item refund has no undo.** `refundSessionBasketItem` pools money against a session's shared account/legs across potentially several prior item-refund calls on the same basket — materially riskier to reverse generically than the standalone path. Deliberately refused with a clear message rather than attempted under this pass's time budget; a real follow-up ticket, not silently dropped.
+2. **FIFO batch tracing is conservative for a split consumption row.** `restoreForSaleItem`'s own `is_restored` flag only marks a row fully restored — a refund whose restore SPLIT a batch-consumption row (requested quantity didn't land on a row boundary) leaves that split fraction untraceable by id, so `canUnrestoreForSaleItem` refuses the undo even though nothing was actually resold (a false negative, never a false positive — it never risks driving `quantity_remaining` negative or misattributing cost). Rare in practice (single-unit IMEI-tracked sales are the dominant case and are unaffected), documented in the repository's own doc comment.
+3. **No e2e coverage** (excluded from this pass's scope per the lean-routine instruction — no e2e runs) and no "Undo Refund" entry added to the Transactions-page type filter dropdown (`auditConstants.ts` `FILTER_GROUPS`) — the row is still visible by default, just not individually filterable by type.
 
 An item refund books a REFUND transaction with no `reverses_id`, and REFUND is in
 `NON_REVERSIBLE_TRANSACTION_TYPES` — a mis-keyed per-item refund has no correction path
@@ -4398,7 +4409,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-252**, LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-254**, LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -5833,3 +5844,27 @@ Setup now count MTC/Alfa credits per SIM line (one field per active line, drawer
 carrier with no active line gets an inline prompt to add one instead of a blank dollar field; adding,
 editing, archiving or re-activating a shop SIM line in Settings now moves that carrier's drawer to match,
 automatically.
+
+---
+
+## LIRA-253: "Undo refund" for an item refunded inside a customer-session basket — MEDIUM
+
+| Field | Value |
+| --- | --- |
+| **Type** | Feature (follow-up to LIRA-147) |
+| **Priority** | Medium |
+| **Status** | TODO, filed 2026-10-02. The owner chose to ship LIRA-147 for normal sales first |
+| **Affected Modules** | sessions, pos, transactions |
+
+### Summary
+
+LIRA-147's admin "Undo refund" covers a per-item refund of a normal sale. A refund made with
+`refundSessionBasketItem` (money pooled across the basket, possibly several earlier item refunds)
+is refused with a clear message. Build undo for that path with full rule-20 symmetry: the basket's
+pooled legs, account-first reduction, poolSplit metadata and the `_cancelSessionDebt` marker. Prove
+that create + refund + undo nets to the post-sale state on every ledger, per currency.
+
+Owner decision 2026-10-02: in the rare case where FIFO split rows can't be traced, undo keeps
+refusing rather than risk a wrong cost. No schema change.
+
+**What users will notice:** an admin can also undo an item refund made inside a customer session.

@@ -293,6 +293,12 @@ export const TRANSACTION_TYPES = {
 
   // Reversal
   REFUND: "REFUND",
+  /** LIRA-147 — admin-only undo of a standalone per-item refund
+   *  (`SalesRepository.undoSaleItemRefund`). `reverses_id` points at the
+   *  REFUND row it undoes (rule 26: operator-initiated, never `is_auto` —
+   *  the admin explicitly chose to undo it). See `NON_REVERSIBLE_TRANSACTION_TYPES`
+   *  below for why this type is itself terminal. */
+  REFUND_UNDO: "REFUND_UNDO",
 
   // Non-financial entity events
   CLIENT_CREATED: "CLIENT_CREATED",
@@ -363,8 +369,10 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // this type too (no drawer, no coverage stamps to unwind) — but the
     // owner's actual complaint (notes 25/26) was scoped to settlements/
     // payments, so wiring ADJUSTMENT in is left as a low-risk follow-up, not
-    // done here. Rule-20 owner: correct with an opposite manual Record Tx
-    // entry on the Partners page.
+    // done here. Rule-20 owner: correct with an opposite manual Add
+    // Credit/Debt entry on the Partners page (LIRA-096, 2026-10-02, removed
+    // the separate general "Record Tx" action — "Add Credit/Debt" now covers
+    // this case; same `recordTransaction` call, same ADJUSTMENT type).
     TRANSACTION_TYPES.PARTNER_ADJUSTMENT,
     // ACCOUNT_ADJUSTMENT (LIRA-080): a paper (no-cash) manual debt_ledger
     // entry — no payments row exists to reverse, and the generic path has no
@@ -485,6 +493,14 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     TRANSACTION_TYPES.CLIENT_CREATED,
     TRANSACTION_TYPES.CLIENT_UPDATED,
     TRANSACTION_TYPES.CLIENT_DELETED,
+    // REFUND_UNDO (LIRA-147): same rationale as REFUND immediately above —
+    // reversing a reversal double-moves the drawers/debt/stock it already
+    // restored. It carries its own `reverses_id` (-> the REFUND it undoes)
+    // for the UI link, and the generic void/refund path must never be
+    // allowed to touch it a second time. Its own idempotency ("can this
+    // refund be undone again?") is enforced directly by
+    // `SalesRepository.undoSaleItemRefund`, not by this gate.
+    TRANSACTION_TYPES.REFUND_UNDO,
   ]);
 
 /**

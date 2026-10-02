@@ -48,6 +48,8 @@ import type {
   // imported directly (rule 21) instead of a hand-typed object literal.
   SaleRefundInput,
   SaleRefundItemInput,
+  // LIRA-147 — admin "Undo refund" payload, imported directly (rule 21).
+  SaleUndoItemRefundInput,
   // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
   // single-item refund payload (rule 21) + result/preview shapes, imported
   // directly instead of a hand-typed object literal.
@@ -1115,6 +1117,13 @@ export type ApiAdapter = {
     unitExtras?: SaleRefundItemInput["unitExtras"],
     exchangeRate?: number,
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
+  /** LIRA-147 — admin-only "Undo refund" for a standalone per-item refund.
+   *  `refundTransactionId` is the REFUND row's own transaction id —
+   *  everything else the undo needs is read back server-side from that
+   *  row's own metadata. */
+  undoItemRefund: (
+    refundTransactionId: SaleUndoItemRefundInput["refundTransactionId"],
+  ) => Promise<{ success: boolean; undoId?: number; error?: string }>;
   /**
    * LIRA-231 — POS refund preview (both refund buttons): the sale's (or,
    * with `item`, one item's proportional share of the sale's) own

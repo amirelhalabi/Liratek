@@ -36,6 +36,17 @@
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import TransactionsViewer from "../TransactionsViewer";
+
+// LIRA-147 — TransactionsViewer now calls useAuth() (to gate the
+// admin-only "Undo refund" button); this suite mounts the page with no
+// AuthProvider, so the real hook would throw "useAuth must be used
+// within an AuthProvider". Mock it as a non-admin by default — none of
+// this file's own assertions are about LIRA-147, so admin visibility is
+// irrelevant here; dedicated coverage lives in
+// ActionsCell.undoRefund.test.tsx.
+jest.mock("@/features/auth/context/AuthContext", () => ({
+  useAuth: () => ({ user: { id: 1, username: "tester", role: "staff" } }),
+}));
 import { getRecentTransactions } from "@/api/backendApi";
 
 jest.mock("@/api/backendApi", () => ({

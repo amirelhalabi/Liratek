@@ -19,6 +19,9 @@ import type {
   // schema (rule 21).
   SaleRefundInput,
   SaleRefundItemInput,
+  // LIRA-147 — admin "Undo refund" payload, derived from the core schema
+  // (rule 21).
+  SaleUndoItemRefundInput,
   // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
   // single-item refund payload/preview shapes, derived from the core
   // schema/repository (rule 21).
@@ -165,6 +168,10 @@ export class ElectronApiAdapter implements ApiAdapter {
       unitExtras,
       exchangeRate,
     );
+  /** LIRA-147 — admin-only "Undo refund" for a standalone per-item refund. */
+  undoItemRefund = (
+    refundTransactionId: SaleUndoItemRefundInput["refundTransactionId"],
+  ) => api.undoItemRefund(refundTransactionId);
   /** LIRA-231 — POS refund preview (both refund buttons). */
   getSaleRefundPreview = (
     saleId: number,

@@ -209,6 +209,10 @@ import {
   type SaleRefundInput,
   saleRefundItemSchema,
   type SaleRefundItemInput,
+  // LIRA-147 — admin-only "Undo refund" for a per-item refund, shared with
+  // the REST route via packages/core/src/validators/sale.ts (rule 14/19b).
+  saleUndoItemRefundSchema,
+  type SaleUndoItemRefundInput,
   saleRefundPreviewSchema,
   type SaleRefundPreviewInput,
   expenseUpdateMetadataSchema,
@@ -272,6 +276,8 @@ export const SaleRefundSchema =
   saleRefundSchema as unknown as z.ZodSchema<SaleRefundInput>;
 export const SaleRefundItemSchema =
   saleRefundItemSchema as unknown as z.ZodSchema<SaleRefundItemInput>;
+export const SaleUndoItemRefundSchema =
+  saleUndoItemRefundSchema as unknown as z.ZodSchema<SaleUndoItemRefundInput>;
 export const SaleRefundPreviewSchema =
   saleRefundPreviewSchema as unknown as z.ZodSchema<SaleRefundPreviewInput>;
 

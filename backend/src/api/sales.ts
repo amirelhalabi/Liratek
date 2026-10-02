@@ -12,6 +12,10 @@ import {
   // via packages/core/src/validators/sale.ts (rule 14/19b).
   saleRefundSchema,
   saleRefundItemSchema,
+  // LIRA-147 — admin-only "Undo refund" for a per-item refund, shared with
+  // the Electron IPC handler via packages/core/src/validators/sale.ts
+  // (rule 14/19b).
+  saleUndoItemRefundSchema,
   saleRefundPreviewSchema,
   getCurrentTenantId,
 } from "@liratek/core";
@@ -299,6 +303,49 @@ router.post("/:id/refund-item", requireRole(["admin"]), (req, res) => {
     });
     // Rule 19c envelope parity: HTTP 200 even on a business-rule failure —
     // the frontend adapter branches on result.success, not the status code.
+    res.json(result);
+  } catch (err) {
+    res.json({
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+// POST /api/sales/undo-item-refund (admin only — matches salesHandlers.ts's
+// "sales:undo-item-refund" IPC gate). Body: { refundTransactionId }.
+// LIRA-147: everything else the undo needs is read back server-side from
+// that REFUND row's own metadata — a single top-level static path (not
+// nested under `:id`), so it never collides with the `GET /:id` route above.
+router.post("/undo-item-refund", requireRole(["admin"]), (req, res) => {
+  const parsed = saleUndoItemRefundSchema.safeParse({
+    refundTransactionId: req.body?.refundTransactionId,
+  });
+  if (!parsed.success) {
+    const firstError = parsed.error.issues[0];
+    res.json({
+      success: false,
+      error: firstError?.message ?? "Invalid undo-item-refund request",
+    });
+    return;
+  }
+  try {
+    const userId = req.user!.userId;
+    const service = getSalesService();
+    const result = service.undoItemRefund({
+      refundTransactionId: parsed.data.refundTransactionId,
+      userId,
+    });
+    if (result.success) {
+      auditRest(req, {
+        action: "refund",
+        entity_type: "transaction",
+        entity_id: String(parsed.data.refundTransactionId),
+        summary: `Undid refund #${parsed.data.refundTransactionId}`,
+        metadata: { refundTransactionId: parsed.data.refundTransactionId },
+      });
+    }
+    // Rule 19c envelope parity: HTTP 200 even on a business-rule failure.
     res.json(result);
   } catch (err) {
     res.json({

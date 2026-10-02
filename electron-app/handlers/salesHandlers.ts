@@ -20,6 +20,7 @@ import {
   SaleUpdateMetadataSchema,
   SaleRefundSchema,
   SaleRefundItemSchema,
+  SaleUndoItemRefundSchema,
   SaleRefundPreviewSchema,
   DashboardChartQuerySchema,
   NetProfitWindowQuerySchema,
@@ -258,6 +259,45 @@ export function registerSalesHandlers(): void {
             exchangeRate: v.data.exchangeRate,
           },
         });
+
+        return result;
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  // LIRA-147 — admin-only "Undo refund" for a standalone per-item refund.
+  // Same `["admin"]`-only gate as the refund action itself.
+  ipcMain.handle(
+    "sales:undo-item-refund",
+    (e, params: { refundTransactionId: number }) => {
+      const v = validatePayload(SaleUndoItemRefundSchema, params);
+      if (!v.ok) return { success: false, error: v.error };
+
+      try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) {
+          throw new Error(auth.error);
+        }
+        const userId = auth.userId;
+
+        const result = salesService.undoItemRefund({
+          refundTransactionId: v.data.refundTransactionId,
+          userId,
+        });
+        if (result.success) {
+          audit(e.sender.id, {
+            action: "refund",
+            entity_type: "transaction",
+            entity_id: String(v.data.refundTransactionId),
+            summary: `Undid refund #${v.data.refundTransactionId}`,
+            metadata: { refundTransactionId: v.data.refundTransactionId },
+          });
+        }
 
         return result;
       } catch (err) {

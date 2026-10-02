@@ -223,6 +223,34 @@ export class SalesService {
   }
 
   /**
+   * LIRA-147 — admin-only "Undo refund" for a standalone per-item refund.
+   * Admin-role enforcement is the CALLER's job (IPC `requireRole("admin")` /
+   * REST `requireRole("admin")`, same convention as every other admin-only
+   * action in this codebase — rule 13: this service adds no logic of its
+   * own beyond delegating to the repository, which owns all the
+   * correctness/idempotency/dependent-activity guards).
+   */
+  undoItemRefund(params: {
+    refundTransactionId: number;
+    userId: number;
+  }): { success: boolean; undoId?: number; error?: string } {
+    try {
+      const undoTxnId = this.salesRepo.undoSaleItemRefund(params);
+      salesLogger.info(
+        { refundTransactionId: params.refundTransactionId, undoTxnId },
+        "Item refund undone",
+      );
+      return { success: true, undoId: undoTxnId };
+    } catch (error) {
+      salesLogger.error({ error, params }, "Undo item refund failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
    * LIRA-231 — POS refund preview (both "Refund Sale" and "Refund item"
    * buttons): the sale's (or, with `item`, one item's proportional share of
    * the sale's) own customer-facing payment legs, for RefundMethodModal's

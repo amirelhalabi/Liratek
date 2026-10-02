@@ -1916,7 +1916,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       // session-linked sale's own `payments` rows are empty — the basket's
       // pooled leg is reversed by the session flow's dedicated account-first
       // + leg logic instead).
-      this._applySaleItemReversal({
+      const { restoredUnitIds } = this._applySaleItemReversal({
         saleId: params.saleId,
         saleItemId: params.saleItemId,
         productId: item.product_id,
@@ -1928,6 +1928,19 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         lineShareOfSale,
         unitExtras,
       });
+
+      // LIRA-147 — stamp exactly which product_units this refund flipped
+      // IN_STOCK, so `undoSaleItemRefund` can tell "this specific unit is
+      // still where the refund left it" from "it moved on" (a count-only
+      // check can't distinguish those once a resold unit's `sale_item_id`
+      // has been reassigned away from this line by `markSold`). A no-op
+      // (empty array) for a non-unit-tracked line, same as every other
+      // unit-flip step above.
+      if (restoredUnitIds.length > 0) {
+        db.prepare(
+          `UPDATE transactions SET metadata_json = json_set(metadata_json, '$.restoredUnitIds', json(?)) WHERE id = ? AND tenant_id = ?`,
+        ).run(JSON.stringify(restoredUnitIds), refundTxnId, tenantId);
+      }
 
       // 8. MONEY side — reverse this item's proportional share of the sale's
       // OWN payments (or the operator's chosen override). A no-op for a
@@ -1946,6 +1959,365 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       });
 
       return refundTxnId;
+    });
+  }
+
+  /**
+   * LIRA-147 — admin-only "Undo refund" for a STANDALONE per-item refund
+   * (`refundSaleItem`'s own REFUND row, `metadata_json.refundType ===
+   * "item"`). Deliberately does NOT cover a session-basket item refund
+   * (`TransactionRepository.refundSessionBasketItem`,
+   * `metadata_json.refundType === "sessionItem"`) — that flow pools money
+   * against the session's shared account/legs across potentially several
+   * prior item-refund calls, a materially different (and materially
+   * riskier to reverse generically) shape; `metadata_json.refundType` check
+   * below refuses it outright with a named reason rather than attempting a
+   * wrong reversal.
+   *
+   * Restores exactly what `refundSaleItem` changed, by inverting each row IT
+   * wrote (rule 14 — never re-derive the business math a second time):
+   *   - `payments` rows the refund posted under its own transaction id are
+   *     re-posted on the new UNDO transaction with the NEGATED amount, with
+   *     the matching drawer delta — this is an exact inverse regardless of
+   *     whether the refund used plain pro-rata legs or an operator override
+   *     (LIRA-231 `refundLegs`), since both end up as concrete `payments`
+   *     rows either way.
+   *   - `debt_ledger` 'Refund Reversal' rows the refund wrote (crediting the
+   *     client) are re-posted as 'Sale Debt' rows with the negated (i.e.
+   *     positive, re-charging) amount — literally re-establishing the exact
+   *     charge the refund cancelled.
+   *   - `profit_usd`/`profit_lbp` on the new row are the refund's own stamp
+   *     negated (the refund's was already negative, so this is positive —
+   *     restoring the sale's original profit; see `PROFIT_TXN_TYPES` in
+   *     ProfitRepository.ts, which now includes REFUND_UNDO for exactly
+   *     this).
+   *   - stock/FIFO batches: `StockBatchRepository.unrestoreForSaleItem`
+   *     (the traced inverse of `restoreForSaleItem`; refuses — see its own
+   *     doc — if the capacity the refund gave back has since been consumed
+   *     by something else, or can't be precisely traced).
+   *   - `product_units`: units the refund flipped IN_STOCK are flipped back
+   *     SOLD via the SAME `markSold` the original sale used (which already
+   *     clears `warranty_override_until` and deliberately keeps
+   *     `is_defective` — see that method's own doc) — refused if fewer than
+   *     `refundQuantity` of them are still IN_STOCK under this sale_item
+   *     (i.e. one was sold again under a DIFFERENT sale since the refund —
+   *     `markSold` reassigns `sale_item_id` on resale, so this is a direct,
+   *     reliable signal).
+   *   - `sale_items.refunded_quantity` decrements by `refundQuantity`, and
+   *     `sales.status` flips back from 'refunded' to 'completed' if this
+   *     undo leaves any quantity un-refunded again.
+   *
+   * Idempotency: refuses if an ACTIVE REFUND_UNDO row already references
+   * this `refundTransactionId` ("already undone").
+   */
+  undoSaleItemRefund(params: {
+    refundTransactionId: number;
+    userId: number;
+  }): number {
+    const db = this.db;
+    const tenantId = getCurrentTenantId();
+    const txnRepo = getTransactionRepository();
+
+    // ---- Pre-transaction guards & reads ----------------------------------
+    const refundTxn = db
+      .prepare(
+        `SELECT id, type, status, source_table, source_id, amount_usd,
+                profit_usd, exchange_rate, client_id, device_id, metadata_json
+         FROM transactions WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(params.refundTransactionId, tenantId) as
+      | {
+          id: number;
+          type: string;
+          status: string;
+          source_table: string;
+          source_id: number;
+          amount_usd: number;
+          profit_usd: number | null;
+          exchange_rate: number | null;
+          client_id: number | null;
+          device_id: string | null;
+          metadata_json: string | null;
+        }
+      | undefined;
+
+    if (!refundTxn) {
+      throw new NotFoundError("transaction", params.refundTransactionId);
+    }
+    if (refundTxn.type !== TRANSACTION_TYPES.REFUND) {
+      throw new DatabaseError(
+        "Undo refund only applies to a REFUND transaction.",
+      );
+    }
+    if (refundTxn.status !== "ACTIVE") {
+      throw new DatabaseError("This refund is not active — nothing to undo.");
+    }
+
+    let metadata: Record<string, unknown> = {};
+    try {
+      metadata = refundTxn.metadata_json
+        ? (JSON.parse(refundTxn.metadata_json) as Record<string, unknown>)
+        : {};
+    } catch {
+      metadata = {};
+    }
+    if (metadata.refundType !== "item") {
+      throw new DatabaseError(
+        metadata.refundType === "sessionItem"
+          ? "This refund was made from a customer session basket — undo refund does not yet support session-basket item refunds."
+          : "Undo refund only applies to a per-item refund made from a sale.",
+      );
+    }
+
+    const saleItemId = Number(metadata.saleItemId);
+    const refundQuantity = Number(metadata.refundQuantity);
+    const originalSaleId = Number(metadata.originalSaleId);
+    if (!saleItemId || !refundQuantity || !originalSaleId) {
+      throw new DatabaseError(
+        "This refund's record is missing the detail undo needs (saleItemId/refundQuantity/originalSaleId) — cannot undo it safely.",
+      );
+    }
+
+    // Already undone? — one ACTIVE REFUND_UNDO row may reference this
+    // refund; a second one would double-restore every ledger above.
+    const existingUndos = db
+      .prepare(
+        `SELECT id, metadata_json FROM transactions
+         WHERE type = ? AND status = 'ACTIVE' AND tenant_id = ?`,
+      )
+      .all(TRANSACTION_TYPES.REFUND_UNDO, tenantId) as {
+      id: number;
+      metadata_json: string | null;
+    }[];
+    for (const row of existingUndos) {
+      try {
+        const m = row.metadata_json
+          ? (JSON.parse(row.metadata_json) as Record<string, unknown>)
+          : {};
+        if (Number(m.refundTransactionId) === params.refundTransactionId) {
+          throw new DatabaseError("This refund has already been undone.");
+        }
+      } catch (e) {
+        if (e instanceof DatabaseError) throw e;
+        // Malformed metadata on an unrelated row — ignore, not this refund.
+      }
+    }
+
+    const item = db
+      .prepare(`SELECT * FROM sale_items WHERE id = ? AND tenant_id = ?`)
+      .get(saleItemId, tenantId) as SaleItemEntity | undefined;
+    if (!item) {
+      throw new NotFoundError("sale_item", saleItemId);
+    }
+    if ((item.refunded_quantity ?? 0) < refundQuantity) {
+      throw new DatabaseError(
+        "This item's refunded quantity no longer matches this refund — cannot undo it safely.",
+      );
+    }
+
+    // Dependent-activity guard: has a refunded unit already been sold again
+    // under a DIFFERENT sale? `markSold` REASSIGNS `sale_item_id` to the new
+    // sale's line on resale, so a resold unit is no longer findable by the
+    // ORIGINAL saleItemId at all — a bare "is anything still linked"
+    // count can't tell "never unit-tracked" (0 before, 0 after — fine) from
+    // "every returned unit already moved on" (nonzero before, 0 after —
+    // must refuse). `restoredUnitIds` (stamped onto the refund's own
+    // metadata at refund time, see `refundSaleItem`) resolves this exactly:
+    // check each specific unit id the refund itself flipped, by id, not by
+    // a count. Falls back to the less precise saleItemId-count heuristic
+    // only for a refund made before this stamp existed (no
+    // `restoredUnitIds` in its metadata) — still safe-direction (refuses
+    // rather than risks a double-restore) even though it can't perfectly
+    // distinguish "never tracked" from "all moved on" for legacy data.
+    if (this._productUnitsTableExists()) {
+      const restoredUnitIdsRaw = metadata.restoredUnitIds;
+      if (Array.isArray(restoredUnitIdsRaw) && restoredUnitIdsRaw.length > 0) {
+        const placeholders = restoredUnitIdsRaw.map(() => "?").join(",");
+        const stillAvailable = db
+          .prepare(
+            `SELECT COUNT(*) AS cnt FROM product_units
+             WHERE id IN (${placeholders}) AND sale_item_id = ? AND status = 'IN_STOCK' AND tenant_id = ?`,
+          )
+          .get(...restoredUnitIdsRaw, saleItemId, tenantId) as { cnt: number };
+        if (stillAvailable.cnt < restoredUnitIdsRaw.length) {
+          throw new DatabaseError(
+            "This refund can't be undone — one or more of its returned units have already been sold again.",
+          );
+        }
+      } else if (!("restoredUnitIds" in metadata)) {
+        const everLinked = db
+          .prepare(
+            `SELECT COUNT(*) AS cnt FROM product_units
+             WHERE sale_item_id = ? AND tenant_id = ?`,
+          )
+          .get(saleItemId, tenantId) as { cnt: number };
+        if (everLinked.cnt > 0) {
+          const available = db
+            .prepare(
+              `SELECT COUNT(*) AS cnt FROM product_units
+               WHERE sale_item_id = ? AND status = 'IN_STOCK' AND tenant_id = ?`,
+            )
+            .get(saleItemId, tenantId) as { cnt: number };
+          if (available.cnt < refundQuantity) {
+            throw new DatabaseError(
+              "This refund can't be undone — one or more of its returned units have already been sold again.",
+            );
+          }
+        }
+      }
+    }
+
+    // Dependent-activity guard: has the restored stock capacity already been
+    // consumed by something else since?
+    const stockBatchRepo = getStockBatchRepository();
+    if (!stockBatchRepo.canUnrestoreForSaleItem(saleItemId, refundQuantity)) {
+      throw new DatabaseError(
+        "This refund can't be undone — the stock it restored has already been consumed by other activity since.",
+      );
+    }
+
+    return this.transaction(() => {
+      // 1. Create the REFUND_UNDO transaction — profit/amount are the
+      //    refund's own stamp negated (rule 14, see doc above).
+      const undoTxnId = txnRepo.createTransaction({
+        type: TRANSACTION_TYPES.REFUND_UNDO,
+        source_table: refundTxn.source_table,
+        source_id: refundTxn.source_id,
+        user_id: params.userId,
+        amount_usd: -refundTxn.amount_usd,
+        amount_lbp: 0,
+        profit_usd: refundTxn.profit_usd != null ? -refundTxn.profit_usd : 0,
+        profit_lbp: 0,
+        exchange_rate: refundTxn.exchange_rate,
+        client_id: refundTxn.client_id,
+        summary: `UNDO REFUND: ${refundQuantity}x product ${item.product_id} from Sale #${originalSaleId} (undoes refund #${params.refundTransactionId})`,
+        metadata_json: {
+          undoType: "item",
+          refundTransactionId: params.refundTransactionId,
+          saleItemId,
+          refundQuantity,
+          originalSaleId,
+        },
+        device_id: refundTxn.device_id ?? undefined,
+      });
+
+      // 2. sale_items.refunded_quantity, products.stock_quantity.
+      db.prepare(
+        `UPDATE sale_items SET refunded_quantity = refunded_quantity - ? WHERE id = ? AND tenant_id = ?`,
+      ).run(refundQuantity, saleItemId, tenantId);
+      db.prepare(
+        `UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND tenant_id = ?`,
+      ).run(refundQuantity, item.product_id, tenantId);
+
+      // 3. FIFO batches — traced inverse of restoreForSaleItem.
+      stockBatchRepo.unrestoreForSaleItem(saleItemId, refundQuantity);
+
+      // 4. product_units — flip back to SOLD under this same sale_item,
+      //    exactly like the original sale did. Prefer the exact
+      //    `restoredUnitIds` the refund itself stamped (see the guard
+      //    above); fall back to the count-ordered heuristic only for a
+      //    refund made before that stamp existed.
+      if (this._productUnitsTableExists()) {
+        const productUnitRepo = getProductUnitRepository();
+        const restoredUnitIdsRaw = metadata.restoredUnitIds;
+        const targetUnits =
+          Array.isArray(restoredUnitIdsRaw) && restoredUnitIdsRaw.length > 0
+            ? productUnitRepo
+                .findBySaleItemIds([saleItemId])
+                .filter(
+                  (u) =>
+                    u.status === "IN_STOCK" &&
+                    restoredUnitIdsRaw.includes(u.id),
+                )
+            : productUnitRepo
+                .findBySaleItemIds([saleItemId])
+                .filter((u) => u.status === "IN_STOCK")
+                .sort((a, b) => a.id - b.id)
+                .slice(0, refundQuantity);
+        for (const unit of targetUnits) {
+          productUnitRepo.markSold(unit.id, saleItemId);
+        }
+      }
+
+      // 5. debt_ledger — re-charge exactly what the refund credited back.
+      const reversalRows = db
+        .prepare(
+          `SELECT id, client_id, amount_usd FROM debt_ledger
+           WHERE transaction_id = ? AND transaction_type = 'Refund Reversal' AND tenant_id = ?`,
+        )
+        .all(params.refundTransactionId, tenantId) as {
+        id: number;
+        client_id: number;
+        amount_usd: number;
+      }[];
+      const insertRecharge = db.prepare(`
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id)
+        VALUES (?, 'Sale Debt', ?, ?, 'Debt re-charged by undo refund', ?, ?)
+      `);
+      for (const r of reversalRows) {
+        insertRecharge.run(
+          r.client_id,
+          -r.amount_usd,
+          undoTxnId,
+          params.userId,
+          tenantId,
+        );
+      }
+
+      // 6. payments/drawers — exact negated inverse of whatever the refund
+      //    itself posted (handles both plain pro-rata legs and an operator
+      //    refundLegs override identically — see doc above).
+      const refundPayments = db
+        .prepare(
+          `SELECT method, drawer_name, currency_code, amount, note FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
+        )
+        .all(params.refundTransactionId, tenantId) as {
+        method: string;
+        drawer_name: string;
+        currency_code: string;
+        amount: number;
+        note: string | null;
+      }[];
+      for (const payment of refundPayments) {
+        const negatedAmount = -payment.amount;
+        insertPaymentRow(db, {
+          transactionId: undoTxnId,
+          method: payment.method,
+          drawerName: payment.drawer_name,
+          currencyCode: payment.currency_code,
+          amount: negatedAmount,
+          note: `Undo refund #${params.refundTransactionId}`,
+          createdBy: params.userId,
+          tenantId,
+        });
+        applyDrawerDelta(db, {
+          drawerName: payment.drawer_name,
+          currencyCode: payment.currency_code,
+          delta: negatedAmount,
+          tenantId,
+        });
+      }
+
+      // 7. sale status — flip back from 'refunded' if this undo leaves
+      //    anything un-refunded again.
+      const sale = db
+        .prepare(`SELECT status FROM sales WHERE id = ? AND tenant_id = ?`)
+        .get(originalSaleId, tenantId) as { status: string } | undefined;
+      if (sale?.status === "refunded") {
+        const remaining = db
+          .prepare(
+            `SELECT COUNT(*) as count FROM sale_items
+             WHERE sale_id = ? AND (quantity - refunded_quantity) > 0 AND tenant_id = ?`,
+          )
+          .get(originalSaleId, tenantId) as { count: number } | undefined;
+        if ((remaining?.count ?? 0) > 0) {
+          db.prepare(
+            `UPDATE sales SET status = 'completed' WHERE id = ? AND tenant_id = ?`,
+          ).run(originalSaleId, tenantId);
+        }
+      }
+
+      return undoTxnId;
     });
   }
 
@@ -2025,9 +2397,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     clientId: number | null;
     lineShareOfSale: number;
     unitExtras?: RefundUnitExtra[];
-  }): void {
+  }): { restoredUnitIds: number[] } {
     const db = this.db;
     const tenantId = getCurrentTenantId();
+    const restoredUnitIds: number[] = [];
 
     // Update sale_items.refunded_quantity
     db.prepare(
@@ -2071,6 +2444,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           isDefective: extra?.is_defective,
           warrantyOverrideUntil: extra?.warranty_override_until,
         });
+        restoredUnitIds.push(unit.id);
       }
     }
 
@@ -2116,6 +2490,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         `UPDATE sales SET status = 'refunded' WHERE id = ? AND tenant_id = ?`,
       ).run(params.saleId, tenantId);
     }
+
+    return { restoredUnitIds };
   }
 
   /**

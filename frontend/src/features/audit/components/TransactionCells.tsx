@@ -25,6 +25,8 @@ import {
 } from "@liratek/core";
 import { isReceiptableRow } from "../receiptGating";
 import { isReversibleRow } from "../actionGating";
+import { getNonReversibleReason } from "../nonReversibleReasons";
+import { parseMetaSafe } from "../auditConstants";
 import { formatPaymentLegs } from "../cashFlow";
 import {
   cashLegsFor,
@@ -341,6 +343,8 @@ export interface RowActionHandlers {
    *  member (a product line/quantity, a service, a recharge) instead of the
    *  whole basket. Offered only for SESSION_ITEM_REFUNDABLE_TYPES rows. */
   onRefundSessionItem: (row: TransactionRow) => void;
+  /** LIRA-147 — admin-only undo of a standalone per-item refund. */
+  onUndoRefund: (row: TransactionRow) => void;
 }
 
 export function ActionsCell({
@@ -352,6 +356,7 @@ export function ActionsCell({
   hideVoidBasket = false,
   hideRefundItem = false,
   hideBasketActions = false,
+  isAdmin = false,
 }: {
   row: TransactionRow;
   derived: RowDerived;
@@ -359,6 +364,11 @@ export function ActionsCell({
   /** Row whose linked-units lookup is in flight — disables just its button. */
   refundLookupRowId: number | null;
   handlers: RowActionHandlers;
+  /** LIRA-147 — gates the "Undo refund" button (admin only). Defaults to
+   *  `false` so every existing caller that doesn't pass it is unaffected;
+   *  the backend's own `requireRole(["admin"])` remains the real
+   *  authority — this is a UI-level convenience, not the enforcement. */
+  isAdmin?: boolean;
   /** LIRA-232 round-2 review (finding 2) — true when this row's session has
    *  ANY per-item refund already: `voidSessionBasket` hard-refuses a basket
    *  once it's been touched by an item refund, so "Void basket" is hidden
@@ -489,8 +499,42 @@ export function ActionsCell({
               </button>
             </>
           )
+        ) : isAdmin &&
+          row.type === "REFUND" &&
+          row.status === "ACTIVE" &&
+          parseMetaSafe(row.metadata_json).refundType === "item" ? (
+          // LIRA-147 — admin-only undo of a STANDALONE per-item refund (the
+          // generic void/refund path can never reach a REFUND row —
+          // NON_REVERSIBLE_TRANSACTION_TYPES — this is a dedicated action,
+          // not a bypass of that gate). Session-basket item refunds
+          // (`refundType === "sessionItem"`) are deliberately NOT offered
+          // this button — undo for that flow is not built (see
+          // `SalesRepository.undoSaleItemRefund`'s own doc for why). The
+          // repository itself still refuses an already-undone or
+          // dependent-activity case with a clear error (surfaced via the
+          // same `alert()` pattern every other action here uses).
+          <button
+            onClick={() => handlers.onUndoRefund(row)}
+            title="Admin-only — restores the stock, drawer, debt, and profit this refund changed."
+            className="px-1.5 py-0.5 text-[10px] rounded bg-amber-900/70 text-amber-200 hover:bg-amber-900/40 hover:text-amber-300 transition-colors"
+          >
+            Undo refund
+          </button>
         ) : isReceiptableRow(row) ? null : (
-          "—"
+          (() => {
+            const reason = getNonReversibleReason(row.type);
+            return reason ? (
+              <span
+                className="text-[10px] text-slate-500 italic cursor-help"
+                title={reason}
+                data-testid="non-reversible-reason"
+              >
+                Can't refund here
+              </span>
+            ) : (
+              "—"
+            );
+          })()
         )}
       </div>
     </td>

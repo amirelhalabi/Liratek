@@ -1047,6 +1047,13 @@ export interface ElectronAPI {
       refundId?: number;
       error?: string;
     }>;
+    /** LIRA-147 — admin-only "Undo refund" for a standalone per-item
+     *  refund. */
+    undoItemRefund: (refundTransactionId: number) => Promise<{
+      success: boolean;
+      undoId?: number;
+      error?: string;
+    }>;
     /** LIRA-231 — POS refund preview: the sale's (or, with `item`, one
      *  item's proportional share of the sale's) own customer-facing payment
      *  legs, plus whether the sale is session-linked. LIRA-236:

@@ -172,47 +172,6 @@ const PARTNER_LEG_METHODS: PaymentMethod[] = [
   { code: "BINANCE", label: "Binance" },
 ];
 
-/**
- * Manual "Record Transaction" types — LIRA-051.
- *
- * Grouped logically for readability. Only the plain types below are accepted by
- * the manual record path (handler `RecordTransactionInput` / backend
- * `CreateLedgerEntryData`). The `THROUGH_*` / `FOR_*` variants are written
- * automatically by real OMT/Whish transactions (FinancialServiceRepository) and
- * are intentionally NOT offered here — historical entries of those types still
- * display correctly in the ledger table (see LedgerRow).
- */
-const TRANSACTION_TYPE_GROUPS: {
-  label: string;
-  options: { value: string; label: string }[];
-}[] = [
-  {
-    label: "General",
-    options: [
-      { value: "ADJUSTMENT", label: "Adjustment" },
-      { value: "SETTLEMENT", label: "Settlement" },
-    ],
-  },
-  {
-    label: "OMT",
-    options: [
-      { value: "OMT_SEND", label: "OMT Send" },
-      { value: "OMT_RECEIVE", label: "OMT Receive" },
-    ],
-  },
-  {
-    label: "Whish",
-    options: [
-      { value: "WHISH_SEND", label: "Whish Send" },
-      { value: "WHISH_RECEIVE", label: "Whish Receive" },
-    ],
-  },
-  {
-    label: "Other",
-    options: [{ value: "CUSTOM_SERVICE", label: "Custom Service" }],
-  },
-];
-
 // ─── Modal shell ──────────────────────────────────────────────────────────────
 
 function Modal({
@@ -744,30 +703,35 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   );
 }
 
-// ─── Record Transaction Modal ─────────────────────────────────────────────────
+// ─── Add Credit / Debt Modal ───────────────────────────────────────────────────
 
 interface RecordTxModalProps {
   partner: PartnerWithBalance;
   onClose: () => void;
   onRecorded: () => void;
-  /**
-   * PFT-7 "Add credit / debt" mode — a focused manual partner_ledger
-   * adjustment (DEBIT = partner owes shop, CREDIT = shop owes partner).
-   * Locks the transaction type to ADJUSTMENT and hides the type picker so
-   * the modal reads as a simple credit/debt entry, like the Accounts page's
-   * "Add Credit / Debt". Uses the SAME `recordTransaction` IPC/REST call as
-   * the general "Record Tx" button — no new backend path.
-   */
-  adjustmentOnly?: boolean;
 }
 
-function RecordTxModal({
-  partner,
-  onClose,
-  onRecorded,
-  adjustmentOnly = false,
-}: RecordTxModalProps) {
-  const [txType, setTxType] = useState("ADJUSTMENT");
+/**
+ * PFT-7 "Add credit / debt" — a focused manual partner_ledger adjustment
+ * (DEBIT = partner owes shop, CREDIT = shop owes partner), matching the
+ * Accounts page's "Add Credit / Debt". Always writes transaction type
+ * ADJUSTMENT via the `recordTransaction` IPC/REST call.
+ *
+ * LIRA-096: this used to double as the generic "Record Transaction" modal
+ * (a type picker exposing SETTLEMENT/OMT_SEND/OMT_RECEIVE/WHISH_SEND/
+ * WHISH_RECEIVE/CUSTOM_SERVICE too). Removed — confirmed redundant: those
+ * non-ADJUSTMENT types are bucketed identically to ADJUSTMENT everywhere
+ * money/balance math runs (PartnerRepository only special-cases
+ * `SETTLEMENT`/`DISCOUNT` for FIFO coverage), and the dedicated "Settle"
+ * button already writes a real `SETTLEMENT` row — including the
+ * no-cash-moved paper case via its own "Cash moved" checkbox — with a
+ * correctly auto-computed direction, split legs and discount support that
+ * the manual type picker never had. The only thing lost is a cosmetic
+ * ledger-row label for a hand-typed paper entry; the Notes field already
+ * covers that.
+ */
+function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
+  const txType = "ADJUSTMENT";
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [direction, setDirection] = useState<"DEBIT" | "CREDIT">("DEBIT");
@@ -797,7 +761,7 @@ function RecordTxModal({
         currency,
         direction,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
-        ...(adjustmentOnly && moveCash ? { moveCash: true } : {}),
+        ...(moveCash ? { moveCash: true } : {}),
       });
       if (result.success) {
         appEvents.emit("notification:show", "Transaction recorded.", "success");
@@ -822,38 +786,8 @@ function RecordTxModal({
   }
 
   return (
-    <Modal
-      title={
-        adjustmentOnly
-          ? `Add Credit / Debt – ${partner.name}`
-          : `Record Transaction – ${partner.name}`
-      }
-      onClose={onClose}
-    >
+    <Modal title={`Add Credit / Debt – ${partner.name}`} onClose={onClose}>
       <div className="space-y-4">
-        {!adjustmentOnly && (
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">
-              Transaction Type
-            </label>
-            <select
-              value={txType}
-              onChange={(e) => setTxType(e.target.value)}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-            >
-              {TRANSACTION_TYPE_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.options.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </div>
-        )}
-
         <div className="flex gap-3">
           <div className="flex-1">
             <label className="text-xs text-slate-400 block mb-1">Amount</label>
@@ -912,27 +846,25 @@ function RecordTxModal({
           </div>
         </div>
 
-        {adjustmentOnly && (
-          <label
-            className="flex items-start gap-2 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer"
-            data-testid="partner-cash-moved-toggle"
-          >
-            <input
-              type="checkbox"
-              checked={moveCash}
-              onChange={(e) => setMoveCash(e.target.checked)}
-              className="mt-0.5 accent-violet-500"
-            />
-            <span className="text-xs text-slate-300">
-              <span className="font-medium text-white">Cash moved</span> — this
-              entry records physical cash:{" "}
-              {direction === "DEBIT"
-                ? "cash OUT of the drawer to the partner (advance)"
-                : "cash IN from the partner"}
-              . Leave unticked for a paper-style correction (no drawer change).
-            </span>
-          </label>
-        )}
+        <label
+          className="flex items-start gap-2 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer"
+          data-testid="partner-cash-moved-toggle"
+        >
+          <input
+            type="checkbox"
+            checked={moveCash}
+            onChange={(e) => setMoveCash(e.target.checked)}
+            className="mt-0.5 accent-violet-500"
+          />
+          <span className="text-xs text-slate-300">
+            <span className="font-medium text-white">Cash moved</span> — this
+            entry records physical cash:{" "}
+            {direction === "DEBIT"
+              ? "cash OUT of the drawer to the partner (advance)"
+              : "cash IN from the partner"}
+            . Leave unticked for a paper-style correction (no drawer change).
+          </span>
+        </label>
 
         <div>
           <label className="text-xs text-slate-400 block mb-1">Notes</label>
@@ -957,11 +889,7 @@ function RecordTxModal({
             disabled={submitting || !isValid}
             className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors text-sm"
           >
-            {submitting
-              ? "Recording..."
-              : adjustmentOnly
-                ? "Add Credit / Debt"
-                : "Record Transaction"}
+            {submitting ? "Recording..." : "Add Credit / Debt"}
           </button>
         </div>
       </div>
@@ -1367,7 +1295,6 @@ interface DetailPanelProps {
   partner: PartnerWithBalance;
   onEdit: () => void;
   onSettle: () => void;
-  onRecordTx: () => void;
   onAddCredit: () => void;
   onDeactivate: () => void;
   onActivate: () => void;
@@ -1379,7 +1306,6 @@ function DetailPanel({
   partner,
   onEdit,
   onSettle,
-  onRecordTx,
   onAddCredit,
   onDeactivate,
   onActivate,
@@ -1497,13 +1423,6 @@ function DetailPanel({
             >
               <DollarSign className="w-3.5 h-3.5" />
               Settle
-            </button>
-            <button
-              onClick={onRecordTx}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-700 hover:bg-violet-600 text-violet-100 rounded-lg text-xs font-medium transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Record Tx
             </button>
             <button
               onClick={onAddCredit}
@@ -1900,8 +1819,6 @@ export function PartnersPage() {
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
   const [settlingPartner, setSettlingPartner] =
     useState<PartnerWithBalance | null>(null);
-  const [recordingTxPartner, setRecordingTxPartner] =
-    useState<PartnerWithBalance | null>(null);
   const [addingCreditPartner, setAddingCreditPartner] =
     useState<PartnerWithBalance | null>(null);
   const [deactivatingPartner, setDeactivatingPartner] =
@@ -2081,7 +1998,6 @@ export function PartnersPage() {
               partner={selectedPartner}
               onEdit={() => setEditingPartner(selectedPartner)}
               onSettle={() => setSettlingPartner(selectedPartner)}
-              onRecordTx={() => setRecordingTxPartner(selectedPartner)}
               onAddCredit={() => setAddingCreditPartner(selectedPartner)}
               onDeactivate={() => setDeactivatingPartner(selectedPartner)}
               onWriteOff={() => setWritingOffPartner(selectedPartner)}
@@ -2136,19 +2052,11 @@ export function PartnersPage() {
           onSettled={loadPartners}
         />
       )}
-      {recordingTxPartner && (
-        <RecordTxModal
-          partner={recordingTxPartner}
-          onClose={() => setRecordingTxPartner(null)}
-          onRecorded={loadPartners}
-        />
-      )}
       {addingCreditPartner && (
         <RecordTxModal
           partner={addingCreditPartner}
           onClose={() => setAddingCreditPartner(null)}
           onRecorded={loadPartners}
-          adjustmentOnly
         />
       )}
       {deactivatingPartner && (

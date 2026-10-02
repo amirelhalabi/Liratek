@@ -254,3 +254,21 @@ export const saleRefundPreviewSchema = z.object({
     .optional(),
 });
 export type SaleRefundPreviewInput = z.infer<typeof saleRefundPreviewSchema>;
+
+/**
+ * LIRA-147 — admin-only "Undo refund" for a standalone (non-session) per-item
+ * refund written by `SalesRepository.refundSaleItem`
+ * (`metadata_json.refundType === "item"`). `refundTransactionId` is the
+ * REFUND row's own `transactions.id` — everything else the undo needs
+ * (saleId, saleItemId, refundQuantity) is read back from that row's own
+ * metadata, never re-supplied by the client, so there is nothing here for a
+ * caller to get wrong about WHICH refund is being undone. `userId` is not a
+ * field — injected server-side from the authenticated actor, same as every
+ * other write schema (rule 19c).
+ */
+export const saleUndoItemRefundSchema = z.object({
+  refundTransactionId: z.number().int().positive(),
+});
+export type SaleUndoItemRefundInput = z.infer<
+  typeof saleUndoItemRefundSchema
+>;

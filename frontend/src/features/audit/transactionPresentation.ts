@@ -306,6 +306,10 @@ export const TRANSACTION_PRESENTATION: Record<
   // A REFUND's money movement is carried by its own reversal payment legs,
   // which the legs subtext renders; the type alone implies no direction.
   REFUND: { label: null, color: "text-rose-400", direction: null },
+  // LIRA-147 — same reasoning as REFUND immediately above: an admin "Undo
+  // refund" row's money movement is carried by its own payment legs (the
+  // negated inverse of the refund's), rendered by the same legs subtext.
+  REFUND_UNDO: { label: "Undo Refund", color: "text-amber-400", direction: null },
 
   // ── Client activity log ───────────────────────────────────────────────
   // CLIENT_CREATED is blanket-hidden from the table (HIDDEN_TRANSACTION_TYPES)

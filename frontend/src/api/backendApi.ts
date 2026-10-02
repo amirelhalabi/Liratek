@@ -31,6 +31,9 @@ import type {
   // derived from the core schema (rule 21).
   SaleRefundInput,
   SaleRefundItemInput,
+  // LIRA-147 — admin "Undo refund" payload, derived from the core schema
+  // (rule 21).
+  SaleUndoItemRefundInput,
   // Typing follow-up (rule 21/24) — `RefundLegOverride`/`RefundUnitExtraOverride`
   // below are type aliases for these, never a hand-copied second definition
   // of `refundLegSchema`/`refundUnitExtraSchema`'s shape.
@@ -1284,6 +1287,26 @@ export async function refundSaleItem(
             unitExtras,
             exchangeRate,
           },
+        },
+      ),
+  );
+}
+
+/** LIRA-147 — admin-only "Undo refund" for a standalone per-item refund.
+ *  `refundTransactionId` is the REFUND row's own transaction id —
+ *  everything else the undo needs is read back server-side from that row's
+ *  own metadata. Type derived from `SaleUndoItemRefundInput` (rule 21). */
+export async function undoItemRefund(
+  refundTransactionId: SaleUndoItemRefundInput["refundTransactionId"],
+): Promise<{ success: boolean; undoId?: number; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().sales.undoItemRefund(refundTransactionId),
+    async () =>
+      requestJson<{ success: boolean; undoId?: number; error?: string }>(
+        `/api/sales/undo-item-refund`,
+        {
+          method: "POST",
+          body: { refundTransactionId },
         },
       ),
   );

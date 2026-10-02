@@ -15,11 +15,13 @@ import {
   getSaleItems,
   getProductUnitsForSaleItems,
   getRefundBookedRate,
+  undoItemRefund,
   type ProductUnitDto,
   type BookedRateSource,
 } from "@/api/backendApi";
 import { DataTable, useApi, appEvents } from "@liratek/ui";
 import logger from "@/utils/logger";
+import { useAuth } from "@/features/auth/context/AuthContext";
 import { formatLegAmount } from "../cashFlow";
 import {
   billsCommissionModeLine,
@@ -153,6 +155,12 @@ export default function TransactionsViewer({
     to,
   });
   const shopInfo = useShopInfo();
+  // LIRA-147 — gates the "Undo refund" button; the backend's own
+  // `requireRole(["admin"])` on both transports remains the real
+  // enforcement (this is only the UI-level convenience, same convention
+  // as Partners/Suppliers write-off buttons).
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const api = useApi();
   // Read `api` through a ref (rule 25) so `handlePrintReceipt` below keeps a
   // STABLE identity across renders — same hazard/pattern as
@@ -261,6 +269,25 @@ export default function TransactionsViewer({
         else alert(describeActionFailure(res.error, "Voiding a transaction"));
       } catch (err) {
         alert(describeActionFailure(err, "Voiding a transaction"));
+      }
+    },
+    [load],
+  );
+
+  const handleUndoRefund = useCallback(
+    async (row: TransactionRow) => {
+      if (
+        !confirm(
+          "Undo this refund? It restores the stock, drawer, customer debt, and profit it changed — this cannot be undone again.",
+        )
+      )
+        return;
+      try {
+        const res = await undoItemRefund(row.id);
+        if (res.success) load();
+        else alert(describeActionFailure(res.error, "Undoing a refund"));
+      } catch (err) {
+        alert(describeActionFailure(err, "Undoing a refund"));
       }
     },
     [load],
@@ -630,6 +657,7 @@ export default function TransactionsViewer({
       onVoidSessionBasket: handleVoidSessionBasket,
       onRefundSessionBasket: handleRefundSessionBasket,
       onRefundSessionItem: handleRefundSessionItem,
+      onUndoRefund: handleUndoRefund,
     }),
     [
       handlePrintReceipt,
@@ -639,6 +667,7 @@ export default function TransactionsViewer({
       handleVoidSessionBasket,
       handleRefundSessionBasket,
       handleRefundSessionItem,
+      handleUndoRefund,
     ],
   );
 
@@ -768,6 +797,7 @@ export default function TransactionsViewer({
           sessionId={sessionId}
           refundLookupRowId={refundLookupRowId}
           handlers={rowActionHandlers}
+          isAdmin={isAdmin}
           hideVoidBasket={
             sessionId != null && sessionsWithItemRefund.has(sessionId)
           }
