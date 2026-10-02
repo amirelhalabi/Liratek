@@ -240,10 +240,20 @@ describe("Exchange preview — NO_RATE_ANCHOR cross keeps leg 1's profit (LIRA-1
     fireEvent.change(screen.getByTestId("amount-in"), {
       target: { value: "1000" },
     });
-    await waitFor(() =>
-      expect(mockPreview).toHaveBeenCalledWith(
-        expect.objectContaining({ currencyCode: "AED", fromCurrency: "GBP" }),
-      ),
+    // The lot-preview call is behind a real 400ms setTimeout debounce (see
+    // the `useEffect` in `features/exchange/pages/Exchange/index.tsx` around
+    // "EXCHANGE_LOT_SETTLEMENT.md Q10"), not a mocked/fake timer. jsdom's
+    // default `waitFor` timeout (1000ms) leaves only ~600ms of margin over
+    // that debounce for the surrounding effect chain (rates load, calcResult,
+    // consumingLeg) to settle, which CI's slower/coverage-instrumented run
+    // ate into — hence the flake. Widen the margin rather than touch the
+    // debounce itself.
+    await waitFor(
+      () =>
+        expect(mockPreview).toHaveBeenCalledWith(
+          expect.objectContaining({ currencyCode: "AED", fromCurrency: "GBP" }),
+        ),
+      { timeout: 5000 },
     );
     await screen.findByText(/Cost-basis tracking unavailable for this pair/i);
 
@@ -292,7 +302,11 @@ describe("Exchange preview — FIFO price uses the submitted (rounded) amountOut
     fireEvent.change(screen.getByTestId("amount-in"), {
       target: { value: "100" },
     });
-    await waitFor(() => expect(mockPreview).toHaveBeenCalled());
+    // Same 400ms real-timer debounce as the lead-3 case above; widen the
+    // margin for the same reason (see comment there).
+    await waitFor(() => expect(mockPreview).toHaveBeenCalled(), {
+      timeout: 5000,
+    });
 
     const call = mockPreview.mock.calls[mockPreview.mock.calls.length - 1][0] as {
       qty: number;
