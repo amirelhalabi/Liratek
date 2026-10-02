@@ -213,6 +213,12 @@ export class MaintenanceService {
           keptChangeUsd: params.kept_change_usd,
           keptChangeLbp: params.kept_change_lbp,
           note: params.note,
+          // LIRA-185 D9: the SAME transaction_time that backdates the job
+          // row (baseJobData.transaction_time above) also backdates its
+          // unified transaction/payment rows, so a backdated checkout no
+          // longer splits across two days (which recreated D2 for every
+          // same-call checkout).
+          transactionTime: params.transaction_time,
           defer,
           deviceName: baseJobData.device_name,
           issueDescription: baseJobData.issue_description,

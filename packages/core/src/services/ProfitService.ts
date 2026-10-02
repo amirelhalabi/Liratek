@@ -2748,15 +2748,49 @@ export class ProfitService {
       const toDt = `${to} 23:59:59`;
 
       const paymentRows = this.repo.getPaymentMethodRows(fromDt, toDt);
-      // LPAY-R3-3: strictUsdBucketing = true — this tab's dollar columns
-      // follow PA-1.4's `= 'USD'` convention (same as getPaymentMethodRows's
-      // own payment-leg rows above), never the shared methods' default
-      // `!= 'LBP'` lumping other callers (getMonthlyPL, lane LO) still rely
-      // on unchanged.
-      const realizedCommission = this.repo.getRealizedCommissionTotals(
-        fromDt,
-        toDt,
-        true,
+      // LIRA-185 lead 6 (2026-10-02) — this "Commission (Settled)" row now
+      // sources from getFinancialSettledByCurrency, the EXACT query the
+      // Overview's own `financial_services.commission_usd`/`_lbp` card is
+      // built from (ProfitService.getSummary), instead of
+      // getRealizedCommissionTotals. Rule 14: one definition of "realized FS
+      // commission", reused by both surfaces, so they cannot drift apart by
+      // construction. Before this fix the two methods read DIFFERENT
+      // columns for the same concept — getFinancialSettledByCurrency sums
+      // the transaction STAMP (ownCurrencyProfit, which includes kept
+      // change), getRealizedCommissionTotals summed the raw `fs.commission`
+      // column (never kept change) — so a $1.00 commission with $0.25 kept
+      // change showed $1.25 on the Overview and $1.00 here for the
+      // identical row (measured, ProfitAudit.financial_services.test.ts
+      // lead 6). getRealizedCommissionTotals itself is UNCHANGED: it has
+      // pinned callers/tests outside this tab (LIRA158.*,
+      // ProfitRepository.partnerProportional.byProviderAndDate's Group 7,
+      // ProfitRepository.byPaymentCommissionCurrency) that construct a
+      // financial_services row and its transaction stamp separately and
+      // assert against the raw `commission` column — switching that
+      // method's own basis broke 5+ tests outside this ticket's scope; this
+      // tab's own composition is the only thing that needed to change.
+      //
+      // `getFinancialSettledByCurrency` already groups by the row's ACTUAL
+      // currency (no `!=`/`=` bucketing ambiguity) and is already restricted
+      // to `COMMISSION_PROVIDERS` — the SAME restriction the Overview card
+      // applies, so a provider the Overview doesn't count (e.g. iPick/Katsh)
+      // no longer appears here either (closing the lead 6 audit's own
+      // observed second half: "iPick/Katsh cost/price margins are also
+      // swept into the By-Payment row"). `count` stays PER-ROW
+      // currency-agnostic (every currency's rows count, matching
+      // getRealizedCommissionTotals's old `count` contract — LPAY-6/D15), so
+      // only `total_usd`/`total_lbp` are strictly bucketed to the row's own
+      // currency (PA-1.4's `= 'USD'`/`= 'LBP'`, matching this tab's existing
+      // `strictUsdBucketing` convention for every other figure here).
+      const finRows = this.repo.getFinancialSettledByCurrency(fromDt, toDt);
+      const realizedCommission = finRows.reduce(
+        (acc, row) => {
+          acc.count += row.count;
+          if (row.currency === "USD") acc.total_usd += row.commission;
+          else if (row.currency === "LBP") acc.total_lbp += row.commission;
+          return acc;
+        },
+        { total_usd: 0, total_lbp: 0, count: 0 },
       );
       const pendingCommission = this.repo.getPendingCommissionTotals(
         fromDt,

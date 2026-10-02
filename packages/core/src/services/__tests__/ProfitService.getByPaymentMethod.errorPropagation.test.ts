@@ -67,6 +67,11 @@ describe("ProfitService.getByPaymentMethod — error propagation (PA-4.16)", () 
         total_lbp: 0,
         count: 0,
       })),
+      // LIRA-185 lead 6: getByPaymentMethod's "Commission (Settled)" row now
+      // sources from getFinancialSettledByCurrency (parity with the Overview
+      // card) instead of getRealizedCommissionTotals — see
+      // ProfitService.ts's getByPaymentMethod doc comment.
+      getFinancialSettledByCurrency: jest.fn(() => []),
       getPendingCommissionTotals: jest.fn(() => ({
         total_usd: 0,
         total_lbp: 0,

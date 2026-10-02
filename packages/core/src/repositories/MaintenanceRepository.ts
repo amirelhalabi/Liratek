@@ -444,6 +444,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       keptChangeUsd?: number;
       keptChangeLbp?: number;
       note?: string | null;
+      /** LIRA-185 D9: the backdated time a checkout's own transaction/
+       *  payment rows should carry — forwarded into `createTransaction`'s
+       *  `transaction_time` so the job (`maintenance.created_at`, set by
+       *  `createJob`/`updateJob` above) and its unified transaction share
+       *  the SAME day. Omitted means "now", same as every other module. */
+      transactionTime?: string;
       /**
        * Session-basket deferred payment mode. When true, the unified transaction
        * row is still created (so it can be linked + paid-state back-filled by the
@@ -533,6 +539,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       client_id: opts.clientId ?? null,
       exchange_rate: opts.exchangeRate,
       summary,
+      transaction_time: opts.transactionTime,
       metadata_json: {
         // Labour-only — unaffected for jobs with no parts (pre-existing
         // meaning preserved). The receipt combines this with

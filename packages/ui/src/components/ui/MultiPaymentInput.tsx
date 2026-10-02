@@ -216,6 +216,25 @@ export interface MultiPaymentInputProps {
         hasClient?: boolean;
       }
     | undefined;
+  /** When false, hides the Split toggle entirely — the form can never enter
+   *  split mode via the UI (it already can't programmatically either, since
+   *  `initialLines` is read once on mount and callers choosing this prop
+   *  pass none). Default true — every existing consumer is unaffected.
+   *
+   *  Added for LIRA-185: this component's split math assumes an
+   *  independently-known "total owed" (`totals`/`totalAmountCurrency`) that
+   *  each line pays DOWN — true for a sale or a debt, but not for an
+   *  expense, where there is no total besides whatever the operator types
+   *  across lines. Expenses fed it `totals=[line1]` as a stand-in, which
+   *  made every line past the first look like an overpayment (the summary
+   *  showed only line 1 as "Total Amount" and offered change back) while
+   *  `handleAddExpense` still summed every line into the submitted amount
+   *  and used ONLY line 1's method — silently booking a second line's own
+   *  payment method (e.g. a Whish leg) against the cash drawer instead.
+   *  Hiding Split removes the only way to reach that mismatch, rather than
+   *  teaching the expense schema/repository to post one leg per line
+   *  (a bigger, cross-layer change). */
+  allowSplit?: boolean;
 }
 
 /** Delay before the auto-added debt remainder visually flips the sheet into
@@ -275,6 +294,7 @@ export default function MultiPaymentInput({
   cashOnlyReturn = false,
   autoDebtRemainder = false,
   counterFlow,
+  allowSplit = true,
 }: MultiPaymentInputProps) {
   // Seeded lines are captured once — the prop is read at mount only.
   const seededLinesRef = useRef<PaymentLine[] | null>(
@@ -1438,6 +1458,7 @@ export default function MultiPaymentInput({
           <span className="text-xs text-slate-500">LBP</span>
         </div>
 
+        {allowSplit && (
         <button
           type="button"
           data-testid="split-toggle"
@@ -1478,6 +1499,7 @@ export default function MultiPaymentInput({
             </>
           )}
         </button>
+        )}
       </div>
 
       {/* Tender-rate sanity warning — non-blocking, never disables anything

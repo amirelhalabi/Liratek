@@ -45,8 +45,17 @@ describe("MaintenanceJobSchema — client_phone canonicalization (LIRA-246b)", (
     expect(parsed.client_phone).toBe("");
   });
 
-  it("leaves a null phone untouched", () => {
+  // LIRA-185 D9: MaintenanceJobSchema is now a direct re-export of core's
+  // saveMaintenanceJobSchema (cast-bridge pattern, ../index.ts), which has
+  // no `.nullable()` on client_phone — only a bare `null` would now fail
+  // validation outright. A `z.preprocess` wrapper maps `null` -> `undefined`
+  // before the real schema runs so a `null` caller still succeeds; the
+  // parsed value comes back `undefined` instead of `null`, but
+  // `MaintenanceRepository.createJob`/`updateJob` read
+  // `job.client_phone ?? null` either way, so the STORED value (NULL in the
+  // DB) is unchanged — only this intermediate representation differs.
+  it("leaves a null phone as 'no phone' (undefined after the schema's preprocess, same as omitted)", () => {
     const parsed = MaintenanceJobSchema.parse({ ...base, client_phone: null });
-    expect(parsed.client_phone).toBeNull();
+    expect(parsed.client_phone).toBeUndefined();
   });
 });

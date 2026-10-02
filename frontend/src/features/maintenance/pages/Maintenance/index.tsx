@@ -413,6 +413,13 @@ export default function Maintenance() {
           paid_by: string;
           change_given_usd: number;
           change_given_lbp: number;
+          /** T3 keep-change (LIRA-185 D5): kept (not returned) change per
+           *  currency, forwarded from the CheckoutModal's own
+           *  `kept_change_usd`/`kept_change_lbp` — joins the transaction's
+           *  profit stamp the same way POS/Loto/CustomServices already do.
+           *  `undefined` when the operator didn't keep anything. */
+          kept_change_usd?: number | undefined;
+          kept_change_lbp?: number | undefined;
         }
       | undefined;
     transactionTime?: string | undefined;
@@ -445,6 +452,17 @@ export default function Maintenance() {
             paid_by: params.checkout.paid_by,
             change_given_usd: params.checkout.change_given_usd,
             change_given_lbp: params.checkout.change_given_lbp,
+            // T3 keep-change (LIRA-185 D5): only present when the operator
+            // actually kept something — mirrors Loto/CustomServices' own
+            // conditional spread so an untouched checkout never sends a
+            // stray 0.
+            ...(params.checkout.kept_change_usd !== undefined ||
+            params.checkout.kept_change_lbp !== undefined
+              ? {
+                  kept_change_usd: params.checkout.kept_change_usd,
+                  kept_change_lbp: params.checkout.kept_change_lbp,
+                }
+              : {}),
           }
         : {}),
       transaction_time: params.transactionTime,
@@ -638,6 +656,11 @@ export default function Maintenance() {
         paid_by: paymentData.payments?.[0]?.method || "CASH",
         change_given_usd: paymentData.change_given_usd || 0,
         change_given_lbp: paymentData.change_given_lbp || 0,
+        // T3 keep-change (LIRA-185 D5): CheckoutModal only includes these
+        // keys when the operator actually kept change (CheckoutModal.tsx
+        // ~519-522) — pass them through as-is (possibly undefined).
+        kept_change_usd: paymentData.kept_change_usd,
+        kept_change_lbp: paymentData.kept_change_lbp,
       },
       transactionTime,
     });

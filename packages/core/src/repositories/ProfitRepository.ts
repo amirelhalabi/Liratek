@@ -4348,6 +4348,22 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * Maintenance totals (revenue/cost from source, profit from transactions).
    * LBP jobs stamp profit_lbp (not profit_usd) — summing only the USD columns
    * made every LBP maintenance job invisible in the profits views.
+   *
+   * LIRA-185 D2 (2026-10-02) — dated by `t.created_at` (the transaction —
+   * i.e. the day the money moved), NOT `m.created_at` (the day the job
+   * record was created, which for a multi-step job is the day it was first
+   * received, before any payment exists). A job received on one day and
+   * delivered/paid on another used to land here under the RECEIVED day while
+   * `getByUser`/`getByClient`'s generic `transactions`-only arm (which has no
+   * `maintenance` row to read a received date from — it only ever sees
+   * `t.created_at`) counted it on the DELIVERED day, so By Module/By Date/the
+   * closing (all built on this totals query and {@link ProfitRepository}'s
+   * `daily_maint` CTE, which shares this exact date basis — rule 14) silently
+   * disagreed with By Cashier/By Client on which day a job's profit belonged
+   * to, and a job delivered-and-paid today could reach NO real end-of-day
+   * closing at all (today's closing read 0; yesterday's had already run
+   * before the payment existed). `getMaintenanceDetail` mirrors this same
+   * basis for the same reason. See `ProfitAudit.maintenance.test.ts` D2.
    */
   getMaintenanceTotals(fromDt: string, toDt: string): MaintTotalsRow {
     return this.db
@@ -4368,7 +4384,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.status = 'ACTIVE'
           AND ${notRefunded("m")}
           AND ${notDebtPending("t.id")}
-          AND ${dateRange("m.created_at")}
+          AND ${dateRange("t.created_at")}
           AND m.tenant_id = ? AND t.tenant_id = ?`,
       )
       .get(
@@ -4587,6 +4603,50 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       profit_lbp: number;
     };
 
+    // LIRA-185 lead 12 (2026-10-02) — the partner-axis counterpart of
+    // {@link getSupplierCommissionTotals}'s `cashless` bucket (same scan,
+    // same gates — `notRefunded`, `cashlessCommissionBatch`,
+    // `allocationNotDebtPending`, `dateRange` — rule 14), weighted by the
+    // COMPLEMENT of the same {@link partnerCoverageRatio}: that method's
+    // `cashless.profit_usd` recognises `sca.commission_usd * ratio` as
+    // REALIZED; this recognises the withheld `sca.commission_usd * (1 -
+    // ratio)` as DEFERRED, over the SAME population (client not debt-pending
+    // — `allocationNotDebtPending` true). `partnerRow` immediately above
+    // already defers the partner-withheld share of the generic
+    // `PROFIT_TXN_TYPES` stamp (every module's own transaction row), but a
+    // SUPPLIER_SETTLEMENT commission allocation has no `partner_ledger` row
+    // keyed to `source_table = 'supplier_ledger'` (see
+    // `txnPartnerCoverageRatio`'s own callers' doc comments) — its partner
+    // obligation is keyed to the UNDERLYING `financial_services` row instead
+    // (`FOR_OMT_SEND`/`FOR_WHISH_SEND`/... keyed off `fs.id`, matched here via
+    // `sca.financial_service_id`), so `partnerRow`'s bare `txnPartnerCoverageRatio(t)`
+    // never found it and the withheld share reached NEITHER realized NOR
+    // deferred (measured: a $12 cashless settlement commission on a
+    // FOR-partner row the partner hadn't paid vanished entirely —
+    // `ProfitAudit.financial_services.test.ts` lead 12). The
+    // `cashlessDeferredRow` query below is a DIFFERENT population (the
+    // CLIENT-debt axis, `NOT allocationNotDebtPending`) and cannot double
+    // count with this one, which requires `allocationNotDebtPending` true.
+    const partnerCashlessDeferredRow = this._hasSettlementAllocationsTable()
+      ? (this.db
+          .prepare(
+            `SELECT
+              COALESCE(SUM(sca.commission_usd * (1 - ${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_usd,
+              COALESCE(SUM(sca.commission_lbp * (1 - ${partnerCoverageRatio("financial_services", "sca.financial_service_id")})), 0) AS profit_lbp
+            FROM settlement_commission_allocations sca
+            JOIN financial_services fs ON ${currentSettlementAllocation("fs", "sca")}
+            WHERE sca.tenant_id = ?
+              AND ${notRefunded("fs")}
+              AND ${cashlessCommissionBatch("sca.settlement_ledger_id")}
+              AND ${allocationNotDebtPending("sca")}
+              AND ${dateRange("sca.created_at")}`,
+          )
+          .get(tenantId, fromDt, toDt) as {
+          profit_usd: number;
+          profit_lbp: number;
+        })
+      : { profit_usd: 0, profit_lbp: 0 };
+
     const clientDebtRow = this.db
       .prepare(
         `SELECT
@@ -4625,8 +4685,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       : { profit_usd: 0, profit_lbp: 0 };
 
     return {
-      partner_profit_usd: partnerRow.profit_usd,
-      partner_profit_lbp: partnerRow.profit_lbp,
+      partner_profit_usd:
+        partnerRow.profit_usd + partnerCashlessDeferredRow.profit_usd,
+      partner_profit_lbp:
+        partnerRow.profit_lbp + partnerCashlessDeferredRow.profit_lbp,
       client_debt_profit_usd:
         clientDebtRow.profit_usd + cashlessDeferredRow.profit_usd,
       client_debt_profit_lbp:
@@ -5380,7 +5442,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       .prepare(
         `SELECT
           m.id AS id,
-          m.created_at AS created_at,
+          t.created_at AS created_at,
           m.client_name AS client_name,
           m.device_name AS device_name,
           m.final_amount_usd AS revenue_usd,
@@ -5397,9 +5459,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE ${maintenanceCompleted("m")}
           AND t.status = 'ACTIVE'
           AND ${notRefunded("m")}
-          AND ${dateRange("m.created_at")}
+          AND ${dateRange("t.created_at")}
           AND m.tenant_id = ? AND t.tenant_id = ?
-        ORDER BY m.created_at DESC, m.id DESC`,
+        ORDER BY t.created_at DESC, m.id DESC`,
       )
       .all(fromDt, toDt, tenantId, tenantId) as MaintenanceDetailRow[];
   }
@@ -5937,7 +5999,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         ),
         daily_maint AS (
           SELECT
-            ${localDayExpr("m.created_at")} AS d,
+            ${localDayExpr("t.created_at")} AS d,
             COALESCE(SUM(m.final_amount_usd), 0) AS revenue_usd,
             COALESCE(SUM(m.final_amount_lbp), 0) AS revenue_lbp,
             COALESCE(SUM(${maintenanceCostUsd("m")}), 0) AS cost_usd,
@@ -5950,9 +6012,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND t.status = 'ACTIVE'
             AND ${notRefunded("m")}
           AND ${notDebtPending("t.id")}
-            AND ${dateRange("m.created_at")}
+            AND ${dateRange("t.created_at")}
             AND m.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY ${localDayExpr("m.created_at")}
+          GROUP BY ${localDayExpr("t.created_at")}
         ),
         daily_loto AS (
           SELECT
@@ -6629,6 +6691,31 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     toDt: string,
     strictUsdBucketing = false,
   ): CommissionTotalsRow {
+    // LIRA-185 lead 6 (2026-10-02, investigated then reverted): this method
+    // itself is UNCHANGED — see ProfitService.getByPaymentMethod instead,
+    // which no longer sources its "Commission (Settled)" row from here.
+    // Sums raw `fs.commission` (never the transaction stamp, so it never
+    // included kept change — the lead 6 gap), weighted by
+    // {@link partnerCoverageRatio}. Changing THIS method to read the stamp
+    // (`${ownCurrencyProfit}`, matching {@link getFinancialSettledByCurrency})
+    // was tried first and reverted: this method has pinned callers/tests
+    // that construct a `financial_services` row and its `transactions` stamp
+    // SEPARATELY and assert against the raw `commission` column
+    // (`LIRA158.estimateNoLongerReported.test.ts`,
+    // `ProfitRepository.partnerProportional.byProviderAndDate.test.ts`'s
+    // Group 7, `ProfitRepository.byPaymentCommissionCurrency.test.ts`) — none
+    // of those fixtures stamp a matching `profit_usd`/`profit_lbp` (several
+    // deliberately stamp 0 to isolate the `commission`-column/partner-ratio
+    // math from the stamp), so reading the stamp here broke 5+ pinned tests
+    // outside this ticket's scope. `getRealizedCommissionTotals` also has a
+    // SECOND real caller independent of the By-Payment-Method tab
+    // (`FinancialRepository`-style reporting, per this method's own doc
+    // comment above) that this ticket does not own either. The fix instead
+    // lives at the ONE place lead 6 actually needs parity: `getByPaymentMethod`
+    // now reads `getFinancialSettledByCurrency` directly for its "Commission
+    // (Settled)" row — literally the SAME query the Overview card already
+    // uses — so the two surfaces can no longer drift apart by construction,
+    // without touching this method's own pinned contract.
     return this.db
       .prepare(
         `SELECT
@@ -7211,6 +7298,22 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- scaled directly by txnPartnerCoverageRatio(t) — see this
             -- method's own doc comment for the full rationale.
             WHEN NOT ${notDebtPending("t.id")} THEN 0
+            -- LIRA-185 D8 (2026-10-02): a void's reversal row
+            -- (isVoidReversalRow) must contribute 0 to the GENERIC revenue
+            -- arm too, the same way the financial_services branch below
+            -- already handles it. Every OTHER PROFIT_TXN_TYPES module
+            -- (MAINTENANCE, LOTO, CUSTOM_SERVICE, RECHARGE, ...) used to fall
+            -- through to the bare ELSE t.amount_usd * ... arm, which summed
+            -- the reversal's own negated amount a second time — the VOIDED
+            -- original is excluded by profitTxnRowMembership, but the ACTIVE
+            -- reversal row was not, so a voided paid job drove By Cashier/By
+            -- Client revenue negative (e.g. -$50) while By Module/the
+            -- closing (which join the SOURCE table and only see the VOIDED
+            -- original there) correctly showed $0. Profit was already
+            -- correct — the reversal's profit_usd/profit_lbp are left at
+            -- their 0 default (isVoidReversalRow's own doc comment); only
+            -- revenue was wrong. See ProfitAudit.maintenance.test.ts D8.
+            WHEN ${isVoidReversalRow("t")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               -- Original FINANCIAL_SERVICE and its REFUND both gated by
               -- is_settled; the REFUND negates so a settled FS refund nets to 0
@@ -7264,6 +7367,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- see this method's own doc comment for the full rationale.
           SUM(CASE
             WHEN NOT ${notDebtPending("t.id")} THEN 0
+            -- LIRA-185 D8: see the revenue_usd CASE above — identical gate.
+            WHEN ${isVoidReversalRow("t")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE
                 WHEN ${isVoidReversalRow("t")} THEN 0
@@ -7893,6 +7998,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           SUM(CASE
             -- DBT-2 (converted 2026-09-05): see getByUser's doc comment.
             WHEN NOT ${notDebtPending("t.id")} THEN 0
+            -- LIRA-185 D8 (2026-10-02): see getByUser's identical revenue_usd
+            -- CASE for the full rationale — a void's reversal row must
+            -- contribute 0 to the generic revenue arm, not just the
+            -- financial_services branch below.
+            WHEN ${isVoidReversalRow("t")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               -- Original FINANCIAL_SERVICE and its REFUND both gated by
               -- is_settled; the REFUND negates so a settled FS refund nets to 0
@@ -7931,6 +8041,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- displayed) — see this method's own doc comment.
           SUM(CASE
             WHEN NOT ${notDebtPending("t.id")} THEN 0
+            -- LIRA-185 D8: see the revenue_usd CASE above — identical gate.
+            WHEN ${isVoidReversalRow("t")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE
                 WHEN ${isVoidReversalRow("t")} THEN 0

@@ -1896,6 +1896,7 @@ export default function MobileRecharge() {
             clientName={clientName}
             setClientName={setClientName}
             alfaCreditCostRate={alfaCreditCostRate}
+            alfaCreditSellRate={alfaCreditSellRate}
             telecomDaysCostUsd={telecomDaysCostUsd}
             setTelecomDaysCostUsd={setTelecomDaysCostUsd}
             isAdmin={isAdmin}

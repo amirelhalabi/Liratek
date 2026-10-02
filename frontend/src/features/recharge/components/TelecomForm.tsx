@@ -135,6 +135,12 @@ interface TelecomFormProps {
   clientName: string;
   setClientName: (val: string) => void;
   alfaCreditCostRate?: number;
+  /** Owner-configured Alfa Gift sell rate (Shop Config → `alfaCreditSellRate`,
+   *  loaded from `system_settings` by the parent). LIRA-185 lead #11: the
+   *  grid used to read a `localStorage` key nothing in the app ever writes
+   *  and silently priced every gift at the 100,000 LBP/$ fallback no matter
+   *  what the owner configured. */
+  alfaCreditSellRate?: number;
   telecomDaysCostUsd: string;
   setTelecomDaysCostUsd: (val: string) => void;
   /** Admin sees cost + profit margin on gift/voucher cards. */
@@ -233,6 +239,7 @@ export function TelecomForm({
   clientName,
   setClientName,
   alfaCreditCostRate = 85000,
+  alfaCreditSellRate = 100000,
   telecomDaysCostUsd,
   setTelecomDaysCostUsd,
   isAdmin = false,
@@ -429,18 +436,13 @@ export function TelecomForm({
   // Normalized card models for the shared CardGridPayView. Only one of these is
   // rendered at a time (gift for Alfa, vouchers for MTC).
   const giftItems: CardGridPayItem[] = Object.entries(ALFA_GIFT_TIERS).map(
-    ([key, tier]) => {
-      const sellRate =
-        Number(localStorage.getItem("alfa_credit_sell_rate_lbp") || "100000") /
-        1000;
-      return {
-        id: key,
-        label: tier.label,
-        valueUsd: tier.usd,
-        costLbp: tier.usd * costRate,
-        sellLbp: Math.round(tier.usd * sellRate * 1000),
-      };
-    },
+    ([key, tier]) => ({
+      id: key,
+      label: tier.label,
+      valueUsd: tier.usd,
+      costLbp: tier.usd * costRate,
+      sellLbp: Math.round(tier.usd * alfaCreditSellRate),
+    }),
   );
 
   const handleCardTransactionTime = (t: string | undefined) => {

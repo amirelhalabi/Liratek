@@ -284,6 +284,13 @@ export default function Expenses() {
               label="Payment"
               showDiscount={false}
               showPmFee={false}
+              // LIRA-185: an expense has no independently-known "total
+              // owed" for split mode to reconcile against — the form only
+              // ever submits paymentLines[0] (see handleAddExpense above),
+              // so splitting silently mispriced the total and dropped a
+              // second line's payment method. Disabled rather than wired,
+              // see MultiPaymentInput's `allowSplit` prop doc.
+              allowSplit={false}
             />
 
             {/* Date */}

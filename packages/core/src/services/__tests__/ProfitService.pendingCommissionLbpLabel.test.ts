@@ -34,6 +34,9 @@ function makeRepo(): ProfitRepository {
       total_lbp: 0,
       count: 0,
     })),
+    // LIRA-185 lead 6: see ProfitService.ts's getByPaymentMethod doc comment
+    // — the "Commission (Settled)" row now sources from this instead.
+    getFinancialSettledByCurrency: jest.fn(() => []),
     getPendingCommissionTotals: jest.fn(() => ({
       total_usd: 0,
       total_lbp: 900_000,

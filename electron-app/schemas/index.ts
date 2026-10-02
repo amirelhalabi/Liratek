@@ -182,12 +182,14 @@ import {
   // RechargeSchema/SaleProcessSchema above.
   getMaintenanceStatusHistorySchema,
   type GetMaintenanceStatusHistoryInput,
-  // LIRA-246b — the same canonical-storage phone normalizer the core
-  // saveMaintenanceJobSchema uses (note #13); applied to THIS file's local
-  // MaintenanceJobSchema.client_phone too so desktop stores the same
-  // canonical form REST does, even though desktop's copy has no regex to
-  // reject a spaced number in the first place.
-  normalizeLineNumber,
+  // LIRA-185 D9 — re-exported straight from core (same cast-bridge pattern)
+  // to replace the LOCAL duplicate below that was missing paid_by/note/
+  // transaction_time entirely (rule 23 three-way key diff: those three keys
+  // exist in core's schema and are read by MaintenanceRepository/
+  // MaintenanceService, but had no key at all in the old local duplicate —
+  // Zod silently stripped them from every desktop save).
+  saveMaintenanceJobSchema,
+  type SaveMaintenanceJobInput,
   // LIRA-165 — Database Reset. Brand new, no local duplicate; straight
   // re-export from packages/core/src/validators/databaseReset.ts so the
   // Electron IPC handler (databaseResetHandlers.ts) and the REST route
@@ -436,72 +438,59 @@ export const AddExpenseSchema = z.object({
 // Maintenance
 // =============================================================================
 
-export const MaintenanceJobSchema = z.object({
-  id: z.number().int().positive().optional(),
-  device_name: z.string().min(1, "Device name is required"),
-  issue_description: z.string().min(1, "Issue description is required"),
-  cost_usd: z.number().nonnegative(),
-  price_usd: z.number().nonnegative(),
-  cost_lbp: z.number().nonnegative().optional(),
-  price_lbp: z.number().nonnegative().optional(),
-  currency: z.enum(["USD", "LBP"]).optional().default("USD"),
-  client_id: z.number().int().positive().optional().nullable(),
-  client_name: z.string().optional().nullable(),
-  // LIRA-246b: canonicalize before storage (see the `normalizeLineNumber`
-  // import note above) — desktop had no regex to reject a spaced number, but
-  // it also never normalized one, so "03 123 456" and "+961 3 123 456" for
-  // the SAME line stored as two different strings.
-  client_phone: z
-    .string()
-    .optional()
-    .nullable()
-    .transform((v) => (v ? normalizeLineNumber(v) : v)),
-  status: z
-    .enum(["Received", "In_Progress", "Ready", "Delivered", "Delivered_Paid"])
-    .optional()
-    .default("Received"),
-  paid_usd: z.number().nonnegative().optional(),
-  paid_lbp: z.number().nonnegative().optional(),
-  exchange_rate: z.number().positive().optional(),
-  discount_usd: z.number().nonnegative().optional(),
-  final_amount_usd: z.number().nonnegative().optional(),
-  final_amount_lbp: z.number().nonnegative().optional(),
-  payments: z
-    .array(
-      z.object({
-        method: z.string().min(1),
-        currency_code: z.string().min(1),
-        amount: z.number(),
-        direction: z.enum(["IN", "OUT"]).optional(),
-      }),
-    )
-    .optional(),
-  change_given_usd: z.number().optional(),
-  change_given_lbp: z.number().optional(),
-  // T3 keep-change (KC-3) — LOCAL duplicate of the core schema (rule-14
-  // debt, same trap as DebtRepaymentSchema): fields must exist in BOTH or the
-  // desktop path silently strips them.
-  kept_change_usd: z.number().nonnegative().optional(),
-  kept_change_lbp: z.number().nonnegative().optional(),
-  // LIRA-176 phase 4 — same rule-14 local-duplicate trap as kept_change_*
-  // above: this file's MaintenanceJobSchema (not core's saveMaintenanceJobSchema)
-  // is what the desktop IPC handler actually validates against
-  // (electron-app/handlers/maintenanceHandlers.ts), so `parts` must be
-  // mirrored here too or Zod silently strips it from every desktop save,
-  // even though core's schema and MaintenanceService both support it. MUST
-  // stay .optional() with NO .default([]) — an omitted `parts` key means
-  // "leave the job's parts untouched" (see MaintenanceRepository.syncParts).
-  parts: z
-    .array(
-      z.object({
-        id: z.number().int().positive().optional(),
-        product_id: z.number().int().positive(),
-        quantity: z.number().int().positive(),
-        unit_price_usd: z.number().min(0).optional(),
-      }),
-    )
-    .optional(),
-});
+// LIRA-185 D9 — this used to be a hand-maintained LOCAL duplicate of core's
+// `saveMaintenanceJobSchema` (same rule-14 local-duplicate debt the
+// kept_change_*/parts comments below used to warn about), and it never
+// declared `paid_by`, `note` or `transaction_time` at all — so Zod silently
+// stripped all three from every desktop save, even though
+// `MaintenanceRepository.createJob`/`updateJob` read `job.paid_by`/`job.note`
+// directly and `MaintenanceService.saveJob` validates/uses
+// `params.transaction_time`. REST validates the real core schema and always
+// kept them, so a backdated repair checkout silently did nothing on desktop
+// while working on web. Re-exported straight from core via the same
+// cast-bridge pattern as `GetMaintenanceStatusHistorySchema` below (core
+// types against zod 4, this workspace against zod 3; the runtime API is
+// identical).
+//
+// ONE deliberate deviation: core's `client_phone` is
+// `z.string().optional()` (no `.nullable()`) and pipes through
+// `optionalPhoneNumberSchema`'s format regex. Desktop's old local schema
+// explicitly accepted `client_phone: null` (a caller signalling "no phone")
+// and left it untouched with no format check at all
+// (MaintenanceJobSchema.phoneNormalization.test.ts pins this). A bare `null`
+// would now fail core's schema outright — a real desktop regression this
+// swap must not introduce. Map `null` -> `undefined` before the real schema
+// runs: both are nullish, and `MaintenanceRepository.createJob`/`updateJob`
+// already read `job.client_phone ?? null`, so stored behavior (NULL in the
+// DB either way) is unchanged — only the format-regex parity with REST is a
+// deliberate, in-scope tightening (rule 19: desktop and web should agree).
+//
+// NOTE: this is deliberately NOT `z.preprocess(..., saveMaintenanceJobSchema)`
+// — wrapping a zod-4 schema in THIS workspace's zod-3 combinators breaks at
+// runtime (`this._def.schema._parseSync is not a function`: zod 3's
+// ZodEffects reaches into the wrapped schema's zod-3-shaped internals, which
+// zod 4 no longer has). A plain object that delegates straight to the real
+// schema's own `.parse`/`.safeParse` (native zod-4 calls, the same ones the
+// bare cast-bridge re-exports elsewhere in this file rely on) avoids that
+// entirely.
+function normalizeNullClientPhone(raw: unknown): unknown {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "client_phone" in raw &&
+    (raw as Record<string, unknown>).client_phone === null
+  ) {
+    return { ...(raw as Record<string, unknown>), client_phone: undefined };
+  }
+  return raw;
+}
+
+export const MaintenanceJobSchema = {
+  parse: (data: unknown) =>
+    saveMaintenanceJobSchema.parse(normalizeNullClientPhone(data)),
+  safeParse: (data: unknown) =>
+    saveMaintenanceJobSchema.safeParse(normalizeNullClientPhone(data)),
+} as unknown as z.ZodSchema<SaveMaintenanceJobInput>;
 
 // LIRA-176 phase 4 — brand new, no local duplicate: re-exported straight
 // from core via the same cast-bridge pattern as RechargeSchema above (core
