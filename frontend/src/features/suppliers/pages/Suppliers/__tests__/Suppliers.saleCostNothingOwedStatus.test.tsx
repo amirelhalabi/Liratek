@@ -213,8 +213,11 @@ describe("Suppliers page — Transactions tab status badge (LIRA-122)", () => {
 
     fireEvent.click((await screen.findAllByText("Katsh"))[0]);
 
-    const amountCell = await screen.findByText("462,075 LBP");
-    const row = amountCell.parentElement as HTMLElement;
+    // Suppliers decision (2026-10-02): the Amount cell now shows
+    // `supplier_owed` (0 for this row — nothing owed), not the raw
+    // transfer amount, so the row is no longer locatable by "462,075 LBP"
+    // text — select it by its stable row testid instead.
+    const row = await screen.findByTestId("supplier-txn-row-401");
     // Same "nothing owed" treatment a wallet-provider transfer already gets
     // — never "Unpaid", "Partial", or any status implying a debt. The
     // Status column is the 4th cell (Type, Amount, Commission, Status,
@@ -234,8 +237,8 @@ describe("Suppliers page — Transactions tab status badge (LIRA-122)", () => {
 
     fireEvent.click((await screen.findAllByText("Katsh"))[0]);
 
-    const amountCell = await screen.findByText("$90.00");
-    const row = amountCell.parentElement as HTMLElement;
+    await screen.findByText("$90.00");
+    const row = await screen.findByTestId("supplier-txn-row-402");
     expect(within(row).getByText("Unpaid")).toBeInTheDocument();
   });
 });

@@ -67,6 +67,7 @@
 
 - In the OMT / Whish history list, the Fee and Profit of an LBP transfer now show in LBP (for example 5,000 LBP) instead of a dollar amount, and a commission that is only counted once the supplier settles is marked "est.".
 - On the OMT App and Whish App confirm screen, Shop Profit now shows the profit after the discount you give, which is the amount that gets recorded.
+- Suppliers page: OMT transfers to settle now show the full amount owed to OMT (transfer + fee), newest first, matching the Transactions page.
 
 ## 🧾 Transactions
 

@@ -319,6 +319,64 @@ function formatMoney(amount: number, currency: "USD" | "LBP"): string {
     : `${Math.round(amount).toLocaleString()} LBP`;
 }
 
+/** Owner decision (2026-10-02) — an OMT SEND of $207 + $1 fee was showing
+ *  $207 (the raw transfer amount, `t.amount`) in BOTH the commission
+ *  settlement checkbox list and the per-supplier Transactions history table,
+ *  while the ledger/`supplier_owed` (the repository's SUPPLIER_OWED_EXPR —
+ *  see `SupplierTxn.supplier_owed`'s own doc comment) and the app-wide
+ *  Transactions page both correctly show $208 — the full amount owed to the
+ *  provider (principal + fee for a SEND; principal − fee for a RECEIVE).
+ *  "We owe OMT the whole amount + fee; the commission is settled
+ *  separately" (owner, verbatim).
+ *
+ *  Fix: the cell's MAIN figure is always `supplier_owed` (never re-derived
+ *  from amount/fee here — rule 14, one definition, matching every owed sum
+ *  on this page). A small breakdown line ("207 + 1 fee") renders underneath
+ *  ONLY when there's a nonzero fee AND it actually moved the owed figure
+ *  away from the raw transfer amount — a BILL/cost-flow row (`supplier_owed`
+ *  structurally 0, no fee) or a fee-less transfer (owed === amount) shows no
+ *  breakdown, same as before this fix.
+ */
+function formatOwedCell(
+  supplierOwed: number,
+  amount: number,
+  fee: number | null,
+  currency: string,
+): { main: string; breakdown: string | null } {
+  const money: "USD" | "LBP" = currency === "LBP" ? "LBP" : "USD";
+  const main = formatMoney(Math.abs(supplierOwed), money);
+  const hasFee = fee != null && fee > 0;
+  const absOwed = Math.abs(supplierOwed);
+  const absAmount = Math.abs(amount);
+  const differsFromAmount = Math.abs(absOwed - absAmount) > 0.005;
+  if (!hasFee || !differsFromAmount) {
+    return { main, breakdown: null };
+  }
+  const absFee = Math.abs(fee as number);
+  const op = absOwed > absAmount ? "+" : "−";
+  const fmt = (n: number) =>
+    money === "LBP" ? Math.round(n).toLocaleString() : String(Number(n.toFixed(2)));
+  const breakdown = `${fmt(absAmount)} ${op} ${fmt(absFee)} fee`;
+  return { main, breakdown };
+}
+
+/** Newest-first display order (owner decision 2026-10-02) — matches the
+ *  Transactions page's `created_at DESC, id DESC` convention. Frontend
+ *  display only: the underlying queries (`getUnsettledTransactions`/
+ *  `getAllSupplierTransactions`) keep their own `ORDER BY created_at ASC`
+ *  server-side — FIFO settlement must still pay the oldest row first, and
+ *  `fifo_status`/`fifo_paid_usd` are computed against THAT order, never this
+ *  one. Do not feed a sorted array back into any settlement/FIFO math. */
+function sortNewestFirst<T extends { created_at: string; id: number }>(
+  rows: T[],
+): T[] {
+  return [...rows].sort((a, b) => {
+    const diff =
+      parseDbDate(b.created_at).getTime() - parseDbDate(a.created_at).getTime();
+    return diff !== 0 ? diff : b.id - a.id;
+  });
+}
+
 /** Prose is unchanged; only the colour flips (owner's rule, 2026-08-11):
  *  shop-owes ("You owe …") is GREEN, counterparty-owes ("They owe you …")
  *  is RED. Delegates to the shared `balanceTextColor` (`@liratek/ui`) so
@@ -936,6 +994,12 @@ export default function SuppliersPage() {
     [allTxns],
   );
 
+  // Owner decision (2026-10-02) — the Transactions history table renders
+  // newest-first, matching the Transactions page. Every sum/filter above
+  // (hasOmtFee, totals, status counts) keeps reading the unsorted `allTxns`
+  // — order never matters for those — only the render below uses this.
+  const sortedAllTxns = useMemo(() => sortNewestFirst(allTxns), [allTxns]);
+
   /**
    * Suggested amount, currency, and default PAY/RECEIVE direction for the
    * Pay/Receive tab — three cases, shared by BOTH product and company
@@ -1465,8 +1529,13 @@ export default function SuppliersPage() {
     preSettleCurrency === "LBP" ? settleNetPayLbp : settleNetPayUsd;
   const selectableUnsettled = useMemo(
     () =>
-      unsettledTxns.filter(
-        (t) => t.currency !== "LBP" || t.service_type === "BILL",
+      // Owner decision (2026-10-02): display newest-first, matching the
+      // Transactions page — purely a render-order change, the underlying
+      // FIFO settle call still targets the server's oldest-first set.
+      sortNewestFirst(
+        unsettledTxns.filter(
+          (t) => t.currency !== "LBP" || t.service_type === "BILL",
+        ),
       ),
     [unsettledTxns],
   );
@@ -2109,11 +2178,35 @@ export default function SuppliersPage() {
                                     ? "Bill"
                                     : t.omt_service_type || t.service_type}
                                 </span>
-                                <span className="font-mono text-white">
-                                  {t.currency === "LBP"
-                                    ? `${Math.round(Math.abs(t.amount)).toLocaleString()} LBP`
-                                    : `$${Math.abs(t.amount).toFixed(2)}`}
-                                </span>
+                                {(() => {
+                                  // Owner decision (2026-10-02) — main figure
+                                  // is always `supplier_owed` (what we
+                                  // actually owe the provider), never the raw
+                                  // transfer amount; see `formatOwedCell`'s
+                                  // own doc comment.
+                                  const cell = formatOwedCell(
+                                    t.supplier_owed,
+                                    t.amount,
+                                    t.omt_fee,
+                                    t.currency,
+                                  );
+                                  return (
+                                    <span
+                                      data-testid="settle-row-amount"
+                                      className="font-mono text-white text-right leading-tight"
+                                    >
+                                      <div>{cell.main}</div>
+                                      {cell.breakdown && (
+                                        <div
+                                          data-testid="settle-row-breakdown"
+                                          className="text-[9px] text-slate-500 font-normal"
+                                        >
+                                          {cell.breakdown}
+                                        </div>
+                                      )}
+                                    </span>
+                                  );
+                                })()}
                                 <span className="font-mono text-emerald-400 w-20 text-right">
                                   {t.service_type === "BILL" ? (
                                     // Commission is entered AT settlement (D8) —
@@ -2213,9 +2306,10 @@ export default function SuppliersPage() {
                         <div className="col-span-2">Date</div>
                       </div>
                       <div className="max-h-[40vh] overflow-y-auto">
-                        {allTxns.map((t) => (
+                        {sortedAllTxns.map((t) => (
                           <div
                             key={t.id}
+                            data-testid={`supplier-txn-row-${t.id}`}
                             className="grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30"
                           >
                             <div
@@ -2223,13 +2317,34 @@ export default function SuppliersPage() {
                             >
                               {t.omt_service_type || t.service_type}
                             </div>
-                            <div
-                              className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right font-mono text-white`}
-                            >
-                              {t.currency === "LBP"
-                                ? `${Math.round(Math.abs(t.amount)).toLocaleString()} LBP`
-                                : `$${Math.abs(t.amount).toFixed(2)}`}
-                            </div>
+                            {(() => {
+                              // Owner decision (2026-10-02) — same
+                              // supplier_owed-first treatment as the
+                              // settlement checkbox list above (rule 14, one
+                              // `formatOwedCell`).
+                              const cell = formatOwedCell(
+                                t.supplier_owed,
+                                t.amount,
+                                t.omt_fee,
+                                t.currency,
+                              );
+                              return (
+                                <div
+                                  data-testid="supplier-txn-amount"
+                                  className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right font-mono text-white leading-tight`}
+                                >
+                                  <div>{cell.main}</div>
+                                  {cell.breakdown && (
+                                    <div
+                                      data-testid="supplier-txn-breakdown"
+                                      className="text-[9px] text-slate-500 font-normal"
+                                    >
+                                      {cell.breakdown}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             {hasOmtFee && (
                               <div className="col-span-2 text-right font-mono text-amber-400">
                                 {t.omt_fee ? `$${t.omt_fee.toFixed(2)}` : "—"}
