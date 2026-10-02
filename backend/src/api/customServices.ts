@@ -5,7 +5,9 @@ import {
   getCustomServiceService,
   createCustomServiceSchema,
   updateCustomServiceFulfillmentSchema,
+  updateCustomServiceWorkStatusSchema,
   customServiceUpdateMetadataSchema,
+  isWorkStatus,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
@@ -19,9 +21,18 @@ router.use(authenticateJWT);
 router.get("/", (req, res): void => {
   try {
     const service = getCustomServiceService();
-    const filter = req.query.date
-      ? { date: String(req.query.date) }
-      : undefined;
+    const workStatus =
+      typeof req.query.workStatus === "string" &&
+      isWorkStatus(req.query.workStatus)
+        ? req.query.workStatus
+        : undefined;
+    const filter =
+      req.query.date || workStatus
+        ? {
+            ...(req.query.date ? { date: String(req.query.date) } : {}),
+            ...(workStatus ? { workStatus } : {}),
+          }
+        : undefined;
     const services = service.getServices(filter);
     res.json({ success: true, services });
   } catch (error) {
@@ -87,6 +98,49 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to update fulfilment status" });
+    }
+  },
+);
+
+// POST /api/custom-services/work-status - Set a service's WORK status
+// Matches customServiceHandlers.ts's "custom-services:set-work-status" IPC
+// gate (admin + staff). No transition-legality check — by design, see
+// packages/core/src/utils/customServiceWorkStatus.ts. Static path,
+// registered before /:id (rule 19 convention), same shape as /fulfillment
+// above.
+router.post(
+  "/work-status",
+  requireRole(["admin", "staff"]),
+  validateRequest(updateCustomServiceWorkStatusSchema),
+  (req, res): void => {
+    try {
+      const service = getCustomServiceService();
+      const result = service.setWorkStatus(
+        req.body.id,
+        req.body.work_status,
+      );
+
+      if (!result.success) {
+        // Rule 19(c) envelope parity — see /fulfillment above.
+        res.json(result);
+        return;
+      }
+
+      // Mirrors customServiceHandlers.ts's custom-services:set-work-status
+      // audit.
+      auditRest(req, {
+        action: "set_work_status",
+        entity_type: "custom_service",
+        entity_id: String(req.body.id),
+        summary: `Custom service #${req.body.id} work status -> ${req.body.work_status}`,
+      });
+
+      res.json({ success: true, data: result.entity });
+    } catch (error) {
+      logger.error({ error }, "Set custom service work status error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to update work status" });
     }
   },
 );

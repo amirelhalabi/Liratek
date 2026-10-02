@@ -59,7 +59,8 @@ function createTestDb(): Database.Database {
       partner_mode TEXT,
       fulfillment_status TEXT,
       fulfilled_at TEXT,
-      direction TEXT NOT NULL DEFAULT 'IN'
+      direction TEXT NOT NULL DEFAULT 'IN',
+      work_status TEXT NOT NULL DEFAULT 'Received'
     );
 
     CREATE TABLE partners (

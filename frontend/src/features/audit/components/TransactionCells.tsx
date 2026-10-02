@@ -502,17 +502,19 @@ export function ActionsCell({
         ) : isAdmin &&
           row.type === "REFUND" &&
           row.status === "ACTIVE" &&
-          parseMetaSafe(row.metadata_json).refundType === "item" ? (
+          (parseMetaSafe(row.metadata_json).refundType === "item" ||
+            parseMetaSafe(row.metadata_json).refundType === "sessionItem") ? (
           // LIRA-147 — admin-only undo of a STANDALONE per-item refund (the
           // generic void/refund path can never reach a REFUND row —
           // NON_REVERSIBLE_TRANSACTION_TYPES — this is a dedicated action,
-          // not a bypass of that gate). Session-basket item refunds
-          // (`refundType === "sessionItem"`) are deliberately NOT offered
-          // this button — undo for that flow is not built (see
-          // `SalesRepository.undoSaleItemRefund`'s own doc for why). The
-          // repository itself still refuses an already-undone or
-          // dependent-activity case with a clear error (surfaced via the
-          // same `alert()` pattern every other action here uses).
+          // not a bypass of that gate). LIRA-253 extends the SAME button to
+          // a session-basket item refund (`refundType === "sessionItem"`) —
+          // one shared `onUndoRefund` handler/IPC channel for both shapes,
+          // dispatched server-side from the refund row's own metadata (see
+          // `SalesRepository.undoSaleItemRefund`'s own doc). The repository
+          // still refuses an already-undone, dependent-activity, or
+          // FIFO-untraceable case with a clear error (surfaced via the same
+          // `alert()` pattern every other action here uses).
           <button
             onClick={() => handlers.onUndoRefund(row)}
             title="Admin-only — restores the stock, drawer, debt, and profit this refund changed."

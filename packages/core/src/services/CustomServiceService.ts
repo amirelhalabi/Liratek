@@ -17,6 +17,7 @@ import {
   isValidFulfillmentTransition,
   type FulfillmentStatus,
 } from "../utils/insuranceFulfillment.js";
+import type { WorkStatus } from "../utils/customServiceWorkStatus.js";
 
 // =============================================================================
 // Types
@@ -74,7 +75,10 @@ export class CustomServiceService {
   /**
    * Get all services, optionally filtered by date.
    */
-  getServices(filter?: { date?: string }): CustomServiceEntity[] {
+  getServices(filter?: {
+    date?: string;
+    workStatus?: WorkStatus;
+  }): CustomServiceEntity[] {
     try {
       return this.repo.getAll(filter);
     } catch (error) {
@@ -222,6 +226,32 @@ export class CustomServiceService {
     customServiceLogger.info(
       { id, from: current, to: status },
       "Custom service fulfilment status advanced",
+    );
+
+    return { success: true, entity: updated };
+  }
+
+  /**
+   * LIRA-083 — set a custom service's WORK status (separate axis from
+   * `fulfillment_status` above and from the accounting `status`). No
+   * transition-legality check — see `utils/customServiceWorkStatus.ts`'s
+   * module doc comment for why this lifecycle is deliberately freeform,
+   * matching Maintenance.
+   */
+  setWorkStatus(id: number, status: WorkStatus): FulfillmentUpdateResult {
+    const existing = this.repo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Custom service not found" };
+    }
+
+    const updated = this.repo.updateWorkStatus(id, status);
+    if (!updated) {
+      return { success: false, error: "Failed to update work status" };
+    }
+
+    customServiceLogger.info(
+      { id, from: existing.work_status, to: status },
+      "Custom service work status changed",
     );
 
     return { success: true, entity: updated };

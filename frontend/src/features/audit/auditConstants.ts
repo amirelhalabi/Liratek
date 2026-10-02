@@ -351,6 +351,10 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       // SUPPLIER_STOCK_INTAKE_PLAN.md — receiving stock on credit; manual
       // (operator-triggered from Inventory), so visible by default too.
       { label: "Stock Received", type: "SUPPLIER_STOCK_INTAKE" },
+      // LIRA-087 (migration v189) — a debt recorded before the products that
+      // earned it arrive; manual (operator-triggered from Suppliers), so
+      // visible by default too.
+      { label: "Supplier Debt Recorded", type: "SUPPLIER_RECORDED_DEBT" },
     ],
   },
   {
@@ -465,6 +469,12 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // of the batch has been sold (StockBatchRepository.deleteBatchForVoid
   // returns false, not this set's visibility gate).
   "SUPPLIER_STOCK_INTAKE",
+  // LIRA-087 (migration v189) rule 20 — voiding this transaction reuses the
+  // SAME reversal owner as SUPPLIER_STOCK_INTAKE
+  // (TransactionRepository._reverseSupplierStockIntake, type-widened): a
+  // no-op while the recorded debt is still unattached (ledger row just
+  // soft-voids), refused once an attached batch has already sold units.
+  "SUPPLIER_RECORDED_DEBT",
   // LIRA-192 (OMT open-credit account, §8.7): the OMT App wallet cash-out.
   // The cashout's wallet leg is written as a real `payments` row (so the
   // generic `_reversePayments` restores the OMT_App drawer) and the

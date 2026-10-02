@@ -3163,6 +3163,197 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
       expect(visibleZeroRows).toHaveLength(0); // hidden from the reader
     });
   });
+
+  // LIRA-253 — admin "Undo refund" for a session-basket item refund
+  // (`refundSessionBasketItem`'s own REFUND row, `metadata_json.refundType
+  // === "sessionItem"`). Rule 17: this is brand-new capability — proven
+  // failing-first by calling `txnRepo.undoSessionBasketItemRefund` BEFORE it
+  // existed on this branch (TypeError: not a function), recorded in the task
+  // report; the guard-throw cases below are a real red→green pair within
+  // this file (first perform the disallowed action, assert the throw).
+  describe("undoSessionBasketItemRefund (LIRA-253)", () => {
+    it("nets stock/debt/drawer/profit back to the post-sale state — CUSTOMER_ACCOUNT basket, account-first reduction", () => {
+      const clientId = seedClient();
+      const sessionId = seedSession();
+      const { txnId, itemIds } = sellIntoSession(sessionId, clientId, [
+        { name: "item", price: 100, cost: 60 },
+      ]);
+      payAccount(sessionId, 100, clientId);
+
+      const debtBeforeRefund = clientNetDebtUsd(db, clientId);
+      expect(debtBeforeRefund).toBeCloseTo(100, 5);
+
+      const refundResult = txnRepo.refundSessionBasketItem({
+        sessionId,
+        transactionId: txnId,
+        saleItemId: itemIds[0],
+        quantity: 1,
+        userId: USER_ID,
+      });
+
+      // Item refunded: account reduced by 100, nothing in cash (all pooled
+      // money was CUSTOMER_ACCOUNT), stock restored (+1 vs. post-sale).
+      expect(clientNetDebtUsd(db, clientId)).toBeCloseTo(0, 5);
+      const stockQty = () =>
+        (
+          db
+            .prepare(
+              `SELECT p.stock_quantity FROM products p JOIN sale_items si ON si.product_id = p.id WHERE si.id = ?`,
+            )
+            .get(itemIds[0]) as { stock_quantity: number }
+        ).stock_quantity;
+      const stockAfterRefund = stockQty();
+
+      const profitBeforeUndo = (
+        db.prepare(`SELECT COALESCE(SUM(profit_usd),0) AS p FROM transactions`).get() as {
+          p: number;
+        }
+      ).p;
+
+      const undoTxnId = txnRepo.undoSessionBasketItemRefund({
+        refundTransactionId: refundResult.refundTransactionId,
+        userId: USER_ID,
+      });
+      expect(undoTxnId).toBeGreaterThan(0);
+
+      // Nets back to the post-sale state: debt re-charged to 100, stock
+      // consumed again (back down by 1 from the post-refund figure), profit
+      // restored.
+      expect(clientNetDebtUsd(db, clientId)).toBeCloseTo(100, 5);
+      expect(stockQty()).toBe(stockAfterRefund - 1);
+      const refundedQty = (
+        db.prepare(`SELECT refunded_quantity FROM sale_items WHERE id = ?`).get(itemIds[0]) as {
+          refunded_quantity: number;
+        }
+      ).refunded_quantity;
+      expect(refundedQty).toBe(0);
+
+      const profitAfterUndo = (
+        db.prepare(`SELECT COALESCE(SUM(profit_usd),0) AS p FROM transactions`).get() as {
+          p: number;
+        }
+      ).p;
+      // The refund negated 40 profit (100-60); the undo restores it exactly.
+      expect(profitAfterUndo - profitBeforeUndo).toBeCloseTo(40, 5);
+    });
+
+    it("nets drawer back to its pre-refund balance — CASH basket, pool-split money-back leg", () => {
+      const sessionId = seedSession();
+      const { txnId, itemIds } = sellIntoSession(sessionId, null, [
+        { name: "item", price: 50, cost: 30 },
+      ]);
+      payCash(sessionId, 50);
+
+      const drawerBeforeRefund = balance(db, "General", "USD");
+
+      const refundResult = txnRepo.refundSessionBasketItem({
+        sessionId,
+        transactionId: txnId,
+        saleItemId: itemIds[0],
+        quantity: 1,
+        userId: USER_ID,
+      });
+      expect(balance(db, "General", "USD")).toBeCloseTo(drawerBeforeRefund - 50, 5);
+
+      txnRepo.undoSessionBasketItemRefund({
+        refundTransactionId: refundResult.refundTransactionId,
+        userId: USER_ID,
+      });
+      expect(balance(db, "General", "USD")).toBeCloseTo(drawerBeforeRefund, 5);
+    });
+
+    it("refuses a double-undo", () => {
+      const sessionId = seedSession();
+      const { txnId, itemIds } = sellIntoSession(sessionId, null, [
+        { name: "item", price: 50, cost: 30 },
+      ]);
+      payCash(sessionId, 50);
+      const refundResult = txnRepo.refundSessionBasketItem({
+        sessionId,
+        transactionId: txnId,
+        saleItemId: itemIds[0],
+        quantity: 1,
+        userId: USER_ID,
+      });
+      txnRepo.undoSessionBasketItemRefund({
+        refundTransactionId: refundResult.refundTransactionId,
+        userId: USER_ID,
+      });
+      expect(() =>
+        txnRepo.undoSessionBasketItemRefund({
+          refundTransactionId: refundResult.refundTransactionId,
+          userId: USER_ID,
+        }),
+      ).toThrow(/already been undone/i);
+    });
+
+    it("refuses to undo when the refunded unit has already been sold again under a different sale", () => {
+      const sessionId = seedSession();
+      const productId = insertProduct(db, "phone", 200);
+      const unitId = insertUnit(db, productId, "IMEI-253-1");
+      const result = salesRepo.processSale(
+        {
+          client_id: null,
+          items: [{ product_id: productId, quantity: 1, price: 300, product_unit_id: unitId }],
+          total_amount: 300,
+          discount: 0,
+          final_amount: 300,
+          payment_usd: 0,
+          payment_lbp: 0,
+          exchange_rate: RATE,
+          status: "completed",
+          deferPayment: true,
+        },
+        USER_ID,
+      );
+      expect(result.success).toBe(true);
+      const saleId = result.id!;
+      const saleTxnRow = db
+        .prepare(
+          `SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+        )
+        .get(saleId) as { id: number };
+      db.prepare(
+        `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
+         VALUES (?, 'sale', ?, ?, ?, 0)`,
+      ).run(sessionId, saleId, saleTxnRow.id, 300);
+      const itemId = (
+        db.prepare(`SELECT id FROM sale_items WHERE sale_id = ?`).get(saleId) as { id: number }
+      ).id;
+      payCash(sessionId, 300);
+
+      const refundResult = txnRepo.refundSessionBasketItem({
+        sessionId,
+        transactionId: saleTxnRow.id,
+        saleItemId: itemId,
+        quantity: 1,
+        userId: USER_ID,
+      });
+
+      // Unit is back IN_STOCK — sell it again under a brand-new sale.
+      salesRepo.processSale(
+        {
+          client_id: null,
+          items: [{ product_id: productId, quantity: 1, price: 300, product_unit_id: unitId }],
+          total_amount: 300,
+          discount: 0,
+          final_amount: 300,
+          payment_usd: 300,
+          payment_lbp: 0,
+          exchange_rate: RATE,
+          status: "completed",
+        },
+        USER_ID,
+      );
+
+      expect(() =>
+        txnRepo.undoSessionBasketItemRefund({
+          refundTransactionId: refundResult.refundTransactionId,
+          userId: USER_ID,
+        }),
+      ).toThrow(/already been sold again/i);
+    });
+  });
 });
 
 describe("TransactionRepository.getSessionItemRefundPreview (LIRA-232 phase 1)", () => {

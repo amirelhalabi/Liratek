@@ -259,6 +259,19 @@ export const TRANSACTION_TYPES = {
    *  are both outside this file's ownership; see the build handoff notes).
    */
   SUPPLIER_STOCK_INTAKE: "SUPPLIER_STOCK_INTAKE",
+  /** LIRA-087 (migration v189) — recording a supplier debt WITHOUT a product
+   *  line yet (SupplierRepository.recordDebt): writes ONE supplier_ledger
+   *  'RECORDED_DEBT' row (amount/currency/note only, `attached_at` NULL —
+   *  open) and this transaction as its unified-view mirror, same no-payments/
+   *  no-drawer/profit-0 shape as SUPPLIER_STOCK_INTAKE. A later
+   *  ProductRepository.receiveStock call can ATTACH products to this exact
+   *  row instead of booking a second debt — see SupplierRepository
+   *  .getOpenRecordedDebts. Stays OUT of NON_REVERSIBLE_TRANSACTION_TYPES for
+   *  the same reason as SUPPLIER_STOCK_INTAKE: the generic void path reuses
+   *  TransactionRepository._reverseSupplierStockIntake (type-widened) as its
+   *  reversal owner (rule 20) — a no-op while unattached, refused if the
+   *  attached batch already sold units. */
+  SUPPLIER_RECORDED_DEBT: "SUPPLIER_RECORDED_DEBT",
 
   // Closing / Checkpoint
   CHECKPOINT: "CHECKPOINT",

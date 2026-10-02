@@ -10,6 +10,7 @@ import {
   SupplierCashflowSchema,
   SupplierPurchaseCreateSchema,
   SupplierAccountLinkSchema,
+  SupplierRecordDebtSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -251,6 +252,44 @@ export function registerSupplierHandlers(): void {
       },
     });
     return result;
+  });
+
+  /** LIRA-087 (migration v189) — record a supplier debt without a product
+   *  line yet (admin only, same actor convention as every other
+   *  money-writing supplier handler). */
+  ipcMain.handle("suppliers:record-debt", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(SupplierRecordDebtSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.recordDebt({
+      ...v.data,
+      created_by: auth.userId,
+    });
+    if (result.success) {
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "supplier_ledger",
+        entity_id: String(result.ledgerEntryId ?? ""),
+        summary: `Recorded debt for supplier #${v.data.supplier_id}: $${v.data.amount_usd.toFixed(2)} + ${v.data.amount_lbp.toLocaleString()} LBP`,
+        metadata: {
+          supplier_id: v.data.supplier_id,
+          amount_usd: v.data.amount_usd,
+          amount_lbp: v.data.amount_lbp,
+        },
+      });
+    }
+    return result;
+  });
+
+  /** LIRA-087 — picker list for stock intake's "attach to a recorded debt"
+   *  flow. Same no-role-gate treatment as every other read channel in this
+   *  file (every renderer that can reach the IPC bridge is an authenticated
+   *  app session). */
+  ipcMain.handle("suppliers:open-recorded-debts", (_e, supplierId: number) => {
+    return service.getOpenRecordedDebts(supplierId);
   });
 
   /** Pay a supplier / record a supplier paying us, via payment-method legs (admin only) */

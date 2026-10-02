@@ -51,6 +51,9 @@ const mockApi = {
   getDebtors: jest.fn().mockResolvedValue([]),
   getUnsettledSummary: jest.fn().mockResolvedValue([]),
   getAllActiveCarrierLines: jest.fn().mockResolvedValue([]),
+  // LIRA-086 — Dashboard now also calls useSellRate() (checkpoint variance
+  // coloring), which reads api.getRates(); unmocked throws synchronously.
+  getRates: jest.fn().mockResolvedValue([]),
   hasInitialBalancesSet: jest.fn().mockResolvedValue(true),
   holdMoney: {
     active: jest.fn().mockResolvedValue({ success: true, data: [] }),

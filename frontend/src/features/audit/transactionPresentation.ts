@@ -290,6 +290,14 @@ export const TRANSACTION_PRESENTATION: Record<
     color: "text-indigo-200",
     direction: null,
   },
+  // LIRA-087 (migration v189) — recording a supplier debt without a product
+  // line yet is the same "paper, no cash moved" shape as SUPPLIER_STOCK_INTAKE
+  // immediately above (one ledger debit, no payment legs/drawer delta).
+  SUPPLIER_RECORDED_DEBT: {
+    label: "Supplier Debt Recorded",
+    color: "text-indigo-200",
+    direction: null,
+  },
   // CQ-10: one label for all three counterparty kinds (debt/supplier/
   // partner) — the row's metadata.counterparty says which. Fuchsia is
   // otherwise unused, keeping "Discount" distinct from every other family.

@@ -101,6 +101,9 @@ describe("FILTER_GROUPS — Suppliers and Partners are first-class groups (CQ-8)
       "Supplier Adjustment",
       // SUPPLIER_STOCK_INTAKE_PLAN.md — receiving stock on credit.
       "Stock Received",
+      // LIRA-087 (migration v189) — a debt recorded before the products
+      // that earned it arrive.
+      "Supplier Debt Recorded",
     ]);
     expect(suppliers?.options.every((o) => !!o.type)).toBe(true);
   });

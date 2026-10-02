@@ -18,10 +18,13 @@ import type {
   CreateServicePresetInput,
   UpdateServicePresetInput,
   UpdateCustomServiceFulfillmentInput,
+  UpdateCustomServiceWorkStatusInput,
+  WorkStatus,
 } from "@liratek/core";
 import {
   CustomServiceCreateSchema,
   CustomServiceUpdateFulfillmentSchema,
+  CustomServiceUpdateWorkStatusSchema,
   CustomServiceUpdateMetadataSchema,
   validatePayload,
 } from "../schemas/index.js";
@@ -32,7 +35,10 @@ export function registerCustomServiceHandlers(): void {
   // List custom services (optional filter)
   ipcMain.handle(
     "custom-services:list",
-    (_event: IpcMainInvokeEvent, filter?: { date?: string }) => {
+    (
+      _event: IpcMainInvokeEvent,
+      filter?: { date?: string; workStatus?: WorkStatus },
+    ) => {
       return service.getServices(filter);
     },
   );
@@ -191,6 +197,37 @@ export function registerCustomServiceHandlers(): void {
           entity_type: "custom_service",
           entity_id: String(v.data.id),
           summary: `Custom service #${v.data.id} fulfilment -> ${v.data.fulfillment_status}`,
+        });
+      }
+
+      return result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error };
+    },
+  );
+
+  // LIRA-083 — set a custom service's WORK status (Received/In_Progress/
+  // Ready/Delivered). Day-to-day operational step, same role gate as
+  // advance-fulfillment above. Moves no money; no transition-legality check
+  // (CustomServiceService.setWorkStatus, by design — see
+  // utils/customServiceWorkStatus.ts).
+  ipcMain.handle(
+    "custom-services:set-work-status",
+    (event: IpcMainInvokeEvent, data: UpdateCustomServiceWorkStatusInput) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(CustomServiceUpdateWorkStatusSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = service.setWorkStatus(v.data.id, v.data.work_status);
+
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "set_work_status",
+          entity_type: "custom_service",
+          entity_id: String(v.data.id),
+          summary: `Custom service #${v.data.id} work status -> ${v.data.work_status}`,
         });
       }
 

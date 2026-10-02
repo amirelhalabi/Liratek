@@ -171,3 +171,65 @@ describe("HomeGrid — favorite star", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/pos");
   });
 });
+
+/**
+ * LIRA-075 (owner decision 2026-10-02) — "pinned pages show first". The
+ * star toggle above already persisted/reflected a favorite; this is the
+ * remaining gap: a pinned tile must actually move to the front of the grid,
+ * not just show a filled star in place.
+ */
+describe("HomeGrid — pinned tiles sort first (LIRA-075)", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockNavigate.mockClear();
+  });
+
+  it("keeps Dashboard first and renders the rest in module order when nothing is pinned", () => {
+    render(<HomeGrid />);
+    const labels = screen.getAllByTestId(/^grid-favorite-/).map((el) =>
+      el.getAttribute("data-testid"),
+    );
+    expect(labels).toEqual([
+      "grid-favorite-dashboard",
+      "grid-favorite-pos",
+      "grid-favorite-debts",
+    ]);
+  });
+
+  it("moves a pinned non-Dashboard tile to the front of the grid (right after Dashboard)", () => {
+    // Debts is the SECOND module (after POS) in mockEnabledModules — pin it
+    // and confirm it jumps ahead of POS, with Dashboard still first.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(["/debts"]));
+
+    render(<HomeGrid />);
+
+    const order = screen
+      .getAllByTestId(/^grid-favorite-/)
+      .map((el) => el.getAttribute("data-testid"));
+    expect(order).toEqual([
+      "grid-favorite-dashboard",
+      "grid-favorite-debts",
+      "grid-favorite-pos",
+    ]);
+  });
+
+  it("re-sorts live when a tile is pinned by clicking its star (no remount needed)", () => {
+    render(<HomeGrid />);
+
+    // Before: dashboard, pos, debts.
+    expect(
+      screen.getAllByTestId(/^grid-favorite-/).map((el) =>
+        el.getAttribute("data-testid"),
+      ),
+    ).toEqual(["grid-favorite-dashboard", "grid-favorite-pos", "grid-favorite-debts"]);
+
+    fireEvent.click(screen.getByTestId("grid-favorite-debts"));
+
+    // After pinning Debts: it jumps ahead of POS.
+    expect(
+      screen.getAllByTestId(/^grid-favorite-/).map((el) =>
+        el.getAttribute("data-testid"),
+      ),
+    ).toEqual(["grid-favorite-dashboard", "grid-favorite-debts", "grid-favorite-pos"]);
+  });
+});

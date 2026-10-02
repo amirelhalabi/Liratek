@@ -848,6 +848,9 @@ export class InventoryService {
     is_old_stock: boolean;
     reason?: string;
     userId: number | null;
+    /** LIRA-087 — attach to an already-recorded open supplier debt
+     *  (SupplierRepository.recordDebt) instead of booking a new one. */
+    attach_to_recorded_debt_id?: number | null;
   }): ReceiveStockResult {
     if (!data.product_id) {
       return { success: false, error: "Product ID required" };
@@ -861,6 +864,18 @@ export class InventoryService {
     if (data.unit_cost_usd < 0) {
       return { success: false, error: "Unit cost cannot be negative" };
     }
+    // LIRA-087 — mutually exclusive: "old stock" means no debt at all,
+    // "attach" means the debt already exists under a different row. Letting
+    // both through would silently let the attach win (bookIntakeAndBatch's
+    // own precedence) with no signal to the operator that their "old stock"
+    // tick was ignored.
+    if (data.is_old_stock && data.attach_to_recorded_debt_id != null) {
+      return {
+        success: false,
+        error:
+          "Can't mark this as old stock AND attach it to a recorded debt — pick one",
+      };
+    }
 
     try {
       const { batch_id } = this.productRepo.receiveStock({
@@ -871,6 +886,7 @@ export class InventoryService {
         is_old_stock: data.is_old_stock,
         reason: data.reason,
         created_by: data.userId ?? null,
+        attach_to_recorded_debt_id: data.attach_to_recorded_debt_id ?? null,
       });
       inventoryLogger.info(
         {

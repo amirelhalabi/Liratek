@@ -106,6 +106,7 @@ export class ElectronApiAdapter implements ApiAdapter {
     supplier?: string | null;
     is_old_stock: boolean;
     reason?: string;
+    attach_to_recorded_debt_id?: number | null;
   }) => api.receiveStock(payload);
   adjustStock = (payload: {
     id: number;
@@ -527,6 +528,15 @@ export class ElectronApiAdapter implements ApiAdapter {
     total_usd: number;
     note?: string;
   }) => api.createSupplierPurchase(data);
+  // LIRA-087 (migration v189)
+  recordSupplierDebt = (data: {
+    supplier_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    note?: string | null;
+  }) => api.recordSupplierDebt(data);
+  getOpenRecordedSupplierDebts = (supplierId: number) =>
+    api.getOpenRecordedSupplierDebts(supplierId);
 
   // ---------------------------------------------------------------------------
   // Rates
@@ -1175,8 +1185,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   // Custom Services
   // ---------------------------------------------------------------------------
-  getCustomServices = (filter?: { date?: string }) =>
-    api.getCustomServices(filter);
+  getCustomServices = (filter?: {
+    date?: string;
+    workStatus?: "Received" | "In_Progress" | "Ready" | "Delivered";
+  }) => api.getCustomServices(filter);
   getCustomServicesSummary = () => api.getCustomServicesSummary();
   getCustomServiceById = (id: number) => api.getCustomServiceById(id);
   addCustomService = (data: {
@@ -1214,6 +1226,11 @@ export class ElectronApiAdapter implements ApiAdapter {
     id: number;
     fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
   }) => api.advanceCustomServiceFulfillment(data);
+  /** LIRA-083 — set a custom service's WORK status. */
+  setCustomServiceWorkStatus = (data: {
+    id: number;
+    work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
+  }) => api.setCustomServiceWorkStatus(data);
   /** Edit non-financial metadata (description/client name/phone/note) on a
    *  custom_services row (the History modal's inline edit). */
   updateCustomServiceMetadata = (data: {

@@ -45,6 +45,7 @@ import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useShopBase } from "@/hooks/useShopBase";
+import { useSellRate } from "@/hooks/useSellRate";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   computeCarrierLineAlerts,
@@ -229,6 +230,63 @@ function stalenessDotColor(iso: string | null): string {
   return "bg-red-400";
 }
 
+/**
+ * LIRA-086 — checkpoint-accuracy color thresholds (owner decision
+ * 2026-10-02). Distinct from `stalenessDotColor`/`stalenessTextColor` above
+ * (how long ago, in TIME, the last checkpoint happened): this is about how
+ * CLOSE the last checkpoint's physically counted amount came to the
+ * system's expected amount — the same `physical`/`expected` pair
+ * `getLastCheckpointPerDrawer` already returns per currency (the same
+ * numbers the Checkpoint Timeline's own variance column reads).
+ *
+ * Thresholds are USD-denominated; a non-USD currency (LBP in practice) is
+ * converted at the shop's own sell rate before comparing, per the owner's
+ * explicit instruction ("convert LBP at the shop rate") rather than a
+ * separately-maintained LBP figure that could drift out of sync with the
+ * USD one.
+ */
+export const CHECKPOINT_VARIANCE_GREEN_MAX_USD = 1;
+export const CHECKPOINT_VARIANCE_ORANGE_MAX_USD = 10;
+
+/**
+ * Sums the absolute |physical - expected| across every currency a drawer's
+ * last checkpoint recorded, converting any non-USD amount to its
+ * USD-equivalent at `lbpPerUsd` (the shop's current sell rate). Only LBP is
+ * handled specially — every other currency code is treated as already
+ * USD-denominated (matches this app's only two checkpoint-eligible
+ * currencies today; see `CURRENCY_ORDER` above for the same USD/LBP-first
+ * assumption elsewhere in this file).
+ */
+function checkpointVarianceUsd(
+  amounts: Record<string, { physical: number; expected: number }> | undefined,
+  lbpPerUsd: number,
+): number | null {
+  if (!amounts || Object.keys(amounts).length === 0) return null;
+  let total = 0;
+  for (const [code, { physical, expected }] of Object.entries(amounts)) {
+    const diff = Math.abs(physical - expected);
+    total += code === "LBP" && lbpPerUsd > 0 ? diff / lbpPerUsd : diff;
+  }
+  return total;
+}
+
+/** green/orange/red bucket for a USD-equivalent variance, or null when there
+ *  is no checkpoint to compare (never counted). */
+function checkpointVarianceColor(
+  varianceUsd: number | null,
+): "green" | "orange" | "red" | null {
+  if (varianceUsd === null) return null;
+  if (varianceUsd <= CHECKPOINT_VARIANCE_GREEN_MAX_USD) return "green";
+  if (varianceUsd <= CHECKPOINT_VARIANCE_ORANGE_MAX_USD) return "orange";
+  return "red";
+}
+
+const VARIANCE_DOT_CLASS: Record<"green" | "orange" | "red", string> = {
+  green: "bg-green-400",
+  orange: "bg-orange-400",
+  red: "bg-red-400",
+};
+
 function stalenessTextColor(iso: string | null): string {
   if (!iso) return "text-red-400";
   const diffH = (Date.now() - parseDbDate(iso).getTime()) / (1000 * 60 * 60);
@@ -258,6 +316,9 @@ export default function Dashboard() {
   // cell follows whichever system is primary (shop_base_system), not a
   // hardcoded OMT assumption.
   const { baseSystem } = useShopBase();
+  // LIRA-086 — the shop's current sell rate, for converting an LBP
+  // checkpoint variance to its USD-equivalent before bucketing it.
+  const { sellRate } = useSellRate();
   const primaryDrawerName =
     baseSystem === "WHISH" ? "Whish_System" : "OMT_System";
   const primaryDrawerLabel =
@@ -285,9 +346,17 @@ export default function Dashboard() {
   const [drawerBalances, setDrawerBalances] = useState<
     Record<string, Record<string, number>>
   >({});
-  /** Last checkpoint timestamp per drawer: drawer_name → checked_at ISO */
+  /** Last checkpoint timestamp + per-currency physical/expected amounts per
+   *  drawer, from `getLastCheckpointPerDrawer`. The `amounts` field feeds
+   *  LIRA-086's variance coloring below. */
   const [drawerStatuses, setDrawerStatuses] = useState<
-    Record<string, { checked_at: string }>
+    Record<
+      string,
+      {
+        checked_at: string;
+        amounts?: Record<string, { physical: number; expected: number }>;
+      }
+    >
   >({});
   type ChartPoint = {
     date: string;
@@ -913,11 +982,19 @@ export default function Dashboard() {
     );
     const displayCurrencies =
       Object.keys(nonZero).length > 0 ? nonZero : currencies;
+    // LIRA-086 — the last checkpoint's accuracy (counted vs. expected),
+    // not to be confused with `checkedAt`'s TIME-based freshness above.
+    const varianceUsd = checkpointVarianceUsd(
+      drawerStatuses[name]?.amounts,
+      sellRate,
+    );
     return {
       name,
       label: formatDrawerLabel(name),
       currencies: displayCurrencies,
       checkedAt: drawerStatuses[name]?.checked_at ?? null,
+      varianceUsd,
+      varianceColor: checkpointVarianceColor(varianceUsd),
     };
   });
 
@@ -1292,6 +1369,20 @@ export default function Dashboard() {
                                 ? formatCheckpointTime(stat.checkedAt)
                                 : "Never"}
                             </span>
+                            {/* LIRA-086 — accuracy of that checkpoint
+                                (counted vs. expected), separate signal from
+                                the time-freshness dot/text just above. */}
+                            {stat.varianceColor && (
+                              <span
+                                data-testid={`checkpoint-variance-${stat.name}`}
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ml-1 ${VARIANCE_DOT_CLASS[stat.varianceColor]}`}
+                                title={
+                                  stat.varianceUsd !== null
+                                    ? `Last checkpoint was off by ~$${stat.varianceUsd.toFixed(2)} from expected`
+                                    : undefined
+                                }
+                              />
+                            )}
                           </div>
                         )}
                         <div className="space-y-0.5">

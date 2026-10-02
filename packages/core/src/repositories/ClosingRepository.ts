@@ -20,7 +20,7 @@ import {
 // `saleFullyPaid`, `embeddedCommission`, …) and every schema-drift probe
 // this method used to need (`hasCommissionModelColumn`,
 // `hasSettlementAllocationsTable`) left with the profit SQL.
-import { activeExpense, dateRange } from "./ProfitRepository.js";
+import { activeExpense, dateRange, localDayExpr } from "./ProfitRepository.js";
 
 /** Sub-cent threshold below which a reconciliation delta is treated as zero. */
 const RECONCILE_EPSILON = 0.0001;
@@ -1060,6 +1060,15 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * reasoning as `getCheckpointTimeline` above: a request near midnight
    * Beirut must not default to the SERVER's own, possibly different, UTC
    * calendar day.
+   *
+   * Unlike `getCheckpointTimeline`'s `dc.closing_date` (already a local-day
+   * string), `t.created_at` here is a UTC `CURRENT_TIMESTAMP` — comparing it
+   * via a bare `DATE(t.created_at)` against the LOCAL `clientDay()` default
+   * is exactly the rule-27 mismatch (midnight–03:00 Beirut: the UTC date is
+   * still "yesterday" while `clientDay()` is already "today"). Shift the
+   * column the same way every other `created_at`-filtered reporting query
+   * does, via {@link localDayExpr} (rule 14 — one shared fragment, not a
+   * second hand-rolled `DATE(...)`).
    */
   getCarrierLineAdjustments(
     filters: CarrierLineAdjustmentFilters = {},
@@ -1081,7 +1090,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       LEFT JOIN users u ON u.id = t.user_id AND u.tenant_id = ?
       WHERE t.type = ?
         AND t.tenant_id = ?
-        AND DATE(t.created_at) BETWEEN ? AND ?
+        AND ${localDayExpr("t.created_at")} BETWEEN ? AND ?
     `;
     const params: (string | number)[] = [
       tenantId,

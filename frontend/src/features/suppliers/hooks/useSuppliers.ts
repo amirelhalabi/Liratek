@@ -44,6 +44,9 @@ export const SUPPLIER_KEYS = {
   allTransactions: (provider: string) =>
     ["supplier-all-transactions", provider] as const,
   purchases: (id: number) => ["supplier-purchases", id] as const,
+  // LIRA-087 (migration v189) — the picker list for stock intake's "attach
+  // to a recorded debt" flow.
+  openRecordedDebts: (id: number) => ["supplier-recorded-debts", id] as const,
   // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — the OMT open-credit
   // account rollup: one balances read (every account, parent+children
   // summed) plus per-account ledger/unsettled reads keyed by the account
@@ -336,6 +339,50 @@ export function useSupplierPurchasesQuery(supplierId: number | null) {
     queryKey: SUPPLIER_KEYS.purchases(supplierId ?? 0),
     queryFn: () => api.getSupplierPurchases(supplierId!),
     enabled: !!supplierId,
+  });
+}
+
+/**
+ * LIRA-087 (migration v189) — open (unattached) 'RECORDED_DEBT' rows for one
+ * supplier, used by the stock-intake form's "attach to a recorded debt"
+ * picker.
+ */
+export function useOpenRecordedDebtsQuery(supplierId: number | null) {
+  const api = useApi();
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.openRecordedDebts(supplierId ?? 0),
+    queryFn: () => api.getOpenRecordedSupplierDebts(supplierId!),
+    enabled: !!supplierId,
+    select: (data) => data ?? [],
+  });
+}
+
+/** LIRA-087 — record a supplier debt without a product line yet. */
+export function useRecordSupplierDebtMutation(supplierId: number | null) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      supplier_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      note?: string | null;
+    }) => api.recordSupplierDebt(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
+      queryClient.invalidateQueries({
+        queryKey: SUPPLIER_KEYS.productBalances,
+      });
+      if (supplierId) {
+        queryClient.invalidateQueries({
+          queryKey: SUPPLIER_KEYS.ledger(supplierId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: SUPPLIER_KEYS.openRecordedDebts(supplierId),
+        });
+      }
+    },
   });
 }
 

@@ -872,6 +872,9 @@ export interface ElectronAPI {
       supplier?: string | null;
       is_old_stock: boolean;
       reason?: string;
+      /** LIRA-087 — attach to an already-recorded open supplier debt
+       *  instead of booking a new one. */
+      attach_to_recorded_debt_id?: number | null;
     }) => Promise<{ success: boolean; error?: string; batch_id?: number }>;
     getStockStats: () => Promise<{
       stock_budget_usd: number;
@@ -1791,6 +1794,7 @@ export interface ElectronAPI {
           | "SALE_COST"
           | "CASH_PRIZE"
           | "STOCK_INTAKE"
+          | "RECORDED_DEBT"
           | "DISCOUNT";
         amount_usd: number;
         amount_lbp: number;
@@ -1986,6 +1990,23 @@ export interface ElectronAPI {
           updated_at: string;
         }
     >;
+    /** LIRA-087 (migration v189) — record a supplier debt without a product
+     *  line yet; a later `inventory.receiveStock` call can attach products
+     *  to it via `attach_to_recorded_debt_id`. */
+    recordDebt: (data: {
+      supplier_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      note?: string | null;
+    }) => Promise<{
+      success: boolean;
+      ledgerEntryId?: number;
+      transactionId?: number;
+      error?: string;
+    }>;
+    getOpenRecordedDebts: (
+      supplierId: number,
+    ) => Promise<Array<import("@liratek/core").SupplierLedgerEntryEntity>>;
   };
 
   // Loto
@@ -3684,7 +3705,11 @@ export interface ElectronAPI {
 
   // Custom Services
   customServices: {
-    list: (filter?: { date?: string }) => Promise<
+    list: (filter?: {
+      date?: string;
+      /** LIRA-083 — filter by work status. */
+      workStatus?: "Received" | "In_Progress" | "Ready" | "Delivered";
+    }) => Promise<
       Array<{
         id: number;
         description: string;
@@ -3712,6 +3737,9 @@ export interface ElectronAPI {
           | null;
         /** Stamped only when fulfillment_status reaches 'DELIVERED'. */
         fulfilled_at: string | null;
+        /** LIRA-083 — work-in-progress lifecycle, separate from `status`
+         *  (accounting). Defaults to 'Received' for new rows. */
+        work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
       }>
     >;
     get: (id: number) => Promise<{
@@ -3741,6 +3769,9 @@ export interface ElectronAPI {
         | null;
       /** Stamped only when fulfillment_status reaches 'DELIVERED'. */
       fulfilled_at: string | null;
+      /** LIRA-083 — work-in-progress lifecycle, separate from `status`
+       *  (accounting). Defaults to 'Received' for new rows. */
+      work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
     } | null>;
     summary: () => Promise<{
       count: number;
@@ -3806,6 +3837,12 @@ export interface ElectronAPI {
     advanceFulfillment: (data: {
       id: number;
       fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    /** LIRA-083 — set a custom service's WORK status. Moves no money; no
+     *  transition-legality check (by design, unlike advanceFulfillment). */
+    setWorkStatus: (data: {
+      id: number;
+      work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 

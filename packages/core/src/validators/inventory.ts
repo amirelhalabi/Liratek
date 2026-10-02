@@ -56,6 +56,11 @@ export const receiveStockSchema = z.object({
   supplier: z.string().trim().max(200).optional().nullable(),
   is_old_stock: z.boolean().default(false),
   reason: z.string().trim().max(500).optional(),
+  // LIRA-087 (migration v189) — attach this intake to an already-recorded
+  // open supplier debt (SupplierRepository.recordDebt) instead of booking a
+  // new one. Mutually exclusive with is_old_stock (InventoryService.receiveStock
+  // refuses both set at once).
+  attach_to_recorded_debt_id: z.number().int().positive().optional().nullable(),
 });
 
 export type ReceiveStockInput = z.infer<typeof receiveStockSchema>;

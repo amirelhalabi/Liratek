@@ -1034,6 +1034,9 @@ export type ApiAdapter = {
     supplier?: string | null;
     is_old_stock: boolean;
     reason?: string;
+    /** LIRA-087 (migration v189) — attach to an already-recorded open
+     *  supplier debt instead of booking a new one. */
+    attach_to_recorded_debt_id?: number | null;
   }) => Promise<{ success: boolean; error?: string; batch_id?: number }>;
   /** LIRA-077: set-absolute (newQuantity) or delta stock correction, always
    *  with a reason for the stock_adjustments audit trail. */
@@ -1737,6 +1740,22 @@ export type ApiAdapter = {
     total_usd: number;
     note?: string;
   }) => Promise<any>;
+  /** LIRA-087 (migration v189) — record a supplier debt without a product
+   *  line yet; a later `receiveStock` call can attach products to it via
+   *  `attach_to_recorded_debt_id`. */
+  recordSupplierDebt: (data: {
+    supplier_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    note?: string | null;
+  }) => Promise<{
+    success: boolean;
+    ledgerEntryId?: number;
+    transactionId?: number;
+    error?: string;
+  }>;
+  /** The picker list for stock intake's "attach to a recorded debt" flow. */
+  getOpenRecordedSupplierDebts: (supplierId: number) => Promise<any[]>;
 
   // ---------------------------------------------------------------------------
   // Rates (new 4-column schema: to_code, market_rate, delta, is_stronger)
@@ -2515,7 +2534,11 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   // Custom Services
   // ---------------------------------------------------------------------------
-  getCustomServices: (filter?: { date?: string }) => Promise<any[]>;
+  getCustomServices: (filter?: {
+    date?: string;
+    /** LIRA-083 — filter by work status. */
+    workStatus?: "Received" | "In_Progress" | "Ready" | "Delivered";
+  }) => Promise<any[]>;
   getCustomServicesSummary: () => Promise<{
     count: number;
     totalCostUsd: number;
@@ -2565,6 +2588,13 @@ export type ApiAdapter = {
   advanceCustomServiceFulfillment: (data: {
     id: number;
     fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
+  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  /** LIRA-083 — set a custom service's WORK status (Received/In_Progress/
+   *  Ready/Delivered). Separate axis from fulfillment above and from the
+   *  accounting `status`; no transition-legality check. */
+  setCustomServiceWorkStatus: (data: {
+    id: number;
+    work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
   }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   /** Edit non-financial metadata (description/client name/phone/note) on a
    *  custom_services row (the History modal's inline edit). */

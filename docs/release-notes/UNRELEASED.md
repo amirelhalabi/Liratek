@@ -27,6 +27,10 @@
 - The Discount field no longer appears when buying credits back on the shop's own line.
 - When an MTC or Alfa sale has a discount, its receipt now shows the full price, the discount, and the total charged — instead of just the amount paid.
 
+## 💳 Payments
+
+- When a customer overpays in cash, you can now keep part of the change and hand back the rest, instead of only choosing "keep it all" or "return it all" — type how much to return, in either dollars or LBP, and the rest is kept as profit automatically. Works everywhere "Keep change" already does: POS, recharge, services, customer sessions, maintenance and loto.
+
 ## 💸 Expenses
 
 - Split payment is no longer available when recording an expense, so the amount and payment method you see always match what gets saved.
@@ -47,6 +51,15 @@
 - Voiding a paid repair no longer leaves a negative revenue amount for that cashier or client on the Profits page.
 - When a paid repair was given a discount, the jobs list and the Maintenance History window now show the original price crossed out next to the amount actually charged (for example 300,000 → 250,000 LBP), matching what the Profits page counts.
 
+## 📦 Inventory
+
+- Looking up a phone by IMEI now shows the same "Product deleted" note the Phone Units list already shows, when that phone's product was removed from inventory.
+
+## 🏠 Dashboard
+
+- Each drawer's last-checkpoint time on the Dashboard now has a small colored dot showing how close the count was to expected: green within $1, orange up to $10 off, red beyond that. Hover it to see the exact difference.
+- Pinning a page on the Home screen (the star on each tile) now moves it to the front of the grid, right after Dashboard, so your favorites are always the first thing you see.
+
 ## 📊 Profits page
 
 - The commission total on the Overview card and the By Payment Method tab now always match for the same period.
@@ -59,20 +72,23 @@
 
 ## 🛠️ Custom Services
 
-- On the Services page, the profit in the history list, on the Today's Profit card and in the form preview now includes change the cashier chose to keep, so it matches the Profits page.
-- The Services page's Today's cards no longer count voided or refunded services, and the Today's Profit card counts a for-partner or on-account service the same way the Profits page does (only the part already paid).
-- A service sold at a loss now shows its negative profit (for example -$6.00) on the Services page, instead of $0.00.
+- On the Custom Services page, the profit in the history list, on the Today's Profit card and in the form preview now includes change the cashier chose to keep, so it matches the Profits page.
+- The Custom Services page's Today's cards no longer count voided or refunded services, and the Today's Profit card counts a for-partner or on-account service the same way the Profits page does (only the part already paid).
+- A service sold at a loss now shows its negative profit (for example -$6.00) on the Custom Services page, instead of $0.00.
+- Each service in the History window now has its own Work Status — Received, In Progress, Ready, or Delivered — that you can change and filter by, separate from whether it was paid. Existing services already on the books start at Delivered; new ones start at Received.
 
 ## 💸 OMT / Whish & suppliers
 
 - In the OMT / Whish history list, the Fee and Profit of an LBP transfer now show in LBP (for example 5,000 LBP) instead of a dollar amount, and a commission that is only counted once the supplier settles is marked "est.".
 - On the OMT App and Whish App confirm screen, Shop Profit now shows the profit after the discount you give, which is the amount that gets recorded.
 - Suppliers page: OMT transfers to settle now show the full amount owed to OMT (transfer + fee), newest first, matching the Transactions page.
+- A product supplier's page now has a "Record Debt" button, for when goods were already received but you want to book what you owe before entering the products line by line. When you do receive the products into Inventory, you can attach them to that same recorded debt instead of it being booked twice.
 
 ## 🧾 Transactions
 
 - A row the Transactions page won't let you Refund or Void now tells you why, and where to make the correction instead (for example "Loto cash prizes are reversed only as part of their session basket").
 - Admins can now undo a per-item refund right from the Transactions page ("Undo refund"). It puts the stock, phone unit, drawer, customer account and profit back exactly where they were before the refund, and shows up as its own entry on the page. It can't be undone twice, and it's refused with a clear message if the returned item or unit was already sold again.
+- "Undo refund" now also works for a product refunded inside a customer session basket (not just a standalone sale), with the same protections against undoing twice or an item that was already sold again. Recharges and services refunded inside a session can't be undone yet.
 
 ## 🤝 Partners
 

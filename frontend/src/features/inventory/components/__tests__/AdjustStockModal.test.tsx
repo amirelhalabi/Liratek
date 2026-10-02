@@ -19,6 +19,9 @@ const mockReceiveStock = jest.fn();
 const mockGetStockAdjustments = jest.fn();
 const mockGetOpenStockBatches = jest.fn();
 const mockRegisterProductUnits = jest.fn();
+// LIRA-087 (migration v189) — "attach to a recorded debt" picker.
+const mockGetSuppliers = jest.fn();
+const mockGetOpenRecordedSupplierDebts = jest.fn();
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
@@ -27,6 +30,8 @@ jest.mock("@liratek/ui", () => ({
     receiveStock: mockReceiveStock,
     getStockAdjustments: mockGetStockAdjustments,
     getOpenStockBatches: mockGetOpenStockBatches,
+    getSuppliers: mockGetSuppliers,
+    getOpenRecordedSupplierDebts: mockGetOpenRecordedSupplierDebts,
     productUnits: {
       register: mockRegisterProductUnits,
     },
@@ -43,6 +48,7 @@ function renderModal(
     onClose: () => void;
     onSuccess: () => void;
     tracksImeiUnits: boolean;
+    supplier: string;
   }> = {},
 ) {
   const queryClient = new QueryClient({
@@ -60,6 +66,7 @@ function renderModal(
           barcode: "1234567890",
           stock_quantity: 10,
           ...(overrides.tracksImeiUnits ? { tracks_imei_units: 1 } : {}),
+          ...(overrides.supplier ? { supplier: overrides.supplier } : {}),
         }}
         onClose={onClose}
         onSuccess={onSuccess}
@@ -202,6 +209,10 @@ describe("AdjustStockModal — delta/set math + submission payload", () => {
       supplier: null,
       is_old_stock: false,
       reason: "Physical recount",
+      // LIRA-087 (migration v189) — no supplier on this fixture, so no
+      // recorded-debt picker renders and this stays null (book-a-new-debt,
+      // today's unchanged default).
+      attach_to_recorded_debt_id: null,
     });
     expect(mockAdjustStock).not.toHaveBeenCalled();
   });
@@ -633,5 +644,83 @@ describe("AdjustStockModal — IMEI intake step (decision #6)", () => {
     expect(await screen.findByTestId("stock-intake-step")).toBeInTheDocument();
     expect(screen.getByText(/Scan 4 IMEIs/)).toBeInTheDocument();
     expect(onSuccess).not.toHaveBeenCalled();
+  });
+});
+
+// LIRA-087 (migration v189) — "attach to a recorded debt" picker. Rule 17:
+// brand-new UI, proven failing-first by the mock gap alone (before this
+// change, useApi() carried neither getSuppliers nor
+// getOpenRecordedSupplierDebts, so the component couldn't have rendered
+// this picker at all).
+describe("AdjustStockModal — attach to a recorded debt (LIRA-087)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetStockAdjustments.mockResolvedValue([]);
+    mockGetOpenStockBatches.mockResolvedValue([]);
+    mockGetSuppliers.mockResolvedValue([
+      { id: 7, name: "Acme Distributors" },
+    ]);
+  });
+
+  it("does not render the picker when the supplier has no open recorded debts", async () => {
+    mockGetOpenRecordedSupplierDebts.mockResolvedValue([]);
+    renderModal({ supplier: "Acme Distributors" });
+
+    fireEvent.change(
+      screen.getByPlaceholderText("0"),
+      { target: { value: "15" } },
+    );
+    await waitFor(() => expect(mockGetSuppliers).toHaveBeenCalled());
+    expect(
+      screen.queryByText("Attach to a recorded debt (optional)"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the picker, and selecting a debt sends attach_to_recorded_debt_id instead of booking a new one", async () => {
+    mockGetOpenRecordedSupplierDebts.mockResolvedValue([
+      { id: 99, amount_usd: 50, amount_lbp: 0, note: "20 units incoming" },
+    ]);
+    mockReceiveStock.mockResolvedValue({ success: true, batch_id: 1 });
+    const { onSuccess } = renderModal({ supplier: "Acme Distributors" });
+
+    fireEvent.change(
+      screen.getByPlaceholderText("0"),
+      { target: { value: "15" } },
+    );
+
+    expect(
+      await screen.findByText("Attach to a recorded debt (optional)"),
+    ).toBeInTheDocument();
+    // The "old stock" checkbox is still offered by default (no debt picked
+    // yet) — same gate as every other supplier-attached product.
+    expect(
+      screen.getByText("Old stock — don't add to supplier debt"),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("— Book a new debt —"), {
+      target: { value: "99" },
+    });
+
+    // Picking a debt hides "old stock" — the two are mutually exclusive.
+    expect(
+      screen.queryByText("Old stock — don't add to supplier debt"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "e.g. Physical recount, damaged goods, supplier correction…",
+      ),
+      { target: { value: "Shipment arrived" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(mockReceiveStock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attach_to_recorded_debt_id: 99,
+        is_old_stock: false,
+        supplier: "Acme Distributors",
+      }),
+    );
   });
 });

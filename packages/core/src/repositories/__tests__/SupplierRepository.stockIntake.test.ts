@@ -33,12 +33,16 @@ import {
 } from "../StockBatchRepository.js";
 import { resetProductSupplierRepository } from "../ProductSupplierRepository.js";
 import { resetStockAdjustmentRepository } from "../StockAdjustmentRepository.js";
-import { resetTransactionRepository } from "../TransactionRepository.js";
+import {
+  getTransactionRepository,
+  resetTransactionRepository,
+} from "../TransactionRepository.js";
 import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext.js";
 import { ValidationError } from "../../utils/errors.js";
+import { InventoryService } from "../../services/InventoryService.js";
 
 const SUPPLIER_NAME = "Acme Distributors";
 
@@ -80,11 +84,12 @@ function createTestDb(): Database.Database {
 
     -- Widened CHECK (post-v164): 'STOCK_INTAKE' is the entry_type this whole
     -- feature books.
+    -- Widened CHECK (post-v189): 'RECORDED_DEBT' + attached_at (LIRA-087).
     CREATE TABLE supplier_ledger (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id    INTEGER DEFAULT 1,
       supplier_id  INTEGER NOT NULL,
-      entry_type   TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','SALE_COST','PAYMENT','ADJUSTMENT','SETTLEMENT','CASH_PRIZE','SUPPLIER_PAYS_US','DISCOUNT','STOCK_INTAKE')),
+      entry_type   TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','SALE_COST','PAYMENT','ADJUSTMENT','SETTLEMENT','CASH_PRIZE','SUPPLIER_PAYS_US','DISCOUNT','STOCK_INTAKE','RECORDED_DEBT')),
       amount_usd   REAL NOT NULL DEFAULT 0,
       amount_lbp   REAL NOT NULL DEFAULT 0,
       note         TEXT,
@@ -93,6 +98,7 @@ function createTestDb(): Database.Database {
       is_auto      INTEGER NOT NULL DEFAULT 0,
       is_refunded  INTEGER NOT NULL DEFAULT 0,
       refunded_at  DATETIME,
+      attached_at  DATETIME,
       created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -258,6 +264,28 @@ function createTestDb(): Database.Database {
     );
     INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'USD', 0);
     INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'LBP', 0);
+
+    -- LIRA-087's own void-reversal tests exercise the generic
+    -- TransactionRepository.voidTransaction path, which unconditionally
+    -- queries debt_ledger inside _cancelDebt (every transaction void checks
+    -- for module-charge debt to cancel, even though this flow never creates
+    -- one) — minimal shape, no rows needed by these tests.
+    CREATE TABLE debt_ledger (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id        INTEGER DEFAULT 1,
+      client_id        INTEGER,
+      transaction_type TEXT NOT NULL,
+      amount_usd       REAL NOT NULL DEFAULT 0,
+      amount_lbp       REAL NOT NULL DEFAULT 0,
+      transaction_id   INTEGER,
+      session_id       INTEGER,
+      note             TEXT,
+      created_by       INTEGER,
+      due_date         DATETIME,
+      covered_usd      REAL DEFAULT 0,
+      covered_lbp      REAL DEFAULT 0,
+      created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }
@@ -645,5 +673,267 @@ describe("SupplierRepository / ProductRepository — event-based stock intake ba
     expect(ledgerRows).toHaveLength(2);
     expect(ledgerRows[0].amount_usd).toBeCloseTo(8, 2);
     expect(ledgerRows[1].amount_usd).toBeCloseTo(18, 2);
+  });
+});
+
+// LIRA-087 (migration v189) — record a supplier debt before the products
+// that earned it arrive, then attach them later without double-booking.
+// Rule 17: this is brand-new capability — `recordDebt`/
+// `attachRecordedDebtToIntake` did not exist before this change, so every
+// case below fails with "is not a function" against the pre-change tree
+// (the strongest possible failing-first proof for new functionality).
+describe("SupplierRepository.recordDebt / ProductRepository.receiveStock attach (LIRA-087)", () => {
+  let db: Database.Database;
+  let productRepo: ProductRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
+    resetSupplierRepository();
+    resetStockBatchRepository();
+    resetProductSupplierRepository();
+    resetStockAdjustmentRepository();
+    resetTransactionRepository();
+    productRepo = new ProductRepository();
+  });
+
+  afterEach(() => {
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
+    db.close();
+    resetSupplierRepository();
+    resetStockBatchRepository();
+    resetProductSupplierRepository();
+    resetStockAdjustmentRepository();
+    resetTransactionRepository();
+    resetTenantContext();
+  });
+
+  it("records a debt with no product line, then attaching stock books NO second ledger row — balance matches the one-step flow exactly", () => {
+    const { supplierId, productId } = seedSupplierAndProduct(db);
+    const supplierRepo = getSupplierRepository();
+
+    const { ledgerEntryId } = supplierRepo.recordDebt({
+      supplier_id: supplierId,
+      amount_usd: 50,
+      amount_lbp: 0,
+      note: "20 units incoming",
+      created_by: 1,
+    });
+
+    // Recorded, open, no product line yet — balance already reflects it.
+    expect(balanceFor(supplierRepo, supplierId).total_usd).toBeCloseTo(50, 2);
+    const open = supplierRepo.getOpenRecordedDebts(supplierId);
+    expect(open).toHaveLength(1);
+    expect(open[0].id).toBe(ledgerEntryId);
+
+    // Later: the products arrive. Attach instead of booking a new debt.
+    const result = productRepo.receiveStock({
+      product_id: productId,
+      quantity: 10,
+      unit_cost_usd: 5,
+      supplier: SUPPLIER_NAME,
+      is_old_stock: false,
+      created_by: 1,
+      attach_to_recorded_debt_id: ledgerEntryId,
+    });
+
+    // ONE ledger row total (the RECORDED_DEBT) — byte-identical balance to
+    // the one-step flow (10 * $5 = $50), not double-booked.
+    const ledgerCount = db
+      .prepare(`SELECT COUNT(*) AS n FROM supplier_ledger WHERE supplier_id = ?`)
+      .get(supplierId) as { n: number };
+    expect(ledgerCount.n).toBe(1);
+    expect(balanceFor(supplierRepo, supplierId).total_usd).toBeCloseTo(50, 2);
+
+    // The batch links directly to the recorded debt's own ledger/transaction.
+    const batch = db
+      .prepare(
+        `SELECT ledger_entry_id, transaction_id, books_debt FROM product_stock_batches WHERE id = ?`,
+      )
+      .get(result.batch_id) as {
+      ledger_entry_id: number;
+      transaction_id: number;
+      books_debt: number;
+    };
+    expect(batch.ledger_entry_id).toBe(ledgerEntryId);
+    expect(batch.books_debt).toBe(1);
+
+    // No longer open — can't be attached a second time.
+    expect(supplierRepo.getOpenRecordedDebts(supplierId)).toHaveLength(0);
+  });
+
+  it("refuses to attach the same recorded debt twice", () => {
+    const { supplierId, productId } = seedSupplierAndProduct(db);
+    const supplierRepo = getSupplierRepository();
+    const { ledgerEntryId } = supplierRepo.recordDebt({
+      supplier_id: supplierId,
+      amount_usd: 50,
+      amount_lbp: 0,
+      created_by: 1,
+    });
+    productRepo.receiveStock({
+      product_id: productId,
+      quantity: 10,
+      unit_cost_usd: 5,
+      supplier: SUPPLIER_NAME,
+      is_old_stock: false,
+      created_by: 1,
+      attach_to_recorded_debt_id: ledgerEntryId,
+    });
+
+    expect(() =>
+      productRepo.receiveStock({
+        product_id: productId,
+        quantity: 5,
+        unit_cost_usd: 5,
+        supplier: SUPPLIER_NAME,
+        is_old_stock: false,
+        created_by: 1,
+        attach_to_recorded_debt_id: ledgerEntryId,
+      }),
+    ).toThrow(/already has stock attached/i);
+  });
+
+  it("refuses to attach a recorded debt belonging to a DIFFERENT supplier", () => {
+    const { productId } = seedSupplierAndProduct(db, { supplierId: 1 });
+    const { supplierId: otherSupplierId } = seedSupplierAndProduct(db, {
+      supplierId: 2,
+      productId: 2,
+      supplierName: "Other Supplier",
+    });
+    const supplierRepo = getSupplierRepository();
+    const { ledgerEntryId } = supplierRepo.recordDebt({
+      supplier_id: otherSupplierId,
+      amount_usd: 50,
+      amount_lbp: 0,
+      created_by: 1,
+    });
+
+    expect(() =>
+      productRepo.receiveStock({
+        product_id: productId,
+        quantity: 10,
+        unit_cost_usd: 5,
+        supplier: SUPPLIER_NAME,
+        is_old_stock: false,
+        created_by: 1,
+        attach_to_recorded_debt_id: ledgerEntryId,
+      }),
+    ).toThrow(/different supplier/i);
+  });
+
+  it("rule 20 — voiding an UNATTACHED recorded debt nets the balance back to 0 (no batch to find, pure ledger soft-void)", () => {
+    const { supplierId } = seedSupplierAndProduct(db);
+    const supplierRepo = getSupplierRepository();
+    const { transactionId } = supplierRepo.recordDebt({
+      supplier_id: supplierId,
+      amount_usd: 50,
+      amount_lbp: 0,
+      created_by: 1,
+    });
+    expect(balanceFor(supplierRepo, supplierId).total_usd).toBeCloseTo(50, 2);
+
+    getTransactionRepository().voidTransaction(transactionId, 1);
+
+    expect(balanceFor(supplierRepo, supplierId).total_usd).toBeCloseTo(0, 2);
+  });
+
+  it("rule 20 — voiding an ATTACHED recorded debt deletes the batch and nets the balance to 0, same as voiding a one-step intake", () => {
+    const { supplierId, productId } = seedSupplierAndProduct(db);
+    const supplierRepo = getSupplierRepository();
+    const { ledgerEntryId, transactionId } = supplierRepo.recordDebt({
+      supplier_id: supplierId,
+      amount_usd: 50,
+      amount_lbp: 0,
+      created_by: 1,
+    });
+    productRepo.receiveStock({
+      product_id: productId,
+      quantity: 10,
+      unit_cost_usd: 5,
+      supplier: SUPPLIER_NAME,
+      is_old_stock: false,
+      created_by: 1,
+      attach_to_recorded_debt_id: ledgerEntryId,
+    });
+    expect(balanceFor(supplierRepo, supplierId).total_usd).toBeCloseTo(50, 2);
+    const productBefore = db
+      .prepare(`SELECT stock_quantity FROM products WHERE id = ?`)
+      .get(productId) as { stock_quantity: number };
+    expect(productBefore.stock_quantity).toBe(10);
+
+    getTransactionRepository().voidTransaction(transactionId, 1);
+
+    expect(balanceFor(supplierRepo, supplierId).total_usd).toBeCloseTo(0, 2);
+    const productAfter = db
+      .prepare(`SELECT stock_quantity FROM products WHERE id = ?`)
+      .get(productId) as { stock_quantity: number };
+    expect(productAfter.stock_quantity).toBe(0);
+    const batchCount = db
+      .prepare(`SELECT COUNT(*) AS n FROM product_stock_batches WHERE product_id = ?`)
+      .get(productId) as { n: number };
+    expect(batchCount.n).toBe(0);
+  });
+
+  it("rule 20 — voiding an ATTACHED recorded debt is REFUSED once a unit has already been sold, same as a one-step intake", () => {
+    const { supplierId, productId } = seedSupplierAndProduct(db);
+    const supplierRepo = getSupplierRepository();
+    const { ledgerEntryId, transactionId } = supplierRepo.recordDebt({
+      supplier_id: supplierId,
+      amount_usd: 50,
+      amount_lbp: 0,
+      created_by: 1,
+    });
+    productRepo.receiveStock({
+      product_id: productId,
+      quantity: 10,
+      unit_cost_usd: 5,
+      supplier: SUPPLIER_NAME,
+      is_old_stock: false,
+      created_by: 1,
+      attach_to_recorded_debt_id: ledgerEntryId,
+    });
+
+    db.prepare(
+      `INSERT INTO sale_items (id, sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd)
+       VALUES (1, 1, ?, 3, 15, 0)`,
+    ).run(productId);
+    getStockBatchRepository().consume(productId, 3, {
+      saleItemId: 1,
+      reason: "SALE",
+      fallbackUnitCostUsd: 5,
+    });
+
+    expect(() =>
+      getTransactionRepository().voidTransaction(transactionId, 1),
+    ).toThrow(/already been sold/i);
+  });
+
+  it("'old stock' AND 'attach to recorded debt' together is refused (contradictory)", () => {
+    const { supplierId, productId } = seedSupplierAndProduct(db);
+    const supplierRepo = getSupplierRepository();
+    const { ledgerEntryId } = supplierRepo.recordDebt({
+      supplier_id: supplierId,
+      amount_usd: 50,
+      amount_lbp: 0,
+      created_by: 1,
+    });
+
+    const service = new InventoryService();
+    const result = service.receiveStock({
+      product_id: productId,
+      quantity: 10,
+      unit_cost_usd: 5,
+      supplier: SUPPLIER_NAME,
+      is_old_stock: true,
+      userId: 1,
+      attach_to_recorded_debt_id: ledgerEntryId,
+    });
+    expect(result.success).toBe(false);
   });
 });

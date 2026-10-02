@@ -214,4 +214,33 @@ describe("ImeiStoryCard render", () => {
     render(<ImeiStoryCard story={makeStory({ is_defective: 0 })} />);
     expect(screen.queryByText("Defective")).not.toBeInTheDocument();
   });
+
+  /**
+   * LIRA-172 — `product_deleted` has carried through `UnitStoryEntry` since
+   * LIRA-152 (same `UNIT_PROVENANCE_JOIN` fragment that feeds the Phone
+   * Units register's own chip), but this card never read it. Mirrors
+   * `PhoneUnits/index.tsx`'s `phone-unit-product-deleted-<id>` chip.
+   *
+   * NOT proven failing-first (LIRA-172): verified by temporarily disabling
+   * the fix in place, which rule 17 does not accept.
+   */
+  it("shows a muted 'Product deleted' chip when product_deleted === 1", () => {
+    render(<ImeiStoryCard story={makeStory({ product_deleted: 1 })} />);
+    const chip = screen.getByTestId("imei-story-product-deleted");
+    expect(chip).toHaveTextContent("Product deleted");
+  });
+
+  it("does not show the chip when product_deleted is null (the common case)", () => {
+    render(<ImeiStoryCard story={makeStory({ product_deleted: null })} />);
+    expect(
+      screen.queryByTestId("imei-story-product-deleted"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not show the chip when product_deleted is 0", () => {
+    render(<ImeiStoryCard story={makeStory({ product_deleted: 0 })} />);
+    expect(
+      screen.queryByTestId("imei-story-product-deleted"),
+    ).not.toBeInTheDocument();
+  });
 });

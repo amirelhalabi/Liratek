@@ -99,23 +99,34 @@ describe("ActionsCell — Undo refund (LIRA-147)", () => {
     expect(screen.getByTestId("non-reversible-reason")).toBeInTheDocument();
   });
 
-  it("does NOT show 'Undo refund' for a session-basket item refund (refundType: sessionItem) even for an admin", () => {
+  // LIRA-253 — the button now ALSO covers a session-basket item refund: one
+  // shared handler, dispatched server-side off the refund row's own
+  // metadata (rule 24 — this replaces the pre-LIRA-253 assertion that it
+  // was hidden, which held only while that undo path did not exist yet).
+  it("shows 'Undo refund' for an admin on an active session-basket item REFUND row (refundType: sessionItem)", () => {
     const handlers = buildHandlers();
     renderCell(
       buildRefundRow({
         metadata_json: JSON.stringify({
           refundType: "sessionItem",
-          saleItemId: 5,
+          sessionId: 3,
+          saleItemIds: [5],
         }),
       }),
       handlers,
       true,
     );
 
+    const button = screen.getByRole("button", { name: "Undo refund" });
+    expect(button).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Undo refund" }),
+      screen.queryByTestId("non-reversible-reason"),
     ).not.toBeInTheDocument();
-    expect(screen.getByTestId("non-reversible-reason")).toBeInTheDocument();
+
+    fireEvent.click(button);
+    expect(handlers.onUndoRefund).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 10 }),
+    );
   });
 
   it("does NOT show 'Undo refund' for a whole-sale (non-item) refund even for an admin", () => {

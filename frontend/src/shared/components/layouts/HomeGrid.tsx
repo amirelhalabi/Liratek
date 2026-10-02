@@ -223,7 +223,7 @@ export default function HomeGrid() {
   // localStorage once at mount (no storage-event/live sync), so a star
   // toggled here won't visually reorder an already-mounted Sidebar until it
   // next mounts — acceptable for this ticket, see useSidebarFavorites.ts.
-  const { toggleFavorite, isFavorite } = useSidebarFavorites();
+  const { favorites, toggleFavorite, isFavorite } = useSidebarFavorites();
 
   const [columns, setColumns] = useState(
     () => Number(localStorage.getItem("home_columns")) || 5,
@@ -272,8 +272,21 @@ export default function HomeGrid() {
       });
     }
 
-    return items;
-  }, [enabledModules, isAdmin]);
+    // LIRA-075 — pinned (favorited) tiles show first. Dashboard stays the
+    // very first tile regardless (unchanged long-standing invariant, see
+    // the comment above); among the rest, a STABLE sort (favorited before
+    // not-favorited, ties broken by original module order) moves every
+    // pinned page to the front of the grid without otherwise reshuffling
+    // it — re-pinning/un-pinning should feel like promoting a tile, not
+    // scrambling the whole layout.
+    const [dashboardItem, ...rest] = items;
+    const pinnedFirst = [...rest].sort((a, b) => {
+      const aPinned = favorites.includes(a.to) ? 0 : 1;
+      const bPinned = favorites.includes(b.to) ? 0 : 1;
+      return aPinned - bPinned;
+    });
+    return [dashboardItem, ...pinnedFirst];
+  }, [enabledModules, isAdmin, favorites]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col animate-in fade-in duration-500">

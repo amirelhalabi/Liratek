@@ -103,7 +103,8 @@ function createTestDb(): Database.Database {
       -- OWNER_NOTES_REMAINING_BUILD.md #16 (migration v185) — createService's
       -- INSERT now always includes this column; a missing column here would
       -- fail every INSERT in this file at runtime, not just the new tests.
-      direction TEXT NOT NULL DEFAULT 'IN'
+      direction TEXT NOT NULL DEFAULT 'IN',
+      work_status TEXT NOT NULL DEFAULT 'Received'
     );
 
     CREATE TABLE transactions (

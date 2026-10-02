@@ -1,5 +1,5 @@
 import { BaseRepository } from "./BaseRepository.js";
-import { DatabaseError } from "../utils/errors.js";
+import { DatabaseError, ValidationError } from "../utils/errors.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getFinancialServiceRepository } from "./FinancialServiceRepository.js";
 import {
@@ -169,7 +169,12 @@ export type SupplierLedgerEntryType =
    *  see recordStockIntake. Balance is the ledger sum ONLY; sales/refunds/
    *  cost edits never touch it (that recompute-from-live-inventory bug is
    *  exactly what this entry type replaces — see getProductSupplierBalances). */
-  | "STOCK_INTAKE";
+  | "STOCK_INTAKE"
+  /** LIRA-087 (migration v189): a debt recorded WITHOUT a product line yet
+   *  — see recordDebt. `attached_at` NULL = open; a later stock intake can
+   *  attach products to this exact row (attachRecordedDebtToIntake) instead
+   *  of booking a second debt. */
+  | "RECORDED_DEBT";
 
 export interface SupplierLedgerEntryEntity {
   id: number;
@@ -1565,6 +1570,188 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         cause: e,
       });
     }
+  }
+
+  /**
+   * LIRA-087 (migration v189) — record a supplier debt WITHOUT any product
+   * line, for restocking already-received goods without risking a double
+   * booking: amount/currency/note only, written as ONE 'RECORDED_DEBT'
+   * supplier_ledger row (`attached_at` NULL — open) plus its own unified
+   * transaction, inside ONE db.transaction() — the same shape as
+   * `recordStockIntake` minus the product/batch side. A LATER
+   * `ProductRepository.receiveStock` call can attach the received products
+   * to this exact row (`attach_to_recorded_debt_id`) instead of booking a
+   * second debt — see `getOpenRecordedDebts` for the picker list and
+   * `ProductRepository.bookIntakeAndBatch` for the attach write.
+   *
+   * Reversal owner (rule 20): voiding the SUPPLIER_RECORDED_DEBT
+   * transaction reuses `TransactionRepository._reverseSupplierStockIntake`
+   * verbatim (type-widened) — a no-op (ledger row just soft-voids) while
+   * still unattached, REFUSED if the attached batch already sold units,
+   * exactly like a one-step intake void.
+   */
+  recordDebt(data: {
+    supplier_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    note?: string | null;
+    created_by: number;
+  }): { ledgerEntryId: number; transactionId: number } {
+    if (data.amount_usd <= 0 && data.amount_lbp <= 0) {
+      throw new ValidationError(
+        "Recorded debt amount must be greater than 0 in at least one currency",
+      );
+    }
+    try {
+      const tenantId = getCurrentTenantId();
+      const note =
+        data.note?.trim() ||
+        `Debt recorded — products to be attached later`;
+
+      const run = this.db.transaction(() => {
+        const stmt = this.db.prepare(`
+            INSERT INTO supplier_ledger (
+              supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto, tenant_id, created_at
+            ) VALUES (?, 'RECORDED_DEBT', ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
+          `);
+        const res = stmt.run(
+          data.supplier_id,
+          data.amount_usd,
+          data.amount_lbp,
+          note,
+          data.created_by,
+          tenantId,
+        );
+        const ledgerEntryId = Number(res.lastInsertRowid);
+
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.SUPPLIER_RECORDED_DEBT as TransactionType,
+          source_table: "supplier_ledger",
+          source_id: ledgerEntryId,
+          user_id: data.created_by,
+          amount_usd: data.amount_usd,
+          amount_lbp: data.amount_lbp,
+          profit_usd: 0,
+          profit_lbp: 0,
+          summary: `Debt recorded: ${this._getSupplierName(data.supplier_id)} — ${note}`,
+          metadata_json: {
+            supplier_id: data.supplier_id,
+            entry_type: "RECORDED_DEBT",
+          },
+        });
+
+        this.db
+          .prepare(
+            `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(txnId, ledgerEntryId, tenantId);
+
+        return { ledgerEntryId, transactionId: txnId };
+      });
+      return run();
+    } catch (e) {
+      if (e instanceof ValidationError) throw e;
+      throw new DatabaseError("Failed to record supplier debt", {
+        cause: e,
+      });
+    }
+  }
+
+  /**
+   * LIRA-087 — the picker list for stock intake's "attach to a recorded
+   * debt" flow: every OPEN (`attached_at IS NULL`, not refunded/voided)
+   * 'RECORDED_DEBT' row for one supplier, newest first.
+   */
+  getOpenRecordedDebts(supplierId: number): SupplierLedgerEntryEntity[] {
+    try {
+      const cols = this._supplierLedgerHasSourceRefColumns()
+        ? "id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, created_at"
+        : "id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at";
+      return this.query<SupplierLedgerEntryEntity>(
+        `SELECT ${cols} FROM supplier_ledger
+         WHERE supplier_id = ? AND entry_type = 'RECORDED_DEBT'
+           AND attached_at IS NULL AND ${ledgerNotRefunded()}
+           AND tenant_id = ?
+         ORDER BY created_at DESC`,
+        supplierId,
+        getCurrentTenantId(),
+      );
+    } catch (e) {
+      throw new DatabaseError("Failed to get open recorded debts", {
+        cause: e,
+        entityId: supplierId,
+      });
+    }
+  }
+
+  /**
+   * LIRA-087 — the WRITE half of the two-step flow: validates the chosen
+   * 'RECORDED_DEBT' row (exists, belongs to THIS supplier, still open — not
+   * already attached, not refunded/voided) and marks it `attached_at`,
+   * returning its existing `transaction_id` so `ProductRepository
+   * .bookIntakeAndBatch` can link the new FIFO batch directly to it instead
+   * of booking a second debt. Called from inside the caller's own
+   * `this.transaction(...)` — no transaction of its own, matching
+   * `bookIntakeAndBatch`'s "must run inside the caller's transaction"
+   * convention for the same reason (one atomic intake write).
+   */
+  attachRecordedDebtToIntake(data: {
+    ledger_entry_id: number;
+    supplier_id: number;
+  }): { transactionId: number } {
+    const tenantId = getCurrentTenantId();
+    const row = this.db
+      .prepare(
+        `SELECT id, supplier_id, entry_type, transaction_id, attached_at, is_refunded
+         FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(data.ledger_entry_id, tenantId) as
+      | {
+          id: number;
+          supplier_id: number;
+          entry_type: string;
+          transaction_id: number | null;
+          attached_at: string | null;
+          is_refunded: number;
+        }
+      | undefined;
+
+    if (!row) {
+      throw new ValidationError("Recorded debt not found");
+    }
+    if (row.entry_type !== "RECORDED_DEBT") {
+      throw new ValidationError(
+        "This ledger entry is not a recorded debt — cannot attach stock to it",
+      );
+    }
+    if (row.supplier_id !== data.supplier_id) {
+      throw new ValidationError(
+        "This recorded debt belongs to a different supplier",
+      );
+    }
+    if (row.is_refunded) {
+      throw new ValidationError(
+        "This recorded debt has been voided — cannot attach stock to it",
+      );
+    }
+    if (row.attached_at) {
+      throw new ValidationError(
+        "This recorded debt already has stock attached to it",
+      );
+    }
+    if (row.transaction_id == null) {
+      throw new ValidationError(
+        "This recorded debt's record is missing its transaction link — cannot attach stock to it safely",
+      );
+    }
+
+    this.db
+      .prepare(
+        `UPDATE supplier_ledger SET attached_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(data.ledger_entry_id, tenantId);
+
+    return { transactionId: row.transaction_id };
   }
 
   getSupplierLedger(

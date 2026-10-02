@@ -84,6 +84,9 @@ export function useReceiveStockMutation() {
       supplier?: string | null;
       is_old_stock: boolean;
       reason?: string;
+      // LIRA-087 (migration v189) — attach to an already-recorded open
+      // supplier debt instead of booking a new one.
+      attach_to_recorded_debt_id?: number | null;
     }) => api.receiveStock(payload),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["products"] });

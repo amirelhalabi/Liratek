@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useApi } from "@liratek/ui";
-import type { FulfillmentStatus } from "@liratek/core";
+import type { FulfillmentStatus, WorkStatus } from "@liratek/core";
 import logger from "@/utils/logger";
 
 export interface CustomServiceEntry {
@@ -40,6 +40,10 @@ export interface CustomServiceEntry {
   fulfillment_status?: FulfillmentStatus | null;
   /** Stamped only when fulfillment_status reaches 'DELIVERED'. */
   fulfilled_at?: string | null;
+  /** LIRA-083 — the service's WORK lifecycle, separate from `status`
+   *  (accounting). Imports the ONE type definition (rule 14) from
+   *  `@liratek/core` rather than re-typing the four literals here. */
+  work_status?: WorkStatus;
 }
 
 export interface CustomServiceSummary {

@@ -30,6 +30,7 @@ import {
   useSupplierAccountLedgerQuery,
   useSupplierAccountUnsettledQuery,
   useRefreshSupplierAccountQueries,
+  useRecordSupplierDebtMutation,
   type UnsettledSupplierTransaction,
   type AccountBalance,
   type AccountLedgerEntry,
@@ -757,6 +758,17 @@ export default function SuppliersPage() {
   const [adjustMoveCash, setAdjustMoveCash] = useState(true);
   const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
+  // LIRA-087 (migration v189) — "Record Debt" modal for a product supplier:
+  // books a supplier debt WITHOUT any product line yet, so restocking goods
+  // already received doesn't risk a double booking. A later stock intake
+  // can attach products to the recorded row (Inventory's "attach to a
+  // recorded debt" picker) instead of booking a second debt.
+  const [showRecordDebtModal, setShowRecordDebtModal] = useState(false);
+  useModalFocusFix(showRecordDebtModal);
+  const [recordDebtAmountUsd, setRecordDebtAmountUsd] = useState("");
+  const [recordDebtAmountLbp, setRecordDebtAmountLbp] = useState("");
+  const [recordDebtNote, setRecordDebtNote] = useState("");
+
   // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, wave 2) — the account-wide
   // settle sheet (counter + OMT App + iPick, ONE call). Holds the account
   // to settle directly (from `SupplierAccountCard`'s own `onSettle`
@@ -1184,6 +1196,33 @@ export default function SuppliersPage() {
     selectedSupplierId,
     selectedSupplier?.provider ?? null,
   );
+
+  // LIRA-087 (migration v189) — "Record Debt" (product suppliers only).
+  const recordDebt = useRecordSupplierDebtMutation(selectedSupplierId);
+  const handleRecordDebt = async () => {
+    if (!selectedSupplierId) return;
+    const usd = parseFloat(recordDebtAmountUsd.replace(/,/g, "")) || 0;
+    const lbp = parseFloat(recordDebtAmountLbp.replace(/,/g, "")) || 0;
+    if (usd <= 0 && lbp <= 0) return;
+    try {
+      const result = await recordDebt.mutateAsync({
+        supplier_id: selectedSupplierId,
+        amount_usd: usd,
+        amount_lbp: lbp,
+        note: recordDebtNote.trim() || null,
+      });
+      if (!result.success) {
+        alert(result.error ?? "Failed to record debt");
+        return;
+      }
+      setShowRecordDebtModal(false);
+      setRecordDebtAmountUsd("");
+      setRecordDebtAmountLbp("");
+      setRecordDebtNote("");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to record debt");
+    }
+  };
 
   // LIRA-080 — the paper (no-cash) side of "Add Credit / Debt".
   const supplierLedgerEntry = useSupplierLedgerEntryMutation(
@@ -1884,6 +1923,24 @@ export default function SuppliersPage() {
                       >
                         <Plus className="w-4 h-4" />
                         Add Credit / Debt
+                      </button>
+                    )}
+                  {/* LIRA-087 (migration v189): "Record Debt" — a product
+                      supplier's mirror of "Add Credit / Debt" above. Books a
+                      supplier debt WITHOUT any product line yet, so
+                      restocking goods already received doesn't risk a
+                      double booking; attach the products later from
+                      Inventory. */}
+                  {isAdmin &&
+                    selectedSupplier.is_active !== 0 &&
+                    isProductSupplier && (
+                      <button
+                        onClick={() => setShowRecordDebtModal(true)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm"
+                        title="Record a debt for products not yet received, to attach later"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Record Debt
                       </button>
                     )}
                   {/* SUPPLIER_STOCK_INTAKE_PLAN.md D8: the standalone
@@ -2848,6 +2905,108 @@ export default function SuppliersPage() {
                   {adjustSubmitting ? "Processing..." : "Save entry"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LIRA-087 (migration v189) — "Record Debt": book a product
+          supplier's debt WITHOUT a product line yet. */}
+      {showRecordDebtModal && selectedSupplier && isAdmin && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowRecordDebtModal(false);
+          }}
+        >
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-white">
+                Record Debt — {selectedSupplier.name}
+              </h3>
+              <button
+                onClick={() => setShowRecordDebtModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-slate-400">
+              Books what you owe {selectedSupplier.name} for products not yet
+              received — attach them to this debt later from Inventory's
+              "Receive Stock" form, instead of booking a second debt.
+            </p>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                  Amount (USD)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={recordDebtAmountUsd}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/,/g, "");
+                    if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                      setRecordDebtAmountUsd(raw);
+                    }
+                  }}
+                  placeholder="0.00"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                  Amount (LBP)
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={recordDebtAmountLbp}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/,/g, "");
+                    if (raw === "" || /^\d+$/.test(raw)) {
+                      setRecordDebtAmountLbp(raw);
+                    }
+                  }}
+                  placeholder="0"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">
+                Note (optional)
+              </label>
+              <input
+                value={recordDebtNote}
+                onChange={(e) => setRecordDebtNote(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+                placeholder="e.g. Invoice #1234, 20 units incoming"
+              />
+            </div>
+            <div className="pt-2 flex gap-3">
+              <button
+                onClick={() => setShowRecordDebtModal(false)}
+                className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={
+                  recordDebt.isPending ||
+                  !(
+                    (parseFloat(recordDebtAmountUsd.replace(/,/g, "")) || 0) >
+                      0 ||
+                    (parseFloat(recordDebtAmountLbp.replace(/,/g, "")) || 0) >
+                      0
+                  )
+                }
+                onClick={handleRecordDebt}
+                className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20"
+              >
+                {recordDebt.isPending ? "Saving..." : "Record debt"}
+              </button>
             </div>
           </div>
         </div>

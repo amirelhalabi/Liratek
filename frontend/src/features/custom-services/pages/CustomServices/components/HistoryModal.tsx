@@ -16,6 +16,9 @@ import {
   FULFILLMENT_STATUSES,
   TERMINAL_FULFILLMENT_STATUS,
   type FulfillmentStatus,
+  WORK_STATUSES,
+  WORK_STATUS_LABELS,
+  type WorkStatus,
 } from "@liratek/core";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
@@ -70,6 +73,31 @@ function fulfillmentBadge(status: FulfillmentStatus): {
       return {
         label: "Delivered",
         className: "bg-slate-500/10 text-slate-300 border border-slate-500/30",
+      };
+  }
+}
+
+/** LIRA-083 — display styling for the WORK status column. Separate axis
+ *  from `fulfillmentBadge` above (accounting-independent, every service has
+ *  one, not just insurance). */
+function workStatusBadge(status: WorkStatus): { className: string } {
+  switch (status) {
+    case "Received":
+      return {
+        className: "bg-slate-500/10 text-slate-300 border border-slate-500/30",
+      };
+    case "In_Progress":
+      return {
+        className: "bg-amber-500/10 text-amber-400 border border-amber-500/30",
+      };
+    case "Ready":
+      return {
+        className: "bg-blue-500/10 text-blue-400 border border-blue-500/30",
+      };
+    case "Delivered":
+      return {
+        className:
+          "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30",
       };
   }
 }
@@ -129,10 +157,21 @@ export function HistoryModal({
   // category, not by fulfilment status — the Status column below covers
   // that independently, per row).
   const [categoryTab, setCategoryTab] = useState<"All" | "Insurance">("All");
-  const scopedData =
+  // LIRA-083 — filter the history list by work status (Received/
+  // In_Progress/Ready/Delivered), client-side, same convention as the
+  // category tab above (the full history array is already in memory; the
+  // page-level list also supports a server-side `workStatus` filter for a
+  // smaller initial fetch, see CustomServices/index.tsx).
+  const [workStatusTab, setWorkStatusTab] = useState<"All" | WorkStatus>(
+    "All",
+  );
+  const scopedData = (
     categoryTab === "Insurance"
       ? filteredData.filter((tx) => tx.category === INSURANCE_CATEGORY)
-      : filteredData;
+      : filteredData
+  ).filter((tx) =>
+    workStatusTab === "All" ? true : tx.work_status === workStatusTab,
+  );
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({
@@ -146,6 +185,10 @@ export function HistoryModal({
   // `editSaving`/`collectingId` (HoldMoneySection) above.
   const [advancingId, setAdvancingId] = useState<number | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
+  // LIRA-083 — per-row in-flight guard for the work-status select.
+  const [workStatusChangingId, setWorkStatusChangingId] = useState<
+    number | null
+  >(null);
   const shopInfo = useShopInfo();
 
   /** LIRA-155, item 5 — advance one legal step via the fulfilment endpoint.
@@ -176,6 +219,31 @@ export function HistoryModal({
       alert(getApiErrorMessage(error, "Failed to update status."));
     } finally {
       setAdvancingId(null);
+    }
+  }
+
+  /** LIRA-083 — set a custom service's WORK status. Unlike
+   *  `handleAdvanceFulfillment`, this is freeform (any of the four values,
+   *  any direction) — see `CustomServiceService.setWorkStatus`'s doc
+   *  comment for why. */
+  async function handleChangeWorkStatus(tx: CustomServiceEntry, next: WorkStatus) {
+    if (next === tx.work_status) return;
+    setWorkStatusChangingId(tx.id);
+    try {
+      const result = await api.setCustomServiceWorkStatus({
+        id: tx.id,
+        work_status: next,
+      });
+      if (result.success) {
+        onRefresh();
+      } else {
+        alert(result.error ?? "Failed to update work status.");
+      }
+    } catch (error) {
+      logger.error("Set work status failed:", error);
+      alert(getApiErrorMessage(error, "Failed to update work status."));
+    } finally {
+      setWorkStatusChangingId(null);
     }
   }
 
@@ -303,6 +371,22 @@ export function HistoryModal({
                 </button>
               ))}
             </div>
+            {/* LIRA-083 — filter the list by work status. */}
+            <select
+              data-testid="custom-service-work-status-filter"
+              value={workStatusTab}
+              onChange={(e) =>
+                setWorkStatusTab(e.target.value as "All" | WorkStatus)
+              }
+              className="bg-slate-800/60 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-300"
+            >
+              <option value="All">All work status</option>
+              {WORK_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {WORK_STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
             <DateRangeFilter
               from={from}
               to={to}
@@ -354,6 +438,13 @@ export function HistoryModal({
                   // "Cancelled" on a refund. Blank for every non-insurance
                   // row (untracked).
                   header: "Status",
+                  className: "px-4 py-3",
+                },
+                {
+                  // LIRA-083 — work-in-progress lifecycle, every row has one
+                  // (not gated on category, unlike the fulfilment Status
+                  // column above).
+                  header: "Work Status",
                   className: "px-4 py-3",
                 },
                 {
@@ -497,6 +588,34 @@ export function HistoryModal({
                             })()}
                           </div>
                         )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {/* LIRA-083 — editable regardless of category/void;
+                            disabled once refunded (nothing left to track). */}
+                        <select
+                          data-testid={`custom-service-work-status-${tx.id}`}
+                          value={tx.work_status ?? "Received"}
+                          disabled={
+                            isRefunded || workStatusChangingId === tx.id
+                          }
+                          onChange={(e) =>
+                            handleChangeWorkStatus(
+                              tx,
+                              e.target.value as WorkStatus,
+                            )
+                          }
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium border bg-transparent disabled:opacity-50 disabled:cursor-not-allowed ${workStatusBadge((tx.work_status ?? "Received") as WorkStatus).className}`}
+                        >
+                          {WORK_STATUSES.map((s) => (
+                            <option
+                              key={s}
+                              value={s}
+                              className="bg-slate-800 text-slate-200"
+                            >
+                              {WORK_STATUS_LABELS[s]}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="px-4 py-3">
                         {tx.client_name && (

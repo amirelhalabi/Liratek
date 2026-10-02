@@ -93,6 +93,31 @@ export class SupplierService {
     return this.repo.getSupplierLedger(supplierId, limit);
   }
 
+  /**
+   * LIRA-087 — record a supplier debt without any product line yet (rule
+   * 13: no SQL here, the repository owns the write + its own validation).
+   */
+  recordDebt(data: {
+    supplier_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    note?: string | null;
+    created_by: number;
+  }): { success: boolean; ledgerEntryId?: number; transactionId?: number; error?: string } {
+    try {
+      const result = this.repo.recordDebt(data);
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
+  /** LIRA-087 — the picker list for stock intake's "attach to a recorded
+   *  debt" flow. Rule 13: thin pass-through. */
+  getOpenRecordedDebts(supplierId: number): SupplierLedgerEntryEntity[] {
+    return this.repo.getOpenRecordedDebts(supplierId);
+  }
+
   getByProvider(provider: string): SupplierEntity | undefined {
     return this.repo.getByProvider(provider);
   }

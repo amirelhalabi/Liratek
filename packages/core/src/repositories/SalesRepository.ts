@@ -2061,11 +2061,20 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     } catch {
       metadata = {};
     }
+    // LIRA-253 — a session-basket item refund (`refundType === "sessionItem"`)
+    // dispatches to its own counterpart. One shared entry point
+    // (SalesService.undoItemRefund → here) for BOTH shapes, decided
+    // server-side from the refund's own metadata — exactly like LIRA-147's
+    // own doc already promises ("everything else is read back server-side
+    // from that row's own metadata"). No new IPC channel/REST route/schema
+    // needed; the dual-transport wiring LIRA-147 already shipped covers
+    // this for free.
+    if (metadata.refundType === "sessionItem") {
+      return txnRepo.undoSessionBasketItemRefund(params);
+    }
     if (metadata.refundType !== "item") {
       throw new DatabaseError(
-        metadata.refundType === "sessionItem"
-          ? "This refund was made from a customer session basket — undo refund does not yet support session-basket item refunds."
-          : "Undo refund only applies to a per-item refund made from a sale.",
+        "Undo refund only applies to a per-item refund made from a sale.",
       );
     }
 
@@ -2201,42 +2210,19 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         device_id: refundTxn.device_id ?? undefined,
       });
 
-      // 2. sale_items.refunded_quantity, products.stock_quantity.
-      db.prepare(
-        `UPDATE sale_items SET refunded_quantity = refunded_quantity - ? WHERE id = ? AND tenant_id = ?`,
-      ).run(refundQuantity, saleItemId, tenantId);
-      db.prepare(
-        `UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND tenant_id = ?`,
-      ).run(refundQuantity, item.product_id, tenantId);
-
-      // 3. FIFO batches — traced inverse of restoreForSaleItem.
-      stockBatchRepo.unrestoreForSaleItem(saleItemId, refundQuantity);
-
-      // 4. product_units — flip back to SOLD under this same sale_item,
-      //    exactly like the original sale did. Prefer the exact
-      //    `restoredUnitIds` the refund itself stamped (see the guard
-      //    above); fall back to the count-ordered heuristic only for a
-      //    refund made before that stamp existed.
-      if (this._productUnitsTableExists()) {
-        const productUnitRepo = getProductUnitRepository();
+      // 2-4. sale_items.refunded_quantity, products.stock_quantity, FIFO
+      // batches, product_units — shared with `undoSessionBasketItemRefund`
+      // (LIRA-253, rule 14): see `unapplySaleItemReversal`'s own doc.
+      {
         const restoredUnitIdsRaw = metadata.restoredUnitIds;
-        const targetUnits =
-          Array.isArray(restoredUnitIdsRaw) && restoredUnitIdsRaw.length > 0
-            ? productUnitRepo
-                .findBySaleItemIds([saleItemId])
-                .filter(
-                  (u) =>
-                    u.status === "IN_STOCK" &&
-                    restoredUnitIdsRaw.includes(u.id),
-                )
-            : productUnitRepo
-                .findBySaleItemIds([saleItemId])
-                .filter((u) => u.status === "IN_STOCK")
-                .sort((a, b) => a.id - b.id)
-                .slice(0, refundQuantity);
-        for (const unit of targetUnits) {
-          productUnitRepo.markSold(unit.id, saleItemId);
-        }
+        this.unapplySaleItemReversal({
+          saleItemId,
+          refundQuantity,
+          restoredUnitIds:
+            Array.isArray(restoredUnitIdsRaw) && restoredUnitIdsRaw.length > 0
+              ? (restoredUnitIdsRaw as number[])
+              : undefined,
+        });
       }
 
       // 5. debt_ledger — re-charge exactly what the refund credited back.
@@ -2723,7 +2709,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     userId: number;
     refundTxnId: number;
     unitExtras?: RefundUnitExtra[];
-  }): void {
+  }): { restoredUnitIds: number[] } {
     const db = this.db;
     const tenantId = getCurrentTenantId();
 
@@ -2779,7 +2765,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       params.refundQuantity,
     );
 
-    this._applySaleItemReversal({
+    return this._applySaleItemReversal({
       saleId: params.saleId,
       saleItemId: params.saleItemId,
       productId: item.product_id,
@@ -2791,6 +2777,68 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       lineShareOfSale,
       unitExtras: params.unitExtras,
     });
+  }
+
+  /**
+   * LIRA-253 (rule 14) — the item-side INVERSE of `_applySaleItemReversal`/
+   * `applySaleItemReversalForSession`: restores `sale_items.refunded_quantity`,
+   * `products.stock_quantity`, FIFO batch capacity, and flips any specific
+   * `product_units` this refund restored back to SOLD under the same
+   * sale_item — byte-identical to the item-side steps of `undoSaleItemRefund`
+   * (steps 2-4 there), factored out so BOTH the standalone per-item undo and
+   * `TransactionRepository.undoSessionBasketItemRefund` (session-basket item
+   * refund undo) share ONE reversal routine instead of two copies drifting.
+   * Must run inside the caller's db.transaction(); opens none of its own.
+   */
+  unapplySaleItemReversal(params: {
+    saleItemId: number;
+    refundQuantity: number;
+    /** The refund's own `restoredUnitIds` stamp (preferred, exact) — when
+     *  omitted/empty, falls back to the lowest-id-first IN_STOCK heuristic,
+     *  same as `undoSaleItemRefund`'s own legacy fallback. */
+    restoredUnitIds?: number[];
+  }): void {
+    const db = this.db;
+    const tenantId = getCurrentTenantId();
+
+    const item = db
+      .prepare(`SELECT * FROM sale_items WHERE id = ? AND tenant_id = ?`)
+      .get(params.saleItemId, tenantId) as SaleItemEntity | undefined;
+    if (!item) {
+      throw new NotFoundError("sale_item", params.saleItemId);
+    }
+
+    db.prepare(
+      `UPDATE sale_items SET refunded_quantity = refunded_quantity - ? WHERE id = ? AND tenant_id = ?`,
+    ).run(params.refundQuantity, params.saleItemId, tenantId);
+    db.prepare(
+      `UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND tenant_id = ?`,
+    ).run(params.refundQuantity, item.product_id, tenantId);
+
+    getStockBatchRepository().unrestoreForSaleItem(
+      params.saleItemId,
+      params.refundQuantity,
+    );
+
+    if (this._productUnitsTableExists()) {
+      const productUnitRepo = getProductUnitRepository();
+      const restoredUnitIdsRaw = params.restoredUnitIds ?? [];
+      const targetUnits =
+        restoredUnitIdsRaw.length > 0
+          ? productUnitRepo
+              .findBySaleItemIds([params.saleItemId])
+              .filter(
+                (u) => u.status === "IN_STOCK" && restoredUnitIdsRaw.includes(u.id),
+              )
+          : productUnitRepo
+              .findBySaleItemIds([params.saleItemId])
+              .filter((u) => u.status === "IN_STOCK")
+              .sort((a, b) => a.id - b.id)
+              .slice(0, params.refundQuantity);
+      for (const unit of targetUnits) {
+        productUnitRepo.markSold(unit.id, params.saleItemId);
+      }
+    }
   }
 
   /**

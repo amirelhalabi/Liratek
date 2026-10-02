@@ -12977,6 +12977,225 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 189,
+    name: "supplier_recorded_debt",
+    description:
+      "LIRA-087. Record a product-supplier debt BEFORE the products that " +
+      "earned it ever arrive (owner note 31): today the only way to book a " +
+      "supplier debt is `SupplierRepository.recordStockIntake`, which " +
+      "requires the product/quantity/cost line in the SAME call — so " +
+      "restocking goods that were already received risks double-booking " +
+      "(the owner either skips the debt entirely or re-enters it later and " +
+      "books it twice). Adds a new 'RECORDED_DEBT' supplier_ledger " +
+      "entry_type (amount/currency/note only, no product line — booked by " +
+      "the new SupplierRepository.recordDebt) plus " +
+      "supplier_ledger.attached_at (NULL = open, not yet attached to any " +
+      "stock; a timestamp once a later intake attaches products to it). " +
+      "When that later intake picks an open recorded debt " +
+      "(ProductRepository.receiveStock's new attach_to_recorded_debt_id " +
+      "param), the FIFO cost batch links directly to the EXISTING " +
+      "ledger_entry_id/transaction_id instead of calling recordStockIntake " +
+      "again — so the balance after the two-step flow is byte-identical to " +
+      "the one-step flow (ONE ledger row, not two). Reversal owner (rule " +
+      "20): voiding the RECORDED_DEBT transaction reuses " +
+      "TransactionRepository's existing SUPPLIER_STOCK_INTAKE cascade " +
+      "(`_reverseSupplierStockIntake`, now type-widened) verbatim — an " +
+      "unattached recorded debt has no batch to find (no-op, the ledger row " +
+      "just soft-voids), an attached one refuses the void if any unit from " +
+      "the attached batch was already sold, exactly like a one-step intake. " +
+      "Same supplier_ledger CHECK-widen rebuild technique as v164 " +
+      "(SQLite can't ALTER a CHECK) — carries every column v164's table " +
+      "has, including the v176 settlement_id ALTER ADD COLUMN v164 predates.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasSupplierLedger = tableExists(db, "supplier_ledger");
+      if (!hasSupplierLedger) {
+        console.log(
+          "Migration v189: supplier_ledger CHECK-widen skipped ('supplier_ledger' table not present)",
+        );
+        return;
+      }
+
+      db.exec(`
+        CREATE TABLE supplier_ledger_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT', 'STOCK_INTAKE', 'RECORDED_DEBT')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          is_auto INTEGER NOT NULL DEFAULT 0,
+          is_refunded INTEGER NOT NULL DEFAULT 0,
+          refunded_at DATETIME,
+          source_ref_table TEXT DEFAULT NULL,
+          source_ref_id INTEGER DEFAULT NULL,
+          settlement_id INTEGER DEFAULT NULL,
+          attached_at DATETIME DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_new (id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, settlement_id, created_at)
+        SELECT id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, settlement_id, created_at
+        FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+        ALTER TABLE supplier_ledger_new RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_source_ref ON supplier_ledger(source_ref_table, source_ref_id);
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_settlement_id ON supplier_ledger(settlement_id);
+      `);
+
+      console.log(
+        "Migration v189: supplier_ledger.entry_type widened with 'RECORDED_DEBT'; attached_at column added",
+      );
+    },
+    down(db: Database.Database) {
+      const hasSupplierLedger = tableExists(db, "supplier_ledger");
+      if (!hasSupplierLedger) {
+        console.log(
+          "Migration v189 down(): supplier_ledger rebuild skipped ('supplier_ledger' table not present)",
+        );
+        return;
+      }
+
+      // Same "no truthful predecessor label" reasoning as v164's down() for
+      // STOCK_INTAKE — a RECORDED_DEBT row is removed, not relabeled.
+      db.exec(
+        `DELETE FROM supplier_ledger WHERE entry_type = 'RECORDED_DEBT'`,
+      );
+
+      db.exec(`
+        CREATE TABLE supplier_ledger_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT', 'STOCK_INTAKE')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          is_auto INTEGER NOT NULL DEFAULT 0,
+          is_refunded INTEGER NOT NULL DEFAULT 0,
+          refunded_at DATETIME,
+          source_ref_table TEXT DEFAULT NULL,
+          source_ref_id INTEGER DEFAULT NULL,
+          settlement_id INTEGER DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_old (id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, settlement_id, created_at)
+        SELECT id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, settlement_id, created_at
+        FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+        ALTER TABLE supplier_ledger_old RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_source_ref ON supplier_ledger(source_ref_table, source_ref_id);
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_settlement_id ON supplier_ledger(settlement_id);
+      `);
+
+      console.log(
+        "Migration v189 rolled back: supplier_ledger.entry_type narrowed back (RECORDED_DEBT removed), attached_at column dropped",
+      );
+    },
+  },
+  {
+    version: 190,
+    name: "add_custom_services_work_status",
+    description:
+      "LIRA-083. custom_services.status is an ACCOUNTING status only " +
+      "('pending' | 'completed' | 'voided') — there was no way to track a " +
+      "service's physical work-in-progress lifecycle the way Maintenance " +
+      "tracks a repair job (status 'Received' -> 'In_Progress' -> 'Ready' -> " +
+      "'Delivered', electron-app/create_db.sql's maintenance table). Adds a " +
+      "SEPARATE work_status column, same four-state vocabulary as " +
+      "Maintenance, so a paperwork-style service ('sejel 3adli') can be " +
+      "tracked as it progresses without touching the accounting status at " +
+      "all. " +
+      "" +
+      "Owner decision 2026-10-02: every EXISTING row backfills to " +
+      "'Delivered' — a service recorded before this column existed was, by " +
+      "definition, already transacted/accounted for under the old " +
+      "all-or-nothing model, so 'already done' is the honest default (never " +
+      "'Received', which would falsely imply thousands of historical rows " +
+      "are all sitting in a fresh intake queue). New rows created from now " +
+      "on start at 'Received' (CustomServiceRepository.createService), " +
+      "matching a brand-new Maintenance job's own default. " +
+      "" +
+      "SQLite ALTER TABLE ADD COLUMN cannot attach a CHECK constraint (same " +
+      "constraint v185's `direction` column hit) — the four-value " +
+      "vocabulary is enforced at the Zod layer " +
+      "(validators/customService.ts's updateCustomServiceWorkStatusSchema, " +
+      "reusing utils/customServiceWorkStatus.ts's WORK_STATUSES, rule 14) " +
+      "instead of a table rebuild, same convention as v185. No " +
+      "CURRENT_TIMESTAMP default (the v104 lesson) — work_status is a plain " +
+      "TEXT default, not a timestamp. Fresh installs (create_db.sql) " +
+      "declare the column directly on the table with DEFAULT 'Received' " +
+      "and no backfill UPDATE is needed there (a fresh tenant has no " +
+      "pre-existing rows).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "custom_services")) {
+        console.log(
+          "Migration v190 skipped: 'custom_services' table not present",
+        );
+        return;
+      }
+      if (columnExists(db, "custom_services", "work_status")) {
+        console.log(
+          "Migration v190 skipped: 'custom_services.work_status' already present",
+        );
+        return;
+      }
+
+      db.exec(`
+        ALTER TABLE custom_services
+          ADD COLUMN work_status TEXT NOT NULL DEFAULT 'Received';
+      `);
+
+      // Backfill every row that existed BEFORE this migration ran to
+      // 'Delivered' (owner decision above). Rows inserted after this up()
+      // completes go through CustomServiceRepository.createService, which
+      // always writes an explicit work_status ('Received' by default), so
+      // there is no race with this unconditional UPDATE.
+      const backfilled = db
+        .prepare(`UPDATE custom_services SET work_status = 'Delivered'`)
+        .run();
+
+      console.log(
+        `Migration v190: custom_services.work_status added (default ` +
+          `'Received'); ${backfilled.changes} pre-existing row(s) backfilled ` +
+          `to 'Delivered'`,
+      );
+    },
+    down(db: Database.Database) {
+      if (!columnExists(db, "custom_services", "work_status")) {
+        console.log(
+          "Migration v190 rollback skipped: 'custom_services.work_status' not present",
+        );
+        return;
+      }
+
+      db.exec(`ALTER TABLE custom_services DROP COLUMN work_status;`);
+
+      console.log(
+        "Migration v190 rolled back: 'custom_services.work_status' dropped",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

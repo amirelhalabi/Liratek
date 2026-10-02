@@ -266,7 +266,10 @@ function createTestDb(): Database.Database {
       -- OWNER_NOTES_REMAINING_BUILD.md #16 (migration v185) — createService's
       -- INSERT now always includes this column; a missing column here would
       -- fail the createService() call in this file at runtime.
-      direction TEXT NOT NULL DEFAULT 'IN'
+      direction TEXT NOT NULL DEFAULT 'IN',
+      -- LIRA-083 (migration v190) — same reason as the direction column
+      -- above: a missing column here fails createService()/getColumns().
+      work_status TEXT NOT NULL DEFAULT 'Received'
     );
   `);
   return db;

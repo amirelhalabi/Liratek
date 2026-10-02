@@ -35,6 +35,8 @@ import {
   supplierPurchaseCreateSchema,
   // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — same cast-bridge pattern.
   supplierAccountLinkSchema,
+  // LIRA-087 (migration v189) — same cast-bridge pattern.
+  supplierRecordDebtSchema,
   receiveStockSchema,
   partnerRecordTransactionSchema,
   partnerSettleSchema,
@@ -125,6 +127,7 @@ import {
   type SupplierCashflowInput,
   type SupplierPurchaseCreateInput,
   type SupplierAccountLinkInput,
+  type SupplierRecordDebtInput,
   type ReceiveStockInput,
   type PartnerRecordTransactionInput,
   type PartnerSettleInput,
@@ -138,6 +141,8 @@ import {
   type UpdateExchangeMetadataInput,
   updateCustomServiceFulfillmentSchema,
   type UpdateCustomServiceFulfillmentInput,
+  updateCustomServiceWorkStatusSchema,
+  type UpdateCustomServiceWorkStatusInput,
   exchangeSubmitSchema,
   type ExchangeSubmitInput,
   refundUnitExtrasSchema,
@@ -1123,6 +1128,14 @@ export const CustomServiceCreateSchema = z
 export const CustomServiceUpdateFulfillmentSchema =
   updateCustomServiceFulfillmentSchema as unknown as z.ZodSchema<UpdateCustomServiceFulfillmentInput>;
 
+// LIRA-083 — set an existing custom service's WORK status (migration v190's
+// work_status column: Received -> In_Progress -> Ready -> Delivered, no
+// transition-legality check — see packages/core/src/utils/
+// customServiceWorkStatus.ts). Same lift-and-cast pattern as
+// CustomServiceUpdateFulfillmentSchema above (rule 14).
+export const CustomServiceUpdateWorkStatusSchema =
+  updateCustomServiceWorkStatusSchema as unknown as z.ZodSchema<UpdateCustomServiceWorkStatusInput>;
+
 // =============================================================================
 // Hold Money
 // =============================================================================
@@ -1350,6 +1363,10 @@ export const SupplierPurchaseCreateSchema =
 // supplierHandlers.ts's `suppliers:update-account-link` IPC channel.
 export const SupplierAccountLinkSchema =
   supplierAccountLinkSchema as unknown as z.ZodSchema<SupplierAccountLinkInput>;
+// LIRA-087 (migration v189) — consumed by supplierHandlers.ts's
+// `suppliers:record-debt` IPC channel.
+export const SupplierRecordDebtSchema =
+  supplierRecordDebtSchema as unknown as z.ZodSchema<SupplierRecordDebtInput>;
 
 // NOTE: the standalone supplier write-off (CQ-10) was REMOVED (owner decision
 // D8, SUPPLIER_STOCK_INTAKE_PLAN.md) — SupplierWriteOffSchema/

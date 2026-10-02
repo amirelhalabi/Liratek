@@ -9,6 +9,10 @@ import {
   useStockAdjustmentsQuery,
   useOpenStockBatchesQuery,
 } from "../hooks/useStockAdjustments";
+import {
+  useSuppliersQuery,
+  useOpenRecordedDebtsQuery,
+} from "@/features/suppliers/hooks/useSuppliers";
 import { useRegisterUnitsMutation } from "../hooks/useProductUnits";
 import { ImeiAddRow, type ImeiAddRowResult } from "./ImeiAddRow";
 
@@ -78,6 +82,24 @@ export default function AdjustStockModal({
   // (Diagnostics) that don't carry `cost_price`.
   const [unitCost, setUnitCost] = useState(String(product.cost_price ?? 0));
   const [isOldStock, setIsOldStock] = useState(false);
+  // LIRA-087 (migration v189) — attach this intake to an already-recorded
+  // open supplier debt instead of booking a new one. "" = none selected
+  // (book a new debt, today's behavior unchanged). Resolved from the
+  // product's free-text `supplier` NAME to the real supplier id (the
+  // repository only knows debts by id) — same resolution `receiveStock`
+  // itself does server-side (`resolveSupplierId`), done here client-side
+  // only to populate the picker.
+  const [attachToRecordedDebtId, setAttachToRecordedDebtId] = useState("");
+  const { data: suppliersList = [] } = useSuppliersQuery();
+  const resolvedSupplierId =
+    suppliersList.find(
+      (s) =>
+        s.name.trim().toLowerCase() ===
+        (product.supplier ?? "").trim().toLowerCase(),
+    )?.id ?? null;
+  const { data: openRecordedDebts = [] } = useOpenRecordedDebtsQuery(
+    resolvedSupplierId,
+  );
 
   const [step, setStep] = useState<Step>("form");
   const [pendingIncrease, setPendingIncrease] = useState(0);
@@ -168,6 +190,9 @@ export default function AdjustStockModal({
           supplier: product.supplier ?? null,
           is_old_stock: isOldStock,
           reason: trimmedReason,
+          attach_to_recorded_debt_id: attachToRecordedDebtId
+            ? Number(attachToRecordedDebtId)
+            : null,
         });
       } else {
         result = await adjustStock.mutateAsync({
@@ -343,7 +368,7 @@ export default function AdjustStockModal({
                         "similar design"), shown only when the product has a
                         supplier — with no supplier there is no debt to
                         skip in the first place. */}
-                    {product.supplier?.trim() && (
+                    {product.supplier?.trim() && !attachToRecordedDebtId && (
                       <label className="flex items-start gap-2 pt-2.5 shrink-0 max-w-[55%]">
                         <input
                           type="checkbox"
@@ -357,12 +382,51 @@ export default function AdjustStockModal({
                       </label>
                     )}
                   </div>
+                  {/* LIRA-087 (migration v189) — attach this delivery to a
+                      debt already recorded for this supplier (Suppliers
+                      page "Record Debt") instead of booking a new one.
+                      Mutually exclusive with "old stock" — picking a debt
+                      here hides/clears that checkbox. */}
+                  {product.supplier?.trim() &&
+                    !isOldStock &&
+                    openRecordedDebts.length > 0 && (
+                      <div className="mt-2">
+                        <label className="text-xs text-slate-400 block mb-1">
+                          Attach to a recorded debt (optional)
+                        </label>
+                        <select
+                          value={attachToRecordedDebtId}
+                          onChange={(e) =>
+                            setAttachToRecordedDebtId(e.target.value)
+                          }
+                          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                        >
+                          <option value="">— Book a new debt —</option>
+                          {openRecordedDebts.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.amount_usd > 0
+                                ? `$${d.amount_usd.toFixed(2)}`
+                                : ""}
+                              {d.amount_usd > 0 && d.amount_lbp > 0
+                                ? " + "
+                                : ""}
+                              {d.amount_lbp > 0
+                                ? `${Math.round(d.amount_lbp).toLocaleString()} LBP`
+                                : ""}
+                              {d.note ? ` — ${d.note}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   <p className="text-xs text-slate-500 mt-1">
                     Books a delivery: raises stock, sets this as the product's
-                    new cost, and adds{" "}
-                    {product.supplier?.trim()
-                      ? "what you owe the supplier (unless marked old stock)"
-                      : "nothing to any supplier balance (no supplier set)"}
+                    new cost, and{" "}
+                    {attachToRecordedDebtId
+                      ? "attaches it to the recorded debt above — no new debt booked"
+                      : product.supplier?.trim()
+                        ? "adds what you owe the supplier (unless marked old stock)"
+                        : "adds nothing to any supplier balance (no supplier set)"}
                     .
                   </p>
                 </div>

@@ -960,6 +960,277 @@ describe("MultiPaymentInput", () => {
     });
   });
 
+  // LIRA-084 (owner decision 2026-10-02) — keep-change is now PARTIAL, per
+  // currency, instead of all-or-nothing. Rule 17 disclosure: this guard was
+  // written AFTER the fix landed in the same change (not proven
+  // failing-first against the pre-fix all-or-nothing code) — per rule 17 it
+  // is labelled rather than "proven" red→green.
+  describe("partial keep-change (LIRA-084, not proven failing-first)", () => {
+    function renderOverpaid(opts: {
+      onKeptChange: jest.Mock;
+      onReturnChange: jest.Mock;
+    }) {
+      render(
+        <MultiPaymentInput
+          totals={[{ amount: 100, currency: "USD" }]}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={jest.fn()}
+          onReturnChange={
+            opts.onReturnChange as unknown as (legs: PaymentLine[]) => void
+          }
+          onKeptChange={
+            opts.onKeptChange as unknown as (
+              kept: {
+                usd: number;
+                lbp: number;
+                exactUsd: number;
+                exactLbp: number;
+              } | null,
+            ) => void
+          }
+          cashOnlyReturn={true}
+        />,
+      );
+    }
+
+    it("entering keep-change defaults to 0 returned / full kept (matches the old all-or-nothing default)", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      renderOverpaid({ onKeptChange, onReturnChange });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "150" } });
+      fireEvent.click(screen.getByTestId("keep-change"));
+
+      expect(screen.getByTestId("return-usd")).toHaveValue("");
+      expect(onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[]).toEqual(
+        [],
+      );
+      expect(onKeptChange).toHaveBeenLastCalledWith({
+        usd: 50,
+        lbp: 0,
+        exactUsd: 50,
+        exactLbp: 0,
+      });
+    });
+
+    // LIRA-084 regression guard: owner decision was that a FULL keep
+    // (nothing typed into the return fields — the default the moment the
+    // toggle flips on) must behave byte-identically to the pre-LIRA-084
+    // all-or-nothing flow, including the "Change kept (profit)" feedback
+    // the operator relies on (e.g. lira-107's debt-repayment e2e asserts
+    // this exact text). The partial-keep summary line added for LIRA-084
+    // ("Keeping $X … as profit") is a DIFFERENT string and must not be the
+    // only feedback shown when nothing has been typed.
+    it("full keep-change (nothing typed) still shows 'Change kept (profit)'", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      renderOverpaid({ onKeptChange, onReturnChange });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "150" } });
+      fireEvent.click(screen.getByTestId("keep-change"));
+
+      expect(screen.getByText("Change kept (profit)")).toBeInTheDocument();
+    });
+
+    it("owner's own example: 140,000 LBP change, return 100,000 and keep 40,000 — the OUT leg carries only the returned amount", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      render(
+        <MultiPaymentInput
+          totals={[{ amount: 100000, currency: "LBP" }]}
+          currency="LBP"
+          totalAmountCurrency="LBP"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={jest.fn()}
+          onReturnChange={
+            onReturnChange as unknown as (legs: PaymentLine[]) => void
+          }
+          onKeptChange={
+            onKeptChange as unknown as (
+              kept: {
+                usd: number;
+                lbp: number;
+                exactUsd: number;
+                exactLbp: number;
+              } | null,
+            ) => void
+          }
+          cashOnlyReturn={true}
+        />,
+      );
+
+      // Tender 240,000 LBP against a 100,000 LBP total → 140,000 LBP change.
+      fireEvent.change(firstAmountInput(), { target: { value: "240000" } });
+      expect(screen.getByTestId("return-lbp")).toHaveValue("140000");
+
+      fireEvent.click(screen.getByTestId("keep-change"));
+      // Entering keep mode clears the field (default: keep everything).
+      expect(screen.getByTestId("return-lbp")).toHaveValue("");
+
+      // Operator types how much to actually RETURN — 100,000 of the 140,000.
+      fireEvent.change(screen.getByTestId("return-lbp"), {
+        target: { value: "100000" },
+      });
+
+      const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastLegs).toEqual([
+        expect.objectContaining({
+          method: "CASH",
+          currencyCode: "LBP",
+          amount: 100000,
+          direction: "OUT",
+        }),
+      ]);
+      expect(onKeptChange).toHaveBeenLastCalledWith({
+        usd: 0,
+        lbp: 40000,
+        exactUsd: 0,
+        exactLbp: 40000,
+      });
+    });
+
+    it("works independently per currency — returning all the USD while keeping all the LBP", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      renderOverpaid({ onKeptChange, onReturnChange });
+
+      // $104.73 tendered on a $100 total; no smart-split prop here, so the
+      // auto-seed puts the whole $4.73 on the USD field.
+      fireEvent.change(firstAmountInput(), { target: { value: "104.73" } });
+      fireEvent.click(screen.getByTestId("keep-change"));
+
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "4.73" },
+      });
+      // No LBP field typed — stays "" (0 returned, same as default).
+
+      const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastLegs).toEqual([
+        expect.objectContaining({
+          currencyCode: "USD",
+          amount: 4.73,
+          direction: "OUT",
+        }),
+      ]);
+      const lastKept = onKeptChange.mock.calls.at(-1)?.[0] as {
+        usd: number;
+        lbp: number;
+        exactUsd: number;
+        exactLbp: number;
+      };
+      expect(lastKept.usd).toBe(0);
+      expect(lastKept.lbp).toBe(0);
+      // Float dust from 104.73 - 100 - 4.73: effectively zero, not snapped.
+      expect(lastKept.exactUsd).toBeCloseTo(0, 9);
+      expect(lastKept.exactLbp).toBe(0);
+    });
+
+    it("clamps a typed return that exceeds the actual change — never reports a negative kept amount or an oversized OUT leg", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      renderOverpaid({ onKeptChange, onReturnChange });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "150" } });
+      fireEvent.click(screen.getByTestId("keep-change"));
+
+      // Operator fat-fingers a return bigger than the $50 actually received.
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "9999" },
+      });
+
+      const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastLegs).toEqual([
+        expect.objectContaining({ amount: 50 }),
+      ]);
+      expect(onKeptChange).toHaveBeenLastCalledWith({
+        usd: 0,
+        lbp: 0,
+        exactUsd: 0,
+        exactLbp: 0,
+      });
+    });
+
+    it("leaving keep-change restores the full suggested return (deactivating still works exactly like the all-or-nothing path)", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      renderOverpaid({ onKeptChange, onReturnChange });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "150" } });
+      fireEvent.click(screen.getByTestId("keep-change"));
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "20" },
+      });
+      fireEvent.click(screen.getByTestId("keep-change")); // toggle off
+
+      expect(screen.getByTestId("return-usd")).toHaveValue("50.00");
+      expect(onKeptChange).toHaveBeenLastCalledWith(null);
+      const restored = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(
+        restored.some((l) => l.direction === "OUT" && l.amount === 50),
+      ).toBe(true);
+    });
+
+    it("the 'Keep change' button only renders for a CASH return — a non-CASH method already routes its full leg to that method/account (e.g. CUSTOMER_ACCOUNT credit)", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      render(
+        <MultiPaymentInput
+          totals={[{ amount: 100, currency: "USD" }]}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={true}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={jest.fn()}
+          onReturnChange={
+            onReturnChange as unknown as (legs: PaymentLine[]) => void
+          }
+          onKeptChange={
+            onKeptChange as unknown as (
+              kept: {
+                usd: number;
+                lbp: number;
+                exactUsd: number;
+                exactLbp: number;
+              } | null,
+            ) => void
+          }
+        />,
+      );
+
+      fireEvent.change(firstAmountInput(), { target: { value: "150" } });
+      const methodSelect = screen.getByTestId("return-method");
+      fireEvent.change(methodSelect, { target: { value: "CUSTOMER_ACCOUNT" } });
+
+      expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
+      // The full $50 still routes to the account as a credit leg — unaffected.
+      const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(
+        lastLegs.some(
+          (l) =>
+            l.method === "CUSTOMER_ACCOUNT" &&
+            l.amount === 50 &&
+            l.direction === "OUT",
+        ),
+      ).toBe(true);
+    });
+  });
+
   describe("EUR-readiness (MCP-5 acceptance)", () => {
     // The design's acceptance test: adding a currency is DATA — a registry/
     // rate-table entry — with zero component changes. A EUR total prefill is

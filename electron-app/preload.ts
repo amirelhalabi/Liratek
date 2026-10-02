@@ -119,6 +119,9 @@ contextBridge.exposeInMainWorld("api", {
       supplier?: string | null;
       is_old_stock: boolean;
       reason?: string;
+      // LIRA-087 — attach to an already-recorded open supplier debt instead
+      // of booking a new one.
+      attach_to_recorded_debt_id?: number | null;
     }) => ipcRenderer.invoke("inventory:receive-stock", data),
     getLowStockProducts: () =>
       ipcRenderer.invoke("inventory:get-low-stock-products"),
@@ -819,6 +822,17 @@ contextBridge.exposeInMainWorld("api", {
       total_usd: number;
       note?: string;
     }) => ipcRenderer.invoke("suppliers:purchase-create", data),
+    // LIRA-087 (migration v189) — record a supplier debt without a product
+    // line yet; a later inventory:receive-stock call can attach products to
+    // it via attach_to_recorded_debt_id.
+    recordDebt: (data: {
+      supplier_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      note?: string | null;
+    }) => ipcRenderer.invoke("suppliers:record-debt", data),
+    getOpenRecordedDebts: (supplierId: number) =>
+      ipcRenderer.invoke("suppliers:open-recorded-debts", supplierId),
   },
 
   // Loto
@@ -1893,8 +1907,11 @@ contextBridge.exposeInMainWorld("api", {
 
   // Custom Services
   customServices: {
-    list: (filter?: { date?: string }) =>
-      ipcRenderer.invoke("custom-services:list", filter),
+    list: (filter?: {
+      date?: string;
+      /** LIRA-083 — Received/In_Progress/Ready/Delivered. */
+      workStatus?: "Received" | "In_Progress" | "Ready" | "Delivered";
+    }) => ipcRenderer.invoke("custom-services:list", filter),
     get: (id: number) => ipcRenderer.invoke("custom-services:get", id),
     summary: () => ipcRenderer.invoke("custom-services:summary"),
     add: (data: {
@@ -1949,6 +1966,14 @@ contextBridge.exposeInMainWorld("api", {
       id: number;
       fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
     }) => ipcRenderer.invoke("custom-services:advance-fulfillment", data),
+    // LIRA-083 — set a custom service's WORK status (separate axis from
+    // fulfillment_status above and from the accounting `status`). Mirrors
+    // WORK_STATUSES in packages/core/src/utils/customServiceWorkStatus.ts
+    // (rule 14 — inlined here, same convention as advanceFulfillment).
+    setWorkStatus: (data: {
+      id: number;
+      work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
+    }) => ipcRenderer.invoke("custom-services:set-work-status", data),
   },
 
   // Hold Money (cash held on behalf of a client)

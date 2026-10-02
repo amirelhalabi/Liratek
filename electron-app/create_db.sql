@@ -551,7 +551,10 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   supplier_id INTEGER NOT NULL,
   -- 'STOCK_INTAKE' (v164): one row per supplier stock-intake event (+qty x unit cost) — see
   -- product_stock_batches below, the FIFO cost-batch table this entry_type is booked alongside.
-  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT', 'STOCK_INTAKE')),
+  -- 'RECORDED_DEBT' (v189, LIRA-087): a debt recorded WITHOUT a product line yet — see
+  -- attached_at below; a later stock intake can attach products to it instead of booking a
+  -- second debt.
+  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT', 'STOCK_INTAKE', 'RECORDED_DEBT')),
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
   note TEXT,
@@ -571,6 +574,11 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   -- LIRA-189's D8 selectable settlement queue cannot mark a single ledger
   -- row as settled. NULL = open/unsettled.
   settlement_id INTEGER DEFAULT NULL,
+  -- v189 (LIRA-087): NULL = this 'RECORDED_DEBT' row is still open (no
+  -- products attached yet); a timestamp once a later stock intake attaches
+  -- products to it (ProductRepository.receiveStock's
+  -- attach_to_recorded_debt_id). NULL for every other entry_type.
+  attached_at DATETIME DEFAULT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
   FOREIGN KEY (transaction_id) REFERENCES transactions(id),
@@ -1074,6 +1082,14 @@ CREATE TABLE IF NOT EXISTS custom_services (
     -- (createCustomServiceSchema), not here — see the v185 migration
     -- description for why a table rebuild wasn't used for this column.
     direction TEXT NOT NULL DEFAULT 'IN',
+    -- v190 (LIRA-083): work-in-progress lifecycle, separate from `status`
+    -- (accounting). Same four-state vocabulary as maintenance.status
+    -- ('Received' -> 'In_Progress' -> 'Ready' -> 'Delivered'). CHECK lives
+    -- at the Zod validator layer (utils/customServiceWorkStatus.ts /
+    -- validators/customService.ts), not here — see the v190 migration
+    -- description for why a table rebuild wasn't used for this column. A
+    -- fresh install has no pre-existing rows to backfill.
+    work_status TEXT NOT NULL DEFAULT 'Received',
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
@@ -2423,4 +2439,14 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- already inserts custom_services=12, profits=13, loto=16 directly, so a
     -- fresh DB needs no separate UPDATE — same shape as v162/v163/v178's
     -- marker notes above.
-    (188, 'reorder_modules_loto_custom_services_profits_v188');
+    (188, 'reorder_modules_loto_custom_services_profits_v188'),
+    -- v189 (LIRA-087) widens supplier_ledger.entry_type with 'RECORDED_DEBT'
+    -- and adds supplier_ledger.attached_at; the fresh table declaration
+    -- above already carries both directly, so a fresh DB needs no separate
+    -- rebuild — same shape as v185/v186/v187's marker notes above.
+    (189, 'supplier_recorded_debt'),
+    -- v190 (LIRA-083) adds custom_services.work_status DEFAULT 'Received';
+    -- the fresh table declaration above already carries that column
+    -- directly, so a fresh DB needs no separate ALTER/backfill — same shape
+    -- as v185/v186/v187's marker notes above.
+    (190, 'add_custom_services_work_status');

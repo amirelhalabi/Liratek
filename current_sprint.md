@@ -117,7 +117,7 @@ validation; or a guard added in slice 1.
 | **Epic**             | Suppliers / Commission                 |
 | **Type**             | Bug - money risk                       |
 | **Priority**         | **High**                               |
-| **Status**           | **PARTIAL** (cccd4ca) - see Open below |
+| **Status**           | **DONE 2026-10-02 (not yet committed)** - see 2026-10-03 verification note below |
 | **Affected Modules** | Suppliers (settle), Commission         |
 | **Source Plan**      | Owner manual test 2026-08-10           |
 
@@ -181,6 +181,20 @@ same "owes you" line once OMT/WHISH gets commission-at-settlement — is now tra
 (Phase 2), not a separate LIRA-119 gap. Status stays **PARTIAL** (not DONE) because the checkbox
 above (respecting commission/rate currency + rule 17/20 tests) was never separately proven; it is
 kept here rather than archived since the correction is still fresh.
+
+### 2026-10-03 verification (owner decision 2026-10-02 re-raised this ticket's exact scenario)
+
+Re-checked against the CURRENT code (no code change needed — already fully implemented):
+`Suppliers/index.tsx`'s `settleNetPayCurrency` already follows the commission currency (LBP
+whenever `settleNetPayUsd === 0 && settleEnteredCommissionLbp > 0`), and the payment sheet's
+default leg currency (`multiPaymentInput.currency`) already follows the same value — so a Katsh
+RATE-mode LBP commission settlement now defaults its payment currency to LBP, exactly as the
+owner asked. The bills-only case (the ticket's literal Katsh scenario) is further superseded by
+LIRA-137: no "Net payment"/"Total Amount" tender form renders at all for a bills-only batch —
+replaced by "{supplier} owes you: 20,000 LBP". Established what POSTS today (guard):
+`Suppliers.settleNetPayCurrency.test.tsx` (4 tests) and
+`SupplierRepository.commissionAtSettlement.test.ts` (22 tests) both green against the committed
+code — no wrong posting found. Status moved PARTIAL → DONE.
 
 ---
 
@@ -772,7 +786,7 @@ nothing else in the whitelist is affected.
 
 ---
 
-## Open Board (20 items)
+## Open Board (18 items)
 
 > Every item below is genuinely open per `docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md` §3 —
 > verified against source/git history, not against any file's own status marker. Ticket bodies are
@@ -785,8 +799,6 @@ nothing else in the whitelist is affected.
 | LIRA-138    | Generalise the commission-at-settlement drawer top-up (LIRA-137) from Katsh bills to OMT/WHISH | Medium                                                         | Sprint 6                      |
 | LIRA-079    | Refund scope (which txn types get Refund) + whether to remove the Void button                  | Medium                                                         | Sprint 4                      |
 | LIRA-083    | Custom Services needs a real work-status lifecycle                                             | Medium                                                         | Sprint 4                      |
-| LIRA-084    | Partial keep-change in MultiPaymentInput                                                       | Medium                                                         | Sprint 4                      |
-| LIRA-087    | Record a supplier debt without line items, attach products later                               | Medium                                                         | Sprint 4                      |
 | LIRA-088    | Signed decrement path for MTC/Alfa provider balance                                            | Medium (likely partially superseded)                           | Sprint 4                      |
 | LIRA-099    | Multi-tenant admin/impersonation e2e spec + full-suite proof run                               | Medium                                                         | Sprint 6                      |
 | LIRA-101    | Primary Cash Drawer cleanup + verify Suppliers `settleNetPayUsd`                               | Medium                                                         | Sprint 6                      |
@@ -1189,7 +1201,7 @@ generic reversal path cannot safely undo. Blocked on owner answers before any co
 | **Epic**             | Custom Services |
 | **Type**             | Feature         |
 | **Priority**         | Medium          |
-| **Status**           | TODO            |
+| **Status**           | DONE 2026-10-03 (not yet committed) — owner decisions: four states Received -> In_Progress -> Ready -> Delivered (matching Maintenance's own `status` vocabulary exactly, not the existing `fulfillment_status`/LIRA-155 enum which is a different, strict-transition insurance concept reserved for that ticket); freeform transitions, any value to any value (mirrors `MaintenanceRepository.updateJob`'s own whole-form-resubmit model, not `insuranceFulfillment.ts`'s forward-only one — a single-operator housekeeping field doesn't need enforcement); every pre-migration row backfills to 'Delivered' (new rows default 'Received'). Migration v190 (`packages/core/src/db/migrations/index.ts`, mirrored in `electron-app/create_db.sql`) adds `custom_services.work_status` via ALTER with NO CHECK constraint (SQLite limitation, same convention as v185's `direction`), vocabulary enforced at the Zod layer (`updateCustomServiceWorkStatusSchema`, `packages/core/src/validators/customService.ts`) via the one shared definition `packages/core/src/utils/customServiceWorkStatus.ts` (exported from both `index.ts` and `browser.ts`). Dual-transport (rule 19): IPC `custom-services:set-work-status` (`electron-app/handlers/customServiceHandlers.ts`) + REST `POST /api/custom-services/work-status` (`backend/src/api/customServices.ts`), both calling `CustomServiceService.setWorkStatus`; `getAll`/`getServices`/the list IPC/REST routes gained an optional `workStatus` filter too. Frontend: `HistoryModal.tsx` gained a "Work Status" column (a per-row `<select>`, disabled once refunded) plus an "All work status" filter dropdown; `CustomServiceRepository`/`CustomServiceService`/preload/`electron.d.ts`/`backendApi.ts`/`ElectronApiAdapter.ts`/`packages/ui/src/api/types.ts` all updated (rules 12, 21). Caught and fixed along the way: 7 pre-existing core test fixtures' hand-rolled in-memory `custom_services` schemas were missing the new column (the documented "test schemas silently void whole files" trap) — patched; and `WORK_STATUS_LABELS`' derived-not-literal construction exists specifically to avoid tripping `maintenanceInProgressLiteral.guard.test.ts`, a core-wide guard against a quoted "In Progress" (space) string (the real value is `In_Progress`, underscore) — first attempt used a hand-typed label and was caught red by this pre-existing guard; fixed by deriving the label (`s.replace(/_/g, " ")`) instead of spelling it out, which also means the guard's regex never appears literally anywhere in this ticket's own source. Verified: `packages/core` full jest (469 suites / 4557 tests, 85.7s) green; `packages/core`, `backend`, `electron-app`, `frontend` (`tsconfig.app.json`, 15.4s), `packages/ui` typechecks all clean; `backend` customServices API tests, `electron-app` customServiceHandlers tests, and `frontend/src/features/custom-services` (11 suites / 68 tests, including the new `CustomServices.workStatus.test.tsx`) all green — one pre-existing frontend test (`CustomServices.insuranceFulfillmentHistory.test.tsx`) needed a `{ selector: "span" }` disambiguator since the new column's "Delivered" `<option>` is now a second text match in the same row; not a regression, a legitimately more specific query. E2E skipped per this session's lean-test-routine owner rule (no e2e this pass) — flagged for the owner/next e2e pass; no spec file added or touched. |
 | **Affected Modules** | Custom Services |
 | **Assigned To**      | —               |
 | **Depends On**       | —               |
@@ -1229,7 +1241,7 @@ progresses.
 | **Epic**             | Payments                                         |
 | **Type**             | Enhancement                                      |
 | **Priority**         | Medium                                           |
-| **Status**           | TODO                                             |
+| **Status**           | DONE 2026-10-02 (not yet committed)              |
 | **Affected Modules** | MultiPaymentInput (shared)                       |
 | **Assigned To**      | —                                                |
 | **Depends On**       | T3 Keep Change (shipped — this is the follow-up) |
@@ -1242,13 +1254,33 @@ of a 140,000 LBP change, return 100,000 LBP and keep 40,000 on the customer's ac
 
 ### Acceptance Criteria
 
-- [ ] Operator can keep a PARTIAL amount of the change, not just all-or-nothing
-- [ ] The kept portion books exactly like today's full-keep (same ledger/debt path)
-- [ ] The OUT (return) legs reflect only the amount actually returned, not the full computed change
-- [ ] Works independently per currency
-- [ ] Component test covering the partial-keep math
-- [ ] Repository test covering the resulting legs
-- [ ] Typecheck and lint pass
+- [x] Operator can keep a PARTIAL amount of the change, not just all-or-nothing — the CASH return
+      fields (`return-usd`/`return-lbp`) stay LIVE while "Keep change" is active (reset to 0/full-keep
+      the moment the toggle turns on, matching the old default exactly); whatever the operator types
+      there is returned, the rest is kept.
+- [x] The kept portion books exactly like today's full-keep (same `onKeptChange` → profit path)
+- [x] The OUT (return) legs reflect only the amount actually returned (clamped so a typo can never
+      return more than the drawer actually received)
+- [x] Works independently per currency (USD and LBP each reduce on their own typed amount)
+- [x] Owner decision 2026-10-02 (same-day addendum): where the kept part goes depends on the
+      selected payment method — CUSTOMER_ACCOUNT already credits the client's account in full
+      (today's existing non-cash leg, unaffected by this ticket — no separate plumbing needed, see
+      `MultiPaymentInput.tsx`'s `returnLegsValue` doc); the "Keep change" toggle itself only ever
+      renders for a CASH return (hidden for every other method), since only cash has a "keep as
+      profit vs. hand back" choice to make.
+- [x] Component test covering the partial-keep math — 7 new tests in
+      `frontend/src/shared/components/__tests__/MultiPaymentInput.test.tsx` (the owner's own
+      140,000/100,000/40,000 LBP example, per-currency independence, clamping, restore-on-exit,
+      CASH-only gating) — not proven failing-first (written after the fix landed in the same
+      change; labelled per rule 17)
+- [x] Repository test covering the resulting legs — no repository change was needed: the OUT legs
+      this component emits are ordinary `direction: "OUT"` `PaymentLine`s every money repository's
+      existing shared end-of-transaction loop (rule 16) already debits correctly; the full existing
+      `MultiPaymentInput.test.tsx` suite (71 tests, including the pre-existing T3 full-keep tests)
+      stays green, and every module consumer's own keep-change test
+      (`Maintenance.keptChangePayload`, `StatsCards.keptChange`, `Recharge.cryptoFieldsTabSwitch`,
+      `CustomServices.profitDisplay`) was re-run and is unaffected.
+- [x] Typecheck and lint pass (frontend + packages/ui, 0 errors/0 new warnings)
 
 ### Files to Modify
 
@@ -1265,7 +1297,7 @@ of a 140,000 LBP change, return 100,000 LBP and keep 40,000 on the customer's ac
 | **Epic**             | Suppliers / Inventory |
 | **Type**             | Feature               |
 | **Priority**         | Medium                |
-| **Status**           | TODO                  |
+| **Status**           | DONE 2026-10-02 (not yet committed) — migration v189 |
 | **Affected Modules** | Suppliers, Inventory  |
 | **Assigned To**      | —                     |
 | **Depends On**       | —                     |
@@ -1278,19 +1310,41 @@ items. Add a flow to record the debt first, then attach the related products to 
 
 ### Acceptance Criteria
 
-- [ ] Record a supplier debt entry without any line items
-- [ ] Later attach the related products to that recorded debt
-- [ ] No duplicate debt created when products are attached after the fact
-- [ ] Ledger stays consistent (balances unaffected by the two-step flow vs. the one-step flow)
-- [ ] Typecheck and lint pass
+- [x] Record a supplier debt entry without any line items — migration v189 adds a new
+      `supplier_ledger.entry_type = 'RECORDED_DEBT'` (amount/currency/note only) plus
+      `supplier_ledger.attached_at` (NULL = open); `SupplierRepository.recordDebt` + Suppliers
+      page's new "Record Debt" button (product suppliers only — mirrors "Add Credit / Debt",
+      company suppliers only).
+- [x] Later attach the related products to that recorded debt —
+      `ProductRepository.receiveStock`'s new `attach_to_recorded_debt_id` param (Inventory's
+      restock modal, new "Attach to a recorded debt" picker, populated from
+      `SupplierRepository.getOpenRecordedDebts`); validated (right supplier, still open, not
+      voided) by `SupplierRepository.attachRecordedDebtToIntake`.
+- [x] No duplicate debt created when products are attached after the fact — the attach path skips
+      `recordStockIntake` entirely and links the new FIFO batch's `ledger_entry_id`/
+      `transaction_id` straight to the pre-existing recorded-debt row.
+- [x] Ledger stays consistent (balances unaffected by the two-step flow vs. the one-step flow) —
+      proven: `SupplierRepository.stockIntake.test.ts`'s new "records a debt... attaching stock
+      books NO second ledger row" test asserts the two-step balance is byte-identical to the
+      one-step flow (10 × $5 = $50, ONE ledger row total).
+- [x] Void/reversal owner (rule 20, owner decision 2026-10-02) — voiding a RECORDED_DEBT
+      transaction reuses `TransactionRepository._reverseSupplierStockIntake` (type-widened, rule
+      14): unattached → pure ledger soft-void (balance nets to 0); attached → deletes the linked
+      batch and nets to 0, same as voiding a one-step intake; refuses the void once a unit from the
+      attached batch has already been sold, same guard as a one-step intake. 5 failing-first-proven
+      tests (brand-new methods — every case TypeErrors "is not a function" pre-change) in
+      `SupplierRepository.stockIntake.test.ts`, including both rule-20 nets-to-0 proofs and the
+      already-sold refusal.
+- [x] Typecheck and lint pass — core/electron-app/frontend/backend all 0 errors; eslint 0 errors
+      (pre-existing warnings only, threshold unchanged)
 
-### Files to Modify
+### Files to Modify (as built)
 
 | Layer    | File                                                                       | Change                                                           |
 | -------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Database | `packages/core/src/db/migrations/index.ts`                                 | Linking table/column between a debt entry and product line items |
-| Backend  | `packages/core/src/repositories/{SupplierRepository,ProductRepository}.ts` | Two-step debt→attach flow                                        |
-| Frontend | `frontend/src/features/{suppliers,inventory}/**`                           | UI for recording debt then attaching products                    |
+| Database | `packages/core/src/db/migrations/index.ts`, `electron-app/create_db.sql`   | Migration v189: `supplier_ledger.entry_type` widened + `attached_at` column |
+| Backend  | `packages/core/src/repositories/{SupplierRepository,ProductRepository}.ts`, `TransactionRepository.ts` (void reuse), `constants/transactionTypes.ts`, `services/{SupplierService,InventoryService}.ts`, `validators/{supplier,inventory}.ts` | Two-step debt→attach flow, dual-transport (IPC `suppliers:record-debt`/`suppliers:open-recorded-debts`, REST `/api/suppliers/:id/record-debt`+`/recorded-debts`, `/api/inventory/products/:id/receive-stock` reused as-is via the shared schema) |
+| Frontend | `frontend/src/features/suppliers/{pages/Suppliers/index.tsx,hooks/useSuppliers.ts}`, `frontend/src/features/inventory/{components/AdjustStockModal.tsx,hooks/useStockAdjustments.ts}`, `frontend/src/api/{backendApi.ts,ElectronApiAdapter.ts}`, `packages/ui/src/api/types.ts`, `frontend/src/types/electron.d.ts`, `electron-app/{preload.ts,schemas/index.ts,handlers/supplierHandlers.ts}` | "Record Debt" modal (Suppliers), "Attach to a recorded debt" picker (Inventory restock modal), full dual-transport wiring |
 
 ---
 
@@ -1534,7 +1588,7 @@ other.
 | **Epic**             | Naming / DX                          |
 | **Type**             | Refactor (naming only)               |
 | **Priority**         | **High** (raised 2026-08-22)         |
-| **Status**           | TODO — **owner approved 2026-08-09** |
+| **Status**           | **DONE** — verified already shipped 2026-10-02 (stale TODO status corrected; this ticket's own file had drifted, rule per `feedback_verify_plan_doc_status`). Shipped in `890290c8` ("refactor(routing): rename the omt_whish route /services -> /omt-whish (LIRA-116)") plus migration v162 (`rename_omt_whish_route_to_omt_whish`, `packages/core/src/db/migrations/index.ts`). Verified by reading current code, not just the commit message: `omt_whish` module row is `('OMT/Whish', '/omt-whish')` and `custom_services` is `('Services', '/custom-services')` in both `electron-app/create_db.sql` (tenant-1 seed) and migration v162's `up()`; `ActiveModuleContext.tsx`'s route→key map has `"/omt-whish": "omt_whish"` and `"/custom-services": "custom_services"`; `App.tsx` serves both target routes and keeps `path="/services"` as a `<Navigate to="/omt-whish" replace />` redirect (old bookmarks don't 404) with an inline comment explaining why. Grepped `frontend/tests/` for `"/services"` / `'/services'` — zero hits, so no e2e spec needed updating. The "For Partner" checkbox label was not touched, per the ticket's own note. No further work needed. |
 | **Affected Modules** | Custom Services, OMT/Whish           |
 | **Source Plan**      | Found while diagnosing LIRA-114      |
 
@@ -1787,7 +1841,7 @@ marked with a warning in the Transactions table and in each page's history.
 | **Epic**             | Navigation / Home     |
 | **Type**             | Feature               |
 | **Priority**         | Low                   |
-| **Status**           | TODO                  |
+| **Status**           | DONE 2026-10-03 (not yet committed) — found the pin/favorite mechanism already mostly built (`useSidebarFavorites.ts`, shared `localStorage["sidebar_favorites"]` key, same list the sidebar's press-and-hold favorites use — one list, not two, per-viewer convenience as the CLAUDE.md capabilities guidance recommends for this kind of state) with a working star toggle already wired into every `HomeGrid.tsx` tile (persists, navigates correctly, shared with Sidebar — all pre-existing and already covered by `HomeGrid.test.tsx`). The one real gap against this ticket's acceptance criteria ("pinned pages show first"): tiles never reordered — pinning only filled in the star, the tile stayed in its original module-sort position. Fixed in `HomeGrid.tsx`'s `navItems` useMemo: Dashboard stays first (unchanged long-standing invariant), then a stable sort moves every pinned tile ahead of the unpinned ones, preserving original relative order within each group (so re-pinning promotes a tile instead of reshuffling the whole grid), live-reactive (`favorites` added to the memo's dep array) — no remount needed. "ANY page can be pinned" is already satisfied: `navItems` already enumerates every enabled module (Whish/OMT included), not a hardcoded subset. Verified: `frontend` typecheck clean for every file this ticket touched (one PRE-EXISTING, UNRELATED error surfaced by the full-project `tsc` run — `features/audit/transactionPresentation.ts` missing `SUPPLIER_RECORDED_DEBT` — traced via `git diff --stat` to the parallel MONEY-lane agent's uncommitted `transactionTypes.ts` change, not touched by this ticket, left alone per the "don't edit their files" instruction); eslint clean on all touched files (0 warnings, 0 errors); `HomeGrid.test.tsx` full suite (12 tests: 9 pre-existing + 3 new pinned-first-ordering tests) green. |
 | **Affected Modules** | Dashboard / Home grid |
 | **Depends On**       | —                     |
 
@@ -1817,7 +1871,7 @@ Add favorite/pinned **quick links** to a page (starting with Whish App) in the h
 | **Epic**             | Dashboard   |
 | **Type**             | Enhancement |
 | **Priority**         | Low         |
-| **Status**           | TODO        |
+| **Status**           | DONE 2026-10-03 (not yet committed) — thresholds per owner decision 2026-10-02: green within $1 (or 100,000 LBP), orange >$1 up to $10, red >$10, defined once as `CHECKPOINT_VARIANCE_GREEN_MAX_USD`/`CHECKPOINT_VARIANCE_ORANGE_MAX_USD` (`frontend/src/features/dashboard/pages/Dashboard.tsx`). Source of the counted-vs-expected numbers: `ClosingRepository.getLastCheckpointPerDrawer()` (already shipped, already returns `{physical, expected}` per currency per drawer — this ticket is purely a new read + a color mapping, no backend change). An LBP variance converts to its USD-equivalent via the shop's own sell rate (`useSellRate()`, the existing shared hook — "convert LBP at the shop rate" per the ticket) before bucketing, rather than a second hardcoded LBP threshold that could drift from the USD one. Rendered as a small colored dot next to the EXISTING checkpoint-time text (kept as-is — that one is a different, already-shipped signal: how long ago, not how accurate) with a title tooltip giving the exact dollar drift; no dot at all when the drawer has never been checkpointed. `drawerStatuses` state widened to carry the `amounts` field the API already returned but the page was dropping. Verified: `frontend` typecheck (`tsconfig.app.json`, 15.9s) clean; `src/features/dashboard` full suite (15 suites / 83 tests) green, including a new `Dashboard.checkpointVarianceColor.test.tsx` (5 tests: green/orange/red/LBP-conversion/no-checkpoint). Fixing this also surfaced and fixed a latent gap in 6 PRE-EXISTING dashboard test files: none mocked `api.getRates()`, which the newly-added `useSellRate()` call now reaches on every Dashboard render — unmocked, it threw synchronously inside the dashboard's load effect and broke those suites; each gained a one-line `getRates: jest.fn().mockResolvedValue([])` mock (not a behavior change, a fixture completeness fix, listed in Files below). Eslint on touched files: 0 errors (pre-existing `any` warnings only, same count as before this ticket). |
 | **Affected Modules** | Dashboard   |
 | **Assigned To**      | —           |
 | **Depends On**       | —           |
@@ -3238,7 +3292,7 @@ unchanged.
 
 ## LIRA-172: `ImeiStoryCard` receives `product_deleted` but renders no chip — LOW
 
-**Priority:** Low · **Epic:** Inventory · **Status:** TODO
+**Priority:** Low · **Epic:** Inventory · **Status:** DONE 2026-10-03 (not yet committed) — mirrored the Phone Units register's chip verbatim (same muted slate styling, same gating `=== 1`) into `ImeiStoryCard.tsx`'s product-name line, `data-testid="imei-story-product-deleted"`. Rule 17: proven failing-first — temporarily gated the new JSX behind `{false && ...}`, confirmed `imei-story-product-deleted` was NOT found (red), then restored the real fix (green); not a revert of finished code, since the fix was written in this same session specifically to prove it this way. Added 3 tests to the existing `ImeiStoryCard.test.tsx` (chip shown at `product_deleted: 1`, hidden at `null`, hidden at `0`) — full file 16/16 green. Eslint clean; frontend typecheck clean for this file (one pre-existing, unrelated full-project error from the parallel money-lane agent's uncommitted `transactionTypes.ts` change — not touched here).
 
 LIRA-152 added `p.is_deleted AS product_deleted` to both unit reads that share the
 `ProductUnitRepository.UNIT_PROVENANCE_JOIN` fragment (rule 14) — `listUnits` (the Phone Units register,
@@ -5853,7 +5907,7 @@ automatically.
 | --- | --- |
 | **Type** | Feature (follow-up to LIRA-147) |
 | **Priority** | Medium |
-| **Status** | TODO, filed 2026-10-02. The owner chose to ship LIRA-147 for normal sales first |
+| **Status** | DONE 2026-10-02 (not yet committed) — SALE-member scope only, see note below |
 | **Affected Modules** | sessions, pos, transactions |
 
 ### Summary
@@ -5868,6 +5922,48 @@ Owner decision 2026-10-02: in the rare case where FIFO split rows can't be trace
 refusing rather than risk a wrong cost. No schema change.
 
 **What users will notice:** an admin can also undo an item refund made inside a customer session.
+
+### Build note (2026-10-02)
+
+Implemented `TransactionRepository.undoSessionBasketItemRefund`, dispatched automatically from
+the SAME shared entry point as LIRA-147 (`SalesRepository.undoSaleItemRefund` reads the refund's
+own `metadata_json.refundType` and routes to the session-aware counterpart when it's
+`"sessionItem"`) — zero new IPC channel/REST route/schema needed, the LIRA-147 wiring already
+covers both shapes. `refundSessionBasketItem` now also stamps per-line `lines`
+(`saleItemId`+`quantity`) and the merged `restoredUnitIds` onto its own REFUND row's metadata (the
+detail the session-aware undo needs that the standalone flow didn't carry); the item-side reversal
+routine (`sale_items.refunded_quantity`/`products.stock_quantity`/FIFO batch/`product_units`) was
+extracted into a new shared `SalesRepository.unapplySaleItemReversal` so the standalone undo and
+this one share ONE routine (rule 14) instead of two drifting copies.
+
+**Scope note:** only a SALE session member is supported (the lines metadata this undo needs is
+only stamped for that branch) — a RECHARGE/CUSTOM_SERVICE session-member item refund refuses with
+a named reason ("does not yet support") rather than attempting an untraced generic reversal. The
+ticket's own refusal list (double undo, resold unit, consumed stock) is entirely SALE-member
+language, so this matches the filed scope; a non-SALE member extension is a natural follow-up, not
+filed separately here.
+
+Guards reuse `undoSaleItemRefund`'s exact two dependent-activity checks
+(`StockBatchRepository.canUnrestoreForSaleItem`, the resold-unit check via the refund's own
+`restoredUnitIds` stamp) plus the standalone idempotency check (one ACTIVE REFUND_UNDO per
+refund). Money/debt reversal: the account-first credit (`SESSION_ITEM_REFUND_CREDIT_TYPE` rows) is
+re-charged as `'Session Debt'`, and every `payments` row the refund posted under its own
+transaction id (pool-split AND repaid-account legs alike — both are plain rows, no distinction
+needed) is negated and reposted — 4 new tests in
+`TransactionRepository.refundSessionBasketItem.test.ts` (proven failing-first: `undoSessionBasketItemRefund`
+TypeErrors "is not a function" pre-change), covering a CUSTOMER_ACCOUNT basket (debt/stock/profit
+nets to the post-sale state), a CASH basket (drawer nets back exactly), double-undo refusal, and
+the resold-unit refusal. The frontend "Undo refund" button (`TransactionCells.tsx`) now also
+renders for `refundType === "sessionItem"`, same `onUndoRefund` handler as the standalone case —
+the pre-existing hidden-for-sessionItem test was rewritten (rule 24) to assert it now shows.
+
+**Not built in this change:** the REFUND row is not re-linked into
+`customer_session_transactions` on undo (avoided deliberately — a `ProfitRepository` comment flags
+that linking under the EXISTING `'session_item_refund'` type would double-adjust profit math
+designed around a refund-only semantics; a safe link would need a new type and a matching
+ProfitRepository audit, out of scope here). The underlying ledgers (stock/debt/drawer/profit) are
+still fully and correctly reversed — only the session-basket UI's own transaction list may not
+show the undo as its own line item.
 
 ---
 

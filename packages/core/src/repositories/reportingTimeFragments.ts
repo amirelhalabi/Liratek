@@ -53,6 +53,27 @@ import { clientTzOffsetMinutes } from "../utils/requestDay.js";
  * text), so inlining it is safe — there is nothing here for a header to
  * inject.
  *
+ * ⚠ KNOWN PLATFORM LIMITATION (do not silently rework the fallback — see
+ * `docs/plans/ongoing_plans/...` / the task note this was investigated
+ * under): on Windows, better-sqlite3's bundled SQLite does not reliably
+ * parse an IANA zone name placed in `process.env.TZ` (e.g. `TZ=Asia/Beirut`
+ * — exactly what this package's own `npm test` script pins via
+ * `cross-env`), and `'localtime'` can compute an offset a couple of hours
+ * off the real one, while Node's own `Date` getters resolve the SAME
+ * `process.env.TZ` correctly on every platform. A fallback that instead
+ * computed the modifier from `Date.getTimezoneOffset()` was tried and
+ * reverted: dozens of tests across this suite (`*.webTodayTzOffset.test.ts`,
+ * `ClosingRepository.localBusinessDay.test.ts`,
+ * `ProfitRepository.localBusinessDay.test.ts`, …) deliberately assert the
+ * OPPOSITE contract — "without a client offset, the fallback is INERT and
+ * trusts SQLite's own `'localtime'` verbatim, whatever that resolves to on
+ * this runner" — precisely so a query never disagrees with ITSELF across
+ * its own two sides. Those tests derive their "today" expectation from
+ * SQLite directly rather than from JS `Date`, so they are immune to this
+ * quirk by construction. Any future fix for the Windows-only mismatch needs
+ * to change what the C runtime resolves (or stop pinning an IANA string at
+ * test-launch), not swap this fallback for a JS-computed approximation.
+ *
  * Never call `date(col, 'localtime')` / `datetime(col, 'localtime')`
  * directly in a NEW reporting query — call this (or {@link localDayExpr})
  * so every caller shifts the SAME way (rule 14).

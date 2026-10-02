@@ -30,6 +30,7 @@ import {
   TERMINAL_FULFILLMENT_STATUS,
   type FulfillmentStatus,
 } from "../utils/insuranceFulfillment.js";
+import { type WorkStatus } from "../utils/customServiceWorkStatus.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
@@ -101,6 +102,13 @@ export interface CustomServiceEntity {
    * cleared back to NULL for every other status. See
    * `updateFulfillmentStatus` below. */
   fulfilled_at: string | null;
+  /** LIRA-083 (migration v190) — the service's WORK lifecycle, separate
+   * from `status` (accounting): 'Received' | 'In_Progress' | 'Ready' |
+   * 'Delivered'. See `utils/customServiceWorkStatus.ts` for the one
+   * definition. Defaults to 'Received' for every row created after v190;
+   * every row that pre-dates v190 was backfilled to 'Delivered' by the
+   * migration itself. */
+  work_status: WorkStatus;
 }
 
 export interface CustomServiceSummary {
@@ -134,7 +142,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     // "add-a-nullable-column, project-it-here" shape LIRA-154 used for
     // partner_mode just above — every existing row reads NULL for both,
     // unchanged behaviour for every non-insurance custom service.
-    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at, partner_mode, fulfillment_status, fulfilled_at, direction";
+    // LIRA-083: work_status follows the exact same "add-a-column,
+    // project-it-here" shape as fulfillment_status just above — every
+    // pre-v190 row reads 'Delivered' (the migration's backfill), every new
+    // row reads 'Received' (the column's DB default).
+    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at, partner_mode, fulfillment_status, fulfilled_at, direction, work_status";
   }
 
   /**
@@ -934,15 +946,25 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
   }
 
   /**
-   * Get all custom services, optionally filtered by date.
+   * Get all custom services, optionally filtered by date and/or LIRA-083's
+   * work_status (separate from the `status != 'voided'` accounting filter
+   * already applied unconditionally below).
    */
-  getAll(filter?: { date?: string }): CustomServiceEntity[] {
+  getAll(filter?: {
+    date?: string;
+    workStatus?: WorkStatus;
+  }): CustomServiceEntity[] {
     let query = `SELECT ${this.getHistoryColumns()} FROM custom_services WHERE status != 'voided' AND tenant_id = ?`;
     const params: any[] = [getCurrentTenantId()];
 
     if (filter?.date) {
       query += ` AND DATE(created_at) = ?`;
       params.push(filter.date);
+    }
+
+    if (filter?.workStatus) {
+      query += ` AND work_status = ?`;
+      params.push(filter.workStatus);
     }
 
     query += ` ORDER BY created_at DESC`;
@@ -1200,6 +1222,28 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
          WHERE id = ? AND tenant_id = ?`,
       )
       .run(status, status, TERMINAL_FULFILLMENT_STATUS, id, tenantId);
+    return this.findById(id);
+  }
+
+  /**
+   * LIRA-083 — set a custom service's WORK status. Unlike
+   * {@link updateFulfillmentStatus}, this carries no transition-legality
+   * check at all (not even at the service layer) — see
+   * `utils/customServiceWorkStatus.ts`'s module doc comment for why this
+   * lifecycle is deliberately freeform, matching Maintenance's own
+   * `updateJob` (whole-form resubmit, no status-transition gate). Moves no
+   * money and touches no drawer/ledger.
+   */
+  updateWorkStatus(id: number, status: WorkStatus): CustomServiceEntity | null {
+    const tenantId = getCurrentTenantId();
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    this.db
+      .prepare(
+        `UPDATE custom_services SET work_status = ? WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(status, id, tenantId);
     return this.findById(id);
   }
 }

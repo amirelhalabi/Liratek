@@ -329,7 +329,12 @@ describe("CustomServices history — Insurance fulfilment + Cancel (LIRA-155)", 
     await openHistory();
 
     const row = screen.getByText(DELIVERED_DESC).closest("tr") as HTMLElement;
-    expect(within(row).getByText("Delivered")).toBeInTheDocument();
+    // `selector: "span"` disambiguates the fulfilment badge from LIRA-083's
+    // new Work Status <select>, whose "Delivered" <option> also matches
+    // plain text in this row.
+    expect(
+      within(row).getByText("Delivered", { selector: "span" }),
+    ).toBeInTheDocument();
     expect(within(row).queryByText(/^Mark /)).not.toBeInTheDocument();
   });
 

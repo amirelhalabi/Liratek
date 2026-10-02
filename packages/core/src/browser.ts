@@ -117,6 +117,7 @@ export * from "./utils/lotMarketRate.js";
 // exported HERE, not only from index.ts — see the telecomCredit.js note
 // above for the exact failure mode this avoids.
 export * from "./utils/insuranceFulfillment.js";
+export * from "./utils/customServiceWorkStatus.js";
 
 // Profits password gate constants (PROFITS_PASSWORD_SETTING_KEY,
 // PROFITS_UNLOCK_TTL_MS, PROFITS_PASSWORD_MIN_LENGTH) — pure string/number

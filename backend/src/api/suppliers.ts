@@ -16,6 +16,7 @@ import {
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
   supplierAccountLinkSchema,
+  supplierRecordDebtSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
@@ -181,6 +182,26 @@ router.get("/:id/ledger", requireAuth, async (req, res) => {
     res
       .status(500)
       .json({ success: false, error: "Failed to get supplier ledger" });
+  }
+});
+
+// GET /api/suppliers/:id/recorded-debts — LIRA-087 (migration v189): the
+// picker list for stock intake's "attach to a recorded debt" flow (mirrors
+// suppliers:open-recorded-debts).
+router.get("/:id/recorded-debts", requireAuth, async (req, res) => {
+  try {
+    const supplierId = parseInt(req.params.id);
+    if (isNaN(supplierId)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      return;
+    }
+    const debts = supplierService.getOpenRecordedDebts(supplierId);
+    res.json({ success: true, debts });
+  } catch (error) {
+    logger.error({ error }, "Get open recorded debts error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get open recorded debts" });
   }
 });
 
@@ -584,6 +605,46 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to create purchase" });
+    }
+  },
+);
+
+// POST /api/suppliers/:id/record-debt — LIRA-087 (migration v189): record a
+// supplier debt without a product line yet (mirrors suppliers:record-debt).
+router.post(
+  "/:id/record-debt",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(supplierRecordDebtSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = supplierService.recordDebt({
+        ...req.body,
+        created_by: req.user!.userId,
+      });
+      if (result.success) {
+        auditRest(req, {
+          action: "create",
+          entity_type: "supplier_ledger",
+          entity_id: String(result.ledgerEntryId ?? ""),
+          summary: `Recorded debt for supplier #${req.body.supplier_id}: $${Number(req.body.amount_usd).toFixed(2)} + ${Number(req.body.amount_lbp).toLocaleString()} LBP`,
+          metadata: {
+            supplier_id: req.body.supplier_id,
+            amount_usd: req.body.amount_usd,
+            amount_lbp: req.body.amount_lbp,
+          },
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Record supplier debt error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to record supplier debt" });
     }
   },
 );

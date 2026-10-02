@@ -195,6 +195,28 @@ export const supplierPurchaseCreateSchema = z.object({
   note: z.string().optional(),
 });
 
+/**
+ * LIRA-087 (migration v189) — record a supplier debt WITHOUT a product line
+ * yet (`SupplierRepository.recordDebt`); a later stock intake can attach
+ * products to this exact row instead of booking a second debt. `created_by`
+ * is intentionally NOT part of this schema — same convention as
+ * `receiveStockSchema`: injected server-side from the authenticated session,
+ * never trusted from the client body (rule 19c).
+ */
+export const supplierRecordDebtSchema = z
+  .object({
+    supplier_id: z.number().int().positive(),
+    amount_usd: z.number().nonnegative().default(0),
+    amount_lbp: z.number().nonnegative().default(0),
+    note: z.string().trim().max(500).optional().nullable(),
+  })
+  .refine((d) => d.amount_usd > 0 || d.amount_lbp > 0, {
+    message: "Amount must be greater than 0 in at least one currency",
+    path: ["amount_usd"],
+  });
+
+export type SupplierRecordDebtInput = z.infer<typeof supplierRecordDebtSchema>;
+
 // Owner decision D8 (SUPPLIER_STOCK_INTAKE_PLAN.md): the standalone
 // supplier write-off is REMOVED — `supplierWriteOffSchema` /
 // `SupplierWriteOffInput` used to live here. The bundled Pay-form discount

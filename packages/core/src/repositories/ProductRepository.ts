@@ -613,20 +613,43 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     supplier_name: string | null;
     is_old_stock: boolean;
     created_by: number | null;
+    /** LIRA-087 (migration v189) — attach this intake to an already-recorded
+     *  open supplier debt (SupplierRepository.recordDebt) instead of booking
+     *  a NEW one. Takes precedence over `is_old_stock` (attaching inherently
+     *  books debt — the debt already exists, it just had no product line
+     *  yet). Validated against `supplier_name`'s resolved supplier inside
+     *  `SupplierRepository.attachRecordedDebtToIntake`. */
+    attach_to_recorded_debt_id?: number | null;
   }): { batch_id: number } {
     if (params.quantity <= 0) {
       return { batch_id: 0 };
     }
 
     const supplierId = this.resolveSupplierId(params.supplier_name);
-    const booksDebt = ProductRepository.shouldBookIntakeDebt(
-      supplierId,
-      params.is_old_stock,
-    );
+    const booksDebt =
+      params.attach_to_recorded_debt_id != null ||
+      ProductRepository.shouldBookIntakeDebt(supplierId, params.is_old_stock);
 
     let ledgerEntryId: number | null = null;
     let transactionId: number | null = null;
-    if (booksDebt && supplierId !== null) {
+    if (params.attach_to_recorded_debt_id != null) {
+      if (params.created_by === null) {
+        throw new ValidationError(
+          "An authenticated user is required to attach stock to a recorded supplier debt",
+        );
+      }
+      if (supplierId === null) {
+        throw new ValidationError(
+          "A recorded debt can only be attached when a supplier is resolved",
+        );
+      }
+      const attached = getSupplierRepository().attachRecordedDebtToIntake({
+        ledger_entry_id: params.attach_to_recorded_debt_id,
+        supplier_id: supplierId,
+      });
+      ledgerEntryId = params.attach_to_recorded_debt_id;
+      transactionId = attached.transactionId;
+    } else if (booksDebt && supplierId !== null) {
       // `recordStockIntake` requires a REAL `created_by: number` —
       // `transactions.user_id` is NOT NULL, and this codebase deliberately
       // removed every `|| 1`/`?? 1` placeholder-actor default from
@@ -687,6 +710,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     is_old_stock: boolean;
     reason?: string;
     created_by: number | null;
+    /** LIRA-087 — attach to an already-recorded open supplier debt instead
+     *  of booking a new one (see `bookIntakeAndBatch`'s doc). */
+    attach_to_recorded_debt_id?: number | null;
   }): { batch_id: number } {
     const tenantId = getCurrentTenantId();
     return this.transaction(() => {
@@ -733,6 +759,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         supplier_name: data.supplier?.trim() || null,
         is_old_stock: data.is_old_stock,
         created_by: data.created_by,
+        attach_to_recorded_debt_id: data.attach_to_recorded_debt_id ?? null,
       });
     });
   }

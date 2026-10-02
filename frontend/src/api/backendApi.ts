@@ -3122,6 +3122,9 @@ export async function receiveStock(payload: {
   supplier?: string | null;
   is_old_stock: boolean;
   reason?: string;
+  // LIRA-087 (migration v189) — attach to an already-recorded open supplier
+  // debt instead of booking a new one.
+  attach_to_recorded_debt_id?: number | null;
 }): Promise<{ success: boolean; error?: string; batch_id?: number }> {
   return ipcOrHttp(
     async () => getElectronApi().inventory.receiveStock(payload),
@@ -3252,6 +3255,56 @@ export async function createSupplierPurchase(data: {
         method: "POST",
         body: data,
       }),
+  );
+}
+
+// LIRA-087 (migration v189) — record a supplier debt without a product line
+// yet; a later `receiveStock` call can attach products to it via
+// `attach_to_recorded_debt_id`. Envelope { success, ledgerEntryId?,
+// transactionId?, error? } — WRITE path, returns the envelope (not the raw
+// IPC shape — reads return raw, writes return the envelope, per the adapter
+// contract).
+export async function recordSupplierDebt(data: {
+  supplier_id: number;
+  amount_usd: number;
+  amount_lbp: number;
+  note?: string | null;
+}): Promise<{
+  success: boolean;
+  ledgerEntryId?: number;
+  transactionId?: number;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.recordDebt(data),
+    async () =>
+      requestJson<{
+        success: boolean;
+        ledgerEntryId?: number;
+        transactionId?: number;
+        error?: string;
+      }>(`/api/suppliers/${data.supplier_id}/record-debt`, {
+        method: "POST",
+        body: data,
+      }),
+  );
+}
+
+// LIRA-087 — the picker list for stock intake's "attach to a recorded debt"
+// flow. READ path, raw array (not the envelope), matching
+// getSupplierProductStockValue's convention above.
+export async function getOpenRecordedSupplierDebts(
+  supplierId: number,
+): Promise<any[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getOpenRecordedDebts(supplierId),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        debts: any[];
+      }>(`/api/suppliers/${supplierId}/recorded-debts`);
+      return res.debts || [];
+    },
   );
 }
 
@@ -6093,12 +6146,15 @@ export async function deleteVoucherImage(
 
 export async function getCustomServices(filter?: {
   date?: string;
+  /** LIRA-083 — filter by work status. */
+  workStatus?: "Received" | "In_Progress" | "Ready" | "Delivered";
 }): Promise<any[]> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.list(filter),
     async () => {
       const qs = new URLSearchParams();
       if (filter?.date) qs.set("date", filter.date);
+      if (filter?.workStatus) qs.set("workStatus", filter.workStatus);
       const res = await requestJson<{ success: boolean; services: any[] }>(
         `/api/custom-services?${qs.toString()}`,
       );
@@ -6210,6 +6266,26 @@ export async function advanceCustomServiceFulfillment(data: {
     async () =>
       requestJson<{ success: boolean; data?: unknown; error?: string }>(
         `/api/custom-services/fulfillment`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
+// LIRA-083 — set a custom service's WORK status (Received/In_Progress/
+// Ready/Delivered). Separate axis from fulfillment above and from the
+// accounting `status`; no transition-legality check.
+export async function setCustomServiceWorkStatus(data: {
+  id: number;
+  work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
+}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.setWorkStatus(data),
+    async () =>
+      requestJson<{ success: boolean; data?: unknown; error?: string }>(
+        `/api/custom-services/work-status`,
         {
           method: "POST",
           body: data,

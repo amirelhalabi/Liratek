@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { transactionTimeSchema } from "./common.js";
 import { FULFILLMENT_STATUSES } from "../utils/insuranceFulfillment.js";
+import { WORK_STATUSES } from "../utils/customServiceWorkStatus.js";
 
 /**
  * Custom Service validation schemas
@@ -225,4 +226,23 @@ export const customServiceUpdateMetadataSchema = z.object({
 
 export type CustomServiceUpdateMetadataInput = z.infer<
   typeof customServiceUpdateMetadataSchema
+>;
+
+/**
+ * LIRA-083 — set a custom service's WORK status (migration v190's
+ * `work_status` column). Reuses WORK_STATUSES (utils/customServiceWorkStatus.ts,
+ * rule 14) rather than re-typing the four-value vocabulary here. Unlike
+ * {@link updateCustomServiceFulfillmentSchema}, this validates no transition
+ * legality — CustomServiceService.setWorkStatus writes any value from any
+ * value, by design (see that module's doc comment). `id` travels in the
+ * body, same shape as every other "update-metadata"-style shared schema in
+ * this file.
+ */
+export const updateCustomServiceWorkStatusSchema = z.object({
+  id: z.number().int().positive(),
+  work_status: z.enum(WORK_STATUSES),
+});
+
+export type UpdateCustomServiceWorkStatusInput = z.infer<
+  typeof updateCustomServiceWorkStatusSchema
 >;
