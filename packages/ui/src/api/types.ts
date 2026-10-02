@@ -1370,11 +1370,13 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getOMTHistory: (provider?: string) => Promise<any[]>;
   getOMTAnalytics: (providers?: string[]) => Promise<OMTAnalytics>;
-  /** RECEIVE payouts can be blocked with `code: "INSUFFICIENT_DRAWER_FUNDS"`
-   *  (Primary Cash Drawer plan §8.5) when the primary cash drawer lacks
-   *  funds in the payout currency — `details` carries the shortfall so the
-   *  caller can offer a "move from General" action. Switch on `code`, never
-   *  the message string. */
+  /** `code`/`details` carry any `AppError`'s structured payload (e.g. the
+   *  FOR-partner secondary-system `BusinessRuleError`) — switch on `code`,
+   *  never the message string. No drawer operation is blocked on
+   *  insufficient funds: the RECEIVE-payout guard this originally described
+   *  (`InsufficientDrawerFundsError`, `code: "INSUFFICIENT_DRAWER_FUNDS"`)
+   *  was deleted when the owner reversed the no-overdraw rule 2026-08-01 —
+   *  the primary cash drawer may go negative. */
   addOMTTransaction: (
     payload: any,
   ) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;

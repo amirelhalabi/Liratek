@@ -21,7 +21,6 @@ import {
   type ServiceCashDrawerContext,
   type BaseSystem,
 } from "../utils/payments.js";
-import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import { getServiceProviderRepository } from "./ServiceProviderRepository.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import {

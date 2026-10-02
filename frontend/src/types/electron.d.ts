@@ -1420,9 +1420,14 @@ export interface ElectronAPI {
       success: boolean;
       id?: number;
       error?: string;
-      // Primary Cash Drawer plan §8.5 — structured error contract carried
-      // through FinancialService so the RECEIVE insufficient-funds panel can
-      // switch on `code` instead of matching an error message string.
+      // Structured error contract carried through FinancialService so the
+      // frontend can switch on `code` instead of matching an error message
+      // string (e.g. the FOR-partner secondary-system BusinessRuleError).
+      // No drawer operation is blocked on insufficient funds: the RECEIVE
+      // insufficient-funds panel this originally described
+      // (InsufficientDrawerFundsError) was deleted when the owner reversed
+      // the no-overdraw rule 2026-08-01 — the primary cash drawer may go
+      // negative.
       code?: string;
       details?: unknown;
     }>;

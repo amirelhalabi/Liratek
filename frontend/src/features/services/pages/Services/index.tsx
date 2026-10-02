@@ -2495,8 +2495,16 @@ export default function Services() {
                 </div>
               )}
 
-              {/* PM Fee Amount Input — shown for SEND with non-cash single payment */}
-              {pmFeeApplies && (
+              {/* PM Fee Amount Input — shown for SEND with non-cash single
+                  payment. Gated off `forPartner` (LIRA-142): a For-Partner
+                  SEND disburses the shop's own money, and the submit
+                  payload already forces `paymentMethodFee: 0` for it (the
+                  PFT-3b spread below) — the input's prior unconditional
+                  render let an operator type a value that was then
+                  silently discarded on submit, the same
+                  offered-but-discarded shape LIRA-114 §4 fixed elsewhere.
+                  Presentation only: the zeroing itself is unchanged. */}
+              {pmFeeApplies && !forPartner && (
                 <div className="rounded-lg bg-violet-900/20 border border-violet-500/30 p-3 space-y-2">
                   <label
                     htmlFor="service-pm-fee"

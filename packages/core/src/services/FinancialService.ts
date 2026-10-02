@@ -36,13 +36,20 @@ export interface FinancialServiceResult {
   id?: number;
   error?: string;
   /**
-   * Structured error contract (Primary Cash Drawer plan §8.5). Set alongside
-   * `details` when the repository throws an `AppError` — notably
-   * `InsufficientDrawerFundsError` from the RECEIVE payout guard, which the
-   * Services page switches on (`code === "INSUFFICIENT_DRAWER_FUNDS"`) to
-   * offer "move the shortfall from General and retry". Collapsing the error
-   * to a bare `error` string here silently disables that whole flow, so this
-   * catch deliberately mirrors `DrawerTopUpService.transferBetweenDrawers`.
+   * Structured error contract. Set alongside `details` when the repository
+   * throws an `AppError`, so both transports and the frontend share ONE
+   * error-handling path that switches on `code`, never a message string
+   * match. The flow that originally motivated this — a RECEIVE
+   * insufficient-funds recovery panel backed by `InsufficientDrawerFundsError`
+   * — is GONE (owner reversed decision 2026-08-01: no drawer operation is
+   * ever blocked; a drawer may go negative, and negatives are surfaced in the
+   * UI instead of pre-checked). The envelope property itself is still
+   * load-bearing: `FinancialServiceRepository` throws a typed
+   * `BusinessRuleError` when a FOR-partner transaction is attempted on the
+   * secondary SYSTEM provider, and that `code` must carry through unchanged.
+   * Collapsing the error to a bare `error` string here would silently lose
+   * it, so this catch deliberately mirrors
+   * `DrawerTopUpService.transferBetweenDrawers`.
    */
   code?: string;
   details?: unknown;
@@ -122,9 +129,11 @@ export class FinancialService {
         { error, data },
         "Failed to add financial service transaction",
       );
-      // Primary Cash Drawer plan §8.5: preserve code/details so the RECEIVE
-      // insufficient-funds guard reaches the UI as a structured error over
-      // BOTH transports, instead of collapsing to an opaque message.
+      // Preserve code/details so a typed AppError (e.g. the FOR-partner
+      // secondary-system BusinessRuleError) reaches the UI as a structured
+      // error over BOTH transports, instead of collapsing to an opaque
+      // message. (No drawer-overdraw guard exists on this path — reversed
+      // 2026-08-01; see DrawerTopUpResult's `code` JSDoc for the history.)
       if (isAppError(error)) {
         return {
           success: false,

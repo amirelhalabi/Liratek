@@ -16,11 +16,14 @@ export interface DrawerTopUpResult {
   success: boolean;
   id?: number;
   error?: string;
-  /** Machine-readable error code (plan §8.5's structured contract) — set
-   *  alongside `details` when the repository throws an `AppError` (e.g.
-   *  `InsufficientDrawerFundsError`), so both transports and the frontend
+  /** Machine-readable error code — set alongside `details` when the
+   *  repository throws an `AppError`, so both transports and the frontend
    *  share ONE error-handling path that switches on `code`, never a message
-   *  string match. */
+   *  string match. `InsufficientDrawerFundsError` (the drawer-overdraw guard
+   *  this originally carried) was deleted when the owner reversed the
+   *  no-overdraw rule 2026-08-01 — no drawer operation is ever blocked, and
+   *  a drawer may go negative. The envelope contract itself remains
+   *  load-bearing for other `AppError`s thrown on this path. */
   code?: string;
   details?: unknown;
 }
@@ -242,12 +245,13 @@ export class DrawerTopUpService {
    * the old one-directional `fundSystemDrawer` (owner-confirmed 2026-07-29
    * float model, General -> OMT_System/Whish_System only).
    *
-   * Preserves `InsufficientDrawerFundsError`'s `code`/`details` on the
-   * returned result (rather than collapsing it to a bare string like the
-   * other catch blocks here) — task H: the transfer's insufficient-funds
-   * error reuses plan §8.5's structured contract so the frontend has ONE
-   * error-handling path (switch on `code`) shared with the RECEIVE-payout
-   * guard.
+   * Preserves any thrown `AppError`'s `code`/`details` on the returned
+   * result (rather than collapsing it to a bare string like the other catch
+   * blocks here), so the frontend has ONE error-handling path (switch on
+   * `code`). This transfer itself is never blocked on insufficient funds —
+   * `InsufficientDrawerFundsError` was deleted when the owner reversed the
+   * no-overdraw rule 2026-08-01 (a source drawer may go negative; negatives
+   * are surfaced in the transfer UI instead of pre-checked).
    */
   transferBetweenDrawers(data: TransferBetweenDrawersData): DrawerTopUpResult {
     try {

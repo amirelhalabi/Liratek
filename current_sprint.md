@@ -1383,7 +1383,7 @@ browser (`impersonat` has zero hits across all of `frontend/tests/`).
 | **Epic**             | Suppliers / Financial Services                                            |
 | **Type**             | Cleanup / Verification                                                    |
 | **Priority**         | Medium (one sub-item touches money math)                                  |
-| **Status**           | TODO                                                                      |
+| **Status**           | DONE 2026-10-02 (not yet committed) — core-side items only; see note below |
 | **Affected Modules** | Suppliers, Financial Services                                             |
 | **Assigned To**      | —                                                                         |
 | **Depends On**       | —                                                                         |
@@ -1423,6 +1423,45 @@ attention:
 | Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`      | Correct stale comment; verify math |
 | Frontend | `frontend/src/features/suppliers/hooks/useSuppliers.ts`          | Correct stale comment; verify math |
 | Types    | `packages/ui/src/api/types.ts`, `frontend/src/api/backendApi.ts` | Correct stale JSDoc                |
+
+### Resolution (2026-10-02, packages/core + docs only — agent was scoped away from frontend/electron-app this pass)
+
+- **Stale JSDoc**: fixed in `packages/core/src/services/FinancialService.ts` (the `FinancialServiceResult.code`
+  doc + the `addTransaction` catch comment) and, same pattern, `packages/core/src/services/DrawerTopUpService.ts`
+  (`DrawerTopUpResult.code` doc + `transferBetweenDrawers`'s doc comment) — both referenced the withdrawn
+  `InsufficientDrawerFundsError`/§8.5 RECEIVE-payout guard as if still live. Now state plainly that it was
+  deleted (owner reversed the no-overdraw rule 2026-08-01) while preserving the still-true part: the
+  `code`/`details` envelope remains load-bearing for other `AppError`s (e.g. the FOR-partner
+  `BusinessRuleError`). **NOT fixed this pass** (out of scope): `packages/ui/src/api/types.ts:606,619` and
+  `frontend/src/api/backendApi.ts:3194` carry the same stale wording — same fix, needs a frontend-scoped agent.
+- **Dead code**: removed `DrawerTopUpRepository.ts`'s unused local `getBalance()` closure (was defined, never
+  called, inside `transferBetweenDrawers`'s transaction) and `FinancialServiceRepository.ts`'s unused
+  `primaryCashDrawerName` import. Confirmed unreferenced via grep before removal; `npx tsc --noEmit` (9.4s) and
+  `npm run build` both clean afterward.
+- **`settleNetPayUsd` verification**: this is a FRONTEND-computed variable
+  (`frontend/src/features/suppliers/pages/Suppliers/index.tsx:1324-1333`) — `isNewModelBatch ? max(0, gross −
+  enteredCommission) : max(0, gross)` — with no core-side namesake. Its comments there (and in
+  `useSuppliers.ts:465-483`) were re-read in full and are ALREADY CORRECT/current, accurately describing the
+  gated legacy-fee-only-vs-new-model-gross split (post-dating this ticket's original diagnosis — ticket line
+  numbers were stale, not the code). No edit needed on either acceptance-criteria sub-item.
+  Verified the underlying core math by EXECUTION, not reading (rule 28): the existing suite already contains
+  exactly the settlement + void/refund execution tests this ticket asks for, with real DB writers asserting
+  drawer + supplier-ledger deltas per currency —
+  `SupplierRepository.settlement.test.ts` ("correctly settles a $100 OMT SEND, fee $1, $0.10 commission (gross)
+  — pays the gross $100.90", "full cycle: TOP_UP(gross) → settle(same amount) nets ledger to 0"),
+  `SupplierRepository.commissionAtSettlement.test.ts` (new-model commission split/credit), and
+  `TransactionRepository.supplierSettlementReversal.test.ts` ("VOID: the PCD is debited by the settlement, then
+  fully restored — rule 20 net-zero across create+settle+reverse", plus the model-1 commission-credit VOID/REFUND
+  net-to-0 tests). Ran them: `SupplierRepository.settlement` + `SupplierRepository.commissionAtSettlement` +
+  `TransactionRepository.supplierSettlementReversal` + `SupplierRepository.settlementOwnership` → **4 suites, 67
+  tests, all passed, 9.4s**. Then the full gate: `yarn workspace @liratek/core test` → **454 suites, 4420 tests,
+  all passed, 61.2s**; `yarn workspace @liratek/backend test -- suppliers.api` → **24/24 passed**;
+  `yarn workspace @liratek/backend test -- services.api FinancialService.test` → **49/49 passed**;
+  `node scripts/check-tenant-scoping.mjs` → 0 violations (218 files, 940 statements); `node
+  scripts/check-bind-arity.mjs` → OK. **Verdict: `settleNetPayUsd`'s math is correct under the current GROSS
+  model — no discrepancy found, so no guard test was needed (rule 17 only requires one when a bug is found).**
+- No release note (rule 30): no user-visible behavior changed — comments, dead code, and verification only.
+- **Owner question**: none — no removal or behavior question required a stop.
 
 ---
 
@@ -1668,35 +1707,76 @@ exists, it needs to move into Add Credit/Debt first, or the owner needs to accep
 
 ---
 
-## LIRA-068: Mark Transaction "Amount Changed" When Edited
+## LIRA-068: Price-change alert on every page with a selling price (was "Amount Changed" badge) — POSTPONED
 
-| Field                | Value                          |
-| -------------------- | ------------------------------ |
-| **Epic**             | Transaction Visibility / Audit |
-| **Type**             | Feature                        |
-| **Priority**         | Low                            |
-| **Status**           | TODO                           |
-| **Affected Modules** | All transaction types          |
-| **Depends On**       | —                              |
+| Field                | Value                                                                 |
+| -------------------- | --------------------------------------------------------------------- |
+| **Epic**             | Transaction Visibility / Audit                                        |
+| **Type**             | Enhancement                                                           |
+| **Priority**         | Low                                                                   |
+| **Status**           | POSTPONED by the owner 2026-10-02 (enhancement for later). Redefined; findings below. |
+| **Affected Modules** | recharge (exists), pos, custom_services, omt_whish, audit (Transactions table) |
+| **Depends On**       | —                                                                     |
 
-### Summary
+### Findings (2026-10-02)
 
-If a transaction's **amount** was modified after creation, flag it as **"amount changed"** (badge/indicator). Edits are already tracked via `edited_by` / `edited_at` across modules. **Check overlap with the existing recharge "margin alert"** (theft-detection on margin override, `HistoryModal` `marginAlertThreshold`, default 100k LBP) — reuse/align rather than duplicate. **Expand the indicator to all transaction types.**
+**1. The original premise does not apply.** No edit path can change a saved transaction's amount. Every
+`update…Metadata` writer only touches notes, names and phones (plus description/category for expenses):
+`RechargeRepository.ts` ~2860-2894, `FinancialServiceRepository.ts` ~5090-5116, `ExpenseRepository.ts`
+~330-366, `SalesRepository.ts` ~3120-3158. Wrong money is corrected only by Void/Refund, which already show
+who did it in Transactions and the Audit Log. An "amount changed" badge would never fire.
 
-### Acceptance Criteria
+**2. The related mechanism that DOES exist: the recharge "Margin" alert.**
+- Setting: Settings → Shop Config → "Recharge Margin Alert" → `recharge_margin_alert_threshold`
+  (default 100,000 LBP).
+- Logic: `frontend/src/features/recharge/components/HistoryModal.tsx` ~305-350. Each MTC/Alfa sale stores
+  `default_price_to_client` (the auto-filled usual price). A red "⚠ Margin" badge shows when
+  `actualPrice − default > threshold`.
+- Shown ONLY in Recharge → MTC/Alfa → History (type cell, next to "↓ Out"); hover text "Price to client was
+  modified — margin: X LBP". Nothing on the Transactions page (no reference in `TransactionsViewer.tsx`).
 
-- [ ] A transaction whose amount changed shows an "amount changed" indicator
-- [ ] Approach reconciled with the existing margin-alert mechanism (no duplicate/contradictory signals)
-- [ ] Applies across all transaction types (not just recharge)
-- [ ] Distinguishes "amount changed" from generic edited metadata where relevant
-- [ ] Typecheck and lint pass
+**3. Live test on cornertech (2026-10-02; both sales refunded, all drawers back to identical values):**
 
-### Files to Modify
+| Sale ($3 MTC credit) | Usual price | Charged | Badge |
+| --- | --- | --- | --- |
+| A, raised | 300,000 LBP | 450,000 LBP | yes ("margin: 150,000 LBP") |
+| B, lowered | 300,000 LBP | 150,000 LBP | **no** |
+| C, priced in $ | — | — | not possible: the Credit tab's price is LBP-only (USD price entry exists only on Days) |
 
-| Layer    | File                                              | Change                                    |
-| -------- | ------------------------------------------------- | ----------------------------------------- |
-| Backend  | transaction/edit paths                            | Persist/expose amount-changed signal      |
-| Frontend | `TransactionsViewer.tsx` + module `HistoryModal`s | Render indicator; align with margin alert |
+So today the alert misses undercharging (the usual way a cashier keeps the difference), and it is visible
+only inside one History window.
+
+### Proposed design (for when it is picked up)
+
+Not a generic "remember every price" system. Compare against the usual price each page ALREADY has:
+
+| Page | Usual price exists? | Alert? |
+| --- | --- | --- |
+| MTC / Alfa | yes — auto-filled Price to Client | yes (exists; fix it) |
+| POS | yes — the product's selling price in Inventory | yes, IF the cashier can change a line's price at checkout (to confirm in code) |
+| Custom services | yes, when sold from a preset | yes, preset sales only |
+| OMT / Whish fees | partly — fee tables for Intra / Western Union | only where a fee table exists |
+| Exchange | the shop rate | already covered by the payment-form rate warning (LIRA-240) |
+| Maintenance, free-typed services | no | no |
+
+Rules:
+1. **One shop-wide threshold in %** (e.g. "warn when a price is changed by more than 10%"), replacing the fixed
+   100,000 LBP, so it works for small and large items and in $ and LBP. Per-page thresholds only if needed later.
+2. **Store the usual price at the moment of sale** (as recharge does with `default_price_to_client`), so a later
+   catalogue price change never flags past sales. Needs a column per module that lacks one (migration).
+3. **Both directions:** above and below the usual price.
+4. **One review place:** the badge in the Transactions table plus a "price changed" filter, as well as in each
+   page's history. Admin only.
+5. **Discounts don't count.** A discount is its own visible field; only a typed price change is flagged.
+
+Suggested phases: (1) POS + fix the recharge alert (%, both directions, shown on Transactions);
+(2) custom-service presets and OMT/Whish fee tables.
+
+**Open questions for when it is picked up:** is 10% the right default? Can POS change a line's price at
+checkout (if not, POS drops out and the scope shrinks)? Staff or admin-only visibility (proposed: admin only)?
+
+**What users will notice (when built):** sales charged at a price far from the usual one, higher or lower, are
+marked with a warning in the Transactions table and in each page's history.
 
 ---
 
@@ -1830,9 +1910,18 @@ as open. It is also preserved verbatim inside the Sprint 1 archive above.
 | **Epic**             | Services / Partners                          |
 | **Type**             | UX fix (offered-but-discarded input)         |
 | **Priority**         | Low                                          |
-| **Status**           | TODO                                         |
+| **Status**           | DONE 2026-10-02 (not yet committed)          |
 | **Affected Modules** | OMT/Whish (Financial Services)               |
 | **Source**           | Found while building LIRA-114 §4, 2026-08-22 |
+
+**What users will notice:** on a For-Partner send, the Payment Method Fee box no longer appears (it
+never did anything but get silently discarded). Gated `pmFeeApplies && !forPartner` at
+`Services/index.tsx` ~:2499; submit payload untouched. Guard test
+`Services.forPartnerPmFeeGate.test.tsx` proven failing-first (rule 17): red against unfixed code
+("not.toBeInTheDocument" found the input rendered), green after the `!forPartner` gate — see task
+report for captured output. Full `src/features/services` suite (13 files / 48 tests) green after;
+`tsc -p tsconfig.app.json --noEmit` clean (15.4s); eslint clean on touched files (2 pre-existing
+unrelated warnings only).
 
 ### Summary
 
@@ -2184,7 +2273,12 @@ passes only when invoked by hand. (b) CI never runs `packages/core`'s jest suite
 tests) — `yarn test` does locally, but ci.yml lacks the job. Add the runner root + the CI
 job; budget for the runtime cost. Suite-count floors per the LIRA-123 lesson.
 
-**Status: PARTIAL — (b) DONE, (a) deliberately NOT wired in, spun off as its own ticket.**
+**Status: DONE — (b) DONE (this pass, 2026-09-04), (a) DONE separately in `56a26de1`
+(2026-09-13, "revive 15 rotted handler suites and give them a runner"): `electron-app/jest.config.cjs`
+now roots `handlers/__tests__` alongside `schemas/`, and `.github/workflows/ci.yml` has an
+`electron-handler-tests` job (floor 25 suites / 120 tests) in `build`'s `needs`. Re-verified
+2026-10-02: `yarn workspace @liratek/electron-app test` → 45 suites / 256 tests passed, 32.9s —
+comfortably above the CI floor, no further action needed.**
 
 **Complementary to LIRA-170:** LIRA-170 (above) fixed the LOCAL gate — root `yarn test` now
 runs every workspace and reports each one instead of bailing at the first failure. This
@@ -3995,7 +4089,7 @@ touching `SalesRepository`/`TransactionRepository` should be re-checked against 
 
 ---
 
-## LIRA-186: `embeddedCommission.guard.test.ts` keys exclusions by ordinal SQL-unit number — TODO — Low
+## LIRA-186: `embeddedCommission.guard.test.ts` keys exclusions by ordinal SQL-unit number — DONE 2026-10-02 (not yet committed) — Low
 
 Its `EXCLUDED_UNITS` entries are keyed by an **ordinal position**, so adding any method that contains
 SQL shifts them. Confirmed concretely in the guard file itself
@@ -4008,6 +4102,22 @@ Why it matters beyond the annoyance: a guard that breaks when unrelated code is 
 edit the guard rather than investigate — and this guard exists specifically to stop ungated commission
 reads reaching reports. Key exclusions by something stable (method name plus a distinguishing
 fragment) instead.
+
+**What users will notice:** nothing — test-only, no behaviour change (rule 30: no release-note line).
+`EXCLUDED_UNITS` is now `ExclusionRule[]` keyed by `{file, method, sqlContains}` (a
+whitespace-normalized substring of the unit's own SQL), matched via `matchesExclusion`/
+`findExclusion` instead of exact `unitKey()` string equality — identity no longer depends on the
+parser's `(query #N)`/`(query-like #N)` ordinal fallback label, so an unrelated query added/removed
+earlier in the same mis-attributed method span can no longer silently break an exclusion. New test
+"exclusion identity survives an ordinal-label shift" is explicitly labeled **NOT proven
+failing-first** in its own comment: the "old" behaviour it documents is the code this very change
+replaces, so reproducing it failing would mean reverting the fix mid-delivery (rule 17's own
+self-referential carve-out) — what IS executed is the old scheme's break as an unconditional
+string-equality fact, and the new scheme's survival against the real shipped `findExclusion`. Full
+`src/constants` guard suite (9 files / 88 tests) green after; core `tsc -p tsconfig.json --noEmit`
+clean (8.7s).
+
+Files changed: `packages/core/src/constants/__tests__/embeddedCommission.guard.test.ts`.
 
 ---
 

@@ -614,17 +614,6 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
     const tenantId = getCurrentTenantId();
 
     return this.db.transaction(() => {
-      const getBalance = (drawerName: string, currencyCode: string): number => {
-        const row = this.db
-          .prepare(
-            `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?`,
-          )
-          .get(drawerName, currencyCode, tenantId) as
-          | { balance: number }
-          | undefined;
-        return row?.balance ?? 0;
-      };
-
       // Insufficient-funds guard (plan §8.5's structured contract, reused
       // here per task H so IPC/REST/frontend share ONE error-handling path
       // with the RECEIVE-payout guard): per-currency, checked BEFORE any row

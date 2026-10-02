@@ -28,6 +28,7 @@
 
 ## 💸 OMT / Whish & suppliers
 - OMT sends such as Cash to Business can now be saved with a fee of 0.
+- The For-Partner Payment Method Fee box no longer appears on a For-Partner send, since no fee is charged on a partner disbursement.
 
 ## 📦 Inventory
 - Editing a product no longer deletes its picture. Pictures lost to earlier edits need to be added again.

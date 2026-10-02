@@ -2360,10 +2360,13 @@ export async function addOMTTransaction(payload: any) {
   if (isElectron()) {
     return (window as any).api.omt.addTransaction(payload);
   }
-  // `code`/`details` surface any AppError's structured payload (general
-  // Drawer plan §8.5) on a blocked RECEIVE payout — the route forwards the
-  // service result verbatim, so the fields are present on the wire whenever
-  // the core layer sets them.
+  // `code`/`details` surface any AppError's structured payload (e.g. the
+  // FOR-partner secondary-system BusinessRuleError) — the route forwards
+  // the service result verbatim, so the fields are present on the wire
+  // whenever the core layer sets them. No drawer operation is blocked on
+  // insufficient funds: the RECEIVE-payout guard this originally carried
+  // (InsufficientDrawerFundsError) was deleted when the owner reversed the
+  // no-overdraw rule 2026-08-01 — the primary cash drawer may go negative.
   return requestJson<{
     success: boolean;
     error?: string;
@@ -5188,8 +5191,12 @@ export async function drawerTopUpCreateFromDrawer(data: {
  *  drawer (OMT_System/Whish_System) is the pair the UI exposes. Replaces the
  *  retired `drawerTopUpFundSystem` (one-directional float-funding, now-
  *  superseded 2026-07-29 model). Both transports return the envelope
- *  verbatim (rule 19c) — including `code: "INSUFFICIENT_DRAWER_FUNDS"` /
- *  `details` when `fromDrawer` can't cover the amount, per plan §8.5. */
+ *  verbatim (rule 19c) — including `code`/`details` for any thrown
+ *  `AppError`. This transfer itself is never blocked on insufficient
+ *  funds: `InsufficientDrawerFundsError` was deleted when the owner
+ *  reversed the no-overdraw rule 2026-08-01 (a source drawer may go
+ *  negative; negatives are surfaced in the transfer UI instead of
+ *  pre-checked). */
 export async function transferBetweenDrawers(data: {
   fromDrawer: string;
   toDrawer: string;

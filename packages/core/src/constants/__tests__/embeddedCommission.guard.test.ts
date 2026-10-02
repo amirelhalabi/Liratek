@@ -454,61 +454,137 @@ function collectQueryLikeUnits(source: string, file: string): QueryUnit[] {
  * ungated REPORTING aggregates and ruled out on that specific question —
  * see each rationale's closing sentence.
  */
-const EXCLUDED_UNITS: Record<string, string> = {
-  "SupplierRepository:settleTransactions:rows":
-    "Dead SELECT column, not a reporting read. The true source is the " +
-    "PRIVATE method `_resolveSettlementBatchModel` — mis-attributed by the " +
-    "shared parser to `settleTransactions` (the nearest preceding PUBLIC " +
-    "method boundary; see this const's own doc comment) and labeled `rows` " +
-    "(the local variable its `.prepare()` result is assigned to, since " +
-    "`settleTransactions` — the mis-attribution target — has 2+ non-WITH " +
-    "prepares). It selects `id, provider, service_type, commission, " +
-    "commission_model, currency FROM financial_services` into " +
-    "`EligibleSettlementRow[]`, but verified (grepped every `.commission` / " +
-    "`.commission_model` access on the resulting `rows`/`eligibleRows` " +
-    "across SupplierRepository.ts) that only `.commission_model` (to derive " +
-    "the batch's shared model, D4's mixed-model rejection) and " +
-    "`.currency`/`.service_type`/`.provider`/`.id` are ever read downstream " +
-    "— `.commission` itself is fetched and then never consulted again " +
-    "anywhere, in `_bookCommissionAtSettlement` or otherwise. A value " +
-    "nobody reads cannot misreport anything: NOT a reporting aggregate, " +
-    "ruled out.",
-  "TransactionRepository:getRefundBookedRate:(query-like #23)":
-    "Per-row REVERSAL-STATE read, not a reporting aggregate. The true " +
-    "source is the PRIVATE method `_reverseSupplierSettlement` — " +
-    "mis-attributed by {@link collectQueryLikeUnits} to the nearest " +
-    "preceding PUBLIC method boundary (see this const's own doc comment on " +
-    "the ordinal-fragility tradeoff — the ordinal shifted from #20 to #21 " +
-    "when the SMS-fee-expense cutover (owner decision 2026-09-06) inserted " +
-    "`_cascadeExpenseSiblingVoid`/`_expensesHasSourceRefColumns` earlier in " +
-    "this same mis-attributed span, from #21 to #23 when LIRA-189 " +
-    "(multi-member supplier-settlement reversal) widened this same " +
-    "method's OWN preceding `linkedLedgerRows` lookup into a two-branch " +
-    "ternary, and the ATTRIBUTED PUBLIC METHOD NAME itself from " +
-    "`getCustomerFacingLegs` to `getRefundBookedRate` when LIRA-236 " +
-    "(REFUND_EXCHANGE_RATE_PLAN.md) added `getRefundBookedRate` as a new " +
-    "public method immediately after `getCustomerFacingLegs` — becoming " +
-    "the new nearest-preceding boundary for the SAME unmoved private query; " +
-    "the ordinal held at #23 because nothing changed the query COUNT " +
-    "between the new boundary and `_reverseSupplierSettlement`, only WHICH " +
-    "public method name sits closest to it). `SELECT id, provider, " +
-    "service_type, commission, commission_model FROM financial_services " +
-    "WHERE settlement_id IN (...)` feeds each row into " +
-    "`isPendingSupplierSettlement` to decide whether reversing this " +
-    "settlement should also flip `is_settled` back to 0. That function IS " +
-    "already model-aware — `if (commission_model === 1) {...} return " +
-    "(provider is OMT/WHISH) && commission > 0` — it only consults the bare " +
-    "`commission` value inside the IMPLICIT commission_model === 0 (legacy) " +
-    "branch, where the column genuinely is the settled truth (same rule " +
-    "`embeddedCommission` encodes); it just expresses that branch as plain " +
-    "JS `if`/`return` in `FinancialServiceRepository.isPendingSupplierSettlement` " +
-    "rather than as a SQL gate call, so it is invisible to this guard's " +
-    "text-only `embeddedCommission(`/`atSettlementCommission(` detection. " +
-    "Not a dollar figure or count surfaced anywhere: NOT a reporting " +
-    "aggregate, ruled out. `getRefundBookedRate` itself (verified by " +
-    "reading it) runs no SQL touching `financial_services.commission` at " +
-    "all — it reads `transactions.exchange_rate` only.",
-};
+/**
+ * LIRA-186: exclusion identity, keyed WITHOUT the parser's ordinal fallback
+ * label (`(query #N)` / `(query-like #N)`) — that label shifts whenever an
+ * unrelated query is added/removed earlier in the same mis-attributed
+ * method span (see `TransactionRepository:getRefundBookedRate`'s own
+ * history below: #20 → #21 → #23 across three unrelated changes, none of
+ * which touched the excluded query itself), which previously forced this
+ * exact const to be edited in an unrelated change just to keep the ordinal
+ * current. A key here is `file` + `method` (the same mis-attributed
+ * boundary the parser resolves — still the best available identity for a
+ * private method, see the doc comment above) + `sqlContains`, a substring
+ * of the unit's OWN SQL text stable across ordinal shifts (chosen to be
+ * unique within that file+method pairing — see each entry's rationale).
+ * `matchesExclusion` below does the lookup; nothing keys off `unitLabel`
+ * for exclusion-matching purposes any more (the un-excluded "ungated
+ * commission read" error message still reports a unit's live `unitKey()`
+ * for the OPERATOR fixing a NEW violation — only still useful there, since
+ * a fresh violation has no stale ordinal to go stale).
+ */
+interface ExclusionRule {
+  file: string;
+  method: string;
+  sqlContains: string;
+  reason: string;
+}
+
+const EXCLUDED_UNITS: ExclusionRule[] = [
+  {
+    file: "SupplierRepository",
+    method: "settleTransactions",
+    sqlContains:
+      "id, provider, service_type, commission, commission_model, currency FROM financial_services",
+    reason:
+      "Dead SELECT column, not a reporting read. The true source is the " +
+      "PRIVATE method `_resolveSettlementBatchModel` — mis-attributed by the " +
+      "shared parser to `settleTransactions` (the nearest preceding PUBLIC " +
+      "method boundary; see this const's own doc comment) and (pre-LIRA-186) " +
+      "labeled `rows` (the local variable its `.prepare()` result is " +
+      "assigned to, since `settleTransactions` — the mis-attribution target " +
+      "— has 2+ non-WITH prepares; that variable name is no longer part of " +
+      "this exclusion's identity, see the sqlContains fragment instead). It " +
+      "selects `id, provider, service_type, commission, commission_model, " +
+      "currency FROM financial_services` into `EligibleSettlementRow[]`, but " +
+      "verified (grepped every `.commission` / `.commission_model` access on " +
+      "the resulting `rows`/`eligibleRows` across SupplierRepository.ts) " +
+      "that only `.commission_model` (to derive the batch's shared model, " +
+      "D4's mixed-model rejection) and `.currency`/`.service_type`/" +
+      "`.provider`/`.id` are ever read downstream — `.commission` itself is " +
+      "fetched and then never consulted again anywhere, in " +
+      "`_bookCommissionAtSettlement` or otherwise. A value nobody reads " +
+      "cannot misreport anything: NOT a reporting aggregate, ruled out. " +
+      "NOTE: this exclusion is genuinely ambiguous — SupplierRepository.ts " +
+      "has a second, out-of-scope `rows`-assigned prepare (no `commission` " +
+      "token) that collapses onto the same `settleTransactions` boundary; " +
+      "`matchesExclusion` is checked against every in-scope unit sharing " +
+      "file+method, and `sqlContains` alone already disambiguates the two " +
+      "(the out-of-scope one has no such substring).",
+  },
+  {
+    file: "TransactionRepository",
+    method: "getRefundBookedRate",
+    sqlContains:
+      "SELECT id, provider, service_type, commission, commission_model FROM financial_services WHERE settlement_id IN",
+    reason:
+      "Per-row REVERSAL-STATE read, not a reporting aggregate. The true " +
+      "source is the PRIVATE method `_reverseSupplierSettlement` — " +
+      "mis-attributed by {@link collectQueryLikeUnits} to the nearest " +
+      "preceding PUBLIC method boundary (see this const's own doc comment). " +
+      "Pre-LIRA-186 this exclusion was keyed by the parser's ordinal " +
+      "fallback label and had to be hand-edited three times for reasons " +
+      "that had nothing to do with this query: the ordinal shifted from #20 " +
+      "to #21 when the SMS-fee-expense cutover (owner decision 2026-09-06) " +
+      "inserted `_cascadeExpenseSiblingVoid`/`_expensesHasSourceRefColumns` " +
+      "earlier in this same mis-attributed span, from #21 to #23 when " +
+      "LIRA-189 (multi-member supplier-settlement reversal) widened this " +
+      "same method's OWN preceding `linkedLedgerRows` lookup into a " +
+      "two-branch ternary, and the ATTRIBUTED PUBLIC METHOD NAME itself " +
+      "from `getCustomerFacingLegs` to `getRefundBookedRate` when LIRA-236 " +
+      "(REFUND_EXCHANGE_RATE_PLAN.md) added `getRefundBookedRate` as a new " +
+      "public method immediately after `getCustomerFacingLegs`, becoming " +
+      "the new nearest-preceding boundary for the SAME unmoved private " +
+      "query. The `sqlContains` fragment below is the query's own SQL text " +
+      "— it cannot shift when an unrelated query is added/removed nearby, " +
+      "only if THIS query's own shape changes (at which point re-verifying " +
+      "the exclusion is exactly the right outcome). `SELECT id, provider, " +
+      "service_type, commission, commission_model FROM financial_services " +
+      "WHERE settlement_id IN (...)` feeds each row into " +
+      "`isPendingSupplierSettlement` to decide whether reversing this " +
+      "settlement should also flip `is_settled` back to 0. That function IS " +
+      "already model-aware — `if (commission_model === 1) {...} return " +
+      "(provider is OMT/WHISH) && commission > 0` — it only consults the " +
+      "bare `commission` value inside the IMPLICIT commission_model === 0 " +
+      "(legacy) branch, where the column genuinely is the settled truth " +
+      "(same rule `embeddedCommission` encodes); it just expresses that " +
+      "branch as plain JS `if`/`return` in " +
+      "`FinancialServiceRepository.isPendingSupplierSettlement` rather than " +
+      "as a SQL gate call, so it is invisible to this guard's text-only " +
+      "`embeddedCommission(`/`atSettlementCommission(` detection. Not a " +
+      "dollar figure or count surfaced anywhere: NOT a reporting aggregate, " +
+      "ruled out. `getRefundBookedRate` itself (verified by reading it) " +
+      "runs no SQL touching `financial_services.commission` at all — it " +
+      "reads `transactions.exchange_rate` only.",
+  },
+];
+
+/** Collapse all whitespace runs (including the newlines/indentation every
+ *  multi-line template-literal SQL string in these files actually contains)
+ *  to a single space, so `sqlContains` can be written as one readable line
+ *  without having to reproduce the source file's exact line-wrapping. */
+function normalizeWhitespace(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Whether unit `u` matches exclusion `rule`: same scanned-file `tag`, same
+ * parser-attributed enclosing method, and `rule.sqlContains` is a
+ * (whitespace-normalized) substring of the unit's own SQL text (LIRA-186 —
+ * replaces exact `unitKey()` equality so an exclusion survives the parser's
+ * ordinal fallback label shifting under unrelated changes).
+ */
+function matchesExclusion(u: QueryUnit, rule: ExclusionRule): boolean {
+  return (
+    u.file === rule.file &&
+    u.methodName === rule.method &&
+    normalizeWhitespace(u.sql).includes(normalizeWhitespace(rule.sqlContains))
+  );
+}
+
+function findExclusion(u: QueryUnit): ExclusionRule | undefined {
+  return EXCLUDED_UNITS.find((rule) => matchesExclusion(u, rule));
+}
 
 describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
   const sources = new Map(
@@ -569,7 +645,7 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
 
   it("every commission-column-reading query unit is model-gated (or is a named, justified exclusion)", () => {
     const violations = inScopeUnits.filter((u) => {
-      if (unitKey(u) in EXCLUDED_UNITS) return false;
+      if (findExclusion(u)) return false;
       const methodSource = methodSourceSlice(
         sources.get(u.file)!,
         boundariesByFile.get(u.file)!,
@@ -584,10 +660,12 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
             `'${unitKey(v)}' (line ${v.line}) — SQL reads ` +
             `financial_services.commission but calls neither embeddedCommission(` +
             `nor atSettlementCommission( (directly or via a hoisted variable). ` +
-            `If this query genuinely doesn't need the gate, add ` +
-            `'${unitKey(v)}' to EXCLUDED_UNITS here with a verified reason; ` +
-            `otherwise wire in the correct gate fragment (rule 14, ` +
-            `ProfitRepository.embeddedCommission / .atSettlementCommission).`,
+            `If this query genuinely doesn't need the gate, add an entry to ` +
+            `EXCLUDED_UNITS here — { file: '${v.file}', method: '${v.methodName}', ` +
+            `sqlContains: <a substring of its SQL unique within that file+method>, ` +
+            `reason: <verified> } (LIRA-186: key by identity, not the parser's ` +
+            `ordinal fallback label); otherwise wire in the correct gate fragment ` +
+            `(rule 14, ProfitRepository.embeddedCommission / .atSettlementCommission).`,
         )
         .join("\n");
       throw new Error(`Ungated commission-column read(s):\n${message}`);
@@ -595,26 +673,24 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
   });
 
   it("EXCLUDED_UNITS carries no stale entries (every entry still matches an in-scope, ungated unit)", () => {
-    // Deliberately checks EVERY unit sharing a key, not just the first match:
-    // the private-method mis-attribution documented on EXCLUDED_UNITS's own
-    // doc comment can make a key genuinely ambiguous — e.g.
-    // "SupplierRepository:settleTransactions:rows" matches BOTH
+    // Deliberately checks EVERY unit matching a rule's file+method+sqlContains,
+    // not just the first match: the private-method mis-attribution documented
+    // on EXCLUDED_UNITS's own doc comment can make a rule genuinely
+    // ambiguous — e.g. the SupplierRepository rule can match BOTH
     // `_getUnsettledBySupplierColumns`-adjacent code's own `rows` prepare
-    // (out of scope — no "commission" token) AND
+    // (out of scope — no "commission" token, and `sqlContains` alone already
+    // excludes it since that text doesn't appear there) AND
     // `_resolveSettlementBatchModel`'s `rows` prepare (in scope, the intended
     // target), because both private methods collapse onto the same public
-    // "settleTransactions" boundary AND happen to name their result the same
-    // thing. A plain `.find()` (first match in source order) grabbed the
-    // WRONG one here and reported a false "stale" — proven by running this
-    // exact check against the real files before landing on `.some()`
-    // semantics: a key is "still needed" if ANY unit sharing it is in-scope
-    // and ungated, which is the only question that actually matters (the
-    // main violations check above is unaffected by the same collision, since
-    // it tests `unitKey(u) in EXCLUDED_UNITS` per-unit over `inScopeUnits`
-    // only — an out-of-scope collider is never a candidate there).
-    const stale = Object.keys(EXCLUDED_UNITS).filter((key) => {
-      const candidates = units.filter((u) => unitKey(u) === key);
-      if (candidates.length === 0) return true; // key matches no parsed unit at all
+    // "settleTransactions" boundary. A rule is "still needed" if ANY unit
+    // matching it is in-scope and ungated, which is the only question that
+    // actually matters (the main violations check above is unaffected by the
+    // same collision, since it tests `findExclusion(u)` per-unit over
+    // `inScopeUnits` only — an out-of-scope collider is never a candidate
+    // there).
+    const stale = EXCLUDED_UNITS.filter((rule) => {
+      const candidates = units.filter((u) => matchesExclusion(u, rule));
+      if (candidates.length === 0) return true; // rule matches no parsed unit at all
       const stillNeeded = candidates.some((u) => {
         if (!isInScope(u.sql)) return false;
         const methodSource = methodSourceSlice(
@@ -626,7 +702,9 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
       });
       return !stillNeeded;
     });
-    expect(stale).toEqual([]);
+    expect(stale.map((r) => `${r.file}:${r.method}:${r.sqlContains}`)).toEqual(
+      [],
+    );
   });
 
   it("getUnsettledSummaryByProvider and getMonthlyPL are covered by this guard's own design (LIRA-159 fix targets)", () => {
@@ -637,7 +715,7 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
         u.methodName === "getUnsettledSummaryByProvider",
     );
     expect(summaryUnit).toBeDefined();
-    expect(unitKey(summaryUnit!) in EXCLUDED_UNITS).toBe(false);
+    expect(findExclusion(summaryUnit!)).toBeUndefined();
     const methodSource = methodSourceSlice(
       sources.get("FinancialServiceRepository")!,
       boundariesByFile.get("FinancialServiceRepository")!,
@@ -652,5 +730,49 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
       (u) => u.file === "FinancialRepository",
     );
     expect(financialRepoInScope).toEqual([]);
+  });
+
+  // LIRA-186. NOT proven failing-first by rule 17's own test-execution
+  // standard: the "old" behaviour it documents (exact `unitKey()` string
+  // equality against a Record keyed by the parser's ordinal fallback label)
+  // is the code this very change replaces, so reproducing it failing would
+  // mean reverting the fix this test is part of delivering — the exact
+  // self-referential case rule 17's "label tests NOT proven failing-first
+  // when that isn't possible" carve-out anticipates, not a shortcut taken
+  // to avoid the work. What IS executed and verified: the old scheme's
+  // break is a plain, unconditional string-equality fact (asserted
+  // directly below, not inferred), and the new scheme's survival is
+  // asserted against the REAL `findExclusion`/`matchesExclusion` this file
+  // now ships, not a hand-simulated stand-in.
+  it("LIRA-186: exclusion identity survives an ordinal-label shift that the old unitKey()-keyed Record did not", () => {
+    const before: QueryUnit = {
+      file: "TransactionRepository",
+      methodName: "getRefundBookedRate",
+      unitLabel: "(query-like #23)",
+      sql:
+        "SELECT id, provider, service_type, commission, commission_model " +
+        "FROM financial_services WHERE settlement_id IN (?)",
+      line: 100,
+    };
+    // Simulates exactly the documented real-world trigger (LIRA-189, a
+    // query inserted earlier in the same mis-attributed span): the ordinal
+    // fallback label shifts while the excluded query's own SQL and
+    // parser-attributed method are unchanged.
+    const after: QueryUnit = { ...before, unitLabel: "(query-like #24)" };
+
+    // Old scheme, unconditionally: a Record keyed by the full `unitKey()`
+    // string (file:method:unitLabel) no longer matches once the label
+    // shifts — this is what forced the three unrelated hand-edits the
+    // ticket and this file's own rationale document.
+    const oldStyleKey =
+      "TransactionRepository:getRefundBookedRate:(query-like #23)";
+    expect(unitKey(before)).toBe(oldStyleKey);
+    expect(unitKey(after)).not.toBe(oldStyleKey);
+
+    // New scheme: both match the same rule, because identity never
+    // consults `unitLabel`.
+    expect(findExclusion(before)).toBeDefined();
+    expect(findExclusion(after)).toBeDefined();
+    expect(findExclusion(before)).toBe(findExclusion(after));
   });
 });
