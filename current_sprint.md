@@ -5671,3 +5671,165 @@ fixed. The linter that should have caught it could not, because it never scanned
 comment in `constants/tenderRateBand.ts` was corrected.
 
 **What users will notice:** nothing.
+
+---
+
+## LIRA-252: MTC/Alfa drawer can drift from the carrier lines it's supposed to equal — HIGH
+
+| Field | Value |
+| --- | --- |
+| **Type** | Bug (money) |
+| **Priority** | High |
+| **Status** | PARTIAL 2026-10-02 — items A, B, C built. B+C (core, both transports) proven failing-first then green; full verification green from that session: core jest 465/465 suites (4528/4528 tests), electron-app jest 260/260, backend jest 1114/1114, core+electron-app+backend+frontend typecheck clean, eslint clean on touched files, check-tenant-scoping (0 violations), check-bind-arity (OK), check-schema-equivalence (0 diffs). Item A (Checkpoint page + Setup wizard per-line UI) built this session — see "What was built (item A)" below; frontend typecheck (tsconfig.app.json + tsconfig.playwright.json, both ~15s/~4s real), packages/ui typecheck, eslint (0 errors/warnings on touched files) and the full frontend jest suite (344/344 suites, 2246/2246 tests, 135s real) all green. Only the Recharge-page mismatch warning (item E) remains — see "Open" below |
+| **Affected Modules** | recharge, closing, carrier lines, Setup wizard |
+| **Source** | Production cornertech investigation, 2026-10-02 |
+
+### Summary
+
+`RechargeRepository.ts` §0.1 documents the invariant: **carrier drawer (MTC / Alfa, USD) == Σ credits of
+that carrier's ACTIVE carrier lines.** Sales, buy-backs and line-use keep it via
+`CarrierLineService.applyMovement`. In production the MTC drawer read **$10,000** against one line
+(`03924245`) at **$500**; Alfa read **$10,000** with **no line at all**. Causes found:
+
+1. The Setup wizard (`StepDrawerAmounts.tsx` + `StepComplete.tsx`) books MTC/Alfa credits into the drawer
+   even with no phone number (`buildCarrierLines()` skips a carrier with an empty phone), and its
+   `createCheckpoint` call never sends `carrier_lines`.
+2. The Dashboard/Checkpoint page (`Checkpoint/index.tsx`) saves a typed MTC/Alfa drawer amount with no
+   line link whenever `carrierLine` is null (no line, not loaded yet, or a fetch error).
+   `ClosingRepository.createCheckpoint` derives the carrier drawer from lines ONLY when
+   `data.carrier_lines` is sent — a bare drawer amount with none sailed straight through.
+3. Settings → Carrier Lines create/edit and the Recharge inline quick-update
+   (`CarrierLineRepository.createLine`/`updateLine`/`updateBalance`) changed line credits with **no
+   drawer effect at all**.
+4. Nothing reconciled the two.
+
+### Owner decisions (2026-10-02)
+
+- **A.** Checkpoints (Dashboard and Setup) enter MTC/Alfa credits PER PHONE LINE; the drawer is always
+  the sum; no free-typed MTC/Alfa drawer amount; a carrier with no active line must add one first (no
+  bare amount accepted). Setup wizard requires a phone number for non-zero MTC/Alfa credits and sends
+  `carrier_lines`.
+- **B.** Settings → Carrier Lines (and the Recharge inline balance update): add/edit/archive/reactivate
+  moves the carrier drawer by the same delta, as an auditable adjustment (who/when) — reusing the
+  checkpoint's own adjustment mechanism, not a new transaction type.
+- **C.** `ClosingRepository.createCheckpoint` (both transports) derives the MTC/Alfa drawer from the
+  submitted per-line credits and refuses a bare non-zero MTC/Alfa amount with no line supplied. Zero
+  amounts / no MTC module stay backward compatible.
+- **D.** Existing production data is NOT repaired — the tenant will be reset later.
+- **E.** Optional: a mismatch warning on the Recharge page when drawer ≠ Σ lines (legacy data) — only if
+  cheap.
+
+### What was built this session (items B + C — core, both transports)
+
+- **C** — `ClosingRepository.createCheckpoint` (`packages/core/src/repositories/ClosingRepository.ts`):
+  refuses a non-zero MTC/Alfa USD row in `amounts` when no `carrier_lines` were counted for that carrier
+  in the same call (zero amounts and non-carrier drawers stay unaffected — same code path serves both
+  desktop IPC and the web REST route, since both call this one repository method). Guard tests (new,
+  proven failing-first): `ClosingRepository.carrierLineCheckpoint.test.ts` — "refuses a bare non-zero MTC
+  amount when no carrier line is supplied", "...Alfa...", "allows a ZERO MTC/Alfa amount...". Two
+  pre-existing, UNRELATED tests in `ClosingRepository.lastCheckpointPerDrawer.test.ts` used "MTC"/"Alfa"
+  as incidental fixture drawer names for a freshness-only concern (LIRA-156) and were renamed to
+  `Safe`/`VendorX` to stop colliding with the new business rule.
+- **B** — `CarrierLineRepository` gets one new private helper, `postCarrierDrawerAdjustment` (reuses
+  `CHECKPOINT_ADJUSTMENT_METHOD` / `moneyPosting.ts`'s `insertPaymentRow`+`applyDrawerDelta` — no new
+  transaction type, per owner instruction), wired into `createLine` (non-zero starting credits),
+  `updateBalance` (Recharge inline quick-update), a new `updateLineAndSyncDrawer` (the Settings edit-form
+  entry point — kept SEPARATE from the plain `updateLine` primitive, which `applyMovement`/
+  `reverseMovement` build on and must NOT double-post against), `toggleActive` and `archive`. `userId`
+  threaded through `CarrierLineService` → `electron-app/handlers/carrierLineHandlers.ts` (`auth.userId`)
+  → `backend/src/api/carrierLines.ts` (`req.user!.userId`) for both transports. Guard tests (new, proven
+  failing-first — TS compile errors against the pre-fix API, then full red/green after the methods
+  existed): `CarrierLineRepository.drawerAdjustment.test.ts` (9 tests) — create/update/toggle/archive
+  each move the drawer by the right delta and keep `getCarrierCreditsSum` in lockstep; a dedicated test
+  pins that `applyMovement` (the money-path primitive sales/buy-backs/line-use already drive) is NOT
+  double-posted by this new mechanism.
+
+Fixing the full suite also required touching several PRE-EXISTING test fixtures whose premise the new
+behavior invalidated (rule 17: real behavior change, not reverted) — `CarrierLineRepository.test.ts`,
+`.validityRule.test.ts`, `.absoluteValidity.test.ts`, `.primaryAndDelta.test.ts`, and
+`CarrierLineService.applyMovement.test.ts` gained the `payments`/`drawer_balances` tables their minimal
+schemas lacked; `Checkpoint.stress.test.ts` and `ClosingRepository.lastCheckpointPerDrawer.test.ts`
+renamed an incidental "MTC"/"Alfa" drawer-name fixture choice to a non-carrier name (their actual concern
+was unrelated to the carrier-line invariant); `TransactionRepository.carrierLineReversal.test.ts` and
+`CarrierLineRepository.recordUsage.test.ts` had absolute `payments`-row-count / drawer-balance assertions
+that assumed `createLine`/`archive` never touched the drawer — updated to the new, correct baselines (or,
+for `recordUsage.test.ts`'s void-nets-to-zero query, scoped by transaction id instead of by drawer name,
+since an unscoped sum now also picks up the untransacted manual-adjustment rows).
+
+### What was built (item A — Setup wizard + Checkpoint page per-line UI, 2026-10-02)
+
+- **Checkpoint page** (`frontend/src/features/closing/pages/Checkpoint/index.tsx`,
+  `components/DrawerCard.tsx`): MTC/Alfa's USD figure is no longer a single free-typed field — the page
+  fetches every active line for the carrier (`api.getActiveCarrierLines`) and renders one Credits +
+  Validity row per line (`DrawerCard`'s `carrierLine` prop became `carrierLines: DrawerCardCarrierLineRow[]`,
+  with a header total = Σ of the rows). `handleSave` builds `carrier_lines` from every active line's typed
+  credits/expiry and never includes a bare MTC/Alfa row in `amounts` (that currency is filtered out of
+  `drawerCurrencies` for a carrier drawer, so the array the server would need to refuse is never
+  constructed in the first place — the invariant holds by construction, not by a late check). A carrier
+  with zero active lines renders an inline "add a line" prompt (phone + starting credits, posts via
+  `api.createCarrierLine`, which already moves the drawer per item B) instead of the card, and disables
+  Save until a line exists.
+- **Setup wizard** (`steps/StepDrawerAmounts.tsx`): the Credits field now writes to its own
+  `carrierLineDrafts[drawer].credits`, never to `amounts[drawer]["USD"]` — `buildDrawerAmounts()` excludes
+  both carrier drawers outright, so `drawer_amounts` can no longer carry a bare MTC/Alfa figure.
+  `validateCarrierLines()` (called from `handleNext`) blocks Next with an inline message when credits are
+  typed with no phone number, replacing the old D4 "soft nudge, never blocks" behavior the server's new
+  refusal made unsafe.
+- **`StepComplete.tsx`** (rule 19 fix): replaced the raw `window.api.setup.complete` /
+  `window.api.closing.createCheckpoint` calls with `useApi().completeSetup` (new dual-mode adapter fn,
+  added to `backendApi.ts` / `ElectronApiAdapter.ts` / `packages/ui/src/api/types.ts` per rule 21 — desktop
+  IPC-only, with a clean refusal on the web branch since the wizard itself has no web counterpart) and
+  `useApi().createCheckpoint`. The initial checkpoint's `amounts` filters out any `MTC`/`Alfa` row
+  (belt-and-braces — `buildDrawerAmounts()` no longer produces one, but the checkpoint call double-checks)
+  since `completeSetup` already created the carrier line and that creation posts the drawer adjustment
+  itself (item B); a bare row here would double the money and get refused by item C's server-side guard.
+  Catch-block errors now go through `getApiErrorMessage` so a server refusal surfaces its real message
+  instead of a stringified error object.
+- Guard tests (new): `DrawerCard.test.tsx` (rewritten for the array API, proven red against the old
+  single-`carrierLine` prop — TS compile error, same pattern items B/C used), `Checkpoint.carrierLines.test.tsx`
+  (3 tests — add-line prompt + disabled Save with no lines, add-line flow, multi-line sum + payload shape),
+  `StepDrawerAmounts.test.tsx` (2 tests rewritten, both proven red against the pre-fix code — real failures
+  captured, not asserted from code reading), `StepComplete.test.tsx` (new — 3 tests: routes through
+  `useApi()` not `window.api`, filters a bare MTC/Alfa row even from a defensive stale-payload case,
+  surfaces a server refusal readably).
+- Verification: frontend `tsc -p tsconfig.app.json --noEmit` (~15s) and `tsc -p tsconfig.playwright.json
+  --noEmit` (~4s) clean; `packages/ui` `tsc --noEmit` (~5s) clean; eslint 0 errors/0 warnings on every
+  touched file; full frontend jest suite 344/344 suites, 2246/2246 tests green (135s real — not a
+  zero-output no-op).
+
+### Open (NOT built)
+
+- **E** — Recharge-page mismatch warning not built.
+- Production data repair — explicitly out of scope (owner decision D).
+
+### E2E impact
+
+Grepped `frontend/tests/e2e-electron` + `frontend/tests/e2e-web` for `createCheckpoint`, `carrier`, `MTC`,
+`Alfa`, `setup-carrier-*`, `StepDrawerAmounts`:
+
+- **No existing spec needed a selector update.** The three checkpoint-timeline specs that call
+  `createCheckpoint` directly (`lira-091-checkpoint-timeline-variance.spec.ts`,
+  `lira-100-checkpoint-timeline-timezone.spec.ts`, `lira-150-dashboard-checkpoint-time.spec.ts`) and the web
+  `lira-web-010-checkpoint.spec.ts` all hand-build the IPC/REST payload and checkpoint `General` only — they
+  never touch the Checkpoint page's UI or the changed `DrawerCard`/carrier-line rendering.
+  `lira-129-loto-refund.spec.ts`'s `createCheckpoint` is an unrelated local helper name (loto checkpoints),
+  not this repository's.
+  `lira-web-019-telecom-buyback.spec.ts` / `lira-web-025-carrier-line-usage-expense.spec.ts` provision
+  carrier lines directly via `POST /api/carrier-lines`, bypassing both changed UIs.
+  The shared setup fixture (`frontend/tests/e2e-electron/fixtures.ts`'s `completeSetup()`, used by every
+  spec that boots a fresh shop) only fills `setup-amount-General-USD`/`-LBP` and clicks Next/Launch — it
+  never types into `setup-carrier-credits-MTC`/`-Alfa` or `setup-carrier-phone-*`, so
+  `validateCarrierLines()`'s new phone-required block never fires and `buildDrawerAmounts()`'s MTC/Alfa
+  exclusion is a no-op for it (those rows were never in the set it built). Unaffected, run unmodified.
+- Items B/C's previously-flagged re-run list (`lira-125-carrier-lines-validity-credits.spec.ts`,
+  `lira-145-carrier-line-usage-expense.spec.ts`, `lira-149-validity-rule-and-onlydays-profit`,
+  `lira-132-telecom-only-days`, `lira-web-019/020/025`) is unchanged by item A — none of those drive the
+  Checkpoint page or Setup wizard carrier-line UI — and was not re-run this session either (still report
+  only, per the standing "don't run e2e without asking" convention — CLAUDE.md feedback note).
+
+**What users will notice:** a Checkpoint or Setup screen that types a dollar amount into MTC or Alfa with
+no phone line behind it now refuses to save, instead of quietly overwriting the drawer; Checkpoint and
+Setup now count MTC/Alfa credits per SIM line (one field per active line, drawer = their sum), and a
+carrier with no active line gets an inline prompt to add one instead of a blank dollar field; adding,
+editing, archiving or re-activating a shop SIM line in Settings now moves that carrier's drawer to match,
+automatically.

@@ -243,6 +243,20 @@ export type {
 // above).
 export type { SafeSession } from "./repositories/SessionRepository.js";
 
+// LIRA-252 wave 2 — the manual carrier-line (MTC/Alfa) drawer-adjustment
+// read shape (`ClosingRepository.getCarrierLineAdjustments`), derived by the
+// frontend adapter instead of hand-copied (rule 21). Type-only, so pulling it
+// from ClosingRepository.js (which is NOT otherwise browser-safe) has zero
+// runtime impact — same reasoning as every other type-only export in this
+// file. Must be exported HERE too, not only from index.ts (where
+// `export * from "./repositories/index.js"` already covers it): Vite/Jest
+// resolve @liratek/core to THIS file, so a renderer import missing here
+// fails at load (same failure mode as the telecomCredit.js note earlier).
+export type {
+  CarrierLineAdjustmentRecord,
+  CarrierLineAdjustmentFilters,
+} from "./repositories/ClosingRepository.js";
+
 // Commissions Report shape (Profits page "Commissions" tab —
 // OWNER_NOTES_2026-09-21.md §6, lane LC). Type-only, so importing it from
 // CommissionsReportService.js (which imports ProfitRepository/

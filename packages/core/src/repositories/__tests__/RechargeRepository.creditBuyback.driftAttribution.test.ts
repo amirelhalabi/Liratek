@@ -303,7 +303,7 @@ describe("RechargeRepository.processCreditBuyback — the buyback leg is attribu
       carrier: "mtc",
       phone_number: "03111111",
       credits: 50,
-    });
+    }, 1);
     seedDrawer(db, "MTC", "USD", 41);
     seedDrawer(db, "General", "USD", 500);
 
@@ -318,7 +318,20 @@ describe("RechargeRepository.processCreditBuyback — the buyback leg is attribu
       userId: 1,
     });
     expect(result.success).toBe(true);
-    const txnId = result.id!;
+    // LIRA-252 wave 3: `result.id` is `recharges.id`, which used to
+    // coincidentally equal the unified `transactions.id` only because no
+    // other transaction existed yet in this isolated test db. `createLine`'s
+    // own non-zero-credit seed above now ALSO writes a real
+    // CARRIER_LINE_ADJUSTMENT transaction first (owner decision B/wave 2),
+    // so resolve the real buy-back transaction id the way `payments.
+    // transaction_id` actually needs it.
+    const txnId = (
+      db
+        .prepare(
+          `SELECT id FROM transactions WHERE type = 'TELECOM_CREDIT_BUYBACK' ORDER BY id DESC LIMIT 1`,
+        )
+        .get() as { id: number }
+    ).id;
 
     // The line gained exactly the 9 credits bought.
     expect(lineRepo.getById(line.id)!.credits).toBeCloseTo(59, 6); // 50 + 9
@@ -355,7 +368,7 @@ describe("RechargeRepository.processCreditBuyback — the buyback leg is attribu
       carrier: "mtc",
       phone_number: "03111111",
       credits: 50,
-    });
+    }, 1);
     // VOUCHER (not CREDIT_TRANSFER) — no SMS transfer fee to reason about;
     // this test is about the buyback attribution, not the SMS-fee residual
     // gap documented in RechargeRepository.creditSaleLineDecrement.test.ts.
@@ -389,7 +402,15 @@ describe("RechargeRepository.processCreditBuyback — the buyback leg is attribu
       userId: 1,
     });
     expect(buyback.success).toBe(true);
-    const txnId = buyback.id!;
+    // LIRA-252 wave 3: same `recharges.id` vs `transactions.id` mismatch as
+    // the test above — resolve the real buy-back transaction id directly.
+    const txnId = (
+      db
+        .prepare(
+          `SELECT id FROM transactions WHERE type = 'TELECOM_CREDIT_BUYBACK' ORDER BY id DESC LIMIT 1`,
+        )
+        .get() as { id: number }
+    ).id;
 
     const legs = buybackPaymentLegs(db, txnId, "MTC");
     // No drift left to correct — the buyback is the line's ONLY leg on the

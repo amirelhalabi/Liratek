@@ -228,6 +228,19 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       }
     ).n;
 
+  /** LIRA-252 WAVE 2/3 — `createLine`'s own non-zero-credit seed posting now
+   *  carries a real `transaction_id` too (not just the checkpoint's own
+   *  reconciliation leg), so "no reconciliation leg posted" has to be read
+   *  as a payments-COUNT-unchanged assertion rather than a
+   *  `transaction_id IS NOT NULL` filter — see the WAVE 2 comment at the one
+   *  call site below. */
+  const paymentsCount = (drawer: string): number =>
+    (
+      db
+        .prepare(`SELECT COUNT(*) AS n FROM payments WHERE drawer_name = ?`)
+        .get(drawer) as { n: number }
+    ).n;
+
   beforeEach(() => {
     db = createTestDb();
     (
@@ -260,8 +273,14 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       phone_number: "03111111",
       credits: 40,
       validity_expires_at: expiry,
-    });
+    }, 1);
     setBalance("MTC", "USD", 40);
+    // `createLine`'s own non-zero-credit seed posting (owner decision B)
+    // already wrote one `payments` row by this point — WAVE 2/3 made that
+    // posting carry a real `transaction_id` too, so "the checkpoint posted
+    // no reconciliation leg" is proven by the COUNT staying unchanged below,
+    // not by filtering on `transaction_id IS NOT NULL`.
+    const paymentsBeforeCheckpoint = paymentsCount("MTC");
 
     const result = repo.createCheckpoint({
       user_id: 1,
@@ -290,16 +309,9 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
     expect(after.credits).toBe(40);
     expect(after.validity_expires_at).toBe(expiry);
     expect(balanceOf("MTC", "USD")).toBe(40);
-    // No reconciliation leg either — nothing moved.
-    expect(
-      (
-        db
-          .prepare(
-            `SELECT COUNT(*) AS n FROM payments WHERE drawer_name = 'MTC'`,
-          )
-          .get() as { n: number }
-      ).n,
-    ).toBe(0);
+    // No reconciliation leg either — nothing moved beyond createLine's own
+    // seed posting captured above.
+    expect(paymentsCount("MTC")).toBe(paymentsBeforeCheckpoint);
   });
 
   // (b) ------------------------------------------------------------------
@@ -308,7 +320,7 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       carrier: "mtc",
       phone_number: "03111111",
       credits: 40,
-    });
+    }, 1);
     setBalance("MTC", "USD", 40);
 
     const beforeCredits = lines.getById(line.id)!.credits;
@@ -362,14 +374,14 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       carrier: "mtc",
       phone_number: "03111111",
       credits: 40,
-    });
+    }, 1);
     // §0.5 keeps the schema multi-line-capable; a second line's credits stay
     // part of the drawer even though this checkpoint does not count it.
     lines.createLine({
       carrier: "mtc",
       phone_number: "03222222",
       credits: 15,
-    });
+    }, 1);
     setBalance("MTC", "USD", 55);
 
     repo.createCheckpoint({
@@ -398,7 +410,7 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       carrier: "alfa",
       phone_number: "70999999",
       credits: 100,
-    });
+    }, 1);
     setBalance("Alfa", "USD", 100);
 
     const payload = {
@@ -434,7 +446,7 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       phone_number: "03111111",
       credits: 40,
       validity_expires_at: "2026-01-01",
-    });
+    }, 1);
     setBalance("MTC", "USD", 40);
 
     const result = repo.createCheckpoint({
@@ -503,7 +515,7 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       phone_number: "03111111",
       credits: 10,
       validity_expires_at: expired,
-    });
+    }, 1);
     setBalance("MTC", "USD", 10);
 
     repo.createCheckpoint({
@@ -555,7 +567,7 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       phone_number: "70999999",
       credits: 5,
       validity_expires_at: expiry,
-    });
+    }, 1);
     setBalance("Alfa", "USD", 5);
 
     repo.createCheckpoint({
@@ -587,8 +599,8 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       carrier: "mtc",
       phone_number: "03111111",
       credits: 40,
-    });
-    lines.archive(line.id);
+    }, 1);
+    lines.archive(line.id, 1);
     setBalance("MTC", "USD", 40);
 
     const result = repo.createCheckpoint({
@@ -617,6 +629,104 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
         }
       ).n,
     ).toBe(0);
+  });
+
+  // LIRA-252 (owner decision C) ------------------------------------------
+  // A bare MTC/Alfa drawer amount with NO carrier_lines for that carrier
+  // must be refused when non-zero — this is the server-side half of the
+  // production bug (MTC drawer $10,000 vs one $500 line; Alfa $10,000 with
+  // no line at all): the Setup wizard and the Checkpoint page could both
+  // save a typed drawer figure with no line behind it. Proven failing-first
+  // (rule 17): run against the pre-fix code, the checkpoint SUCCEEDS and
+  // leaves the drawer at the bare typed amount, disagreeing with
+  // `getCarrierCreditsSum`.
+  it("refuses a bare non-zero MTC amount when no carrier line is supplied", () => {
+    setBalance("MTC", "USD", 0);
+
+    const result = repo.createCheckpoint({
+      user_id: 1,
+      drawer_name: "MTC",
+      amounts: [
+        {
+          drawer_name: "MTC",
+          currency_code: "USD",
+          expected_amount: 0,
+          physical_amount: 10_000,
+        },
+      ],
+      // No carrier_lines at all — exactly the Setup wizard's current call
+      // shape (buildCarrierLines skips a carrier with no phone number).
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/carrier line/i);
+    // Nothing partial survived the refusal.
+    expect(balanceOf("MTC", "USD")).toBe(0);
+    expect(movementCount()).toBe(0);
+    expect(
+      (
+        db.prepare(`SELECT COUNT(*) AS n FROM daily_closing_amounts`).get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(0);
+  });
+
+  it("refuses a bare non-zero Alfa amount when no carrier line is supplied, even if other carriers were counted", () => {
+    const mtcLine = lines.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+      credits: 40,
+    }, 1);
+    setBalance("MTC", "USD", 40);
+    setBalance("Alfa", "USD", 0);
+
+    const result = repo.createCheckpoint({
+      user_id: 1,
+      drawer_name: "MTC",
+      amounts: [
+        {
+          drawer_name: "MTC",
+          currency_code: "USD",
+          expected_amount: 40,
+          physical_amount: 40,
+        },
+        {
+          drawer_name: "Alfa",
+          currency_code: "USD",
+          expected_amount: 0,
+          physical_amount: 10_000,
+        },
+      ],
+      carrier_lines: [{ carrier_line_id: mtcLine.id, counted_credits: 40 }],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/alfa/i);
+    expect(balanceOf("Alfa", "USD")).toBe(0);
+    // The whole checkpoint rolls back — including the valid MTC leg.
+    expect(balanceOf("MTC", "USD")).toBe(40);
+    expect(movementCount()).toBe(0);
+  });
+
+  it("allows a ZERO MTC/Alfa amount with no carrier lines (closing an unused drawer stays backward compatible)", () => {
+    setBalance("Alfa", "USD", 0);
+
+    const result = repo.createCheckpoint({
+      user_id: 1,
+      drawer_name: "Alfa",
+      amounts: [
+        {
+          drawer_name: "Alfa",
+          currency_code: "USD",
+          expected_amount: 0,
+          physical_amount: 0,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(balanceOf("Alfa", "USD")).toBe(0);
   });
 
   it("a checkpoint of a non-carrier drawer is byte-for-byte unaffected", () => {

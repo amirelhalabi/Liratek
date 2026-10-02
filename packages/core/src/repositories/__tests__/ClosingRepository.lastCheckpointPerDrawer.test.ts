@@ -231,7 +231,13 @@ describe("ClosingRepository.getLastCheckpointPerDrawer — per-drawer freshness 
           physical_amount: 950_000,
         },
         {
-          drawer_name: "MTC",
+          // LIRA-252: a bare non-zero MTC/Alfa drawer amount with no
+          // carrier_lines is now refused server-side (owner decision C) — a
+          // non-carrier drawer name keeps this fixture testing ONLY
+          // freshness tracking (its actual concern), not the carrier-line
+          // sum invariant, which has its own dedicated coverage in
+          // ClosingRepository.carrierLineCheckpoint.test.ts.
+          drawer_name: "Safe",
           currency_code: "USD",
           expected_amount: 40,
           physical_amount: 40,
@@ -285,11 +291,11 @@ describe("ClosingRepository.getLastCheckpointPerDrawer — per-drawer freshness 
       expected: 950_000,
     });
 
-    // (d) MTC has no checkpoint of its own — it must still report the
+    // (d) Safe has no checkpoint of its own — it must still report the
     // AGGREGATED closing untouched (it is a real physical count, per the
     // owner's deliberate decision documented on the method).
-    expect(statuses.MTC.checked_at).toBe(readCreatedAt(db, aggregatedId));
-    expect(statuses.MTC.amounts.USD).toEqual({ physical: 40, expected: 40 });
+    expect(statuses.Safe.checked_at).toBe(readCreatedAt(db, aggregatedId));
+    expect(statuses.Safe.amounts.USD).toEqual({ physical: 40, expected: 40 });
   });
 
   it("a drawer with ONLY the aggregated baseline (never checkpointed individually) reports it correctly", () => {
@@ -298,7 +304,10 @@ describe("ClosingRepository.getLastCheckpointPerDrawer — per-drawer freshness 
       drawer_name: "AGGREGATED",
       amounts: [
         {
-          drawer_name: "Alfa",
+          // LIRA-252: see the comment above — a non-carrier drawer name so
+          // this freshness-only fixture doesn't trip the new MTC/Alfa
+          // bare-amount refusal (owner decision C).
+          drawer_name: "VendorX",
           currency_code: "USD",
           expected_amount: 100,
           physical_amount: 90,
@@ -309,8 +318,11 @@ describe("ClosingRepository.getLastCheckpointPerDrawer — per-drawer freshness 
     const aggregatedId = Number(aggregated.id);
 
     const statuses = repo.getLastCheckpointPerDrawer();
-    expect(statuses.Alfa.checked_at).toBe(readCreatedAt(db, aggregatedId));
-    expect(statuses.Alfa.amounts.USD).toEqual({ physical: 90, expected: 100 });
+    expect(statuses.VendorX.checked_at).toBe(readCreatedAt(db, aggregatedId));
+    expect(statuses.VendorX.amounts.USD).toEqual({
+      physical: 90,
+      expected: 100,
+    });
   });
 
   it("returns {} when daily_closing_amounts is empty (no checkpoint ever recorded)", () => {

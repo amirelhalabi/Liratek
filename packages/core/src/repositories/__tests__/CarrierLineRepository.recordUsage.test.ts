@@ -320,6 +320,15 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
    * so the §0.1 sum invariant starts TRUE and every assertion about it after
    * the write is meaningful. The second line also proves the flow debits the
    * carrier's shared drawer, not a per-line one.
+   *
+   * LIRA-252: the drawer used to need a manual seed INSERT here, because
+   * `createLine` never touched `drawer_balances` on its own. It now DOES
+   * (owner decision B, `postCarrierDrawerAdjustment`) — creating these two
+   * lines with credits 100 and 25 already brings MTC/USD to 125 by itself,
+   * so the old explicit `INSERT INTO drawer_balances ... VALUES (..., 125)`
+   * is both redundant AND now a UNIQUE-constraint collision against the row
+   * `createLine` already inserted. Removed rather than turned into an
+   * upsert — there is nothing left for it to do.
    */
   function seedMtcShop(): { primary: number; other: number } {
     const primary = repo.createLine({
@@ -328,16 +337,12 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       label: "Counter SIM",
       credits: 100,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     const other = repo.createLine({
       carrier: "mtc",
       phone_number: "03222222",
       credits: 25,
-    });
-    db.prepare(
-      `INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-       VALUES (1, 'MTC', 'USD', 125)`,
-    ).run();
+    }, 1);
     return { primary: primary.id, other: other.id };
   }
 
@@ -491,7 +496,7 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
         carrier: "alfa",
         phone_number: "03999999",
         credits: 40,
-      });
+      }, USER_ID);
 
       const result = repo.recordUsage(
         { carrierLineId: line.id, newCredits: 30 },
@@ -505,7 +510,11 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       expect(legsFor(result.transactionId)[0]!.drawer_name).toBe(
         CARRIER_DRAWER_NAMES.alfa,
       );
-      expect(drawer("Alfa", "USD")).toBeCloseTo(-10, 2);
+      // LIRA-252: this line is created with credits 40, which (owner
+      // decision B) now ALSO credits the Alfa drawer by +40 before
+      // recordUsage debits it by -10 (40 -> 30 consumed) — net +30, not the
+      // pre-fix -10 (back when createLine never touched the drawer at all).
+      expect(drawer("Alfa", "USD")).toBeCloseTo(30, 2);
       expect(drawer("MTC", "USD")).toBe(0);
     });
 
@@ -514,7 +523,7 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
         carrier: "mtc",
         phone_number: "03333333",
         credits: 1.5,
-      });
+      }, USER_ID);
 
       // Snapshot the OFFSET between the carrier drawer and the credits sum
       // (not the absolute values — this line's drawer wasn't seeded to
@@ -633,13 +642,25 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       expect(movements[0]!.is_reversed).toBe(1);
 
       // Payment legs for the original + its reversal cancel out.
+      //
+      // LIRA-252: scoped to THIS transaction AND its reversal (voidTransaction
+      // posts the mirrored leg under a NEW transaction row linked via
+      // `reverses_id`, not the original's own id — see
+      // TransactionRepository._reversePayments) — an unscoped sum over the
+      // whole MTC/USD drawer would also pick up `seedMtcShop()`'s two
+      // createLine drawer-adjustment postings (owner decision B), which
+      // carry `transaction_id = null` and are NOT part of what this
+      // recordUsage-then-void is proving nets to zero.
       const legSum = (
         db
           .prepare(
-            `SELECT COALESCE(SUM(amount), 0) AS s FROM payments
-             WHERE drawer_name = 'MTC' AND currency_code = 'USD'`,
+            `SELECT COALESCE(SUM(p.amount), 0) AS s
+             FROM payments p
+             JOIN transactions t ON t.id = p.transaction_id
+             WHERE p.drawer_name = 'MTC' AND p.currency_code = 'USD'
+               AND (t.id = ? OR t.reverses_id = ?)`,
           )
-          .get() as { s: number }
+          .get(result.transactionId, result.transactionId) as { s: number }
       ).s;
       expect(legSum).toBeCloseTo(0, 2);
 
@@ -687,11 +708,27 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
   // ===========================================================================
 
   describe("rejections", () => {
-    /** Nothing at all was written by the rejected call. */
-    function expectNothingWritten(drawerBefore: number): void {
+    /**
+     * Nothing at all was written by the rejected call.
+     *
+     * LIRA-252: neither `payments` nor `transactions` is expected at a
+     * literal 0 — every carrier-line write that moves `credits`/`is_active`
+     * now posts its own drawer-adjustment `payments` row AND (wave 2/3,
+     * with a real actor) a linked CARRIER_LINE_ADJUSTMENT `transactions`
+     * row (owner decision B). That includes the SETUP a test does before
+     * the rejected call (seedMtcShop's two `createLine`s; one test also
+     * archives a line first) — both counts are 1:1 (each adjustment posting
+     * writes exactly one of each), so `paymentsBefore` doubles as the
+     * transactions baseline too. Explicit snapshots per call site, not a
+     * fixed constant.
+     */
+    function expectNothingWritten(
+      drawerBefore: number,
+      paymentsBefore: number,
+    ): void {
       expect(rowCount("expenses")).toBe(0);
-      expect(rowCount("transactions")).toBe(0);
-      expect(rowCount("payments")).toBe(0);
+      expect(rowCount("transactions")).toBe(paymentsBefore);
+      expect(rowCount("payments")).toBe(paymentsBefore);
       expect(rowCount("carrier_line_movements")).toBe(0);
       expect(drawer("MTC", "USD")).toBeCloseTo(drawerBefore, 2);
     }
@@ -701,17 +738,25 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       expect(() =>
         repo.recordUsage({ carrierLineId: 99_999, newCredits: 1 }, USER_ID),
       ).toThrow(/#99999 not found/i);
-      expectNothingWritten(125);
+      expectNothingWritten(125, 2);
     });
 
     it("rejects an archived (inactive) line", () => {
       const { primary } = seedMtcShop();
-      repo.archive(primary);
+      repo.archive(primary, USER_ID);
+      // LIRA-252: archive() itself removes primary's 100 credits from the
+      // drawer (owner decision B) and posts its OWN payments+transactions
+      // row — the baseline for "nothing written by the REJECTED call" is
+      // therefore AFTER that archive, not the raw post-seed 125/2.
+      const drawerAfterArchive = drawer("MTC", "USD");
+      const paymentsAfterArchive = rowCount("payments");
+      expect(drawerAfterArchive).toBeCloseTo(25, 2); // 125 - 100
+      expect(paymentsAfterArchive).toBe(3); // 2 (seed) + 1 (archive)
 
       expect(() =>
         repo.recordUsage({ carrierLineId: primary, newCredits: 50 }, USER_ID),
       ).toThrow(/archived/i);
-      expectNothingWritten(125);
+      expectNothingWritten(drawerAfterArchive, paymentsAfterArchive);
       expect(repo.getById(primary)!.credits).toBeCloseTo(100, 2);
     });
 
@@ -728,7 +773,7 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
           USER_ID,
         ),
       ).toThrow(/balance changed/i);
-      expectNothingWritten(125);
+      expectNothingWritten(125, 2);
       expect(repo.getById(primary)!.credits).toBeCloseTo(100, 2);
     });
 
@@ -751,7 +796,7 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       expect(() =>
         repo.recordUsage({ carrierLineId: primary, newCredits: 100 }, USER_ID),
       ).toThrow(/must be below/i);
-      expectNothingWritten(125);
+      expectNothingWritten(125, 2);
     });
 
     it("rejects newCredits ABOVE the current balance (a top-up is not a usage)", () => {
@@ -759,7 +804,7 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       expect(() =>
         repo.recordUsage({ carrierLineId: primary, newCredits: 140 }, USER_ID),
       ).toThrow(/must be below/i);
-      expectNothingWritten(125);
+      expectNothingWritten(125, 2);
     });
 
     it("rejects a sub-cent delta", () => {
@@ -770,7 +815,7 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
           USER_ID,
         ),
       ).toThrow(/must be below/i);
-      expectNothingWritten(125);
+      expectNothingWritten(125, 2);
     });
 
     it("service.recordUsage turns every rejection into { success: false, error }", () => {
@@ -783,7 +828,7 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       expect(res.success).toBe(false);
       expect(res.data).toBeUndefined();
       expect(res.error).toMatch(/must be below/i);
-      expectNothingWritten(125);
+      expectNothingWritten(125, 2);
     });
   });
 
@@ -822,8 +867,11 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       });
 
       expect(rowCount("expenses")).toBe(0);
-      expect(rowCount("transactions")).toBe(0);
-      expect(rowCount("payments")).toBe(0);
+      // LIRA-252: 2, not 0 — seedMtcShop()'s two createLine calls each post
+      // their own drawer-adjustment payments+transactions row (owner
+      // decision B/wave 2).
+      expect(rowCount("transactions")).toBe(2);
+      expect(rowCount("payments")).toBe(2);
       expect(rowCount("carrier_line_movements")).toBe(0);
       expect(repo.getById(primary)!.credits).toBeCloseTo(100, 2);
       expect(drawer("MTC", "USD")).toBeCloseTo(125, 2);
@@ -837,14 +885,18 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
           carrier: "mtc",
           phone_number: "03444444",
           credits: 60,
-        });
+        }, USER_ID);
         return repo.recordUsage(
           { carrierLineId: line.id, newCredits: 20 },
           USER_ID,
         );
       });
 
-      expect(drawer("MTC", "USD", 2)).toBeCloseTo(-40, 2);
+      // LIRA-252: tenant 2's line is created with credits 60, which (owner
+      // decision B) now ALSO credits tenant 2's MTC/USD drawer by +60 before
+      // recordUsage debits it by -40 (60 -> 20 consumed) — net +20, not the
+      // pre-fix -40 (back when createLine never touched the drawer at all).
+      expect(drawer("MTC", "USD", 2)).toBeCloseTo(20, 2);
       expect(drawer("MTC", "USD", 1)).toBeCloseTo(125, 2);
       expect(expenseById(result.expenseId)!.tenant_id).toBe(2);
       expect(txnById(result.transactionId)!.tenant_id).toBe(2);

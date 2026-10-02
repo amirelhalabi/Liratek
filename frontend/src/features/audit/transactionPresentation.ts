@@ -101,6 +101,20 @@ export const TRANSACTION_PRESENTATION: Record<
   // own drawers — one leg each way, hence "both".
   DRAWER_TRANSFER: { label: null, color: "text-slate-300", direction: "both" },
   RECHARGE: { label: null, color: "text-purple-400", direction: "in" },
+  // LIRA-252 wave 2 — a manual SIM-line hand-edit (create/edit/quick-update/
+  // deactivate/reactivate/archive, Settings → Carrier Lines or the
+  // Recharge-tab inline balance update). `amount_usd` is a SIGNED credits
+  // delta (positive = credits added to the drawer, negative = removed — see
+  // `postCarrierDrawerAdjustment`), same shape as PARTNER_SETTLEMENT/
+  // PARTNER_PAYMENT, so direction is resolved from that sign below
+  // (cashFlow.ts) rather than fixed here. The full "Line adjustment — MTC
+  // 03924245: +$200.00 (edited)" detail is the row's own `summary` (rendered
+  // verbatim by SummaryCell); this is just the Type-column label.
+  CARRIER_LINE_ADJUSTMENT: {
+    label: "Line Adjustment",
+    color: "text-violet-200",
+    direction: "dynamic",
+  },
   // Four funding/destination shapes (TOPUP_CASHFLOW_DIRECTION_AUDIT.md) —
   // resolved from metadata, never from the type.
   RECHARGE_TOPUP: {

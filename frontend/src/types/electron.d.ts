@@ -2404,6 +2404,26 @@ export interface ElectronAPI {
       }>;
       error?: string;
     }>;
+    /** LIRA-252 wave 2 — Checkpoint Timeline companion read for manual
+     *  carrier-line (MTC/Alfa) drawer adjustments (CARRIER_LINE_ADJUSTMENT
+     *  transactions). */
+    getCarrierLineAdjustments: (filters: {
+      date_from?: string;
+      date_to?: string;
+      drawer_name?: string;
+    }) => Promise<{
+      success: boolean;
+      adjustments?: Array<{
+        id: number;
+        created_at: string;
+        user_id: number | null;
+        user_name: string;
+        amount_usd: number;
+        summary: string;
+        metadata_json: string | null;
+      }>;
+      error?: string;
+    }>;
     // Unified checkpoint API
     createCheckpoint: (data: {
       user_id: number;
@@ -3324,6 +3344,7 @@ export interface ElectronAPI {
       shop_name: string;
       admin_username: string;
       admin_password: string;
+      base_system?: "OMT" | "WHISH";
       enabled_modules: string[];
       enabled_payment_methods: string[];
       session_management_enabled: boolean;
@@ -3332,6 +3353,24 @@ export interface ElectronAPI {
       extra_users?: { username: string; password: string; role: string }[];
       whatsapp_phone?: string;
       whatsapp_api_key?: string;
+      // LIRA-252 item A — rule 12: these three travel on the wire today
+      // (setupHandlers.ts's `SetupPayload`) and were missing here.
+      drawer_amounts?: Array<{
+        drawer_name: string;
+        currency_code: string;
+        amount: number;
+      }>;
+      drawer_currency_config?: Array<{
+        drawer_name: string;
+        currency_codes: string[];
+      }>;
+      carrier_lines?: Array<{
+        carrier: "mtc" | "alfa";
+        phone_number: string;
+        label?: string | null;
+        credits?: number;
+        validity_expires_at?: string | null;
+      }>;
     }) => Promise<{ success: boolean; adminUserId?: number; error?: string }>;
     reset: () => Promise<{ success: boolean; error?: string }>;
     testDatabasePath: (

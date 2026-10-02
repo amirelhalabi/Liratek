@@ -195,6 +195,85 @@ describe("Closing REST routes — CQ-9 follow-up", () => {
     });
   });
 
+  // ── GET /api/closing/carrier-line-adjustments ─────────────────────────────
+  describe("GET /api/closing/carrier-line-adjustments", () => {
+    it("401s without auth", async () => {
+      const res = await request(app).get(
+        "/api/closing/carrier-line-adjustments",
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("200s with {success:true, adjustments} and no filters — matches IPC's envelope", async () => {
+      const fake = [
+        {
+          id: 1,
+          created_at: "2026-09-30T10:00:00Z",
+          user_id: 42,
+          user_name: "tester",
+          amount_usd: -5,
+          summary: "MTC line adjustment",
+          metadata_json: null,
+        },
+      ];
+      const spy = jest
+        .spyOn(closingService, "getCarrierLineAdjustments")
+        .mockResolvedValue({ success: true, adjustments: fake as any });
+
+      const res = await request(app)
+        .get("/api/closing/carrier-line-adjustments")
+        .set("x-test-role", "staff");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, adjustments: fake });
+      expect(spy).toHaveBeenCalledWith({});
+    });
+
+    it("passes date_from/date_to through to the service", async () => {
+      const spy = jest
+        .spyOn(closingService, "getCarrierLineAdjustments")
+        .mockResolvedValue({ success: true, adjustments: [] });
+
+      const res = await request(app)
+        .get("/api/closing/carrier-line-adjustments")
+        .query({ date_from: "2026-09-01", date_to: "2026-09-30" })
+        .set("x-test-role", "staff");
+
+      expect(res.status).toBe(200);
+      expect(spy).toHaveBeenCalledWith({
+        date_from: "2026-09-01",
+        date_to: "2026-09-30",
+      });
+    });
+
+    it("passes drawer_name through to the service", async () => {
+      const spy = jest
+        .spyOn(closingService, "getCarrierLineAdjustments")
+        .mockResolvedValue({ success: true, adjustments: [] });
+
+      const res = await request(app)
+        .get("/api/closing/carrier-line-adjustments")
+        .query({ drawer_name: "MTC_Line" })
+        .set("x-test-role", "staff");
+
+      expect(res.status).toBe(200);
+      expect(spy).toHaveBeenCalledWith({ drawer_name: "MTC_Line" });
+    });
+
+    it("500s with {success:false, error} when the service rejects — matches IPC's failure shape", async () => {
+      jest
+        .spyOn(closingService, "getCarrierLineAdjustments")
+        .mockRejectedValue(new Error("boom"));
+
+      const res = await request(app)
+        .get("/api/closing/carrier-line-adjustments")
+        .set("x-test-role", "staff");
+
+      expect(res.status).toBe(500);
+      expect(res.body.success).toBe(false);
+    });
+  });
+
   // ── Audit trail (LIRA-104) ──────────────────────────────────────────────
   describe("audit trail — POST /api/closing/checkpoint", () => {
     it("a successful checkpoint records an audit entry with the JWT's actor, never the body's", async () => {

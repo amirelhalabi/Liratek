@@ -23,13 +23,29 @@ interface CarrierLineDraft {
   phone_number: string;
   label: string;
   validity_expires_at: string;
+  /** LIRA-252 (owner decision A) — the carrier's starting credits, typed
+   *  ONCE here and nowhere else. No longer mirrored into `amounts[drawer]
+   *  ["USD"]`: that field doesn't exist for MTC/Alfa any more
+   *  (`buildDrawerAmounts` excludes both drawers outright), so there is
+   *  exactly one place this number lives and one payload field
+   *  (`carrier_lines[].credits`) it travels through. */
+  credits: string;
 }
 
 const EMPTY_CARRIER_DRAFT: CarrierLineDraft = {
   phone_number: "",
   label: "",
   validity_expires_at: "",
+  credits: "",
 };
+
+/** The two drawer names `CARRIER_LINE_META` maps to — MTC/Alfa's USD figure
+ *  is entered exclusively via a line's Credits field, never as a generic
+ *  drawer amount (owner decision A), so both are excluded from
+ *  `buildDrawerAmounts()`. */
+const CARRIER_DRAWER_SET = new Set(
+  CARRIER_LINE_META.map((meta) => meta.drawer as string),
+);
 
 interface CurrencyOption {
   code: string;
@@ -72,12 +88,18 @@ export default function StepDrawerAmounts() {
   >({});
   // All active currencies, for the "add currency" picker.
   const [allCurrencies, setAllCurrencies] = useState<CurrencyOption[]>([]);
-  // Carrier (MTC/Alfa) line drafts — phone/label/validity only. Credits is
-  // NOT duplicated here: it lives solely in `amounts[drawer]["USD"]` (§0.1),
-  // so the line and the carrier's starting drawer amount can never disagree.
+  // Carrier (MTC/Alfa) line drafts — phone/label/validity/credits. LIRA-252
+  // (owner decision A): credits is typed here ONLY, never duplicated into a
+  // generic drawer amount, so the line and the carrier's starting drawer
+  // figure (always their sum) can never disagree.
   const [carrierLineDrafts, setCarrierLineDrafts] = useState<
     Record<string, CarrierLineDraft>
   >({});
+  // Blocks Next (owner decision A: "Setup wizard requires a phone number for
+  // any non-zero MTC/Alfa credits") — never a silent drop.
+  const [carrierLineError, setCarrierLineError] = useState<string | null>(
+    null,
+  );
 
   const enabledModules = payload.enabled_modules;
 
@@ -160,11 +182,29 @@ export default function StepDrawerAmounts() {
     }));
   }
 
-  // Only carriers the operator actually typed a phone number for become a
-  // line (D4 — soft nudge, never blocks Launch). Credits come straight from
-  // `amounts[drawer]["USD"]` — the exact same number the drawer grid above
-  // would show for that drawer, so the line and the starting drawer amount
-  // are the same value read twice, never two independently-typed ones.
+  // LIRA-252 (owner decision A): a carrier with non-zero typed credits MUST
+  // have a phone number — `validateCarrierLines()` (called from `handleNext`)
+  // blocks the wizard instead of silently dropping the credits the old D4
+  // "soft nudge" behavior used to allow. Only a carrier with BOTH a phone
+  // number AND non-zero credits (or any credits at all) becomes a line.
+  function validateCarrierLines(): string | null {
+    for (const meta of CARRIER_LINE_META) {
+      if (!visibleDrawers.includes(meta.drawer)) continue;
+      const draft = carrierLineDrafts[meta.drawer] ?? EMPTY_CARRIER_DRAFT;
+      const phone = draft.phone_number.trim();
+      const credits = parseFloat(draft.credits) || 0;
+      if (credits !== 0 && !phone) {
+        return `Enter a phone number for the ${meta.drawer} line before setting its credits.`;
+      }
+    }
+    return null;
+  }
+
+  // Only carriers the operator typed a phone number for become a line.
+  // Credits come straight from the draft's own `credits` field — the ONLY
+  // place that number is typed (owner decision A) — never from a generic
+  // drawer amount, so the line and the carrier's starting drawer figure
+  // (always their sum, computed server-side) can never disagree.
   function buildCarrierLines() {
     const rows: Array<{
       carrier: "mtc" | "alfa";
@@ -182,13 +222,17 @@ export default function StepDrawerAmounts() {
         carrier: meta.carrier,
         phone_number: phone,
         label: draft.label.trim() || null,
-        credits: amounts[meta.drawer]?.["USD"] ?? 0,
+        credits: parseFloat(draft.credits) || 0,
         validity_expires_at: draft.validity_expires_at || null,
       });
     }
     return rows;
   }
 
+  // MTC/Alfa are excluded outright (owner decision A) — their starting
+  // balance travels exclusively via `carrier_lines[].credits`, never as a
+  // second, free-typed `drawer_amounts` row that could disagree with it (and
+  // that the server now refuses outright when no line is attached).
   function buildDrawerAmounts() {
     const rows: Array<{
       drawer_name: string;
@@ -196,6 +240,7 @@ export default function StepDrawerAmounts() {
       amount: number;
     }> = [];
     for (const drawer of visibleDrawers) {
+      if (CARRIER_DRAWER_SET.has(drawer)) continue;
       for (const currency of currenciesFor(drawer)) {
         const amt = amounts[drawer]?.[currency] ?? 0;
         if (amt !== 0) {
@@ -223,6 +268,12 @@ export default function StepDrawerAmounts() {
   }
 
   function handleNext() {
+    const error = validateCarrierLines();
+    if (error) {
+      setCarrierLineError(error);
+      return;
+    }
+    setCarrierLineError(null);
     // Store amounts + any drawer currency additions so StepComplete applies them
     updatePayload({
       drawer_amounts: buildDrawerAmounts(),
@@ -233,6 +284,7 @@ export default function StepDrawerAmounts() {
   }
 
   function handleSkip() {
+    setCarrierLineError(null);
     updatePayload({
       drawer_amounts: [],
       drawer_currency_config: [],
@@ -359,11 +411,18 @@ export default function StepDrawerAmounts() {
               <span className="text-slate-500 font-normal">(optional)</span>
             </h3>
             <p className="text-xs text-slate-400">
-              The shop's own MTC/Alfa SIM line. Credits entered here also set
-              that carrier's starting drawer amount above — one number, never
-              typed twice.
+              The shop's own MTC/Alfa SIM line(s). A carrier's starting drawer
+              amount is always the SUM of its lines' Credits — there is no
+              separate drawer field. A phone number is required for any
+              non-zero credits.
             </p>
           </div>
+
+          {carrierLineError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+              <p className="text-red-300 text-xs">{carrierLineError}</p>
+            </div>
+          )}
 
           <div className="space-y-3">
             {CARRIER_LINE_META.filter((meta) =>
@@ -430,8 +489,14 @@ export default function StepDrawerAmounts() {
                         Credits ($)
                       </label>
                       <DecimalInput
-                        value={amounts[meta.drawer]?.["USD"] ?? 0}
-                        onChange={(v) => handleChange(meta.drawer, "USD", v)}
+                        value={parseFloat(draft.credits) || 0}
+                        onChange={(v) =>
+                          handleCarrierFieldChange(
+                            meta.drawer,
+                            "credits",
+                            v ? String(v) : "",
+                          )
+                        }
                         decimals={2}
                         placeholder="0"
                         data-testid={`setup-carrier-credits-${meta.drawer}`}

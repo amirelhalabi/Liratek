@@ -329,7 +329,7 @@ describe("RechargeRepository.processRecharge — SHOP_LINE_USE (owner note #21 c
       phone_number: "03111111",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     // Second createLine for the same carrier is NOT primary (CarrierLineRepository
     // .createLine only makes the FIRST active line for a carrier primary).
     const secondLine = carrierLineRepo.createLine({
@@ -337,7 +337,7 @@ describe("RechargeRepository.processRecharge — SHOP_LINE_USE (owner note #21 c
       phone_number: "03222222",
       credits: 20,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     expect(primaryLine.is_primary).toBe(1);
     expect(secondLine.is_primary).toBe(0);
 
@@ -368,7 +368,7 @@ describe("RechargeRepository.processRecharge — SHOP_LINE_USE (owner note #21 c
       phone_number: "03111112",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     const beforeDrawer = drawerBalance(db, "MTC");
     const beforeGeneral = drawerBalance(db, "General");
 
@@ -420,7 +420,7 @@ describe("RechargeRepository.processRecharge — SHOP_LINE_USE (owner note #21 c
       phone_number: "03111113",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
 
     const result = repo.processRecharge({
       provider: "MTC",
@@ -450,7 +450,7 @@ describe("RechargeRepository.processRecharge — SHOP_LINE_USE (owner note #21 c
       phone_number: "03111114",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
 
     const result = repo.processRecharge({
       provider: "MTC",
@@ -471,7 +471,7 @@ describe("RechargeRepository.processRecharge — SHOP_LINE_USE (owner note #21 c
       phone_number: "03111115",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     const beforeDrawer = drawerBalance(db, "MTC");
     const beforeGeneral = drawerBalance(db, "General");
 
@@ -561,7 +561,7 @@ describe("RechargeRepository.processRecharge — SHOP_LINE_USE (owner note #21 c
       phone_number: "03111116",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     const clientId = Number(
       db
         .prepare(

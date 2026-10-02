@@ -13,7 +13,7 @@ import {
   billsOnlyCommissionAmount,
   getSplitGroupInfo,
   isProviderBalanceInflow,
-  isSignedPartnerType,
+  isSignedAmountType,
   isSupplierCredit,
 } from "./transactionDisplay";
 import type { TransactionRow } from "./hooks/useTransactionRows";
@@ -23,7 +23,8 @@ import type { TransactionRow } from "./hooks/useTransactionRows";
 export type RowDerived = {
   /** Cashless supplier credit (a receivable, not drawer cash). */
   credit: boolean;
-  /** PARTNER_* rows carry a SIGNED amount; the sign is direction, not value. */
+  /** PARTNER_* and CARRIER_LINE_ADJUSTMENT rows carry a SIGNED amount; the
+   *  sign is direction, not value (see `isSignedAmountType`). */
   partnerSigned: boolean;
   /** For a SALE: what the customer actually handed over. */
   tender: { usd: number; lbp: number } | null;
@@ -56,7 +57,7 @@ export function deriveRow(
 ): RowDerived {
   return {
     credit: isSupplierCredit(row.type, row.metadata_json),
-    partnerSigned: isSignedPartnerType(row.type),
+    partnerSigned: isSignedAmountType(row.type),
     tender: saleTenderTotals(row.type, row.payments),
     splitGroup: getSplitGroupInfo(row.metadata_json),
     commissionAmount: billsOnlyCommissionAmount(row),

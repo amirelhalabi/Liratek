@@ -549,7 +549,16 @@ test.describe("LIRA-145 — carrier-line credit usage books a Line_Usage expense
     await searchInput.fill(phone);
     await searchInput.press("Enter");
 
-    const tableRow = appPage.locator("tbody tr").filter({ hasText: phone });
+    // LIRA-252 (uncommitted): seeding the line with starting credits ALSO
+    // books a visible CARRIER_LINE_ADJUSTMENT row whose summary ("Line
+    // adjustment — MTC <phone>: +$…") contains the same phone, so a bare
+    // phone filter now matches 2 rows. Discriminate by identity (rule 15):
+    // the Line_Usage EXPENSE row's summary contains "Line usage:" — the
+    // adjustment row's does not.
+    const tableRow = appPage
+      .locator("tbody tr")
+      .filter({ hasText: phone })
+      .filter({ hasText: "Line usage:" });
     await expect(tableRow).toHaveCount(1, { timeout: 10_000 });
     await expect(tableRow.getByTestId("cash-flow-badge")).toHaveAttribute(
       "data-direction",
@@ -626,7 +635,14 @@ test.describe("LIRA-145 — carrier-line credit usage books a Line_Usage expense
     await searchInput.fill(phone);
     await searchInput.press("Enter");
 
-    const tableRow = appPage.locator("tbody tr").filter({ hasText: phone });
+    // LIRA-252 (uncommitted): seeding also books a visible
+    // CARRIER_LINE_ADJUSTMENT row for the same phone (no Void button — it
+    // isn't the row under test). Discriminate by identity (rule 15): the
+    // Line_Usage EXPENSE row's summary contains "Line usage:".
+    const tableRow = appPage
+      .locator("tbody tr")
+      .filter({ hasText: phone })
+      .filter({ hasText: "Line usage:" });
     await expect(tableRow).toHaveCount(1, { timeout: 10_000 });
     const voidBtn = tableRow.getByRole("button", { name: /^Void$/ });
     await expect(voidBtn).toBeVisible();

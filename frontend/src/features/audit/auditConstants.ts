@@ -278,6 +278,12 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         type: "TELECOM_CREDIT_BUYBACK",
         provider: "Alfa",
       },
+      // LIRA-252 wave 2: a manual SIM-line hand-edit from Settings → Carrier
+      // Lines or the Recharge-tab inline balance update. One option for
+      // both carriers (no `provider` narrowing — the row's own `summary`
+      // already names MTC vs Alfa), matching the single-option granularity
+      // of "Discount"/"Checkpoint" below.
+      { label: "Line Adjustment", type: "CARRIER_LINE_ADJUSTMENT" },
     ],
   },
   {

@@ -2,11 +2,14 @@ import { useState } from "react";
 import { useSetup } from "../context/SetupContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { CheckCircle, Loader2 } from "lucide-react";
-import { appEvents } from "@liratek/ui";
+import { appEvents, useApi } from "@liratek/ui";
+import { isElectron } from "@/api/backendApi";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 
 export default function StepComplete() {
   const { payload, resetWizard, setStep } = useSetup();
   const { login, clearSetupRequired } = useAuth();
+  const api = useApi();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -14,10 +17,11 @@ export default function StepComplete() {
     setLoading(true);
     setError("");
     try {
-      // Complete setup via IPC
-      const result = window.api
-        ? await window.api.setup.complete(payload)
-        : { success: false, error: "Setup IPC not available" };
+      // Complete setup (rule 19 — through the adapter, never a raw
+      // window.api.setup.complete call). The wizard is desktop-only today
+      // (`completeSetup`'s web branch refuses cleanly), so this still only
+      // ever does real work under Electron.
+      const result = await api.completeSetup(payload);
 
       if (!result.success) {
         setError(result.error ?? "Setup failed");
@@ -41,10 +45,12 @@ export default function StepComplete() {
       // Register any currencies the operator added to a drawer at the drawer-
       // amounts step (e.g. EUR) BEFORE the checkpoint, so the currency is
       // first-class (shows on the dashboard + is offered in future checkpoints).
-      // Admin-only IPC — safe here because login() ran just above.
-      if (window.api && payload.drawer_currency_config?.length) {
+      // Admin-only IPC — safe here because login() ran just above. Still a
+      // desktop-only call (no dual-mode wrapper exists for it); guarded the
+      // same way the rest of this desktop-only wizard is.
+      if (isElectron() && payload.drawer_currency_config?.length) {
         for (const cfg of payload.drawer_currency_config) {
-          await window.api.currencies.setDrawerCurrencies(
+          await window.api!.currencies.setDrawerCurrencies(
             cfg.drawer_name,
             cfg.currency_codes,
           );
@@ -57,19 +63,28 @@ export default function StepComplete() {
       // user_id must be the admin's real id: the seed admin (id=1) is deleted
       // when a custom username is chosen, so a hardcoded 1 would violate the
       // daily_closings.created_by FK and roll the checkpoint back.
-      if (window.api) {
-        await window.api.closing.createCheckpoint({
-          user_id: result.adminUserId ?? 1,
-          drawer_name: "AGGREGATED",
-          notes: "Initial drawer amounts from setup",
-          amounts: (payload.drawer_amounts ?? []).map((d) => ({
+      //
+      // LIRA-252 item A — MTC/Alfa are excluded from this `amounts` array:
+      // `completeSetup` above already created their carrier line(s) (if any
+      // were typed), and `CarrierLineRepository.createLine` posts that
+      // carrier's drawer adjustment itself (item B) in the SAME call. A bare
+      // MTC/Alfa row here would duplicate that money AND the server now
+      // refuses a bare non-zero MTC/Alfa amount with no `carrier_lines`
+      // attached to this checkpoint (item C) — so it must never be sent.
+      const CARRIER_DRAWER_NAMES = new Set(["MTC", "Alfa"]);
+      await api.createCheckpoint({
+        user_id: result.adminUserId ?? 1,
+        drawer_name: "AGGREGATED",
+        notes: "Initial drawer amounts from setup",
+        amounts: (payload.drawer_amounts ?? [])
+          .filter((d) => !CARRIER_DRAWER_NAMES.has(d.drawer_name))
+          .map((d) => ({
             drawer_name: d.drawer_name,
             currency_code: d.currency_code,
             expected_amount: d.amount,
             physical_amount: d.amount,
           })),
-        });
-      }
+      });
 
       // Refresh all module/feature-flag contexts so they pick up the
       // values the user just configured (instead of the seeded defaults)
@@ -86,7 +101,9 @@ export default function StepComplete() {
         6000,
       );
     } catch (e) {
-      setError(String(e));
+      // A server refusal (e.g. the item-C bare-MTC/Alfa-amount guard) must
+      // surface its real message, not a stringified error object.
+      setError(getApiErrorMessage(e, "An unexpected error occurred"));
     } finally {
       setLoading(false);
     }

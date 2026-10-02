@@ -326,6 +326,33 @@ export function registerDatabaseHandlers(): void {
     },
   );
 
+  // Get carrier-line manual-drawer-adjustment history (LIRA-252 wave 2 —
+  // Checkpoint Timeline companion read for CARRIER_LINE_ADJUSTMENT rows).
+  // Mirrors closing:getCheckpointTimeline above: no Zod schema (this is a
+  // read with no write-path), try-catch around the service call so a thrown
+  // repo error returns {success:false} instead of crossing the IPC boundary.
+  ipcMain.handle(
+    "closing:getCarrierLineAdjustments",
+    async (
+      _event,
+      filters: {
+        date_from?: string;
+        date_to?: string;
+        drawer_name?: string;
+      },
+    ) => {
+      try {
+        const closingService = getClosingService();
+        return await closingService.getCarrierLineAdjustments(filters);
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
   // Unified checkpoint: create
   ipcMain.handle(
     "closing:create-checkpoint",

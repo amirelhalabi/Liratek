@@ -539,7 +539,7 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
       phone_number: "03111111",
       credits: 20,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     seedDrawer(db, "MTC", "USD", 20);
     seedDrawer(db, "General", "USD", 500);
 
@@ -571,7 +571,7 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
       phone_number: "03111112",
       credits: 20,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     seedDrawer(db, "MTC", "USD", 20);
     seedDrawer(db, "General", "USD", 500);
     const before = {
@@ -610,7 +610,7 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
       phone_number: "03111113",
       credits: 20,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     seedDrawer(db, "MTC", "USD", 20);
     seedDrawer(db, "General", "USD", 500);
 

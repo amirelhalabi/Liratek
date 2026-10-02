@@ -322,7 +322,7 @@ describe("RechargeRepository — DAYS sale validity movement is reversible (LIRA
       phone_number: "03999999",
       credits: 100,
       validity_expires_at: SHOP_LINE_EXPIRY,
-    });
+    }, 1);
     const mtcDrawerBefore = drawer(db, "MTC", "USD");
 
     const result = repo.processRecharge({
@@ -376,7 +376,7 @@ describe("RechargeRepository — DAYS sale validity movement is reversible (LIRA
       phone_number: "70999999",
       credits: 100,
       validity_expires_at: SHOP_LINE_EXPIRY,
-    });
+    }, 1);
 
     const result = repo.processRecharge({
       provider: "Alfa",
@@ -416,7 +416,7 @@ describe("RechargeRepository — DAYS sale validity movement is reversible (LIRA
       phone_number: "03999997",
       credits: 100,
       validity_expires_at: SHOP_LINE_EXPIRY,
-    });
+    }, 1);
 
     const result = repo.processRecharge({
       provider: "MTC",

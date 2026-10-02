@@ -267,10 +267,18 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
   }
 
   it("VOID nets every ledger back to 0: iPick LBP, MTC USD, carrier line credits, AND carrier line validity", () => {
+    // LIRA-252: credits 0 (not a prior starting balance) — this test's
+    // concern is reversing the SELF_CHARGE transaction's OWN ledger effects
+    // in isolation. A non-zero starting balance here would ALSO enter the
+    // MTC drawer via `createLine`'s own new drawer-adjustment posting (owner
+    // decision B) — a real, deliberately NON-reversible manual correction
+    // (see `postCarrierDrawerAdjustment`'s doc) — which would then still be
+    // sitting in the drawer after void, polluting the "nets to 0" assertion
+    // below with a number this test isn't about.
     const line = lineRepo.createLine({
       carrier: "mtc",
       phone_number: "03111111",
-      credits: 20,
+      credits: 0,
       validity_expires_at: FUTURE_EXPIRY,
     });
 
@@ -280,7 +288,7 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
     expect(drawer(db, "iPick", "LBP")).toBeCloseTo(-7_600_000, 2);
     expect(drawer(db, "MTC", "USD")).toBeCloseTo(77, 2);
     const afterSeed = lineRepo.getById(line.id)!;
-    expect(afterSeed.credits).toBeCloseTo(97, 2); // 20 + 77
+    expect(afterSeed.credits).toBeCloseTo(77, 2); // 0 + 77
     expect(afterSeed.validity_expires_at).not.toBe(FUTURE_EXPIRY); // validity moved
 
     repo.voidTransaction(txnId, 1);
@@ -292,7 +300,7 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
     // Carrier line nets EXACTLY back to its pre-mutation baseline — the
     // rule-20 reversal this phase adds.
     const afterVoid = lineRepo.getById(line.id)!;
-    expect(afterVoid.credits).toBeCloseTo(20, 2);
+    expect(afterVoid.credits).toBeCloseTo(0, 2);
     expect(afterVoid.validity_expires_at).toBe(FUTURE_EXPIRY);
 
     // The movement itself is marked reversed.
@@ -302,10 +310,14 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
   });
 
   it("REFUND nets every ledger back to 0 the same way", () => {
+    // LIRA-252: credits 0 — see the VOID test's comment above for why a
+    // non-zero starting balance here would pollute this file's "nets to 0"
+    // assertion with `createLine`'s own (deliberately non-reversible)
+    // drawer-adjustment posting.
     const line = lineRepo.createLine({
       carrier: "mtc",
       phone_number: "03111111",
-      credits: 5,
+      credits: 0,
       validity_expires_at: FUTURE_EXPIRY,
     });
     const txnId = seedSelfChargeTransaction(line.id);
@@ -315,7 +327,7 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
     expect(drawer(db, "iPick", "LBP")).toBeCloseTo(0, 2);
     expect(drawer(db, "MTC", "USD")).toBeCloseTo(0, 2);
     const afterRefund = lineRepo.getById(line.id)!;
-    expect(afterRefund.credits).toBeCloseTo(5, 2);
+    expect(afterRefund.credits).toBeCloseTo(0, 2);
     expect(afterRefund.validity_expires_at).toBe(FUTURE_EXPIRY);
     expect(movementRepo.getByTransactionId(txnId)[0]!.is_reversed).toBe(1);
   });
@@ -326,7 +338,7 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
       phone_number: "03111111",
       credits: 10,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     const txnId = seedSelfChargeTransaction(line.id);
 
     repo.voidTransaction(txnId, 1);
@@ -353,7 +365,7 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
       phone_number: "03111111",
       credits: 30,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     const txnId = seedSelfChargeTransaction(line.id);
     const original = repo.findById(txnId) as TransactionEntity;
 
@@ -383,7 +395,7 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
       phone_number: "03111111",
       credits: 10,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     // Manual movement, no transaction tie.
     service.applyMovement({
       carrierLineId: line.id,

@@ -517,15 +517,23 @@ export function isProviderBalanceInflow(row: TransactionRow): boolean {
 }
 
 /**
- * PARTNER_SETTLEMENT/PARTNER_PAYMENT store SIGNED amount_usd/amount_lbp
- * (positive = cash in, negative = cash out) instead of the unsigned
+ * PARTNER_SETTLEMENT/PARTNER_PAYMENT and, since LIRA-252 wave 2,
+ * CARRIER_LINE_ADJUSTMENT all store SIGNED amount_usd/amount_lbp (positive =
+ * cash/credits in, negative = cash/credits out) instead of the unsigned
  * magnitude every other transaction type uses — see
- * PartnerRepository.recordSettlementMoneyMovement. The sign itself is read
- * by cashFlow.ts's historical-row fallback; display always wants the plain
- * magnitude (same treatment as the supplier-credit case above).
+ * PartnerRepository.recordSettlementMoneyMovement and
+ * CarrierLineRepository.postCarrierDrawerAdjustment respectively. The sign
+ * itself is read by cashFlow.ts's per-type "dynamic" branch; display always
+ * wants the plain magnitude (same treatment as the supplier-credit case
+ * above). Named generically (not `isSignedPartnerType`) now that a second,
+ * unrelated type shares the same signed-amount shape.
  */
-export function isSignedPartnerType(type: string): boolean {
-  return type === "PARTNER_SETTLEMENT" || type === "PARTNER_PAYMENT";
+export function isSignedAmountType(type: string): boolean {
+  return (
+    type === "PARTNER_SETTLEMENT" ||
+    type === "PARTNER_PAYMENT" ||
+    type === "CARRIER_LINE_ADJUSTMENT"
+  );
 }
 
 /**

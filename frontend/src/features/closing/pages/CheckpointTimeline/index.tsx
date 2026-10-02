@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { PageHeader, Select, useApi } from "@liratek/ui";
 import { Clock, Eye, X, Check, AlertTriangle } from "lucide-react";
@@ -57,13 +57,80 @@ interface CheckpointFilters {
   user_id?: number;
 }
 
+/** LIRA-252 wave 2 — one manual MTC/Alfa SIM-line drawer adjustment
+ *  (`CARRIER_LINE_ADJUSTMENT` transaction), as `ClosingRepository
+ *  .getCarrierLineAdjustments` returns it. Local interface mirroring core's
+ *  `CarrierLineAdjustmentRecord`, same convention this file already uses for
+ *  `CheckpointRecord` above rather than importing the type. */
+interface CarrierLineAdjustmentEntry {
+  id: number;
+  created_at: string;
+  user_id: number | null;
+  user_name: string;
+  amount_usd: number;
+  summary: string;
+  metadata_json: string | null;
+}
+
+/** Only the fields this page reads out of a `CARRIER_LINE_ADJUSTMENT` row's
+ *  `metadata_json` (see `postCarrierDrawerAdjustment`'s stamp). Defensive
+ *  parse — a malformed/absent payload degrades to nulls rather than
+ *  throwing, same as every other `metadata_json` reader in this codebase. */
+function parseAdjustmentMeta(metaJson: string | null): {
+  drawerName: string | null;
+  phoneNumber: string | null;
+  reason: string | null;
+} {
+  if (!metaJson) return { drawerName: null, phoneNumber: null, reason: null };
+  try {
+    const m = JSON.parse(metaJson) as {
+      drawer_name?: string;
+      phone_number?: string;
+      reason?: string;
+    };
+    return {
+      drawerName: m.drawer_name ?? null,
+      phoneNumber: m.phone_number ?? null,
+      reason: m.reason ?? null,
+    };
+  } catch {
+    return { drawerName: null, phoneNumber: null, reason: null };
+  }
+}
+
+/** One merged, time-sortable timeline row — a checkpoint OR a manual
+ *  carrier-line drawer adjustment, interleaved by `created_at` so the
+ *  operator can see why the NEXT checkpoint's "expected" moved (owner
+ *  decision, LIRA-252). */
+type TimelineRow =
+  | { kind: "checkpoint"; created_at: string; checkpoint: CheckpointRecord }
+  | {
+      kind: "adjustment";
+      created_at: string;
+      adjustment: CarrierLineAdjustmentEntry;
+    };
+
 function todayISO(): string {
   return localDay();
 }
 
 export default function CheckpointTimeline() {
   const api = useApi();
+  // Rule 25 — `api`'s identity is only stable because `ApiProvider` happens
+  // to hand out a module-level singleton; nothing enforces that, and a test
+  // mock's fresh object literal would make an `api` dependency re-fire every
+  // render. Read it through a ref instead of putting `api` itself in any
+  // effect's dependency array.
+  const apiRef = useRef(api);
+  apiRef.current = api;
   const [checkpoints, setCheckpoints] = useState<CheckpointRecord[]>([]);
+  // LIRA-252 wave 2 — manual MTC/Alfa carrier-line drawer adjustments,
+  // fetched alongside the checkpoints and interleaved into one timeline (see
+  // `timelineRows` below) so the operator can see why the next checkpoint's
+  // "expected" moved.
+  const [carrierAdjustments, setCarrierAdjustments] = useState<
+    CarrierLineAdjustmentEntry[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(100);
@@ -84,11 +151,11 @@ export default function CheckpointTimeline() {
   // Fetch the setup checkpoint date once so we can surface it when it falls
   // outside the current filter window.
   useEffect(() => {
-    api
+    apiRef.current
       .getInitialCheckpointDate()
       .then(setInitialCheckpointDate)
       .catch(() => setInitialCheckpointDate(null));
-  }, [api]);
+  }, []);
 
   // Refresh the timeline after a checkpoint completes
   useEffect(() => {
@@ -105,9 +172,41 @@ export default function CheckpointTimeline() {
   const loadCheckpoints = async () => {
     setLoading(true);
     try {
-      const result = await api.getCheckpointTimeline(filters);
-      if (result.success && result.checkpoints) {
-        setCheckpoints(result.checkpoints);
+      // The carrier-line-adjustment companion read is MTC/Alfa only — when
+      // the drawer filter already narrows to a non-carrier drawer (or to one
+      // specific carrier), request exactly that; "All Drawers" fetches both
+      // carriers unfiltered (the REST/IPC filter is an AND, not an OR, so a
+      // non-carrier drawer_name would silently return zero rows forever —
+      // this gate is what keeps that from being requested at all).
+      const carrierFilter =
+        filters.drawer_name === "MTC" || filters.drawer_name === "Alfa"
+          ? filters.drawer_name
+          : undefined;
+      const skipAdjustments =
+        filters.drawer_name !== "" &&
+        filters.drawer_name !== "MTC" &&
+        filters.drawer_name !== "Alfa";
+
+      const [checkpointResult, adjustmentResult] = await Promise.all([
+        apiRef.current.getCheckpointTimeline(filters),
+        skipAdjustments
+          ? Promise.resolve<{
+              success: boolean;
+              adjustments: CarrierLineAdjustmentEntry[];
+            }>({ success: true, adjustments: [] })
+          : apiRef.current.getCarrierLineAdjustments({
+              date_from: filters.date_from,
+              date_to: filters.date_to,
+              ...(carrierFilter ? { drawer_name: carrierFilter } : {}),
+            }),
+      ]);
+      if (checkpointResult.success && checkpointResult.checkpoints) {
+        setCheckpoints(checkpointResult.checkpoints);
+      }
+      if (adjustmentResult.success && adjustmentResult.adjustments) {
+        setCarrierAdjustments(adjustmentResult.adjustments);
+      } else {
+        setCarrierAdjustments([]);
       }
     } catch {
       // non-fatal
@@ -219,9 +318,54 @@ export default function CheckpointTimeline() {
     );
   }, [checkpoints, search]);
 
-  const displayedCheckpoints = useMemo(
-    () => filteredCheckpoints.slice(0, limit),
-    [filteredCheckpoints, limit],
+  // LIRA-252 wave 2 — the same search box also matches a manual carrier-line
+  // adjustment's actor/line/reason, so narrowing the timeline by user or
+  // phone number finds both kinds of row.
+  const filteredAdjustments = useMemo(() => {
+    if (!search.trim()) return carrierAdjustments;
+    const q = search.toLowerCase();
+    return carrierAdjustments.filter((a) => {
+      const meta = parseAdjustmentMeta(a.metadata_json);
+      return (
+        a.user_name.toLowerCase().includes(q) ||
+        a.summary.toLowerCase().includes(q) ||
+        (meta.phoneNumber ?? "").toLowerCase().includes(q) ||
+        (meta.drawerName ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [carrierAdjustments, search]);
+
+  // The merged, time-sorted timeline — checkpoints and manual carrier-line
+  // adjustments interleaved by `created_at` (owner decision, LIRA-252:
+  // "interleaved between the checkpoints they fall between", so the operator
+  // can see why the next checkpoint's expected amount moved).
+  const timelineRows: TimelineRow[] = useMemo(() => {
+    const rows: TimelineRow[] = [
+      ...filteredCheckpoints.map(
+        (checkpoint): TimelineRow => ({
+          kind: "checkpoint",
+          created_at: checkpoint.created_at,
+          checkpoint,
+        }),
+      ),
+      ...filteredAdjustments.map(
+        (adjustment): TimelineRow => ({
+          kind: "adjustment",
+          created_at: adjustment.created_at,
+          adjustment,
+        }),
+      ),
+    ];
+    return rows.sort(
+      (a, b) =>
+        parseDbDate(b.created_at).getTime() -
+        parseDbDate(a.created_at).getTime(),
+    );
+  }, [filteredCheckpoints, filteredAdjustments]);
+
+  const displayedRows = useMemo(
+    () => timelineRows.slice(0, limit),
+    [timelineRows, limit],
   );
 
   // The setup checkpoint exists but sits before the current from-date, so it is
@@ -314,7 +458,7 @@ export default function CheckpointTimeline() {
           <div className="p-8 text-center text-slate-400 animate-pulse">
             Loading checkpoints...
           </div>
-        ) : checkpoints.length === 0 ? (
+        ) : checkpoints.length === 0 && carrierAdjustments.length === 0 ? (
           <div className="p-8 text-center text-slate-400">
             <Clock size={48} className="mx-auto mb-4 opacity-50" />
             <p>
@@ -361,7 +505,7 @@ export default function CheckpointTimeline() {
                 className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
             ]}
-            data={displayedCheckpoints}
+            data={displayedRows}
             loading={loading}
             emptyMessage="No checkpoints found"
             exportExcel
@@ -369,7 +513,7 @@ export default function CheckpointTimeline() {
             exportFilename="checkpoints"
             exportDefaultColumns={["Time", "Drawer", "Amount", "User", "Notes"]}
             showRowCount
-            totalRowCount={filteredCheckpoints.length}
+            totalRowCount={timelineRows.length}
             defaultSortKey="created_at"
             defaultSortDirection="desc"
             className="w-full text-left"
@@ -377,16 +521,79 @@ export default function CheckpointTimeline() {
             getSortValue={(row, key) => {
               if (key === "created_at")
                 return parseDbDate(row.created_at).getTime();
-              if (key === "drawer_name") return row.drawer_name;
-              if (key === "user_name") return row.user_name;
-              if (key === "notes") return row.notes ?? "";
+              if (row.kind === "adjustment") {
+                const meta = parseAdjustmentMeta(row.adjustment.metadata_json);
+                if (key === "drawer_name") return meta.drawerName ?? "";
+                if (key === "user_name") return row.adjustment.user_name;
+                if (key === "notes") return row.adjustment.summary;
+                if (key === "amount") return row.adjustment.amount_usd;
+                return "";
+              }
+              const checkpoint = row.checkpoint;
+              if (key === "drawer_name") return checkpoint.drawer_name;
+              if (key === "user_name") return checkpoint.user_name;
+              if (key === "notes") return checkpoint.notes ?? "";
               if (key === "amount") {
-                const totals = getAggregatedTotals(row);
+                const totals = getAggregatedTotals(checkpoint);
                 return totals["USD"] ?? totals["USDT"] ?? 0;
               }
               return "";
             }}
-            renderRow={(checkpoint) => {
+            renderRow={(row) => {
+              // LIRA-252 wave 2 — a manual carrier-line drawer adjustment
+              // interleaved into the same timeline (time, actor, line,
+              // ±amount, reason) so the operator can see why the NEXT
+              // checkpoint's "expected" moved.
+              if (row.kind === "adjustment") {
+                const { adjustment } = row;
+                const meta = parseAdjustmentMeta(adjustment.metadata_json);
+                const drawerLabel = meta.drawerName
+                  ? (DRAWER_CONFIGS[meta.drawerName as DrawerType]?.label ??
+                    meta.drawerName)
+                  : "—";
+                const signed = adjustment.amount_usd;
+                return (
+                  <tr
+                    key={`adjustment-${adjustment.id}`}
+                    data-testid={`carrier-line-adjustment-row-${adjustment.id}`}
+                    className="border-t border-slate-800 text-xs hover:bg-slate-700/50 transition-colors bg-violet-500/5"
+                  >
+                    <td className="p-2 text-slate-300 font-mono">
+                      {formatTime(adjustment.created_at)}
+                    </td>
+                    <td className="p-2 text-slate-300">
+                      <span className="inline-flex items-center gap-1">
+                        {drawerLabel}
+                        <span className="text-[10px] uppercase tracking-wide text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">
+                          Line edit
+                        </span>
+                      </span>
+                      {meta.phoneNumber && (
+                        <div className="text-[11px] text-slate-500 font-mono">
+                          {meta.phoneNumber}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-2">
+                      <span
+                        className={`font-mono font-medium ${signed >= 0 ? "text-emerald-400" : "text-red-400"}`}
+                      >
+                        {signed >= 0 ? "+$" : "-$"}
+                        {formatCurrencyAmount(Math.abs(signed), "USD")}
+                      </span>
+                    </td>
+                    <td className="p-2 text-slate-300">
+                      {adjustment.user_name}
+                    </td>
+                    <td className="p-2 text-slate-400 italic max-w-xs truncate">
+                      {adjustment.summary || meta.reason || "—"}
+                    </td>
+                    <td className="p-2 text-right" />
+                  </tr>
+                );
+              }
+
+              const checkpoint = row.checkpoint;
               const drawerLabel =
                 DRAWER_CONFIGS[checkpoint.drawer_name as DrawerType]?.label ??
                 checkpoint.drawer_name;
@@ -394,7 +601,7 @@ export default function CheckpointTimeline() {
               const validityDiffs = getValidityDiffs(checkpoint);
               return (
                 <tr
-                  key={checkpoint.id}
+                  key={`checkpoint-${checkpoint.id}`}
                   className="border-t border-slate-800 text-xs hover:bg-slate-700/50 transition-colors"
                 >
                   <td className="p-2 text-slate-300 font-mono">

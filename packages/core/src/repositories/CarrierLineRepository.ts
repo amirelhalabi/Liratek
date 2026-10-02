@@ -2,9 +2,23 @@
  * Carrier Line Repository (LIRA W6.a)
  *
  * Shop-owned alfa/mtc SIM lines: remaining credits + validity expiry date.
- * Informational only — no drawer legs, no checkout/closing involvement.
  * `validity_expires_at` stores a DATE (YYYY-MM-DD); days-remaining is
  * derived by the caller at render time so the figure never goes stale.
+ *
+ * LIRA-252 UPDATE: the "informational only — no drawer legs" framing above
+ * was true at W6.a and is now STALE — it was the root cause of a production
+ * bug (MTC drawer $10,000 vs one $500 line; Alfa $10,000 with no line at
+ * all). §0.1's invariant (`drawer == Σ active-line credits`,
+ * `getCarrierCreditsSum` below) must hold after EVERY carrier-line write,
+ * not just the checkpoint/sale/buy-back paths that already maintained it.
+ * `createLine`, `updateBalance`, `updateLineAndSyncDrawer`, `toggleActive`
+ * and `archive` now each post the SAME delta to the carrier's drawer via
+ * `postCarrierDrawerAdjustment` (reusing `CHECKPOINT_ADJUSTMENT_METHOD` —
+ * owner decision: no new transaction type). `applyMovement`/`reverseMovement`
+ * deliberately do NOT — those are the money-path entry points whose CALLERS
+ * (sales, buy-backs, line-use) already post their own drawer legs around the
+ * call (RechargeRepository §0.1 comments); adding a second posting there
+ * would double-debit/double-credit every sale.
  */
 
 import { BaseRepository } from "./BaseRepository.js";
@@ -38,6 +52,16 @@ import {
 // of these into a constructor-injected instance or a top-level `const`.
 import { getExpenseRepository } from "./ExpenseRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+// LIRA-252 (owner decision B) — the same checkpoint-reconciliation posting
+// primitives, reused rather than inventing a new transaction type (owner
+// instruction). See `postCarrierDrawerAdjustment` below.
+import { insertPaymentRow, applyDrawerDelta } from "./moneyPosting.js";
+import { CHECKPOINT_ADJUSTMENT_METHOD } from "../constants/checkpointAdjustment.js";
+// LIRA-252 wave 2 (owner decision 2026-10-02) — postCarrierDrawerAdjustment
+// now ALSO creates a real `transactions` row via getTransactionRepository()
+// (imported above) typed CARRIER_LINE_ADJUSTMENT, so the manual-edit shows on
+// the Transactions page like every other money-moving flow.
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Entity Types
@@ -167,6 +191,21 @@ export interface UpdateBalanceData {
   credits?: number;
   validity_expires_at?: string | null;
 }
+
+/**
+ * LIRA-252 wave 2 — the `metadata_json.reason` tag stamped on the
+ * `CARRIER_LINE_ADJUSTMENT` transaction `postCarrierDrawerAdjustment`
+ * writes, one literal per call site (rule 14 — defined once, reused by
+ * every caller below and by `ClosingRepository.getCarrierLineAdjustments`'s
+ * future readers).
+ */
+export type CarrierLineAdjustmentReason =
+  | "created"
+  | "edited"
+  | "quick-update"
+  | "deactivated"
+  | "reactivated"
+  | "archived";
 
 // -----------------------------------------------------------------------------
 // The validity rule itself now lives in `utils/carrierLineValidity.ts`
@@ -307,6 +346,103 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
     return "id, carrier, phone_number, label, credits, validity_expires_at, days_owed, notes, is_active, is_primary, created_at, updated_at";
   }
 
+  /**
+   * LIRA-252 (owner decision B, rule 14) — the ONE place that posts a
+   * carrier-line manual-edit drawer adjustment: `createLine`,
+   * `updateLineAndSyncDrawer`, `updateBalance`, `toggleActive` and `archive`
+   * all call this rather than hand-rolling the posting pair.
+   *
+   * Reuses the EXISTING checkpoint-reconciliation payment method
+   * (`CHECKPOINT_ADJUSTMENT_METHOD`) rather than a new payment method —
+   * explicit owner instruction, unchanged by wave 2 below.
+   *
+   * LIRA-252 WAVE 2 (owner decision 2026-10-02): `transactionId` is no
+   * longer always null. This now ALSO creates a real unified `transactions`
+   * row (type `CARRIER_LINE_ADJUSTMENT`, rule 26 `is_auto: false` — the
+   * operator performed this edit directly) so the hand-edit shows on the
+   * Transactions page, and links the posted `payments` row to it. That
+   * transaction type sits in `NON_REVERSIBLE_TRANSACTION_TYPES` (same
+   * rationale as `CHECKPOINT`, see that type's own doc comment) — a standing
+   * manual correction with nothing meaningful to reverse FROM; the line is
+   * corrected by editing it again, which posts its own new adjustment.
+   *
+   * `transactions.user_id` is NOT NULL (FK to `users(id)`), so creating the
+   * transaction requires a REAL actor. WAVE 3 (owner decision 2026-10-02):
+   * when a non-trivial delta is about to post and `userId` is null/undefined,
+   * this now THROWS rather than silently falling back to the old
+   * transaction-less posting — every production call site is behind
+   * `requireRole`-gated IPC/REST, which always has a real authenticated user
+   * (see `createLine`'s doc comment), so a null actor reaching here on a real
+   * money-moving edit means an internal/test caller forgot to pass one, not a
+   * legitimate actor-less edit. Silently degrading defeated the whole point
+   * of wave 2 (every manual drawer-moving edit visible on the Transactions
+   * page) for exactly the callers most likely to be exercising this code
+   * path untested. A zero-delta call (the early return just below) still
+   * needs no actor — nothing is posted, so there is nothing to attribute.
+   *
+   * MUST be called from inside the SAME `this.transaction(...)` as the
+   * `carrier_lines` write it is paired with (every call site above does) —
+   * never on its own, or a crash between the two leaves the drawer and the
+   * line disagreeing, exactly the bug this ticket fixes.
+   */
+  private postCarrierDrawerAdjustment(
+    carrier: CarrierKey,
+    deltaUsd: number,
+    userId: number | null,
+    note: string,
+    carrierLineId: number,
+    phoneNumber: string,
+    label: string | null,
+    reasonTag: CarrierLineAdjustmentReason,
+  ): void {
+    if (Math.abs(deltaUsd) <= LINE_USAGE_MIN_DELTA_USD / 2) return;
+    const tenantId = getCurrentTenantId();
+    const drawerName = CARRIER_DRAWER_NAMES[carrier];
+
+    if (userId === null || userId === undefined) {
+      throw new Error(
+        `Cannot adjust ${drawerName} line ${phoneNumber}'s credits without an actor — every manual drawer-moving edit must be attributable`,
+      );
+    }
+
+    const transactionId = getTransactionRepository().createTransaction({
+      type: TRANSACTION_TYPES.CARRIER_LINE_ADJUSTMENT,
+      source_table: "carrier_lines",
+      source_id: carrierLineId,
+      user_id: userId,
+      amount_usd: deltaUsd,
+      amount_lbp: 0,
+      profit_usd: 0,
+      profit_lbp: 0,
+      summary: `Line adjustment — ${drawerName} ${phoneNumber}: ${deltaUsd >= 0 ? "+" : ""}$${deltaUsd.toFixed(2)} (${reasonTag})`,
+      metadata_json: {
+        carrier,
+        phone_number: phoneNumber,
+        label: label ?? null,
+        drawer_name: drawerName,
+        reason: reasonTag,
+        is_auto: false,
+      },
+    });
+
+    insertPaymentRow(this.db, {
+      transactionId,
+      method: CHECKPOINT_ADJUSTMENT_METHOD,
+      drawerName,
+      currencyCode: "USD",
+      amount: deltaUsd,
+      note,
+      createdBy: userId,
+      tenantId,
+    });
+    applyDrawerDelta(this.db, {
+      drawerName,
+      currencyCode: "USD",
+      delta: deltaUsd,
+      tenantId,
+    });
+  }
+
   /** Active lines for one carrier — the Recharge-tab compact panel. */
   getActiveByCarrier(carrier: CarrierKey): CarrierLineEntity[] {
     return this.db
@@ -377,8 +513,20 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
    * schema (and `idx_carrier_lines_one_primary_per_carrier`, which only
    * constrains `is_primary = 1` rows) permits multiple by design, so a
    * second active line is created here with `is_primary = 0` and no error.
+   *
+   * LIRA-252 (owner decision B): a non-zero starting `credits` balance
+   * credits the carrier's drawer by the SAME amount in this same db
+   * transaction — a brand-new line is real stock entering the shop, and
+   * §0.1's invariant must hold the instant the line exists, not just from
+   * the next checkpoint onward. `userId` is optional only for backward
+   * compatibility with existing test/internal callers that don't have an
+   * actor — `createdBy` on the posted `payments` row is then null, same as
+   * `updateBalance`'s own manual-edit posting.
    */
-  createLine(data: CreateCarrierLineData): CarrierLineEntity {
+  createLine(
+    data: CreateCarrierLineData,
+    userId?: number | null,
+  ): CarrierLineEntity {
     const tenantId = getCurrentTenantId();
 
     return this.transaction(() => {
@@ -395,17 +543,31 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
           (tenant_id, carrier, phone_number, label, credits, validity_expires_at, notes, is_active, is_primary, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `);
+      const credits = data.credits ?? 0;
       const result = stmt.run(
         tenantId,
         data.carrier,
         data.phone_number,
         data.label ?? null,
-        data.credits ?? 0,
+        credits,
         data.validity_expires_at ?? null,
         data.notes ?? null,
         isPrimary,
       );
-      return this.getById(result.lastInsertRowid as number)!;
+      const newLineId = result.lastInsertRowid as number;
+      if (credits !== 0) {
+        this.postCarrierDrawerAdjustment(
+          data.carrier,
+          credits,
+          userId ?? null,
+          `Carrier line ${data.phone_number} created`,
+          newLineId,
+          data.phone_number,
+          data.label ?? null,
+          "created",
+        );
+      }
+      return this.getById(newLineId)!;
     });
   }
 
@@ -464,6 +626,46 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
   }
 
   /**
+   * LIRA-252 (owner decision B) — the Settings → Carrier Lines "edit" form's
+   * entry point: a generic patch (`updateLine`, unchanged, still the
+   * primitive `applyMovement`/`reverseMovement`/`updateBalance` build on)
+   * PLUS, when `data.credits` actually changes, the same delta posted to the
+   * carrier's drawer via `postCarrierDrawerAdjustment` — in ONE db
+   * transaction. Deliberately a SEPARATE method from `updateLine` itself
+   * (not an options flag threaded into it): `updateLine` is the shared
+   * low-level primitive `applyMovement`/`reverseMovement` call internally for
+   * every sale/buy-back/line-use movement, and those flows already post
+   * their OWN drawer leg elsewhere — wiring the adjustment into `updateLine`
+   * directly would double-post on every one of those calls.
+   */
+  updateLineAndSyncDrawer(
+    id: number,
+    data: UpdateCarrierLineData,
+    userId: number | null,
+  ): CarrierLineEntity | null {
+    const before = this.getById(id);
+    if (!before) return null;
+
+    return this.transaction(() => {
+      const after = this.updateLine(id, data)!;
+      const creditsDelta = (after.credits ?? 0) - (before.credits ?? 0);
+      if (Math.abs(creditsDelta) > LINE_USAGE_MIN_DELTA_USD / 2) {
+        this.postCarrierDrawerAdjustment(
+          before.carrier,
+          creditsDelta,
+          userId,
+          `Carrier line ${before.phone_number} credits edited`,
+          id,
+          after.phone_number,
+          after.label,
+          "edited",
+        );
+      }
+      return after;
+    });
+  }
+
+  /**
    * The Recharge-tab inline quick-update: credits and/or a new expiry date,
    * given as ABSOLUTE new values (not deltas) — the owner-facing manual
    * hand-edit path.
@@ -494,8 +696,18 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
    * A no-op call (values identical to what is already stored) still applies
    * (idempotent) but skips the movement log — nothing changed, nothing to
    * audit or ever reverse.
+   *
+   * LIRA-252 (owner decision B): a real `creditsDelta` ALSO posts to the
+   * carrier's drawer (`postCarrierDrawerAdjustment`), same transaction as the
+   * movement log above — this is the Recharge-tab manual balance correction,
+   * so the drawer must move with it or §0.1's invariant drifts the moment an
+   * operator hand-corrects a line here.
    */
-  updateBalance(id: number, data: UpdateBalanceData): CarrierLineEntity | null {
+  updateBalance(
+    id: number,
+    data: UpdateBalanceData,
+    userId?: number | null,
+  ): CarrierLineEntity | null {
     const line = this.getById(id);
     if (!line) return null;
 
@@ -530,6 +742,18 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
         previous_validity_expires_at: line.validity_expires_at,
         reason: "manual",
       });
+      if (creditsDelta !== 0) {
+        this.postCarrierDrawerAdjustment(
+          line.carrier,
+          creditsDelta,
+          userId ?? null,
+          `Carrier line ${line.phone_number} balance updated`,
+          id,
+          line.phone_number,
+          line.label,
+          "quick-update",
+        );
+      }
       return updated;
     });
   }
@@ -558,18 +782,48 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
    * being deactivated comes back non-primary, and must be re-designated
    * deliberately. Silently resurrecting it would let a stale choice
    * reassert itself over whatever the operator picked in the meantime.
+   *
+   * LIRA-252 (owner decision B): a line leaving/entering the ACTIVE set
+   * leaves/enters `getCarrierCreditsSum`'s sum too (its WHERE clause is
+   * `is_active = 1`) — so the carrier's drawer is adjusted by
+   * ∓`credits` in the SAME db transaction, keeping §0.1's invariant exact
+   * through either direction of the toggle.
    */
-  toggleActive(id: number): CarrierLineEntity | null {
-    this.db
-      .prepare(
-        `UPDATE carrier_lines
-         SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END,
-             is_primary = CASE WHEN is_active = 1 THEN 0 ELSE is_primary END,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND tenant_id = ?`,
-      )
-      .run(id, getCurrentTenantId());
-    return this.getById(id);
+  toggleActive(
+    id: number,
+    userId?: number | null,
+  ): CarrierLineEntity | null {
+    const before = this.getById(id);
+    if (!before) return null;
+
+    return this.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE carrier_lines
+           SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END,
+               is_primary = CASE WHEN is_active = 1 THEN 0 ELSE is_primary END,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(id, getCurrentTenantId());
+      const after = this.getById(id)!;
+
+      if (before.is_active !== after.is_active) {
+        const credits = before.credits ?? 0;
+        const delta = after.is_active ? credits : -credits;
+        this.postCarrierDrawerAdjustment(
+          before.carrier,
+          delta,
+          userId ?? null,
+          `Carrier line ${before.phone_number} ${after.is_active ? "reactivated" : "deactivated"}`,
+          id,
+          before.phone_number,
+          before.label,
+          after.is_active ? "reactivated" : "deactivated",
+        );
+      }
+      return after;
+    });
   }
 
   /**
@@ -588,16 +842,40 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
    * patch path), AND `getPrimary()` independently requires `is_active = 1`
    * so ANY other path that leaves an inactive line with a stale
    * `is_primary = 1` (not just this one) is still excluded.
+   *
+   * LIRA-252 (owner decision B): archiving an ACTIVE line removes its
+   * credits from the carrier's drawer (same reasoning as `toggleActive`
+   * above) — in the same db transaction. Idempotent on an already-archived
+   * line: `before.is_active` is already 0, so no second subtraction fires.
    */
-  archive(id: number): CarrierLineEntity | null {
-    this.db
-      .prepare(
-        `UPDATE carrier_lines
-         SET is_active = 0, is_primary = 0, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND tenant_id = ?`,
-      )
-      .run(id, getCurrentTenantId());
-    return this.getById(id);
+  archive(id: number, userId?: number | null): CarrierLineEntity | null {
+    const before = this.getById(id);
+    if (!before) return null;
+
+    return this.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE carrier_lines
+           SET is_active = 0, is_primary = 0, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(id, getCurrentTenantId());
+      const after = this.getById(id)!;
+
+      if (before.is_active === 1) {
+        this.postCarrierDrawerAdjustment(
+          before.carrier,
+          -(before.credits ?? 0),
+          userId ?? null,
+          `Carrier line ${before.phone_number} archived`,
+          id,
+          before.phone_number,
+          before.label,
+          "archived",
+        );
+      }
+      return after;
+    });
   }
 
   // ---------------------------------------------------------------------------

@@ -230,6 +230,34 @@ export class ClosingService {
   }
 
   /**
+   * LIRA-252 wave 2 — Checkpoint-Timeline companion for every manual
+   * carrier-line drawer adjustment in a date range (not wired to a
+   * transport yet; this is the core service wrapper only — see
+   * `ClosingRepository.getCarrierLineAdjustments`'s own doc comment).
+   */
+  async getCarrierLineAdjustments(
+    filters: import("../repositories/ClosingRepository.js").CarrierLineAdjustmentFilters = {},
+  ): Promise<{
+    success: boolean;
+    adjustments?: import("../repositories/ClosingRepository.js").CarrierLineAdjustmentRecord[];
+    error?: string;
+  }> {
+    try {
+      const adjustments = this.repo.getCarrierLineAdjustments(filters);
+      return { success: true, adjustments };
+    } catch (error) {
+      closingLogger.error(
+        { error, filters },
+        "ClosingService.getCarrierLineAdjustments error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
    * Get the actual amounts from the most recent checkpoint (baseline for next checkpoint).
    * Returns Record<drawerName, Record<currencyCode, amount>>
    */

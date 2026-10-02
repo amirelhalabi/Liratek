@@ -1,8 +1,10 @@
 /**
  * Carrier Line Service (LIRA W6.a)
  *
- * Business logic wrapper around CarrierLineRepository. Informational only —
- * no drawer legs, no checkout/closing involvement.
+ * Business logic wrapper around CarrierLineRepository. LIRA-252: `create`,
+ * `update`, `updateBalance`, `archive` and `toggleActive` now ALSO move the
+ * carrier drawer when a line's credits/active-state changes, to keep §0.1's
+ * invariant — see `CarrierLineRepository.postCarrierDrawerAdjustment`.
  */
 
 import {
@@ -217,7 +219,7 @@ export class CarrierLineService {
     }
   }
 
-  create(data: CreateCarrierLineData): CarrierLineResult {
+  create(data: CreateCarrierLineData, userId?: number | null): CarrierLineResult {
     try {
       if (!data.carrier || !data.phone_number) {
         return {
@@ -225,7 +227,7 @@ export class CarrierLineService {
           error: "Carrier and phone number are required",
         };
       }
-      const line = this.repo.createLine(data);
+      const line = this.repo.createLine(data, userId ?? null);
       financialLogger.info(
         { lineId: line.id, carrier: data.carrier },
         "Carrier line created",
@@ -240,9 +242,24 @@ export class CarrierLineService {
     }
   }
 
-  update(id: number, data: UpdateCarrierLineData): CarrierLineResult {
+  /**
+   * LIRA-252 (owner decision B): routes through `updateLineAndSyncDrawer`
+   * rather than the bare `updateLine` primitive — a `credits` edit here (the
+   * Settings → Carrier Lines "edit" form) now moves the carrier drawer by
+   * the same delta, keeping §0.1's invariant. `userId` identifies who made
+   * the correction on the posted drawer adjustment leg.
+   */
+  update(
+    id: number,
+    data: UpdateCarrierLineData,
+    userId?: number | null,
+  ): CarrierLineResult {
     try {
-      const line = this.repo.updateLine(id, data);
+      const line = this.repo.updateLineAndSyncDrawer(
+        id,
+        data,
+        userId ?? null,
+      );
       if (!line) return { success: false, error: "Carrier line not found" };
       financialLogger.info({ lineId: id }, "Carrier line updated");
       return { success: true, data: line };
@@ -255,10 +272,16 @@ export class CarrierLineService {
     }
   }
 
-  /** The Recharge-tab inline quick-update: credits and/or a new expiry date. */
-  updateBalance(id: number, data: UpdateBalanceData): CarrierLineResult {
+  /** The Recharge-tab inline quick-update: credits and/or a new expiry date.
+   *  LIRA-252: a `credits` change also moves the carrier drawer (owner
+   *  decision B) — `userId` identifies who made the correction. */
+  updateBalance(
+    id: number,
+    data: UpdateBalanceData,
+    userId?: number | null,
+  ): CarrierLineResult {
     try {
-      const line = this.repo.updateBalance(id, data);
+      const line = this.repo.updateBalance(id, data, userId ?? null);
       if (!line) return { success: false, error: "Carrier line not found" };
       financialLogger.info({ lineId: id }, "Carrier line balance updated");
       return { success: true, data: line };
@@ -499,9 +522,11 @@ export class CarrierLineService {
     }
   }
 
-  archive(id: number): CarrierLineResult {
+  /** LIRA-252: archiving an active line also removes its credits from the
+   *  carrier drawer (owner decision B) — `userId` identifies the actor. */
+  archive(id: number, userId?: number | null): CarrierLineResult {
     try {
-      const line = this.repo.archive(id);
+      const line = this.repo.archive(id, userId ?? null);
       if (!line) return { success: false, error: "Carrier line not found" };
       financialLogger.info({ lineId: id }, "Carrier line archived");
       return { success: true, data: line };
@@ -514,9 +539,12 @@ export class CarrierLineService {
     }
   }
 
-  toggleActive(id: number): CarrierLineResult {
+  /** LIRA-252: toggling active/archived also moves the carrier drawer by
+   *  the line's credits, in whichever direction the toggle goes (owner
+   *  decision B) — `userId` identifies the actor. */
+  toggleActive(id: number, userId?: number | null): CarrierLineResult {
     try {
-      const line = this.repo.toggleActive(id);
+      const line = this.repo.toggleActive(id, userId ?? null);
       if (!line) return { success: false, error: "Carrier line not found" };
       financialLogger.info(
         { lineId: id, isActive: line.is_active },

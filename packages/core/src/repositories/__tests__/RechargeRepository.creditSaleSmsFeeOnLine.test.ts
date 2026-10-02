@@ -309,7 +309,7 @@ describe("RechargeRepository — CREDIT_TRANSFER's SMS fee must also come off th
       phone_number: "03999999",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     const beforeDrawer = drawerBalance(db, "MTC");
 
     const result = repo.processRecharge({
@@ -340,7 +340,7 @@ describe("RechargeRepository — CREDIT_TRANSFER's SMS fee must also come off th
       phone_number: "03999998",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     const beforeDrawer = drawerBalance(db, "MTC");
 
     const result = repo.processRecharge({
@@ -370,7 +370,7 @@ describe("RechargeRepository — CREDIT_TRANSFER's SMS fee must also come off th
       phone_number: "70999999",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
 
     const result = repo.processRecharge({
       provider: "Alfa",
@@ -395,7 +395,7 @@ describe("RechargeRepository — CREDIT_TRANSFER's SMS fee must also come off th
       phone_number: "03999997",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     const beforeDrawer = drawerBalance(db, "MTC");
     const beforeGeneral = drawerBalance(db, "General");
 
@@ -446,7 +446,7 @@ describe("RechargeRepository — CREDIT_TRANSFER's SMS fee must also come off th
       phone_number: "03999996",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
 
     const result = repo.processRecharge({
       provider: "MTC",

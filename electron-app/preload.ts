@@ -981,6 +981,11 @@ contextBridge.exposeInMainWorld("api", {
       drawer_name?: string;
       user_id?: number;
     }) => ipcRenderer.invoke("closing:getCheckpointTimeline", filters),
+    getCarrierLineAdjustments: (filters: {
+      date_from?: string;
+      date_to?: string;
+      drawer_name?: string;
+    }) => ipcRenderer.invoke("closing:getCarrierLineAdjustments", filters),
     getDailyStatsSnapshot: (data?: DailyStatsSnapshotQuery) =>
       ipcRenderer.invoke("closing:get-daily-stats-snapshot", data),
     recalculateDrawerBalances: () =>

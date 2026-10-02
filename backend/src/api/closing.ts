@@ -17,6 +17,10 @@ import {
   dailyStatsSnapshotQuerySchema,
   canIncludeProfit,
   type CheckpointFilters,
+  // LIRA-252 wave 2 — now barrel-exported from `@liratek/core`'s
+  // `repositories/index.ts` (rule 21: the real shared contract, not a
+  // `Parameters<...>` derivation off the service's own signature).
+  type CarrierLineAdjustmentFilters,
 } from "@liratek/core";
 import { hasProfitsUnlock } from "../middleware/profitsUnlock.js";
 import { logger } from "../server.js";
@@ -374,6 +378,27 @@ router.get("/checkpoint-timeline", requireAuth, async (req, res) => {
     res
       .status(500)
       .json({ success: false, error: "Failed to get checkpoint timeline" });
+  }
+});
+
+// GET /api/closing/carrier-line-adjustments — read the manual carrier-line
+// (MTC/Alfa SIM) drawer-adjustment history (any role), sibling of
+// /checkpoint-timeline above — same manual-query-parsing idiom (rule 14).
+router.get("/carrier-line-adjustments", requireAuth, async (req, res) => {
+  try {
+    const q = req.query;
+    const filters: CarrierLineAdjustmentFilters = {};
+    if (typeof q.date_from === "string") filters.date_from = q.date_from;
+    if (typeof q.date_to === "string") filters.date_to = q.date_to;
+    if (typeof q.drawer_name === "string") filters.drawer_name = q.drawer_name;
+
+    const result = await closingService.getCarrierLineAdjustments(filters);
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, "Get carrier line adjustments error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get carrier line adjustments" });
   }
 });
 

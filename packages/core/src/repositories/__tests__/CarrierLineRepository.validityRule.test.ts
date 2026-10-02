@@ -52,6 +52,33 @@ function createTestDb(): Database.Database {
       ON carrier_lines(tenant_id, carrier)
       WHERE is_primary = 1;
 
+    -- LIRA-252: createLine posts a drawer adjustment (postCarrierDrawerAdjustment)
+    -- alongside its carrier_lines write whenever the starting credits are
+    -- non-zero — these two tables are required for any fixture line created
+    -- with a non-zero balance.
+    CREATE TABLE payments (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id      INTEGER DEFAULT 1,
+      transaction_id INTEGER,
+      session_id     INTEGER,
+      method         TEXT NOT NULL,
+      drawer_name    TEXT NOT NULL,
+      currency_code  TEXT NOT NULL,
+      amount         REAL NOT NULL,
+      note           TEXT,
+      created_by     INTEGER,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE drawer_balances (
+      tenant_id     INTEGER DEFAULT 1,
+      drawer_name   TEXT NOT NULL,
+      currency_code TEXT NOT NULL,
+      balance       REAL NOT NULL DEFAULT 0,
+      updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
+    );
+
     CREATE TABLE carrier_line_movements (
       id                            INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id                     INTEGER,
@@ -66,6 +93,32 @@ function createTestDb(): Database.Database {
       is_reversed                   INTEGER NOT NULL DEFAULT 0,
       created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- WAVE 3 (owner decision 2026-10-02): postCarrierDrawerAdjustment now
+    -- writes a real transactions row whenever a non-zero delta posts with a
+    -- real actor.
+    CREATE TABLE transactions (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id      INTEGER,
+      type           TEXT NOT NULL,
+      status         TEXT NOT NULL DEFAULT 'ACTIVE',
+      source_table   TEXT NOT NULL,
+      source_id      INTEGER NOT NULL,
+      user_id        INTEGER NOT NULL,
+      amount_usd     REAL NOT NULL DEFAULT 0,
+      amount_lbp     REAL NOT NULL DEFAULT 0,
+      exchange_rate  REAL,
+      client_id      INTEGER,
+      client_name    TEXT,
+      client_phone   TEXT,
+      reverses_id    INTEGER,
+      profit_usd     REAL NOT NULL DEFAULT 0,
+      profit_lbp     REAL NOT NULL DEFAULT 0,
+      summary        TEXT,
+      metadata_json  TEXT,
+      device_id      TEXT,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
   return db;
@@ -164,7 +217,7 @@ describe("CarrierLineRepository — validity rule (LIRA-157)", () => {
       phone_number: "03111111",
       credits: 12,
       validity_expires_at: addDays(localDay(), -22),
-    });
+    }, 1);
 
     expect(() =>
       repo.applyMovement({
@@ -318,7 +371,7 @@ describe("CarrierLineRepository — validity rule (LIRA-157)", () => {
       phone_number: "03111111",
       credits: 1,
       validity_expires_at: addDays(localDay(), -400),
-    });
+    }, 1);
     const { line: updated } = repo.applyMovement({
       carrierLineId: line.id,
       creditsDelta: 7,

@@ -47,6 +47,11 @@ import type {
   LotoReportData,
   // LIRA-185 #1 — recharge payload derived from the core schema (rule 21).
   CreateRechargePayload,
+  // LIRA-252 wave 2 — carrier-line manual-drawer-adjustment read shape,
+  // derived from ClosingRepository instead of a hand-copied literal
+  // (rule 21).
+  CarrierLineAdjustmentRecord,
+  CarrierLineAdjustmentFilters,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -2681,6 +2686,46 @@ export async function getCheckpointTimeline(filters?: {
         error?: string;
       }>(`/api/closing/checkpoint-timeline${suffix}`);
     },
+  );
+}
+
+/** Checkpoint-Timeline companion read for `CARRIER_LINE_ADJUSTMENT`
+ *  transactions (sibling of `getCheckpointTimeline` above — same
+ *  IPC-channel/REST-route naming and filter-shape idiom). Both the filters
+ *  and the row shape are core's own `ClosingRepository` types (rule 21),
+ *  re-exported type-only from `@liratek/core`'s browser entry. */
+export async function getCarrierLineAdjustments(
+  filters?: CarrierLineAdjustmentFilters,
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().closing.getCarrierLineAdjustments(filters ?? {}),
+    async () => {
+      const qs = new URLSearchParams();
+      if (filters?.date_from) qs.set("date_from", filters.date_from);
+      if (filters?.date_to) qs.set("date_to", filters.date_to);
+      if (filters?.drawer_name) qs.set("drawer_name", filters.drawer_name);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return requestJson<{
+        success: boolean;
+        adjustments?: CarrierLineAdjustmentRecord[];
+        error?: string;
+      }>(`/api/closing/carrier-line-adjustments${suffix}`);
+    },
+  );
+}
+
+// LIRA-252 item A (rule 19/21) — the first-run Setup wizard's finish step.
+// Desktop-only: the wizard (network-DB detection, browse-for-database,
+// relaunch) has no web counterpart, so the HTTP branch is a clear refusal
+// rather than a route — still routed through the adapter, never a raw
+// `window.api.setup.complete` call in `StepComplete.tsx` (rule 19).
+export async function completeSetup(payload: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().setup.complete(payload),
+    async () => ({
+      success: false,
+      error: "Setup is only available in the desktop app.",
+    }),
   );
 }
 

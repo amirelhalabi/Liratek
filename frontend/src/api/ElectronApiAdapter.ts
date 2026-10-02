@@ -26,6 +26,9 @@ import type {
   SessionItemRefundPreviewInput,
   // LIRA-185 #1 — recharge payload derived from the core schema (rule 21).
   CreateRechargePayload,
+  // LIRA-252 wave 2 — carrier-line manual-drawer-adjustment filters, derived
+  // from ClosingRepository (rule 21).
+  CarrierLineAdjustmentFilters,
 } from "@liratek/core";
 import * as api from "./backendApi";
 
@@ -370,6 +373,36 @@ export class ElectronApiAdapter implements ApiAdapter {
   recalculateDrawerBalances = () => api.recalculateDrawerBalances();
   updateDailyClosing = (id: number, data: any) =>
     api.updateDailyClosing(id, data);
+  completeSetup = (data: {
+    shop_name: string;
+    admin_username: string;
+    admin_password: string;
+    base_system?: "OMT" | "WHISH";
+    enabled_modules: string[];
+    enabled_payment_methods: string[];
+    session_management_enabled: boolean;
+    customer_sessions_enabled: boolean;
+    active_currencies?: string[];
+    extra_users?: { username: string; password: string; role: string }[];
+    whatsapp_phone?: string;
+    whatsapp_api_key?: string;
+    drawer_amounts?: Array<{
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    }>;
+    drawer_currency_config?: Array<{
+      drawer_name: string;
+      currency_codes: string[];
+    }>;
+    carrier_lines?: Array<{
+      carrier: "mtc" | "alfa";
+      phone_number: string;
+      label?: string | null;
+      credits?: number;
+      validity_expires_at?: string | null;
+    }>;
+  }) => api.completeSetup(data);
   createCheckpoint = (data: {
     user_id: number;
     drawer_name: string;
@@ -395,6 +428,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     drawer_name?: string;
     user_id?: number;
   }) => api.getCheckpointTimeline(filters);
+  getCarrierLineAdjustments = (filters?: CarrierLineAdjustmentFilters) =>
+    api.getCarrierLineAdjustments(filters);
   getInitialCheckpointDate = () => api.getInitialCheckpointDate();
   getLastCheckpointPerDrawer = () => api.getLastCheckpointPerDrawer();
   hasInitialBalancesSet = () => api.hasInitialBalancesSet();

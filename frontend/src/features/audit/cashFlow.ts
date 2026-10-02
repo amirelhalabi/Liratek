@@ -228,6 +228,19 @@ export function getCashFlowDirection(
       }
       return null;
     }
+    // LIRA-252 wave 2: a manual carrier-line drawer adjustment carries a
+    // SIGNED `amount_usd` (positive = credits added, negative = removed —
+    // `postCarrierDrawerAdjustment`), same shape as PARTNER_SETTLEMENT/
+    // PARTNER_PAYMENT just above. No metadata-flow contract to prefer here
+    // (unlike partners) — the sign IS the contract, every row, always.
+    case "CARRIER_LINE_ADJUSTMENT": {
+      if (signedAmounts) {
+        const signed = signedAmounts.usd || signedAmounts.lbp;
+        if (signed > 0) return "in";
+        if (signed < 0) return "out";
+      }
+      return null;
+    }
     // SUPPLIER_SETTLEMENT is "out" almost always (the shop pays a supplier's
     // net amount out of a drawer) — EXCEPT a bills-only commission-at-
     // settlement batch (BILL_COMMISSION_SETTLEMENT_PLAN.md, LIRA-137), where

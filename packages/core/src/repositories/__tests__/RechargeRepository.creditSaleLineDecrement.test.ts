@@ -315,7 +315,7 @@ describe("RechargeRepository — a credit sale must decrement the shop's OWN car
       phone_number: "03999999", // the SHOP'S OWN line
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     expect(shopLine.is_primary).toBe(1);
     expect(getLineCredits(db, shopLine.id)).toBe(50);
 
@@ -347,7 +347,7 @@ describe("RechargeRepository — a credit sale must decrement the shop's OWN car
       phone_number: "70999999",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
 
     const result = repo.processRecharge({
       provider: "Alfa",
@@ -372,7 +372,7 @@ describe("RechargeRepository — a credit sale must decrement the shop's OWN car
       phone_number: "03999997",
       credits: 50,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
 
     const beforeDrawer = drawerBalance(db, "MTC");
     const beforeGeneral = drawerBalance(db, "General");

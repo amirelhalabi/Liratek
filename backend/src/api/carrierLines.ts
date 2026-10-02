@@ -17,12 +17,16 @@ const router = express.Router();
 
 // Carrier Lines (LIRA W6.a — shop SIM-line tracking).
 //
-// Every route here is informational — no drawer legs, no checkout/closing
-// involvement — with ONE exception: `POST /record-usage` (LIRA-145) is a
-// money write. It books a `Line_Usage` expense, moves the carrier's credit
-// drawer, and writes a linked `carrier_line_movements` row. Treat it under
-// the money rules (FEATURE_GUIDE §13), not as a balance edit. All routes
-// require auth.
+// `POST /record-usage` (LIRA-145) is a money write: it books a `Line_Usage`
+// expense, moves the carrier's credit drawer, and writes a linked
+// `carrier_line_movements` row. LIRA-252 (owner decision B) added a SECOND
+// money-moving surface: `POST /`, `PUT /:id`, `PUT /:id/balance`,
+// `PUT /:id/archive` and `PUT /:id/toggle-active` now also move the carrier
+// drawer whenever a line's credits/active-state changes, to keep §0.1's
+// invariant (`drawer == Σ active-line credits`) — see
+// `CarrierLineRepository.postCarrierDrawerAdjustment`. Treat all of the
+// above under the money rules (FEATURE_GUIDE §13), not as plain CRUD. All
+// routes require auth.
 router.use(authenticateJWT);
 
 // GET /api/carrier-lines/active/:carrier — active lines for one carrier
@@ -220,7 +224,7 @@ router.post(
   (req, res): void => {
     try {
       const service = getCarrierLineService();
-      const result = service.create(req.body);
+      const result = service.create(req.body, req.user!.userId);
       if (result.success) {
         // Mirrors carrierLineHandlers.ts's carrier-lines:create audit.
         auditRest(req, {
@@ -285,7 +289,7 @@ router.put("/:id", requireRole(["admin"]), (req, res): void => {
     const { id: _id, ...data } = parsed.data;
     void _id; // stripped from the payload — the URL param is authoritative
     const service = getCarrierLineService();
-    const result = service.update(id, data);
+    const result = service.update(id, data, req.user!.userId);
     if (result.success) {
       // Mirrors carrierLineHandlers.ts's carrier-lines:update audit.
       auditRest(req, {
@@ -329,7 +333,7 @@ router.put(
       const { id: _id, ...data } = parsed.data;
       void _id; // stripped from the payload — the URL param is authoritative
       const service = getCarrierLineService();
-      const result = service.updateBalance(id, data);
+      const result = service.updateBalance(id, data, req.user!.userId);
       if (result.success) {
         // Mirrors carrierLineHandlers.ts's carrier-lines:update-balance audit.
         auditRest(req, {
@@ -356,7 +360,7 @@ router.put("/:id/archive", requireRole(["admin"]), (req, res): void => {
   }
   try {
     const service = getCarrierLineService();
-    const result = service.archive(id);
+    const result = service.archive(id, req.user!.userId);
     if (result.success) {
       // Mirrors carrierLineHandlers.ts's carrier-lines:archive audit.
       auditRest(req, {
@@ -382,7 +386,7 @@ router.put("/:id/toggle-active", requireRole(["admin"]), (req, res): void => {
   }
   try {
     const service = getCarrierLineService();
-    const result = service.toggleActive(id);
+    const result = service.toggleActive(id, req.user!.userId);
     if (result.success) {
       // Mirrors carrierLineHandlers.ts's carrier-lines:toggle-active audit.
       auditRest(req, {

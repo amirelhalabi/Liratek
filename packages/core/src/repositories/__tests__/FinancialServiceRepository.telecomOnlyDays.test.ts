@@ -1125,7 +1125,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
         phone_number: "70222222",
         credits: 5,
         validity_expires_at: null,
-      });
+      }, 1);
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1265,7 +1265,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
         phone_number: "70666666",
         credits: 12,
         validity_expires_at: FUTURE_EXPIRY,
-      });
+      }, 1);
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1315,7 +1315,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
         phone_number: "70777777",
         credits: 3,
         validity_expires_at: FUTURE_EXPIRY,
-      });
+      }, 1);
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1376,7 +1376,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
         phone_number: "70888888",
         credits: 4,
         validity_expires_at: FUTURE_EXPIRY,
-      });
+      }, 1);
       lineRepo.setPrimary(line.id);
       const alfaItem = itemRepo.createItem({
         ...CART_77,
@@ -1430,7 +1430,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
         phone_number: "72100001",
         credits: 5,
         validity_expires_at: FUTURE_EXPIRY,
-      });
+      }, 1);
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1495,7 +1495,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
         phone_number: "72100002",
         credits: 2,
         validity_expires_at: FUTURE_EXPIRY,
-      });
+      }, 1);
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -1659,7 +1659,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
         phone_number: "72100160",
         credits: 5,
         validity_expires_at: "2099-12-31",
-      });
+      }, 1);
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");

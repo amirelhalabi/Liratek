@@ -6,7 +6,7 @@
  * helpers around it — that mix is what made the old TransactionsViewer hard
  * to navigate in the first place.
  */
-import { formatAmount, isSignedPartnerType } from "../transactionDisplay";
+import { formatAmount, isSignedAmountType } from "../transactionDisplay";
 import { getCashFlowDirection, type TransactionPaymentLeg } from "../cashFlow";
 
 export interface CashFlowBadgeProps {
@@ -86,9 +86,10 @@ export function CashFlowBadge({
   );
   if (!direction) return null;
 
-  // Partner rows carry a signed magnitude (see isSignedPartnerType) — the
-  // sign was only needed above to resolve direction; show the plain amount.
-  const amountStr = isSignedPartnerType(type)
+  // Partner/carrier-line-adjustment rows carry a signed magnitude (see
+  // isSignedAmountType) — the sign was only needed above to resolve
+  // direction; show the plain amount.
+  const amountStr = isSignedAmountType(type)
     ? formatAmount(Math.abs(amountUsd), Math.abs(amountLbp), metaJson, type)
     : formatAmount(amountUsd, amountLbp, metaJson, type);
 

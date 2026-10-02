@@ -443,7 +443,7 @@ describe("LIRA-239 — sold-ahead days sale + later line recharge, refunded toge
       credits: 20,
       validity_expires_at: addDays(TODAY, 150),
       is_primary: true,
-    } as never);
+    } as never, 1);
 
     const item = db
       .prepare(

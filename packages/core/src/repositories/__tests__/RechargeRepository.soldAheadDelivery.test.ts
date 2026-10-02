@@ -311,7 +311,7 @@ describe("RechargeRepository — DAYS sold-ahead sale writes a carrier_line_owed
       phone_number: "03999999",
       credits: 100,
       validity_expires_at: SHOP_LINE_EXPIRY_NEAR, // 5 real days left from today
-    });
+    }, 1);
 
     const result = repo.processRecharge({
       provider: "MTC",
@@ -349,7 +349,7 @@ describe("RechargeRepository — DAYS sold-ahead sale writes a carrier_line_owed
       phone_number: "03999998",
       credits: 100,
       validity_expires_at: SHOP_LINE_EXPIRY_FAR, // comfortably more than 10 days out
-    });
+    }, 1);
 
     const result = repo.processRecharge({
       provider: "MTC",

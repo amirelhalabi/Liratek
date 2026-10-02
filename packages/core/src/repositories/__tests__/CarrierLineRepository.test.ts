@@ -43,6 +43,33 @@ function createTestDb(): Database.Database {
       updated_at          TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- LIRA-252: createLine/updateBalance/toggleActive/archive now post a
+    -- drawer adjustment (postCarrierDrawerAdjustment) alongside their
+    -- carrier_lines write — these two tables are required for any test in
+    -- this file that calls those methods with a non-zero credits delta.
+    CREATE TABLE payments (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id      INTEGER DEFAULT 1,
+      transaction_id INTEGER,
+      session_id     INTEGER,
+      method         TEXT NOT NULL,
+      drawer_name    TEXT NOT NULL,
+      currency_code  TEXT NOT NULL,
+      amount         REAL NOT NULL,
+      note           TEXT,
+      created_by     INTEGER,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE drawer_balances (
+      tenant_id     INTEGER DEFAULT 1,
+      drawer_name   TEXT NOT NULL,
+      currency_code TEXT NOT NULL,
+      balance       REAL NOT NULL DEFAULT 0,
+      updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
+    );
+
     CREATE TABLE carrier_line_movements (
       id                            INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id                     INTEGER,
@@ -58,9 +85,39 @@ function createTestDb(): Database.Database {
       created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- WAVE 3 (owner decision 2026-10-02): postCarrierDrawerAdjustment now
+    -- writes a real transactions row whenever a non-zero delta posts with a
+    -- real actor — required for every createLine/updateBalance/archive/
+    -- toggleActive call below that moves credits.
+    CREATE TABLE transactions (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id      INTEGER,
+      type           TEXT NOT NULL,
+      status         TEXT NOT NULL DEFAULT 'ACTIVE',
+      source_table   TEXT NOT NULL,
+      source_id      INTEGER NOT NULL,
+      user_id        INTEGER NOT NULL,
+      amount_usd     REAL NOT NULL DEFAULT 0,
+      amount_lbp     REAL NOT NULL DEFAULT 0,
+      exchange_rate  REAL,
+      client_id      INTEGER,
+      client_name    TEXT,
+      client_phone   TEXT,
+      reverses_id    INTEGER,
+      profit_usd     REAL NOT NULL DEFAULT 0,
+      profit_lbp     REAL NOT NULL DEFAULT 0,
+      summary        TEXT,
+      metadata_json  TEXT,
+      device_id      TEXT,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }
+
+/** WAVE 3: a real actor id for calls that post a non-zero drawer delta. */
+const TEST_USER_ID = 1;
 
 function movementCount(db: Database.Database): number {
   return (
@@ -116,7 +173,7 @@ describe("CarrierLineRepository (LIRA W6.a)", () => {
       credits: 12.5,
       validity_expires_at: "2026-08-01",
       notes: "kept in the drawer",
-    });
+    }, TEST_USER_ID);
     expect(row.label).toBe("Shop Line 1");
     expect(row.credits).toBe(12.5);
     expect(row.validity_expires_at).toBe("2026-08-01");
@@ -173,7 +230,7 @@ describe("CarrierLineRepository (LIRA W6.a)", () => {
       carrier: "mtc",
       phone_number: "03111111",
       credits: 5,
-    });
+    }, TEST_USER_ID);
     const updated = repo.updateLine(line.id, { label: "Renamed" });
     expect(updated!.label).toBe("Renamed");
     expect(updated!.credits).toBe(5); // untouched
@@ -186,11 +243,11 @@ describe("CarrierLineRepository (LIRA W6.a)", () => {
       phone_number: "03111111",
       credits: 5,
       label: "Line A",
-    });
+    }, TEST_USER_ID);
     const updated = repo.updateBalance(line.id, {
       credits: 20,
       validity_expires_at: "2026-09-01",
-    });
+    }, TEST_USER_ID);
     expect(updated!.credits).toBe(20);
     expect(updated!.validity_expires_at).toBe("2026-09-01");
     expect(updated!.label).toBe("Line A"); // untouched
@@ -209,9 +266,9 @@ describe("CarrierLineRepository (LIRA W6.a)", () => {
       carrier: "mtc",
       phone_number: "03111111",
       credits: 5,
-    });
+    }, TEST_USER_ID);
 
-    repo.updateBalance(line.id, { credits: 20 });
+    repo.updateBalance(line.id, { credits: 20 }, TEST_USER_ID);
 
     expect(movementCount(db)).toBe(1);
     const row = db
@@ -259,12 +316,12 @@ describe("CarrierLineRepository (LIRA W6.a)", () => {
       phone_number: "03111111",
       credits: 5,
       validity_expires_at: "2026-08-01",
-    });
+    }, TEST_USER_ID);
 
     repo.updateBalance(line.id, {
       credits: 20,
       validity_expires_at: "2026-09-01",
-    });
+    }, TEST_USER_ID);
 
     expect(movementCount(db)).toBe(1);
     const row = db
@@ -283,7 +340,7 @@ describe("CarrierLineRepository (LIRA W6.a)", () => {
       phone_number: "03111111",
       credits: 20,
       validity_expires_at: "2026-09-01",
-    });
+    }, TEST_USER_ID);
 
     repo.updateBalance(line.id, {
       credits: 20,

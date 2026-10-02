@@ -359,6 +359,8 @@ export type {
   CheckpointRecord,
   CheckpointFilters,
   DrawerCheckpointStatus,
+  CarrierLineAdjustmentRecord,
+  CarrierLineAdjustmentFilters,
 } from "./ClosingRepository.js";
 
 // Customer Session Repository

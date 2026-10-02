@@ -262,6 +262,34 @@ export const TRANSACTION_TYPES = {
 
   // Closing / Checkpoint
   CHECKPOINT: "CHECKPOINT",
+  /** LIRA-252 wave 2 (owner decision 2026-10-02) — a manual SIM-line
+   *  hand-edit: create/edit/quick-update/deactivate/reactivate/archive a
+   *  carrier (MTC/Alfa) line from Settings → Carrier Lines or the
+   *  Recharge-tab inline balance update. Moves the carrier's own USD credit
+   *  drawer by the line's credits delta, posted by
+   *  `CarrierLineRepository.postCarrierDrawerAdjustment` alongside the same
+   *  `payments`/`drawer_balances` pair that mechanism already wrote
+   *  pre-wave-2 (reusing `CHECKPOINT_ADJUSTMENT_METHOD` — no new payment
+   *  method). This transaction row is what makes the edit visible on the
+   *  Transactions page; `payments.transaction_id` now links to it instead of
+   *  always being null.
+   *
+   *  Operator-initiated, NOT `is_auto` (rule 26) — the operator performed
+   *  this edit directly from a Settings/Recharge-tab form; it is not a
+   *  side-effect another transaction wrote. `metadata_json.is_auto: false`
+   *  is stamped explicitly rather than left to the "absent = not auto"
+   *  default, because this is the one carrier-line type that could plausibly
+   *  be mistaken for a system side-effect (every OTHER carrier-line write —
+   *  sales, buy-backs, line-use — IS auto-adjacent) and the row should say so
+   *  plainly.
+   *
+   *  `profit_usd`/`profit_lbp` are always 0 — a manual stock correction is
+   *  neither revenue nor profit, same reasoning as `TELECOM_SELF_CHARGE`.
+   *  Deliberately ABSENT from `ProfitRepository`'s `PROFIT_TXN_TYPES`
+   *  allowlist (it's a closed allowlist, so a new type is excluded by
+   *  omission — no edit needed there — see
+   *  `ProfitRepository.carrierLineAdjustmentExcluded.test.ts`). */
+  CARRIER_LINE_ADJUSTMENT: "CARRIER_LINE_ADJUSTMENT",
 
   // Reversal
   REFUND: "REFUND",
@@ -438,6 +466,20 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     //     CASCADE, so if the parent `daily_closings` row is ever removed the
     //     snapshot goes with it.
     TRANSACTION_TYPES.CHECKPOINT,
+    // CARRIER_LINE_ADJUSTMENT (LIRA-252 wave 2): the same standing-manual-
+    // correction rationale as CHECKPOINT immediately above, stated by
+    // `CarrierLineRepository.postCarrierDrawerAdjustment`'s own doc comment
+    // before this type even existed — "there is nothing for the generic
+    // void/refund path to reverse FROM... corrected by editing the line
+    // again, not by a reversal". A hand-edit of a line's credits/status is a
+    // standing correction to the line's current state, not a discrete sale
+    // with its own reversible legs; the fix for a wrong edit is a NEW edit
+    // (which posts its OWN new CARRIER_LINE_ADJUSTMENT transaction), exactly
+    // like re-counting at a CHECKPOINT. Reversing one adjustment transaction
+    // in isolation would not restore the line to any meaningful prior
+    // state — the carrier_lines row has been written over since, same as a
+    // checkpoint's counted amounts.
+    TRANSACTION_TYPES.CARRIER_LINE_ADJUSTMENT,
     // CLIENT_* rows are non-financial audit markers; a reversal row is
     // meaningless noise.
     TRANSACTION_TYPES.CLIENT_CREATED,

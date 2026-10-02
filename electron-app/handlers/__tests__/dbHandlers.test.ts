@@ -97,6 +97,7 @@ describe("dbHandlers IPC: Closing functionality", () => {
     getDailyStatsSnapshot: jest.fn(),
     recalculateDrawerBalances: jest.fn(),
     getCheckpointTimeline: jest.fn(),
+    getCarrierLineAdjustments: jest.fn(),
     createCheckpoint: jest.fn(),
     getLastCheckpointActuals: jest.fn(),
     getLastCheckpointPerDrawer: jest.fn(),
@@ -183,6 +184,69 @@ describe("dbHandlers IPC: Closing functionality", () => {
       const result = await handler({});
 
       expect(result).toEqual({});
+    });
+  });
+
+  it("should register closing:getCarrierLineAdjustments handler", () => {
+    expect(ipcMain.handle).toHaveBeenCalledWith(
+      "closing:getCarrierLineAdjustments",
+      expect.any(Function),
+    );
+  });
+
+  describe("closing:getCarrierLineAdjustments", () => {
+    it("delegates to ClosingService.getCarrierLineAdjustments and returns the envelope verbatim", async () => {
+      mockClosingService.getCarrierLineAdjustments.mockResolvedValue({
+        success: true,
+        adjustments: [
+          {
+            id: 1,
+            created_at: "2026-10-01T10:00:00.000Z",
+            user_id: 2,
+            user_name: "Cashier",
+            amount_usd: 5,
+            summary: "MTC balance adjustment",
+            metadata_json: null,
+          },
+        ],
+      });
+
+      const handler = ipcMain.handle.mock.calls.find(
+        (call) => call[0] === "closing:getCarrierLineAdjustments",
+      )[1];
+      const filters = { date_from: "2026-10-01", drawer_name: "MTC" };
+      const result = await handler({}, filters);
+
+      expect(mockClosingService.getCarrierLineAdjustments).toHaveBeenCalledWith(
+        filters,
+      );
+      expect(result).toEqual({
+        success: true,
+        adjustments: [
+          {
+            id: 1,
+            created_at: "2026-10-01T10:00:00.000Z",
+            user_id: 2,
+            user_name: "Cashier",
+            amount_usd: 5,
+            summary: "MTC balance adjustment",
+            metadata_json: null,
+          },
+        ],
+      });
+    });
+
+    it("catches a thrown service error and returns {success:false} instead of letting it cross the IPC boundary", async () => {
+      mockClosingService.getCarrierLineAdjustments.mockImplementation(() => {
+        throw new Error("boom");
+      });
+
+      const handler = ipcMain.handle.mock.calls.find(
+        (call) => call[0] === "closing:getCarrierLineAdjustments",
+      )[1];
+      const result = await handler({}, {});
+
+      expect(result).toEqual({ success: false, error: "boom" });
     });
   });
 

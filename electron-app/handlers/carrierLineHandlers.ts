@@ -3,11 +3,15 @@
  *
  * Shop-owned alfa/mtc SIM lines: remaining credits + validity expiry.
  *
- * Every channel here is informational — no drawer legs, no checkout/closing
- * involvement — with ONE exception: `carrier-lines:record-usage` (LIRA-145)
- * is a money write. It books a `Line_Usage` expense, moves the carrier's
- * credit drawer, and writes a linked `carrier_line_movements` row. Treat it
- * under the money rules (FEATURE_GUIDE §13), not as a balance edit.
+ * `carrier-lines:record-usage` (LIRA-145) is a money write: it books a
+ * `Line_Usage` expense, moves the carrier's credit drawer, and writes a
+ * linked `carrier_line_movements` row. LIRA-252 (owner decision B) added a
+ * SECOND money-moving surface: `create`, `update`, `update-balance`,
+ * `archive` and `toggle-active` now also move the carrier drawer whenever a
+ * line's credits/active-state changes, to keep §0.1's invariant
+ * (`drawer == Σ active-line credits`) — see
+ * `CarrierLineRepository.postCarrierDrawerAdjustment`. Treat all of the
+ * above under the money rules (FEATURE_GUIDE §13), not as plain CRUD.
  */
 
 import { ipcMain } from "electron";
@@ -94,7 +98,7 @@ export function registerCarrierLineHandlers(): void {
       const v = validatePayload(CarrierLineCreateSchema, data);
       if (!v.ok) return { success: false, error: v.error };
 
-      const result = service.create(v.data);
+      const result = service.create(v.data, auth.userId);
       audit(e.sender.id, {
         action: "create",
         entity_type: "carrier_line",
@@ -121,7 +125,7 @@ export function registerCarrierLineHandlers(): void {
         if (!v.ok) return { success: false, error: v.error };
 
         const { id: _id, ...rest } = v.data;
-        const result = service.update(id, rest);
+        const result = service.update(id, rest, auth.userId);
         audit(e.sender.id, {
           action: "update",
           entity_type: "carrier_line",
@@ -156,7 +160,7 @@ export function registerCarrierLineHandlers(): void {
         if (!v.ok) return { success: false, error: v.error };
 
         const { id: _id, ...rest } = v.data;
-        const result = service.updateBalance(id, rest);
+        const result = service.updateBalance(id, rest, auth.userId);
         audit(e.sender.id, {
           action: "update",
           entity_type: "carrier_line",
@@ -230,7 +234,7 @@ export function registerCarrierLineHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
-      const result = service.archive(id);
+      const result = service.archive(id, auth.userId);
       audit(e.sender.id, {
         action: "update",
         entity_type: "carrier_line",
@@ -252,7 +256,7 @@ export function registerCarrierLineHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
-      const result = service.toggleActive(id);
+      const result = service.toggleActive(id, auth.userId);
       audit(e.sender.id, {
         action: "update",
         entity_type: "carrier_line",

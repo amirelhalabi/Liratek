@@ -63,6 +63,10 @@ import type {
   // `SaleRefundInput` above already does; imported directly now instead.
   RefundLegInput,
   RefundUnitExtraInput,
+  // LIRA-252 wave 2 — carrier-line manual-drawer-adjustment read shape,
+  // imported directly (rule 21) instead of a hand-typed object literal.
+  CarrierLineAdjustmentRecord,
+  CarrierLineAdjustmentFilters,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -1495,6 +1499,15 @@ export type ApiAdapter = {
     drawer_name?: string;
     user_id?: number;
   }) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
+  /** LIRA-252 wave 2 — Checkpoint Timeline companion read for manual
+   *  carrier-line (MTC/Alfa) drawer adjustments (CARRIER_LINE_ADJUSTMENT
+   *  transactions), sibling of `getCheckpointTimeline` above. Filters and
+   *  row shape are core's own `ClosingRepository` types (rule 21). */
+  getCarrierLineAdjustments: (filters?: CarrierLineAdjustmentFilters) => Promise<{
+    success: boolean;
+    adjustments?: CarrierLineAdjustmentRecord[];
+    error?: string;
+  }>;
   getInitialCheckpointDate: () => Promise<string | null>;
   /** Per-drawer last-checkpoint status (staleness badges, dashboard). Raw
    *  Record — null when unavailable (non-critical read). */
@@ -1510,6 +1523,43 @@ export type ApiAdapter = {
   hasInitialBalancesSet: () => Promise<boolean>;
   /** Whether a starting (session-management) checkpoint has ever been recorded. */
   hasStartingCheckpoint: () => Promise<boolean>;
+  /** LIRA-252 item A (rule 19/21) — the first-run Setup wizard's finish
+   *  step. Desktop-only today (the wizard itself has no web counterpart —
+   *  network-DB detection, browse-for-database, relaunch are all Electron
+   *  concepts); routed through the adapter anyway so `StepComplete.tsx`
+   *  never calls `window.api.setup.*` directly (rule 19), and so a future
+   *  web onboarding flow has one function to wire a REST route onto instead
+   *  of a raw IPC call embedded in a page. */
+  completeSetup: (payload: {
+    shop_name: string;
+    admin_username: string;
+    admin_password: string;
+    base_system?: "OMT" | "WHISH";
+    enabled_modules: string[];
+    enabled_payment_methods: string[];
+    session_management_enabled: boolean;
+    customer_sessions_enabled: boolean;
+    active_currencies?: string[];
+    extra_users?: { username: string; password: string; role: string }[];
+    whatsapp_phone?: string;
+    whatsapp_api_key?: string;
+    drawer_amounts?: Array<{
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    }>;
+    drawer_currency_config?: Array<{
+      drawer_name: string;
+      currency_codes: string[];
+    }>;
+    carrier_lines?: Array<{
+      carrier: "mtc" | "alfa";
+      phone_number: string;
+      label?: string | null;
+      credits?: number;
+      validity_expires_at?: string | null;
+    }>;
+  }) => Promise<{ success: boolean; adminUserId?: number; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Suppliers

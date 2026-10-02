@@ -9,6 +9,7 @@ import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import {
   getCarrierLineRepository,
   carrierDrawerName,
+  CARRIER_DRAWER_NAMES,
   type CarrierKey,
 } from "./CarrierLineRepository.js";
 // LIRA-219: this repository no longer computes profit (rule 14 — gross
@@ -176,6 +177,29 @@ export interface CheckpointFilters {
   type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
   drawer_name?: string;
   user_id?: number;
+}
+
+/**
+ * LIRA-252 wave 2 — the read side for `CarrierLineRepository
+ * .postCarrierDrawerAdjustment`'s `CARRIER_LINE_ADJUSTMENT` transactions
+ * (see {@link ClosingRepository.getCarrierLineAdjustments}).
+ */
+export interface CarrierLineAdjustmentRecord {
+  id: number;
+  created_at: string;
+  user_id: number | null;
+  user_name: string;
+  amount_usd: number;
+  summary: string;
+  metadata_json: string | null;
+}
+
+export interface CarrierLineAdjustmentFilters {
+  date_from?: string;
+  date_to?: string;
+  /** The carrier's own drawer name (`CARRIER_DRAWER_NAMES` — "MTC"/"Alfa"),
+   *  matched against `metadata_json.drawer_name` via `json_extract`. */
+  drawer_name?: string;
 }
 
 export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
@@ -449,6 +473,35 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
               .filter((c) => c.line.carrier === carrier)
               .reduce((sum, c) => sum + c.creditsDelta, 0);
             projectedSum.set(carrier, base + delta);
+          }
+
+          // LIRA-252 (owner decision C) — a bare MTC/Alfa drawer amount with
+          // NO carrier line counted for that carrier in THIS call is refused
+          // outright when non-zero. This is the server-side half of the
+          // production bug this ticket fixes (MTC drawer read $10,000 vs one
+          // $500 line; Alfa read $10,000 with no line at all): a checkpoint
+          // must never let the drawer diverge from the lines by accepting a
+          // typed figure with nothing behind it — the drawer is DERIVED from
+          // `carrier_lines`, never the other way around (§0.1). A ZERO
+          // amount (closing an unused drawer) and a carrier this tenant
+          // doesn't run (no row submitted at all) both stay backward
+          // compatible — this only blocks a non-zero bare figure.
+          const carrierByDrawerName = new Map<string, CarrierKey>(
+            (Object.entries(CARRIER_DRAWER_NAMES) as [CarrierKey, string][]).map(
+              ([carrier, drawerName]) => [drawerName, carrier],
+            ),
+          );
+          for (const r of rows) {
+            if (r.currency_code !== "USD") continue;
+            const carrier = carrierByDrawerName.get(r.drawer_name);
+            if (!carrier) continue; // not an MTC/Alfa drawer row
+            if (carriers.includes(carrier)) continue; // lines WERE counted
+            if (Math.abs(r.physical_amount) > RECONCILE_EPSILON) {
+              throw new Error(
+                `${r.drawer_name} drawer amount was submitted with no carrier line counted — ` +
+                  `add or count a ${r.drawer_name} line first; the drawer always follows the lines`,
+              );
+            }
           }
 
           // The provider drawer's USD count is the SUM of that carrier's
@@ -993,6 +1046,59 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     }
 
     return checkpoints;
+  }
+
+  /**
+   * LIRA-252 wave 2 — every manual carrier-line drawer adjustment
+   * (`CarrierLineRepository.postCarrierDrawerAdjustment`'s
+   * `CARRIER_LINE_ADJUSTMENT` transactions: create/edit/quick-update/
+   * deactivate/reactivate/archive) in a date range. Feeds a LATER
+   * Checkpoint-Timeline UI wave (not wired to any transport here — core read
+   * only).
+   *
+   * `date_from`/`date_to` default to "today" (`clientDay()`), same rule-27
+   * reasoning as `getCheckpointTimeline` above: a request near midnight
+   * Beirut must not default to the SERVER's own, possibly different, UTC
+   * calendar day.
+   */
+  getCarrierLineAdjustments(
+    filters: CarrierLineAdjustmentFilters = {},
+  ): CarrierLineAdjustmentRecord[] {
+    const today = clientDay();
+    const { date_from = today, date_to = today, drawer_name } = filters;
+    const tenantId = getCurrentTenantId();
+
+    let sql = `
+      SELECT
+        t.id,
+        t.created_at,
+        t.user_id,
+        COALESCE(u.username, 'Unknown') as user_name,
+        t.amount_usd,
+        t.summary,
+        t.metadata_json
+      FROM transactions t
+      LEFT JOIN users u ON u.id = t.user_id AND u.tenant_id = ?
+      WHERE t.type = ?
+        AND t.tenant_id = ?
+        AND DATE(t.created_at) BETWEEN ? AND ?
+    `;
+    const params: (string | number)[] = [
+      tenantId,
+      TRANSACTION_TYPES.CARRIER_LINE_ADJUSTMENT,
+      tenantId,
+      date_from,
+      date_to,
+    ];
+
+    if (drawer_name) {
+      sql += ` AND json_extract(t.metadata_json, '$.drawer_name') = ?`;
+      params.push(drawer_name);
+    }
+
+    sql += ` ORDER BY t.created_at DESC`;
+
+    return this.query<CarrierLineAdjustmentRecord>(sql, ...params);
   }
 
   /**

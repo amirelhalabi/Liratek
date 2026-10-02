@@ -151,12 +151,26 @@ function createSchema(db: Database.Database): void {
     );
 
     -- Seed initial drawer balances (all zero)
+    --
+    -- LIRA-252: the telecom drawer here is named 'TELECOM', not 'MTC' — this
+    -- file simulates a recharge drawer as a PLAIN drawer (direct
+    -- drawer_balances/payments writes, no carrier_lines rows), which is
+    -- exactly the pre-LIRA-252 shape ClosingRepository.createCheckpoint now
+    -- refuses for the REAL 'MTC'/'Alfa' drawer names (a bare non-zero amount
+    -- with no carrier line counted). This file's own concern is reconciling
+    -- MULTIPLE drawers across a day of mixed transactions, not the §0.1
+    -- carrier-line invariant — that has its own dedicated coverage in
+    -- ClosingRepository.carrierLineCheckpoint.test.ts — so a non-colliding
+    -- drawer name keeps this fixture's existing arithmetic intact instead of
+    -- building out full carrier-line infrastructure for an incidental
+    -- drawer choice (same fix applied to
+    -- ClosingRepository.lastCheckpointPerDrawer.test.ts).
     INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'USD', 0);
     INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'LBP', 0);
     INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_System', 'USD', 0);
     INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_System', 'LBP', 0);
-    INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('MTC', 'USD', 0);
-    INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Alfa', 'USD', 0);
+    INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('TELECOM', 'USD', 0);
+    INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('TELECOM_2', 'USD', 0);
 
     -- Tables referenced by getDailyStatsSnapshot (minimal stubs so queries don't error)
     CREATE TABLE IF NOT EXISTS sales (
@@ -424,7 +438,7 @@ function simulateMtcRecharge(db: Database.Database, amountUsd: number): void {
   // Customer pays cash
   insertPayment(db, txnId, "General", "USD", amountUsd);
   // MTC balance consumed
-  insertPayment(db, txnId, "MTC", "USD", -amountUsd);
+  insertPayment(db, txnId, "TELECOM", "USD", -amountUsd);
 }
 
 /**
@@ -537,7 +551,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       expect(expected["General"]["USD"]).toBe(EXPECTED_GENERAL_USD_PHASE1);
       expect(expected["General"]["LBP"]).toBe(EXPECTED_GENERAL_LBP_PHASE1);
       expect(expected["OMT_System"]["USD"]).toBe(EXPECTED_OMT_USD_PHASE1);
-      expect(expected["MTC"]["USD"]).toBe(EXPECTED_MTC_USD_PHASE1);
+      expect(expected["TELECOM"]["USD"]).toBe(EXPECTED_MTC_USD_PHASE1);
     });
 
     it("should create Checkpoint #1 with correct expected amounts", () => {
@@ -568,9 +582,9 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
             physical_amount: CP1_OMT_SYSTEM_USD_ACTUAL,
           },
           {
-            drawer_name: "MTC",
+            drawer_name: "TELECOM",
             currency_code: "USD",
-            expected_amount: expected["MTC"]["USD"],
+            expected_amount: expected["TELECOM"]["USD"],
             physical_amount: CP1_MTC_USD_ACTUAL,
           },
         ],
@@ -608,9 +622,9 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
             physical_amount: CP1_OMT_SYSTEM_USD_ACTUAL,
           },
           {
-            drawer_name: "MTC",
+            drawer_name: "TELECOM",
             currency_code: "USD",
-            expected_amount: expected["MTC"]["USD"],
+            expected_amount: expected["TELECOM"]["USD"],
             physical_amount: CP1_MTC_USD_ACTUAL,
           },
         ],
@@ -679,9 +693,9 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
             physical_amount: CP1_OMT_SYSTEM_USD_ACTUAL,
           },
           {
-            drawer_name: "MTC",
+            drawer_name: "TELECOM",
             currency_code: "USD",
-            expected_amount: expected["MTC"]["USD"],
+            expected_amount: expected["TELECOM"]["USD"],
             physical_amount: CP1_MTC_USD_ACTUAL,
           },
         ],
@@ -698,7 +712,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // `WHERE physical_amount IS NOT NULL` (instead of the old `> 0`),
       // negative balances like consumed telecom stock are correctly
       // carried forward as the baseline for the next checkpoint.
-      expect(baseline["MTC"]["USD"]).toBe(CP1_MTC_USD_ACTUAL);
+      expect(baseline["TELECOM"]["USD"]).toBe(CP1_MTC_USD_ACTUAL);
     });
 
     it("should compute correct Checkpoint #2 after more transactions", () => {
@@ -729,9 +743,9 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
             physical_amount: CP1_OMT_SYSTEM_USD_ACTUAL,
           },
           {
-            drawer_name: "MTC",
+            drawer_name: "TELECOM",
             currency_code: "USD",
-            expected_amount: expected1["MTC"]["USD"],
+            expected_amount: expected1["TELECOM"]["USD"],
             physical_amount: CP1_MTC_USD_ACTUAL,
           },
         ],
@@ -755,7 +769,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // OMT unchanged
       expect(expected2["OMT_System"]["USD"]).toBe(EXPECTED_OMT_USD_PHASE1);
       // MTC unchanged
-      expect(expected2["MTC"]["USD"]).toBe(EXPECTED_MTC_USD_PHASE1);
+      expect(expected2["TELECOM"]["USD"]).toBe(EXPECTED_MTC_USD_PHASE1);
 
       // Now create Checkpoint #2 with actuals = expected (no variance this time)
       const cp2Amounts = [
@@ -778,10 +792,10 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
           physical_amount: expected2["OMT_System"]["USD"],
         },
         {
-          drawer_name: "MTC",
+          drawer_name: "TELECOM",
           currency_code: "USD",
-          expected_amount: expected2["MTC"]["USD"],
-          physical_amount: expected2["MTC"]["USD"],
+          expected_amount: expected2["TELECOM"]["USD"],
+          physical_amount: expected2["TELECOM"]["USD"],
         },
       ];
 

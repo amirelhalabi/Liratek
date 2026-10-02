@@ -15,6 +15,11 @@
 
 ## 📱 MTC / Alfa
 
+- A Checkpoint that would have set the MTC or Alfa drawer to an amount with no shop line behind it is now refused, instead of quietly saving a wrong drawer total.
+- Checkpoint and the Setup wizard now count MTC and Alfa credits per SIM line — if a carrier has more than one active line, each gets its own credits field, and the drawer total is always their sum. A carrier with no active line shows a prompt to add one (phone number + starting credits) right there, instead of a plain dollar field.
+- Setup now requires a phone number before it will accept starting MTC or Alfa credits, so a typed balance can never be silently dropped.
+- Adding, editing, archiving or re-activating a shop SIM line in Settings → Carrier Lines (or quick-updating its balance from the Recharge tab) now moves that carrier's drawer to match, automatically — so the drawer always equals your lines' credits added together.
+- Changing an MTC or Alfa line's credits by hand now shows as a "Line Adjustment" on the Transactions page and on the Checkpoint Timeline, with who did it — so a drawer change from a SIM-line edit is no longer a mystery when the next checkpoint doesn't match what you expected.
 - Alfa Gift cards now use your sell rate from Shop Config.
 - Refunded MTC and Alfa sales now show as Refunded in the History window, instead of looking like normal sales.
 - The Discount in the MTC and Alfa payment window now works: the customer pays the lower price, and the sale's profit goes down by the discount. A discount can't be bigger than the sale's profit, so a discounted sale never loses money — for a Credit Transfer, the cap also leaves room for the SMS cost the shop pays to send the credit. Before, the sale was refused, or the discount was added to the customer's debt.

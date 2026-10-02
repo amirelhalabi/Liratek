@@ -128,6 +128,7 @@ describe("dbHandlers registration", () => {
       "diagnostics:getDbPath",
       "closing:recalculate-drawer-balances",
       "closing:getCheckpointTimeline",
+      "closing:getCarrierLineAdjustments",
       "closing:create-checkpoint",
       "closing:get-last-checkpoint-actuals",
       "closing:get-last-checkpoint-per-drawer",

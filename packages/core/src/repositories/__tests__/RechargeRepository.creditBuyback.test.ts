@@ -257,7 +257,7 @@ describe("RechargeRepository.processCreditBuyback()", () => {
       phone_number: "03111111",
       credits: 20,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     seedDrawer(db, "MTC", "USD", 20); // starts in sync with the line
     seedDrawer(db, "General", "USD", 500);
 
@@ -519,7 +519,7 @@ describe("RechargeRepository.processCreditBuyback()", () => {
       carrier: "alfa",
       phone_number: "70123456",
       credits: 5,
-    });
+    }, 1);
     seedDrawer(db, "Alfa", "USD", 100); // deliberately NOT in sync with the line (5)
     seedDrawer(db, "General", "USD", 500);
 
@@ -564,7 +564,7 @@ describe("RechargeRepository.processCreditBuyback()", () => {
       carrier: "mtc",
       phone_number: "03111111",
       credits: 20,
-    });
+    }, 1);
     seedDrawer(db, "MTC", "USD", 20);
     seedDrawer(db, "General", "USD", 500);
 
@@ -583,16 +583,20 @@ describe("RechargeRepository.processCreditBuyback()", () => {
     expect(result.error).toMatch(/not a valid payout method/i);
 
     // Nothing partially persisted: the line keeps its original 20 credits,
-    // neither drawer moved, and no recharge/transaction row was written.
+    // neither drawer moved, and no recharge row was written.
     expect(lineRepo.getById(line.id)!.credits).toBeCloseTo(20, 2);
     expect(balance(db, "MTC", "USD")).toBeCloseTo(20, 2);
     expect(balance(db, "General", "USD")).toBeCloseTo(500, 2);
     expect(
       (db.prepare(`SELECT COUNT(*) c FROM recharges`).get() as any).c,
     ).toBe(0);
+    // LIRA-252 wave 2: `createLine`'s own non-zero-credit seed above already
+    // wrote ONE CARRIER_LINE_ADJUSTMENT transaction (owner decision B) — the
+    // rejected buy-back itself must add no SECOND row, so the count stays at
+    // that one, not zero.
     expect(
       (db.prepare(`SELECT COUNT(*) c FROM transactions`).get() as any).c,
-    ).toBe(0);
+    ).toBe(1);
   });
 
   it("create + void nets every ledger back to 0: provider drawer, cash drawer, carrier line credits, and account credit", () => {
@@ -601,7 +605,7 @@ describe("RechargeRepository.processCreditBuyback()", () => {
       phone_number: "03111111",
       credits: 20,
       validity_expires_at: FUTURE_EXPIRY,
-    });
+    }, 1);
     seedDrawer(db, "MTC", "USD", 20);
     seedDrawer(db, "General", "USD", 500);
     const clientId = seedClient(db);
@@ -625,7 +629,21 @@ describe("RechargeRepository.processCreditBuyback()", () => {
       userId: 1,
     });
     expect(result.success).toBe(true);
-    const txnId = result.id!;
+    // LIRA-252 wave 3: `result.id` is `recharges.id` (processCreditBuyback's
+    // own return, pre-existing and out of this ticket's scope), which used
+    // to coincidentally equal the unified `transactions.id` in an isolated
+    // test db with exactly one recharge and NO other transaction rows. Now
+    // that `createLine`'s own non-zero-credit seed above also writes a real
+    // CARRIER_LINE_ADJUSTMENT transaction row (owner decision B/wave 2),
+    // that coincidence breaks — so this resolves the REAL buy-back
+    // transaction id the same way `voidTransaction` needs it, by type.
+    const txnId = (
+      db
+        .prepare(
+          `SELECT id FROM transactions WHERE type = 'TELECOM_CREDIT_BUYBACK' ORDER BY id DESC LIMIT 1`,
+        )
+        .get() as { id: number }
+    ).id;
 
     // Confirm it actually moved everything before voiding.
     expect(balance(db, "General", "USD")).not.toBeCloseTo(beforeGeneral, 2);

@@ -62,7 +62,7 @@ describe("StepDrawerAmounts — Carrier Lines section", () => {
     mockGetCurrencies.mockResolvedValue([]);
   });
 
-  it("renders exactly one Credits field per carrier and feeds it into both the line and that carrier's drawer amount", async () => {
+  it("renders exactly one Credits field per carrier and feeds it into carrier_lines only — never a generic MTC drawer_amounts row (owner decision A)", async () => {
     render(<StepDrawerAmounts />);
 
     // Wait for the async countable-currency set (mocked above) to land —
@@ -96,14 +96,19 @@ describe("StepDrawerAmounts — Carrier Lines section", () => {
         validity_expires_at: null,
       },
     ]);
+    // LIRA-252 item A: MTC/Alfa are excluded outright from drawer_amounts —
+    // the server now refuses a bare non-zero MTC/Alfa amount with no
+    // carrier_lines behind it, so the client must never construct one. The
+    // created line (via setup.complete) is the only thing that moves the
+    // MTC drawer.
     expect(payload.drawer_amounts).toEqual(
-      expect.arrayContaining([
-        { drawer_name: "MTC", currency_code: "USD", amount: 25 },
+      expect.not.arrayContaining([
+        expect.objectContaining({ drawer_name: "MTC" }),
       ]),
     );
   });
 
-  it("does not create a line for a carrier with no phone number, even if credits were typed (D4 — soft nudge, never blocks)", async () => {
+  it("blocks Next with an inline error when credits are typed with no phone number, instead of silently dropping them (owner decision A, supersedes the old D4 soft nudge)", async () => {
     render(<StepDrawerAmounts />);
     await waitFor(() =>
       expect(screen.getByTestId("setup-amount-General-USD")).toBeTruthy(),
@@ -114,15 +119,13 @@ describe("StepDrawerAmounts — Carrier Lines section", () => {
     });
     fireEvent.click(screen.getByText("Next →"));
 
-    const payload = mockUpdatePayload.mock.calls[0][0];
-    expect(payload.carrier_lines).toEqual([]);
-    // The typed amount still reaches the drawer even without a line, exactly
-    // like every other drawer on this step.
-    expect(payload.drawer_amounts).toEqual(
-      expect.arrayContaining([
-        { drawer_name: "MTC", currency_code: "USD", amount: 10 },
-      ]),
-    );
+    // Next is BLOCKED — no payload reaches the wizard's next step with a
+    // bare, lineless credits figure.
+    expect(mockUpdatePayload).not.toHaveBeenCalled();
+    expect(mockSetStep).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Enter a phone number for the MTC line/),
+    ).toBeInTheDocument();
   });
 
   it("Skip clears carrier_lines alongside drawer_amounts", () => {
