@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CheckCircle, CreditCard, Info } from "lucide-react";
 import type { PaymentLine } from "@liratek/ui";
+import { maxRechargeDiscount } from "@liratek/core";
 import { PaymentSheet } from "./PaymentSheet";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
@@ -247,9 +248,14 @@ export function CardGridPayView({
         exchangeRate={exchangeRate}
         {...(onExchangeRateChange ? { onExchangeRateChange } : {})}
         showDiscount={true}
-        maxDiscount={Math.max(
-          0,
-          selected ? selected.sellLbp - selected.costLbp : 0,
+        // LIRA-185 #1 follow-up (2026-10-02): this view's only caller is the
+        // Alfa Gift card grid (TelecomForm.tsx), a type with no SMS transfer
+        // fee — the plain margin, from the SAME helper RechargeRepository
+        // enforces (rule 14). `maxRechargeDiscount`'s `extraFee` defaults to
+        // 0, so this is byte-for-byte the previous `Math.max(0, sell-cost)`.
+        maxDiscount={maxRechargeDiscount(
+          selected?.sellLbp ?? 0,
+          selected?.costLbp ?? 0,
         )}
         onPaymentChange={onPaymentChange}
         {...(onReturnChange ? { onReturnChange } : {})}

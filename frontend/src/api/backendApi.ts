@@ -43,6 +43,10 @@ import type {
   SessionItemRefundPreviewInput,
   RefundSessionBasketItemResult,
   SessionItemRefundPreview,
+  // LIRA-185 — Loto report shape incl. kept change (rule 21).
+  LotoReportData,
+  // LIRA-185 #1 — recharge payload derived from the core schema (rule 21).
+  CreateRechargePayload,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -2160,7 +2164,7 @@ export async function getRechargeTodayStats(
   return res.stats;
 }
 
-export async function processRecharge(payload: any) {
+export async function processRecharge(payload: CreateRechargePayload) {
   if (isElectron()) {
     return (window as any).api.recharge.process(payload);
   }
@@ -3400,6 +3404,26 @@ export async function getTransactionById(id: number) {
     `/api/transactions/${id}`,
   );
   return res.transaction || null;
+}
+
+/** RCP-3 service-receipt reprint (rule 19 fix) — the customer-facing payment
+ *  legs for a transaction, used by `serviceReceipt.ts`'s
+ *  `buildServiceReceiptTextByTransaction`. Was a raw, unguarded
+ *  `window.api.transactions.getCustomerLegs()` call with no REST twin —
+ *  the Transactions page's reprint button silently couldn't work on web.
+ *  Read: returns the RAW array, matching the IPC channel's shape. */
+export async function getCustomerFacingLegs(
+  transactionId: number,
+): Promise<any[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().transactions.getCustomerLegs(transactionId),
+    async () => {
+      const res = await requestJson<{ success: boolean; legs?: any[] }>(
+        `/api/transactions/${transactionId}/customer-legs`,
+      );
+      return res.legs ?? [];
+    },
+  );
 }
 
 /** D1 — currency in/out by business date (the Audit page's Cash Report
@@ -6267,15 +6291,7 @@ export async function lotoReport(
   to: string,
 ): Promise<{
   success: boolean;
-  reportData?: {
-    total_tickets: number;
-    total_sales: number;
-    total_commission: number;
-    total_prizes: number;
-    total_cash_prizes: number;
-    outstanding_prizes: number;
-    total_fees: number;
-  };
+  reportData?: LotoReportData;
   error?: string;
 }> {
   return ipcOrHttp(
@@ -6283,15 +6299,7 @@ export async function lotoReport(
     async () =>
       requestJson<{
         success: boolean;
-        reportData?: {
-          total_tickets: number;
-          total_sales: number;
-          total_commission: number;
-          total_prizes: number;
-          total_cash_prizes: number;
-          outstanding_prizes: number;
-          total_fees: number;
-        };
+        reportData?: LotoReportData;
         error?: string;
       }>(`/api/loto/report?from=${from}&to=${to}`),
   );

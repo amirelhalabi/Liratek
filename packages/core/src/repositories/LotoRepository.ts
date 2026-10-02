@@ -81,6 +81,11 @@ export interface LotoReportData {
   total_tickets: number;
   total_sales: number;
   total_commission: number;
+  /** LIRA-185 — kept change (not returned) on the same tickets, per
+   *  currency; commission + kept change = the Profits page's loto profit.
+   *  See `LotoTicketRepository.getTotalKeptChange`. */
+  total_kept_change_usd: number;
+  total_kept_change_lbp: number;
   total_prizes: number;
   total_cash_prizes: number;
   outstanding_prizes: number;
@@ -178,10 +183,13 @@ export class LotoRepository {
 
   // Report Data (composite - spans tickets + monthly fees)
   getReportData(from: string, to: string): LotoReportData {
+    const keptChange = this.tickets.getTotalKeptChange(from, to);
     return {
       total_tickets: this.tickets.getTicketCount(from, to),
       total_sales: this.tickets.getTotalSales(from, to),
       total_commission: this.tickets.getTotalCommission(from, to),
+      total_kept_change_usd: keptChange.usd,
+      total_kept_change_lbp: keptChange.lbp,
       total_prizes: this.tickets.getTotalPrizes(from, to),
       total_cash_prizes: this.cashPrizes.getTotalCashPrizes(from, to),
       outstanding_prizes: this.tickets.getOutstandingPrizes(),

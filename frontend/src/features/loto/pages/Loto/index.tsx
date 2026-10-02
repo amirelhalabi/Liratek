@@ -43,6 +43,8 @@ interface TodayStats {
   ticketsSold: number;
   totalSales: number;
   totalCommission: number;
+  totalKeptChangeUsd: number;
+  totalKeptChangeLbp: number;
   totalPrizes: number;
 }
 
@@ -92,6 +94,8 @@ export function LotoPage() {
     ticketsSold: 0,
     totalSales: 0,
     totalCommission: 0,
+    totalKeptChangeUsd: 0,
+    totalKeptChangeLbp: 0,
     totalPrizes: 0,
   });
   // Payments use the BUY rate (owner decision 2026-07-06): every
@@ -150,6 +154,10 @@ export function LotoPage() {
           ticketsSold: result.reportData.total_tickets,
           totalSales: result.reportData.total_sales,
           totalCommission: result.reportData.total_commission,
+          // LIRA-185 — `?? 0` keeps the card rendering against an older
+          // backend that does not send kept change yet.
+          totalKeptChangeUsd: result.reportData.total_kept_change_usd ?? 0,
+          totalKeptChangeLbp: result.reportData.total_kept_change_lbp ?? 0,
           totalPrizes: result.reportData.total_cash_prizes,
         });
       }
@@ -470,6 +478,8 @@ export function LotoPage() {
               ticketsSold={stats.ticketsSold}
               totalSales={stats.totalSales}
               totalCommission={stats.totalCommission}
+              totalKeptChangeUsd={stats.totalKeptChangeUsd}
+              totalKeptChangeLbp={stats.totalKeptChangeLbp}
               totalPrizes={stats.totalPrizes}
             />
             <button

@@ -24,6 +24,8 @@ import type {
   // schema/repository (rule 21).
   SessionItemRefundInput,
   SessionItemRefundPreviewInput,
+  // LIRA-185 #1 — recharge payload derived from the core schema (rule 21).
+  CreateRechargePayload,
 } from "@liratek/core";
 import * as api from "./backendApi";
 
@@ -264,7 +266,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   getRechargeTodayStats = (provider: "MTC" | "Alfa") =>
     api.getRechargeTodayStats(provider);
   getRechargeDrawerBalances = () => api.getRechargeDrawerBalances();
-  processRecharge = (payload: any) => api.processRecharge(payload);
+  processRecharge = (payload: CreateRechargePayload) =>
+    api.processRecharge(payload);
   updateRechargeMetadata = (payload: {
     id: number;
     phone_number?: string;
@@ -520,6 +523,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     filters?: api.TransactionFiltersParam,
   ) => api.getRecentTransactions(limit, filters);
   getTransactionById = (id: number) => api.getTransactionById(id);
+  /** RCP-3 service-receipt reprint (rule 19 fix). */
+  getCustomerFacingLegs = (transactionId: number) =>
+    api.getCustomerFacingLegs(transactionId);
   /** D1 — currency in/out by business date (the Audit page's Cash Report). */
   getCashFlowByDate = (from: string, to: string) =>
     api.getCashFlowByDate(from, to);

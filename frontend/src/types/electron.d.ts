@@ -6,6 +6,7 @@ import type {
   DailyStatsSnapshot,
   DailyStatsSnapshotQuery,
   NetProfitWindowResult,
+  LotoReportData,
 } from "@liratek/core";
 
 /**
@@ -1636,6 +1637,9 @@ export interface ElectronAPI {
       amount: number;
       cost: number;
       price: number;
+      /** LIRA-185 #1: payment-sheet discount (sale currency); `price` stays
+       *  the list price, the server charges `price − discount`. */
+      discount?: number;
       default_price_to_client?: number;
       paid_by_method?: string;
       phoneNumber?: string;
@@ -2028,15 +2032,7 @@ export interface ElectronAPI {
       to: string,
     ) => Promise<{
       success: boolean;
-      reportData?: {
-        total_tickets: number;
-        total_sales: number;
-        total_commission: number;
-        total_prizes: number;
-        total_cash_prizes: number;
-        outstanding_prizes: number;
-        total_fees: number;
-      };
+      reportData?: LotoReportData;
       error?: string;
     }>;
     settlement: (

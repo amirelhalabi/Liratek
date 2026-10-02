@@ -210,6 +210,9 @@ export * from "./constants/tenderRateBand.js";
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";
 export type { SaleRequest } from "./repositories/SalesRepository.js";
+// LIRA-185 — the Loto page report shape (incl. kept change), derived by the
+// adapter/IPC types instead of hand-copied (rule 21).
+export type { LotoReportData } from "./repositories/LotoRepository.js";
 
 // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
 // single-item refund payload/result/preview shapes, plus the two smaller
@@ -312,3 +315,9 @@ export type {
 // telecomCredit.js note earlier in this file for the exact failure mode this
 // avoids.
 export * from "./constants/transactionTypes.js";
+
+// LIRA-185 #1 — the MTC/Alfa discount cap (pure, no Node deps). The page's
+// payment-sheet `maxDiscount` and RechargeRepository's server-side cap share
+// this one definition (rule 14). Must be exported HERE too (rule 29 /
+// telecomCredit.js note).
+export * from "./utils/rechargeDiscount.js";

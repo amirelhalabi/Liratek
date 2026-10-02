@@ -12,7 +12,10 @@ import { localDay } from "@/shared/utils/localDay";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { appEvents, useApi } from "@liratek/ui";
 import { costOfValidityDaysUsd } from "@liratek/core";
-import type { TopUpFromClientInput } from "@liratek/core";
+import type {
+  TopUpFromClientInput,
+  CreateRechargePayload,
+} from "@liratek/core";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -175,6 +178,12 @@ export default function MobileRecharge() {
   const [telecomTenderRate, setTelecomTenderRate] = useState<
     number | undefined
   >();
+  // LIRA-185 #1 (owner decision 2026-10-02): the payment sheet's Discount
+  // (LBP, already clamped to the margin by the sheet). Sent WITH the sale —
+  // `price` stays the list price and the server charges `price − discount`,
+  // re-checking the margin cap. The sheet re-emits 0 whenever it remounts or
+  // its cap drops to 0 (form cleared), so this never outlives its sale.
+  const [telecomDiscount, setTelecomDiscount] = useState(0);
 
   // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7) — single source of truth for
   // "is the typed phone number this carrier's own shop line", fetched ONCE
@@ -610,6 +619,9 @@ export default function MobileRecharge() {
             // Same fix as the Binance mapping in loadBinanceData above.
             is_refunded: r.is_refunded ?? 0,
             refunded_at: r.refunded_at ?? null,
+            // LIRA-185 #4: unpaid account sale — History labels its profit
+            // "pending until paid" (same rule as the Profits page).
+            profit_pending: Boolean(r.profit_pending),
           }),
         ),
       );
@@ -724,7 +736,10 @@ export default function MobileRecharge() {
   }, []);
 
   const handleTelecomSubmit = useCallback(async () => {
-    if (!activeProvider || !telecomAmount) return;
+    // Only the MTC/Alfa tabs render TelecomForm; the explicit narrowing lets
+    // the payload type-check against the shared schema (rule 21).
+    if (activeProvider !== "MTC" && activeProvider !== "Alfa") return;
+    if (!telecomAmount) return;
     if (
       rechargeType === "DAYS" &&
       (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)
@@ -779,6 +794,11 @@ export default function MobileRecharge() {
     // `?? null`, which HistoryModal already reads as "no alert".
     const defaultPriceToClient =
       rechargeType === "DAYS" ? undefined : amount * alfaCreditSellRate;
+    // LIRA-185 #1: a buy-back is a payout, never discounted (the sheet hides
+    // the field there and the server refuses one).
+    const discount = isBuyback ? 0 : telecomDiscount;
+    const discountField = discount > 0 ? { discount } : {};
+    const chargedPrice = price - discount;
 
     const clientResult = await ensureRechargeClient({
       clientId: telecomClientId,
@@ -804,8 +824,8 @@ export default function MobileRecharge() {
           ? "Recharge"
           : rechargeType.replace(/_/g, " ");
       const label = phoneNumber
-        ? `${providerLabel} ${typeLabel} - ${phoneNumber} - ${price.toLocaleString()} LBP`
-        : `${providerLabel} ${typeLabel} - ${price.toLocaleString()} LBP`;
+        ? `${providerLabel} ${typeLabel} - ${phoneNumber} - ${chargedPrice.toLocaleString()} LBP`
+        : `${providerLabel} ${typeLabel} - ${chargedPrice.toLocaleString()} LBP`;
 
       // Session mode: the basket owns the payment, so the cart item carries NO
       // payment fields (paid_by_method / payments). The Session Checkout modal
@@ -816,7 +836,7 @@ export default function MobileRecharge() {
       addToSessionCart({
         module: activeProvider === "MTC" ? "recharge_mtc" : "recharge_alfa",
         label,
-        amount: price,
+        amount: chargedPrice,
         currency: "LBP",
         ipcChannel: "recharge:process",
         formData: {
@@ -827,6 +847,7 @@ export default function MobileRecharge() {
           amount,
           cost,
           price,
+          ...discountField,
           default_price_to_client: defaultPriceToClient,
           currency: "LBP",
           clientId: resolvedClientId || undefined,
@@ -857,12 +878,15 @@ export default function MobileRecharge() {
         // contract. Owner note #21: with the checkbox unticked instead, it
         // flips to SHOP_LINE_USE (case 2) — an ordinary sale payload, just a
         // distinct `type` so the SMS fee stays off and history reads right.
-        type: submittedRechargeType,
+        // `deriveSubmittedRechargeType` returns `string`; its inputs are the
+        // telecom tab types, so the result is always a schema type.
+        type: submittedRechargeType as CreateRechargePayload["type"],
         phoneNumber:
           rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
         amount,
         cost,
         price,
+        ...discountField,
         default_price_to_client: defaultPriceToClient,
         currency: "LBP",
         // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: derive from the pay sheet's
@@ -909,8 +933,8 @@ export default function MobileRecharge() {
             transactionType: "recharge",
             transactionId: result.id,
             amountUsd: 0,
-            amountLbp: price,
-            profitLbp: price - cost,
+            amountLbp: chargedPrice,
+            profitLbp: chargedPrice - cost,
           });
         } catch (err) {
           logger.error("Failed to link recharge to session:", err);
@@ -995,6 +1019,7 @@ export default function MobileRecharge() {
     exchangeRate,
     loadRechargeHistory,
     loadRechargeTodayStats,
+    telecomDiscount,
   ]);
 
   const handleTopUpClick = useCallback(async () => {
@@ -1245,6 +1270,9 @@ export default function MobileRecharge() {
     const amount = parseFloat(giftAmountUsd);
     const price = parseFloat(giftPriceLbp);
     const cost = parseFloat(giftCostLbp);
+    // LIRA-185 #1: same discount contract as handleTelecomSubmit.
+    const discountField = telecomDiscount > 0 ? { discount: telecomDiscount } : {};
+    const chargedPrice = price - telecomDiscount;
 
     const clientResult = await ensureRechargeClient({
       clientId: telecomClientId,
@@ -1267,8 +1295,8 @@ export default function MobileRecharge() {
     if (activeSession) {
       addToSessionCart({
         module: "recharge_alfa",
-        label: `Alfa Gift ${giftTierKey} - ${price.toLocaleString()} LBP`,
-        amount: price,
+        label: `Alfa Gift ${giftTierKey} - ${chargedPrice.toLocaleString()} LBP`,
+        amount: chargedPrice,
         currency: "LBP",
         ipcChannel: "recharge:process",
         formData: {
@@ -1277,6 +1305,7 @@ export default function MobileRecharge() {
           amount,
           cost,
           price,
+          ...discountField,
           currency: "LBP",
           clientId: resolvedClientId || undefined,
           clientName: telecomClientName || undefined,
@@ -1294,6 +1323,7 @@ export default function MobileRecharge() {
         amount,
         cost,
         price,
+        ...discountField,
         currency: "LBP",
         // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: see handleTelecomSubmit's
         // identical comment above — derive from the sheet's legs, not the
@@ -1374,6 +1404,7 @@ export default function MobileRecharge() {
     telecomTenderRate,
     exchangeRate,
     loadRechargeHistory,
+    telecomDiscount,
     loadRechargeTodayStats,
   ]);
 
@@ -1895,6 +1926,7 @@ export default function MobileRecharge() {
             primaryLine={shopLines.find((l) => l.is_primary === 1) ?? null}
             onKeptChange={setKeptChange}
             onEffectiveRateChange={setTelecomTenderRate}
+            onDiscountChange={setTelecomDiscount}
             giftTierKey={giftTierKey}
             setGiftTierKey={setGiftTierKey}
             giftAmountUsd={giftAmountUsd}

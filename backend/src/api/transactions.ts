@@ -192,6 +192,26 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/transactions/:id/customer-legs — RCP-3 service-receipt reprint
+// (rule 19 fix): the customer-facing payment legs for one transaction,
+// mirroring IPC `transactions:get-customer-legs`
+// (TransactionService.getCustomerFacingLegs, which already self-catches and
+// returns `[]` on error — nothing here can throw past this handler's own
+// try/catch). Read-only, no role gate — matches `/:id/refund-booked-rate`
+// above (feeds a receipt preview, not a write). Returns the RAW array under
+// `legs`, same convention as `getCashFlowByDate`'s `cashFlow` key.
+router.get("/:id/customer-legs", requireAuth, (req: AuthRequest, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const txnService = getTransactionService();
+    const legs = txnService.getCustomerFacingLegs(id);
+    res.json({ success: true, legs });
+  } catch (error) {
+    logger.error({ error }, "Get customer-facing legs error");
+    res.json({ success: false, error: (error as Error).message });
+  }
+});
+
 // GET /api/transactions/client/:clientId?limit=100
 router.get("/client/:clientId", requireAuth, async (req, res) => {
   try {

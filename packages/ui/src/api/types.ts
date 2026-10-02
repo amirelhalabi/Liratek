@@ -7,6 +7,8 @@
 
 import type {
   ClientEntity,
+  // LIRA-185 #1 — recharge payload derived from the core schema (rule 21).
+  CreateRechargePayload,
   ProductListFilters,
   DatabaseResetPreview,
   DatabaseResetResult,
@@ -53,6 +55,8 @@ import type {
   SessionItemRefundPreviewInput,
   RefundSessionBasketItemResult,
   SessionItemRefundPreview,
+  // LIRA-185 — Loto report shape incl. kept change (rule 21).
+  LotoReportData,
   // Typing follow-up (rule 21/24) — `refundTransaction` below used to
   // hand-type its `refundLegs`/`unitExtras` params with `currencyCode:
   // string` (loose), instead of importing these directly the way
@@ -831,15 +835,7 @@ export type LotoApi = {
     to: string,
   ) => Promise<{
     success: boolean;
-    reportData?: {
-      total_tickets: number;
-      total_sales: number;
-      total_commission: number;
-      total_prizes: number;
-      total_cash_prizes: number;
-      outstanding_prizes: number;
-      total_fees: number;
-    };
+    reportData?: LotoReportData;
     error?: string;
   }>;
   settlement: (
@@ -1309,7 +1305,9 @@ export type ApiAdapter = {
     profit_lbp: number;
     byCurrency: Array<{ currency: string; commission: number; count: number }>;
   }>;
-  processRecharge: (payload: any) => Promise<ApiResult>;
+  /** Payload derived from `createRechargeSchema` (rule 21) — LIRA-185 #1
+   *  added `discount`; a hand-typed copy would not have it. */
+  processRecharge: (payload: CreateRechargePayload) => Promise<ApiResult>;
   /** Funding-source drawer balances for the top-up modal opened by
    *  `handleTopUpClick` — feeds all four top-up arms below. Previously a
    *  raw, unguarded `window.api.recharge.getDrawerBalances()` call with no
@@ -2527,6 +2525,9 @@ export type ApiAdapter = {
     filters?: Record<string, unknown>,
   ) => Promise<any[]>;
   getTransactionById: (id: number) => Promise<any>;
+  /** RCP-3 service-receipt reprint (rule 19 fix) — customer-facing payment
+   *  legs for a transaction (TransactionService.getCustomerFacingLegs). */
+  getCustomerFacingLegs: (transactionId: number) => Promise<any[]>;
   /** D1 — currency in/out by business date (the Audit page's Cash Report). */
   getCashFlowByDate: (
     from: string,

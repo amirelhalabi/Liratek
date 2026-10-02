@@ -109,7 +109,7 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
         // status = 'ACTIVE') — nothing to print, fail quietly.
         return;
       }
-      await printServiceReceiptByTransaction(txnId, shopInfo);
+      await printServiceReceiptByTransaction(api, txnId, shopInfo);
     } catch {
       // Best-effort reprint — a failed lookup/print shouldn't throw into the
       // table's click handler.

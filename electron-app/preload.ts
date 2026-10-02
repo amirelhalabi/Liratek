@@ -582,6 +582,9 @@ contextBridge.exposeInMainWorld("api", {
       amount: number;
       cost: number;
       price: number;
+      /** LIRA-185 #1: payment-sheet discount (sale currency); `price` stays
+       *  the list price, the server charges `price − discount`. */
+      discount?: number;
       default_price_to_client?: number;
       paid_by_method?: string;
       phoneNumber?: string;

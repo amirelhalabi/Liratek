@@ -1,5 +1,5 @@
 import { Wrench, RefreshCw, X, Ban, Pencil, Printer } from "lucide-react";
-import { DataTable } from "@liratek/ui";
+import { DataTable, useApi } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
@@ -9,6 +9,8 @@ import { useShopInfo } from "@/hooks/useShopName";
 import { getTransactionBySource } from "@/api/backendApi";
 import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
 import { isReceiptableTransaction } from "@/features/audit/receiptGating";
+import { getLabourAmounts } from "./jobAmounts";
+import { ListVsCharged } from "./ListVsChargedAmount";
 
 type MaintenanceJob = {
   id: number;
@@ -26,6 +28,7 @@ type MaintenanceJob = {
   paid_usd?: number;
   paid_lbp?: number;
   discount_usd?: number;
+  parts_price_usd?: number;
   final_amount_usd?: number;
   final_amount_lbp?: number;
   is_refunded?: number;
@@ -72,13 +75,14 @@ export function HistoryModal({
     "created_at",
   );
   const shopInfo = useShopInfo();
+  const api = useApi();
 
   async function handlePrint(job: MaintenanceJob) {
     try {
       const txn = await getTransactionBySource("maintenance", job.id);
       const txnId = (txn as { id?: number } | null)?.id;
       if (!txnId) return; // voided rows resolve to null — nothing to print
-      await printServiceReceiptByTransaction(txnId, shopInfo);
+      await printServiceReceiptByTransaction(api, txnId, shopInfo);
     } catch {
       // Best-effort reprint — never throw into the table's click handler.
     }
@@ -171,6 +175,7 @@ export function HistoryModal({
               emptyMessage="No maintenance jobs found."
               renderRow={(job) => {
                 const isRefunded = Boolean(job.is_refunded);
+                const labour = getLabourAmounts(job);
                 return (
                   <tr
                     key={job.id}
@@ -231,13 +236,20 @@ export function HistoryModal({
                         {(job.status || "").replace("_", " ")}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm font-bold text-white text-right">
-                      {job.currency === "LBP"
-                        ? `${(job.price_lbp ?? 0).toLocaleString()} LBP`
-                        : `$${(job.price_usd ?? 0).toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}`}
+                    <td className="px-6 py-4 text-sm font-bold text-white text-right whitespace-nowrap">
+                      {/* LIRA-185 D6: list price struck through next to the
+                          labour amount actually charged, when they differ. */}
+                      <ListVsCharged
+                        {...labour}
+                        format={(n) =>
+                          labour.currency === "LBP"
+                            ? `${n.toLocaleString()} LBP`
+                            : `$${n.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}`
+                        }
+                      />
                     </td>
                     <td className="px-6 py-4 text-sm text-emerald-400 text-right">
                       {(job.paid_lbp ?? 0) > 0 && (

@@ -17,6 +17,8 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { HistoryModal } from "./components/HistoryModal";
 import PartPicker, { type PartLine } from "./components/PartPicker";
 import { toPartsPayload, partsTotalUsd } from "./components/partsMath";
+import { getLabourAmounts } from "./components/jobAmounts";
+import { ListVsCharged } from "./components/ListVsChargedAmount";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -838,16 +840,39 @@ export default function Maintenance() {
                     const partsSummary = (job.parts ?? [])
                       .map((p) => `${p.product_name} x${p.quantity}`)
                       .join(", ");
+                    // LIRA-185 D6: list vs charged labour (one helper shared
+                    // with the History window). Parts are never discounted:
+                    // a USD job's total folds them into both sides; an LBP
+                    // job's ride alongside as a separate "+ $parts".
+                    const labour = getLabourAmounts(job);
                     const hasAmount =
-                      job.currency === "LBP"
-                        ? (job.price_lbp ?? 0) > 0 || jobPartsPrice > 0
-                        : (job.price_usd ?? 0) > 0 || jobPartsPrice > 0;
-                    const grandTotalLabel =
-                      job.currency === "LBP"
-                        ? jobPartsPrice > 0
-                          ? `${Math.round(job.price_lbp ?? 0).toLocaleString()} LBP + $${jobPartsPrice.toFixed(2)}`
-                          : `${Math.round(job.price_lbp ?? 0).toLocaleString()} LBP`
-                        : `$${((job.price_usd ?? 0) + jobPartsPrice).toFixed(2)}`;
+                      labour.list > 0 ||
+                      labour.charged > 0 ||
+                      jobPartsPrice > 0;
+                    const isLbpJob = labour.currency === "LBP";
+                    const grandTotal = (
+                      <>
+                        <ListVsCharged
+                          list={
+                            isLbpJob ? labour.list : labour.list + jobPartsPrice
+                          }
+                          charged={
+                            isLbpJob
+                              ? labour.charged
+                              : labour.charged + jobPartsPrice
+                          }
+                          discounted={labour.discounted}
+                          format={(n) =>
+                            isLbpJob
+                              ? `${Math.round(n).toLocaleString()} LBP`
+                              : `$${n.toFixed(2)}`
+                          }
+                        />
+                        {isLbpJob &&
+                          jobPartsPrice > 0 &&
+                          ` + $${jobPartsPrice.toFixed(2)}`}
+                      </>
+                    );
                     return (
                       <button
                         key={job.id}
@@ -919,7 +944,7 @@ export default function Maintenance() {
                         )}
                         {hasAmount && (
                           <span className="text-xs font-mono text-emerald-400 shrink-0 whitespace-nowrap">
-                            {grandTotalLabel}
+                            {grandTotal}
                           </span>
                         )}
                         <button

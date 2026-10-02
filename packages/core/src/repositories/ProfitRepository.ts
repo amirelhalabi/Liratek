@@ -1217,6 +1217,31 @@ export function notRefunded(alias: string): string {
 }
 
 /**
+ * LIRA-185 (owner decision 2026-10-02) — the ONE definition of a loto
+ * ticket's kept change, read off the SAME profit stamp the Profits page sums
+ * ({@link ProfitRepository.getLotoTotals}). `LotoTicketRepository.createTicket`
+ * stamps `profit_lbp = commission_amount + kept_change_lbp` and
+ * `profit_usd = kept_change_usd` on the LOTO transaction; there is no
+ * separate kept-change column, so the LBP side is the stamp minus the
+ * ticket's commission and the USD side is the whole USD stamp (a loto ticket
+ * is LBP-native — any USD profit on it is kept change by construction).
+ * The Loto page shows these next to its pure-commission card so commission +
+ * kept change adds up to the Profits figure (rule 14: one fragment, both
+ * readers).
+ */
+export function lotoKeptChangeLbp(
+  ticketAlias: string,
+  txnAlias: string,
+): string {
+  return `(COALESCE(${txnAlias}.profit_lbp, 0) - COALESCE(${ticketAlias}.commission_amount, 0))`;
+}
+
+/** @see lotoKeptChangeLbp — the USD side of a loto ticket's kept change. */
+export function lotoKeptChangeUsd(txnAlias: string): string {
+  return `COALESCE(${txnAlias}.profit_usd, 0)`;
+}
+
+/**
  * A `transactions` row `alias` has NOT since been reversed by an ACTIVE
  * REFUND transaction pointing back at it via `reverses_id`. `refundTransaction`
  * deliberately leaves the ORIGINAL row's `status = 'ACTIVE'` (so the
@@ -4413,7 +4438,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- t.profit_usd stamped on its transaction row is, by construction,
           -- USD-side kept change (probe: a $1 kept change on a loto sale
           -- showed gross_usd = 0 before this).
-          COALESCE(SUM(t.profit_usd * (${partnerCoverageRatio("loto_tickets", "lt.id")})), 0) AS kept_change_usd,
+          COALESCE(SUM(${lotoKeptChangeUsd("t")} * (${partnerCoverageRatio("loto_tickets", "lt.id")})), 0) AS kept_change_usd,
           SUM(CASE WHEN (${partnerCoverageRatio("loto_tickets", "lt.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM loto_tickets lt
         JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'

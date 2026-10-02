@@ -2,6 +2,7 @@ import {
   useState,
   useCallback,
   useMemo,
+  useRef,
   Fragment,
   type ReactElement,
 } from "react";
@@ -17,7 +18,7 @@ import {
   type ProductUnitDto,
   type BookedRateSource,
 } from "@/api/backendApi";
-import { DataTable } from "@liratek/ui";
+import { DataTable, useApi, appEvents } from "@liratek/ui";
 import logger from "@/utils/logger";
 import { formatLegAmount } from "../cashFlow";
 import {
@@ -61,7 +62,6 @@ import {
   buildServiceReceiptTextByTransaction,
   getConfiguredReceiptPrinter,
 } from "@/shared/utils/serviceReceipt";
-import { appEvents } from "@liratek/ui";
 import { ReceiptPreviewModal } from "@/shared/components/ReceiptPreviewModal";
 import { RefundMethodModal } from "../components/RefundMethodModal";
 import { RefundQuantityModal } from "../components/RefundQuantityModal";
@@ -153,6 +153,15 @@ export default function TransactionsViewer({
     to,
   });
   const shopInfo = useShopInfo();
+  const api = useApi();
+  // Read `api` through a ref (rule 25) so `handlePrintReceipt` below keeps a
+  // STABLE identity across renders — same hazard/pattern as
+  // FeatureFlagContext.tsx: `ApiProvider` happens to pass a module-level
+  // singleton, which is an implicit contract, not a guarantee, and this
+  // util is a plain function (not a hook), so it can't call `useApi()`
+  // itself — the caller passes the live adapter in.
+  const apiRef = useRef(api);
+  apiRef.current = api;
   // LIRA-139: fallback rate for Amount-column sort on rows with no stamped
   // `exchange_rate` — injected into amountSortValue rather than read inside
   // it (DIP).
@@ -224,7 +233,11 @@ export default function TransactionsViewer({
 
   const handlePrintReceipt = useCallback(
     async (id: number) => {
-      const built = await buildServiceReceiptTextByTransaction(id, shopInfo);
+      const built = await buildServiceReceiptTextByTransaction(
+        apiRef.current,
+        id,
+        shopInfo,
+      );
       if (!built.ok || !built.text) {
         appEvents.emit(
           "notification:show",
@@ -233,7 +246,7 @@ export default function TransactionsViewer({
         );
         return;
       }
-      const printer = await getConfiguredReceiptPrinter();
+      const printer = await getConfiguredReceiptPrinter(apiRef.current);
       setReceiptPreview({ text: built.text, printer });
     },
     [shopInfo],

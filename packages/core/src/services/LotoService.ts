@@ -538,10 +538,15 @@ export class LotoService {
    */
   getReportData(from: string, to: string): LotoReportData {
     try {
+      // LIRA-185 — pure commission stays as-is; kept change rides alongside
+      // so the Loto page can show both (their sum = Profits' loto profit).
+      const keptChange = this.ticketRepo.getTotalKeptChange(from, to);
       return {
         total_tickets: this.ticketRepo.getTicketCount(from, to),
         total_sales: this.ticketRepo.getTotalSales(from, to),
         total_commission: this.ticketRepo.getTotalCommission(from, to),
+        total_kept_change_usd: keptChange.usd,
+        total_kept_change_lbp: keptChange.lbp,
         total_prizes: this.ticketRepo.getTotalPrizes(from, to),
         total_cash_prizes: this.cashPrizeRepo.getTotalCashPrizes(from, to),
         outstanding_prizes: this.ticketRepo.getOutstandingPrizes(),

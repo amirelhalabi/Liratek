@@ -17,6 +17,9 @@ import {
   projectValidityExpiry,
   classifyLineValidity,
   LINE_REVIVAL_GRACE_DAYS,
+  maxRechargeDiscount,
+  planSmsTransfer,
+  type CreateRechargePayload,
 } from "@liratek/core";
 import type {
   FinancialTransaction,
@@ -397,12 +400,12 @@ export function TelecomForm({
   // disagree with what gets sent. `handleForPartnerSubmit` below does NOT
   // use it — see the `forPartner`-reset effect's comment (near its
   // declaration) for why the two don't compose.
-  const isCreditBuyback =
-    deriveSubmittedRechargeType(
-      rechargeType,
-      isShopLineMatch,
-      shopLineBuyback,
-    ) === "CREDIT_BUYBACK";
+  const submittedRechargeType = deriveSubmittedRechargeType(
+    rechargeType,
+    isShopLineMatch,
+    shopLineBuyback,
+  );
+  const isCreditBuyback = submittedRechargeType === "CREDIT_BUYBACK";
 
   // #28 (LIRA-218) — pre-sale "days sold ahead" preview for the Days tab.
   // Pure and read-only: projectValidityExpiry never writes anything, so
@@ -486,7 +489,9 @@ export function TelecomForm({
     try {
       const result = await api.processRecharge({
         provider: isMTC ? "MTC" : "Alfa",
-        type: rechargeType,
+        // `RechargeType` also lists the internal TOP_UP, which this form's
+        // tabs never produce (rule 21: payload checked against the schema).
+        type: rechargeType as CreateRechargePayload["type"],
         phoneNumber:
           rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
         amount,
@@ -1039,15 +1044,29 @@ export function TelecomForm({
                   {...(onEffectiveRateChange
                     ? { onExchangeRateChange: onEffectiveRateChange }
                     : {})}
-                  showDiscount={true}
-                  maxDiscount={Math.max(
-                    0,
-                    (telecomPrice ? parseFloat(telecomPrice) : 0) -
-                      (rechargeType === "DAYS"
-                        ? parseFloat(telecomDaysCostUsd || "0") *
+                  // LIRA-185 #1: a buy-back is a payout — no discount (the
+                  // server refuses one too). On a sale the cap is the margin,
+                  // from the SAME helper RechargeRepository enforces.
+                  showDiscount={!isCreditBuyback}
+                  // Follow-up (2026-10-02): a CREDIT_TRANSFER sale also burns
+                  // an SMS_Transfer_Fee expense (planSmsTransfer, one message
+                  // per $3 of credit) on top of cost — the cap must shrink by
+                  // that fee, converted to LBP at this sheet's OWN rate
+                  // (`exchangeRate`, the same figure sent as
+                  // `tender_exchange_rate` on submit), or a discount at the
+                  // plain margin nets the sale a loss. SHOP_LINE_USE (case 2)
+                  // and CREDIT_BUYBACK skip the fee server-side too, so this
+                  // checks the SUBMITTED type, not the tab's `rechargeType`.
+                  maxDiscount={maxRechargeDiscount(
+                    telecomPrice ? parseFloat(telecomPrice) : 0,
+                    rechargeType === "DAYS"
+                      ? parseFloat(telecomDaysCostUsd || "0") *
                           alfaCreditCostRate
-                        : parseFloat(telecomAmount || "0") *
-                          alfaCreditCostRate),
+                      : parseFloat(telecomAmount || "0") * alfaCreditCostRate,
+                    submittedRechargeType === "CREDIT_TRANSFER"
+                      ? planSmsTransfer(parseFloat(telecomAmount || "0"))
+                          .feeUsd * exchangeRate
+                      : 0,
                   )}
                   onPaymentChange={(lines) => {
                     setPaymentLines(lines);

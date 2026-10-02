@@ -10,7 +10,11 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
-import { notRefunded } from "./ProfitRepository.js";
+import {
+  notRefunded,
+  lotoKeptChangeLbp,
+  lotoKeptChangeUsd,
+} from "./ProfitRepository.js";
 import { localDayExpr } from "./reportingTimeFragments.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
@@ -571,6 +575,35 @@ export class LotoTicketRepository {
       total: number;
     };
     return result.total;
+  }
+
+  /**
+   * LIRA-185 (owner decision 2026-10-02) — kept change (not returned) on the
+   * tickets in the Loto page's window, per currency. Shown under the
+   * pure-commission card so commission + kept change equals the Profits
+   * page's loto profit. Read from the SAME transaction stamp Profits sums,
+   * through the shared {@link lotoKeptChangeLbp}/{@link lotoKeptChangeUsd}
+   * fragments (rule 14). Same window as {@link getTotalCommission}
+   * (`sale_date`); a voided sale (`t.status`) and a voided/refunded ticket
+   * (`notRefunded`) both drop out.
+   */
+  getTotalKeptChange(from: string, to: string): { usd: number; lbp: number } {
+    const stmt = this.db.prepare(`
+      SELECT
+        COALESCE(SUM(${lotoKeptChangeUsd("t")}), 0) as usd,
+        COALESCE(SUM(${lotoKeptChangeLbp("lt", "t")}), 0) as lbp
+      FROM loto_tickets lt
+      JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
+      WHERE date(lt.sale_date) BETWEEN date(?) AND date(?)
+        AND t.status = 'ACTIVE'
+        AND ${notRefunded("lt")}
+        AND lt.tenant_id = ? AND t.tenant_id = ?
+    `);
+    const tenantId = getCurrentTenantId();
+    return stmt.get(from, to, tenantId, tenantId) as {
+      usd: number;
+      lbp: number;
+    };
   }
 
   getTotalPrizes(from: string, to: string): number {

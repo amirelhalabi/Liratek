@@ -222,7 +222,7 @@ export function HistoryModal({
       const txn = await getTransactionBySource("custom_services", tx.id);
       const txnId = (txn as { id?: number } | null)?.id;
       if (!txnId) return; // voided rows resolve to null — nothing to print
-      await printServiceReceiptByTransaction(txnId, shopInfo);
+      await printServiceReceiptByTransaction(api, txnId, shopInfo);
     } catch {
       // Best-effort reprint — never throw into the table's click handler.
     }

@@ -30,6 +30,7 @@ import {
   resolveStampedExchangeRate,
 } from "./moneyPosting.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
+import { applyRechargeDiscount } from "../utils/rechargeDiscount.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {
@@ -135,6 +136,14 @@ export interface RechargeData {
   amount: number;
   cost: number;
   price: number;
+  /**
+   * LIRA-185 #1: the payment sheet's Discount, in the sale currency. `price`
+   * is the LIST price; {@link RechargeRepository.processRecharge} charges
+   * `price − discount` (row, transaction amount, legs, debt, profit) and
+   * rejects a discount above the margin (`utils/rechargeDiscount.ts`).
+   * Not allowed on `CREDIT_BUYBACK` (a payout, not a sale).
+   */
+  discount?: number;
   default_price_to_client?: number;
   currency?: string; // Defaults to "USD"
   paid_by_method?: RechargePaidByMethod;
@@ -242,6 +251,11 @@ export interface RechargeEntity {
    *  .tsx`, gated on `tx.is_refunded`) stayed dormant. */
   is_refunded: number;
   refunded_at: string | null;
+  /** LIRA-185 #4 — projected by {@link RechargeRepository.getHistory} only:
+   *  1 while the sale's account charge is unpaid (its profit is not yet
+   *  counted on the Profits page — the SAME {@link notDebtPending} rule),
+   *  0 otherwise. Absent on findById/findAll. */
+  profit_pending?: number;
 }
 
 /**
@@ -525,9 +539,19 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
    * Get recharge history for a specific provider
    */
   getHistory(provider: "MTC" | "Alfa"): RechargeEntity[] {
+    // LIRA-185 #4: `profit_pending` — the sale's profit is still waiting on
+    // an unpaid account charge. Reuses the Profits page's own
+    // {@link notDebtPending} gate VERBATIM (rule 14) on this row's RECHARGE
+    // transaction, so the History label and the Profits deferral can never
+    // disagree. No RECHARGE row (buy-back/top-up) → NULL id → not pending.
+    const saleTxnId = `(SELECT t.id FROM transactions t
+           WHERE t.source_table = 'recharges' AND t.source_id = recharges.id
+             AND t.type = 'RECHARGE' AND t.tenant_id = recharges.tenant_id
+           ORDER BY t.id LIMIT 1)`;
     const rows = this.db
       .prepare(
-        `SELECT ${this.getColumns()}
+        `SELECT ${this.getColumns()},
+           CASE WHEN ${notDebtPending(saleTxnId)} THEN 0 ELSE 1 END AS profit_pending
          FROM recharges
          WHERE carrier = ? AND tenant_id = ?
          ORDER BY created_at DESC
@@ -857,11 +881,54 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
   /**
    * Process a recharge transaction (creates recharges row, updates drawers, logs activity)
    */
-  processRecharge(data: RechargeData): {
+  processRecharge(input: RechargeData): {
     success: boolean;
     id?: number;
     error?: string;
   } {
+    // LIRA-185 #1 (owner decision 2026-10-02): the payment sheet's Discount
+    // lowers the price CHARGED. Normalized here, once, before any branch
+    // reads `price`, so the recharges row, the transaction amount, leg
+    // reconciliation, the debt/partner remainder and the profit stamp all
+    // use the same charged price. The cap (never above the margin) is
+    // re-checked server-side — the REST route is directly callable.
+    if ((input.discount ?? 0) > 0 && input.type === "CREDIT_BUYBACK") {
+      return {
+        success: false,
+        error:
+          "A discount cannot be applied to a credit buy-back — it is a payout, not a sale",
+      };
+    }
+    // Owner decision #1 follow-up (2026-10-02): CREDIT_TRANSFER books its own
+    // SMS_Transfer_Fee expense below (step 5b) on top of `cost` — a discount
+    // at the plain margin nets a LOSS equal to that fee. Shrink the cap by
+    // the fee, converted to the sale's own currency at the SAME rate this
+    // method stamps on the transaction (`recordExchangeRate`, a few lines
+    // below in the real booking — read here BEFORE the transaction starts
+    // since it's a pure DB read, nothing writes `exchange_rates` in between).
+    // Every other type passes 0 and keeps the plain margin (rule 14 — the
+    // cap formula itself lives in ONE place, rechargeDiscount.ts).
+    const capSellRate = getUsdLbpSellRate(this.db);
+    const capExchangeRate = resolveStampedExchangeRate(
+      capSellRate,
+      input.tender_exchange_rate,
+    );
+    const capCurrency = input.currency ?? "USD";
+    const capSmsFee =
+      input.type === "CREDIT_TRANSFER"
+        ? planSmsTransfer(input.amount).feeUsd *
+          (capCurrency === "LBP" ? capExchangeRate : 1)
+        : 0;
+    const discounted = applyRechargeDiscount(
+      input.price,
+      input.cost,
+      input.discount,
+      capSmsFee,
+    );
+    if (!discounted.ok) return { success: false, error: discounted.error };
+    const discount = discounted.discount;
+    const data: RechargeData = { ...input, price: discounted.chargedPrice };
+
     // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7/D8): a credit buy-back is a
     // fundamentally different money direction (payout, not a sale) — routed
     // to its own method before any of this method's sale-shaped logic runs.
@@ -1007,6 +1074,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             amount: data.amount,
             cost: data.cost,
             price: data.price,
+            ...(discount > 0
+              ? { discount, list_price: data.price + discount }
+              : {}),
             currency,
             paid_by: paidBy,
             phone: data.phoneNumber,

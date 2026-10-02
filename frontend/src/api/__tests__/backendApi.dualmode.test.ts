@@ -261,7 +261,13 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.updateSetting("x", "2");
 
     await apiMod.getRechargeStock();
-    await apiMod.processRecharge({});
+    // Payload now typed from createRechargeSchema (rule 21, LIRA-185 #1).
+    await apiMod.processRecharge({
+      provider: "MTC",
+      type: "CREDIT_TRANSFER",
+      amount: 1,
+      price: 1,
+    });
 
     await apiMod.getOMTHistory();
     await apiMod.getOMTAnalytics();

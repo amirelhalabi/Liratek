@@ -59,6 +59,11 @@ export const createRechargeSchema = z
     amount: z.number().positive(),
     cost: z.number().min(0).default(0),
     price: positiveDecimalSchema,
+    // LIRA-185 #1: the payment sheet's Discount, in the sale currency. `price`
+    // stays the LIST price; the repository charges `price − discount` and
+    // rejects a discount above the margin (`utils/rechargeDiscount.ts`).
+    // Without this key Zod would strip the field on both transports.
+    discount: z.number().nonnegative().optional(),
     default_price_to_client: z.number().nonnegative().optional(),
     currency: z.string().min(1).default("USD"),
     // Deliberately NOT `phoneNumberSchema`: the desktop IPC copy has always
@@ -324,6 +329,9 @@ export const updateRechargeMetadataSchema = z.object({
 });
 
 export type CreateRechargeInput = z.infer<typeof createRechargeSchema>;
+/** What a caller SENDS to `recharge:process` / `POST /api/recharge/process`
+ *  (defaults still optional) — the adapter payload type (rule 21). */
+export type CreateRechargePayload = z.input<typeof createRechargeSchema>;
 export type GetRechargeStockInput = z.infer<typeof getRechargeStockSchema>;
 export type GetRechargeHistoryInput = z.infer<typeof getRechargeHistorySchema>;
 export type TopUpAppInput = z.infer<typeof topUpAppSchema>;

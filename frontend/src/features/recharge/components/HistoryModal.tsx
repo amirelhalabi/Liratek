@@ -11,7 +11,7 @@ import {
   AlertTriangle,
   Printer,
 } from "lucide-react";
-import { DataTable } from "@liratek/ui";
+import { DataTable, useApi } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
@@ -102,6 +102,7 @@ export function HistoryModal({
     "created_at",
   );
   const shopInfo = useShopInfo();
+  const api = useApi();
   const canPrint = Boolean(sourceTable && transactionType);
 
   async function handlePrint(tx: FinancialTransaction) {
@@ -114,7 +115,7 @@ export function HistoryModal({
         // status = 'ACTIVE') — nothing to print, fail quietly.
         return;
       }
-      await printServiceReceiptByTransaction(txnId, shopInfo);
+      await printServiceReceiptByTransaction(api, txnId, shopInfo);
     } catch {
       // Best-effort reprint — a failed lookup/print shouldn't throw into the
       // table's click handler.
@@ -299,6 +300,19 @@ export function HistoryModal({
                 FINANCIAL_SERVICE_ICONS[tx.service_type as ServiceType],
               );
               const isRefunded = Boolean(tx.is_refunded);
+              // LIRA-185 #4: charged to a customer's account and not yet
+              // repaid — the Profits page is not counting this profit yet.
+              // The figure stays; the label says why it isn't in Profits.
+              const profitPendingLabel =
+                tx.profit_pending && !isRefunded ? (
+                  <span
+                    data-testid="profit-pending-label"
+                    className="ml-2 inline-flex items-center rounded-full bg-amber-500/15 border border-amber-500/40 px-2 py-0.5 text-[10px] font-semibold text-amber-300"
+                    title="Charged to the customer's account — this profit counts on the Profits page once the customer pays"
+                  >
+                    Pending until paid
+                  </span>
+                ) : null;
               const isEditing = editingId === tx.id;
               const wasEdited = Boolean(tx.edited_by);
 
@@ -402,6 +416,7 @@ export function HistoryModal({
                           {(tx.cost ?? 0) > 0
                             ? formatAmount(tx.commission, tx.currency)
                             : "—"}
+                          {profitPendingLabel}
                         </td>
                       </>
                     ) : (
@@ -418,6 +433,7 @@ export function HistoryModal({
                         }
                       >
                         {formatAmount(tx.commission, tx.currency)}
+                        {profitPendingLabel}
                       </td>
                     )}
 

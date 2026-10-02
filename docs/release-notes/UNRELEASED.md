@@ -17,6 +17,10 @@
 
 - Alfa Gift cards now use your sell rate from Shop Config.
 - Refunded MTC and Alfa sales now show as Refunded in the History window, instead of looking like normal sales.
+- The Discount in the MTC and Alfa payment window now works: the customer pays the lower price, and the sale's profit goes down by the discount. A discount can't be bigger than the sale's profit, so a discounted sale never loses money — for a Credit Transfer, the cap also leaves room for the SMS cost the shop pays to send the credit. Before, the sale was refused, or the discount was added to the customer's debt.
+- In the MTC and Alfa History window, a sale charged to a customer's account shows "Pending until paid" next to its profit until the customer pays. The Profits page counts that profit only after payment.
+- The Discount field no longer appears when buying credits back on the shop's own line.
+- When an MTC or Alfa sale has a discount, its receipt now shows the full price, the discount, and the total charged — instead of just the amount paid.
 
 ## 💸 Expenses
 
@@ -28,6 +32,7 @@
 
 - From now on, a loto ticket sold with an earlier Transaction Time counts on that earlier day on the Loto page and in Ticket History, the same day the Profits page shows it.
 - In the Settle window, "Unchecked Activity" now shows exactly the tickets the next checkpoint will include: tickets sold after a checkpoint taken earlier today now appear, and voided tickets no longer raise the amount you owe Loto.
+- The Commission card at the top of the Loto page now has a "Kept change" line under it, showing the change you kept from customers on today's tickets (in LBP, and in dollars if any). For tickets paid at the counter, commission plus kept change is the loto profit the Profits page shows.
 
 ## 🔧 Maintenance
 
@@ -35,6 +40,7 @@
 - Backdating a repair checkout now works on the desktop app too, and moves the payment as well.
 - A repair's profit now lands on the day it was paid (not the day the device was dropped off) across every Profits tab and the closing report, so a multi-day repair no longer goes missing from the day it was actually delivered and paid.
 - Voiding a paid repair no longer leaves a negative revenue amount for that cashier or client on the Profits page.
+- When a paid repair was given a discount, the jobs list and the Maintenance History window now show the original price crossed out next to the amount actually charged (for example 300,000 → 250,000 LBP), matching what the Profits page counts.
 
 ## 📊 Profits page
 
@@ -56,3 +62,7 @@
 
 - In the OMT / Whish history list, the Fee and Profit of an LBP transfer now show in LBP (for example 5,000 LBP) instead of a dollar amount, and a commission that is only counted once the supplier settles is marked "est.".
 - On the OMT App and Whish App confirm screen, Shop Profit now shows the profit after the discount you give, which is the amount that gets recorded.
+
+## 🌐 Web app
+
+- Reprinting a service receipt from the Transactions page now works in the web app.

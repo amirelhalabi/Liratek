@@ -49,6 +49,18 @@ function createTestDb(): Database.Database {
       is_refunded              INTEGER DEFAULT 0,
       refunded_at              TEXT DEFAULT NULL
     );
+
+    -- LIRA-185 #4: getHistory's profit_pending column reads the sale's
+    -- RECHARGE transaction + its debt_ledger charge (notDebtPending).
+    CREATE TABLE transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, type TEXT,
+      source_table TEXT, source_id INTEGER
+    );
+    CREATE TABLE debt_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, transaction_id INTEGER,
+      transaction_type TEXT, amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0,
+      covered_usd REAL DEFAULT 0, covered_lbp REAL DEFAULT 0, is_refunded INTEGER DEFAULT 0
+    );
   `);
   return db;
 }

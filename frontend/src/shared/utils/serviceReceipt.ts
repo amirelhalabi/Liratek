@@ -50,6 +50,21 @@ export interface ServiceReceiptInput {
   operator?: string;
 }
 
+/**
+ * The slice of `ApiAdapter` (`@liratek/ui`) the receipt-by-transaction
+ * helpers below need — rule 19 fix. This file is a plain util, not a hook,
+ * so it can't call `useApi()` itself; the caller passes its `useApi()`
+ * result (or, in `TransactionsViewer.tsx`, the ref holding it — rule 25) in
+ * as a parameter instead. Narrowed to exactly the 3 reads used (ISP) rather
+ * than taking the whole `ApiAdapter`, so a test mock only has to stub 3
+ * methods.
+ */
+export interface ServiceReceiptApi {
+  getTransactionById: (id: number) => Promise<unknown>;
+  getCustomerFacingLegs: (transactionId: number) => Promise<ServiceReceiptLeg[]>;
+  getAllSettings: () => Promise<Array<{ key_name: string; value: string }>>;
+}
+
 function fmtMoney(amount: number, currency: string): string {
   const abs = Math.abs(amount);
   return currency === "LBP" || currency === "USDT"
@@ -101,6 +116,15 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
       ? Number(meta.price)
       : Number(meta.amount ?? 0);
   const commission = Number(meta.commission ?? 0);
+  // LIRA-185 #1 follow-up (owner decision 2026-10-02): an MTC/Alfa sale with
+  // a payment-sheet Discount stamps `metadata_json.discount`/`list_price`
+  // alongside the charged `price` (RechargeRepository.processRecharge). When
+  // present and > 0, the receipt breaks the single "Amount:" line into
+  // Price/Discount/Total so the customer sees what was actually taken off —
+  // no other module stamps these fields today, so this is a no-op for every
+  // other receipt (gated on discount > 0, never shown at 0).
+  const discountAmt = Number(meta.discount ?? 0);
+  const listPrice = Number(meta.list_price ?? 0);
   const itemKey = meta.item_key;
   // Maintenance parts (LIRA-176 7a): always USD, never converted (owner
   // decision 2026-09-07) — priced and printed independently of `currency`/
@@ -182,7 +206,15 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
   }
 
   // Amount + fee (customer-facing figures only — never cost/price/profit).
-  if (amount) r += line("Amount:", fmtMoney(amount, currency));
+  if (amount) {
+    if (discountAmt > 0 && listPrice > 0) {
+      r += line("Price:", fmtMoney(listPrice, currency));
+      r += line("Discount:", `-${fmtMoney(discountAmt, currency)}`);
+      r += line("Total:", fmtMoney(amount, currency));
+    } else {
+      r += line("Amount:", fmtMoney(amount, currency));
+    }
+  }
   if (commission > 0) r += line("Fee:", fmtMoney(commission, currency));
 
   // Payment-method split (customer-paid IN legs) and change (OUT legs).
@@ -213,18 +245,21 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
  * receipt text (RCP-3), without printing. Shared by the print path below
  * and by any preview UI (e.g. TransactionsViewer's Print button) that needs
  * to show the receipt before committing to a print.
+ *
+ * `api` is required (rule 19 fix) — this used to call `window.api.*`
+ * directly, which is `undefined` in a browser, so the Transactions page's
+ * reprint button silently couldn't work on web.
  */
 export async function buildServiceReceiptTextByTransaction(
+  api: ServiceReceiptApi,
   transactionId: number,
   shop: { name: string; phone?: string; location?: string },
 ): Promise<{ ok: boolean; text?: string; error?: string }> {
   try {
-    const txn = await window.api.transactions.getById(transactionId);
+    const txn = await api.getTransactionById(transactionId);
     if (!txn) return { ok: false, error: "Transaction not found" };
 
-    const legs = (await window.api.transactions.getCustomerLegs(
-      transactionId,
-    )) as ServiceReceiptLeg[];
+    const legs = await api.getCustomerFacingLegs(transactionId);
 
     let metadata: Record<string, unknown> | null = null;
     const raw = (txn as { metadata_json?: unknown }).metadata_json;
@@ -264,9 +299,11 @@ export async function buildServiceReceiptTextByTransaction(
 }
 
 /** Look up the configured silent-print target printer (empty when none set). */
-export async function getConfiguredReceiptPrinter(): Promise<string> {
+export async function getConfiguredReceiptPrinter(
+  api: ServiceReceiptApi,
+): Promise<string> {
   try {
-    const settings = await window.api.settings.getAll();
+    const settings = await api.getAllSettings();
     return (
       (settings?.find(
         (s: { key_name: string; value: string }) =>
@@ -285,15 +322,20 @@ export async function getConfiguredReceiptPrinter(): Promise<string> {
  * Resolves the configured silent printer and the shop logo itself.
  */
 export async function printServiceReceiptByTransaction(
+  api: ServiceReceiptApi,
   transactionId: number,
   shop: { name: string; phone?: string; location?: string; logo?: string },
 ): Promise<{ ok: boolean; error?: string }> {
-  const built = await buildServiceReceiptTextByTransaction(transactionId, shop);
+  const built = await buildServiceReceiptTextByTransaction(
+    api,
+    transactionId,
+    shop,
+  );
   if (!built.ok || !built.text) {
     return { ok: false, ...(built.error ? { error: built.error } : {}) };
   }
 
-  const printer = await getConfiguredReceiptPrinter();
+  const printer = await getConfiguredReceiptPrinter(api);
 
   await printReceipt({
     text: built.text,

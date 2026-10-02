@@ -8,7 +8,9 @@
 
 import {
   buildServiceReceiptText,
+  buildServiceReceiptTextByTransaction,
   type ServiceReceiptInput,
+  type ServiceReceiptApi,
 } from "../serviceReceipt";
 
 const SHOP = { name: "Corner Tech", phone: "76 000 000", location: "Beirut" };
@@ -294,6 +296,192 @@ describe("buildServiceReceiptText", () => {
     // No stray part-line artifacts (e.g. a lingering "xN" quantity suffix)
     // leaked into a receipt that has no parts at all.
     expect(keyAbsent).not.toMatch(/\bx\d+\b/);
+  });
+
+  // LIRA-185 #1 follow-up (owner decision 2026-10-02) — an MTC/Alfa sale
+  // with a payment-sheet Discount shows the breakdown, not just the charged
+  // total, so the customer sees what was taken off.
+  // NOT proven failing-first (LIRA-185): verified by toggling the fix in
+  // place, which rule 17 does not accept.
+  it("shows Price / Discount / Total for a discounted RECHARGE", () => {
+    const r = build({
+      txn: {
+        id: 508,
+        type: "RECHARGE",
+        summary: null,
+        note: null,
+        client_name: null,
+        client_phone: null,
+        created_at: "2026-10-02T10:00:00Z",
+        metadata: {
+          provider: "MTC",
+          type: "CREDIT_TRANSFER",
+          amount: 3,
+          cost: 255000,
+          price: 280000,
+          list_price: 300000,
+          discount: 20000,
+          currency: "LBP",
+        },
+      },
+      legs: [
+        { method: "CASH", currency_code: "LBP", amount: 280000, direction: "IN" },
+      ],
+    });
+    expect(r).toContain("Price:");
+    expect(r).toContain("300,000 LBP");
+    expect(r).toContain("Discount:");
+    expect(r).toContain("-20,000 LBP");
+    expect(r).toContain("Total:");
+    expect(r).toContain("280,000 LBP");
+    expect(r).not.toContain("Amount:");
+  });
+
+  // NOT proven failing-first (LIRA-185): verified by toggling the fix in
+  // place, which rule 17 does not accept.
+  it("shows NO discount line when discount is 0 — just the plain Amount", () => {
+    const r = build({
+      txn: {
+        id: 509,
+        type: "RECHARGE",
+        summary: null,
+        note: null,
+        client_name: null,
+        client_phone: null,
+        created_at: "2026-10-02T10:00:00Z",
+        metadata: {
+          provider: "MTC",
+          type: "CREDIT_TRANSFER",
+          amount: 3,
+          cost: 255000,
+          price: 300000,
+          list_price: 300000,
+          discount: 0,
+          currency: "LBP",
+        },
+      },
+      legs: [
+        { method: "CASH", currency_code: "LBP", amount: 300000, direction: "IN" },
+      ],
+    });
+    expect(r).toContain("Amount:");
+    expect(r).toContain("300,000 LBP");
+    expect(r).not.toContain("Discount:");
+    expect(r).not.toContain("Price:");
+    expect(r).not.toContain("Total:");
+  });
+
+  // Rule 19 fix (LIRA reprint-on-web) — `buildServiceReceiptTextByTransaction`
+  // used to call `window.api.transactions.getById`/`getCustomerLegs` directly,
+  // which is `undefined` in a browser (no Electron preload ever runs there),
+  // so the Transactions page's reprint button silently couldn't work on web.
+  // Pre-fix red, proven WITHOUT reverting the (already-fixed) real source —
+  // rule 17 forbids re-breaking finished code to prove a test — via an
+  // isolated repro of the exact removed line in a plain jsdom test env:
+  //   await window.api.transactions.getById(501)
+  // throws "Cannot read properties of undefined (reading 'transactions')"
+  // because `window.api` is undefined here too (no setup file sets it — see
+  // frontend/jest.setup.ts), confirmed by running that one line directly
+  // under Node before writing this suite.
+  //
+  // This jsdom test file never sets `window.api`, so these two specs ARE
+  // already running in "web mode" — no extra stubbing needed to prove the
+  // fix doesn't touch `window.api` at all.
+  describe("buildServiceReceiptTextByTransaction (dual-transport, rule 19)", () => {
+    function fakeApi(
+      txn: Record<string, unknown>,
+      legs: ServiceReceiptInput["legs"] = [],
+    ): ServiceReceiptApi {
+      return {
+        getTransactionById: jest.fn().mockResolvedValue(txn),
+        getCustomerFacingLegs: jest.fn().mockResolvedValue(legs),
+        getAllSettings: jest.fn().mockResolvedValue([]),
+      };
+    }
+
+    it("builds the receipt via the injected api — no window.api access (web mode)", async () => {
+      expect(window.api).toBeUndefined();
+
+      const api = fakeApi(
+        {
+          id: 501,
+          type: "FINANCIAL_SERVICE",
+          note: null,
+          client_name: "Sami",
+          client_phone: "70111222",
+          created_at: "2026-07-13T10:00:00Z",
+          metadata_json: JSON.stringify({
+            provider: "OMT",
+            service_type: "SEND",
+            amount: 100,
+            currency: "USD",
+            commission: 2,
+          }),
+        },
+        [{ method: "CASH", currency_code: "USD", amount: 102, direction: "IN" }],
+      );
+
+      const result = await buildServiceReceiptTextByTransaction(api, 501, SHOP);
+
+      expect(result.ok).toBe(true);
+      expect(result.text).toContain("Service: OMT SEND");
+      expect(result.text).toContain("Amount:");
+      expect(result.text).toContain("$100.00");
+      expect(api.getTransactionById).toHaveBeenCalledWith(501);
+      expect(api.getCustomerFacingLegs).toHaveBeenCalledWith(501);
+    });
+
+    it("shows Price / Discount / Total for a discounted MTC sale via the injected api", async () => {
+      const api = fakeApi(
+        {
+          id: 508,
+          type: "RECHARGE",
+          note: null,
+          client_name: null,
+          client_phone: null,
+          created_at: "2026-10-02T10:00:00Z",
+          metadata_json: JSON.stringify({
+            provider: "MTC",
+            type: "CREDIT_TRANSFER",
+            amount: 3,
+            cost: 255000,
+            price: 280000,
+            list_price: 300000,
+            discount: 20000,
+            currency: "LBP",
+          }),
+        },
+        [
+          {
+            method: "CASH",
+            currency_code: "LBP",
+            amount: 280000,
+            direction: "IN",
+          },
+        ],
+      );
+
+      const result = await buildServiceReceiptTextByTransaction(api, 508, SHOP);
+
+      expect(result.ok).toBe(true);
+      expect(result.text).toContain("Price:");
+      expect(result.text).toContain("300,000 LBP");
+      expect(result.text).toContain("Discount:");
+      expect(result.text).toContain("-20,000 LBP");
+      expect(result.text).toContain("Total:");
+      expect(result.text).toContain("280,000 LBP");
+      expect(result.text).not.toContain("Amount:");
+    });
+
+    it("returns ok:false when the transaction is not found, without touching window.api", async () => {
+      const api = fakeApi(null as unknown as Record<string, unknown>);
+      (api.getTransactionById as jest.Mock).mockResolvedValue(null);
+
+      const result = await buildServiceReceiptTextByTransaction(api, 999, SHOP);
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("Transaction not found");
+    });
   });
 
   it("handles an LBP-only recharge with no legs", () => {
