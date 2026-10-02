@@ -81,3 +81,7 @@
 ## 🌐 Web app
 
 - Reprinting a service receipt from the Transactions page now works in the web app.
+
+## ⚙️ Settings
+
+- Reset Data now keeps your MTC/Alfa lines (phone numbers) and sets their credits to 0.

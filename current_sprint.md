@@ -5868,3 +5868,43 @@ Owner decision 2026-10-02: in the rare case where FIFO split rows can't be trace
 refusing rather than risk a wrong cost. No schema change.
 
 **What users will notice:** an admin can also undo an item refund made inside a customer session.
+
+---
+
+## LIRA-254: Reset Data keeps MTC/Alfa carrier lines, zeroing their credits — DONE
+
+| Field | Value |
+| --- | --- |
+| **Type** | Fix |
+| **Priority** | Medium |
+| **Status** | DONE, built 2026-10-02 |
+| **Affected Modules** | settings (Reset Data), carrier-lines |
+
+### Summary
+
+Owner decision 2026-10-02: Settings → Reset Data used to delete `carrier_lines` entirely
+(it sat in `RESET_WIPE_TABLES`), so a reset left the MTC/Alfa checkpoint showing only an
+"add a line" prompt. A shop's SIM phone numbers are shop setup, like currencies — a reset
+now KEEPS every carrier-line row (phone/label/carrier/is_primary/is_active/
+`validity_expires_at`, the SIM's real expiry) and resets only `credits`/`days_owed` to 0,
+matching the zeroed drawers (LIRA-252: drawer = Σ active line credits).
+
+`carrier_lines` moved from `RESET_WIPE_TABLES` to a generalized `RESET_ZERO_TABLES` bucket
+(`packages/core/src/constants/resetTables.ts`) — a `{ table, columns }` spec, so the same
+mechanism that zeroes `drawer_balances.balance` now also zeroes `carrier_lines.credits`/
+`.days_owed` without a second hand-rolled UPDATE. `carrier_line_movements` and
+`carrier_line_owed_deliveries` (per-line HISTORY) stay in `RESET_WIPE_TABLES` — deleted by
+their own `tenant_id`, not by cascade from the kept parent, so no FK ordering issue. The
+zero happens as a direct column UPDATE inside the reset transaction — no
+`CARRIER_LINE_ADJUSTMENT` transaction, no LIRA-252 drawer-adjustment posting — since
+`transactions` and `drawer_balances` are already wiped/zeroed by the same reset.
+
+Guard-first (rule 17): added two tests to `DatabaseResetRepository.test.ts` asserting the
+kept-row/zeroed-columns/wiped-history/no-adjustment-transaction/zeroed-drawer behavior and
+tenant isolation; both failed red on the pre-fix code (the row was gone, not zeroed) before
+the fix made them pass. Updated `resetTables.guard.test.ts` and the existing
+`DatabaseResetRepository.test.ts` fixture/assertions that assumed `carrier_lines` was wiped
+and `RESET_ZERO_TABLES` was a flat table-name list.
+
+**What users will notice:** Reset Data now keeps your MTC/Alfa lines (phone numbers) and
+sets their credits to 0.

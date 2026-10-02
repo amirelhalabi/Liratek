@@ -173,17 +173,29 @@ export class DatabaseResetRepository extends BaseRepository<{ id: number }> {
           }
         }
 
-        // Step 4 — drawer_balances: ZERO the balance, do NOT delete the
-        // row. `ClosingRepository.hasInitialBalancesSet()` is
+        // Step 4 — RESET_ZERO_TABLES: KEEP the row, zero only the named
+        // "balance-like" columns. `drawer_balances.balance` is the original
+        // member — `ClosingRepository.hasInitialBalancesSet()` is
         // `COUNT(*) FROM drawer_balances WHERE balance != 0`; zeroing (not
         // deleting) is what re-arms the Dashboard "Starting drawer amounts
         // not set" alert + InitialDrawerAmountsModal on next login.
+        // `carrier_lines.credits`/`.days_owed` (LIRA-254) joined for the
+        // same reason: the line itself is shop setup like a currency, only
+        // its sold balance resets — matching the zeroed drawers so the
+        // LIRA-252 invariant (drawer = Σ active line credits = 0) holds.
+        // `spec.columns` is drawn ONLY from the frozen resetTables.ts
+        // constant above, never from caller input, so this interpolation
+        // cannot carry user-controlled SQL (same reasoning as the table-name
+        // interpolation elsewhere in this file).
         let zeroedBalances = 0;
-        for (const table of RESET_ZERO_TABLES) {
-          if (!this.tableExists(table)) continue;
+        for (const spec of RESET_ZERO_TABLES) {
+          if (!this.tableExists(spec.table)) continue;
+          const setClause = spec.columns
+            .map((column) => `"${column}" = 0`)
+            .join(", ");
           const result = this.db
             .prepare(
-              `UPDATE "${table}" SET balance = 0, updated_at = CURRENT_TIMESTAMP
+              `UPDATE "${spec.table}" SET ${setClause}, updated_at = CURRENT_TIMESTAMP
                WHERE tenant_id = ?`,
             )
             .run(tenantId);

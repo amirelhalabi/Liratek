@@ -87,8 +87,11 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     ],
   },
   {
-    label: "Carrier lines",
-    tables: ["carrier_lines", "carrier_line_movements"],
+    // carrier_lines itself is NOT in this list (LIRA-254): the line rows
+    // are kept with credits reset to 0, not deleted, so they never appear
+    // in `preview.counts` — only their movement history does.
+    label: "Carrier line history",
+    tables: ["carrier_line_movements", "carrier_line_owed_deliveries"],
   },
   {
     label: "Exchange & wallet",
@@ -203,6 +206,10 @@ export function ResetDataPanel() {
           <li>Enabled modules and payment methods</li>
           <li>Currencies and exchange rates</li>
           <li>Drawer configuration (which currencies each drawer holds)</li>
+          <li>
+            Your MTC/Alfa carrier lines (phone numbers, labels, SIM expiry) —
+            only their credits are reset to 0
+          </li>
           <li>Every other Settings-page configuration</li>
         </ul>
       </div>
@@ -222,6 +229,10 @@ export function ResetDataPanel() {
         <p className="text-xs text-slate-500 mt-2">
           Drawer balances are set to zero — the app will ask for opening amounts
           again the next time it's used.
+        </p>
+        <p className="text-xs text-slate-500 mt-1">
+          MTC/Alfa carrier lines are kept, with credits reset to 0, to match
+          the zeroed drawers.
         </p>
       </div>
 

@@ -26,11 +26,20 @@
  *   multi-tenant web server (there is no tenant column to scope on, and
  *   deleting unscoped would wipe every tenant's queue at once). Nothing
  *   currently writes them in production, so leaving them alone is safe.
- * - RESET_ZERO_TABLES (1): `drawer_balances` rows are KEPT and the balance
- *   column is set to 0, never deleted. Zeroing (not deleting) is
- *   load-bearing: `ClosingRepository.hasInitialBalancesSet()` is
- *   `COUNT(*) FROM drawer_balances WHERE balance != 0`, so zeroing re-arms
- *   the Dashboard "Starting drawer amounts not set" prompt on next login.
+ * - RESET_ZERO_TABLES (2): rows are KEPT and specific "balance-like" columns
+ *   are set to 0, never deleted. `drawer_balances.balance` is the original
+ *   member — zeroing (not deleting) is load-bearing:
+ *   `ClosingRepository.hasInitialBalancesSet()` is `COUNT(*) FROM
+ *   drawer_balances WHERE balance != 0`, so zeroing re-arms the Dashboard
+ *   "Starting drawer amounts not set" prompt on next login.
+ *   `carrier_lines.credits`/`.days_owed` (LIRA-254, owner decision
+ *   2026-10-02) joined it for the same reason as `suppliers`/`currencies`:
+ *   the phone number IS shop setup, like a currency — only its *balance*
+ *   should reset, matching the zeroed drawers (LIRA-252's drawer = Σ active
+ *   line credits invariant). `validity_expires_at` is deliberately NOT
+ *   zeroed/cleared: it is the SIM's real-world expiry date, not a derived
+ *   balance, and a reset has no more business inventing a new one than it
+ *   does changing a currency's exchange rate.
  * - RESET_RESEED_TABLES (2): wiped, then re-populated with the exact rows
  *   `create_db.sql` seeds on a fresh install (`PRODUCT_CATEGORY_DEFAULTS`,
  *   `SERVICE_PRESET_DEFAULTS` below). Migrations never re-run against an
@@ -39,9 +48,16 @@
  * - RESET_PARTIAL_TABLES (1): `suppliers` — only ad-hoc (non-system,
  *   non-module) suppliers are deleted. See `SUPPLIER_KEEP_PREDICATE` below
  *   for why `is_system` alone is the wrong gate.
- * - RESET_WIPE_TABLES (55): every other tenant-owned operational table —
+ * - RESET_WIPE_TABLES (54): every other tenant-owned operational table —
  *   transactions, payments, drawer movements, ledgers, catalogs, contacts —
- *   deleted outright, tenant-scoped.
+ *   deleted outright, tenant-scoped. `carrier_line_movements` and
+ *   `carrier_line_owed_deliveries` stay here even though `carrier_lines`
+ *   itself moved to ZERO: they are pure HISTORY of a line's balance
+ *   mutations (rule 26 reversal-owner rows), not shop setup, and deleting
+ *   them while KEEPING the parent row raises no FK problem — both carry
+ *   their own `tenant_id` and are deleted by it directly, never via
+ *   cascade-from-parent, and `defer_foreign_keys` removes any ordering
+ *   concern either way.
  *
  * `mobile_service_items` needs no re-seed even though it is in WIPE: the
  * frontend catalog seed re-runs automatically on next login when the table
@@ -89,8 +105,32 @@ export const RESET_EXCLUDED_TABLES: readonly string[] = [
   "sync_queue",
 ];
 
-/** ZERO — rows kept, `balance` set to 0 (1). Re-arms the opening-amounts prompt. */
-export const RESET_ZERO_TABLES: readonly string[] = ["drawer_balances"];
+/**
+ * ZERO — rows kept, named columns reset to 0 (2 tables). Each entry names
+ * exactly which columns to zero; every other column on the row (identity,
+ * config, the SIM's own `validity_expires_at`) survives untouched. Defined
+ * ONCE here (rule 14) — `DatabaseResetRepository` builds its `UPDATE ...
+ * SET` clause from `columns` rather than hardcoding a column name per table.
+ */
+export interface ResetZeroColumnsSpec {
+  readonly table: string;
+  readonly columns: readonly string[];
+}
+
+export const RESET_ZERO_TABLES: readonly ResetZeroColumnsSpec[] = [
+  { table: "drawer_balances", columns: ["balance"] },
+  // LIRA-254: phone/carrier/label/is_primary/is_active/validity_expires_at
+  // are shop setup and survive; only the sold balance resets, matching the
+  // zeroed drawers (LIRA-252 drawer = Σ active line credits).
+  { table: "carrier_lines", columns: ["credits", "days_owed"] },
+];
+
+/** Table names only, derived (rule 14) — for call sites that only need
+ *  "is this table in the ZERO bucket", not which columns it zeroes
+ *  (the guard test's bucket-membership/union/disjoint checks). */
+export const RESET_ZERO_TABLE_NAMES: readonly string[] = RESET_ZERO_TABLES.map(
+  (z) => z.table,
+);
 
 /** WIPE + RESEED create_db.sql defaults (2). */
 export const RESET_RESEED_TABLES: readonly string[] = [
@@ -106,7 +146,6 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "audit_log",
   "carrier_line_movements",
   "carrier_line_owed_deliveries",
-  "carrier_lines",
   "clients",
   "custom_services",
   "customer_session_transactions",
@@ -168,7 +207,7 @@ export const RESET_WIPE_TABLES: readonly string[] = [
 export const RESET_ALL_CLASSIFIED_TABLES: readonly string[] = [
   ...RESET_KEEP_TABLES,
   ...RESET_EXCLUDED_TABLES,
-  ...RESET_ZERO_TABLES,
+  ...RESET_ZERO_TABLE_NAMES,
   ...RESET_RESEED_TABLES,
   ...RESET_PARTIAL_TABLES,
   ...RESET_WIPE_TABLES,

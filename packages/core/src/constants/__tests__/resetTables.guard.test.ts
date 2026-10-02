@@ -30,7 +30,7 @@ import * as path from "node:path";
 import {
   RESET_KEEP_TABLES,
   RESET_EXCLUDED_TABLES,
-  RESET_ZERO_TABLES,
+  RESET_ZERO_TABLE_NAMES,
   RESET_RESEED_TABLES,
   RESET_PARTIAL_TABLES,
   RESET_WIPE_TABLES,
@@ -111,7 +111,7 @@ describe("resetTables classification guard (rule 14)", () => {
     const buckets: Record<string, readonly string[]> = {
       RESET_KEEP_TABLES,
       RESET_EXCLUDED_TABLES,
-      RESET_ZERO_TABLES,
+      RESET_ZERO_TABLE_NAMES,
       RESET_RESEED_TABLES,
       RESET_PARTIAL_TABLES,
       RESET_WIPE_TABLES,
@@ -155,7 +155,7 @@ describe("resetTables classification guard (rule 14)", () => {
     const buckets: readonly (readonly string[])[] = [
       RESET_KEEP_TABLES,
       RESET_EXCLUDED_TABLES,
-      RESET_ZERO_TABLES,
+      RESET_ZERO_TABLE_NAMES,
       RESET_RESEED_TABLES,
       RESET_PARTIAL_TABLES,
       RESET_WIPE_TABLES,
@@ -180,7 +180,7 @@ describe("resetTables classification guard (rule 14)", () => {
     const union = new Set([
       ...RESET_KEEP_TABLES,
       ...RESET_EXCLUDED_TABLES,
-      ...RESET_ZERO_TABLES,
+      ...RESET_ZERO_TABLE_NAMES,
       ...RESET_RESEED_TABLES,
       ...RESET_PARTIAL_TABLES,
       ...RESET_WIPE_TABLES,

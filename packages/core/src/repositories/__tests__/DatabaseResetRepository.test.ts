@@ -68,11 +68,15 @@ function countRows(
 /**
  * Inserts exactly ONE row into every `RESET_WIPE_TABLES` table for the given
  * tenant, satisfying every NOT-NULL foreign key in `create_db.sql` (nullable
- * FKs are left NULL — they need no parent row). 13 of the 55 rows double as
+ * FKs are left NULL — they need no parent row). 12 of the 54 rows double as
  * both a "parent" row (referenced by another WIPE table's mandatory FK) and
  * a WIPE-table row in their own right (e.g. `sales` / `sale_items`), so this
- * function's INSERT count is 55, matching `RESET_WIPE_TABLES.length` exactly
- * — asserted by the "fixture sanity" step in each test that uses it.
+ * function's WIPE-table INSERT count is 54, matching `RESET_WIPE_TABLES
+ * .length` exactly — asserted by the "fixture sanity" step in each test
+ * that uses it. `carrier_lines` is inserted too (as a non-WIPE parent for
+ * `carrier_line_movements` / `carrier_line_owed_deliveries` /
+ * `daily_closing_carrier_lines`), but since LIRA-254 it is a RESET_ZERO_TABLES
+ * entry, not a WIPE one, so it does not count toward the 54.
  * `defer_foreign_keys` removes any insertion-order requirement.
  */
 function insertTenantFixture(db: Database.Database, tenantId: number): void {
@@ -102,8 +106,16 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
          (tenant_id, code, label, drawer_name, is_system_provider, is_active, is_system, sort_order)
        VALUES (?, 'OMT', 'OMT', 'OMT_System', 1, 1, 1, 0)`,
     ).run(tenantId);
+    // carrier_lines moved to RESET_ZERO_TABLES (LIRA-254) — it is now a
+    // non-WIPE parent too, same bucket reasoning as currencies above (kept
+    // row, zeroed balance columns, not a delete target).
+    const carrierLineId = db
+      .prepare(
+        `INSERT INTO carrier_lines (tenant_id, carrier, phone_number) VALUES (?, 'alfa', ?)`,
+      )
+      .run(tenantId, `03-${tenantId}`).lastInsertRowid as number;
 
-    // 13 tables that are BOTH a mandatory-FK parent for another WIPE table
+    // 12 tables that are BOTH a mandatory-FK parent for another WIPE table
     // AND themselves a RESET_WIPE_TABLES entry.
     const supplierId = db
       .prepare(`INSERT INTO suppliers (tenant_id, name) VALUES (?, ?)`)
@@ -118,11 +130,6 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
         `INSERT INTO products (tenant_id, name, item_type) VALUES (?, 'Fixture Product', 'Product')`,
       )
       .run(tenantId).lastInsertRowid as number;
-    const carrierLineId = db
-      .prepare(
-        `INSERT INTO carrier_lines (tenant_id, carrier, phone_number) VALUES (?, 'alfa', ?)`,
-      )
-      .run(tenantId, `03-${tenantId}`).lastInsertRowid as number;
     const sessionId = db
       .prepare(
         `INSERT INTO customer_sessions (tenant_id, user_id, started_by) VALUES (?, ?, 'tester')`,
@@ -463,9 +470,13 @@ describe("DatabaseResetRepository", () => {
   });
 
   it("zeroes drawer_balances without deleting rows", () => {
-    for (const table of RESET_ZERO_TABLES) {
-      expect(table).toBe("drawer_balances");
-    }
+    expect(RESET_ZERO_TABLES.map((z) => z.table)).toEqual([
+      "drawer_balances",
+      "carrier_lines",
+    ]);
+    expect(
+      RESET_ZERO_TABLES.find((z) => z.table === "drawer_balances")?.columns,
+    ).toEqual(["balance"]);
 
     const before = db
       .prepare(`SELECT COUNT(*) AS n FROM drawer_balances WHERE tenant_id = 1`)
@@ -514,6 +525,127 @@ describe("DatabaseResetRepository", () => {
     ).n;
     expect(queueCount).toBe(1);
     expect(errorsCount).toBe(1);
+  });
+
+  it("LIRA-254: keeps carrier_lines rows, zeroing credits/days_owed, wipes their movement history, posts no CARRIER_LINE_ADJUSTMENT transaction, and the MTC/Alfa drawer nets to 0", () => {
+    const lineId = db
+      .prepare(
+        `INSERT INTO carrier_lines
+           (tenant_id, carrier, phone_number, label, credits, days_owed, validity_expires_at, is_active, is_primary)
+         VALUES (1, 'mtc', '71-123456', 'Shop Line', 500, 12, '2027-06-01', 1, 1)`,
+      )
+      .run().lastInsertRowid as number;
+
+    db.prepare(
+      `INSERT INTO carrier_line_movements (tenant_id, carrier_line_id, reason, credits_delta)
+       VALUES (1, ?, 'TEST', 500)`,
+    ).run(lineId);
+    db.prepare(
+      `INSERT INTO carrier_line_owed_deliveries (tenant_id, carrier_line_id, days_owed) VALUES (1, ?, 5)`,
+    ).run(lineId);
+    // Mirrors LIRA-252's drawer = Σ active line credits invariant — a
+    // nonzero MTC drawer balance that the reset's zeroing must also catch.
+    db.prepare(
+      `INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+       VALUES (1, 'MTC_System', 'USD', 500)`,
+    ).run();
+
+    runWithTenant(1, () => repo.resetTenantData());
+
+    const line = db
+      .prepare(`SELECT * FROM carrier_lines WHERE id = ?`)
+      .get(lineId) as Record<string, unknown>;
+    expect(line).toBeTruthy();
+    expect(line.credits).toBe(0);
+    expect(line.days_owed).toBe(0);
+    // Shop-setup identity columns survive untouched, same as currencies.
+    expect(line.carrier).toBe("mtc");
+    expect(line.phone_number).toBe("71-123456");
+    expect(line.label).toBe("Shop Line");
+    expect(line.is_primary).toBe(1);
+    expect(line.is_active).toBe(1);
+    // The SIM's real-world expiry is not a balance — kept as-is.
+    expect(line.validity_expires_at).toBe("2027-06-01");
+
+    const movementCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM carrier_line_movements WHERE tenant_id = 1`,
+        )
+        .get() as { n: number }
+    ).n;
+    expect(movementCount).toBe(0);
+
+    const owedCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM carrier_line_owed_deliveries WHERE tenant_id = 1`,
+        )
+        .get() as { n: number }
+    ).n;
+    expect(owedCount).toBe(0);
+
+    const adjustmentCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM transactions
+           WHERE tenant_id = 1 AND type = 'CARRIER_LINE_ADJUSTMENT'`,
+        )
+        .get() as { n: number }
+    ).n;
+    expect(adjustmentCount).toBe(0);
+
+    const drawer = db
+      .prepare(
+        `SELECT balance FROM drawer_balances
+         WHERE tenant_id = 1 AND drawer_name = 'MTC_System' AND currency_code = 'USD'`,
+      )
+      .get() as { balance: number };
+    expect(drawer.balance).toBe(0);
+  });
+
+  it("LIRA-254: tenant isolation — another tenant's carrier_lines rows and movements are untouched", () => {
+    const line1 = db
+      .prepare(
+        `INSERT INTO carrier_lines (tenant_id, carrier, phone_number, credits, days_owed)
+         VALUES (1, 'alfa', '03-111111', 200, 3)`,
+      )
+      .run().lastInsertRowid as number;
+    db.prepare(
+      `INSERT INTO tenants (id, name, slug, status) VALUES (2, 'Tenant 2', 'tenant-2', 'active')`,
+    ).run();
+    const line2 = db
+      .prepare(
+        `INSERT INTO carrier_lines (tenant_id, carrier, phone_number, credits, days_owed)
+         VALUES (2, 'alfa', '03-222222', 200, 3)`,
+      )
+      .run().lastInsertRowid as number;
+    db.prepare(
+      `INSERT INTO carrier_line_movements (tenant_id, carrier_line_id, reason) VALUES (2, ?, 'TEST')`,
+    ).run(line2);
+
+    runWithTenant(1, () => repo.resetTenantData());
+
+    const t1 = db
+      .prepare(`SELECT credits, days_owed FROM carrier_lines WHERE id = ?`)
+      .get(line1) as { credits: number; days_owed: number };
+    expect(t1.credits).toBe(0);
+    expect(t1.days_owed).toBe(0);
+
+    const t2 = db
+      .prepare(`SELECT credits, days_owed FROM carrier_lines WHERE id = ?`)
+      .get(line2) as { credits: number; days_owed: number };
+    expect(t2.credits).toBe(200);
+    expect(t2.days_owed).toBe(3);
+
+    const t2Movements = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM carrier_line_movements WHERE tenant_id = 2`,
+        )
+        .get() as { n: number }
+    ).n;
+    expect(t2Movements).toBe(1);
   });
 
   it("previewCounts reports the exact per-table counts resetTenantData will delete", () => {
