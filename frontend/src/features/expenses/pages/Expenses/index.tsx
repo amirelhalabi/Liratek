@@ -25,6 +25,9 @@ interface Expense {
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
+  /** 1 when voided from the Transactions page (LIRA-131 returns the row so
+   *  the History window can badge it). */
+  is_refunded?: number;
 }
 
 // LIRA-145: `CarrierLineRepository.recordUsage` writes this category itself
@@ -185,8 +188,19 @@ export default function Expenses() {
     }
   };
 
-  const totalUSD = expenses.reduce((sum, e) => sum + (e.amount_usd || 0), 0);
-  const totalLBP = expenses.reduce((sum, e) => sum + (e.amount_lbp || 0), 0);
+  // LIRA-185 expenses lead 1: a row voided from the Transactions page comes
+  // back flagged is_refunded (the History window badges it) — its money was
+  // already returned, so the header total leaves it out, matching Profits
+  // and the closing report.
+  const activeExpenses = expenses.filter((e) => !e.is_refunded);
+  const totalUSD = activeExpenses.reduce(
+    (sum, e) => sum + (e.amount_usd || 0),
+    0,
+  );
+  const totalLBP = activeExpenses.reduce(
+    (sum, e) => sum + (e.amount_lbp || 0),
+    0,
+  );
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 

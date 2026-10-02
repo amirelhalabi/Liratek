@@ -604,6 +604,12 @@ export default function MobileRecharge() {
             paid_by: r.paid_by ?? undefined,
             reference_number: r.phone_number || undefined,
             created_at: r.created_at,
+            // LIRA-185 #6: RechargeRepository.getHistory projects these
+            // (LIRA-131), but this hand-built mapping dropped them, so
+            // HistoryModal never showed a refunded MTC/Alfa sale as refunded.
+            // Same fix as the Binance mapping in loadBinanceData above.
+            is_refunded: r.is_refunded ?? 0,
+            refunded_at: r.refunded_at ?? null,
           }),
         ),
       );
@@ -765,7 +771,14 @@ export default function MobileRecharge() {
       rechargeType === "DAYS"
         ? parseFloat(telecomDaysCostUsd) * (alfaCreditCostRate || 85000)
         : amount * (alfaCreditCostRate || 85000);
-    const defaultPriceToClient = amount * alfaCreditSellRate;
+    // LIRA-185 #12: on the Days tab `amount` is a DAY COUNT, not dollars of
+    // credit, so `amount x alfaCreditSellRate` is not a default price at all
+    // (30 days -> 3,000,000 LBP) and made the History margin alert impossible
+    // to fire for Days rows. Omit it for Days: `rechargeSchema` declares the
+    // field optional (null would be rejected) and the repository stores
+    // `?? null`, which HistoryModal already reads as "no alert".
+    const defaultPriceToClient =
+      rechargeType === "DAYS" ? undefined : amount * alfaCreditSellRate;
 
     const clientResult = await ensureRechargeClient({
       clientId: telecomClientId,

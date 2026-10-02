@@ -75,6 +75,39 @@ function createSchema(d: Database.Database): void {
       fulfilled_at TEXT,
       direction TEXT NOT NULL DEFAULT 'IN'
     );
+    -- LIRA-185: getTodaySummary's profit now comes from the Profits page's
+    -- own Custom Services query (ProfitRepository.getCustomServicesTotals),
+    -- which reads the unified transaction stamp and the partner/debt gates,
+    -- so the fixture needs the minimal shape of those three tables too.
+    CREATE TABLE transactions (
+      tenant_id INTEGER DEFAULT 1,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      source_table TEXT,
+      source_id INTEGER,
+      reverses_id INTEGER,
+      profit_usd REAL DEFAULT 0,
+      profit_lbp REAL DEFAULT 0
+    );
+    CREATE TABLE partner_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reference_table TEXT,
+      reference_id INTEGER,
+      transaction_type TEXT,
+      amount REAL,
+      covered_amount REAL DEFAULT 0
+    );
+    CREATE TABLE debt_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_id INTEGER,
+      transaction_type TEXT,
+      is_refunded INTEGER DEFAULT 0,
+      amount_usd REAL DEFAULT 0,
+      amount_lbp REAL DEFAULT 0,
+      covered_usd REAL DEFAULT 0,
+      covered_lbp REAL DEFAULT 0
+    );
   `);
 }
 
@@ -90,6 +123,11 @@ beforeEach(() => {
        (tenant_id, description, cost_usd, price_usd, profit_usd, status, direction, created_at)
      VALUES (1, 'Screen repair', 20, 35, 15, 'completed', 'IN', ?)`,
   ).run(BOUNDARY_TX_UTC);
+  // The service's own unified CUSTOM_SERVICE row, as createService writes it.
+  db.prepare(
+    `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, profit_usd)
+     VALUES (1, 'CUSTOM_SERVICE', 'ACTIVE', 'custom_services', 1, 15)`,
+  ).run();
   repo = new CustomServiceRepository();
 });
 

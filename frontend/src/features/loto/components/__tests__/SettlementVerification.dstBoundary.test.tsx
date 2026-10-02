@@ -38,6 +38,12 @@
  * frontend/src/features/loto/components/SettlementVerification.tsx` printed
  * nothing afterward. Confirmed green again under
  * TZ=America/New_York, TZ=Asia/Beirut and TZ=UTC.
+ *
+ * LIRA-185 loto lead 7 (2026-10-02): the panel no longer computes a
+ * `periodStart` at all — it reads the server's `getUncheckpointed()` sweep
+ * (SettlementVerification.uncheckedActivity.test.tsx). The DST hazard above
+ * therefore cannot recur here; this test now guards that the date-range
+ * path is NOT taken, whatever the last checkpoint's `period_end` is.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -46,22 +52,27 @@ import { SettlementVerification } from "../SettlementVerification";
 const mockCheckpointGetUnsettled = jest.fn();
 const mockCheckpointGetLast = jest.fn();
 const mockGetByDateRange = jest.fn();
+const mockGetUncheckpointed = jest.fn();
 const mockCashPrizeGetUnreimbursed = jest.fn();
+
+// Rule 25: one stable object across useApi() calls.
+const mockApi = {
+  loto: {
+    checkpoint: {
+      getUnsettled: mockCheckpointGetUnsettled,
+      getLast: mockCheckpointGetLast,
+    },
+    getByDateRange: mockGetByDateRange,
+    getUncheckpointed: mockGetUncheckpointed,
+    cashPrize: {
+      getUnreimbursed: mockCashPrizeGetUnreimbursed,
+    },
+  },
+};
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
-  useApi: () => ({
-    loto: {
-      checkpoint: {
-        getUnsettled: mockCheckpointGetUnsettled,
-        getLast: mockCheckpointGetLast,
-      },
-      getByDateRange: mockGetByDateRange,
-      cashPrize: {
-        getUnreimbursed: mockCashPrizeGetUnreimbursed,
-      },
-    },
-  }),
+  useApi: () => mockApi,
 }));
 
 // Bypass the real hooks entirely — they call useApi() internally too, but
@@ -81,7 +92,7 @@ jest.mock("@/hooks/useSellRate", () => ({
   useSellRate: () => ({ sellRate: 89500, buyRate: 89000, isLoading: false }),
 }));
 
-describe("SettlementVerification — unchecked-activity periodStart is TZ-independent", () => {
+describe("SettlementVerification — unchecked activity is TZ-independent (no periodStart)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCheckpointGetUnsettled.mockResolvedValue({
@@ -93,23 +104,19 @@ describe("SettlementVerification — unchecked-activity periodStart is TZ-indepe
       checkpoint: { id: 1, period_end: "2026-09-12" },
     });
     mockGetByDateRange.mockResolvedValue({ tickets: [] });
+    mockGetUncheckpointed.mockResolvedValue({ success: true, tickets: [] });
     mockCashPrizeGetUnreimbursed.mockResolvedValue({
       success: true,
       prizes: [],
     });
   });
 
-  it("queries from the day AFTER period_end, never the same day", async () => {
+  it("does not derive the pending window from period_end (no date-range read)", async () => {
     render(<SettlementVerification />);
 
     fireEvent.click(screen.getByRole("button", { name: /settle/i }));
 
-    await waitFor(() => expect(mockGetByDateRange).toHaveBeenCalled());
-
-    const [periodStart, today] = mockGetByDateRange.mock.calls[0];
-    expect(periodStart).toBe("2026-09-13");
-    // Sanity: it must not regress to double-counting period_end itself.
-    expect(periodStart).not.toBe("2026-09-12");
-    expect(typeof today).toBe("string");
+    await waitFor(() => expect(mockGetUncheckpointed).toHaveBeenCalled());
+    expect(mockGetByDateRange).not.toHaveBeenCalled();
   });
 });

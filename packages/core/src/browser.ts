@@ -150,6 +150,17 @@ export * from "./constants/resetTables.js";
 // above for the exact failure mode this avoids.
 export * from "./constants/omtAppCashout.js";
 
+// OMT / WHISH fee tables and commission rates (LIRA-185 display lead 11) —
+// pure data + arithmetic, no Node.js deps (rule 29: both files are leaves).
+// The Services page imports OMT_COMMISSION_RATES, the INTRA / Western Union /
+// Whish fee tiers and lookupOmtFee/lookupIntraLbpFee from here instead of
+// carrying its own "must match omtFees.ts" copies (rule 14) — a copy would
+// let the form's preview promise a different commission than the one the
+// repository books. Must be exported HERE, not only from index.ts — see the
+// telecomCredit.js note above for the exact failure mode this avoids.
+export * from "./utils/omtFees.js";
+export * from "./utils/whishFees.js";
+
 // By Module row classification (PA-4.23 a, OWNER_NOTES_2026-09-21.md §6.9) —
 // pure string classification, no Node.js deps. Profits.tsx imports
 // `classifyProfitModuleRow` to decide whether a By Module row's expanded
@@ -275,7 +286,10 @@ export type { NetProfitWindowResult } from "./services/SalesService.js";
 // @liratek/core to THIS file, so a renderer import of ProfitSummary/
 // ProfitByModule missing here fails at load (same failure mode as the
 // telecomCredit.js note earlier in this file).
-export type { ProfitSummary, ProfitByModule } from "./services/ProfitService.js";
+export type {
+  ProfitSummary,
+  ProfitByModule,
+} from "./services/ProfitService.js";
 
 // PROF-DD (2026-09-24, OWNER_NOTES_REMAINING_BUILD.md #14 slice 2) — the
 // Profits page's "Show transactions" drill-down payload. Same type-only

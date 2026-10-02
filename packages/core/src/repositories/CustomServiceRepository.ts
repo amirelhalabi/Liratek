@@ -13,7 +13,14 @@ import { BusinessRuleError } from "../utils/errors.js";
 // LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
 // module (no other repository import), so importing it directly here never
 // risks a require cycle.
-import { isToday } from "./reportingTimeFragments.js";
+import { isToday, localDayExpr } from "./reportingTimeFragments.js";
+// LIRA-185 (custom_services lane) — the Services page's own profit figures
+// (history Profit column, Today's Profit card) read the SAME definition the
+// Profits page uses instead of the GENERATED `price − cost` column, which
+// knows nothing about kept change, partner coverage, voids or refunds (rule
+// 14: reuse the one definition, never re-type it). ProfitRepository imports
+// nothing that imports this file, so there is no require cycle.
+import { getProfitRepository, notRefunded } from "./ProfitRepository.js";
 import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
@@ -128,6 +135,33 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     // partner_mode just above — every existing row reads NULL for both,
     // unchanged behaviour for every non-insurance custom service.
     return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at, partner_mode, fulfillment_status, fulfilled_at, direction";
+  }
+
+  /**
+   * LIRA-185 — the history list's columns: identical to {@link getColumns}
+   * except `profit_usd`/`profit_lbp`, which come from the service's own
+   * unified CUSTOM_SERVICE transaction stamp (the figure the Profits page's
+   * per-job drill-down shows) rather than the GENERATED `price − cost`
+   * column, so a sale where the operator kept the change shows that change
+   * as profit here too. The ORIGINAL row is picked (`reverses_id IS NULL`),
+   * never a void's negated reversal row; a service with no transaction row
+   * falls back to the GENERATED column, unchanged.
+   */
+  private getHistoryColumns(): string {
+    const stamp = (col: "profit_usd" | "profit_lbp") =>
+      `COALESCE((SELECT t.${col} FROM transactions t
+         WHERE t.source_table = 'custom_services'
+           AND t.source_id = custom_services.id
+           AND t.type = '${TRANSACTION_TYPES.CUSTOM_SERVICE}'
+           AND t.reverses_id IS NULL
+           AND t.tenant_id = custom_services.tenant_id
+         ORDER BY t.id ASC LIMIT 1), custom_services.${col}) AS ${col}`;
+    return this.getColumns()
+      .split(", ")
+      .map((c) =>
+        c === "profit_usd" || c === "profit_lbp" ? stamp(c) : c,
+      )
+      .join(", ");
   }
 
   /**
@@ -903,7 +937,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
    * Get all custom services, optionally filtered by date.
    */
   getAll(filter?: { date?: string }): CustomServiceEntity[] {
-    let query = `SELECT ${this.getColumns()} FROM custom_services WHERE status != 'voided' AND tenant_id = ?`;
+    let query = `SELECT ${this.getHistoryColumns()} FROM custom_services WHERE status != 'voided' AND tenant_id = ?`;
     const params: any[] = [getCurrentTenantId()];
 
     if (filter?.date) {
@@ -1033,6 +1067,9 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
    * is the wanted behaviour rather than a separate payout breakdown.
    */
   getTodaySummary(): CustomServiceSummary {
+    const tenantId = getCurrentTenantId();
+    // LIRA-185: a voided or refunded service is no longer one of "today's
+    // services" — it drops out of the count and the cost/price totals too.
     const row = this.db
       .prepare(
         `SELECT
@@ -1040,15 +1077,37 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
            COALESCE(SUM(CASE WHEN direction != 'OUT' THEN cost_usd ELSE 0 END), 0) as totalCostUsd,
            COALESCE(SUM(CASE WHEN direction != 'OUT' THEN cost_lbp ELSE 0 END), 0) as totalCostLbp,
            COALESCE(SUM(CASE WHEN direction != 'OUT' THEN price_usd ELSE 0 END), 0) as totalPriceUsd,
-           COALESCE(SUM(CASE WHEN direction != 'OUT' THEN price_lbp ELSE 0 END), 0) as totalPriceLbp,
-           COALESCE(SUM(profit_usd), 0) as totalProfitUsd,
-           COALESCE(SUM(profit_lbp), 0) as totalProfitLbp
+           COALESCE(SUM(CASE WHEN direction != 'OUT' THEN price_lbp ELSE 0 END), 0) as totalPriceLbp
          FROM custom_services
-         WHERE ${isToday("created_at")} AND tenant_id = ?`,
+         WHERE ${isToday("created_at")}
+           AND status != 'voided'
+           AND ${notRefunded("custom_services")}
+           AND tenant_id = ?`,
       )
-      .get(getCurrentTenantId()) as CustomServiceSummary;
+      .get(tenantId) as Omit<
+      CustomServiceSummary,
+      "totalProfitUsd" | "totalProfitLbp"
+    >;
 
-    return row;
+    // LIRA-185: profit is the Profits page's own Custom Services figure for
+    // today — ProfitRepository.getCustomServicesTotals, called exactly as
+    // ProfitService.getByModule calls it — so kept change, partner coverage
+    // (proportional), on-account deferral, voids and refunds are all applied
+    // by the ONE definition instead of a second copy here (rule 14). "Today"
+    // is the same shifted day `isToday` uses above (rule 27).
+    const { today } = this.db
+      .prepare(`SELECT ${localDayExpr("'now'")} AS today`)
+      .get() as { today: string };
+    const profit = getProfitRepository().getCustomServicesTotals(
+      `${today} 00:00:00`,
+      `${today} 23:59:59`,
+    );
+
+    return {
+      ...row,
+      totalProfitUsd: profit.profit_usd,
+      totalProfitLbp: profit.profit_lbp,
+    };
   }
 
   /**

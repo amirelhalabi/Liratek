@@ -11,6 +11,7 @@ import { getTransactionRepository } from "./TransactionRepository.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { notRefunded } from "./ProfitRepository.js";
+import { localDayExpr } from "./reportingTimeFragments.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   isDrawerAffectingMethod,
@@ -140,12 +141,18 @@ export class LotoTicketRepository {
     const tenantId = getCurrentTenantId();
     const createInTxn = this.db.transaction(() => {
       // 1. Insert the ticket record
+      // LIRA-185 (loto lead 6): a backdated ticket (transaction_time set) is
+      // filed under the business day of THAT instant, bucketed by the SAME
+      // fragment the Profits page buckets `created_at` with (rule 14) — so
+      // the Loto page's day totals / Ticket History and Profits agree on
+      // which day earned the commission. Without an override, the caller's
+      // sale_date (the request's own day) is kept unchanged.
       const stmt = this.db.prepare(`
         INSERT INTO loto_tickets (
           tenant_id, ticket_number, sale_amount, commission_rate, commission_amount,
           is_winner, prize_amount, sale_date, payment_method, currency, note,
           client_id, client_name, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(${localDayExpr("?")}, ?), ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       const result = stmt.run(
@@ -156,6 +163,7 @@ export class LotoTicketRepository {
         data.commission_amount,
         data.is_winner ?? 0,
         data.prize_amount ?? 0,
+        data.transaction_time ?? null,
         data.sale_date,
         data.payment_method || null,
         data.currency || "LBP",
@@ -193,7 +201,10 @@ export class LotoTicketRepository {
         // Commission plus kept change (T3 KC-3, tender-native per currency).
         profit_usd: data.kept_change_usd ?? 0,
         profit_lbp: data.commission_amount + (data.kept_change_lbp ?? 0),
-        exchange_rate: data.exchange_rate ?? 100000, // operator rate (session) else default
+        // Session sales inject the operator rate; a direct sale leaves it
+        // undefined so createTransaction snapshots the shop's LBP market rate
+        // (LIRA-185 loto lead 9 — was a hardcoded 100,000).
+        exchange_rate: data.exchange_rate,
         client_id: data.clientId ?? null,
         // For-partner tickets label the row with the partner (owner ask: the
         // transactions table shows "<partner> [partner]").

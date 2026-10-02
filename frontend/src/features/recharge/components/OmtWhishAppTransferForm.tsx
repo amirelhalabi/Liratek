@@ -449,6 +449,8 @@ function OmtWhishAppTransferFormInner({
               amountLbp: currency === "LBP" ? totalAmount : 0,
               profitUsd:
                 currency === "USD" ? Math.max(0, shopProfit - discount) : 0,
+              profitLbp:
+                currency === "LBP" ? Math.max(0, shopProfit - discount) : 0,
             });
           } catch (err) {
             logger.error("Failed to link app transfer to session:", err);
@@ -1162,7 +1164,12 @@ function OmtWhishAppTransferFormInner({
               ? [
                   {
                     label: "Shop Profit",
-                    value: formatAmount(shopProfit, currency),
+                    // Net of the discount — the same figure handleSubmit
+                    // books as `commission` (LIRA-185 lead 9).
+                    value: formatAmount(
+                      Math.max(0, shopProfit - discount),
+                      currency,
+                    ),
                     color: "text-emerald-400",
                   },
                 ]

@@ -53,6 +53,9 @@ export * from "./utils/insuranceFulfillment.js";
 export * from "./utils/phoneNumber.js";
 export * from "./utils/lotMarketRate.js";
 export * from "./utils/sqlLike.js";
+// OMT / WHISH fee tables + commission rates — also exported from browser.ts.
+export * from "./utils/omtFees.js";
+export * from "./utils/whishFees.js";
 
 // Repositories
 export * from "./repositories/index.js";

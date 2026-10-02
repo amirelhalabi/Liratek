@@ -4087,6 +4087,14 @@ comparatively cheap and is the recommended next step.
 Note the caveat that the audit read a working tree the owner was editing in parallel, so findings
 touching `SalesRepository`/`TransactionRepository` should be re-checked against current `main`.
 
+
+**Owner decisions on the audit's open questions (2026-10-02):**
+1. **MTC/Alfa payment-window Discount:** MAKE IT WORK. The discount lowers the price charged and the profit booked, capped at the margin. Today it is never applied: the sale is refused, or the discount becomes client debt.
+2. **Loto page Commission card:** keep it as pure commission AND add a "Kept change" line under it, so it adds up to the Profits figure.
+3. **Maintenance History / jobs list price:** show both, list price struck through next to the charged amount (e.g. 300,000 → 250,000).
+4. **MTC/Alfa History, sale on a customer's account:** keep the profit figure with a "profit pending until paid" label, matching Profits.
+
+Built after the display batch (it touches the same files). The money batch was committed in 0eaf8251 and pushed on 2026-10-02.
 ---
 
 ## LIRA-186: `embeddedCommission.guard.test.ts` keys exclusions by ordinal SQL-unit number — DONE 2026-10-02 (not yet committed) — Low

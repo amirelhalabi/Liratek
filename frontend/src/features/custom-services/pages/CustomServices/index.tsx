@@ -55,6 +55,7 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
+import { formatServiceAmount } from "@/features/custom-services/utils/formatServiceAmount";
 
 // =============================================================================
 // Helper
@@ -66,13 +67,6 @@ interface ProductSearchResult {
   cost_price: number;
   retail_price: number;
   barcode: string;
-}
-
-function formatCurrency(usd: number, lbp: number): string {
-  const parts: string[] = [];
-  if (usd > 0) parts.push(`$${usd.toFixed(2)}`);
-  if (lbp > 0) parts.push(`${lbp.toLocaleString()} LBP`);
-  return parts.join(" + ") || "$0.00";
 }
 
 /** Category presets for quick selection */
@@ -303,8 +297,20 @@ export default function CustomServices() {
   const costLbpVal = parseFloat(costLbp) || 0;
   const priceUsdVal = parseFloat(priceUsd) || 0;
   const priceLbpVal = parseFloat(priceLbp) || 0;
-  const profitUsd = priceUsdVal - costUsdVal;
-  const profitLbp = priceLbpVal - costLbpVal;
+  // T3 keep-change: the kept amount that will actually be SENT with this
+  // service (and so joins its profit stamp). One definition, used by both the
+  // submit payload and the Profit preview, so the preview shows exactly what
+  // the Profits page will show (LIRA-185). Applies to VIA too; never to FOR
+  // (no counter payment) or a payout (no tender to make change from).
+  const sentKeptChange =
+    !isForPartner &&
+    !isPayout &&
+    keptChange &&
+    (keptChange.usd > 0 || keptChange.lbp > 0)
+      ? keptChange
+      : null;
+  const profitUsd = priceUsdVal - costUsdVal + (sentKeptChange?.usd ?? 0);
+  const profitLbp = priceLbpVal - costLbpVal + (sentKeptChange?.lbp ?? 0);
 
   // ─── Submit ───
   const handleSubmit = async () => {
@@ -436,13 +442,10 @@ export default function CustomServices() {
         // who performed the service. Not for a payout — there is no change
         // to keep (the shop pays out, it doesn't collect a tender to make
         // change from).
-        ...(!isForPartner &&
-        !isPayout &&
-        keptChange &&
-        (keptChange.usd > 0 || keptChange.lbp > 0)
+        ...(sentKeptChange
           ? {
-              kept_change_usd: keptChange.usd,
-              kept_change_lbp: keptChange.lbp,
+              kept_change_usd: sentKeptChange.usd,
+              kept_change_lbp: sentKeptChange.lbp,
             }
           : {}),
         // LIRA-154: unlike every gate above (where VIA aligns with "none"),
@@ -1020,7 +1023,7 @@ export default function CustomServices() {
                         className={`text-sm font-bold ${profitUsd >= 0 && profitLbp >= 0 ? "text-emerald-400" : "text-red-400"}`}
                       >
                         {isPayout ? "Commission" : "Profit"}:{" "}
-                        {formatCurrency(profitUsd, profitLbp)}
+                        {formatServiceAmount(profitUsd, profitLbp)}
                       </span>
                     </div>
                   )}
@@ -1225,7 +1228,7 @@ export default function CustomServices() {
                     No price is collected from a customer for a partner service.
                     The full{" "}
                     <span className="font-bold">
-                      {formatCurrency(priceUsdVal, priceLbpVal)}
+                      {formatServiceAmount(priceUsdVal, priceLbpVal)}
                     </span>{" "}
                     goes on the selected partner&apos;s account, settled later
                     on the Partners page.
@@ -1234,7 +1237,7 @@ export default function CustomServices() {
                         {" "}
                         The service&apos;s cost,{" "}
                         <span className="font-bold">
-                          {formatCurrency(costUsdVal, costLbpVal)}
+                          {formatServiceAmount(costUsdVal, costLbpVal)}
                         </span>
                         , affects profit only — it does not leave the General
                         drawer or any other drawer.
@@ -1248,12 +1251,12 @@ export default function CustomServices() {
                   >
                     The partner owes the shop the full{" "}
                     <span className="font-bold">
-                      {formatCurrency(priceUsdVal, priceLbpVal)}
+                      {formatServiceAmount(priceUsdVal, priceLbpVal)}
                     </span>{" "}
                     that arrived through them, settled later on the Partners
                     page. The shop pays the recipient{" "}
                     <span className="font-bold">
-                      {formatCurrency(costUsdVal, costLbpVal)}
+                      {formatServiceAmount(costUsdVal, costLbpVal)}
                     </span>{" "}
                     cash, now, from the General drawer — the difference is
                     the shop&apos;s commission, booked as profit today.
@@ -1267,12 +1270,12 @@ export default function CustomServices() {
                       >
                         The customer pays the full{" "}
                         <span className="font-bold">
-                          {formatCurrency(priceUsdVal, priceLbpVal)}
+                          {formatServiceAmount(priceUsdVal, priceLbpVal)}
                         </span>{" "}
                         now, through the payment method below. You will owe the
                         selected partner the cost,{" "}
                         <span className="font-bold">
-                          {formatCurrency(costUsdVal, costLbpVal)}
+                          {formatServiceAmount(costUsdVal, costLbpVal)}
                         </span>
                         , settled later on the Partners page.
                       </ForPartnerNotice>

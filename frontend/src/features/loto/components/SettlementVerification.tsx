@@ -8,7 +8,6 @@ import {
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
-import { addDaysToDateString } from "@liratek/core";
 import {
   Calculator,
   CheckCircle,
@@ -119,26 +118,14 @@ export function SettlementVerification({
 
       // Calculate unchecked activity (sales not in any checkpoint)
       try {
-        const today = localDay();
-        let periodStart = "1970-01-01";
-
-        // Use the latest checkpoint (settled OR unsettled) to determine period start
-        const lastResult = await api.loto.checkpoint.getLast();
-        if (lastResult.success && lastResult.checkpoint) {
-          // Pure UTC calendar-date arithmetic (rule 14/29) — a `new
-          // Date(...)`/`setDate` round-trip mixes UTC parsing with local
-          // stepping and drops/repeats a day at negative UTC offsets and
-          // across DST transitions (same defect class fixed in core's
-          // 3a3c96bd for LotoService/ReportingService).
-          periodStart = addDaysToDateString(
-            lastResult.checkpoint.period_end,
-            1,
-          );
-        }
-
-        // Get sales after the last checkpoint period
-        const ticketsResult = await api.loto.getByDateRange(periodStart, today);
-        const tickets = ticketsResult.tickets || [];
+        // LIRA-185 loto lead 7: read exactly what the next checkpoint will
+        // sweep (checkpoint_id IS NULL, voided tickets excluded) — the same
+        // server read the page's Checkpoint button uses. Re-deriving it from
+        // a date range after the last checkpoint missed tickets sold after a
+        // checkpoint taken today and counted voided tickets.
+        const ticketsResult = await api.loto.getUncheckpointed();
+        const tickets: Array<{ sale_amount: number; commission_amount: number }> =
+          ticketsResult.tickets || [];
 
         const sales = tickets.reduce((sum, t) => sum + t.sale_amount, 0);
         const commission = tickets.reduce(

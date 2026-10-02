@@ -16,10 +16,18 @@
 ## 📱 MTC / Alfa
 
 - Alfa Gift cards now use your sell rate from Shop Config.
+- Refunded MTC and Alfa sales now show as Refunded in the History window, instead of looking like normal sales.
 
 ## 💸 Expenses
 
 - Split payment is no longer available when recording an expense, so the amount and payment method you see always match what gets saved.
+- The Total USD / Total LBP at the top of the Expenses page no longer counts an expense that was voided from the Transactions page, so it matches the Profits page and the closing report.
+- In the Expense History window, filtering by date now shows an expense under the day it was recorded on your clock, so a line-usage expense recorded between midnight and 3 a.m. no longer disappears from that day.
+
+## 🎟️ Loto
+
+- From now on, a loto ticket sold with an earlier Transaction Time counts on that earlier day on the Loto page and in Ticket History, the same day the Profits page shows it.
+- In the Settle window, "Unchecked Activity" now shows exactly the tickets the next checkpoint will include: tickets sold after a checkpoint taken earlier today now appear, and voided tickets no longer raise the amount you owe Loto.
 
 ## 🔧 Maintenance
 
@@ -32,3 +40,19 @@
 
 - The commission total on the Overview card and the By Payment Method tab now always match for the same period.
 - A supplier commission the shop has booked but the partner hasn't paid yet now shows up as deferred profit instead of disappearing from the page.
+
+## 💱 Exchange
+
+- When exchanging between two currencies that have no rate set in Exchange Rates, the profit preview now shows the profit that will actually be recorded, instead of $0.
+- The realized-profit preview when selling a currency you hold now matches the recorded profit to the cent.
+
+## 🛠️ Custom Services
+
+- On the Services page, the profit in the history list, on the Today's Profit card and in the form preview now includes change the cashier chose to keep, so it matches the Profits page.
+- The Services page's Today's cards no longer count voided or refunded services, and the Today's Profit card counts a for-partner or on-account service the same way the Profits page does (only the part already paid).
+- A service sold at a loss now shows its negative profit (for example -$6.00) on the Services page, instead of $0.00.
+
+## 💸 OMT / Whish & suppliers
+
+- In the OMT / Whish history list, the Fee and Profit of an LBP transfer now show in LBP (for example 5,000 LBP) instead of a dollar amount, and a commission that is only counted once the supplier settles is marked "est.".
+- On the OMT App and Whish App confirm screen, Shop Profit now shows the profit after the discount you give, which is the amount that gets recorded.

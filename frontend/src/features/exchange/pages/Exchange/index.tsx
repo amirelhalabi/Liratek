@@ -614,11 +614,24 @@ export default function Exchange() {
   // preview below, replacing the local spread estimate entirely. Neither
   // override applies to a USD/LBP leg — byte-identical to the pre-lot
   // behavior for those (Q1).
+  //
+  // LIRA-185 lead 3: the acquire-leg deferral applies only when the server
+  // will actually open a lot. A cross with no USD anchor (preview reports
+  // NO_RATE_ANCHOR — the same `crossPairHasUsdAnchor` decision the write
+  // path makes) skips lot tracking for the WHOLE trade and keeps leg 1's
+  // spread profit, so zeroing it here showed +$0 for a trade booked at +$100.
+  const acquireLegDeferred =
+    fromIsLotTracked &&
+    !(
+      lotPreview &&
+      !lotPreview.lotTracked &&
+      lotPreview.reason === "NO_RATE_ANCHOR"
+    );
   const displayLegProfits = useMemo<number[]>(() => {
     if (!effectiveResult) return [];
     const lastIdx = effectiveResult.legs.length - 1;
     return effectiveResult.legs.map((leg, i) => {
-      if (i === 0 && fromIsLotTracked) return 0;
+      if (i === 0 && acquireLegDeferred) return 0;
       if (i === lastIdx && toIsLotTracked) {
         return lotPreview?.lotTracked
           ? lotPreview.realizedProfitUsd
@@ -626,7 +639,7 @@ export default function Exchange() {
       }
       return leg.profitUsd;
     });
-  }, [effectiveResult, fromIsLotTracked, toIsLotTracked, lotPreview]);
+  }, [effectiveResult, acquireLegDeferred, toIsLotTracked, lotPreview]);
 
   const displayTotalProfitUsd = useMemo(
     () => displayLegProfits.reduce((sum, p) => sum + p, 0),
@@ -856,10 +869,10 @@ export default function Exchange() {
     // (now-inapplicable) input never lingers.
     setLotPreviewError(false);
 
-    // FIX 4 (adversarial review) — the guard and the FIFO cost-basis ratio
-    // still use the raw, unrounded leg amount (mathematically exact); only
-    // the `qty` actually SENT to the preview call is switched to the same
-    // rounded value `handleProcess` sends as `amountOut` (see below).
+    // FIX 4 (adversarial review) — the guard below still checks the raw,
+    // unrounded leg amount; the `qty` SENT to the preview call AND the
+    // per-unit price are both computed from the same rounded value
+    // `handleProcess` sends as `amountOut` (see below, LIRA-185 lead 4).
     const rawQty = consumingLeg?.amountOut;
     const usdIn = consumingLeg?.amountIn;
 
@@ -868,19 +881,27 @@ export default function Exchange() {
       setLotPreviewLoading(false);
       return;
     }
-    const unitProceedsUsd = usdIn / rawQty;
-    if (!Number.isFinite(unitProceedsUsd) || unitProceedsUsd <= 0) {
-      setLotPreview(null);
-      setLotPreviewLoading(false);
-      return;
-    }
-
     // FIX 4 — mirrors handleProcess's `out = parseFloat(amountOut)` exactly:
     // consumingLeg.amountOut === effectiveResult.totalAmountOut === the raw
     // value `amountOut` (string state) was rounded from, so this is the
     // SAME number submit will actually send as amountOut/qty — never the
     // raw unrounded leg amount, which the server never sees.
     const previewQty = parseFloat(amountOut);
+
+    // LIRA-185 lead 4: the price per unit is divided by the SAME rounded
+    // quantity, because the server prices the consume as amountIn /
+    // amountOut with the submitted (rounded) amountOut. Dividing by the raw
+    // leg amount previewed $33.33 for a sale the books stamp at $33.34.
+    const unitProceedsUsd = usdIn / previewQty;
+    if (
+      !(previewQty > 0) ||
+      !Number.isFinite(unitProceedsUsd) ||
+      unitProceedsUsd <= 0
+    ) {
+      setLotPreview(null);
+      setLotPreviewLoading(false);
+      return;
+    }
 
     let cancelled = false;
     setLotPreviewLoading(true);
@@ -1374,7 +1395,7 @@ export default function Exchange() {
                     </span>
                   </div>
                   {effectiveResult.legs.map((leg, i) => {
-                    const isAcquireLeg = i === 0 && fromIsLotTracked;
+                    const isAcquireLeg = i === 0 && acquireLegDeferred;
                     const isConsumeLeg =
                       i === effectiveResult.legs.length - 1 && toIsLotTracked;
                     const legProfit = displayLegProfits[i] ?? leg.profitUsd;

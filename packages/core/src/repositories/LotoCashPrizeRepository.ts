@@ -108,7 +108,9 @@ export class LotoCashPrizeRepository {
         user_id: data.userId,
         amount_usd: 0,
         amount_lbp: -data.prize_amount,
-        exchange_rate: data.exchange_rate ?? 100000,
+        // undefined -> createTransaction snapshots the LBP market rate
+        // (LIRA-185 loto lead 9 — was a hardcoded 100,000).
+        exchange_rate: data.exchange_rate,
         client_id: data.clientId ?? null,
         summary: data.ticket_number
           ? `Loto cash prize payout: ${data.ticket_number}`

@@ -1,4 +1,5 @@
 import { TrendingUp, Calendar, DollarSign } from "lucide-react";
+import { formatServiceAmount } from "@/features/custom-services/utils/formatServiceAmount";
 
 interface StatsCardsProps {
   count: number;
@@ -15,13 +16,6 @@ export function StatsCards({
   totalProfitUsd,
   totalProfitLbp,
 }: StatsCardsProps) {
-  const formatCurrency = (usd: number, lbp: number) => {
-    const parts: string[] = [];
-    if (usd > 0) parts.push(`$${usd.toFixed(2)}`);
-    if (lbp > 0) parts.push(`${lbp.toLocaleString()} LBP`);
-    return parts.join(" + ") || "$0.00";
-  };
-
   return (
     <div className="flex flex-wrap gap-2">
       <div className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white">
@@ -34,7 +28,7 @@ export function StatsCards({
         <DollarSign className="w-4 h-4 shrink-0" />
         <span className="font-medium whitespace-nowrap">Today's Revenue</span>
         <span className="font-bold text-white">
-          {formatCurrency(totalPriceUsd, totalPriceLbp)}
+          {formatServiceAmount(totalPriceUsd, totalPriceLbp)}
         </span>
       </div>
 
@@ -48,7 +42,7 @@ export function StatsCards({
               : "text-red-400"
           }`}
         >
-          {formatCurrency(totalProfitUsd, totalProfitLbp)}
+          {formatServiceAmount(totalProfitUsd, totalProfitLbp)}
         </span>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Calendar, RefreshCw, X, Ban, Pencil, Check } from "lucide-react";
 import { DataTable } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -6,6 +6,8 @@ import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { updateExpenseMetadata } from "@/api/backendApi";
+import { localDay } from "@/shared/utils/localDay";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 interface Expense {
   id?: number;
@@ -20,6 +22,20 @@ interface Expense {
   edited_by?: string | null;
   edited_at?: string | null;
   note?: string | null;
+}
+
+/**
+ * LIRA-185 expenses lead 3: the business (local) day an expense belongs to —
+ * the day Profits and the closing report count it on. `expense_date` is a
+ * UTC instant (e.g. a line-usage expense at 01:30 Beirut is stored as the
+ * previous UTC day), so a raw `slice(0, 10)` filed it under the wrong day.
+ * A bare `YYYY-MM-DD` is already a day label and is kept as is.
+ */
+function expenseBusinessDay(expenseDate: string): string {
+  const raw = String(expenseDate ?? "");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = parseDbDate(raw);
+  return isNaN(parsed.getTime()) ? raw.slice(0, 10) : localDay(parsed);
 }
 
 interface HistoryModalProps {
@@ -38,9 +54,17 @@ export function HistoryModal({
   onVoid,
 }: HistoryModalProps) {
   useModalFocusFix(true);
+  const expensesWithDay = useMemo(
+    () =>
+      expenses.map((e) => ({
+        ...e,
+        business_day: expenseBusinessDay(e.expense_date),
+      })),
+    [expenses],
+  );
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
-    expenses,
-    "expense_date",
+    expensesWithDay,
+    "business_day",
   );
 
   const [editingId, setEditingId] = useState<number | null>(null);

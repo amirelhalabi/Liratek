@@ -38,18 +38,18 @@ import { PartnerSelector } from "@/features/partners/components/PartnerSelector"
 import { useShopBase } from "@/hooks/useShopBase";
 import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
 import type { Partner } from "@/types/electron";
+import {
+  OMT_COMMISSION_RATES,
+  INTRA_FEE_TIERS,
+  WESTERN_UNION_FEE_TIERS,
+  WHISH_FEE_TIERS,
+  lookupOmtFee,
+  lookupIntraLbpFee,
+  type OmtServiceType,
+} from "@liratek/core";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
-type OmtServiceType =
-  | "INTRA"
-  | "WESTERN_UNION"
-  | "CASH_TO_BUSINESS"
-  | "CASH_TO_GOV"
-  | "OMT_WALLET"
-  | "OMT_CARD"
-  | "OGERO_MECANIQUE"
-  | "ONLINE_BROKERAGE";
 
 const OMT_SERVICE_OPTIONS: { value: OmtServiceType; label: string }[] = [
   { value: "INTRA", label: "Intra (10% of OMT fee)" },
@@ -62,79 +62,11 @@ const OMT_SERVICE_OPTIONS: { value: OmtServiceType; label: string }[] = [
   { value: "ONLINE_BROKERAGE", label: "Online Brokerage (% of amount)" },
 ];
 
-// OMT commission rates (shop's % of OMT fee) — must match omtFees.ts
-const OMT_COMMISSION_RATES: Record<string, number> = {
-  INTRA: 0.1,
-  WESTERN_UNION: 0.1,
-  CASH_TO_BUSINESS: 0.25,
-  CASH_TO_GOV: 0.25,
-  OMT_CARD: 0.1,
-  OGERO_MECANIQUE: 0.25,
-};
-
-// Fee tier lookup tables — must match omtFees.ts
-const INTRA_FEE_TIERS: Array<{ maxAmount: number; fee: number }> = [
-  { maxAmount: 100, fee: 1 },
-  { maxAmount: 150, fee: 2 },
-  { maxAmount: 200, fee: 3 },
-  { maxAmount: 250, fee: 4 },
-  { maxAmount: 300, fee: 5 },
-  { maxAmount: 400, fee: 6 },
-  { maxAmount: 500, fee: 7 },
-  { maxAmount: 1000, fee: 8 },
-  { maxAmount: 2000, fee: 12 },
-  { maxAmount: 3000, fee: 18 },
-  { maxAmount: 4000, fee: 25 },
-  { maxAmount: 5000, fee: 35 },
-];
-
-const WESTERN_UNION_FEE_TIERS: Array<{ maxAmount: number; fee: number }> = [
-  { maxAmount: 50, fee: 5 },
-  { maxAmount: 200, fee: 10 },
-  { maxAmount: 500, fee: 15 },
-  { maxAmount: 1000, fee: 20 },
-  { maxAmount: 2000, fee: 35 },
-  { maxAmount: 3000, fee: 70 },
-  { maxAmount: 7500, fee: 100 },
-];
-
-const INTRA_LBP_MAX_AMOUNT = 50_000_000;
-
-function lookupIntraLbpFee(amount: number): number | null {
-  if (amount <= 0 || amount > INTRA_LBP_MAX_AMOUNT) return null;
-  return Math.max(50_000, Math.ceil(amount / 1_000_000) * 10_000);
-}
-
-function lookupOmtFee(
-  serviceType: OmtServiceType,
-  amt: number,
-  cur: string = "USD",
-): number | null {
-  if (cur === "LBP") {
-    if (serviceType === "INTRA") return lookupIntraLbpFee(amt);
-    return null; // Western Union is USD only
-  }
-  let tiers: Array<{ maxAmount: number; fee: number }> | null = null;
-  if (serviceType === "INTRA") tiers = INTRA_FEE_TIERS;
-  else if (serviceType === "WESTERN_UNION") tiers = WESTERN_UNION_FEE_TIERS;
-  if (!tiers) return null;
-  const tier = tiers.find((t) => amt <= t.maxAmount);
-  return tier ? tier.fee : null;
-}
-
-// WHISH fee table — must match whishFees.ts
-const WHISH_FEE_TIERS: Array<{ maxAmount: number; fee: number }> = [
-  { maxAmount: 100, fee: 1 },
-  { maxAmount: 200, fee: 2 },
-  { maxAmount: 300, fee: 3 },
-  { maxAmount: 1000, fee: 5 },
-  { maxAmount: 2000, fee: 10 },
-  { maxAmount: 3000, fee: 15 },
-  { maxAmount: 4000, fee: 20 },
-  { maxAmount: 5000, fee: 25 },
-];
-// Kept for includingFees back-calculation (calcMaxSentAmountWithPmFee)
-// const WHISH_COMMISSION_RATE = 0.1;
+// OMT commission rates, the INTRA / Western Union / Whish fee tiers and the
+// fee lookups come from @liratek/core (utils/omtFees.ts, utils/whishFees.ts)
+// — the SAME tables the repository books with. This page used to carry its
+// own "must match omtFees.ts" copies, which nothing forced to agree with the
+// originals (rule 14, LIRA-185 lead 11).
 
 // Online Brokerage: flat $3 profit per transaction (no rate needed)
 
@@ -214,6 +146,18 @@ function formatAmount(amount: number, currency: string): string {
   return `${amount.toLocaleString()} ${currency}`;
 }
 
+/**
+ * History-table commission cell: denominated in the row's own currency
+ * (LIRA-185 lead 1 — it used to print "$" + toFixed(4) for every row, so a
+ * 5,000 LBP estimate read "$5000.0000"). USD keeps its 4 decimals so small
+ * commissions (10% of a $1 fee = $0.1000) stay visible; every other currency
+ * goes through formatAmount.
+ */
+function formatCommission(amount: number, currency: string): string {
+  if (currency === "USD") return `$${amount.toFixed(4)}`;
+  return formatAmount(amount, currency);
+}
+
 interface CurrencyStats {
   currency: string;
   commission: number;
@@ -255,6 +199,10 @@ interface Transaction {
   amount: number;
   currency: string;
   commission: number;
+  /** 0 = EMBEDDED (commission booked at creation), 1 = AT_SETTLEMENT
+   *  (`commission` is only an estimate until the supplier settles — every
+   *  money surface books 0 for it meanwhile). Projected by getHistory(). */
+  commission_model?: number | null;
   omt_fee?: number | null;
   whish_fee?: number | null;
   is_settled: number;
@@ -2091,8 +2039,8 @@ export default function Services() {
                     />
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    Left blank or 0, no fee is charged. When charged, it's
-                    shop profit — choose on top or deducted above.
+                    Left blank or 0, no fee is charged. When charged, it's shop
+                    profit — choose on top or deducted above.
                   </p>
                 </div>
               )}
@@ -2739,6 +2687,11 @@ export default function Services() {
                   // other module's history already uses (recharge/exchange/
                   // expenses/debts/custom-services).
                   const isRefunded = Boolean(tx.is_refunded);
+                  // LIRA-185 lead 1: an AT_SETTLEMENT commission is only a
+                  // guess until the supplier settles (booked as 0 until
+                  // then) — say so instead of presenting it as profit.
+                  const isCommissionEstimate =
+                    tx.commission_model === 1 && !tx.is_settled;
                   return (
                     <tr
                       key={tx.id}
@@ -2781,7 +2734,7 @@ export default function Services() {
                           const fee =
                             tx.provider === "WHISH" ? tx.whish_fee : tx.omt_fee;
                           return fee != null && fee > 0 ? (
-                            `$${fee.toFixed(2)}`
+                            formatAmount(fee, tx.currency)
                           ) : (
                             <span className="text-slate-600">—</span>
                           );
@@ -2796,10 +2749,17 @@ export default function Services() {
                         title={
                           isRefunded
                             ? "Refunded — profit not realized"
-                            : undefined
+                            : isCommissionEstimate
+                              ? "Estimate — the commission is booked when the supplier settles"
+                              : undefined
                         }
                       >
-                        ${tx.commission.toFixed(4)}
+                        {formatCommission(tx.commission, tx.currency)}
+                        {isCommissionEstimate && (
+                          <span className="ml-1 text-xs font-medium text-amber-400">
+                            est.
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm">
                         {tx.service_type === "RECEIVE" && tx.commission > 0 ? (

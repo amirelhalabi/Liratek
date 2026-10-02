@@ -332,35 +332,21 @@ describe("LIRA-185 profit audit — financial_services", () => {
       expect(new ProfitService().getSummary(day, day).financial_services.commission_usd).toBeCloseTo(0.6, 4);
     });
 
-    // Lead 11 — the Services page hand-copies OMT/Whish rate and fee tables.
-    // Executed parity check of the copies against core: equal today (drift
-    // channel only, no live wrong number).
-    it("lead 11: the Services page's copied OMT/Whish tables still equal core's", () => {
+    // Lead 11 — the Services page USED to hand-copy OMT/Whish rate and fee
+    // tables (equal to core when audited; a drift channel, no live wrong
+    // number). Fixed in the LIRA-185 display batch: the page now imports
+    // them from @liratek/core. Per rule 24 the old parity premise (a copy
+    // exists) is rewritten into a guard that the copy is NOT re-introduced.
+    // Frontend twin: Services.feeTablesFromCore.test.ts.
+    it("lead 11: the Services page imports the OMT/Whish tables from core and declares no copy", () => {
       const src = fs.readFileSync(SERVICES_PAGE_PATH, "utf-8");
-      const block = (name: string): string => {
-        const m = src.match(new RegExp(`const ${name}[^=]*=\\s*([\\[{][\\s\\S]*?[\\]}]);`));
-        if (!m) throw new Error(`${name} not found in Services page`);
-        return m[1];
-      };
-      const tiers = (name: string) =>
-        Array.from(block(name).matchAll(/maxAmount:\s*([\d_]+),\s*fee:\s*([\d.]+)/g)).map((m) => ({
-          maxAmount: Number(m[1].replace(/_/g, "")),
-          fee: Number(m[2]),
-        }));
-      const strip = (arr: Array<{ maxAmount: number; fee: number }>) => arr.map(({ maxAmount, fee }) => ({ maxAmount, fee }));
-      expect(tiers("INTRA_FEE_TIERS")).toEqual(strip(INTRA_FEE_TIERS));
-      expect(tiers("WESTERN_UNION_FEE_TIERS")).toEqual(strip(WESTERN_UNION_FEE_TIERS));
-      expect(tiers("WHISH_FEE_TIERS")).toEqual(strip(WHISH_FEE_TIERS));
-      const rates = Object.fromEntries(
-        Array.from(block("OMT_COMMISSION_RATES").matchAll(/([A-Z_]+):\s*([\d.]+)/g)).map((m) => [m[1], Number(m[2])]),
-      );
-      for (const [k, v] of Object.entries(rates)) {
-        expect([k, OMT_COMMISSION_RATES[k as keyof typeof OMT_COMMISSION_RATES]]).toEqual([k, v]);
+      const names = Object.keys({ OMT_COMMISSION_RATES, INTRA_FEE_TIERS, WESTERN_UNION_FEE_TIERS, WHISH_FEE_TIERS });
+      const coreImport = src.match(/import\s*\{([^}]*)\}\s*from\s*"@liratek\/core"/);
+      expect(coreImport).not.toBeNull();
+      for (const name of names) {
+        expect([name, new RegExp(`\\bconst\\s+${name}\\b`).test(src)]).toEqual([name, false]);
+        expect([name, new RegExp(`\\b${name}\\b`).test(coreImport![1])]).toEqual([name, true]);
       }
-      // The copy omits these two — harmless only while the preview excludes them.
-      expect(Object.keys(rates).sort()).toEqual(
-        Object.keys(OMT_COMMISSION_RATES).filter((k) => k !== "OMT_WALLET" && k !== "ONLINE_BROKERAGE").sort(),
-      );
     });
   });
 });

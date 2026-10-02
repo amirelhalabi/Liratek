@@ -33,6 +33,7 @@ import { isReceiptableTransaction } from "@/features/audit/receiptGating";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import type { CustomServiceEntry } from "../../../hooks/useCustomServices";
+import { formatServiceAmount } from "@/features/custom-services/utils/formatServiceAmount";
 
 /** LIRA-155 — the category that is fulfilment-tracked. Matches
  *  `INSURANCE_CATEGORY` in `../index.tsx` (kept as a local literal, not an
@@ -100,13 +101,6 @@ function formatTime(dateStr: string): string {
     " " +
     d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   );
-}
-
-function formatCurrency(usd: number, lbp: number): string {
-  const parts: string[] = [];
-  if (usd > 0) parts.push(`$${usd.toFixed(2)}`);
-  if (lbp > 0) parts.push(`${lbp.toLocaleString()} LBP`);
-  return parts.join(" + ") || "$0.00";
 }
 
 interface HistoryModalProps {
@@ -416,7 +410,7 @@ export function HistoryModal({
                               amount badge (it would read a meaningless ↑ $0.00). */}
                           {tx.category !== "hold_money" && (
                             <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-emerald-400 shrink-0">
-                              ↑ {formatCurrency(tx.price_usd, tx.price_lbp)}
+                              ↑ {formatServiceAmount(tx.price_usd, tx.price_lbp)}
                             </span>
                           )}
                           {tx.description}
@@ -519,10 +513,10 @@ export function HistoryModal({
                         )}
                       </td>
                       <td className="px-4 py-3 text-right text-sm font-mono text-slate-400">
-                        {formatCurrency(tx.cost_usd, tx.cost_lbp)}
+                        {formatServiceAmount(tx.cost_usd, tx.cost_lbp)}
                       </td>
                       <td className="px-4 py-3 text-right text-sm font-mono text-white font-medium">
-                        {formatCurrency(tx.price_usd, tx.price_lbp)}
+                        {formatServiceAmount(tx.price_usd, tx.price_lbp)}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span
@@ -548,7 +542,7 @@ export function HistoryModal({
                               : undefined
                           }
                         >
-                          {formatCurrency(tx.profit_usd, tx.profit_lbp)}
+                          {formatServiceAmount(tx.profit_usd, tx.profit_lbp)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
