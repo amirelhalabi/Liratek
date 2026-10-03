@@ -701,6 +701,9 @@ describe("LIRA-236 F1 — refund cross-currency direction + value (round-3 revie
   // reverse a balanced exchange is the plain (no `refundLegs`) refund path,
   // asserted below to net every drawer back to exactly 0.
   // ═══════════════════════════════════════════════════════════════════════
+  // 2026-10-03 owner decision: a currency exchange can only be refunded by a
+  // plain swap-back; any `refundLegs` override is refused with the swap-back
+  // guard (checked before the amount validator), so D1 now asserts that message.
   describe("D: a balanced $100 → 8,900,000 LBP exchange (rate 89,000, no spread)", () => {
     function createBalancedExchange(): number {
       const result = exchangeRepo.createTransaction({
@@ -731,7 +734,7 @@ describe("LIRA-236 F1 — refund cross-currency direction + value (round-3 revie
           refundLegs: [{ method: "CASH", currencyCode: "USD", amount: 200 }],
           exchangeRate: 89000,
         }),
-      ).toThrow(/do not match/i);
+      ).toThrow(/swapping the money back/i);
     });
 
     it("D2: the plain (no-override) reversal — the correct way to undo a balanced exchange — nets every drawer to 0", () => {
@@ -765,7 +768,11 @@ describe("LIRA-236 F1 — refund cross-currency direction + value (round-3 revie
   // override legs — one USD, one LBP — must post OUT together, regardless
   // of what either currency's OWN isolated net happens to be.
   // ═══════════════════════════════════════════════════════════════════════
-  it("E: an UNBALANCED exchange refunded with a mixed USD+LBP override posts BOTH legs OUT, in the same direction", () => {
+  // 2026-10-03 owner decision: exchanges are refunded by a plain swap-back
+  // only. The old mixed-currency override path no longer exists — a
+  // `refundLegs` override on an unbalanced exchange must be REFUSED and write
+  // nothing (no drawer movement, no new payments / transactions rows).
+  it("E: a mixed USD+LBP refundLegs override on an UNBALANCED exchange is REFUSED (swap-back only) and writes nothing", () => {
     const rate = 89000;
     const result = exchangeRepo.createTransaction({
       fromCurrency: "USD",
@@ -785,30 +792,31 @@ describe("LIRA-236 F1 — refund cross-currency direction + value (round-3 revie
         .get(result.id) as { id: number }
     ).id;
 
-    // Net signed value: +100 (USD in) + (-8,000,000/89,000) (LBP out) —
-    // positive, a money-in original. Split the refund across BOTH
-    // currencies to prove neither leg's OWN sign drives its direction.
     const totalValueUsd = 100 - 8000000 / rate;
     const usdLeg = 5;
     const lbpLeg = Math.round((totalValueUsd - usdLeg) * rate);
 
-    const before = {
+    const count = (table: string): number =>
+      (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number })
+        .c;
+    const snapshot = () => ({
       usd: balance(db, "General", "USD"),
       lbp: balance(db, "General", "LBP"),
-    };
-
-    txnRepo.refundTransaction(txnId, 1, {
-      refundLegs: [
-        { method: "CASH", currencyCode: "USD", amount: usdLeg },
-        { method: "CASH", currencyCode: "LBP", amount: lbpLeg },
-      ],
-      exchangeRate: rate,
+      payments: count("payments"),
+      transactions: count("transactions"),
     });
+    const before = snapshot();
 
-    // BOTH legs move the drawer OUT (negative) — never IN, even though the
-    // exchange's own LBP leg (the outflow to the customer) had a NEGATIVE
-    // original net in isolation.
-    expect(balance(db, "General", "USD") - before.usd).toBeCloseTo(-usdLeg, 5);
-    expect(balance(db, "General", "LBP") - before.lbp).toBeCloseTo(-lbpLeg, 2);
+    expect(() =>
+      txnRepo.refundTransaction(txnId, 1, {
+        refundLegs: [
+          { method: "CASH", currencyCode: "USD", amount: usdLeg },
+          { method: "CASH", currencyCode: "LBP", amount: lbpLeg },
+        ],
+        exchangeRate: rate,
+      }),
+    ).toThrow(/swapping the money back/i);
+
+    expect(snapshot()).toEqual(before);
   });
 });

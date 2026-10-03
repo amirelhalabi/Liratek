@@ -244,11 +244,14 @@ describe("LPAY-V3 — WALLET_EXCHANGE refund-override parity with git HEAD (prod
     // match against — same rejection, same wording, whether the entry is
     // IN or OUT of INTERNAL_LEG_METHODS (see file header: verified both
     // ways, identical DatabaseError message).
+    //
+    // Since the swap-refund fix, a swap type (EXCHANGE / WALLET_EXCHANGE /
+    // DRAWER_TRANSFER) is rejected EARLIER, before leg validation, with a
+    // message saying a swap can only be refunded by swapping the money back.
+    // (Server guard written after the fix — NOT proven failing-first.)
     expect(() =>
       txnRepo.refundTransaction(txnId, 1, { refundLegs }),
-    ).toThrow(
-      /Refund method override: USD totals do not match the original payment — original 0, refund legs total 100/,
-    );
+    ).toThrow(/can only be refunded by swapping the money back/);
 
     // Nothing written, nothing moved — the guard runs before any write.
     expect(drawer(db, "OMT_App", "USD")).toBeCloseTo(-100, 2);

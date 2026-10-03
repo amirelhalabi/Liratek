@@ -28,6 +28,7 @@
  * jest-dom matchers are registered globally via jest.setup.ts.
  */
 
+import { StrictMode } from "react";
 import { render, screen, fireEvent, within, act } from "@testing-library/react";
 import {
   MultiPaymentInput,
@@ -1180,6 +1181,42 @@ describe("MultiPaymentInput", () => {
       expect(
         restored.some((l) => l.direction === "OUT" && l.amount === 50),
       ).toBe(true);
+    });
+
+    // Toggle side effects used to run INSIDE a setKeepChange updater (impure;
+    // StrictMode replays updaters). Invariant: keep OFF + change due => the
+    // return fields hold the full suggested change and no "not covered" warning.
+    // Written AFTER the refactor (fix was applied first) — NOT proven failing-first.
+    it("under StrictMode, toggling keep-change on/off twice always re-seeds the full change and shows no 'not covered' warning", () => {
+      render(
+        <StrictMode>
+          <MultiPaymentInput
+            totals={[{ amount: 100, currency: "USD" }]}
+            currency="USD"
+            totalAmountCurrency="USD"
+            hasClient={false}
+            requiresClientForDebt={true}
+            paymentMethods={PAYMENT_METHODS}
+            currencies={CURRENCIES}
+            exchangeRate={EXCHANGE_RATE}
+            showDiscount={false}
+            onChange={jest.fn()}
+            onReturnChange={jest.fn()}
+            onKeptChange={jest.fn()}
+            cashOnlyReturn={true}
+          />
+        </StrictMode>,
+      );
+      fireEvent.change(firstAmountInput(), { target: { value: "151.01" } });
+      for (let i = 0; i < 2; i++) {
+        fireEvent.click(screen.getByTestId("keep-change")); // on
+        expect(screen.getByTestId("return-usd")).toHaveValue("");
+        fireEvent.click(screen.getByTestId("keep-change")); // off
+        expect(screen.getByTestId("return-usd")).toHaveValue("51.01");
+        expect(
+          screen.queryByText(/of the change is not covered/),
+        ).not.toBeInTheDocument();
+      }
     });
 
     it("the 'Keep change' button only renders for a CASH return — a non-CASH method already routes its full leg to that method/account (e.g. CUSTOMER_ACCOUNT credit)", () => {

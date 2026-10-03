@@ -66,6 +66,7 @@ import {
 } from "@/shared/utils/serviceReceipt";
 import { ReceiptPreviewModal } from "@/shared/components/ReceiptPreviewModal";
 import { RefundMethodModal } from "../components/RefundMethodModal";
+import { isSwapTransactionType } from "@liratek/core";
 import { RefundQuantityModal } from "../components/RefundQuantityModal";
 import {
   SessionSaleLinePickerModal,
@@ -365,6 +366,21 @@ export default function TransactionsViewer({
       if (row.session_id != null) {
         if (
           !confirm("Refund this transaction? A reversal entry will be created.")
+        )
+          return;
+        void doRefund(row.id);
+        return;
+      }
+
+      // Two-sided swaps (EXCHANGE / WALLET_EXCHANGE / DRAWER_TRANSFER) net to
+      // ~0, so the return-method modal can never be satisfied. Owner
+      // decision: simple swap-back — plain confirm, refund with NO
+      // refundLegs; the server mirrors each leg negated.
+      if (isSwapTransactionType(row.type)) {
+        if (
+          !confirm(
+            "Refund this exchange? The money is swapped back: the shop returns what it received and the customer returns what they were given.",
+          )
         )
           return;
         void doRefund(row.id);

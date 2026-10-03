@@ -1099,16 +1099,19 @@ export default function MultiPaymentInput({
   // nothing default); leaving it restores the full suggested return rather
   // than leaving the fields at whatever partial amount was last typed.
   const handleToggleKeepChange = () => {
-    setKeepChange((prev) => {
-      const next = !prev;
-      if (next) {
-        setReturnAmountUSD("");
-        setReturnAmountLBP("");
-      } else {
-        seedFullSuggestedReturn();
-      }
-      return next;
-    });
+    // Compute `next` from the rendered state and run every setter OUTSIDE any
+    // updater: updaters must be pure (StrictMode/concurrent React may replay
+    // them), and side effects inside one could land out of order and leave
+    // keepChange=false with emptied return fields. Invariant: leaving keep
+    // mode always re-seeds the full suggested change.
+    const next = !keepChange;
+    setKeepChange(next);
+    if (next) {
+      setReturnAmountUSD("");
+      setReturnAmountLBP("");
+    } else {
+      seedFullSuggestedReturn();
+    }
   };
 
   // CASH return handlers. Each field holds exactly what the operator typed

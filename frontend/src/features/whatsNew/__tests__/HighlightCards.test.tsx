@@ -63,6 +63,22 @@ describe("HighlightCards", () => {
     expect(img.getAttribute("loading")).toBe("lazy");
   });
 
+  it("shows the image in full at card width, with no cropping or fixed aspect box", () => {
+    const highlights: ReleaseNoteHighlight[] = [
+      {
+        title: "Wide shot",
+        summary: "A landscape screenshot.",
+        image: { src: "whats-new/1.33.0/wide.png", alt: "Wide screenshot" },
+      },
+    ];
+    render(<HighlightCards highlights={highlights} />);
+
+    const img = screen.getByAltText("Wide screenshot");
+    expect(img).toHaveClass("w-full", "h-auto");
+    expect(img).not.toHaveClass("object-cover");
+    expect(img.className).not.toMatch(/aspect-/);
+  });
+
   it("clicking the image opens a full-size lightbox", () => {
     const highlights: ReleaseNoteHighlight[] = [
       {

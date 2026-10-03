@@ -26,6 +26,77 @@ function makeTempReleaseNotesDir(files) {
   return dir;
 }
 
+/** Minimal PNG header (signature + IHDR length/type + width/height) — enough
+ * for the dimension reader, which only looks at the first 24 bytes. */
+function makePngHeader(width, height) {
+  const buf = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0);
+  buf.writeUInt32BE(13, 8);
+  buf.write("IHDR", 12, "ascii");
+  buf.writeUInt32BE(width, 16);
+  buf.writeUInt32BE(height, 20);
+  return buf;
+}
+
+function highlightFixture(pngBytes, file = "shot.png") {
+  const dir = makeTempReleaseNotesDir({
+    "v1.33.0.md": [
+      "## ✨ Highlights",
+      "### Faster checkout",
+      "One tap checkout.",
+      `![Checkout](whats-new/1.33.0/${file})`,
+    ].join("\n"),
+  });
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), "liratek-public-"));
+  fs.mkdirSync(path.join(publicDir, "whats-new", "1.33.0"), { recursive: true });
+  fs.writeFileSync(path.join(publicDir, "whats-new", "1.33.0", file), pngBytes);
+  return { dir, publicDir };
+}
+
+test("highlight images: a landscape PNG passes", () => {
+  const { dir, publicDir } = highlightFixture(makePngHeader(1280, 720));
+  const entries = mod.buildReleaseNotes(dir);
+  assert.deepEqual(mod.validateHighlightImages(entries, publicDir), []);
+});
+
+test("highlight images: a portrait PNG fails, naming the file", () => {
+  const { dir, publicDir } = highlightFixture(makePngHeader(720, 1280), "tall.png");
+  const entries = mod.buildReleaseNotes(dir);
+  const problems = mod.validateHighlightImages(entries, publicDir);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /tall\.png/);
+  assert.match(problems[0], /landscape/);
+});
+
+test("highlight images: a square PNG fails (height >= width)", () => {
+  const { dir, publicDir } = highlightFixture(makePngHeader(500, 500), "sq.png");
+  const problems = mod.validateHighlightImages(mod.buildReleaseNotes(dir), publicDir);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /sq\.png/);
+});
+
+test("highlight images: runCheck and runBuild both fail on a portrait PNG", () => {
+  const { dir, publicDir } = highlightFixture(makePngHeader(720, 1280), "tall.png");
+  const outputPath = path.join(dir, "out.json");
+
+  process.exitCode = 0;
+  assert.equal(mod.runCheck({ releaseNotesDir: dir, outputPath, publicDir }), false);
+  assert.equal(process.exitCode, 1);
+
+  process.exitCode = 0;
+  mod.runBuild({ releaseNotesDir: dir, outputPath, publicDir });
+  assert.equal(process.exitCode, 1);
+  assert.equal(fs.existsSync(outputPath), false, "nothing is written on failure");
+  process.exitCode = 0;
+});
+
+test("highlight images: a non-PNG file is rejected", () => {
+  const { dir, publicDir } = highlightFixture("not-a-png", "bad.png");
+  const problems = mod.validateHighlightImages(mod.buildReleaseNotes(dir), publicDir);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /bad\.png/);
+});
+
 test("compareSemverDesc sorts newest-first, numerically (not lexically)", () => {
   const versions = ["1.2.0", "1.10.0", "1.2.10", "2.0.0", "1.9.9"];
   versions.sort(mod.compareSemverDesc);
@@ -236,7 +307,7 @@ test("buildReleaseNotes parses a ## Highlights section into entries[].highlights
   fs.mkdirSync(path.join(publicDir, "whats-new", "1.33.0"), { recursive: true });
   fs.writeFileSync(
     path.join(publicDir, "whats-new", "1.33.0", "checkout.png"),
-    "fake-png-bytes",
+    makePngHeader(1280, 720),
   );
 
   const entries = mod.buildReleaseNotes(dir);

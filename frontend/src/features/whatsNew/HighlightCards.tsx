@@ -15,9 +15,9 @@ export interface HighlightCardsProps {
 /**
  * The "What's new" headline cards — title, one-sentence summary, and an
  * optional screenshot. Single column at any width (phone-safe). Each image
- * is clickable and opens a full-size lightbox overlay. Images are
- * lazy-loaded and keep their aspect ratio via `aspect-video` + `object-cover`
- * so cards don't jump around while screenshots load.
+ * is shown in full, scaled to the card width (`w-full h-auto`, never cropped —
+ * release-notes build enforces landscape images) and is also clickable to
+ * open a larger lightbox overlay. Images are lazy-loaded.
  */
 export function HighlightCards({ highlights }: HighlightCardsProps) {
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
@@ -50,7 +50,7 @@ export function HighlightCards({ highlights }: HighlightCardsProps) {
                     src={publicImageUrl(image.src)}
                     alt={image.alt}
                     loading="lazy"
-                    className="w-full aspect-video object-cover"
+                    className="block w-full h-auto"
                   />
                 </button>
               )}

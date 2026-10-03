@@ -151,11 +151,27 @@ function parseHighlightsSection(markdown) {
   return { highlights, rest, headingText };
 }
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** Reads width/height from a PNG's IHDR (bytes 16-23, big-endian). Returns
+ * null if the file is not a PNG. Only .png is supported for Highlights. */
+function readPngDimensions(filePath) {
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const buf = Buffer.alloc(24);
+    const read = fs.readSync(fd, buf, 0, 24, 0);
+    if (read < 24 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /**
  * Checks every highlight image referenced by `entries` against `publicDir`:
  * the path must be an allowed `whats-new/…` relative path (never an external
  * URL or a `..` escape — CLAUDE.md rendering-safety rule) AND the file must
- * actually exist on disk. Returns a list of human-readable problem strings;
+ * actually exist on disk AND be a landscape PNG (height < width). Returns a list of human-readable problem strings;
  * empty means everything is fine. Pure / side-effect free.
  */
 function validateHighlightImages(entries, publicDir = DEFAULT_PUBLIC_DIR) {
@@ -174,6 +190,17 @@ function validateHighlightImages(entries, publicDir = DEFAULT_PUBLIC_DIR) {
       if (!fs.existsSync(filePath)) {
         problems.push(
           `v${entry.version} "${highlight.title}": image file not found at ${path.relative(ROOT, filePath)}`,
+        );
+        continue;
+      }
+      const dims = readPngDimensions(filePath);
+      if (!dims) {
+        problems.push(
+          `v${entry.version} "${highlight.title}": ${src} is not a readable PNG — highlight images must be .png files.`,
+        );
+      } else if (dims.height >= dims.width) {
+        problems.push(
+          `v${entry.version} "${highlight.title}": ${src} is ${dims.width}x${dims.height} — highlight images must be landscape (width greater than height).`,
         );
       }
     }
@@ -446,6 +473,7 @@ module.exports = {
   runCheck,
   parseHighlightsSection,
   validateHighlightImages,
+  readPngDimensions,
   isAllowedImageSrc,
   markdownToWhatsApp,
   resolveNotesFile,

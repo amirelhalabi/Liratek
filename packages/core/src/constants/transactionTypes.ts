@@ -633,6 +633,24 @@ export const SESSION_ITEM_REFUNDABLE_TYPES: ReadonlySet<TransactionType> =
     TRANSACTION_TYPES.RECHARGE,
   ]);
 
+/**
+ * Two-sided swaps: one currency/drawer goes out and another comes in, so the
+ * row's NET value is ~0. They share the EXCHANGE reversal shape and are
+ * refunded only by the plain mirror reversal (`_reversePayments` negates each
+ * original leg) — a tender-method override (`refundLegs`) is meaningless for
+ * them, so the UI skips the method modal and the server rejects `refundLegs`.
+ * Defined ONCE here (rule 14); the frontend reads it via `isSwapTransactionType`.
+ */
+export const SWAP_TRANSACTION_TYPES: ReadonlySet<string> = new Set<string>([
+  TRANSACTION_TYPES.EXCHANGE,
+  TRANSACTION_TYPES.WALLET_EXCHANGE,
+  TRANSACTION_TYPES.DRAWER_TRANSFER,
+]);
+
+export function isSwapTransactionType(type: string | null | undefined): boolean {
+  return type != null && SWAP_TRANSACTION_TYPES.has(type);
+}
+
 export const TRANSACTION_STATUS = {
   ACTIVE: "ACTIVE",
   VOIDED: "VOIDED",

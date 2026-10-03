@@ -23,6 +23,7 @@ import {
   SESSION_ITEM_REFUND_CREDIT_TYPE,
   SESSION_ITEM_REFUND_LINK_TYPE,
   SESSION_ITEM_REFUNDABLE_TYPES,
+  isSwapTransactionType,
   TRANSACTION_TYPES,
   type TransactionStatus,
   type TransactionType,
@@ -5552,6 +5553,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // scripted callers, tests) unchanged.
     const refundLegs = opts.refundLegs;
     if (refundLegs && refundLegs.length > 0) {
+      if (isSwapTransactionType(original.type)) {
+        throw new DatabaseError(
+          "A currency exchange can only be refunded by swapping the money back — choosing return methods is not supported for it",
+          { entityId: id },
+        );
+      }
       this._validateRefundLegOverride(id, refundLegs, opts.exchangeRate);
     }
 

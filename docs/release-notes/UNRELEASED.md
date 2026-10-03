@@ -20,7 +20,9 @@
   frontend/public/whats-new/<version>/<file>.png — `node scripts/build-release-notes.cjs --check`
   FAILS the build if it's missing, or if the path isn't a plain relative whats-new/... path (no
   http(s)/data: URL, no ".." escape). Everything after the Highlights section is the normal
-  grouped bullet list, unaffected by it. The in-app "What's new" renders Highlights as cards up
+  grouped bullet list, unaffected by it. Highlight images must be .png (only PNG is supported) and
+  ALWAYS LANDSCAPE (height smaller than width) — the card shows the whole image at card width, and
+  the same --check FAILS, naming the file, on a portrait or square image. The in-app "What's new" renders Highlights as cards up
   top (with a "See all changes" toggle for the grouped list below); the WhatsApp copy
   (`yarn release-notes:whatsapp ...`) drops the images and turns each item into
   "• *Title*: sentence". A release with no Highlights section needs none of this — it renders
@@ -35,3 +37,7 @@
 
 - OMT account on the Suppliers page: a new check shows what OMT's balance SMS should say (your
   balance minus the commission OMT already deducted). Type the SMS figures to see any difference.
+
+## 🧾 Transactions
+
+- Refunding a currency exchange now works: the refund simply swaps the money back.
