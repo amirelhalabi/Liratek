@@ -118,6 +118,17 @@ export default defineConfig({
         HOST: "127.0.0.1",
         CORS_ORIGIN: `http://localhost:${WEB_PORT}`,
         DATABASE_PATH: DB_PATH,
+        // Pinned empty, NOT omitted: dotenv (core's env.ts, cwd=backend)
+        // never overrides an already-set var, so leaving this unset lets a
+        // developer's own (gitignored) backend/.env leak its real
+        // APP_BASE_DOMAIN in here. That breaks the "Connect as admin"
+        // impersonation handoff: admin.ts computes a real
+        // `https://<slug>.<APP_BASE_DOMAIN>` targetOrigin and window.open()
+        // navigates the e2e browser to an unreachable domain
+        // (chrome-error://chromewebdata/) instead of this suite's own
+        // localhost origin. Mirrors the same explicit-pin the backend jest
+        // suite already does for ENV independence (wp5_wp6_admin_tenant.api.test.ts).
+        APP_BASE_DOMAIN: "",
         JWT_SECRET: "e2e-web-only-secret-not-for-production-use-1234",
         JWT_EXPIRES_IN: "1d",
         // A single UI session fires hundreds of requests; production defaults

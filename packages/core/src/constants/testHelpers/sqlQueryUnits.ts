@@ -293,3 +293,158 @@ export function unitKey(u: {
 }): string {
   return `${u.file}:${u.methodName}:${u.unitLabel}`;
 }
+
+/** Slice of `source` spanning `methodName`'s own body (its boundary to the
+ *  next boundary, or EOF). Extracted (LIRA-169) from
+ *  `embeddedCommission.guard.test.ts`'s identically-named private helper so
+ *  `profitRecognition.guard.test.ts` can share it (rule 14) instead of
+ *  pasting a second copy. */
+export function methodSourceSlice(
+  source: string,
+  boundaries: { name: string; index: number }[],
+  methodName: string,
+): string {
+  const sorted = [...boundaries].sort((a, b) => a.index - b.index);
+  const i = sorted.findIndex((b) => b.name === methodName);
+  if (i === -1) return source;
+  const start = sorted[i].index;
+  const end = i + 1 < sorted.length ? sorted[i + 1].index : source.length;
+  return source.slice(start, end);
+}
+
+/**
+ * Split a SELECT-shaped unit's SQL into its top-level (paren-depth-0)
+ * comma-separated SELECT-list `columns` and everything from the top-level
+ * `FROM` onward (`rest`). Depth-tracked so a comma or the word FROM inside a
+ * subquery/CASE/function call never splits early or ends the column list
+ * prematurely. Falls back to `{ columns: [sql], rest: "" }` when `sql`
+ * doesn't contain a `SELECT` at all.
+ *
+ * Extracted (LIRA-169) from `embeddedCommission.guard.test.ts`'s
+ * identically-named helper — see that file's doc comment for the full
+ * worked example (`ProfitRepository.getByUser`'s nested subquery) this
+ * depth-tracking exists for. Moved verbatim; no behaviour change.
+ */
+export function splitSelectShape(sql: string): {
+  columns: string[];
+  rest: string;
+} {
+  const selectMatch = /\bSELECT\b/i.exec(sql);
+  if (!selectMatch) return { columns: [sql], rest: "" };
+  const start = selectMatch.index + selectMatch[0].length;
+  let depth = 0;
+  let fromIdx = sql.length;
+  for (let i = start; i < sql.length; i++) {
+    const ch = sql[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (depth === 0 && /^FROM\b/i.test(sql.slice(i))) {
+      fromIdx = i;
+      break;
+    }
+  }
+  const columnListText = sql.slice(start, fromIdx);
+  const rest = sql.slice(fromIdx);
+  const columns: string[] = [];
+  let colDepth = 0;
+  let last = 0;
+  for (let i = 0; i < columnListText.length; i++) {
+    const ch = columnListText[i];
+    if (ch === "(") colDepth++;
+    else if (ch === ")") colDepth--;
+    else if (ch === "," && colDepth === 0) {
+      columns.push(columnListText.slice(last, i));
+      last = i + 1;
+    }
+  }
+  columns.push(columnListText.slice(last));
+  return { columns, rest };
+}
+
+/** Bare `${identifier}` interpolations in a unit's SQL text — i.e. a plain
+ *  variable reference, NOT a function call (`${someGate(...)}` has a `(`
+ *  immediately after the name and is excluded by requiring `}` immediately
+ *  after the identifier). Extracted (LIRA-169) from
+ *  `embeddedCommission.guard.test.ts`'s identically-named helper. */
+export function bareInterpolatedIdentifiers(sql: string): string[] {
+  const re = /\$\{\s*([A-Za-z_]\w*)\s*\}/g;
+  const names = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sql)) !== null) {
+    names.add(m[1]);
+  }
+  return [...names];
+}
+
+/**
+ * Does `text` (either a whole unit's SQL, or one column/WHERE-clause slice
+ * of it) itself resolve to one of `gateFragments`, two layers: (1) direct —
+ * `text` literally calls `someGate(`; (2) alias-resolved — `text`
+ * interpolates a BARE variable, assigned earlier in `methodSource`, from an
+ * expression that itself calls one of `gateFragments`.
+ *
+ * Generalised (LIRA-169) from `embeddedCommission.guard.test.ts`'s
+ * identically-shaped `textIsGated`, parameterised on the caller's own gate
+ * fragment list instead of a hardcoded `embeddedCommission`/
+ * `atSettlementCommission` pair, so `profitRecognition.guard.test.ts` can
+ * reuse the exact same alias-resolution logic for its own, larger
+ * `GATE_FRAGMENTS` list (rule 14).
+ */
+export function textIsGated(
+  text: string,
+  methodSource: string,
+  gateFragments: readonly string[],
+): boolean {
+  const callRe = new RegExp(`\\b(?:${gateFragments.join("|")})\\(`);
+  if (callRe.test(text)) return true;
+  for (const name of bareInterpolatedIdentifiers(text)) {
+    const assignRe = new RegExp(
+      `\\b(?:const|let)\\s+${name}\\s*[:=][^;]*?\\b(?:${gateFragments.join("|")})\\(`,
+    );
+    if (assignRe.test(methodSource)) return true;
+  }
+  return false;
+}
+
+/**
+ * Gate detection for a whole {@link QueryUnit}, at COLUMN granularity — NOT
+ * just "does the gate call appear anywhere in this unit's text". The coarser
+ * whole-unit check is insufficient: a query with several independent
+ * `SUM(CASE ...)` columns, each repeating its OWN copy of the gate inline,
+ * reads as "gated" from a surviving SIBLING column's gate call alone even
+ * after one column's own copy is stripped — proven in
+ * `embeddedCommission.guard.test.ts`'s own history (LIRA-159 D3) and, by the
+ * identical mechanism, a live (if latent) hole in
+ * `profitRecognition.guard.test.ts` (LIRA-169): `ProfitRepository.getByUser`/
+ * `.getByClient`'s `revenue_usd`/`profit_usd`/`profit_lbp` columns are each
+ * their own `SUM(CASE ...) AS <col>` block, each independently repeating the
+ * gate inline rather than hoisting it once into the outer WHERE.
+ *
+ * Two ways a column can be gated: (1) a WHERE-clause (`rest` from
+ * {@link splitSelectShape}) gate call protects every column uniformly —
+ * checked first, short-circuits per-column checking; (2) failing that, EVERY
+ * top-level column whose own text matches `tokenRegex` must itself resolve
+ * to a gate (inline or alias). A unit with no token-matching column at all
+ * falls back to a whole-text check so this function never silently "passes"
+ * a unit it can't decompose.
+ *
+ * Generalised (LIRA-169) from `embeddedCommission.guard.test.ts`'s
+ * identically-shaped `isGated`, parameterised on the caller's own
+ * token-match regex and gate fragment list.
+ */
+export function isGatedPerColumn(
+  unit: { sql: string },
+  methodSource: string,
+  tokenRegex: RegExp,
+  gateFragments: readonly string[],
+): boolean {
+  const { columns, rest } = splitSelectShape(unit.sql);
+  if (textIsGated(rest, methodSource, gateFragments)) return true;
+  const matchingColumns = columns.filter((c) => tokenRegex.test(c));
+  if (matchingColumns.length === 0) {
+    return textIsGated(unit.sql, methodSource, gateFragments);
+  }
+  return matchingColumns.every((c) =>
+    textIsGated(c, methodSource, gateFragments),
+  );
+}

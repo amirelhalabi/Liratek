@@ -2773,14 +2773,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           // transaction `type` is not SUPPLIER_SETTLEMENT, so the two rows
           // never sum into the same bucket.
           //
-          // Not fixed here, deliberately: the validator allows a NEGATIVE
-          // `commission_usd`/`commission_lbp` (`validators/supplier.ts`'s
-          // `commission_usd: z.number()` carries no `.nonnegative()`), and
-          // the SUPPLIER_PAYS_US ledger credit below normalises with
-          // `-Math.abs(...)` while this stamp uses the raw entered value.
-          // Not reachable through the UI today, and using the raw value here
-          // keeps ONE convention shared with the bills-only path that already
-          // ships — silently "fixing" it would change shipped behaviour.
+          // LIRA-166 (fixed): `validators/supplier.ts`'s `commission_usd`/
+          // `commission_lbp` used to be bare `z.number()`, with no guard
+          // against a NEGATIVE value reaching here while the
+          // SUPPLIER_PAYS_US ledger credit below normalises with
+          // `-Math.abs(...)` — the two would disagree in sign. Both fields
+          // are now `.nonnegative()` at the validator boundary, so this
+          // stamp's raw value and the ledger credit's magnitude agree by
+          // construction; this comment is kept so nobody re-introduces a
+          // bare `z.number()` upstream.
           profit_usd: batchModel === 1 ? data.commission_usd : 0,
           profit_lbp: batchModel === 1 ? data.commission_lbp : 0,
           summary: settlementSummary,

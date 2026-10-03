@@ -700,7 +700,19 @@ export const FinancialServiceSchema = z
     // to the transaction's profit stamp (tender-native amounts).
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
-    transaction_time: z.string().optional(),
+    // LIRA-165 — was a hand-copied, unvalidated `z.string().optional()`.
+    // Mirrors core's `transactionTimeSchema` (validators/common.ts:
+    // `z.string().datetime().optional()`) so a garbage string is refused on
+    // both transports (rule 14's intent). NOT a cast-bridge re-export of
+    // that schema object, unlike the other core-schema reuses in this file:
+    // embedding an ALREADY-BUILT zod-4 schema as a FIELD inside this
+    // workspace's zod-3 `z.object({...})` dies at runtime with
+    // `_parse is not a function` the moment any sibling refine touches the
+    // object (the same cross-major trap `MobileServiceItemSeedSchema`'s own
+    // comment above documents for arrays — "cast the finished validator,
+    // never a part of one"). A one-line literal is the correct mirror here;
+    // keep it in sync with validators/common.ts if that definition changes.
+    transaction_time: z.string().datetime().optional(),
     // Batch member whose customer payment is booked by another transaction in the
     // same checkout (session basket, or the legs-carrying first bill of a
     // multi-bill payment): skips the customer-inflow and change-leg blocks while

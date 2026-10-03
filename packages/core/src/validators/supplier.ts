@@ -64,8 +64,15 @@ export const supplierSettleSchema = z.object({
   //     credit and split across the settled rows via largest-remainder
   //     proportional allocation (`supplier_settlements` +
   //     `settlement_commission_allocations`, D5/D6).
-  commission_usd: z.number(),
-  commission_lbp: z.number(),
+  // LIRA-166 — was a bare `z.number()`, which let a negative commission
+  // through to SupplierRepository.settleTransactions: the SUPPLIER_PAYS_US
+  // ledger credit normalises with `-Math.abs(...)` while the settlement
+  // profit stamp books the raw value, so the ledger and the profit stamp
+  // disagreed in sign. Not reachable through the settlement UI (its
+  // commission inputs reject a leading "-" at the keystroke level), but
+  // reachable via direct IPC/REST.
+  commission_usd: z.number().nonnegative(),
+  commission_lbp: z.number().nonnegative(),
   // D8 — how the operator entered commission_usd/commission_lbp for a
   // NEW-MODEL batch: a single LUMP total for the whole batch, or a per-unit
   // RATE × commission_unit_count. Snapshotted onto supplier_settlements for

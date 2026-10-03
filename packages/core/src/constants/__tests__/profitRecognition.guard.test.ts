@@ -126,11 +126,45 @@
  * (bills-only: real money, recognition-by-construction) vs the ones that
  * are now recognised as gated via `allocationNotDebtPending` and needed no
  * exclusion at all.
+ *
+ * LIRA-169 — per-column detection, closing a loophole found while building
+ * `embeddedCommission.guard.test.ts` (LIRA-159 D3): this guard used to check
+ * only "does the GATE_CALL_REGEX match ANYWHERE in the whole unit's SQL
+ * text" (`GATE_CALL_REGEX.test(u.sql)`). `ProfitRepository.getByUser`/
+ * `.getByClient` each compute `revenue_usd`/`profit_usd`/`profit_lbp` as
+ * their OWN independent `SUM(CASE ... END) AS <col>` block, each
+ * independently repeating `NOT (${txnNotPartnerPending("t")} AND
+ * ${notDebtPending("t.id")})` inline at the top of its own CASE — the gate
+ * is never hoisted once into the outer WHERE. Stripping the gate from only
+ * ONE of those columns (say `profit_usd`'s own copy) while leaving a
+ * SIBLING column's copy (`profit_lbp`'s) intact would still leave
+ * `GATE_CALL_REGEX.test(u.sql)` true — the surviving sibling's gate call
+ * "covers" the newly-ungated column purely because they share one
+ * `.prepare()` unit. Same class of hole `embeddedCommission.guard.test.ts`
+ * already closed for its own narrower scan (see that file's `isGated`'s own
+ * doc comment) — this guard now reuses the SAME per-column machinery
+ * (`isGatedPerColumn`/`textIsGated`/`splitSelectShape`, generalised into
+ * `testHelpers/sqlQueryUnits.ts` so neither guard pastes a second copy of
+ * the other's logic, rule 14): a WHERE-clause gate still covers every
+ * column uniformly, but failing that, EVERY top-level profit/commission-
+ * token-bearing column must independently resolve to a gate (inline or
+ * alias). See this file's own "LIRA-169: sibling-column loophole" test
+ * below for the synthetic before/after proof (rule 17) — the real
+ * `getByUser`/`getByClient` queries pass on merit against the new, stricter
+ * check with zero new EXCLUDED_UNITS entries needed (verified by running
+ * this suite).
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { collectQueryUnits, unitKey } from "../testHelpers/sqlQueryUnits";
+import {
+  collectQueryUnits,
+  unitKey,
+  findMethodBoundaries,
+  methodSourceSlice,
+  isGatedPerColumn,
+  type QueryUnit,
+} from "../testHelpers/sqlQueryUnits";
 
 const SRC_ROOT = path.join(__dirname, "..", "..");
 
@@ -428,16 +462,127 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "'our profit entirely' (owner) — recognition-by-construction; no " +
     "partner_ledger/debt_ledger row is ever keyed to a SUPPLIER_SETTLEMENT " +
     "transaction id, so a gate here would always no-op.",
+  // --- LIRA-169 — the "expose the gate" Detail family. Newly surfaced by
+  // this ticket's own per-column tightening (none of these were violations
+  // under the old whole-unit check, because EVERY one of them calls a gate
+  // fragment SOMEWHERE in the same unit — just not on the profit/revenue/
+  // cost column itself). Each is a per-row drill-down feeding the Profits
+  // page's "Show transactions" list under a By-Module row, and each is
+  // DELIBERATELY ungated on its own profit/revenue/cost column: the whole
+  // point of a drill-down is to show BOTH counted and not-yet-counted rows
+  // with their raw figures, so the UI can render a "why isn't this counted
+  // yet" reason. Recognition is applied ONE LAYER UP by multiplying the
+  // raw figure by the SAME gate the query exposes as its own column
+  // (`weight`/`debt_pending`/`partner_coverage_ratio`) — in
+  // `ProfitService`'s module-detail builders (verified: e.g.
+  // `buildSaleModuleDetail`'s `r.profit_usd * weight`), never by summing
+  // the raw column ungated. Every entry below is independently verified by
+  // reading its own method's doc comment (several say so explicitly —
+  // "including debt-pending ones ... the service needs those to render the
+  // 'not counted yet' section") and the gate-state column it exposes
+  // alongside the raw figure.
+  "ProfitRepository:getSalesDetail:tenantId":
+    "Private-method mis-attribution (see this file's header note 3 / " +
+    "embeddedCommission.guard.test.ts's identical precedent): the true " +
+    "source is PRIVATE getCompletedSalesDetailGross (the schema-drift " +
+    "fallback branch, no discount/net columns), mis-attributed to the " +
+    "nearest preceding PUBLIC boundary getSalesDetail. Exposes " +
+    "`weight` (saleRecognitionWeight), `fully_paid` (saleFullyPaid), " +
+    "`has_partner_obligation`/`partner_coverage_ratio` " +
+    "(partnerCoverageRatio) as their own columns; `profit_usd`/" +
+    "`profit_lbp`/`revenue_usd`/`cost_usd` stay raw so " +
+    "`ProfitService.buildSaleModuleDetail` can multiply by `weight` and " +
+    "render the not-counted-yet reason for a partial/zero-weight sale.",
+  "ProfitRepository:getSalesDetail:(final select)":
+    "Same mis-attribution and same reasoning as the `tenantId` entry " +
+    "immediately above — this is PRIVATE getCompletedSalesDetailNet's " +
+    "trailing SELECT (the primary branch, with discount/net columns), " +
+    "mis-attributed to getSalesDetail. Exposes the identical " +
+    "weight/fully_paid/has_partner_obligation/partner_coverage_ratio " +
+    "columns for the same 'expose the gate, multiply upstream' reason.",
+  "ProfitRepository:getSalesDetail:saleAggExtraWhere":
+    "Same mis-attribution, same source method (getCompletedSalesDetailNet) " +
+    "as the two entries above — this is that method's `sale_agg`/`sale_net` " +
+    "CTE pair (shared `saleAggBody` shape with getSalesRevCost's own " +
+    "already-excluded CTE), feeding the final select above with raw " +
+    "revenue/cost; the gate columns are computed in the final select, not " +
+    "here.",
+  "ProfitRepository:getRechargeDetail:(query)":
+    "Own doc comment, verified verbatim: 'Returns EVERY recharge for this " +
+    "carrier in range ... including debt-pending ones " +
+    "getRechargesByCarrier's own WHERE hard-excludes — the service (rule " +
+    "13) needs those to render the not counted yet section and state " +
+    "why.' Exposes `debt_pending` (notDebtPending) and " +
+    "`has_partner_obligation`/`partner_coverage_ratio` " +
+    "(hasPartnerObligation/partnerCoverageRatio) as their own columns; " +
+    "`profit_usd`/`profit_lbp` stay raw by design.",
+  "ProfitRepository:getFinancialServiceDetail:transferRows":
+    "Own doc comment, verified: gate state is 'exposed as columns " +
+    "(recognized/debt_pending), never applied as a [SQL gate]' — same " +
+    "'expose the gate' shape getRechargeDetail already uses for its own " +
+    "debt_pending.",
+  "ProfitRepository:getFinancialServiceDetail:allocationRows":
+    "Same method, same doc comment, same reasoning as the transferRows " +
+    "entry immediately above — the allocations-table-aware twin of the " +
+    "same drill-down, same gate-state-exposed-as-columns shape.",
+  "ProfitRepository:getCustomServiceDetail:(query)":
+    "Exposes `has_partner_obligation` (hasPartnerObligation) and " +
+    "`debt_pending` (allocationNotDebtPending — the settlement_commission_" +
+    "allocations-row variant, verified present in this query's own " +
+    "CASE WHEN) as their own columns; profit/revenue/cost columns stay " +
+    "raw, same 'expose the gate' Detail-family shape as getRechargeDetail.",
+  "ProfitRepository:getMaintenanceDetail:(query)":
+    "Exposes `has_partner_obligation` (hasPartnerObligation) and " +
+    "`debt_pending` (notDebtPending) as their own columns; own doc comment " +
+    "additionally notes this query 'applies NO partner weighting' (no " +
+    "saleRecognitionWeight-style continuous gate for this module) — same " +
+    "'expose the gate' Detail-family shape otherwise.",
+  "ProfitRepository:getLotoDetail:(query)":
+    "Exposes `debt_pending` (notDebtPending) as its own column; same " +
+    "'expose the gate' Detail-family shape as getRechargeDetail/" +
+    "getMaintenanceDetail.",
+  "ProfitRepository:getExchangeDetail:(query)":
+    "Exposes `has_partner_obligation` (hasPartnerObligation) as its own " +
+    "column; own doc comment notes this module recognises 'profit only, " +
+    "weighted by partnerCoverageRatio (no debt gate)' — partnerCoverageRatio " +
+    "is likewise exposed as its own column, applied upstream like every " +
+    "other Detail-family entry here.",
+  "ProfitRepository:getTopupBuybackDetail:(query)":
+    "Own doc comment, verified verbatim: 'Mirrors getTopupBuybackProfit " +
+    "minus the SUM — that totals query DOES gate on notDebtPending (hard " +
+    "WHERE) and weight on partnerCoverageRatio, so ... this exposes both " +
+    "as columns, same \"expose the gate\" shape as getRechargeDetail.' " +
+    "Exact, explicit confirmation of this whole family's rationale from " +
+    "the source itself.",
 };
 
 describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)", () => {
   const sources = new Map(
     SCANNED_FILES.map((f) => [f.tag, fs.readFileSync(f.path, "utf8")] as const),
   );
+  // LIRA-169 — method boundaries per scanned file, so each unit's gate check
+  // can resolve a hoisted-variable alias against its OWN enclosing method's
+  // source (see isGatedPerColumn's doc comment in sqlQueryUnits.ts).
+  const boundariesByFile = new Map(
+    SCANNED_FILES.map(
+      (f) => [f.tag, findMethodBoundaries(sources.get(f.tag)!)] as const,
+    ),
+  );
   const units = SCANNED_FILES.flatMap((f) =>
     collectQueryUnits(sources.get(f.tag)!, f.tag),
   );
   const profitUnits = units.filter((u) => PROFIT_TOKEN_REGEX.test(u.sql));
+
+  /** LIRA-169 — per-column gate check for unit `u`, resolving its own
+   *  enclosing method's source for alias detection. */
+  function unitIsGated(u: QueryUnit): boolean {
+    const methodSource = methodSourceSlice(
+      sources.get(u.file)!,
+      boundariesByFile.get(u.file)!,
+      u.methodName,
+    );
+    return isGatedPerColumn(u, methodSource, PROFIT_TOKEN_REGEX, GATE_FRAGMENTS);
+  }
 
   it("sanity: every named recognition-gate fragment still exists as a callable function", () => {
     // If one of these were ever renamed, every check below would silently
@@ -456,9 +601,13 @@ describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)
   });
 
   it("every profit-bearing query unit references a recognition-gate fragment (or is a named, justified exclusion)", () => {
+    // LIRA-169: per-column (isGatedPerColumn), not whole-unit
+    // (GATE_CALL_REGEX.test(u.sql) alone) — see this file's own LIRA-169
+    // header note for why the whole-unit form misses a sibling column's
+    // ungated copy of the same predicate.
     const violations = profitUnits.filter((u) => {
       if (unitKey(u) in EXCLUDED_UNITS) return false;
-      return !GATE_CALL_REGEX.test(u.sql);
+      return !unitIsGated(u);
     });
     if (violations.length > 0) {
       const message = violations
@@ -481,7 +630,7 @@ describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)
       const unit = units.find((u) => unitKey(u) === key);
       if (!unit) return true; // key no longer matches any parsed unit
       if (!PROFIT_TOKEN_REGEX.test(unit.sql)) return true; // no longer mentions "profit"
-      if (GATE_CALL_REGEX.test(unit.sql)) return true; // now gated — exclusion is dead weight
+      if (unitIsGated(unit)) return true; // now gated (LIRA-169: per-column) — exclusion is dead weight
       return false;
     });
     expect(stale).toEqual([]);
@@ -501,5 +650,72 @@ describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)
     // `ClosingService.profitParity.test.ts` first (rule 17), not here.
     const closingProfitUnits = profitUnits.filter((u) => u.file === "ClosingRepository");
     expect(closingProfitUnits.map(unitKey)).toEqual([]);
+  });
+
+  // LIRA-169 — rule 17: proven failing-first via a SYNTHETIC fixture (never
+  // by editing real production code). The fixture below reproduces the
+  // exact loophole shape `embeddedCommission.guard.test.ts`'s own history
+  // found: one `.prepare()` unit with two profit-bearing SUM(CASE...)
+  // columns, each carrying its OWN inline copy of the gate — then one
+  // column's copy is stripped while the sibling's survives, exactly what
+  // stripping `notDebtPending(...)` from only `getByUser`'s `profit_usd`
+  // CASE while leaving `profit_lbp`'s copy intact would look like.
+  it("LIRA-169: sibling-column loophole — old whole-unit check misses it, new per-column check catches it", () => {
+    const gatedSiblingOnly: QueryUnit = {
+      file: "ProfitRepository",
+      methodName: "getByUser",
+      unitLabel: "(query)",
+      sql:
+        "SELECT\n" +
+        "  SUM(CASE WHEN t.type = 'SALE' THEN t.revenue_usd ELSE 0 END) AS revenue_usd,\n" +
+        "  -- profit_usd's own gate was stripped — this is the regression.\n" +
+        "  SUM(CASE WHEN t.type = 'SALE' THEN t.profit_usd ELSE 0 END) AS profit_usd,\n" +
+        "  SUM(CASE WHEN t.type = 'SALE' AND NOT (txnNotPartnerPending(t) AND notDebtPending(t.id)) THEN t.profit_lbp ELSE 0 END) AS profit_lbp\n" +
+        "FROM transactions t",
+      line: 1,
+    };
+
+    // RED — the old, whole-unit check this guard used before LIRA-169. It
+    // still reports "gated" because profit_lbp's surviving gate call makes
+    // GATE_CALL_REGEX match the unit's SQL text SOMEWHERE, even though the
+    // regressed profit_usd column carries no gate of its own at all. This
+    // is the exact pre-fix formula (`GATE_CALL_REGEX.test(u.sql)`), proven
+    // wrong on this fixture — not inferred, not asserted by comment.
+    expect(GATE_CALL_REGEX.test(gatedSiblingOnly.sql)).toBe(true);
+
+    // GREEN — the new per-column check correctly rejects the same fixture:
+    // profit_usd's own column text resolves to no gate, so NOT every
+    // profit/commission-bearing column is gated.
+    const methodSource = `  getByUser(userId) {\n${gatedSiblingOnly.sql}\n  }\n`;
+    expect(
+      isGatedPerColumn(
+        gatedSiblingOnly,
+        methodSource,
+        PROFIT_TOKEN_REGEX,
+        GATE_FRAGMENTS,
+      ),
+    ).toBe(false);
+
+    // Sanity: a unit where EVERY profit-bearing column carries its own gate
+    // (the real, correct shape every production query uses today) still
+    // passes the new check — proves the tightened logic isn't just
+    // rejecting everything.
+    const everyColumnGated: QueryUnit = {
+      ...gatedSiblingOnly,
+      sql:
+        "SELECT\n" +
+        "  SUM(CASE WHEN t.type = 'SALE' THEN t.revenue_usd ELSE 0 END) AS revenue_usd,\n" +
+        "  SUM(CASE WHEN t.type = 'SALE' AND NOT (txnNotPartnerPending(t) AND notDebtPending(t.id)) THEN t.profit_usd ELSE 0 END) AS profit_usd,\n" +
+        "  SUM(CASE WHEN t.type = 'SALE' AND NOT (txnNotPartnerPending(t) AND notDebtPending(t.id)) THEN t.profit_lbp ELSE 0 END) AS profit_lbp\n" +
+        "FROM transactions t",
+    };
+    expect(
+      isGatedPerColumn(
+        everyColumnGated,
+        methodSource,
+        PROFIT_TOKEN_REGEX,
+        GATE_FRAGMENTS,
+      ),
+    ).toBe(true);
   });
 });

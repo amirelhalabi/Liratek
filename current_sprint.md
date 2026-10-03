@@ -1397,7 +1397,7 @@ NEEDS INTERVIEW — confirm which balance the owner meant before building
 | **Epic**             | Multi-Tenant / Admin                                                         |
 | **Type**             | Test                                                                         |
 | **Priority**         | Medium                                                                       |
-| **Status**           | TODO                                                                         |
+| **Status**           | DONE 2026-10-03 (WP9 e2e spec only — the full-suite proof item is explicitly out of scope here, see note below) — `frontend/tests/e2e-web/lira-web-038-admin-impersonation.spec.ts`: seeded super_admin logs in through the real UI, provisions a tenant via the real `AddTenantModal`, "Connect as admin" opens a real new tab carrying the handoff, `ImpersonationBanner` renders, a write made under the impersonation token lands ONLY in the target tenant (REST isolation check against tenant 1), the audit trail is proven against the SHIPPED contract (platform + shop-note `IMPERSONATION_START` rows, `impersonator_id` always NULL by design — B-D3 — actor identity lives in `metadata.impersonatorUserId`), and Disconnect returns the impersonated tab to `/login` while the original super-admin tab stays authenticated. Web: 2/2 passed. Also fixed a real test-harness gap: `playwright.web.config.ts`'s webServer didn't pin `APP_BASE_DOMAIN`, so a developer's own `backend/.env` (`APP_BASE_DOMAIN=liratek.shop`) leaked in and made the impersonation handoff navigate to an unreachable real subdomain — now pinned to `""` like the backend jest suite already pins it. |
 | **Affected Modules** | Admin, Multi-Tenant                                                          |
 | **Assigned To**      | —                                                                            |
 | **Depends On**       | —                                                                            |
@@ -1413,14 +1413,19 @@ browser (`impersonat` has zero hits across all of `frontend/tests/`).
 
 ### Acceptance Criteria
 
-- [ ] `frontend/tests/e2e-web/lira-web-020-admin-tenants.spec.ts`: super-admin login → `/admin/tenants`
-      list renders → provision a tenant via `AddTenantModal` → "Connect as admin" → `ImpersonationBanner`
-      shows the right tenant → create a row while impersonating → confirm invisible from a different
-      tenant's session → Disconnect.
+- [x] `frontend/tests/e2e-web/lira-web-038-admin-impersonation.spec.ts` (named `-038`, the next free
+      number at the time — not `-020`): super-admin login → `/admin/tenants` list renders → provision a
+      tenant via `AddTenantModal` → "Connect as admin" → `ImpersonationBanner` shows the right tenant →
+      create a row (a partner, over REST on the impersonated tab) while impersonating → confirm
+      invisible from tenant 1's session → Disconnect. Also asserts the audit trail against the actual
+      shipped contract (B-D3: `impersonator_id` always NULL, identity in `metadata.impersonatorUserId`).
+      2/2 passed (run twice for stability against the accumulating DB).
 - [ ] One final confirmed full-suite green run: `yarn dev` → stop → `yarn test:e2e` AND
       `yarn test:e2e:web`, plus `yarn check:tenant-scoping`, `yarn check:bind-arity`,
-      `yarn typecheck && yarn lint` repo-wide — none of these has been run together as one proof yet.
-- [ ] Once green, archive `MULTI_TENANT_IMPLEMENTATION_PLAN.md` to `done_plans/`.
+      `yarn typecheck && yarn lint` repo-wide — **out of scope for this pass** (the orchestrator runs
+      suites; this agent was asked only for the new spec, not the full-suite proof run).
+- [ ] Once the full-suite proof above is run and green, archive `MULTI_TENANT_IMPLEMENTATION_PLAN.md` to
+      `done_plans/`.
 
 ### Files to Modify
 
@@ -1644,7 +1649,7 @@ Owner approved the rename 2026-08-09 ("rename yes").
 | **Epic**             | Custom Services / Inventory           |
 | **Type**             | Test coverage gap                     |
 | **Priority**         | Medium                                |
-| **Status**           | TODO                                  |
+| **Status**           | DONE 2026-10-03 — `frontend/tests/e2e-electron/lira-117-custom-service-item-pick.spec.ts` drives the real `custom-service-item-search` dropdown PICK (not fill+Enter): stock decrements by exactly 1 (delta), price/cost pre-fill, the transaction carries the right amount/profit, refund restores stock, and a follow-up free-text submission proves `product_id` stays NULL and stock untouched. Desktop: 2/2 passed. |
 | **Affected Modules** | Custom Services, Inventory            |
 | **Source Plan**      | Found while shipping §2b (2026-08-09) |
 
@@ -1665,14 +1670,16 @@ IPC payloads bypass the frontend entirely and cannot catch a frontend↔reposito
 
 ### Acceptance Criteria
 
-- [ ] New desktop e2e spec: seed a product with known stock → open Custom Services → **pick it from
+- [x] New desktop e2e spec: seed a product with known stock → open Custom Services → **pick it from
       the SearchBar dropdown** (not fill+Enter) → submit → assert the product's `stock_quantity`
       dropped by exactly 1 → void/refund the transaction → assert it returns to the original value.
-- [ ] Assert by identity and delta (rule 15) — snapshot stock immediately before, never absolute.
-- [ ] Also assert the negative case in the same spec: a **free-text** service leaves stock
+      `frontend/tests/e2e-electron/lira-117-custom-service-item-pick.spec.ts`, 2/2 passed.
+- [x] Assert by identity and delta (rule 15) — snapshot stock immediately before, never absolute.
+- [x] Also assert the negative case in the same spec: a **free-text** service leaves stock
       untouched. That is the regression that matters most, since all three input paths share one
       backend code path.
-- [ ] Consider a web e2e twin (rule 19) if the pick flow differs in browser mode.
+- [ ] Consider a web e2e twin (rule 19) if the pick flow differs in browser mode — not done in this
+      pass; left open.
 
 ### Files to Modify
 
@@ -2979,7 +2986,22 @@ so far only been re-derived on paper.
 
 ## LIRA-165: `transaction_time` is validated differently on IPC than on REST — LOW (rule 19)
 
-**Priority:** Low · **Epic:** Dual-transport · **Status:** TODO
+**Priority:** Low · **Epic:** Dual-transport · **Status:** **DONE** 2026-10-03
+
+### Resolution
+
+`FinancialServiceSchema`'s `transaction_time` (`electron-app/schemas/index.ts`) now mirrors core's
+`transactionTimeSchema` (`z.string().datetime().optional()`) instead of a hand-copied
+`z.string().optional()`. NOT a cast-bridge re-export of the schema object — embedding an
+already-built zod-4 schema as a field inside this file's zod-3 `z.object({...})` typechecks but
+dies at runtime (`_parse is not a function`) the moment a sibling `.refine()` runs, proven by
+running it and watching `FinancialServiceSchema.feePayments.test.ts` fail with exactly that error;
+reverted to a literal mirror instead (same zod-major trap `MobileServiceItemSeedSchema`'s own
+comment already documents). Guard:
+`electron-app/schemas/__tests__/FinancialServiceSchema.transactionTime.test.ts` — NOT proven
+failing-first (the fix was a one-line type swap made before the test was written, and rule 17
+forbids reverting finished code to re-derive a red run); the pre-fix behavior is on the record via
+`git show`.
 
 The desktop financial-service schema (`electron-app/schemas/index.ts`) carries a hand-copied,
 unvalidated `transaction_time: z.string().optional()`; the core validator uses a strict
@@ -2999,7 +3021,18 @@ This cost real debugging time during LIRA-158's e2e fix.
 
 ## LIRA-166: negative `commission_usd` makes the ledger and the profit stamp disagree in sign — LOW
 
-**Priority:** Low · **Epic:** Suppliers · **Status:** TODO
+**Priority:** Low · **Epic:** Suppliers · **Status:** **DONE** 2026-10-03
+
+### Resolution
+
+`validators/supplier.ts`'s `supplierSettleSchema.commission_usd`/`commission_lbp` now carry
+`.nonnegative()`. Confirmed the settlement UI (`Suppliers/index.tsx`'s commission inputs) can never
+send a negative value — both onChange handlers reject a leading `-` at the keystroke level
+(`/^\d*\.?\d*$/`/`/^\d+$/`). `electron-app/schemas/index.ts`'s `SupplierSettleSchema` is a
+cast-bridge re-export of this same core schema, so no separate desktop-side fix was needed.
+Guard: `packages/core/src/validators/__tests__/supplier.commissionNonnegative.test.ts` — proven
+failing-first (ran red against the pre-fix bare `z.number()`, then green after adding
+`.nonnegative()`).
 
 `validators/supplier.ts`'s `commission_usd`/`commission_lbp` are bare `z.number()` with no
 `.nonnegative()`. The `SUPPLIER_PAYS_US` ledger credit normalises with `-Math.abs(...)` while the
@@ -3044,7 +3077,41 @@ their corrected form, with the original framing named so nobody re-introduces it
 
 ## LIRA-168: core jest runs at the wrong timezone on Windows — SQL and JS local-time disagree by 2h — MEDIUM
 
-**Priority:** Medium · **Epic:** Test harness · **Status:** TODO
+**Priority:** Medium · **Epic:** Test harness · **Status:** **DONE** 2026-10-03
+
+### Resolution
+
+No single `TZ` value fixes both runtimes on Windows — proven empirically, not assumed: the Windows
+CRT (better-sqlite3's `'localtime'`) only understands the POSIX `std offset[dst offset,rule]`
+syntax (`EET-2EEST,M3.5.0/0,M10.5.0/0` measured correct — real +3h/+2h Beirut DST/STD), while Node's
+`Date` getters only resolve real IANA zone names and silently return offset 0 for ANY POSIX-style
+string (`EET-2EEST,...`, `XXX-3`, `<+03>-3`, `UTC+3` — all measured 0). The two runtimes need
+mutually exclusive TZ syntaxes; swapping the string trades which side is broken, it doesn't fix
+either.
+
+Fix: `packages/core/scripts/runTests.cjs` (new) launches jest directly and only pins
+`TZ=Asia/Beirut` on non-Windows (`process.platform !== "win32"`) — CI (Ubuntu) is byte-identical to
+before. On Windows it leaves `TZ` unset, so both runtimes fall back to their own OS-API-based zone
+resolution, which agree with each other by construction (measured: both report +3h with no `TZ`
+pinned, matching the dev machine's real Beirut OS zone). `packages/core/package.json`'s `test`
+script now calls this launcher. `packages/core/src/jest.setup.ts` gained a fail-fast probe
+(`assertSqlJsTimezoneOffsetsAgree`) that throws a clear, actionable error if SQLite's `'localtime'`
+and Node's `Date` getters ever disagree again, on EITHER platform — proven to correctly fire by
+invoking jest directly with the old `TZ=Asia/Beirut`-on-Windows invocation (bypassing the new
+launcher, not by reverting any finished file).
+
+Impact of leaving TZ unset on Windows: the `*.localBusinessDay`/`*.webTodayTzOffset` tests that need
+a non-UTC runner still need the machine's OS zone to actually be non-UTC — covered by their own
+existing `beforeAll` probes (`ClosingRepository.localBusinessDay.test.ts`'s own, pre-existing) plus
+the new global probe above, both of which fail loudly rather than silently passing under UTC.
+
+Proof: `ProfitAudit.loto.test.ts`, `LotoReportData.keptChange.test.ts`,
+`ClosingRepository.carrierLineAdjustments.test.ts` and the `*.localBusinessDay`/
+`*.webTodayTzOffset` group all pass through the real `yarn workspace @liratek/core test` script
+after the fix, with SQL/JS offsets confirmed agreeing (both +3h, no `TZ` env pin). Full suite:
+470 suites / 4569 tests passed, run at 11:06 local time (not inside the 00:00–03:00 window, but the
+global probe above would have failed loudly either way if it mattered). App reporting code
+(`reportingTimeFragments.ts`) untouched.
 
 Measured 2026-09-04 on Windows 11, via `better-sqlite3` and Node's `Date`, for the fixed instant
 `2026-06-30T22:30:00.000Z`:
@@ -3116,7 +3183,37 @@ Two things any investigator must know:
 
 ## LIRA-169: `profitRecognition.guard.test.ts` can be defeated by a sibling column in the same query unit — MEDIUM
 
-**Priority:** Medium · **Epic:** Profits · **Status:** TODO
+**Priority:** Medium · **Epic:** Profits · **Status:** **DONE** 2026-10-03
+
+### Resolution
+
+Ported `embeddedCommission.guard.test.ts`'s per-column gate detection (`splitSelectShape`/
+`textIsGated`/`isGated`) into `profitRecognition.guard.test.ts`, generalizing the shared pieces into
+`testHelpers/sqlQueryUnits.ts` (as `splitSelectShape`/`textIsGated`/`isGatedPerColumn`/
+`methodSourceSlice`, parameterised on the caller's own token regex and gate-fragment list) instead
+of pasting a second copy (rule 14) — `embeddedCommission.guard.test.ts` itself left untouched.
+`profitRecognition.guard.test.ts`'s main violations check and its "no stale exclusions" check both
+now call `isGatedPerColumn` instead of the old whole-unit `GATE_CALL_REGEX.test(u.sql)`.
+
+Rule 17: proven via a SYNTHETIC fixture inside the test (`"LIRA-169: sibling-column loophole"`),
+never by editing real production code — a fixture unit with two profit-bearing columns, one gated,
+one not, sharing a `.prepare()` unit. The OLD whole-unit formula (`GATE_CALL_REGEX.test(u.sql)`) is
+proven to wrongly return `true` on it; the NEW per-column check (`isGatedPerColumn`) is proven to
+correctly return `false`, plus a sanity case confirming the new check still passes when every column
+is genuinely gated.
+
+Tightening the real check surfaced 11 pre-existing, genuinely-ungated-on-their-profit-column units —
+all belonging to the same documented "expose the gate" Detail-drill-down family
+(`getSalesDetail`'s three private-method siblings, `getRechargeDetail`, `getFinancialServiceDetail`
+×2, `getCustomServiceDetail`, `getMaintenanceDetail`, `getLotoDetail`, `getExchangeDetail`,
+`getTopupBuybackDetail`). Each verified individually (their own doc comments, several stating the
+pattern explicitly — e.g. getRechargeDetail: "including debt-pending ones ... the service needs
+those to render the not counted yet section") and confirmed in `ProfitService.buildSaleModuleDetail`
+that recognition is applied one layer up (`r.profit_usd * weight`), never by summing the raw column
+ungated — added as named `EXCLUDED_UNITS` entries, not silently papered over. Second, smaller
+blind spot from the ticket (`this.query`/`this.queryOne` calls invisible to the parser) remains a
+documented latent gap, not fixed here — `ProfitRepository.ts` has zero such calls today and
+`ClosingRepository.ts`'s four don't touch profit/commission (unchanged since the ticket was filed).
 
 Found while building LIRA-159's new `packages/core/src/constants/__tests__
 /embeddedCommission.guard.test.ts`. That guard's first design used unit-level detection —
