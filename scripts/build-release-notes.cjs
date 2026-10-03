@@ -13,13 +13,15 @@
  *     Reads every docs/release-notes/v*.md, strips HTML comments, sorts
  *     newest-first by semver, and writes
  *     frontend/src/features/whatsNew/releaseNotes.generated.json as
- *     [{ version, body }, ...]. Deterministic output — re-running with the
- *     same inputs produces byte-identical JSON.
+ *     [{ version, body, highlights? }, ...]. Deterministic output —
+ *     re-running with the same inputs produces byte-identical JSON. Fails
+ *     (exit 1, nothing written) if any Highlights image is missing or not
+ *     under whats-new/ — see parseHighlightsSection / validateHighlightImages.
  *
  *   node scripts/build-release-notes.cjs --check
- *     Rebuilds in memory and compares against the file on disk. Exits 1
- *     with a clear message if they differ (CI drift guard) — does not
- *     write anything.
+ *     Rebuilds in memory and compares against the file on disk, and
+ *     re-validates every Highlights image. Exits 1 with a clear message on
+ *     either kind of drift (CI drift guard) — does not write anything.
  *
  *   node scripts/build-release-notes.cjs --whatsapp <version|unreleased>
  *     Prints a WhatsApp-formatted copy of one release's notes (or the
@@ -43,8 +45,141 @@ const DEFAULT_OUTPUT_PATH = path.join(
   "whatsNew",
   "releaseNotes.generated.json",
 );
+/** Where Highlights images live — Vite serves this at `/`, and the desktop
+ * build bundles it, so `whats-new/<version>/<file>.png` works offline too. */
+const DEFAULT_PUBLIC_DIR = path.join(ROOT, "frontend", "public");
 const UNRELEASED_FILENAME = "UNRELEASED.md";
 const VERSION_FILE_RE = /^v(\d+)\.(\d+)\.(\d+)\.md$/;
+
+// --- Highlights (owner decisions 2026-10-03) ----------------------------
+//
+// An optional "## ✨ Highlights" section at the top of a version file holds
+// 3-5 items, each written as:
+//   ### <Title>
+//   <One short paragraph.>
+//   ![<alt>](whats-new/<version>/<file>.png)
+// The image line is optional. Everything after the Highlights section (or
+// the whole file, if there is none) is the normal grouped bullet list and is
+// untouched by any of this.
+
+const SECTION_HEADING_RE = /^##\s+(.*)$/; // exactly "## ", not "###"
+const HIGHLIGHT_TITLE_RE = /^###\s+(.*)$/;
+const HIGHLIGHT_IMAGE_RE = /^!\[([^\]]*)\]\(([^)]+)\)\s*$/;
+/** Only a relative path under whats-new/ — no scheme (http:, data:, //…) and no `..`. */
+const ALLOWED_IMAGE_SRC_RE = /^whats-new\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
+
+/** Mirrors normalizeHeadingText in filterReleaseNotesForPlatform.ts: strips a
+ * leading emoji (or any non-alphanumeric run) and lowercases, so "✨
+ * Highlights", "Highlights" and "  HIGHLIGHTS" all match. Kept as its own
+ * copy here (scripts/ is plain Node, frontend/src is a separate build) —
+ * CLAUDE.md rule 14 is about one SOURCE of a predicate within a layer, not
+ * sharing code across the Node/browser boundary. */
+function normalizeHeadingText(text) {
+  return text.trim().replace(/^[^A-Za-z0-9]+/, "").trim().toLowerCase();
+}
+
+function isAllowedImageSrc(src) {
+  return typeof src === "string" && !src.includes("..") && ALLOWED_IMAGE_SRC_RE.test(src);
+}
+
+/**
+ * Extracts the "## Highlights" section (if present) out of `markdown`.
+ * Returns `{ highlights, rest, headingText }`:
+ *  - `highlights`: parsed items, in source order, each `{ title, summary }`
+ *    plus `image: { alt, src }` when an image line followed the paragraph.
+ *  - `rest`: the input with the whole Highlights section (heading included)
+ *    removed — this is what becomes the entry's `body`.
+ *  - `headingText`: the heading's own text (e.g. "✨ Highlights"), or null
+ *    when there was no Highlights section — used only by markdownToWhatsApp.
+ */
+function parseHighlightsSection(markdown) {
+  const lines = markdown.split("\n");
+
+  let startIdx = -1;
+  let headingText = null;
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].trim().match(SECTION_HEADING_RE);
+    if (match && normalizeHeadingText(match[1]) === "highlights") {
+      startIdx = i;
+      headingText = match[1].trim();
+      break;
+    }
+  }
+
+  if (startIdx === -1) {
+    return { highlights: [], rest: markdown, headingText: null };
+  }
+
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (SECTION_HEADING_RE.test(lines[i].trim())) {
+      endIdx = i;
+      break;
+    }
+  }
+
+  const raw = [];
+  let current = null;
+  for (const line of lines.slice(startIdx + 1, endIdx)) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+
+    const title = trimmed.match(HIGHLIGHT_TITLE_RE);
+    if (title) {
+      current = { title: title[1].trim(), summaryLines: [], image: undefined };
+      raw.push(current);
+      continue;
+    }
+
+    const image = trimmed.match(HIGHLIGHT_IMAGE_RE);
+    if (image && current && !current.image) {
+      current.image = { alt: image[1], src: image[2] };
+      continue;
+    }
+
+    if (current) current.summaryLines.push(trimmed);
+  }
+
+  const highlights = raw.map((item) => ({
+    title: item.title,
+    summary: item.summaryLines.join(" "),
+    ...(item.image ? { image: item.image } : {}),
+  }));
+
+  const rest = [...lines.slice(0, startIdx), ...lines.slice(endIdx)].join("\n");
+
+  return { highlights, rest, headingText };
+}
+
+/**
+ * Checks every highlight image referenced by `entries` against `publicDir`:
+ * the path must be an allowed `whats-new/…` relative path (never an external
+ * URL or a `..` escape — CLAUDE.md rendering-safety rule) AND the file must
+ * actually exist on disk. Returns a list of human-readable problem strings;
+ * empty means everything is fine. Pure / side-effect free.
+ */
+function validateHighlightImages(entries, publicDir = DEFAULT_PUBLIC_DIR) {
+  const problems = [];
+  for (const entry of entries) {
+    for (const highlight of entry.highlights || []) {
+      if (!highlight.image) continue;
+      const { src } = highlight.image;
+      if (!isAllowedImageSrc(src)) {
+        problems.push(
+          `v${entry.version} "${highlight.title}": image path "${src}" is not allowed — must be a relative path under whats-new/, no scheme and no "..".`,
+        );
+        continue;
+      }
+      const filePath = path.join(publicDir, src);
+      if (!fs.existsSync(filePath)) {
+        problems.push(
+          `v${entry.version} "${highlight.title}": image file not found at ${path.relative(ROOT, filePath)}`,
+        );
+      }
+    }
+  }
+  return problems;
+}
 
 /** HTML comments are instructions/authoring notes, never content. */
 function stripHtmlComments(markdown) {
@@ -100,8 +235,14 @@ function buildReleaseNotes(releaseNotesDir = DEFAULT_RELEASE_NOTES_DIR) {
   return versions.map((version) => {
     const filePath = path.join(releaseNotesDir, `v${version}.md`);
     const raw = normalizeLineEndings(fs.readFileSync(filePath, "utf8"));
-    const body = stripHtmlComments(raw).trim();
-    return { version, body };
+    const stripped = stripHtmlComments(raw).trim();
+    const { highlights, rest } = parseHighlightsSection(stripped);
+    const body = rest.trim();
+    return {
+      version,
+      body,
+      ...(highlights.length > 0 ? { highlights } : {}),
+    };
   });
 }
 
@@ -113,8 +254,22 @@ function serialize(entries) {
 function runBuild({
   releaseNotesDir = DEFAULT_RELEASE_NOTES_DIR,
   outputPath = DEFAULT_OUTPUT_PATH,
+  publicDir = DEFAULT_PUBLIC_DIR,
 } = {}) {
   const entries = buildReleaseNotes(releaseNotesDir);
+
+  const imageProblems = validateHighlightImages(entries, publicDir);
+  if (imageProblems.length > 0) {
+    console.error(
+      [
+        "release-notes:build FAILED — Highlights image problem(s):",
+        ...imageProblems.map((p) => `  - ${p}`),
+      ].join("\n"),
+    );
+    process.exitCode = 1;
+    return entries;
+  }
+
   const json = serialize(entries);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, json);
@@ -128,8 +283,10 @@ function runBuild({
 function runCheck({
   releaseNotesDir = DEFAULT_RELEASE_NOTES_DIR,
   outputPath = DEFAULT_OUTPUT_PATH,
+  publicDir = DEFAULT_PUBLIC_DIR,
 } = {}) {
-  const expected = serialize(buildReleaseNotes(releaseNotesDir));
+  const entries = buildReleaseNotes(releaseNotesDir);
+  const expected = serialize(entries);
   // The JSON file on disk may itself have been checked out with CRLF
   // (autocrlf on Windows), even though it's stored as LF in git — normalize
   // before comparing so --check is line-ending-insensitive on both sides.
@@ -137,29 +294,48 @@ function runCheck({
     ? normalizeLineEndings(fs.readFileSync(outputPath, "utf8"))
     : null;
 
-  if (actual === expected) {
-    console.log("release-notes:check — releaseNotes.generated.json is up to date.");
-    return true;
+  let ok = true;
+
+  if (actual !== expected) {
+    console.error(
+      [
+        "release-notes:check FAILED — releaseNotes.generated.json is stale versus docs/release-notes/v*.md.",
+        `  Expected file: ${path.relative(ROOT, outputPath)}`,
+        "  Run `yarn release-notes:build` and commit the result.",
+      ].join("\n"),
+    );
+    ok = false;
   }
 
-  console.error(
-    [
-      "release-notes:check FAILED — releaseNotes.generated.json is stale versus docs/release-notes/v*.md.",
-      `  Expected file: ${path.relative(ROOT, outputPath)}`,
-      "  Run `yarn release-notes:build` and commit the result.",
-    ].join("\n"),
-  );
-  process.exitCode = 1;
-  return false;
+  const imageProblems = validateHighlightImages(entries, publicDir);
+  if (imageProblems.length > 0) {
+    console.error(
+      [
+        "release-notes:check FAILED — Highlights image problem(s):",
+        ...imageProblems.map((p) => `  - ${p}`),
+      ].join("\n"),
+    );
+    ok = false;
+  }
+
+  if (!ok) {
+    process.exitCode = 1;
+    return false;
+  }
+
+  console.log("release-notes:check — releaseNotes.generated.json is up to date.");
+  return true;
 }
 
-function markdownToWhatsApp(markdown) {
-  const withoutComments = stripHtmlComments(
-    normalizeLineEndings(markdown),
-  ).trim();
-  const boldConverted = withoutComments.replace(/\*\*(.+?)\*\*/g, "*$1*");
+function convertBoldToAsterisks(text) {
+  return text.replace(/\*\*(.+?)\*\*/g, "*$1*");
+}
 
-  return boldConverted
+/** Converts "## "/"- " markdown lines to WhatsApp's own emphasis — the
+ * non-Highlights part of markdownToWhatsApp, pulled out so it can also run
+ * on the tail of a file that starts with a Highlights section. */
+function transformPlainLines(text) {
+  return convertBoldToAsterisks(text)
     .split("\n")
     .map((line) => {
       const heading = line.match(/^(#{1,6})\s+(.*)$/);
@@ -171,6 +347,31 @@ function markdownToWhatsApp(markdown) {
       return line;
     })
     .join("\n");
+}
+
+/** A Highlights item becomes one line — "• *Title*: sentence" — with its
+ * image dropped entirely (WhatsApp messages don't carry local file paths). */
+function markdownToWhatsApp(markdown) {
+  const withoutComments = stripHtmlComments(
+    normalizeLineEndings(markdown),
+  ).trim();
+  const { highlights, rest, headingText } = parseHighlightsSection(withoutComments);
+
+  if (highlights.length === 0) {
+    return transformPlainLines(withoutComments);
+  }
+
+  const parts = [`*${headingText}*`, ""];
+  for (const highlight of highlights) {
+    parts.push(`• *${highlight.title}*: ${convertBoldToAsterisks(highlight.summary)}`);
+  }
+
+  const restTrimmed = rest.trim();
+  if (restTrimmed.length > 0) {
+    parts.push("", transformPlainLines(restTrimmed));
+  }
+
+  return parts.join("\n");
 }
 
 function resolveNotesFile(target, releaseNotesDir = DEFAULT_RELEASE_NOTES_DIR) {
@@ -233,6 +434,7 @@ if (require.main === module) {
 module.exports = {
   DEFAULT_RELEASE_NOTES_DIR,
   DEFAULT_OUTPUT_PATH,
+  DEFAULT_PUBLIC_DIR,
   stripHtmlComments,
   normalizeLineEndings,
   compareSemverDesc,
@@ -242,6 +444,9 @@ module.exports = {
   serialize,
   runBuild,
   runCheck,
+  parseHighlightsSection,
+  validateHighlightImages,
+  isAllowedImageSrc,
   markdownToWhatsApp,
   resolveNotesFile,
   runWhatsapp,

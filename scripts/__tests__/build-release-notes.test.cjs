@@ -214,6 +214,143 @@ test("markdownToWhatsApp normalizes CRLF input the same as LF input", () => {
   assert.ok(!mod.markdownToWhatsApp(crlf).includes("\r"));
 });
 
+// --- Highlights (owner decisions 2026-10-03) --------------------------
+
+test("buildReleaseNotes parses a ## Highlights section into entries[].highlights, and strips it from body", () => {
+  const dir = makeTempReleaseNotesDir({
+    "v1.33.0.md": [
+      "## ✨ Highlights",
+      "",
+      "### Faster checkout",
+      "Checkout now takes one tap instead of three.",
+      "![Checkout screen](whats-new/1.33.0/checkout.png)",
+      "",
+      "### Dark mode",
+      "The whole app now supports dark mode.",
+      "",
+      "## 💸 OMT / Whish & suppliers",
+      "- A normal grouped bullet, unaffected by the section above.",
+    ].join("\n"),
+  });
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), "liratek-public-"));
+  fs.mkdirSync(path.join(publicDir, "whats-new", "1.33.0"), { recursive: true });
+  fs.writeFileSync(
+    path.join(publicDir, "whats-new", "1.33.0", "checkout.png"),
+    "fake-png-bytes",
+  );
+
+  const entries = mod.buildReleaseNotes(dir);
+  const entry = entries[0];
+
+  assert.equal(entry.highlights.length, 2);
+  assert.equal(entry.highlights[0].title, "Faster checkout");
+  assert.equal(
+    entry.highlights[0].summary,
+    "Checkout now takes one tap instead of three.",
+  );
+  assert.deepEqual(entry.highlights[0].image, {
+    alt: "Checkout screen",
+    src: "whats-new/1.33.0/checkout.png",
+  });
+  assert.equal(entry.highlights[1].title, "Dark mode");
+  assert.equal(entry.highlights[1].image, undefined);
+
+  // Highlights section must be gone from body; the normal section survives.
+  assert.ok(!entry.body.includes("Highlights"));
+  assert.ok(!entry.body.includes("Faster checkout"));
+  assert.ok(entry.body.includes("A normal grouped bullet"));
+
+  assert.deepEqual(mod.validateHighlightImages(entries, publicDir), []);
+});
+
+test("a version with no Highlights section gets no `highlights` key at all (backward compatible)", () => {
+  const dir = makeTempReleaseNotesDir({
+    "v1.0.0.md": "## Area\n- a plain old release note\n",
+  });
+  const entries = mod.buildReleaseNotes(dir);
+  assert.equal("highlights" in entries[0], false);
+  assert.ok(entries[0].body.includes("a plain old release note"));
+});
+
+test("validateHighlightImages reports a missing image file", () => {
+  const dir = makeTempReleaseNotesDir({
+    "v1.33.0.md": [
+      "## ✨ Highlights",
+      "### Faster checkout",
+      "One tap checkout.",
+      "![Checkout](whats-new/1.33.0/missing.png)",
+    ].join("\n"),
+  });
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), "liratek-public-"));
+
+  const entries = mod.buildReleaseNotes(dir);
+  const problems = mod.validateHighlightImages(entries, publicDir);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /missing\.png/);
+});
+
+test("validateHighlightImages rejects an image path that is not under whats-new/ (e.g. an external URL)", () => {
+  const dir = makeTempReleaseNotesDir({
+    "v1.33.0.md": [
+      "## ✨ Highlights",
+      "### Faster checkout",
+      "One tap checkout.",
+      "![Checkout](https://evil.example.com/x.png)",
+    ].join("\n"),
+  });
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), "liratek-public-"));
+
+  const entries = mod.buildReleaseNotes(dir);
+  const problems = mod.validateHighlightImages(entries, publicDir);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /not (under|allowed)/i);
+});
+
+test("runCheck fails when a Highlights image file referenced by the markdown does not exist", () => {
+  const dir = makeTempReleaseNotesDir({
+    "v1.33.0.md": [
+      "## ✨ Highlights",
+      "### Faster checkout",
+      "One tap checkout.",
+      "![Checkout](whats-new/1.33.0/missing.png)",
+    ].join("\n"),
+  });
+  const outputPath = path.join(dir, "out.json");
+  const publicDir = fs.mkdtempSync(path.join(os.tmpdir(), "liratek-public-"));
+
+  process.exitCode = 0;
+  const ok = mod.runCheck({ releaseNotesDir: dir, outputPath, publicDir });
+  assert.equal(ok, false);
+  assert.equal(process.exitCode, 1);
+  process.exitCode = 0;
+});
+
+test("markdownToWhatsApp converts Highlights into '• *Title*: sentence' lines and drops the image", () => {
+  const md = [
+    "## ✨ Highlights",
+    "",
+    "### Faster checkout",
+    "Checkout now takes one tap.",
+    "![Checkout screen](whats-new/1.33.0/checkout.png)",
+    "",
+    "### Dark mode",
+    "The whole app now supports **dark mode**.",
+    "",
+    "## 💸 OMT / Whish & suppliers",
+    "- A normal grouped bullet.",
+  ].join("\n");
+
+  const out = mod.markdownToWhatsApp(md);
+
+  assert.ok(!out.includes("whats-new/"), "image line must be dropped");
+  assert.ok(!out.includes("!["), "no raw image markdown must survive");
+  assert.ok(out.includes("• *Faster checkout*: Checkout now takes one tap."));
+  assert.ok(
+    out.includes("• *Dark mode*: The whole app now supports *dark mode*."),
+  );
+  assert.ok(out.includes("• A normal grouped bullet."));
+});
+
 test("runWhatsapp prints the converted content of the requested version to stdout", () => {
   const dir = makeTempReleaseNotesDir({
     "v1.0.0.md": "## Area\n- **important** thing\n",

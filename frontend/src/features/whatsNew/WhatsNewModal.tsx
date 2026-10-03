@@ -3,6 +3,7 @@ import { X, Sparkles, ChevronDown, ChevronRight } from "lucide-react";
 import { isElectron } from "@/api/backendApi";
 import { ReleaseNotesBody } from "./renderReleaseNotes";
 import { filterReleaseNotesForPlatform } from "./filterReleaseNotesForPlatform";
+import { HighlightCards } from "./HighlightCards";
 import type { ReleaseNoteEntry } from "./types";
 
 export interface WhatsNewModalProps {
@@ -20,11 +21,19 @@ export interface WhatsNewModalProps {
  * the "Desktop app" section, desktop hides the "Web app" section — owner
  * decision) via the pure filterReleaseNotesForPlatform, using the canonical
  * isElectron() to detect the platform (CLAUDE.md rule 19: never raw
- * `window.api`). An entry whose body is emptied by that filter is dropped
- * entirely, including from "Earlier updates".
+ * `window.api`). An entry whose body is emptied by that filter (and has no
+ * Highlights either) is dropped entirely, including from "Earlier updates".
+ *
+ * VS Code-style redesign (owner decisions 2026-10-03): when the latest
+ * release has a "## ✨ Highlights" section, its cards render at the top and
+ * the grouped bullet list collapses behind a "See all changes" toggle. A
+ * release with no Highlights renders exactly as before — no toggle, the
+ * grouped list shows directly. Highlights are not platform-filtered (owner
+ * decision: a headline change applies regardless of platform).
  */
 export function WhatsNewModal({ isOpen, onClose, entries }: WhatsNewModalProps) {
   const [showEarlier, setShowEarlier] = useState(false);
+  const [showAllChanges, setShowAllChanges] = useState(false);
 
   const platform = isElectron() ? "desktop" : "web";
 
@@ -35,13 +44,18 @@ export function WhatsNewModal({ isOpen, onClose, entries }: WhatsNewModalProps) 
           ...entry,
           body: filterReleaseNotesForPlatform(entry.body, platform),
         }))
-        .filter((entry) => entry.body.trim().length > 0),
+        .filter(
+          (entry) => entry.body.trim().length > 0 || (entry.highlights?.length ?? 0) > 0,
+        ),
     [entries, platform],
   );
 
   if (!isOpen || filteredEntries.length === 0) return null;
 
   const [latest, ...earlier] = filteredEntries;
+  const highlights = latest.highlights ?? [];
+  const hasHighlights = highlights.length > 0;
+  const hasBody = latest.body.trim().length > 0;
 
   return (
     <div
@@ -72,7 +86,34 @@ export function WhatsNewModal({ isOpen, onClose, entries }: WhatsNewModalProps) 
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
-          <ReleaseNotesBody markdown={latest.body} />
+          {hasHighlights && <HighlightCards highlights={highlights} />}
+
+          {hasHighlights ? (
+            hasBody && (
+              <div>
+                <button
+                  data-testid="whats-new-see-all-toggle"
+                  onClick={() => setShowAllChanges((v) => !v)}
+                  className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors"
+                >
+                  {showAllChanges ? (
+                    <ChevronDown size={14} />
+                  ) : (
+                    <ChevronRight size={14} />
+                  )}
+                  See all changes
+                </button>
+
+                {showAllChanges && (
+                  <div className="mt-3">
+                    <ReleaseNotesBody markdown={latest.body} />
+                  </div>
+                )}
+              </div>
+            )
+          ) : (
+            <ReleaseNotesBody markdown={latest.body} />
+          )}
 
           {earlier.length > 0 && (
             <div className="mt-2 pt-3 border-t border-slate-800">

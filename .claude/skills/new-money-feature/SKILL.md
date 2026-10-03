@@ -49,4 +49,5 @@ justified, not assumed:
   prove it FAILS on the pre-fix/pre-feature code (rule 17) before counting it.
 - Release note (rule 30): one plain-language line in `docs/release-notes/UNRELEASED.md`
   saying what the cashier or owner now sees (no ticket ids, no code terms), plus a
-  "What users will notice" line in the ticket.
+  "What users will notice" line in the ticket. For a headline change, add a Highlight
+  with a screenshot instead of just a bullet (see the file's header comment).

@@ -8,6 +8,24 @@
   - Only what was really built; a fix for new entries says "from now on".
   - Tests, docs, CI and refactors with no behaviour change get no line.
 
+  Highlights (optional, for a headline change — owner decisions 2026-10-03):
+  put ONE "## ✨ Highlights" section at the very TOP of the file, above the grouped headings,
+  holding 3-5 items, each written as:
+
+    ### <Title>
+    <One short paragraph.>
+    ![<alt text>](whats-new/<version>/<file>.png)
+
+  The image line is optional, but when present the file must already exist at
+  frontend/public/whats-new/<version>/<file>.png — `node scripts/build-release-notes.cjs --check`
+  FAILS the build if it's missing, or if the path isn't a plain relative whats-new/... path (no
+  http(s)/data: URL, no ".." escape). Everything after the Highlights section is the normal
+  grouped bullet list, unaffected by it. The in-app "What's new" renders Highlights as cards up
+  top (with a "See all changes" toggle for the grouped list below); the WhatsApp copy
+  (`yarn release-notes:whatsapp ...`) drops the images and turns each item into
+  "• *Title*: sentence". A release with no Highlights section needs none of this — it renders
+  exactly as before.
+
   `yarn release` moves everything below this comment into docs/release-notes/vX.Y.Z.md. That file
   becomes the GitHub release body (shown by the desktop updater) and the in-app "What's new".
   WhatsApp copy: `yarn release-notes:whatsapp unreleased` (or a version).
