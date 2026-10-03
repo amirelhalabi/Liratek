@@ -445,6 +445,27 @@ export type AccountUnsettledRow = {
 };
 
 /**
+ * LIRA-255 — "check against OMT's statement" panel. Mirrors `@liratek/core`'s
+ * `AccountExpectedStatement` (`SupplierRepository.ts`) verbatim (rule 14) —
+ * not imported directly for the same browser-entrypoint reason the three
+ * types above aren't.
+ */
+export type AccountExpectedStatement = {
+  account_supplier_id: number;
+  /** = {@link AccountBalance.total_usd}/`total_lbp` for this account. */
+  gross_owed_usd: number;
+  gross_owed_lbp: number;
+  /** Sum of `commission` across every pending-settlement financial_services
+   *  row for this account's members, ALL commission types/models. */
+  unsettled_commission_usd: number;
+  unsettled_commission_lbp: number;
+  /** gross_owed − unsettled_commission, in OMT's own sign convention
+   *  (minus = OMT owes the shop, plus = the shop owes OMT). */
+  expected_usd: number;
+  expected_lbp: number;
+};
+
+/**
  * LIRA-163: per-currency slice of `getOMTAnalytics`'s `today`/`month`
  * buckets, mirroring `FinancialServiceRepository.CurrencyStats`.
  * `awaiting_settlement_count` is optional so an older cached payload (or a
@@ -1593,6 +1614,11 @@ export type ApiAdapter = {
   getSupplierAccountUnsettled: (
     accountSupplierId: number,
   ) => Promise<AccountUnsettledRow[]>;
+  /** LIRA-255 — gross owed minus unsettled commission, in OMT's own sign
+   *  convention. Display-only; no mutation. */
+  getSupplierAccountExpectedStatement: (
+    accountSupplierId: number,
+  ) => Promise<AccountExpectedStatement>;
   createSupplier: (data: {
     name: string;
     contact_name?: string;

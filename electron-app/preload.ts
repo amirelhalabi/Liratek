@@ -705,6 +705,11 @@ contextBridge.exposeInMainWorld("api", {
       ),
     getAccountUnsettled: (accountSupplierId: number) =>
       ipcRenderer.invoke("suppliers:account-unsettled", accountSupplierId),
+    getAccountExpectedStatement: (accountSupplierId: number) =>
+      ipcRenderer.invoke(
+        "suppliers:account-expected-statement",
+        accountSupplierId,
+      ),
     create: (data: {
       name: string;
       contact_name?: string;

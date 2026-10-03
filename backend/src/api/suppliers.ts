@@ -251,6 +251,34 @@ router.get("/:id/account-unsettled", requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/suppliers/:id/account-expected-statement — LIRA-255: "check
+// against OMT's statement" (gross owed minus unsettled commission, in
+// OMT's own sign; mirrors suppliers:account-expected-statement).
+router.get(
+  "/:id/account-expected-statement",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const accountSupplierId = parseInt(req.params.id, 10);
+      if (isNaN(accountSupplierId)) {
+        res.status(400).json({ success: false, error: "Invalid supplier ID" });
+        return;
+      }
+
+      const statement = supplierService.getAccountExpectedStatement(
+        accountSupplierId,
+      );
+      res.json({ success: true, statement });
+    } catch (error) {
+      logger.error({ error }, "Get supplier account expected statement error");
+      res.status(500).json({
+        success: false,
+        error: "Failed to get account expected statement",
+      });
+    }
+  },
+);
+
 // GET /api/suppliers/:id/product-items — inventory items for a product
 // supplier (name, qty, cost, total; mirrors suppliers:product-items).
 router.get("/:id/product-items", requireAuth, async (req, res) => {

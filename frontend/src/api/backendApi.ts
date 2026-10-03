@@ -63,6 +63,7 @@ import type {
   DailyStatsSnapshotQuery,
   MaintenanceStatusHistoryRow,
   AccountBalance,
+  AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
   ChartDataPoint,
@@ -2897,6 +2898,36 @@ export async function getSupplierAccountUnsettled(
         transactions: AccountUnsettledRow[];
       }>(`/api/suppliers/${accountSupplierId}/account-unsettled`);
       return res.transactions || [];
+    },
+  );
+}
+
+// LIRA-255 — "check against OMT's statement" panel: gross owed minus
+// unsettled commission, in OMT's own sign convention. Display-only.
+export async function getSupplierAccountExpectedStatement(
+  accountSupplierId: number,
+): Promise<AccountExpectedStatement> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().suppliers.getAccountExpectedStatement(
+        accountSupplierId,
+      ),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        statement: AccountExpectedStatement;
+      }>(`/api/suppliers/${accountSupplierId}/account-expected-statement`);
+      return (
+        res.statement ?? {
+          account_supplier_id: accountSupplierId,
+          gross_owed_usd: 0,
+          gross_owed_lbp: 0,
+          unsettled_commission_usd: 0,
+          unsettled_commission_lbp: 0,
+          expected_usd: 0,
+          expected_lbp: 0,
+        }
+      );
     },
   );
 }

@@ -12,3 +12,8 @@
   becomes the GitHub release body (shown by the desktop updater) and the in-app "What's new".
   WhatsApp copy: `yarn release-notes:whatsapp unreleased` (or a version).
 -->
+
+## 💸 OMT / Whish & suppliers
+
+- OMT account on the Suppliers page: a new check shows what OMT's balance SMS should say (your
+  balance minus the commission OMT already deducted). Type the SMS figures to see any difference.

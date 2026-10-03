@@ -22,6 +22,7 @@ import {
 // the conventional way.
 import type {
   AccountBalance,
+  AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
   SettleAccountData,
@@ -65,6 +66,14 @@ export class SupplierService {
 
   getAccountUnsettled(accountSupplierId: number): AccountUnsettledRow[] {
     return this.repo.getAccountUnsettled(accountSupplierId);
+  }
+
+  // LIRA-255 — "check against OMT's statement" panel (rule 13: thin
+  // pass-through, same as the three reads above).
+  getAccountExpectedStatement(
+    accountSupplierId: number,
+  ): AccountExpectedStatement {
+    return this.repo.getAccountExpectedStatement(accountSupplierId);
   }
 
   /**

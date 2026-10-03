@@ -529,6 +529,65 @@ export interface AccountChildBalance {
   is_parent: boolean;
 }
 
+/**
+ * LIRA-255 — "check against OMT's statement" panel on the OMT account card.
+ * OMT texts the shop a balance figure that ALREADY has the shop's commission
+ * deducted ("INCLUDES INTRA SHARES"); the app books OMT GROSS (§8/§8.1 —
+ * transfer + fee, no commission netted out), so the app's figure and OMT's
+ * differ by exactly the commission on transfers OMT hasn't settled yet.
+ *
+ * `gross_owed_*` is the SAME figure the account card already shows
+ * ({@link AccountBalance.total_usd}/`total_lbp` — reused, never re-derived,
+ * rule 14). `unsettled_commission_*` sums the `commission` column of every
+ * financial_services row `getUnsettledBySupplier` would show in the Settle
+ * tab for THIS account's members — i.e. the exact same pending-settlement
+ * row set (`pendingSettlementSql()`/`NOT_REFUNDED_SQL`), not a second
+ * predicate. It intentionally does NOT restrict to legacy
+ * (`commission_model = 0`) rows the way `getUnsettledSummaryByProvider`'s
+ * `pending_commission_usd`/`_lbp` does (LIRA-159/D15) — that restriction
+ * exists because an AT_SETTLEMENT row's `commission` column is an
+ * ESTIMATE never corrected to the operator's real settlement figure, which
+ * makes it unsafe for a figure that claims to be a settled dollar amount.
+ * Here the goal is different: reproduce what OMT's OWN statement already
+ * deducted, and OMT computes that deduction from the exact same
+ * deterministic fee tables `omtFees.ts` uses to calculate `commission` at
+ * creation time (`calculateCommission`) — so the creation-time estimate IS
+ * the real number for this one purpose, for every row regardless of model,
+ * all commission types summed together (owner, 2026-10-03: don't split by
+ * type yet — LIRA-256). D17 (CASHLESS settlement commission defers
+ * PROFIT RECOGNITION until the client repays, LIRA-158_COMMISSION
+ * _REPORTING_PLAN.md §8) does not change this: D17 only delays when the
+ * shop books the commission as ITS OWN profit, never whether OMT itself
+ * deducted it — OMT does not wait for the shop's customer to pay, so the
+ * amount OMT's statement shows is reduced by this commission the moment
+ * the underlying transfer is pending settlement.
+ *
+ * `expected_*` = gross − unsettled commission, in OMT's OWN sign
+ * convention (owner, 2026-10-03: "minus = OMT owes the shop, plus = the
+ * shop owes OMT"). No sign flip is applied: the app's own balance sign is
+ * ALREADY "positive = shop owes" (see `balanceColor`'s doc comment in
+ * Suppliers/index.tsx — "Suppliers' raw sign already means 'shop owes'
+ * when positive"), which is the identical convention OMT's SMS uses — the
+ * two were already aligned before this ticket, so subtracting the
+ * commission directly (never negating it, never negating the gross figure)
+ * reproduces OMT's own number as-is.
+ */
+export interface AccountExpectedStatement {
+  account_supplier_id: number;
+  /** = {@link AccountBalance.total_usd}/`total_lbp` for this account. */
+  gross_owed_usd: number;
+  gross_owed_lbp: number;
+  /** Sum of `commission` across every pending-settlement financial_services
+   *  row for this account's members (ALL commission types, ALL
+   *  commission_model values) — never negative by construction
+   *  (`calculateCommission`/legacy `commission` are always stored >= 0). */
+  unsettled_commission_usd: number;
+  unsettled_commission_lbp: number;
+  /** gross_owed − unsettled_commission, per currency, in OMT's sign. */
+  expected_usd: number;
+  expected_lbp: number;
+}
+
 /** One `supplier_ledger` row surfaced through the account's merged ledger
  *  (`getAccountLedger`) — carries which member it actually belongs to
  *  (ledger rows never move) so the UI can render a Type column. */
@@ -2039,6 +2098,69 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       );
     } catch (e) {
       throw new DatabaseError("Failed to get account balances", { cause: e });
+    }
+  }
+
+  /**
+   * LIRA-255 — see {@link AccountExpectedStatement}'s own doc comment for
+   * the full design (why ALL commission_model rows count, why no sign flip,
+   * and the D17 nuance). Returns a zeroed statement (never throws/nulls)
+   * for an accountSupplierId `getAccountBalances` doesn't know about, same
+   * graceful-degrade shape as this file's other account reads on a
+   * pre-v176 connection.
+   */
+  getAccountExpectedStatement(
+    accountSupplierId: number,
+  ): AccountExpectedStatement {
+    try {
+      const tenantId = getCurrentTenantId();
+      const balances = this.getAccountBalances();
+      const account = balances.find(
+        (a) => a.account_supplier_id === accountSupplierId,
+      );
+      const grossUsd = account?.total_usd ?? 0;
+      const grossLbp = account?.total_lbp ?? 0;
+
+      let commissionUsd = 0;
+      let commissionLbp = 0;
+      if (this._suppliersHasAccountLinkColumn()) {
+        const members = this._getAccountMembers(accountSupplierId, tenantId);
+        const financialServiceRepo = getFinancialServiceRepository();
+        for (const member of members) {
+          if (!member.provider) continue;
+          // Rule 14 — the EXACT same pending-settlement row set the Settle
+          // tab shows for this provider (pendingSettlementSql/
+          // NOT_REFUNDED_SQL), never a re-typed predicate. See
+          // AccountExpectedStatement's doc comment for why, unlike
+          // getUnsettledSummaryByProvider's dollar columns, this
+          // deliberately does NOT restrict to commission_model = 0.
+          const rows = financialServiceRepo.getUnsettledBySupplier(
+            member.provider,
+          );
+          for (const row of rows) {
+            if (row.currency === "LBP") commissionLbp += row.commission ?? 0;
+            else commissionUsd += row.commission ?? 0;
+          }
+        }
+      }
+
+      return {
+        account_supplier_id: accountSupplierId,
+        gross_owed_usd: grossUsd,
+        gross_owed_lbp: grossLbp,
+        unsettled_commission_usd: commissionUsd,
+        unsettled_commission_lbp: commissionLbp,
+        // Same sign convention as the gross figure and OMT's own statement
+        // (AccountExpectedStatement doc comment) — a plain subtraction, no
+        // flip.
+        expected_usd: grossUsd - commissionUsd,
+        expected_lbp: grossLbp - commissionLbp,
+      };
+    } catch (e) {
+      throw new DatabaseError("Failed to get account expected statement", {
+        cause: e,
+        entityId: accountSupplierId,
+      });
     }
   }
 

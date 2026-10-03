@@ -18,12 +18,14 @@ import { useApi } from "@liratek/ui";
 import type {
   AccountBalance,
   AccountChildBalance,
+  AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
 } from "@liratek/ui";
 export type {
   AccountBalance,
   AccountChildBalance,
+  AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
 };
@@ -56,6 +58,9 @@ export const SUPPLIER_KEYS = {
     ["supplier-account-ledger", accountSupplierId] as const,
   accountUnsettled: (accountSupplierId: number) =>
     ["supplier-account-unsettled", accountSupplierId] as const,
+  // LIRA-255 — "check against OMT's statement" panel.
+  accountExpectedStatement: (accountSupplierId: number) =>
+    ["supplier-account-expected-statement", accountSupplierId] as const,
 };
 
 /**
@@ -77,6 +82,11 @@ function invalidateAccountQueries(
   queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.accountBalances });
   queryClient.invalidateQueries({ queryKey: ["supplier-account-ledger"] });
   queryClient.invalidateQueries({ queryKey: ["supplier-account-unsettled"] });
+  // LIRA-255 — the statement panel's gross/commission figures derive from
+  // the same two sources the lines above already invalidate.
+  queryClient.invalidateQueries({
+    queryKey: ["supplier-account-expected-statement"],
+  });
 }
 
 /**
@@ -208,6 +218,28 @@ export function useSupplierAccountUnsettledQuery(
       >,
     enabled: !!accountSupplierId,
     refetchOnMount: options?.refetchOnMount ?? true,
+  });
+}
+
+/**
+ * LIRA-255 — "check against OMT's statement" panel: gross owed minus
+ * unsettled commission, in OMT's own sign convention. Display-only (no
+ * money moves from this read), so the app-wide default `staleTime` is
+ * fine — unlike `useSupplierAccountUnsettledQuery`'s settle-sheet
+ * `"always"` override, nothing here decides how much cash changes hands.
+ * Disabled (no fetch) when there's no parent id.
+ */
+export function useSupplierAccountExpectedStatementQuery(
+  accountSupplierId: number | null,
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.accountExpectedStatement(accountSupplierId ?? 0),
+    queryFn: () =>
+      api.getSupplierAccountExpectedStatement(
+        accountSupplierId!,
+      ) as Promise<AccountExpectedStatement>,
+    enabled: !!accountSupplierId,
   });
 }
 

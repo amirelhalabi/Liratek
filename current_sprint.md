@@ -1119,7 +1119,7 @@ Ticket closed — DONE.
 | **Epic**             | Suppliers / Commission-at-settlement                                                            |
 | **Type**             | Feature (deferred generalisation)                                                               |
 | **Priority**         | Medium                                                                                          |
-| **Status**           | TODO                                                                                            |
+| **Status** | CLOSED 2026-10-03, no build needed. The owner confirmed OMT/Whish never pays commission separately: it is deducted from what the shop pays ("INCLUDES INTRA SHARES" on the OMT statement SMS). The shipped settle flow already handles this (gross payable, commission off the payment, profit at settlement / deferred per D17). See LIRA-255 for the statement check |
 | **Affected Modules** | Suppliers (OMT/WHISH), `SupplierRepository`                                                     |
 | **Assigned To**      | —                                                                                               |
 | **Depends On**       | LIRA-137 (DONE), `COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 2 (OMT/WHISH gross flip, not shipped) |
@@ -1839,6 +1839,13 @@ checkout (if not, POS drops out and the scope shrinks)? Staff or admin-only visi
 **What users will notice (when built):** sales charged at a price far from the usual one, higher or lower, are
 marked with a warning in the Transactions table and in each page's history.
 
+
+**Update 2026-10-03 (owner):** stays POSTPONED. Facts and decisions recorded for when it is picked up:
+- **POS is out of scope:** the POS cart has no editable line price. The only input on a cart line is the
+  phone-unit picker (`CartLineRow.tsx`), and the checkout discount doesn't count as a price change.
+- **Threshold:** 10% above OR below the usual price (owner, 2026-10-03).
+- **Remaining scope when built:** fix the MTC/Alfa alert (% threshold, both directions) and show it on the
+  Transactions page with a filter (admin only). Custom-service presets and the OMT/Whish fee tables are optional.
 ---
 
 ## LIRA-075: Favorite/Pin Whish App Quick Link in Home Grid
@@ -3047,7 +3054,7 @@ site). Fix is `.nonnegative()` on both, plus a validator test.
 
 ## LIRA-167: LIRA-138's dependency line is stale, and D17 changed its meaning — CHORE
 
-**Priority:** Low · **Epic:** Suppliers · **Status:** TODO
+**Priority:** Low · **Epic:** Suppliers · **Status:** CLOSED 2026-10-03: LIRA-138 was re-scoped by the owner and closed, so the dependency note no longer applies
 
 `LIRA-138` (the `## LIRA-138:` ticket in this file — still genuinely open, no implementing commit
 exists; the `:1215-1259` this line used to cite pointed at LIRA-084's block, re-checked 2026-09-23) says
@@ -4560,7 +4567,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-254**, LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-257**, LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -6101,3 +6108,47 @@ and `RESET_ZERO_TABLES` was a flat table-name list.
 
 **What users will notice:** Reset Data now keeps your MTC/Alfa lines (phone numbers) and
 sets their credits to 0.
+
+---
+
+## LIRA-255: OMT account: compare the app with OMT's statement SMS — MEDIUM
+
+| Field | Value |
+| --- | --- |
+| **Type** | Feature (owner request) |
+| **Priority** | Medium |
+| **Status** | DONE 2026-10-03. Added `SupplierRepository.getAccountExpectedStatement` (core) — reuses the account card's own gross figure (`getAccountBalances`) and the Settle tab's own pending-settlement row set (`getUnsettledBySupplier`/`pendingSettlementSql`, rule 14) to sum `commission` across ALL `commission_model` values (deliberately NOT legacy-only like `getUnsettledSummaryByProvider`'s dollar columns — see `AccountExpectedStatement`'s doc comment for why the creation-time estimate IS the real figure for this one purpose, and the D17 nuance). `expected = gross − unsettled_commission`, no sign flip (the app's own balance sign is already OMT's own convention — positive = shop owes). Wired IPC (`suppliers:account-expected-statement`) + REST (`GET /api/suppliers/:id/account-expected-statement`) + adapter (types derived/mirrored per the existing `AccountBalance` pattern, rule 21) + a `useSupplierAccountExpectedStatementQuery` hook. New `OmtStatementCheckPanel` renders on the OMT account's own panel (gated the same way the Settle Account button is, `isSelectedAccountParent`), showing gross/−commission/=expected per currency plus two SMS inputs (minus allowed) with a green/amber diff badge (±$0.01 / ±1 LBP); last-typed values persist to localStorage behind try/catch, keyed per account, read only by the panel itself. Display-only — nothing is booked. Core test (`SupplierRepository.accountExpectedStatement.test.ts`, real writers via `FinancialServiceRepository.createTransaction`): USD SEND $207+$1 fee/$0.25 commission + an LBP transfer ⇒ expected = gross − commission per currency; a RECEIVE case proves the OMT-owes-the-shop (negative) direction too — both failing-first (a schema gap, then a wrong RECEIVE-sign expectation, were caught red before going green). Frontend test (`OmtStatementCheckPanel.test.tsx`): renders the three figures, green "Matches" within tolerance, amber "Off by $X" outside it in both sign directions, and localStorage persistence across a remount. `yarn workspace @liratek/core typecheck`/`lint` (tsc, 9.6s), `yarn workspace @liratek/frontend` app typecheck (19.6s), `electron-app`/`backend` typecheck, eslint on touched files (0 errors), full `src/features/suppliers` (17 suites/69 tests) and core Supplier/FinancialService suites (48 suites/607 tests) all green. |
+| **Affected Modules** | Suppliers (OMT account), omt_whish |
+
+### Summary
+
+OMT texts the shop its balance, e.g. "the balance of your account as of 01-10-2026 with O.M.T. is USD -1,160.99 and
+LBP 11,584,062. INCLUDES INTRA SHARES". **OMT's sign:** minus = OMT owes the shop, plus = the shop owes OMT (owner,
+2026-10-03). "Includes intra shares" = the commission is already deducted in OMT's figure.
+
+The app books OMT GROSS (transfer + fee), so the app's figure and OMT's differ by exactly the commission not settled
+yet. On the OMT account (Suppliers page), show per currency (USD, LBP):
+- **Owed to OMT (gross)**, from the app;
+- **minus unsettled commission**, ALL commission types for now (owner: not yet split by type);
+- **= what OMT's statement should show**, in OMT's own sign convention.
+
+The owner can type the SMS figures to see the difference. Display only; nothing is booked.
+
+**What users will notice:** the OMT account shows the balance OMT's SMS should report, so a missing or double transfer
+stands out at a glance.
+
+---
+
+## LIRA-256: tell the app which commission types an OMT statement includes, and settle the FIFO queue by type — LOW (later)
+
+| Field | Value |
+| --- | --- |
+| **Type** | Feature (future, owner 2026-10-03) |
+| **Priority** | Low |
+| **Status** | TODO, not now |
+
+### Summary
+
+OMT's statement sometimes includes only some commission types ("INCLUDES INTRA SHARES", sometimes intra plus another
+type). Later: let the owner mark which types a statement covers, so that LIRA-255's check, and settlement in the FIFO
+queue, deduct only those types' commission.

@@ -35,6 +35,7 @@ export type {
   OMTProviderStats,
   AccountBalance,
   AccountChildBalance,
+  AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
   CommissionsReport,

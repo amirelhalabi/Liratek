@@ -287,6 +287,22 @@ export interface AccountUnsettledRow {
 }
 
 /**
+ * LIRA-255 — "check against OMT's statement" panel. Mirrors `@liratek/core`'s
+ * `AccountExpectedStatement` (`SupplierRepository.ts`) verbatim (rule 14).
+ */
+export interface AccountExpectedStatement {
+  account_supplier_id: number;
+  gross_owed_usd: number;
+  gross_owed_lbp: number;
+  unsettled_commission_usd: number;
+  unsettled_commission_lbp: number;
+  /** gross_owed − unsettled_commission, in OMT's own sign convention
+   *  (minus = OMT owes the shop, plus = the shop owes OMT). */
+  expected_usd: number;
+  expected_lbp: number;
+}
+
+/**
  * LIRA-064: a single structured in/out payment leg for a transaction.
  *
  * `direction` is from the shop's perspective: `"in"` is money the customer
@@ -1824,6 +1840,9 @@ export interface ElectronAPI {
     getAccountUnsettled: (
       accountSupplierId: number,
     ) => Promise<AccountUnsettledRow[]>;
+    getAccountExpectedStatement: (
+      accountSupplierId: number,
+    ) => Promise<AccountExpectedStatement>;
     create: (data: {
       name: string;
       contact_name?: string;

@@ -281,6 +281,7 @@ export type {
   SupplierDiscountData,
   AccountBalance,
   AccountChildBalance,
+  AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
 } from "./SupplierRepository.js";

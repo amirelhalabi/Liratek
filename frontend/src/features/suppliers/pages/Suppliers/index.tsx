@@ -37,6 +37,7 @@ import {
   type AccountUnsettledRow,
 } from "../../hooks/useSuppliers";
 import { AccountSettleSheet } from "../../components/AccountSettleSheet";
+import { OmtStatementCheckPanel } from "../../components/OmtStatementCheckPanel";
 
 type Supplier = {
   id: number;
@@ -1984,6 +1985,22 @@ export default function SuppliersPage() {
                   </button>
                 </div>
               </div>
+
+              {/* LIRA-255 — "check against OMT's statement": only on the
+                  account parent's own panel (the OMT counter), same gate
+                  `SupplierAccountCard`'s Settle Account button uses
+                  (`isSelectedAccountParent`) — not on a child's tile. */}
+              {isSelectedAccountParent && selectedAccount && (
+                // `key` forces a remount (and a fresh localStorage read) if
+                // the selected account parent ever changes — the lazy
+                // localStorage init inside the panel only runs once per
+                // mounted instance (OmtStatementCheckPanel's own doc
+                // comment on why it isn't a useEffect).
+                <OmtStatementCheckPanel
+                  key={selectedAccount.account_supplier_id}
+                  account={selectedAccount}
+                />
+              )}
 
               {/* Tabs */}
               {selectedSupplier.is_active !== 0 && (

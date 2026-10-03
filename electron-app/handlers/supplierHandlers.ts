@@ -65,6 +65,16 @@ export function registerSupplierHandlers(): void {
     },
   );
 
+  /** LIRA-255 — "check against OMT's statement" panel: gross owed (from
+   *  the account balances above) minus unsettled commission, in OMT's own
+   *  sign convention. Read-only, same no-role-gate treatment. */
+  ipcMain.handle(
+    "suppliers:account-expected-statement",
+    (_e, accountSupplierId: number) => {
+      return service.getAccountExpectedStatement(accountSupplierId);
+    },
+  );
+
   ipcMain.handle("suppliers:create", (e, data: unknown) => {
     const auth = requireRole(e.sender.id, ["admin"]);
     if (!auth.ok) return { success: false, error: auth.error };

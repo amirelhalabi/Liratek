@@ -458,6 +458,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getSupplierAccountLedger(accountSupplierId, limit);
   getSupplierAccountUnsettled = (accountSupplierId: number) =>
     api.getSupplierAccountUnsettled(accountSupplierId);
+  /** LIRA-255 — gross owed minus unsettled commission, in OMT's own sign. */
+  getSupplierAccountExpectedStatement = (accountSupplierId: number) =>
+    api.getSupplierAccountExpectedStatement(accountSupplierId);
   updateSupplierAccountLink = (data: SupplierAccountLinkInput) =>
     api.updateSupplierAccountLink(data);
   createSupplier = (data: {
