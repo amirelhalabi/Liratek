@@ -305,6 +305,16 @@ export default function Services() {
   // Payment lines (MultiPaymentInput manages single/split internally)
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  // Kept change (owner decision 2026-10-06 — automatic, no button): change
+  // the cashier did not hand back on a walk-in SEND, booked as profit by
+  // FinancialServiceRepository's SEND branch (it reconciles the legs against
+  // it). Not wired on RECEIVE (a cashout) or inside a session (the basket
+  // owns the payment).
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
+  const keptChangeApplies = serviceType === "SEND" && !activeSession;
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: the counter-flow lines
   // collecting a customer-paid fee-on-top on an OMT/WHISH system RECEIVE.
   // Independent of paymentLines (the shop's payout) — never merged into it.
@@ -748,6 +758,7 @@ export default function Services() {
         setBinanceSupplier("");
         setPaymentLines([]);
         setReturnLegs([]);
+        setKeptChange(null);
         setFeePaymentLines([]);
         setIncludingFees(false);
         setPmFeeAmount("");
@@ -1112,6 +1123,16 @@ export default function Services() {
                       paidByMethod,
                     }
                   : { paidByMethod }),
+              // Kept change rides the SAME payload as the legs it balances
+              // (rule 22) — walk-in SEND only, see `keptChangeApplies`.
+              ...(keptChangeApplies &&
+              keptChange &&
+              (keptChange.usd > 0 || keptChange.lbp > 0)
+                ? {
+                    kept_change_usd: keptChange.usd,
+                    kept_change_lbp: keptChange.lbp,
+                  }
+                : {}),
               // Payment method fee — single non-cash SEND: pass explicit fields
               // Multi-payment: total PM fee derived from per-leg fees above (baked into amounts)
               ...(finalPmFee > 0
@@ -1254,6 +1275,7 @@ export default function Services() {
         setBinanceSupplier("");
         setPaymentLines([]);
         setReturnLegs([]);
+        setKeptChange(null);
         setFeePaymentLines([]);
         setIncludingFees(false);
         setPmFeeAmount("");
@@ -1300,6 +1322,9 @@ export default function Services() {
     binanceSupplier,
     isSplitPayment,
     paymentLines,
+    returnLegs,
+    keptChange,
+    keptChangeApplies,
     feePaymentLines,
     includingFees,
     exchangeRate,
@@ -2406,6 +2431,9 @@ export default function Services() {
                     exchangeRate={exchangeRate}
                     onExchangeRateChange={setEffectiveRate}
                     onReturnChange={setReturnLegs}
+                    {...(keptChangeApplies
+                      ? { onKeptChange: setKeptChange }
+                      : {})}
                     // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: a WHISH
                     // system RECEIVE with a fee-on-top collects the customer's
                     // fee payment via this counter-flow section, independent of

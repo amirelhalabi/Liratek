@@ -81,6 +81,9 @@ function createMinimalSchema(db: Database.Database): void {
     -- transactions.source_table/source_id; left empty here.
     CREATE TABLE transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      type TEXT,
+      metadata_json TEXT,
       source_table TEXT,
       source_id INTEGER
     );
@@ -98,6 +101,7 @@ function createGetByDateSchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER,
       type TEXT NOT NULL,
+      metadata_json TEXT,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL,
       source_id INTEGER NOT NULL,

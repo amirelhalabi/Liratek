@@ -67,6 +67,7 @@ function createSchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER,
       type TEXT NOT NULL,
+      metadata_json TEXT,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL,
       source_id INTEGER NOT NULL,
@@ -238,7 +239,7 @@ function createSchema(db: Database.Database): void {
 function createLegacySchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE',
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, type TEXT NOT NULL, metadata_json TEXT, status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL, source_id INTEGER NOT NULL, user_id INTEGER, amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0,
       profit_usd REAL DEFAULT 0, profit_lbp REAL DEFAULT 0, client_id INTEGER, reverses_id INTEGER, created_at TEXT
     );

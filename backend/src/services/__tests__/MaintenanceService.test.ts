@@ -42,6 +42,9 @@ describe("MaintenanceService", () => {
       syncParts: jest.fn(),
       findById: jest.fn(() => undefined),
       isJobCharged: jest.fn(() => false),
+      // LIRA-263 follow-up (phone kept on the job, v194) — new repo methods.
+      setJobClientPhone: jest.fn(),
+      getClientPhone: jest.fn(() => null),
       processPayments: jest.fn(),
     };
 

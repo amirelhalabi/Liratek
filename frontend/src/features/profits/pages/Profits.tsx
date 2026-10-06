@@ -2114,7 +2114,7 @@ export default function Profits() {
                           data-testid="kept-change-other-usd"
                         >
                           <span className="font-semibold">
-                            Recharge/service/loto kept change (USD)
+                            Kept change (USD)
                           </span>
                           <span
                             className={`font-semibold ${profitClass(summary.kept_change.usd)}`}
@@ -2130,7 +2130,7 @@ export default function Profits() {
                           data-testid="kept-change-other-lbp"
                         >
                           <span className="font-semibold">
-                            Recharge/service/loto kept change (LBP)
+                            Kept change (LBP)
                           </span>
                           <span
                             className={`font-semibold ${profitClass(summary.kept_change.lbp)}`}

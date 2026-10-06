@@ -12,8 +12,9 @@
  * LBP-denominated change stays exact (`Math.round`, the LBP seed rule).
  *
  * Shown only while there is change due in payment mode with a CASH return;
- * hidden in payout mode (no Return/Change block there) and while keep-change
- * is active (the fields are then the operator's partial-return input).
+ * hidden in payout mode (no Return/Change block there). Since the owner
+ * decision of 2026-10-06 removed the "Keep change" button, they stay visible
+ * while the cashier is keeping part of the change — one tap returns it all.
  *
  * Rule 17: written BEFORE the component change and run against the unfixed
  * component first — see the LIRA-264 report for the recorded failure.
@@ -201,19 +202,29 @@ describe("MultiPaymentInput — change autofill (All in $ / All in LBP)", () => 
     expect(screen.queryByTestId("return-all-lbp")).not.toBeInTheDocument();
   });
 
-  it("buttons are hidden while keep-change is active and return when it is turned off", () => {
+  it("buttons stay visible while part of the change is kept, and one tap returns it all (no Keep change button)", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
     renderMpi({ total: 100, currency: "USD", onKeptChange });
     type("104.73");
     expect(screen.getByTestId("return-all-usd")).toBeInTheDocument();
+    expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("keep-change"));
-    expect(screen.queryByTestId("return-all-usd")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("return-all-lbp")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("keep-change"));
+    // Hand back nothing → the whole change is kept, buttons still there.
+    fireEvent.change(screen.getByTestId("return-usd"), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByTestId("return-lbp"), {
+      target: { value: "" },
+    });
+    expect(onKeptChange.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ usd: 4.73 }),
+    );
     expect(screen.getByTestId("return-all-usd")).toBeInTheDocument();
     expect(screen.getByTestId("return-all-lbp")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("return-all-usd"));
+    expect(screen.getByTestId("return-usd")).toHaveValue("4.73");
+    expect(onKeptChange).toHaveBeenLastCalledWith(null);
   });
 });
 

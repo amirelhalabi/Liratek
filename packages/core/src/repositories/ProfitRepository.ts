@@ -205,7 +205,16 @@ export interface PmFeeCurrencyRow {
 
 export interface ExchangeTotalsRow {
   revenue_usd: number;
+  /** Exchange margin only (leg1 + leg2) — never the payout kept change. */
   profit_usd: number;
+  /**
+   * Payout keep-change (owner decision 2026-10-06): the USD value of the
+   * small leftovers cashiers kept on exchange payouts in the window
+   * ({@link exchangeKeptProfitUsd}). ADDITIVE — NOT inside `profit_usd`; the
+   * Profits page shows it on the Kept change line, same convention as
+   * `RechargeCarrierRow.kept_change_usd`.
+   */
+  kept_change_usd: number;
   count: number;
 }
 
@@ -2188,6 +2197,39 @@ const EXCHANGE_LEG_PROFIT =
   "COALESCE(leg1_profit_usd, 0) + COALESCE(leg2_profit_usd, 0)";
 
 /**
+ * Exchange payout keep-change (owner decision 2026-10-06, refining G29/D9) —
+ * the ONE definition (rule 14) of "the kept leftover's booked USD value" for
+ * one `exchange_transactions` row. A cashier who hands over $101 against
+ * $101.12 owed keeps $0.12; that is shop profit but NOT exchange margin, so
+ * `ExchangeRepository.createTransaction` keeps it OUT of the leg columns
+ * ({@link EXCHANGE_LEG_PROFIT} = margin only) and stamps it on the unified
+ * EXCHANGE row's `metadata_json.kept_profit_usd` (LBP kept already converted
+ * at the till rate). Rows written before that decision lack the key and
+ * still carry their kept cents inside the legs, so they read 0 here and are
+ * never counted twice.
+ *
+ * Correlated subquery — binds NO params, so adding it to a query changes no
+ * bind arity. `json_valid` guards a malformed metadata blob (json_extract
+ * would otherwise abort the whole Profits query). The caller's own
+ * `notRefunded(exAlias)` gate nets it out on a swap-back refund exactly like
+ * the margin (rule 20); keep-change is refused on for-partner exchanges, so
+ * no partner-coverage weighting applies.
+ */
+export function exchangeKeptProfitUsd(exAlias: string): string {
+  return `COALESCE((
+              SELECT CASE WHEN json_valid(kpt.metadata_json)
+                          THEN CAST(json_extract(kpt.metadata_json, '$.kept_profit_usd') AS REAL)
+                     END
+              FROM transactions kpt
+              WHERE kpt.source_table = 'exchange_transactions'
+                AND kpt.source_id = ${exAlias}.id
+                AND kpt.type = 'EXCHANGE'
+                AND kpt.tenant_id = ${exAlias}.tenant_id
+              LIMIT 1
+            ), 0)`;
+}
+
+/**
  * LCC-V3 (Round 2 adversarial review, PA-2.6) — `getByUser`'s own caption
  * used to say exchange profit was "not attributable to a single cashier",
  * which is false: `ExchangeRepository.createTransaction` stamps the unified
@@ -2226,7 +2268,8 @@ export function exchangeProfitForUser(
 ): string {
   if (!hasExchangeTable) return "0";
   return `COALESCE((
-              SELECT SUM((${EXCHANGE_LEG_PROFIT}) * ${partnerCoverageRatio("exchange_transactions", "ext.id")})
+              SELECT SUM((${EXCHANGE_LEG_PROFIT}) * ${partnerCoverageRatio("exchange_transactions", "ext.id")}
+                         + ${exchangeKeptProfitUsd("ext")})
               FROM exchange_transactions ext
               JOIN transactions et ON et.source_table = 'exchange_transactions'
                 AND et.source_id = ext.id AND et.type = 'EXCHANGE'
@@ -2292,7 +2335,7 @@ export function exchangeRecognizedCount(
                 AND et.source_id = ext.id AND et.type = 'EXCHANGE'
               WHERE et.user_id IS ${userKeyExpr}
                 AND ${exchangeRecognitionGates("ext", "et")}
-                AND (${EXCHANGE_LEG_PROFIT}) <> 0
+                AND (${EXCHANGE_LEG_PROFIT}) + ${exchangeKeptProfitUsd("ext")} <> 0
             ), 0)`;
 }
 
@@ -4553,6 +4596,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       .prepare(
         `SELECT
           COALESCE(SUM((${EXCHANGE_LEG_PROFIT}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS profit_usd,
+          COALESCE(SUM((${exchangeKeptProfitUsd("exchange_transactions")}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS kept_change_usd,
           COALESCE(SUM((${usdRevenue}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS revenue_usd,
           SUM(CASE WHEN (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM exchange_transactions
@@ -6123,7 +6167,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           SELECT
             ${localDayExpr("created_at")} AS d,
             COALESCE(SUM((${dailyExchangeUsdRevenue}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS revenue_usd,
-            COALESCE(SUM((${EXCHANGE_LEG_PROFIT}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS profit_usd
+            -- Payout keep-change (owner decision 2026-10-06): By Date has no
+            -- per-module split, so the kept cents (no longer in the legs)
+            -- are folded back in here to keep the day total unchanged.
+            COALESCE(SUM((${EXCHANGE_LEG_PROFIT}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})
+                         + ${exchangeKeptProfitUsd("exchange_transactions")}), 0) AS profit_usd
           FROM exchange_transactions
           WHERE ${notRefunded("exchange_transactions")}
             AND ${dateRange("created_at")}

@@ -6277,3 +6277,23 @@ Also from the production test: **G40** — voided supplier history rows read "Un
 
 **What users will notice:** a warning when a price is changed from its saved price; Exchange opens on USD → LBP; one-tap "All in $ / All in LBP" change buttons and the remaining amount in both currencies; a repair job keeps its customer through payment; voided transfers show as "Voided" on the Suppliers page; on the Expenses page you can search any inventory item or Katsh / iPick / Whish App product and record using it for the shop — it comes out of stock (or the provider balance) at its cost, with no cash moving. (Katsh partial change to be added when done.)
 
+### Follow-up decisions (owner, 2026-10-06/07, after the mock-up review)
+
+- **Keep change button removed** (payment form, all pages that record kept change): handing back less than
+  the change due is kept as shop profit automatically, with a green "Keeping $X | Y LBP as profit" note;
+  nothing blocks Pay. Alfa Gift and walk-in OMT/Whish SEND on Services now record kept change too. Pages
+  whose backend can't record kept change keep the red warning (follow-up): Expenses, Loto settlement, Hold
+  Money, top-ups, supplier settle, Debts cash-out, Services RECEIVE. Debts repayment: the unreturned part
+  is now shop profit (owner: keep the new rule). Stale hook dependencies fixed on Recharge/Services so a
+  previous kept amount can't leak into the next sale.
+- **Maintenance phone** (LIRA-263 follow-up): the phone field is what gets saved; nothing picked from the
+  search → the client is matched by phone (not name), a new phone creates a new client; a phone with no
+  name is kept on the job itself (migration v194, `maintenance.client_phone`).
+- **Exchange kept change** shows on the Profits "Kept change (other)" line, not inside the Exchange row
+  (total unchanged); gated by the partner coverage ratio like its neighbours (owner chose option 1).
+- **CLAUDE.md rule 26** corrected: only the SMS transfer fee is an automatic expense; Line_Usage is
+  operator-entered and stays visible.
+
+**What users will notice (follow-ups):** the Keep change button is gone — less change handed back is kept
+as profit automatically and the form says so; a repair job keeps the phone you type; Exchange kept cents
+appear under "Kept change" on the Profits page.

@@ -104,6 +104,7 @@ function createSchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER,
       type TEXT NOT NULL,
+      metadata_json TEXT,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL,
       source_id INTEGER NOT NULL,
@@ -359,7 +360,7 @@ function createLegacySchema(db: Database.Database): void {
     CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, status TEXT, final_amount_usd REAL DEFAULT 0, paid_usd REAL DEFAULT 0, paid_lbp REAL DEFAULT 0, exchange_rate_snapshot REAL DEFAULT 90000, created_at TEXT);
     CREATE TABLE sale_items (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, sale_id INTEGER, product_id INTEGER, sold_price_usd REAL DEFAULT 0, cost_price_snapshot_usd REAL DEFAULT 0, quantity INTEGER DEFAULT 1, is_refunded INTEGER DEFAULT 0);
     CREATE TABLE transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE',
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, type TEXT NOT NULL, metadata_json TEXT, status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL, source_id INTEGER NOT NULL, user_id INTEGER, amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0,
       profit_usd REAL DEFAULT 0, profit_lbp REAL DEFAULT 0, client_id INTEGER, client_name TEXT, client_phone TEXT, reverses_id INTEGER, created_at TEXT
     );

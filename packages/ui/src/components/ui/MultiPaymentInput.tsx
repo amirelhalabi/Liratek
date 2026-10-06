@@ -86,12 +86,18 @@ export interface MultiPaymentInputProps {
    *  (direction "OUT"), empty when balanced/underpaid.
    *  Consumers append these to the `payments` array sent to the backend. */
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
-  /** T3 "keep change" (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md): fires with the
-   *  per-currency amounts the shop KEEPS instead of returning ({usd, lbp})
-   *  when the operator activates the keep-change toggle, and with null when
-   *  deactivated (or no longer overpaid). While active, onReturnChange
-   *  emits [] — no OUT legs; the caller stamps the kept amounts as profit
-   *  (profit_usd/profit_lbp) on the transaction it creates. */
+  /** T3 "keep change" (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md). Kept
+   *  change is AUTOMATIC (owner decision 2026-10-06 — the "Keep change"
+   *  button is gone): when the CASH change handed back (the two return
+   *  fields → onReturnChange's OUT legs) is LESS than the change due, this
+   *  fires with the per-currency amount the shop KEEPS ({usd, lbp}); null
+   *  when the return matches (or exceeds) the change due, or nothing is
+   *  overpaid. The caller sends the kept amounts as `kept_change_*` on the
+   *  SAME payload so the server books them as profit.
+   *
+   *  OPT-IN by wiring: pass it ONLY when the consumer's backend accepts
+   *  kept change. Without it an under-return stays the red "not covered"
+   *  warning (the server's leg reconciliation would reject it anyway). */
   onKeptChange?: (
     kept: {
       usd: number;
@@ -240,22 +246,17 @@ export interface MultiPaymentInputProps {
   /** "payment" (default — every existing consumer, unchanged): the lines are
    *  money the customer PAYS the shop. "payout": the lines are cash the shop
    *  HANDS OUT (the Exchange payout sheet). In payout mode "keep change"
-   *  flips direction (owner decision 2026-10-06, D9 refined): the toggle is
-   *  offered when the lines are SHORT of the total by a small leftover
-   *  (under `PAYOUT_KEEP_CHANGE_MAX` in the total's currency — $1 / 100,000
-   *  LBP), and `onKeptChange` reports that shortfall as the kept amount
-   *  (e.g. $101.12 owed, $101 handed over → kept $0.12). The overpay
-   *  Return/Change block never renders in payout mode — paying out more than
-   *  owed is a mistake to fix, never change to return or profit to keep —
-   *  and no OUT legs are ever emitted. Still OPT-IN via `onKeptChange`. */
+   *  flips direction (owner decision 2026-10-06, D9 refined): when the lines
+   *  are SHORT of the total by a small leftover (under
+   *  `PAYOUT_KEEP_CHANGE_MAX` in the total's currency — $1 / 100,000 LBP),
+   *  the leftover is kept AUTOMATICALLY (no button — owner decision
+   *  2026-10-06) and `onKeptChange` reports it (e.g. $101.12 owed, $101
+   *  handed over → kept $0.12). At/over the cap it stays "Remaining to pay
+   *  out". The overpay Return/Change block never renders in payout mode —
+   *  paying out more than owed is a mistake to fix, never change to return
+   *  or profit to keep — and no OUT legs are ever emitted. Still OPT-IN via
+   *  `onKeptChange`. */
   direction?: "payment" | "payout";
-  /** LIRA-259 (owner 2026-10-06) — OPT-IN, requires `onKeptChange`. When the
-   *  cashier returns LESS cash change than is due without tapping "Keep
-   *  change" (e.g. 10,000 of 30,000 LBP), the un-returned part is reported
-   *  through `onKeptChange` as kept change (profit) instead of leaving an
-   *  under-covered return the server's leg reconciliation rejects. Only for
-   *  consumers whose backend books `kept_change_*` on the same payload. */
-  keepUnreturnedChange?: boolean;
 }
 
 /** Delay before the auto-added debt remainder visually flips the sheet into
@@ -317,7 +318,6 @@ export default function MultiPaymentInput({
   counterFlow,
   allowSplit = true,
   direction = "payment",
-  keepUnreturnedChange = false,
 }: MultiPaymentInputProps) {
   const isPayout = direction === "payout";
   // Seeded lines are captured once — the prop is read at mount only.
@@ -1063,26 +1063,20 @@ export default function MultiPaymentInput({
   );
   // --- Payout keep-change (direction="payout", owner decision 2026-10-06) ---
   // The shortfall IS the kept amount: the shop hands out the round figure
-  // and keeps the leftover cents as profit. Offered only below the shared
-  // core cap (PAYOUT_KEEP_CHANGE_MAX — the SAME limit the server enforces),
-  // in the total's own currency, and only for USD/LBP totals.
+  // and keeps the leftover cents as profit. Only below the shared core cap
+  // (PAYOUT_KEEP_CHANGE_MAX — the SAME limit the server enforces), in the
+  // total's own currency, and only for USD/LBP totals. AUTOMATIC (owner
+  // decision 2026-10-06 — the "Keep change" button is gone): any shortfall
+  // under the cap is kept, with the green note below saying so.
   const payoutKeepCap =
     totalAmountCurrency === "USD" || totalAmountCurrency === "LBP"
       ? PAYOUT_KEEP_CHANGE_MAX[totalAmountCurrency]
       : 0;
-  const payoutKeepEligible =
+  const payoutKeepActive =
     isPayout &&
     !!onKeptChange &&
     remainingShortfall > matchTolerance &&
     remainingShortfall < payoutKeepCap;
-  const [payoutKeep, setPayoutKeep] = useState(false);
-  // Like T3 (which resets when the overpay clears): once the leftover is no
-  // longer keepable, the toggle disarms — a returning shortfall must be
-  // tapped again, never silently re-kept.
-  useEffect(() => {
-    if (!payoutKeepEligible) setPayoutKeep(false);
-  }, [payoutKeepEligible]);
-  const payoutKeepActive = payoutKeep && payoutKeepEligible;
   const payoutKeptRounded = payoutKeepActive
     ? totalAmountCurrency === "LBP"
       ? Math.round(remainingShortfall)
@@ -1125,14 +1119,7 @@ export default function MultiPaymentInput({
     cashOnlyReturn || paymentMethods.every((pm) => pm.code === "CASH");
   const effectiveReturnMethod = isCashOnlyPayment ? "CASH" : returnMethod;
 
-  // T3 "keep change": while active, no OUT legs are emitted (the drawer keeps
-  // the full tender) and the suggested-change split is reported to the parent
-  // for the per-currency profit stamp. Resets whenever the overpay clears.
-  const [keepChange, setKeepChange] = useState(false);
-
-  /** The full suggested return (same math the auto-init effect below seeds)
-   *  — extracted (rule 14) so the keep-change toggle's "leaving keep mode"
-   *  handler can restore exactly this, instead of re-deriving it. */
+  /** The full suggested return the auto-init effect below seeds. */
   const seedFullSuggestedReturn = () => {
     if (totalAmountCurrency === "USD") {
       if (smartSplitOverpay) {
@@ -1155,43 +1142,21 @@ export default function MultiPaymentInput({
   };
 
   // Auto-init / reset CASH return fields whenever the overpaid amount
-  // changes. LIRA-084 — frozen while keep-change is active: the fields are
-  // now the operator's own live partial-return input, and re-seeding them
-  // to the full suggested amount on every recompute would silently discard
-  // a partial edit. The toggle handler below owns entering/leaving
-  // keep-change instead.
+  // changes. The seed is the FULL change due (never a hair under it — see
+  // the "untouched seeded return keeps nothing" guard in
+  // MultiPaymentInput.autoKeepChange.test.tsx), so an untouched return keeps
+  // nothing; the cashier lowers or clears the fields to keep some or all of
+  // the change (owner decision 2026-10-06 — no "Keep change" button).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!isOverpaid) {
       setReturnAmountUSD("");
       setReturnAmountLBP("");
-      setKeepChange(false);
       return;
     }
-    if (keepChange) return;
     seedFullSuggestedReturn();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOverpaid, overpaidTarget, totalAmountCurrency, smartSplitOverpay]);
-
-  // LIRA-084 — entering keep-change defaults to returning nothing (0 in
-  // both fields, i.e. keep everything — byte-for-byte the old all-or-
-  // nothing default); leaving it restores the full suggested return rather
-  // than leaving the fields at whatever partial amount was last typed.
-  const handleToggleKeepChange = () => {
-    // Compute `next` from the rendered state and run every setter OUTSIDE any
-    // updater: updaters must be pure (StrictMode/concurrent React may replay
-    // them), and side effects inside one could land out of order and leave
-    // keepChange=false with emptied return fields. Invariant: leaving keep
-    // mode always re-seeds the full suggested change.
-    const next = !keepChange;
-    setKeepChange(next);
-    if (next) {
-      setReturnAmountUSD("");
-      setReturnAmountLBP("");
-    } else {
-      seedFullSuggestedReturn();
-    }
-  };
 
   // CASH return handlers. Each field holds exactly what the operator typed
   // into IT — editing one never rewrites the other (owner note, 2026-09-24:
@@ -1274,7 +1239,7 @@ export default function MultiPaymentInput({
       convertSafe(parsedReturnLBP, "LBP", totalAmountCurrency)
     : 0;
   const returnMismatch =
-    effectiveReturnMethod === "CASH" && isOverpaid && !keepChange
+    effectiveReturnMethod === "CASH" && isOverpaid
       ? returnTotalInTargetCurrency - overpaidTarget
       : 0;
   // LIRA-264 — an over-return that the change rounding rules themselves
@@ -1294,23 +1259,24 @@ export default function MultiPaymentInput({
     returnMismatch > 0
       ? returnMismatch > matchTolerance + roundingOverAllowance
       : -returnMismatch > matchTolerance;
-  // LIRA-259 — opt-in (`keepUnreturnedChange`): a CASH return that covers
-  // LESS than the change due, without the keep-change toggle, keeps the rest
-  // as profit. The OUT legs stay exactly what was typed; the shortfall is
-  // reported as kept change (computed with the keep-change math below), and
-  // the red "not covered" warning gives way to the "Keeping … as profit"
-  // summary. An OVER-return is still a mistake and still flagged.
+  // Kept change is AUTOMATIC (LIRA-259 generalised — owner decision
+  // 2026-10-06, "Remove the Keep change button. Always show 'Keeping X as
+  // profit' when the returned amount does not match the change due."): a
+  // CASH return that covers LESS than the change due keeps the rest as
+  // profit. The OUT legs stay exactly what was typed (lowering or clearing
+  // the fields is how the cashier keeps some or all of it); the shortfall is
+  // reported as kept change (computed with the keep math below), and the
+  // red "not covered" warning gives way to the "Keeping … as profit"
+  // summary. An OVER-return is still a mistake and still flagged. Gated on
+  // `onKeptChange`: a consumer whose backend cannot book kept change does
+  // not wire it, and keeps the red warning.
   const underReturnKept =
-    keepUnreturnedChange &&
     !!onKeptChange &&
     effectiveReturnMethod === "CASH" &&
     isOverpaid &&
-    !keepChange &&
     hasReturnMismatch &&
     returnMismatch < 0;
-  // Either keep-change mode — the toggle (T3/LIRA-084) or the opt-in
-  // under-return (LIRA-259) — computes the kept amount the same way.
-  const keepActive = keepChange || underReturnKept;
+  const keepActive = underReturnKept;
 
   // Array of shop→customer change legs (up to 2 for CASH, 0-1 for non-CASH).
   const suggestedReturnLegs: PaymentLine[] = (() => {
@@ -1397,20 +1363,12 @@ export default function MultiPaymentInput({
     };
   })();
 
-  // LIRA-084 (owner decision 2026-10-02) — Keep-change is now PARTIAL, per
-  // currency: while active, the two CASH return fields (reset to empty the
-  // moment the toggle turns on — "keep everything" stays the default, byte
-  // for byte the old all-or-nothing behavior) are what the operator
-  // actually hands back; whatever is left over (clamped so a typo can never
-  // return more than the drawer actually received — rule 16's "OUT legs
-  // post only what is actually returned" applies per currency
-  // independently) is kept. The "Keep change" control only ever renders for
-  // a CASH return (see its own render-gate) — a non-CASH return method
-  // (OMT, CUSTOMER_ACCOUNT, …) already posts its FULL leg to that
-  // method/account unconditionally (today's existing, unchanged behavior),
-  // so there is nothing left to "keep" there: crediting a customer's
-  // account already IS the non-profit destination the owner asked for, no
-  // separate plumbing needed.
+  // LIRA-084 (owner decision 2026-10-02) — keeping is PARTIAL, per
+  // currency: the two CASH return fields are what the operator actually
+  // hands back; whatever is left of the change is kept. Keeping only ever
+  // applies to a CASH return — a non-CASH return method (OMT,
+  // CUSTOMER_ACCOUNT, …) posts its FULL leg to that method/account, so
+  // there is nothing left to "keep" there.
   //
   // LIRA-259 — the ceiling is the WHOLE change expressed in the field's
   // currency, not just the change tendered in that currency: a customer who
@@ -1444,36 +1402,15 @@ export default function MultiPaymentInput({
   const keepChangeReturnLBP = keepActive
     ? Math.min(Math.max(0, parsedReturnLBP), maxReturnLBP)
     : 0;
-  // True while keep-change is active and nothing has been typed into the
-  // return fields yet — i.e. the default the toggle lands on, and the only
-  // state the pre-LIRA-084 all-or-nothing flow ever had. Drives the
-  // regression guard above: this state's copy must match byte-for-byte.
+  // True while the whole change is kept — both return fields empty/zero.
+  // Its label ("Change kept (profit)") is the pre-LIRA-084 all-or-nothing
+  // copy, which lira-107's debt-repayment e2e asserts.
   const isFullKeepChange =
-    keepChange && keepChangeReturnUSD <= 0.005 && keepChangeReturnLBP <= 1;
-  const returnLegsValue: PaymentLine[] = keepChange
-    ? (() => {
-        const legs: PaymentLine[] = [];
-        if (keepChangeReturnUSD > 0.005) {
-          legs.push({
-            id: `${returnLegIdRef.current}_usd`,
-            method: "CASH",
-            currencyCode: "USD",
-            amount: Number(keepChangeReturnUSD.toFixed(2)),
-            direction: "OUT",
-          });
-        }
-        if (keepChangeReturnLBP > 1) {
-          legs.push({
-            id: `${returnLegIdRef.current}_lbp`,
-            method: "CASH",
-            currencyCode: "LBP",
-            amount: Math.round(keepChangeReturnLBP),
-            direction: "OUT",
-          });
-        }
-        return legs;
-      })()
-    : suggestedReturnLegs;
+    keepActive && keepChangeReturnUSD <= 0.005 && keepChangeReturnLBP <= 1;
+  // The OUT legs are exactly what the two fields hold: an under-return (the
+  // only state that keeps change) is below the change due by definition, so
+  // no clamp is needed, and an over-return is flagged, never kept.
+  const returnLegsValue: PaymentLine[] = suggestedReturnLegs;
 
   // Emit return legs whenever they change.
   const returnLegsKey = returnLegsValue
@@ -1585,21 +1522,34 @@ export default function MultiPaymentInput({
    *  own currency. Separate spans so each figure stays individually
    *  findable. Display-only: no note rounding (that belongs to the change
    *  fields, not to an equivalent shown for reference). */
-  const renderDualAmount = (vTarget: number) => (
-    <>
-      <span>
-        {fmtWithSymbol(convertSafe(vTarget, totalAmountCurrency, "USD"), "$", 2)}
-      </span>
-      <span className="opacity-60">|</span>
-      <span>
-        {fmtWithSymbol(
-          Math.round(convertSafe(vTarget, totalAmountCurrency, "LBP")),
-          "LBP",
-          0,
-        )}
-      </span>
-    </>
-  );
+  /** One amount (in totalAmountCurrency) as its USD and LBP figures — the
+   *  LIRA-264 "$4.00 | 360,000 LBP" convention, shared by the dual-amount
+   *  rows and the green kept-change notes (rule 14). */
+  const dualAmountParts = (vTarget: number): [string, string] => [
+    fmtWithSymbol(convertSafe(vTarget, totalAmountCurrency, "USD"), "$", 2),
+    fmtWithSymbol(
+      Math.round(convertSafe(vTarget, totalAmountCurrency, "LBP")),
+      "LBP",
+      0,
+    ),
+  ];
+  const dualAmountText = (vTarget: number): string =>
+    dualAmountParts(vTarget).join(" | ");
+  const renderDualAmount = (vTarget: number) => {
+    const [usdText, lbpText] = dualAmountParts(vTarget);
+    return (
+      <>
+        <span>{usdText}</span>
+        <span className="opacity-60">|</span>
+        <span>{lbpText}</span>
+      </>
+    );
+  };
+  // The kept change (payment mode) as ONE amount in totalAmountCurrency,
+  // from the unrounded per-currency figures, for the green note.
+  const keptTotalTarget =
+    convertSafe(keptUsdExact, "USD", totalAmountCurrency) +
+    convertSafe(keptLbpExact, "LBP", totalAmountCurrency);
 
   const toggleSplitMode = () => {
     if (isSplitMode) {
@@ -2350,27 +2300,6 @@ export default function MultiPaymentInput({
                 : "Remaining (Debt)"}
             </span>
             <span className="flex items-center gap-2">
-              {/* Payout keep-change toggle — same label and look as the T3
-                  overpay toggle, opposite direction (see `direction`). */}
-              {payoutKeepEligible && (
-                <button
-                  type="button"
-                  data-testid="keep-change"
-                  onClick={() => setPayoutKeep(!payoutKeep)}
-                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
-                    payoutKeepActive
-                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                      : "bg-slate-900 text-amber-300 border-amber-700/40 hover:border-amber-500"
-                  }`}
-                  title={
-                    payoutKeepActive
-                      ? "Keeping the leftover as profit — tap to pay it out instead"
-                      : "Tap to keep the small leftover as profit instead of paying it out"
-                  }
-                >
-                  {payoutKeepActive ? "Keeping ✓" : "Keep change"}
-                </button>
-              )}
               <span
                 data-testid="remaining-amount"
                 className={`flex items-center gap-1 font-mono font-bold ${payoutKeepActive ? "text-emerald-400" : "text-red-400"}`}
@@ -2391,6 +2320,16 @@ export default function MultiPaymentInput({
             </span>
           </div>
         )}
+        {/* Payout mode: the automatically kept leftover, in words (owner
+            decision 2026-10-06 — no button; the note says what happens). */}
+        {payoutKeepActive && (
+          <p
+            data-testid="keep-change-summary"
+            className="text-[11px] text-emerald-400 px-2"
+          >
+            Keeping {dualAmountText(remainingShortfall)} as profit.
+          </p>
+        )}
 
         {/* Return / Change (overpaid) — choose how to hand the change back */}
         {isOverpaid && (
@@ -2400,55 +2339,23 @@ export default function MultiPaymentInput({
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-amber-400 font-medium whitespace-nowrap">
-                {keepChange
-                  ? // LIRA-084 regression guard: a FULL keep (nothing typed
-                    // into the return fields — the default the instant the
-                    // toggle flips on) must stay byte-identical to the
-                    // pre-LIRA-084 all-or-nothing copy, including this exact
-                    // label (lira-107's debt-repayment e2e asserts it).
-                    // Once the operator types a partial return, the label
-                    // switches to reflect that a split is now in play.
-                    isFullKeepChange
-                      ? "Change kept (profit)"
-                      : "Keep / return change"
+                {isFullKeepChange
+                  ? // Both fields cleared → the whole change is kept. Same
+                    // copy as the pre-LIRA-084 all-or-nothing keep (lira-107's
+                    // debt-repayment e2e asserts this exact label).
+                    "Change kept (profit)"
                   : isCashOnlyPayment
                     ? "Change to return"
                     : "Return / Change"}
               </span>
               <div className="flex items-center gap-1.5">
-                {/* T3/LIRA-084 keep-change toggle: book some or all of the
-                    change as profit instead of handing it back
-                    (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md,
-                    owner decision 2026-10-02 — now PARTIAL, not just
-                    all-or-nothing). OPT-IN: renders only when the parent
-                    wired onKeptChange — on a consumer whose backend doesn't
-                    accept the kept amounts yet, the button would suppress
-                    the return without stamping profit (silent money hole).
+                {/* No "Keep change" button (owner decision 2026-10-06): an
+                    under-return is kept automatically — see `underReturnKept`.
                     CASH-only: a non-CASH return method (OMT,
-                    CUSTOMER_ACCOUNT, …) already posts its full leg to that
-                    method/account unconditionally — there's nothing to
-                    "keep" there (see the `returnLegsValue` doc above). */}
-                {onKeptChange && effectiveReturnMethod === "CASH" && (
-                  <button
-                    type="button"
-                    data-testid="keep-change"
-                    onClick={handleToggleKeepChange}
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
-                      keepChange
-                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                        : "bg-slate-900 text-amber-300 border-amber-700/40 hover:border-amber-500"
-                    }`}
-                    title={
-                      keepChange
-                        ? "Keeping the change as profit — edit the fields to return part of it, or tap to return it all"
-                        : "Tap to keep some or all of the change as profit"
-                    }
-                  >
-                    {keepChange ? "Keeping ✓" : "Keep change"}
-                  </button>
-                )}
+                    CUSTOMER_ACCOUNT, …) posts its full leg to that
+                    method/account, so there is nothing to keep there. */}
                 {/* Method selector — only when non-cash methods are available */}
-                {!isCashOnlyPayment && !keepChange && (
+                {!isCashOnlyPayment && (
                   <select
                     data-testid="return-method"
                     value={returnMethod}
@@ -2494,21 +2401,16 @@ export default function MultiPaymentInput({
                       className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
                     />
                   </div>
-                  {/* LIRA-264 — "All in $" / "All in LBP" autofill. Hidden
-                      while keep-change is active: the fields are then the
-                      partial-return input, and "return it all" is the
-                      keep-change toggle's own off state. */}
-                  {!keepChange && (
-                    <button
-                      type="button"
-                      data-testid="return-all-usd"
-                      onClick={handleReturnAllUSD}
-                      title="Give the whole change in dollars"
-                      className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
-                    >
-                      All in $
-                    </button>
-                  )}
+                  {/* LIRA-264 — "All in $" / "All in LBP" autofill. */}
+                  <button
+                    type="button"
+                    data-testid="return-all-usd"
+                    onClick={handleReturnAllUSD}
+                    title="Give the whole change in dollars"
+                    className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
+                  >
+                    All in $
+                  </button>
                 </div>
                 <div className="flex-1">
                   <div className="relative">
@@ -2525,37 +2427,28 @@ export default function MultiPaymentInput({
                       LBP
                     </span>
                   </div>
-                  {!keepChange && (
-                    <button
-                      type="button"
-                      data-testid="return-all-lbp"
-                      onClick={handleReturnAllLBP}
-                      title="Give the whole change in LBP"
-                      className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
-                    >
-                      All in LBP
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    data-testid="return-all-lbp"
+                    onClick={handleReturnAllLBP}
+                    title="Give the whole change in LBP"
+                    className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
+                  >
+                    All in LBP
+                  </button>
                 </div>
               </div>
             ) : null}
 
-            {/* LIRA-084 — live "keeping X / returning Y" summary while
-                keep-change is active, so the operator sees the partial
-                split's effect per currency before confirming. */}
+            {/* Owner decision 2026-10-06 — whenever the change handed back
+                is less than the change due, say in green what is kept as
+                profit (the button that used to arm this is gone). */}
             {keepActive && (keptUsd > 0.005 || keptLbp > 1) && (
               <p
                 data-testid="keep-change-summary"
                 className="text-[11px] text-emerald-400"
               >
-                Keeping{" "}
-                {[
-                  keptUsd > 0.005 ? `$${keptUsd.toFixed(2)}` : null,
-                  keptLbp > 1 ? `${Math.round(keptLbp).toLocaleString()} LBP` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" + ")}{" "}
-                as profit
+                Keeping {dualAmountText(keptTotalTarget)} as profit
                 {keepChangeReturnUSD > 0.005 || keepChangeReturnLBP > 1
                   ? " — the rest is returned above"
                   : ""}

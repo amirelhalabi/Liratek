@@ -103,6 +103,7 @@ function createSchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER DEFAULT 1,
       type TEXT NOT NULL,
+      metadata_json TEXT,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT,
       source_id INTEGER,

@@ -11,6 +11,21 @@ import { normalizeLineNumber } from "../utils/phoneNumber.js";
  * Maintenance job validation schemas
  */
 
+/**
+ * The ONE maintenance phone normaliser (rule 14): the save schema stores the
+ * typed phone in this form, and `MaintenanceRepository.findOrCreateClient`
+ * matches existing clients by it — normalising BOTH the typed phone and each
+ * client's stored free-text `phone_number` — so "03 123 456",
+ * "+961 3 123 456" and "03123456" are the same line. Returns `""` for a
+ * blank input; callers must treat `""` as "no phone", never as a match.
+ */
+export function normalizeMaintenancePhone(
+  raw: string | null | undefined,
+): string {
+  if (!raw) return "";
+  return normalizeLineNumber(raw).replace(/[\s\-.()]/g, "");
+}
+
 const paymentLineSchema = z.object({
   method: z.string().min(1),
   currency_code: z.string().min(1),
@@ -54,9 +69,7 @@ export const saveMaintenanceJobSchema = z.object({
   client_phone: z
     .string()
     .optional()
-    .transform((v) =>
-      v ? normalizeLineNumber(v).replace(/[\s\-.()]/g, "") : v,
-    )
+    .transform((v) => (v ? normalizeMaintenancePhone(v) : v))
     .pipe(optionalPhoneNumberSchema),
   issue_description: z.string().max(1000).optional(),
   cost_usd: z.number().min(0).optional(),

@@ -36,6 +36,7 @@ function createTestDb(): Database.Database {
       tenant_id         INTEGER,
       client_id         INTEGER,
       client_name       TEXT,
+      client_phone TEXT, -- migration v194
       device_name       TEXT NOT NULL,
       issue_description TEXT,
       cost_usd          DECIMAL(10, 2) DEFAULT 0,

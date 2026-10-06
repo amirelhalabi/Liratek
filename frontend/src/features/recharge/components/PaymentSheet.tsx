@@ -58,13 +58,12 @@ export interface PaymentSheetProps {
   autoDebtRemainder?: boolean;
   onPaymentChange: (lines: PaymentLine[]) => void;
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
-  /** T3 keep-change opt-in pass-through — only wire on flows whose backend
-   *  accepts kept_change_* (the button hides otherwise). */
+  /** T3 kept-change pass-through — only wire on flows whose backend
+   *  accepts kept_change_* on the same payload. Wired, handing back less
+   *  change than due keeps the rest as profit automatically (owner decision
+   *  2026-10-06 — no "Keep change" button); unwired, an under-return stays
+   *  the red "not covered" warning. */
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
-  /** Pass-through to MultiPaymentInput's `keepUnreturnedChange` (LIRA-259):
-   *  returning less cash change than due keeps the rest as profit. Needs
-   *  `onKeptChange`. */
-  keepUnreturnedChange?: boolean;
   /** Pass-through to MultiPaymentInput's `direction`: "payout" when the
    *  lines are cash the shop hands OUT (Exchange) — keep-change then keeps
    *  a small SHORTFALL instead of an overpay. Default "payment". */
@@ -127,7 +126,6 @@ export function PaymentSheet({
   onPaymentChange,
   onReturnChange,
   onKeptChange,
-  keepUnreturnedChange,
   direction,
   onDiscountChange,
   onPmFeesChange,
@@ -258,7 +256,6 @@ export function PaymentSheet({
                 onPaymentChange(lines);
               }}
               {...(onKeptChange ? { onKeptChange } : {})}
-              {...(keepUnreturnedChange ? { keepUnreturnedChange } : {})}
               {...(direction ? { direction } : {})}
               requiresClientForDebt={requiresClientForDebt}
               hasClient={hasClient}

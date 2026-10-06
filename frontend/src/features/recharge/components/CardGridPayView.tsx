@@ -63,6 +63,10 @@ interface CardGridPayViewProps {
   onPaymentChange: (lines: PaymentLine[]) => void;
   /** Change/return legs (shop hands money back) — forwarded to the PaymentSheet. */
   onReturnChange?: (legs: PaymentLine[]) => void;
+  /** Kept change (shop keeps what it does not hand back) — forwarded to the
+   *  PaymentSheet. Wire only when the caller sends `kept_change_*` on its
+   *  submit payload (owner decision 2026-10-06: kept change is automatic). */
+  onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
   /** Payment-Legs Integrity plan (false-reject fix): fires with the rate the
    *  PaymentSheet is ACTUALLY using — the `exchangeRate` prop default, or the
    *  operator's own edit of the sheet's header rate field. The caller should
@@ -106,6 +110,7 @@ export function CardGridPayView({
   exchangeRate,
   onPaymentChange,
   onReturnChange,
+  onKeptChange,
   onExchangeRateChange,
   onDiscountChange,
   clientName,
@@ -259,6 +264,7 @@ export function CardGridPayView({
         )}
         onPaymentChange={onPaymentChange}
         {...(onReturnChange ? { onReturnChange } : {})}
+        {...(onKeptChange ? { onKeptChange } : {})}
         onDiscountChange={onDiscountChange}
         summary={[
           ...(selected && selected.valueUsd !== undefined

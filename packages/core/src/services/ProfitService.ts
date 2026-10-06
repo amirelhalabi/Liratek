@@ -183,7 +183,9 @@ export interface ProfitByModule {
    * `ProfitRepository.otherCurrencyKeptChangeUsd`/`Lbp`'s doc comment for
    * the full mechanism). Only ever populated on `FINANCIAL_SERVICE_*` and
    * `RECHARGE_*` rows (the two sources that can carry an off-currency
-   * stamp) — `undefined` elsewhere, never a fabricated 0. Additive: NOT
+   * stamp) and the `EXCHANGE` row (payout keep-change, owner decision
+   * 2026-10-06 — `ProfitRepository.exchangeKeptProfitUsd`) — `undefined`
+   * elsewhere, never a fabricated 0. Additive: NOT
    * already folded into `profit_usd`/`profit_lbp` above, which keep meaning
    * "this row's own margin". A caller building a Revenue − Cost = Profit
    * breakdown that must reconcile to gross should add these in.
@@ -557,6 +559,11 @@ export interface ProfitSummary {
    * (`FinByProviderRow.kept_change_usd/_lbp`, `getFinancialSettledByProvider`)
    * that the Overview aggregate was missing, so Σ By Module and the Overview
    * now agree on the model-1 OMT/WHISH case (PA-2.10).
+   *
+   * Exchange payout keep-change (owner decision 2026-10-06) — the small
+   * leftover a cashier keeps on an exchange payout (`exchange.kept_change_usd`)
+   * is ALSO included in `usd`; it is no longer part of `exchange.profit_usd`,
+   * which is the pure exchange margin.
    */
   kept_change: { usd: number; lbp: number };
   /** LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md) — bills-only
@@ -1077,6 +1084,7 @@ export class ProfitService {
         custom.profit_usd +
         maint.profit_usd +
         exchange.profit_usd +
+        exchange.kept_change_usd +
         mobileSvc.profit_usd +
         mobileSvc.kept_change_usd +
         loto.kept_change_usd +
@@ -1110,7 +1118,10 @@ export class ProfitService {
           recharges.kept_change_usd +
           mobileSvc.kept_change_usd +
           loto.kept_change_usd +
-          finSvc.kept_change_usd,
+          finSvc.kept_change_usd +
+          // Exchange payout keep-change (owner decision 2026-10-06): kept
+          // cents are shown here, not inside the Exchange row's margin.
+          exchange.kept_change_usd,
         lbp: recharges.kept_change_lbp + mobileSvc.kept_change_lbp + finSvc.kept_change_lbp,
       };
 
@@ -1390,6 +1401,11 @@ export class ProfitService {
           cost_lbp: 0,
           profit_usd: exchangeRow.profit_usd,
           profit_lbp: 0,
+          // Payout keep-change (owner decision 2026-10-06) — additive, NOT
+          // inside profit_usd (the exchange margin), same convention as the
+          // RECHARGE_*/FINANCIAL_SERVICE_* rows' kept_change_usd.
+          kept_change_usd: exchangeRow.kept_change_usd,
+          kept_change_lbp: 0,
           count: exchangeRow.count,
         });
       }

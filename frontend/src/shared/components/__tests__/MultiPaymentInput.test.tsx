@@ -829,11 +829,13 @@ describe("MultiPaymentInput", () => {
     });
   });
 
-  describe("keep change (T3 — return nothing, book the extra as profit)", () => {
-    // docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-0. Failing-first (rule 17): before
-    // the feature, the two CASH return fields auto-balance each other, so
-    // returning nothing is structurally impossible and no keep-change control
-    // exists.
+  describe("kept change (T3 — the shop keeps what it does not hand back)", () => {
+    // docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-0, as changed by the
+    // owner decision of 2026-10-06: the "Keep change" button is gone. Handing
+    // back LESS than the change due (down to nothing — both fields cleared)
+    // keeps the gap as profit automatically. Rewritten from the button-tap
+    // versions (rule 24); the new behaviour's failing-first guard is
+    // MultiPaymentInput.autoKeepChange.test.tsx.
     function renderOverpaid(opts: {
       onKeptChange: jest.Mock;
       onReturnChange: jest.Mock;
@@ -870,27 +872,47 @@ describe("MultiPaymentInput", () => {
       );
     }
 
-    it("renders no keep-change control until the customer overpays", () => {
+    /** Hand back nothing: both change fields emptied. */
+    function clearReturn() {
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "" },
+      });
+      fireEvent.change(screen.getByTestId("return-lbp"), {
+        target: { value: "" },
+      });
+    }
+
+    it("never renders a Keep change button — not even once the customer overpays", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       renderOverpaid({ onKeptChange, onReturnChange });
 
-      // Exact payment (auto-filled) → no return block, no keep button.
+      // Exact payment (auto-filled) → no return block, no button.
+      expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
+      fireEvent.change(firstAmountInput(), { target: { value: "150" } });
+      expect(screen.getByTestId("return-change")).toBeInTheDocument();
       expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
     });
 
-    it("OPT-IN: renders no keep-change button when the parent did not wire onKeptChange", () => {
-      // Consumers whose backend doesn't accept kept_change_* yet must not
-      // show the button — it would suppress the return legs while validation
-      // strips the kept amounts (change neither returned nor stamped).
+    it("OPT-IN: without onKeptChange an under-return is flagged 'not covered' and nothing is kept", () => {
+      // Consumers whose backend doesn't accept kept_change_* do not wire
+      // onKeptChange — the server would reject the unbalanced legs, so the
+      // cashier must still see the red warning there.
       renderMpi({ totalAmount: 100 });
       fireEvent.change(firstAmountInput(), { target: { value: "150" } });
+      clearReturn();
 
       expect(screen.getByTestId("payment-summary")).toBeInTheDocument();
       expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
+      expect(screen.getByTestId("return-mismatch-warning")).toHaveTextContent(
+        "of the change is not covered",
+      );
+      expect(
+        screen.queryByTestId("keep-change-summary"),
+      ).not.toBeInTheDocument();
     });
 
-    it("activating keep-change drops the return legs and reports the kept amounts; deactivating restores", () => {
+    it("clearing the return drops the OUT legs and reports the kept amounts; returning the full change again clears it", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       renderOverpaid({ onKeptChange, onReturnChange });
@@ -898,8 +920,10 @@ describe("MultiPaymentInput", () => {
       // Overpay $150 on a $100 total → $50 suggested change.
       fireEvent.change(firstAmountInput(), { target: { value: "150" } });
       expect(screen.getByTestId("return-usd")).toHaveValue("50.00");
+      // Untouched seed → nothing kept.
+      expect(onKeptChange).toHaveBeenLastCalledWith(null);
 
-      fireEvent.click(screen.getByTestId("keep-change"));
+      clearReturn();
 
       // No OUT legs — the drawer keeps the full tender…
       const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
@@ -916,8 +940,10 @@ describe("MultiPaymentInput", () => {
         exactLbp: 0,
       });
 
-      // Toggle off: suggested change comes back as OUT legs, kept cleared.
-      fireEvent.click(screen.getByTestId("keep-change"));
+      // Hand the full change back: OUT leg returns, kept cleared.
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "50" },
+      });
       expect(onKeptChange).toHaveBeenLastCalledWith(null);
       const restored = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
       expect(
@@ -936,7 +962,7 @@ describe("MultiPaymentInput", () => {
       expect(screen.getByTestId("return-usd")).toHaveValue("4");
       expect(screen.getByTestId("return-lbp")).toHaveValue("70000");
 
-      fireEvent.click(screen.getByTestId("keep-change"));
+      clearReturn();
 
       // …but KEEPING is physical: the drawer holds the excess tender itself —
       // $4.73 USD (what the customer overpaid in), no LBP involved. A
@@ -961,12 +987,12 @@ describe("MultiPaymentInput", () => {
     });
   });
 
-  // LIRA-084 (owner decision 2026-10-02) — keep-change is now PARTIAL, per
-  // currency, instead of all-or-nothing. Rule 17 disclosure: this guard was
-  // written AFTER the fix landed in the same change (not proven
-  // failing-first against the pre-fix all-or-nothing code) — per rule 17 it
-  // is labelled rather than "proven" red→green.
-  describe("partial keep-change (LIRA-084, not proven failing-first)", () => {
+  // LIRA-084 (owner decision 2026-10-02) — keeping is PARTIAL, per currency,
+  // instead of all-or-nothing; since 2026-10-06 it is automatic (no button):
+  // what the fields hold goes back, the rest is kept. Rule 17 disclosure: the
+  // original LIRA-084 guards were written AFTER that fix (not proven
+  // failing-first); rewritten here for the automatic behaviour (rule 24).
+  describe("partial kept change (LIRA-084, automatic since 2026-10-06)", () => {
     function renderOverpaid(opts: {
       onKeptChange: jest.Mock;
       onReturnChange: jest.Mock;
@@ -1001,15 +1027,18 @@ describe("MultiPaymentInput", () => {
       );
     }
 
-    it("entering keep-change defaults to 0 returned / full kept (matches the old all-or-nothing default)", () => {
+    it("an untouched seed returns the whole change and keeps nothing; clearing it keeps everything", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       renderOverpaid({ onKeptChange, onReturnChange });
 
       fireEvent.change(firstAmountInput(), { target: { value: "150" } });
-      fireEvent.click(screen.getByTestId("keep-change"));
+      expect(screen.getByTestId("return-usd")).toHaveValue("50.00");
+      expect(onKeptChange).toHaveBeenLastCalledWith(null);
 
-      expect(screen.getByTestId("return-usd")).toHaveValue("");
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "" },
+      });
       expect(onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[]).toEqual(
         [],
       );
@@ -1021,23 +1050,23 @@ describe("MultiPaymentInput", () => {
       });
     });
 
-    // LIRA-084 regression guard: owner decision was that a FULL keep
-    // (nothing typed into the return fields — the default the moment the
-    // toggle flips on) must behave byte-identically to the pre-LIRA-084
-    // all-or-nothing flow, including the "Change kept (profit)" feedback
-    // the operator relies on (e.g. lira-107's debt-repayment e2e asserts
-    // this exact text). The partial-keep summary line added for LIRA-084
-    // ("Keeping $X … as profit") is a DIFFERENT string and must not be the
-    // only feedback shown when nothing has been typed.
-    it("full keep-change (nothing typed) still shows 'Change kept (profit)'", () => {
+    // A FULL keep (nothing handed back) keeps the pre-LIRA-084 feedback the
+    // operator relies on (lira-107's debt-repayment e2e asserts this exact
+    // text), plus the green "Keeping … as profit." line.
+    it("full keep (nothing handed back) shows 'Change kept (profit)' and the green note without the 'rest is returned' tail", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       renderOverpaid({ onKeptChange, onReturnChange });
 
       fireEvent.change(firstAmountInput(), { target: { value: "150" } });
-      fireEvent.click(screen.getByTestId("keep-change"));
+      fireEvent.change(screen.getByTestId("return-usd"), {
+        target: { value: "" },
+      });
 
       expect(screen.getByText("Change kept (profit)")).toBeInTheDocument();
+      expect(screen.getByTestId("keep-change-summary")).toHaveTextContent(
+        /^Keeping \$50\.00 \| 4,500,000 LBP as profit\.$/,
+      );
     });
 
     it("owner's own example: 140,000 LBP change, return 100,000 and keep 40,000 — the OUT leg carries only the returned amount", () => {
@@ -1076,11 +1105,7 @@ describe("MultiPaymentInput", () => {
       fireEvent.change(firstAmountInput(), { target: { value: "240000" } });
       expect(screen.getByTestId("return-lbp")).toHaveValue("140000");
 
-      fireEvent.click(screen.getByTestId("keep-change"));
-      // Entering keep mode clears the field (default: keep everything).
-      expect(screen.getByTestId("return-lbp")).toHaveValue("");
-
-      // Operator types how much to actually RETURN — 100,000 of the 140,000.
+      // Operator lowers the return to what they actually hand back.
       fireEvent.change(screen.getByTestId("return-lbp"), {
         target: { value: "100000" },
       });
@@ -1100,9 +1125,12 @@ describe("MultiPaymentInput", () => {
         exactUsd: 0,
         exactLbp: 40000,
       });
+      expect(screen.getByTestId("keep-change-summary")).toHaveTextContent(
+        "Keeping $0.44 | 40,000 LBP as profit — the rest is returned above.",
+      );
     });
 
-    it("works independently per currency — returning all the USD while keeping all the LBP", () => {
+    it("returning the whole change keeps nothing — the OUT leg carries all of it", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       renderOverpaid({ onKeptChange, onReturnChange });
@@ -1110,12 +1138,9 @@ describe("MultiPaymentInput", () => {
       // $104.73 tendered on a $100 total; no smart-split prop here, so the
       // auto-seed puts the whole $4.73 on the USD field.
       fireEvent.change(firstAmountInput(), { target: { value: "104.73" } });
-      fireEvent.click(screen.getByTestId("keep-change"));
-
       fireEvent.change(screen.getByTestId("return-usd"), {
         target: { value: "4.73" },
       });
-      // No LBP field typed — stays "" (0 returned, same as default).
 
       const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
       expect(lastLegs).toEqual([
@@ -1125,55 +1150,45 @@ describe("MultiPaymentInput", () => {
           direction: "OUT",
         }),
       ]);
-      const lastKept = onKeptChange.mock.calls.at(-1)?.[0] as {
-        usd: number;
-        lbp: number;
-        exactUsd: number;
-        exactLbp: number;
-      };
-      expect(lastKept.usd).toBe(0);
-      expect(lastKept.lbp).toBe(0);
-      // Float dust from 104.73 - 100 - 4.73: effectively zero, not snapped.
-      expect(lastKept.exactUsd).toBeCloseTo(0, 9);
-      expect(lastKept.exactLbp).toBe(0);
+      expect(onKeptChange).toHaveBeenLastCalledWith(null);
+      expect(
+        screen.queryByTestId("keep-change-summary"),
+      ).not.toBeInTheDocument();
     });
 
-    it("clamps a typed return that exceeds the actual change — never reports a negative kept amount or an oversized OUT leg", () => {
+    it("a typed return bigger than the actual change is flagged red — it is never kept change", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       renderOverpaid({ onKeptChange, onReturnChange });
 
       fireEvent.change(firstAmountInput(), { target: { value: "150" } });
-      fireEvent.click(screen.getByTestId("keep-change"));
-
       // Operator fat-fingers a return bigger than the $50 actually received.
       fireEvent.change(screen.getByTestId("return-usd"), {
         target: { value: "9999" },
       });
 
-      const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
-      expect(lastLegs).toEqual([
-        expect.objectContaining({ amount: 50 }),
-      ]);
-      expect(onKeptChange).toHaveBeenLastCalledWith({
-        usd: 0,
-        lbp: 0,
-        exactUsd: 0,
-        exactLbp: 0,
-      });
+      expect(onKeptChange).toHaveBeenLastCalledWith(null);
+      expect(screen.getByTestId("return-mismatch-warning")).toHaveTextContent(
+        "more than the customer overpaid",
+      );
+      expect(
+        screen.queryByTestId("keep-change-summary"),
+      ).not.toBeInTheDocument();
     });
 
-    it("leaving keep-change restores the full suggested return (deactivating still works exactly like the all-or-nothing path)", () => {
+    it("'All in $' after a partial return restores the full return and clears the kept amount", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       renderOverpaid({ onKeptChange, onReturnChange });
 
       fireEvent.change(firstAmountInput(), { target: { value: "150" } });
-      fireEvent.click(screen.getByTestId("keep-change"));
       fireEvent.change(screen.getByTestId("return-usd"), {
         target: { value: "20" },
       });
-      fireEvent.click(screen.getByTestId("keep-change")); // toggle off
+      expect(onKeptChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ usd: 30 }),
+      );
+      fireEvent.click(screen.getByTestId("return-all-usd"));
 
       expect(screen.getByTestId("return-usd")).toHaveValue("50.00");
       expect(onKeptChange).toHaveBeenLastCalledWith(null);
@@ -1183,11 +1198,11 @@ describe("MultiPaymentInput", () => {
       ).toBe(true);
     });
 
-    // Toggle side effects used to run INSIDE a setKeepChange updater (impure;
-    // StrictMode replays updaters). Invariant: keep OFF + change due => the
-    // return fields hold the full suggested change and no "not covered" warning.
-    // Written AFTER the refactor (fix was applied first) — NOT proven failing-first.
-    it("under StrictMode, toggling keep-change on/off twice always re-seeds the full change and shows no 'not covered' warning", () => {
+    // Was a StrictMode guard on the toggle's updater side effects; the toggle
+    // is gone, so it now pins that under StrictMode an under-return is
+    // always reported as kept (green note), never as "not covered".
+    it("under StrictMode, clearing and restoring the return twice flips cleanly between kept and returned, never 'not covered'", () => {
+      const onKeptChange = jest.fn();
       render(
         <StrictMode>
           <MultiPaymentInput
@@ -1202,24 +1217,31 @@ describe("MultiPaymentInput", () => {
             showDiscount={false}
             onChange={jest.fn()}
             onReturnChange={jest.fn()}
-            onKeptChange={jest.fn()}
+            onKeptChange={onKeptChange}
             cashOnlyReturn={true}
           />
         </StrictMode>,
       );
       fireEvent.change(firstAmountInput(), { target: { value: "151.01" } });
+      expect(screen.getByTestId("return-usd")).toHaveValue("51.01");
       for (let i = 0; i < 2; i++) {
-        fireEvent.click(screen.getByTestId("keep-change")); // on
-        expect(screen.getByTestId("return-usd")).toHaveValue("");
-        fireEvent.click(screen.getByTestId("keep-change")); // off
+        fireEvent.change(screen.getByTestId("return-usd"), {
+          target: { value: "" },
+        });
+        expect(screen.getByTestId("keep-change-summary")).toBeInTheDocument();
+        expect(onKeptChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({ usd: 51.01 }),
+        );
+        fireEvent.click(screen.getByTestId("return-all-usd"));
         expect(screen.getByTestId("return-usd")).toHaveValue("51.01");
+        expect(onKeptChange).toHaveBeenLastCalledWith(null);
         expect(
           screen.queryByText(/of the change is not covered/),
         ).not.toBeInTheDocument();
       }
     });
 
-    it("the 'Keep change' button only renders for a CASH return — a non-CASH method already routes its full leg to that method/account (e.g. CUSTOMER_ACCOUNT credit)", () => {
+    it("keeping only applies to a CASH return — a non-CASH method already routes its full leg to that method/account (e.g. CUSTOMER_ACCOUNT credit)", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       render(
@@ -1255,6 +1277,10 @@ describe("MultiPaymentInput", () => {
       fireEvent.change(methodSelect, { target: { value: "CUSTOMER_ACCOUNT" } });
 
       expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("keep-change-summary"),
+      ).not.toBeInTheDocument();
+      expect(onKeptChange).toHaveBeenLastCalledWith(null);
       // The full $50 still routes to the account as a credit leg — unaffected.
       const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
       expect(

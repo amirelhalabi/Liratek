@@ -13369,6 +13369,33 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 194,
+    name: "maintenance_job_client_phone",
+    description:
+      "Owner decision 2026-10-06 ('the phone field is what gets saved') — " +
+      "adds maintenance.client_phone (nullable): the normalised phone typed " +
+      "on a repair job is kept on the job itself, so a phone typed with no " +
+      "name that no client owns is no longer dropped. The jobs list shows " +
+      "the job's own phone and falls back to the linked client's. Applies " +
+      "from now on only; no existing row changes.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (
+        tableExists(db, "maintenance") &&
+        !columnExists(db, "maintenance", "client_phone")
+      ) {
+        db.exec(
+          `ALTER TABLE maintenance ADD COLUMN client_phone TEXT DEFAULT NULL;`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      if (columnExists(db, "maintenance", "client_phone")) {
+        db.exec(`ALTER TABLE maintenance DROP COLUMN client_phone;`);
+      }
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

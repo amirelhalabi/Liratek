@@ -2413,11 +2413,10 @@ function KatchFormInner({
           }
         }}
         onReturnChange={setReturnLegs}
+        // Handing back less change than due keeps the rest as profit (sent
+        // as kept_change_* on the same payload) — automatic since the owner
+        // decision of 2026-10-06 removed the "Keep change" button.
         onKeptChange={setKeptChange}
-        // LIRA-259: handing back less change than due keeps the rest as
-        // profit (sent as kept_change_* on the same payload) instead of
-        // submitting legs the server's reconciliation rejects.
-        keepUnreturnedChange
       >
         <div className="space-y-2">
           <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">

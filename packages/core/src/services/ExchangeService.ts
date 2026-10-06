@@ -29,7 +29,9 @@ export interface ExchangeOpResult {
   id?: number;
   error?: string;
   /**
-   * The FINAL persisted `profit_usd` on the created exchange row —
+   * The FINAL persisted profit of the created exchange — the exchange
+   * row's margin plus any kept change (kept change lives only on the unified
+   * EXCHANGE transaction since the Profits 'Kept change' move) —
    * `ExchangeRepository.createTransaction`'s `bookedProfitUsd` (a re-read
    * of the row, never a recomputation). ALWAYS present when `success` is
    * true; absent on failure. Additive alongside `realizedProfitUsd` below —

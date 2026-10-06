@@ -13,6 +13,7 @@ import {
   bookClientDebtCharge,
 } from "./moneyPosting.js";
 import { BusinessRuleError } from "../utils/errors.js";
+import { normalizeMaintenancePhone } from "../validators/maintenance.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import {
   restoreMaintenanceJobParts,
@@ -426,7 +427,11 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     // a reopened job always showed an empty phone. A correlated, tenant-
     // scoped subselect (not a JOIN) so `getColumns()`'s unqualified column
     // names stay unambiguous.
-    const columns = `${this.getColumns()}, (SELECT c.phone_number FROM clients c WHERE c.id = maintenance.client_id AND c.tenant_id = maintenance.tenant_id) AS client_phone`;
+    // Migration v194: the job's OWN typed phone (maintenance.client_phone)
+    // wins; the linked client's stored phone is the fallback when the job
+    // has none (jobs saved before v194, or a client picked with no phone
+    // typed).
+    const columns = `${this.getColumns()}, COALESCE(NULLIF(maintenance.client_phone, ''), (SELECT c.phone_number FROM clients c WHERE c.id = maintenance.client_id AND c.tenant_id = maintenance.tenant_id)) AS client_phone`;
     if (statusFilter && statusFilter !== "All") {
       const stmt = this.db.prepare(
         `SELECT ${columns} FROM maintenance WHERE status = ? AND tenant_id = ? ORDER BY created_at DESC`,
@@ -1181,9 +1186,6 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     recomputeMaintenancePartsTotals(this.db, jobId, tenantId);
   }
 
-  /**
-   * Find or create a client by name
-   */
   /** LIRA-263: the linked client's stored phone, or null. */
   private findClientPhone(
     clientId: number | null | undefined,
@@ -1198,19 +1200,66 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     return row?.phone_number ?? null;
   }
 
-  findOrCreateClient(name: string, phone?: string | null): number {
-    const tenantId = getCurrentTenantId();
-    const existing = this.db
-      .prepare(`SELECT id FROM clients WHERE full_name = ? AND tenant_id = ?`)
-      .get(name, tenantId) as { id: number } | undefined;
+  /**
+   * Migration v194: set (or clear, with null) the phone kept on the job
+   * itself. Written only when the service decides the job's phone changes,
+   * so an untouched re-save never wipes it.
+   */
+  setJobClientPhone(jobId: number, phone: string | null): void {
+    this.db
+      .prepare(
+        `UPDATE maintenance SET client_phone = ? WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(phone, jobId, getCurrentTenantId());
+  }
 
-    if (existing) return existing.id;
+  /** A client's stored phone (free text), or null — tenant-scoped. */
+  getClientPhone(clientId: number): string | null {
+    return this.findClientPhone(clientId, getCurrentTenantId());
+  }
+
+  /**
+   * Owner decision 2026-10-06 — "the phone field is what gets saved".
+   * Resolve the client for a typed phone: the existing client whose stored
+   * phone is the same line (both sides normalised with the save schema's
+   * `normalizeMaintenancePhone`; the oldest such client wins), otherwise a
+   * NEW client with the typed name and phone. Never matches by name — that
+   * was the LIRA-246c design, which linked a different person who shared a
+   * name and silently dropped the typed phone.
+   *
+   * Returns null when there is no usable phone, or when nobody has the phone
+   * and there is no name to create a client with (`full_name` is required).
+   */
+  findOrCreateClient(
+    name: string | null | undefined,
+    phone: string | null | undefined,
+  ): number | null {
+    const typed = normalizeMaintenancePhone(phone);
+    if (!typed) return null;
+    const tenantId = getCurrentTenantId();
+
+    // Stored phones are free text from other modules ("03/123 456",
+    // "+961 ..."), so compare normalised values in JS rather than in SQL.
+    const candidates = this.db
+      .prepare(
+        `SELECT id, phone_number FROM clients
+          WHERE tenant_id = ? AND phone_number IS NOT NULL AND phone_number != ''
+          ORDER BY id`,
+      )
+      .all(tenantId) as { id: number; phone_number: string }[];
+    const match = candidates.find(
+      (c) => normalizeMaintenancePhone(c.phone_number) === typed,
+    );
+    if (match) return match.id;
+
+    const fullName = (name ?? "").trim();
+    if (!fullName) return null;
 
     const result = this.db
       .prepare(
         `INSERT INTO clients (tenant_id, full_name, phone_number, whatsapp_opt_in) VALUES (?, ?, ?, 0)`,
       )
-      .run(tenantId, name, phone ?? null);
+      .run(tenantId, fullName, typed);
     return Number(result.lastInsertRowid);
   }
 

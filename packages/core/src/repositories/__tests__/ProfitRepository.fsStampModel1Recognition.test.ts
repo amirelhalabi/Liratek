@@ -180,6 +180,7 @@ function createSchema(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER,
       type TEXT NOT NULL,
+      metadata_json TEXT,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL,
       source_id INTEGER NOT NULL,

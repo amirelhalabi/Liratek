@@ -10,6 +10,7 @@ import {
 } from "../repositories/MaintenanceRepository.js";
 import { toErrorString } from "../utils/errors.js";
 import { maintenanceLogger } from "../utils/logger.js";
+import { normalizeMaintenancePhone } from "../validators/maintenance.js";
 
 /**
  * A jobs-list row with its attached parts (LIRA-176 phase 6). `parts` is
@@ -106,45 +107,50 @@ export class MaintenanceService {
       }
 
       return this.repo.withTransaction(() => {
-        // Handle client auto-creation if name AND phone are provided but no
-        // ID. LIRA-246c: `findOrCreateClient` matches an EXISTING client by
-        // `full_name` ALONE (phone is only used on the insert branch), so a
-        // name-only walk-in with no phone used to silently attach to
-        // whichever existing client happens to share that name — possibly
-        // the wrong person entirely. With no phone to disambiguate, don't
-        // auto-create or name-match at all; keep `client_name` as free text
-        // only (see `baseJobData.client_name` below). An explicitly chosen
-        // `client_id` (rule 11) is untouched by this gate — it's read above
-        // and always kept.
+        // Client resolution — owner decision 2026-10-06: "the phone field
+        // is what gets saved".
+        //  1. A client picked from the search (`client_id`, rule 11) wins.
+        //  2. A typed phone links the existing client with that phone, or
+        //     creates a new client with the typed name + phone
+        //     (`findOrCreateClient`). Never matched by name — that linked a
+        //     different person who shared a name and dropped the phone.
+        //  3. No phone: a walk-in — no link, the name stays free text on the
+        //     job (LIRA-246c).
         let clientId = params.client_id ?? null;
+        const typedPhone = normalizeMaintenancePhone(params.client_phone);
 
         // LIRA-263: a resave of an EXISTING job keeps its client link when
-        // the caller didn't pick a client and didn't change the name. The
-        // page never sends `client_id` on a draft edit or a status
-        // transition (only the CheckoutModal's client search supplies one),
-        // and before this the first such resave — e.g. Received →
-        // In_Progress — wrote `client_id = NULL` whenever the phone field
-        // was blank, silently unlinking the job: its later checkout then
-        // booked the MAINTENANCE transaction with no client and a
-        // customer-account checkout was refused as "anonymous". One rule
-        // here covers IPC, REST and the session basket. A changed or
-        // cleared name still falls through to the resolution below, so the
-        // old link never sticks to a different person (LIRA-246c).
+        // the operator didn't touch the client. The page never sends
+        // `client_id` on a draft edit or a status transition, and sends the
+        // phone BLANK when it is unchanged (the reopened job's phone field is
+        // the job's own phone, else the linked client's stored number). So "untouched" = no client_id,
+        // blank phone, same name. Before LIRA-263 the first such resave
+        // wrote `client_id = NULL`, unlinking the job. A changed name with no
+        // phone still unlinks (the old link must not stick to a different
+        // person); a typed phone re-resolves by that phone below — unless it
+        // is the linked client's own number, which keeps the link as is.
+        const stored = params.id ? this.repo.findById(params.id) : undefined;
+        const sameName =
+          (stored?.client_name ?? "").trim() ===
+          (params.client_name ?? "").trim();
         if (!clientId && params.id && params.client_id === undefined) {
-          const stored = this.repo.findById(params.id);
-          const sameName =
-            (stored?.client_name ?? "").trim() ===
-            (params.client_name ?? "").trim();
-          if (stored?.client_id && sameName) {
-            clientId = stored.client_id;
+          if (stored?.client_id) {
+            if (typedPhone) {
+              const linkedPhone = normalizeMaintenancePhone(
+                this.repo.getClientPhone(stored.client_id),
+              );
+              if (linkedPhone === typedPhone) clientId = stored.client_id;
+            } else if (sameName) {
+              clientId = stored.client_id;
+            }
           }
         }
 
-        if (!clientId && params.client_name && params.client_phone) {
+        if (!clientId && typedPhone) {
           try {
             clientId = this.repo.findOrCreateClient(
               params.client_name,
-              params.client_phone,
+              typedPhone,
             );
           } catch (e) {
             maintenanceLogger.error(
@@ -153,6 +159,20 @@ export class MaintenanceService {
             );
           }
         }
+
+        // Migration v194 — the phone kept on the job itself (owner decision
+        // 2026-10-06: a phone typed with no name that no client owns is kept
+        // on the job, never dropped). Rule: a typed phone is ALWAYS stored
+        // on the job (normalised), linked client or not. A blank phone
+        // writes nothing — an untouched re-save keeps the job's phone —
+        // except a re-save that changed the name, which clears it, the same
+        // way it drops the client link (the old phone must not stick to a
+        // different person). `undefined` = leave the stored value alone.
+        const jobPhone: string | null | undefined = typedPhone
+          ? typedPhone
+          : params.id && stored && !sameName
+            ? null
+            : undefined;
 
         // LIRA-176 phase 4, owner decision 2026-09-07 ("option 4"): parts are
         // ALWAYS USD (products only carry cost_price_usd/selling_price_usd;
@@ -299,6 +319,9 @@ export class MaintenanceService {
           };
 
           this.repo.updateJob(params.id, jobData, actorUserId);
+          if (jobPhone !== undefined) {
+            this.repo.setJobClientPhone(params.id, jobPhone);
+          }
 
           // Process payments only when this save charges the job (already-
           // charged jobs were refused above). Deferred (session basket): always
@@ -336,6 +359,7 @@ export class MaintenanceService {
             final_amount_lbp: isLbpJob ? labourFinal : 0,
           };
           const newId = this.repo.createJob(jobData, actorUserId);
+          if (jobPhone) this.repo.setJobClientPhone(newId, jobPhone);
 
           this.repo.syncParts(newId, params.parts, {
             allowOutOfStock: params.allowOutOfStock,

@@ -53,6 +53,7 @@ function createSchema(d: TestDb): void {
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
+      metadata_json TEXT,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL,
       source_id INTEGER NOT NULL,

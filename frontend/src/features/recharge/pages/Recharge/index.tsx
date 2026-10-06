@@ -1001,6 +1001,7 @@ export default function MobileRecharge() {
     paidBy,
     paymentLines,
     returnLegs,
+    keptChange,
     telecomClientId,
     telecomClientName,
     telecomClientPhone,
@@ -1255,6 +1256,7 @@ export default function MobileRecharge() {
     setTelecomClientId(null);
     setPaymentLines([]);
     setReturnLegs([]);
+    setKeptChange(null);
     setTelecomTransactionTime(undefined);
   }, []);
 
@@ -1344,6 +1346,16 @@ export default function MobileRecharge() {
             : undefined,
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
+        // Kept change (owner decision 2026-10-06 — automatic, no button):
+        // change the cashier did not hand back joins the recharge profit
+        // stamp, same as handleTelecomSubmit. The gift sheet shares the
+        // telecom sheet's `keptChange` state (only one is ever mounted).
+        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+          ? {
+              kept_change_usd: keptChange.usd,
+              kept_change_lbp: keptChange.lbp,
+            }
+          : {}),
         transaction_time: telecomTransactionTime,
         client_day: localDay(),
       });
@@ -1392,6 +1404,7 @@ export default function MobileRecharge() {
     paidBy,
     paymentLines,
     returnLegs,
+    keptChange,
     telecomClientId,
     telecomClientName,
     telecomClientPhone,
@@ -1640,6 +1653,7 @@ export default function MobileRecharge() {
     cryptoFee,
     cryptoPaymentLines,
     cryptoReturnLegs,
+    cryptoKeptChange,
     cryptoPaidBy,
     cryptoTenderRate,
     exchangeRate,

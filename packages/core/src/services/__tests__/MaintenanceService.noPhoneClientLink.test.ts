@@ -61,6 +61,7 @@ function createTestDb(): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id INTEGER,
       client_name TEXT,
+      client_phone TEXT, -- migration v194
       device_name TEXT NOT NULL,
       issue_description TEXT,
       cost_usd REAL DEFAULT 0,

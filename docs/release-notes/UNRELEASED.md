@@ -75,6 +75,7 @@
 - From now on, the repair receipt prints the customer's name and phone number.
 - More phone number formats are now accepted on repair jobs, such as "961 70 123 456" or "(03) 123456".
 - An amber warning shows when a part's price is changed from its saved price.
+- Maintenance: the phone you type is always saved — a job is linked to the client with that phone, or a new client is created, or the phone is kept on the job when no name is entered; picking a client from the search fills in their phone.
 
 ## 📊 Profits page
 
@@ -89,8 +90,6 @@
 
 - MTC / Alfa: selling days now also lowers the line's credit balance by the days' cost, so the drawer
   and the lines stay equal. From now on only.
-- Katsh / iPick: you can now hand back less change than due (e.g. 10,000 instead of 34,000 LBP); the
-  rest is kept as shop profit instead of the sale failing.
 
 ## 🎟️ Loto
 
@@ -104,7 +103,7 @@
 
 ## 💱 Exchange
 
-- Exchange: you can now keep the change — hand out the round amount (e.g. $101 instead of $101.12) and the leftover cents count as shop profit.
+- Exchange: you can now keep the change — hand out the round amount (e.g. $101 instead of $101.12) and the leftover cents count as shop profit automatically; the form says so. On the Profits page those kept cents count as kept change instead of being added into the Currency Exchange profit, which now shows only the exchange margin; the total profit is the same.
 - Exchange: the page now opens on USD → LBP.
 
 ## 🛒 POS
@@ -116,7 +115,9 @@
 - Refunding a sale paid with a gift card now gives the gift card back.
 - Payment form: new buttons under the change fields put the whole change in dollars or in LBP with one tap.
 - Payment form: the remaining amount and the change now show in both dollars and LBP.
-- Payment form: with "Keep change" on, change you hand back in the other currency (for example LBP change from a dollar payment) is now recorded as leaving the drawer — before, it was left out. From now on only.
+- Payment form: the Keep change button is gone — if you hand back less change than due, the difference is kept as shop profit automatically and the form says so (POS, maintenance, sessions, debts, services, Loto, MTC/Alfa, Katsh/iPick, OMT/Whish, Exchange).
+- Debts: on a debt repayment, change you don't hand back is now kept as shop profit (the form says so) instead of being counted as extra payment off the customer's debt.
+- Payment form: change you hand back in the other currency (for example LBP change from a dollar payment) while keeping the rest is now recorded as leaving the drawer — before, it was left out. From now on only.
 - Prices: an amber warning now shows when you change a price away from its saved price — on MTC/Alfa credit, the Katsh/iPick "Only Days" days and credit prices, and Services presets and items — showing the saved price next to the new one. It is only a warning: the sale still goes through.
 
 ## 🌐 Web app

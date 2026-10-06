@@ -85,6 +85,7 @@ function makeFakeRepo(overrides: FakeOverrides = {}): ProfitRepository {
   const zeroExchange: ExchangeTotalsRow = emptyRow({
     revenue_usd: 0,
     profit_usd: 0,
+    kept_change_usd: 0,
     count: 0,
   });
   const zeroExpense: ExpenseTotalsRow = emptyRow({

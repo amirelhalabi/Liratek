@@ -1,9 +1,10 @@
 /**
- * E2E: LIRA-107 (T3, KC-2) — "Keep change" on a debt repayment.
+ * E2E: LIRA-107 (T3, KC-2) — kept change on a debt repayment (automatic
+ * since the owner decision of 2026-10-06 removed the "Keep change" button).
  *
  * The debts flow is the special case (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md):
  * an unreturned overpayment normally becomes EXTRA debt reduction / client
- * credit. With keep-change active the kept extra must instead:
+ * credit. When the cashier hands none of it back, the kept extra must instead:
  *   - NOT reduce the debt (600,000 LBP debt paid 700,000 → debt exactly 0,
  *     not a 100,000 credit),
  *   - stay in the drawer (General LBP +700,000 — the full tender),
@@ -11,7 +12,7 @@
  *     new "Other / kept change" profits bucket (owner decision 2026-07-13).
  *
  * UI-driven through the Process Repayment modal so the whole chain is under
- * guard: keep-change button (repay mode only) → reduction excludes kept →
+ * guard: empty change fields (repay mode only) → reduction excludes kept →
  * keptChangeUSD/LBP through the shared schema → repo profit stamp → profits
  * summary bucket. Rule 17: with the pre-KC-2 core dist the schema strips the
  * kept fields and the reduction math over-reduces — the debt and profit
@@ -166,10 +167,16 @@ test.describe("LIRA-107 — keep change on a debt repayment", () => {
     await expect(amount).toHaveValue("600,000");
     await amount.fill("700000");
 
-    // The overpay surfaces Return/Change with the keep-change button (repay
-    // mode wires onKeptChange — opt-in).
-    await appPage.getByTestId("keep-change").click();
+    // The overpay surfaces Return/Change, seeded with the full change. Hand
+    // nothing back: empty both fields — the whole 100,000 is kept
+    // automatically (owner decision 2026-10-06 removed the "Keep change"
+    // button; repay mode wires onKeptChange).
+    await appPage.getByTestId("return-usd").fill("");
+    await appPage.getByTestId("return-lbp").fill("");
     await expect(appPage.getByText("Change kept (profit)")).toBeVisible();
+    await expect(appPage.getByTestId("keep-change-summary")).toContainText(
+      "100,000 LBP as profit.",
+    );
 
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
     await expect(

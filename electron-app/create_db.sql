@@ -651,6 +651,9 @@ CREATE TABLE IF NOT EXISTS maintenance (
     tenant_id INTEGER REFERENCES tenants(id),
     client_id INTEGER,
     client_name TEXT,
+    -- Migration v194: the normalised phone typed on the job (kept even when
+    -- no client owns it); the jobs list falls back to the client's phone.
+    client_phone TEXT DEFAULT NULL,
     device_name TEXT NOT NULL,
     issue_description TEXT,
     cost_usd DECIMAL(10, 2) DEFAULT 0,
@@ -2480,4 +2483,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v193 (LIRA-262) adds expenses.item_source/item_id/item_quantity/
     -- stock_restored and stock_batch_consumptions.expense_id (+ index),
     -- all declared above.
-    (193, 'expense_stock_use');
+    (193, 'expense_stock_use'),
+    -- v194 adds maintenance.client_phone, declared above.
+    (194, 'maintenance_job_client_phone');

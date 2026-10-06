@@ -165,6 +165,11 @@ export interface CreateExchangeResult {
    * present, unlike `realizedProfitUsd` below (only set on a to-side FIFO
    * consume) — this is the one number every caller should stamp as "what
    * this exchange actually booked".
+   *
+   * Payout keep-change (owner decision 2026-10-06): PLUS the kept leftover's
+   * USD value, which is booked on the unified EXCHANGE row's profit_usd but
+   * not on `exchange_transactions` (that row carries the exchange margin
+   * only) — so this still equals the unified row's profit_usd.
    */
   bookedProfitUsd: number;
   realizedProfitUsd?: number;
@@ -375,27 +380,22 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           );
       }
 
-      // Payout keep-change: the kept leftover is shop profit. Folded into the
-      // exchange row's OWN profit columns (payout-side leg + profit_usd) —
-      // that is what the Profits page's Exchange total reads
-      // (ProfitRepository EXCHANGE_LEG_PROFIT, gated by is_refunded so a
-      // refund nets it out) — and, via `profitUsd`, into the unified row's
-      // profit_usd, which the generic REFUND negates (rule 20). Applied AFTER
-      // the lot-effects UPDATE above: that UPDATE overwrites the leg columns
-      // (e.g. an acquire leg is zeroed, Q8), so kept added at INSERT time
-      // would be silently wiped. Payout-side leg = leg2 for a cross exchange
-      // (USD -> toCurrency), else leg1.
-      if (kept.profitUsd > 0) {
-        const legCol = data.viaCurrency ? "leg2_profit_usd" : "leg1_profit_usd";
-        profitUsd += kept.profitUsd;
-        this.db
-          .prepare(
-            `UPDATE exchange_transactions
-             SET ${legCol} = COALESCE(${legCol}, 0) + ?, profit_usd = ?
-             WHERE id = ? AND tenant_id = ?`,
-          )
-          .run(kept.profitUsd, profitUsd, id, tenantId);
-      }
+      // Payout keep-change: the kept leftover is shop profit, but it is NOT
+      // exchange margin (owner decision 2026-10-06): the Profits page shows
+      // it on the "Kept change" line, and the Exchange row shows only the
+      // pure margin. So it is deliberately NEVER written into
+      // exchange_transactions (leg1/leg2_profit_usd, profit_usd stay the
+      // margin — which also removes any ordering hazard with the lot-effects
+      // UPDATE above, which overwrites those columns). It lives on the
+      // unified EXCHANGE row only:
+      //   - `profit_usd` = margin + kept, so the generic REFUND's negated
+      //     stamp nets the whole booking (rule 20);
+      //   - `metadata_json.kept_profit_usd` = the kept amount's booked USD
+      //     value (LBP kept converted at the till rate), which
+      //     ProfitRepository's `exchangeKeptProfitUsd` fragment reads for the
+      //     Kept change line, gated by the exchange row's own `is_refunded`
+      //     exactly like the Exchange row.
+      const unifiedProfitUsd = profitUsd + kept.profitUsd;
 
       // Compute amount_usd and amount_lbp for the unified transactions ledger.
       //
@@ -479,7 +479,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         user_id: createdBy,
         amount_usd,
         amount_lbp,
-        profit_usd: profitUsd,
+        profit_usd: unifiedProfitUsd,
         exchange_rate: rate,
         // Rule 11: the (optional) client name must reach the unified row —
         // without it every exchange showed "—" in the transactions table
@@ -525,6 +525,12 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             ? {
                 kept_change_usd: kept.usd,
                 kept_change_lbp: kept.lbp,
+                // Booked USD value of the kept leftover — the Profits page's
+                // Kept change line reads THIS key (see the comment above
+                // `unifiedProfitUsd`). Rows written before 2026-10-06's
+                // owner decision lack it and keep their kept cents inside
+                // the leg profit, so they are never counted twice.
+                kept_profit_usd: kept.profitUsd,
               }
             : {}),
         },
@@ -693,7 +699,12 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // should treat as "what this exchange booked". `profit_usd` is always
       // written by the INSERT above (never NULL), so the `?? profitUsd`
       // fallback only guards the type, it never masks a real gap.
-      const bookedProfitUsd = this.findById(id)!.profit_usd ?? profitUsd;
+      // Payout keep-change: kept cents are not in exchange_transactions
+      // (margin only) but ARE in the unified row's profit_usd, and callers
+      // (the session stamp, FEATURE_GUIDE §10/§11) must match the unified
+      // row — so they are added back here.
+      const bookedProfitUsd =
+        (this.findById(id)!.profit_usd ?? profitUsd) + kept.profitUsd;
 
       // EXCHANGE_LOT_SETTLEMENT.md Phase 3: the SERVER-computed realized
       // profit surfaces ONLY when a to-side consume actually happened —

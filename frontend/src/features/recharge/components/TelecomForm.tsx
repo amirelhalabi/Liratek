@@ -605,6 +605,7 @@ export function TelecomForm({
             : {})}
           onPaymentChange={handleCardPaymentChange}
           {...(onReturnChange ? { onReturnChange } : {})}
+          {...(onKeptChange ? { onKeptChange } : {})}
           onDiscountChange={handleDiscountChange}
           clientName={telecomClientName}
           onClientNameChange={setTelecomClientName}

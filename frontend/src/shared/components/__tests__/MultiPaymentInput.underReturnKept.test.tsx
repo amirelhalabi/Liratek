@@ -11,19 +11,18 @@
  * change so the server's leg reconciliation balances and the profit is
  * booked.
  *
- * Two UI paths produce those legs:
- *   A. the cashier just types 10,000 into the LBP change field (no toggle)
- *      — on an opt-in consumer (`keepUnreturnedChange`), the shortfall is
- *      kept instead of submitting an unbalanced payload;
- *   B. the cashier taps "Keep change" first, then types 10,000 LBP — before
- *      the fix the LBP return was clamped against the LBP change (0, the
- *      customer paid no LBP), so the OUT leg silently vanished.
+ * The cashier just types 10,000 into the LBP change field. Originally this
+ * was opt-in (`keepUnreturnedChange`, Katsh/iPick only) next to a "Keep
+ * change" button (path B: tap, then type — the LBP return used to be clamped
+ * against the LBP change, 0, so the OUT leg vanished). The owner decision of
+ * 2026-10-06 removed the button and made the under-return keep the DEFAULT
+ * for every consumer that wires `onKeptChange`; the path-B cases below are
+ * rewritten to type directly (rule 24) and still guard the cross-currency
+ * arithmetic.
  *
- * Rule 17: path B and the full-return control were run against the unfixed
- * component first (see the LIRA-259 report for the recorded failure). The
- * path-A cases use a prop that did not exist before the fix, so they could
- * only fail to compile there — "not proven failing-first" at this layer;
- * KatchForm.underReturnKept.test.tsx is path A's failing-first guard.
+ * Rule 17: the original path-B and full-return cases were run against the
+ * pre-LIRA-259 component first (see the LIRA-259 report). The automatic
+ * behaviour's failing-first guard is MultiPaymentInput.autoKeepChange.test.tsx.
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -46,8 +45,7 @@ const PRICE_LBP = 450_000;
 
 function renderOwnerScenario(opts: {
   onReturnChange: jest.Mock<void, [PaymentLine[]]>;
-  onKeptChange: jest.Mock<void, [Kept]>;
-  keepUnreturnedChange?: boolean;
+  onKeptChange?: jest.Mock<void, [Kept]>;
 }) {
   render(
     <MultiPaymentInput
@@ -60,8 +58,7 @@ function renderOwnerScenario(opts: {
       showDiscount={false}
       onChange={jest.fn()}
       onReturnChange={opts.onReturnChange}
-      onKeptChange={opts.onKeptChange}
-      {...(opts.keepUnreturnedChange ? { keepUnreturnedChange: true } : {})}
+      {...(opts.onKeptChange ? { onKeptChange: opts.onKeptChange } : {})}
     />,
   );
   const amount = document.querySelector<HTMLInputElement>(
@@ -108,12 +105,14 @@ describe("MultiPaymentInput — handing back less change than due (LIRA-259)", (
     ).not.toBeInTheDocument();
   });
 
-  it("path B: Keep change, then return 10,000 LBP of a dollar tender — the LBP OUT leg survives and $0.25 is kept", () => {
+  it("returning only 10,000 LBP of a dollar tender (USD field emptied) — the LBP OUT leg survives and $0.25 is kept", () => {
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     const onKeptChange = jest.fn<void, [Kept]>();
     renderOwnerScenario({ onReturnChange, onKeptChange });
 
-    fireEvent.click(screen.getByTestId("keep-change"));
+    fireEvent.change(screen.getByTestId("return-usd"), {
+      target: { value: "" },
+    });
     fireEvent.change(screen.getByTestId("return-lbp"), {
       target: { value: "10000" },
     });
@@ -126,36 +125,32 @@ describe("MultiPaymentInput — handing back less change than due (LIRA-259)", (
     expect(kept?.lbp).toBe(0);
     expect(kept?.exactUsd).toBeCloseTo(0.25, 9);
     expect(screen.getByTestId("keep-change-summary")).toHaveTextContent(
-      "Keeping $0.25 as profit",
+      "Keeping $0.25 | 20,000 LBP as profit",
     );
   });
 
-  it("path B: a cross-currency return larger than the whole change is clamped — never a negative kept amount", () => {
+  it("a cross-currency return larger than the whole change is flagged red — never kept change, never a negative kept amount", () => {
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     const onKeptChange = jest.fn<void, [Kept]>();
     renderOwnerScenario({ onReturnChange, onKeptChange });
 
-    fireEvent.click(screen.getByTestId("keep-change"));
+    fireEvent.change(screen.getByTestId("return-usd"), {
+      target: { value: "" },
+    });
     fireEvent.change(screen.getByTestId("return-lbp"), {
       target: { value: "999999" },
     });
 
-    expect(lastLegs(onReturnChange)).toEqual([
-      { method: "CASH", currencyCode: "LBP", amount: 30_000, direction: "OUT" },
-    ]);
-    expect(lastKept(onKeptChange)).toEqual(
-      expect.objectContaining({ usd: 0, lbp: 0 }),
+    expect(lastKept(onKeptChange)).toBeNull();
+    expect(screen.getByTestId("return-mismatch-warning")).toHaveTextContent(
+      "more than the customer overpaid",
     );
   });
 
-  it("path A (opt-in): typing 10,000 into the LBP field keeps the un-returned $0.25 — no red warning, a 'Keeping' summary instead", () => {
+  it("typing 10,000 into the LBP field keeps the un-returned $0.25 — no red warning, a 'Keeping' summary instead", () => {
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderOwnerScenario({
-      onReturnChange,
-      onKeptChange,
-      keepUnreturnedChange: true,
-    });
+    renderOwnerScenario({ onReturnChange, onKeptChange });
 
     fireEvent.change(screen.getByTestId("return-usd"), {
       target: { value: "0" },
@@ -174,18 +169,14 @@ describe("MultiPaymentInput — handing back less change than due (LIRA-259)", (
       screen.queryByTestId("return-mismatch-warning"),
     ).not.toBeInTheDocument();
     expect(screen.getByTestId("keep-change-summary")).toHaveTextContent(
-      "Keeping $0.25 as profit — the rest is returned above.",
+      "Keeping $0.25 | 20,000 LBP as profit — the rest is returned above.",
     );
   });
 
-  it("path A (opt-in): an OVER-return is still flagged and nothing is kept", () => {
+  it("an OVER-return is still flagged and nothing is kept", () => {
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderOwnerScenario({
-      onReturnChange,
-      onKeptChange,
-      keepUnreturnedChange: true,
-    });
+    renderOwnerScenario({ onReturnChange, onKeptChange });
 
     fireEvent.change(screen.getByTestId("return-usd"), {
       target: { value: "0" },
@@ -200,10 +191,9 @@ describe("MultiPaymentInput — handing back less change than due (LIRA-259)", (
     );
   });
 
-  it("without the opt-in, an under-return is still only flagged (other pages unchanged)", () => {
+  it("a page that does not wire onKeptChange still only flags an under-return (its backend cannot book kept change)", () => {
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
-    const onKeptChange = jest.fn<void, [Kept]>();
-    renderOwnerScenario({ onReturnChange, onKeptChange });
+    renderOwnerScenario({ onReturnChange });
 
     fireEvent.change(screen.getByTestId("return-usd"), {
       target: { value: "0" },
@@ -212,18 +202,17 @@ describe("MultiPaymentInput — handing back less change than due (LIRA-259)", (
       target: { value: "10000" },
     });
 
-    expect(lastKept(onKeptChange)).toBeNull();
     expect(screen.getByTestId("return-mismatch-warning")).toHaveTextContent(
       "0.25$ of the change is not covered",
     );
+    expect(screen.queryByTestId("keep-change-summary")).not.toBeInTheDocument();
   });
 
-  it("path B: both fields at the full change together are clamped jointly — never more than the change goes out", () => {
+  it("the full change typed in BOTH fields is an over-return — flagged red, nothing kept", () => {
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     const onKeptChange = jest.fn<void, [Kept]>();
     renderOwnerScenario({ onReturnChange, onKeptChange });
 
-    fireEvent.click(screen.getByTestId("keep-change"));
     // $0.375 change: the cashier types the full change in BOTH fields.
     fireEvent.change(screen.getByTestId("return-usd"), {
       target: { value: "0.38" },
@@ -232,15 +221,9 @@ describe("MultiPaymentInput — handing back less change than due (LIRA-259)", (
       target: { value: "30000" },
     });
 
-    const legs = lastLegs(onReturnChange);
-    const outUsdEquivalent = legs.reduce(
-      (sum, l) =>
-        sum + (l.currencyCode === "USD" ? l.amount : l.amount / RATE),
-      0,
-    );
-    expect(outUsdEquivalent).toBeLessThanOrEqual(0.38 + 1e-9);
-    expect(lastKept(onKeptChange)).toEqual(
-      expect.objectContaining({ usd: 0, lbp: 0 }),
+    expect(lastKept(onKeptChange)).toBeNull();
+    expect(screen.getByTestId("return-mismatch-warning")).toHaveTextContent(
+      "more than the customer overpaid",
     );
   });
 });
