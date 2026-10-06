@@ -16,6 +16,8 @@ const config: Config = {
   moduleNameMapper: {
     // Must precede the generic "^@/(.*)$" alias: viteEnv.ts touches
     // `import.meta`, which ts-jest's CommonJS build cannot compile (TS1343).
+    // Image imports resolve to a URL string under Vite; jest gets a stub.
+    "\\.(png|jpe?g|webp|gif)$": "<rootDir>/src/__mocks__/fileStub.ts",
     "^@/config/viteEnv$": "<rootDir>/src/config/viteEnv.jest.ts",
     "^@/(.*)$": "<rootDir>/src/$1",
     "^@shared/(.*)$": "<rootDir>/../packages/shared/src/$1",

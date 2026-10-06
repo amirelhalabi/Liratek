@@ -15,6 +15,8 @@ import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteI
 import { ensureRechargeClient } from "../utils/ensureClient";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
+import { getCardImage } from "../utils/cardImages";
+import { CardArtwork } from "./CardArtwork";
 import {
   type PaymentLine,
   type CarrierLineEntity,
@@ -324,6 +326,7 @@ const ItemCard = memo(function ItemCard({
   const cost = item.catalogCost ?? 0;
   const sellPrice = item.catalogSellPrice ?? 0;
   const isTelecom = isTelecomVoucher(item);
+  const cardImage = getCardImage(item);
 
   return (
     <div className="relative">
@@ -368,16 +371,23 @@ const ItemCard = memo(function ItemCard({
               </div>
             )}
           </div>
-          <div className="flex flex-col items-center justify-center gap-0.5">
-            {item.subcategory === "alfa" || item.category === "alfa" ? (
-              <AlfaLogo className="h-4 w-auto" />
-            ) : item.subcategory === "mtc" || item.category === "mtc" ? (
-              <MtcLogo className="h-4 w-auto" />
-            ) : null}
-            <span className="text-slate-500 text-[10px] truncate max-w-full">
-              {item.subcategory}
-            </span>
-          </div>
+          {cardImage ? (
+            <CardArtwork
+              src={cardImage}
+              alt={`${item.category} ${item.label}`}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-0.5">
+              {item.subcategory === "alfa" || item.category === "alfa" ? (
+                <AlfaLogo className="h-4 w-auto" />
+              ) : item.subcategory === "mtc" || item.category === "mtc" ? (
+                <MtcLogo className="h-4 w-auto" />
+              ) : null}
+              <span className="text-slate-500 text-[10px] truncate max-w-full">
+                {item.subcategory}
+              </span>
+            </div>
+          )}
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-slate-400">Cost:</span>
             <span className="text-xs text-white font-mono">

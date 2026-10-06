@@ -90,6 +90,8 @@
 
 - MTC / Alfa: selling days now also lowers the line's credit balance by the days' cost, so the drawer
   and the lines stay equal. From now on only.
+- iPick, Katsh and Whish App: the touch and Alfa prepaid card tiles now show a picture of the card,
+  so you can spot the right one at a glance.
 
 ## 🎟️ Loto
 

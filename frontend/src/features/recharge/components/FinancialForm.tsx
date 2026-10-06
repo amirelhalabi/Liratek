@@ -17,6 +17,8 @@ import { ensureRechargeClient } from "../utils/ensureClient";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
+import { getCardImage } from "../utils/cardImages";
+import { CardArtwork } from "./CardArtwork";
 import type {
   FinancialTransaction,
   ServiceType,
@@ -1070,6 +1072,7 @@ export function FinancialForm({
                         const isExpanded = expandedKeys.has(item.key);
                         const cost = item.catalogCost ?? 0;
                         const sellPrice = item.catalogSellPrice ?? 0;
+                        const cardImage = getCardImage(item);
 
                         return (
                           <div key={item.key} className="relative">
@@ -1119,11 +1122,18 @@ export function FinancialForm({
                                     </div>
                                   )}
                                 </div>
-                                <div className="h-4 flex items-center justify-center">
-                                  <span className="text-slate-500 text-xs truncate">
-                                    {item.subcategory}
-                                  </span>
-                                </div>
+                                {cardImage ? (
+                                  <CardArtwork
+                                    src={cardImage}
+                                    alt={`${item.category} ${item.label}`}
+                                  />
+                                ) : (
+                                  <div className="h-4 flex items-center justify-center">
+                                    <span className="text-slate-500 text-xs truncate">
+                                      {item.subcategory}
+                                    </span>
+                                  </div>
+                                )}
                                 <div className="mt-2 flex items-center justify-between">
                                   <span className="text-xs text-slate-400">
                                     Cost:
