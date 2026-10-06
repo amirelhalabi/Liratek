@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LiraTek — POS for phone shops in Lebanon</title>
+    <meta
+      name="description"
+      content="Point of sale for Lebanese phone shops: sales and stock, dollars and lira together, OMT and Whish transfers, MTC and Alfa recharges, customer debts, repairs and daily closing."
+    />
+    <link rel="canonical" href="https://liratek.shop/" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#0a0f2e" />
+
+    <!-- Link previews (WhatsApp, Facebook, X). Static on purpose: those
+         crawlers do not run JavaScript. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="LiraTek" />
+    <meta property="og:url" content="https://liratek.shop/" />
+    <meta property="og:title" content="LiraTek — POS for phone shops in Lebanon" />
+    <meta
+      property="og:description"
+      content="Sales, stock, USD + LBP, OMT/Whish, MTC/Alfa, debts and daily closing — in one system."
+    />
+    <meta property="og:image" content="https://liratek.shop/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://liratek.shop/assets/og.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=Inter:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap topbar-inner">
+        <a class="brand" href="/" aria-label="LiraTek">
+          <img src="/assets/favicon.svg" alt="" width="32" height="32" />
+          <span>LiraTek</span>
+        </a>
+        <nav class="topnav">
+          <a href="#login" data-i18n="nav.login">Shop login</a>
+          <button type="button" class="lang-toggle" id="lang-toggle" lang="ar">
+            العربية
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="wrap hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow" data-i18n="hero.eyebrow">Built for Lebanese phone shops</p>
+            <h1 data-i18n="hero.title">Your whole shop, in dollars and lira, in one place.</h1>
+            <p class="lead" data-i18n="hero.lead">
+              Sell, track stock, send OMT and Whish transfers, recharge MTC and
+              Alfa, follow customer debts and close the day — every amount in USD
+              and LBP, every drawer balanced.
+            </p>
+            <div class="cta-row">
+              <a
+                class="btn btn-primary"
+                id="whatsapp-cta"
+                href="https://wa.me/96181077357?text=Hello%2C%20I%27m%20interested%20in%20LiraTek%20for%20my%20shop."
+                target="_blank"
+                rel="noopener"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>
+                <span data-i18n="cta.whatsapp">Talk to us on WhatsApp</span>
+              </a>
+              <a class="btn btn-ghost" href="#features" data-i18n="cta.features">See what it does</a>
+            </div>
+            <p class="invite">
+              <span data-i18n="cta.invite">Have an invite code?</span>
+              <a href="https://www.liratek.shop/#/signup" data-i18n="cta.signup">Sign up</a>
+            </p>
+          </div>
+
+          <div class="hero-media">
+            <video
+              id="demo-video"
+              class="demo"
+              poster="/assets/poster.jpg"
+              autoplay
+              muted
+              loop
+              playsinline
+              preload="metadata"
+            >
+              <source src="/assets/demo.mp4" type="video/mp4" />
+            </video>
+          </div>
+        </div>
+      </section>
+
+      <section class="features" id="features">
+        <div class="wrap">
+          <h2 data-i18n="features.title">Everything a phone shop does in a day</h2>
+          <div class="feature-grid">
+            <article class="card">
+              <h3 data-i18n="f.pos.t">Sales and stock</h3>
+              <p data-i18n="f.pos.d">Fast checkout, barcodes, stock levels, and phones tracked by IMEI.</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="f.cur.t">Dollars and lira together</h3>
+              <p data-i18n="f.cur.d">Prices, payments, change and drawers in USD and LBP. Split a payment across both, and run currency exchange.</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="f.omt.t">OMT and Whish</h3>
+              <p data-i18n="f.omt.d">Send and receive transfers with fees worked out, and check your balance against OMT's statement.</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="f.rec.t">MTC and Alfa</h3>
+              <p data-i18n="f.rec.d">Credit and days recharges, with what you owe each supplier kept up to date.</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="f.debt.t">Customer debts</h3>
+              <p data-i18n="f.debt.d">Sell on credit, take repayments in either currency, and see who owes what.</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="f.rep.t">Repairs</h3>
+              <p data-i18n="f.rep.d">Repair jobs from intake to pickup, with the parts used and what the customer paid.</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="f.close.t">Daily closing and profits</h3>
+              <p data-i18n="f.close.d">Close each drawer at the end of the day and see the profit from every part of the shop.</p>
+            </article>
+            <article class="card">
+              <h3 data-i18n="f.where.t">On your computer or in the browser</h3>
+              <p data-i18n="f.where.d">Use the desktop app in the shop, or sign in from any browser at your shop's own address.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="login" id="login">
+        <div class="wrap login-box">
+          <div>
+            <h2 data-i18n="login.title">Already a LiraTek shop?</h2>
+            <p data-i18n="login.lead">Type your shop's name to go to its login page.</p>
+          </div>
+          <form id="shop-form" class="shop-form" novalidate>
+            <label class="sr-only" for="shop-name" data-i18n="login.label">Shop name</label>
+            <div class="shop-input" dir="ltr">
+              <span class="prefix">https://</span>
+              <input
+                id="shop-name"
+                name="shop"
+                type="text"
+                inputmode="url"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
+                placeholder="yourshop"
+                data-i18n-attr="placeholder:login.placeholder"
+                required
+              />
+              <span class="suffix">.liratek.shop</span>
+            </div>
+            <button class="btn btn-primary" type="submit" id="shop-go" data-i18n="login.go">Go to my shop</button>
+            <p class="form-msg" id="shop-msg" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
+
+      <section class="closing-cta">
+        <div class="wrap">
+          <h2 data-i18n="end.title">Want to see it in your shop?</h2>
+          <p data-i18n="end.lead">Message us — we'll show you how it works and talk about pricing.</p>
+          <a class="btn btn-primary" id="whatsapp-cta-2" href="https://wa.me/96181077357?text=Hello%2C%20I%27m%20interested%20in%20LiraTek%20for%20my%20shop." target="_blank" rel="noopener" data-i18n="cta.whatsapp">Talk to us on WhatsApp</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-inner">
+        <span>© <span id="year">2026</span> LiraTek</span>
+        <a href="https://wa.me/96181077357" target="_blank" rel="noopener" dir="ltr">+961 81 077 357</a>
+      </div>
+    </footer>
+
+    <script src="/main.js" defer></script>
+  </body>
+</html>

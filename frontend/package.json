@@ -19,7 +19,8 @@
     "env:setup": "[ -f .env ] || cp .env.dev .env",
     "env:dev": "cp .env.dev .env",
     "env:prod": "cp .env.prod .env",
-    "test:e2e:web": "node ../scripts/run-e2e.mjs web"
+    "test:e2e:web": "node ../scripts/run-e2e.mjs web",
+    "demo:record": "playwright test --config playwright.demo.config.ts && node tests/demo/encode-demo.mjs"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",

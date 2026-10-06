@@ -101,6 +101,7 @@ writes transactions, payments, drawers, ledgers or profit.
 | `DESKTOP_LICENSING_PLAN.md` | Phases 1-5: `last_check_in` + machine fingerprint, Ed25519-signed licence blob, key moved to `userData`/`safeStorage`, 30-day grace UI, clock-tamper freeze. Its own "🔴 URGENT" hazard was already fixed by `805fc45a` — *one minute before the doc was committed* | Large | yes |
 | `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` | **Only Phase D left** (the switch to per-tenant files). Phases A–C shipped 2026-09-27/28 (`4dcd16c0`…`7c150b2f`, deployed, prod still `TENANT_DB_MODE=shared`); the split was dry-run on a production snapshot and passed. Runbook § 12.4; owner schedules the window | Small | yes |
 | `NEXT_STEPS_AFTER_FLY_MIGRATION.md` | `DATABASE_KEY` log line still lies (no canary in `sqlcipher.ts:39`); signup URL-code prefill. Its per-tenant-split item now points at the hosting plan (resolved 2026-09-28, see §4) | Medium | yes |
+| `LANDING_PAGE_PLAN.md` 🆕 | Started 2026-10-07: static site in `landing/` and the Playwright demo video are built and checked locally, not deployed. Left: Vercel project + bare-domain switch (owner, Phase 2), `/brag` video (3b), SPF/DMARC + Search Console (4) | Medium | no |
 | `WEB_PARITY_ROADMAP.md` 📖 | **Living tracker — never archive.** Phase 3 count is badly stale: it says "7 of 87 specs, ~43 remain"; today there are **117 desktop specs against the same 7-spec allowlist, so ~110 remain**. Two §9 items are already fixed but still listed | Large | yes |
 
 ### `todo_plans/` — genuinely not started (5)
