@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /wa
 
 Sitemap: https://liratek.shop/sitemap.xml

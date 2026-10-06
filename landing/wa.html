@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Opening WhatsApp — LiraTek</title>
+    <!-- Without JavaScript there is no page view to count; go straight on. -->
+    <noscript>
+      <meta
+        http-equiv="refresh"
+        content="0;url=https://wa.me/96181077357?text=Hello%2C%20I%27m%20interested%20in%20LiraTek%20for%20my%20shop."
+      />
+    </noscript>
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0a0f2e;
+        color: #eef1ff;
+        font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center;
+        padding: 16px;
+      }
+      a {
+        color: #10b981;
+      }
+    </style>
+    <!-- Vercel Web Analytics: this page exists so a WhatsApp click shows up
+         as a page view of /wa (custom events need a paid Vercel plan). -->
+    <script>
+      window.va =
+        window.va ||
+        function () {
+          (window.vaq = window.vaq || []).push(arguments);
+        };
+    </script>
+    <script defer src="/_vercel/insights/script.js" id="va-script"></script>
+  </head>
+  <body>
+    <p>
+      <span id="msg">Opening WhatsApp…</span><br />
+      <a id="go" href="https://wa.me/96181077357">Tap here if nothing happens</a>
+    </p>
+    <script>
+      (function () {
+        "use strict";
+        // Fixed destinations only — never built from the query string, so this
+        // page cannot be used to send people anywhere else.
+        var NUMBER = "96181077357";
+        var TEXT = {
+          en: "Hello, I'm interested in LiraTek for my shop.",
+          ar: "مرحباً، أنا مهتم بـ LiraTek لمحلي.",
+        };
+        var lang = new URLSearchParams(location.search).get("lang") === "ar" ? "ar" : "en";
+        var target = "https://wa.me/" + NUMBER + "?text=" + encodeURIComponent(TEXT[lang]);
+
+        var link = document.getElementById("go");
+        link.href = target;
+        if (lang === "ar") {
+          document.documentElement.lang = "ar";
+          document.documentElement.dir = "rtl";
+          document.getElementById("msg").textContent = "جارٍ فتح واتساب…";
+          link.textContent = "اضغط هنا إذا لم يُفتح";
+        }
+
+        var gone = false;
+        function go() {
+          if (gone) return;
+          gone = true;
+          location.replace(target);
+        }
+        // Leave once the analytics script has loaded and had a moment to send
+        // the page view. If it is blocked or missing, leave at once; never wait
+        // more than 1.5 s in total.
+        var script = document.getElementById("va-script");
+        script.addEventListener("load", function () {
+          setTimeout(go, 300);
+        });
+        script.addEventListener("error", go);
+        setTimeout(go, 1500);
+      })();
+    </script>
+  </body>
+</html>

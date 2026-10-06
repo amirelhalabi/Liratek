@@ -6,7 +6,6 @@
   "use strict";
 
   var BASE_DOMAIN = "liratek.shop";
-  var WHATSAPP = "96181077357";
   var STORAGE_KEY = "liratek.landing.lang";
 
   // DRAFT Arabic copy — to be reviewed by the owner before launch.
@@ -55,7 +54,6 @@
     "msg.checking": "جارٍ التحقق…",
     "video.soundOn": "تشغيل الصوت",
     "video.soundOff": "كتم الصوت",
-    "wa.text": "مرحباً، أنا مهتم بـ LiraTek لمحلي.",
   };
 
   var EN = {
@@ -65,7 +63,6 @@
       "We couldn't find a shop with that name. Check the spelling.",
     "msg.checking": "Checking…",
     "video.soundOff": "Sound off",
-    "wa.text": "Hello, I'm interested in LiraTek for my shop.",
   };
 
   // Before this page existed, liratek.shop redirected to www, so old links
@@ -95,10 +92,10 @@
     });
   }
 
+  // WhatsApp links go through /wa (wa.html), which counts the click as a page
+  // view and then opens the chat with the message in this language.
   function whatsappUrl() {
-    return (
-      "https://wa.me/" + WHATSAPP + "?text=" + encodeURIComponent(t("wa.text"))
-    );
+    return lang === "ar" ? "/wa?lang=ar" : "/wa";
   }
 
   function apply(next) {
@@ -115,10 +112,12 @@
       var parts = el.getAttribute("data-i18n-attr").split(":");
       el.setAttribute(parts[0], t(parts[1]));
     });
-    ["whatsapp-cta", "whatsapp-cta-2"].forEach(function (id) {
-      var a = document.getElementById(id);
-      if (a) a.href = whatsappUrl();
-    });
+    ["whatsapp-cta", "whatsapp-cta-2", "whatsapp-footer"].forEach(
+      function (id) {
+        var a = document.getElementById(id);
+        if (a) a.href = whatsappUrl();
+      },
+    );
 
     var toggle = document.getElementById("lang-toggle");
     toggle.textContent = lang === "ar" ? "English" : "العربية";
