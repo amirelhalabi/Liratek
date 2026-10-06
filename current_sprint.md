@@ -4567,7 +4567,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-257**, LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-258** (LIRA-257 filed 2026-10-06), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -6152,3 +6152,55 @@ stands out at a glance.
 OMT's statement sometimes includes only some commission types ("INCLUDES INTRA SHARES", sometimes intra plus another
 type). Later: let the owner mark which types a statement covers, so that LIRA-255's check, and settlement in the FIFO
 queue, deduct only those types' commission.
+
+---
+
+## LIRA-257: web shops are created without the system suppliers (OMT, Whish, iPick, Katsh, app wallets, Loto) — HIGH — DONE (not deployed)
+
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| **Epic**             | Suppliers / Tenant provisioning                                   |
+| **Type**             | Bug                                                               |
+| **Priority**         | High                                                              |
+| **Status**           | **DONE** 2026-10-06 in the working tree; ships on the next deploy |
+| **Affected Modules** | suppliers, omt_whish, ipec_katch, loto                            |
+
+### Problem
+
+test.liratek.shop (tenant 5) showed a single supplier, while cornertech (tenant 1) has the full list.
+Tenant 1 got its suppliers from `electron-app/create_db.sql` and the early migrations. A shop
+provisioned on the web runs `TenantRepository.seedConfig`, which skipped suppliers as "sample data".
+The modules look these suppliers up by `provider`, per tenant, so a web shop had no OMT account to
+settle against. Loto Liban is created lazily on the first Loto sale, which is likely the one supplier
+tenant 5 has (not checked against live data: flyctl was unavailable).
+
+### Fix
+
+- `packages/core/src/db/systemSuppliers.ts` — one definition of the seven system suppliers, matching
+  create_db.sql's tenant-1 seed (commission config, Whish's `is_system = 0`, iPick / OMT App linked to
+  the tenant's own OMT row). Insert-if-missing per tenant, matched by provider OR exact name (suppliers
+  is `UNIQUE (tenant_id, name)`); a name match is skipped and reported, never crashes. `module_key`
+  only when the tenant has that module row (composite FK). Never changes an existing row.
+- Whish is seeded **inactive**, matching v78 (LIRA-045). `create_db.sql` now deactivates it too, so
+  fresh desktop installs, migrated installs and web tenants agree (before, fresh installs had it
+  active and migrated ones inactive).
+- `TenantRepository.seedConfig` calls it, so every new shop gets them.
+- Migration v191 `backfill_system_suppliers` calls it for every existing tenant. Tenants that already
+  have all seven (desktop installs, cornertech) are unchanged. `down()` is a no-op on purpose.
+- Guard: `packages/core/src/db/__tests__/systemSuppliers.test.ts` — failing-first (5 of 6 original
+  tests failed on the unfixed code; the cross-tenant-link test passed vacuously and is a guard only;
+  the name-collision and FK tests were added after the fix and are not proven failing-first).
+
+### Known limits
+
+- If a tenant already has a supplier NAMED like a system one but without its provider (e.g. a
+  hand-added "OMT"), v191 skips that provider and logs `Migration v191: tenant N NOT seeded for
+  provider(s) …`. That shop still needs a manual fix. Check the deploy log.
+
+- Past OMT / Whish / iPick / Katsh entries on an affected web shop that should have written a
+  supplier ledger row while the supplier was missing are not reconstructed. Check the live data after
+  deploy.
+
+**What users will notice:** On the web app, the Suppliers page of a shop created on the web now lists
+OMT, iPick, Katsh, OMT App, Whish App and Loto Liban (plus Whish, switched off), and new shops start
+with them.

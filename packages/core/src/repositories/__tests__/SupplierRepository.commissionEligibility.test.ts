@@ -4,9 +4,9 @@
  * `listSuppliers()`, and `createSupplier()`'s provider-keyed default
  * (`defaultCommissionConfigForProvider`) — the mechanism that makes a
  * BRAND-NEW tenant's iPick/Katsh suppliers correct from the moment they're
- * added (checked: `TenantRepository.seedConfig` deliberately excludes the
- * sample suppliers rows as "sample data, not config", so `createSupplier`
- * is the only path that creates one for a fresh tenant).
+ * added by hand. (Since 2026-10-06 `TenantRepository.seedConfig` also seeds
+ * the system suppliers through `db/systemSuppliers.ts`, with the same
+ * commission config.)
  *
  * Mirrors `SupplierRepository.listSuppliersCommissionPreference.test.ts`'s
  * fixture shape/pattern (the D8 precedent for exactly this class of bug:

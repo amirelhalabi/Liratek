@@ -20,6 +20,7 @@
 
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { seedSystemSuppliers } from "../db/systemSuppliers.js";
 import { DatabaseError } from "../utils/errors.js";
 import { TELECOM_CREDIT_COST_RATE_LBP } from "../utils/telecomCredit.js";
 
@@ -622,9 +623,10 @@ export class TenantRepository {
    *
    * Values are extracted verbatim from `electron-app/create_db.sql`'s tenant-1
    * seed (the desktop fresh-install path), parameterized on `tenantId` in
-   * place of the literal `1`. Deliberately excludes:
-   *   - the example `suppliers` rows (iPick/Katsh/OMT/Whish/...) — sample
-   *     data, not config;
+   * place of the literal `1`. Includes the system suppliers (OMT, Whish,
+   * iPick, Katsh, the app wallets, Loto Liban) via `seedSystemSuppliers` —
+   * the modules look them up by provider, so a shop without them cannot
+   * settle with OMT. Deliberately excludes:
    *   - the default `users`/`admin` row — the tenant admin is created
    *     separately by `TenantProvisioningService` with a real hashed password
    *     from the provisioning request.
@@ -849,6 +851,7 @@ export class TenantRepository {
       this.seedServiceProviders(tenantId);
       this.seedSystemSettings(tenantId, shopName);
       this.seedLotoSettings(tenantId);
+      seedSystemSuppliers(this.db, tenantId);
     } catch (error) {
       throw new DatabaseError("Failed to seed tenant config", {
         cause: error,

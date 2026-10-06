@@ -1840,6 +1840,12 @@ INSERT OR IGNORE INTO suppliers (tenant_id, name, module_key, provider, is_syste
   (1, 'OMT App',      'ipec_katch', 'OMT_APP',      1, 1, 'LUMP', NULL,  'USD'),
   (1, 'Whish App',    'ipec_katch', 'WHISH_APP',    1, 1, 'LUMP', NULL,  'USD');
 
+-- v78 (LIRA-045): OMT-base shops settle Whish through the partner ledger, so
+-- every migrated shop has the Whish supplier deactivated. Match it here so a
+-- fresh install, a migrated install and a web-provisioned tenant
+-- (db/systemSuppliers.ts) agree.
+UPDATE suppliers SET is_active = 0 WHERE tenant_id = 1 AND provider = 'WHISH';
+
 -- v176 (LIRA-187): OMT is ONE open-credit account. Link 'iPick' and 'OMT App'
 -- to 'OMT' as its children, per tenant. Correlated UPDATE, not a fixed id —
 -- matches migration v176's runtime seed exactly so a fresh install and a
@@ -2449,4 +2455,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- the fresh table declaration above already carries that column
     -- directly, so a fresh DB needs no separate ALTER/backfill — same shape
     -- as v185/v186/v187's marker notes above.
-    (190, 'add_custom_services_work_status');
+    (190, 'add_custom_services_work_status'),
+    (191, 'backfill_system_suppliers');

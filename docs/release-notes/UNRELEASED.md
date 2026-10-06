@@ -37,6 +37,9 @@
 
 - OMT account on the Suppliers page: a new check shows what OMT's balance SMS should say (your
   balance minus the commission OMT already deducted). Type the SMS figures to see any difference.
+- Web app: shops created on the web now get OMT, iPick, Katsh, OMT App, Whish App and Loto Liban on
+  the Suppliers page, like desktop shops always had. Existing web shops get the missing ones added
+  automatically.
 
 ## 🧾 Transactions
 

@@ -6,6 +6,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { seedSystemSuppliers } from "../systemSuppliers.js";
 import { addSenderReceiverFieldsMigration } from "./add_sender_receiver_fields.js";
 import {
   deriveDaysCostLbp,
@@ -13193,6 +13194,61 @@ export const MIGRATIONS: Migration[] = [
 
       console.log(
         "Migration v190 rolled back: 'custom_services.work_status' dropped",
+      );
+    },
+  },  {
+    version: 191,
+    name: "backfill_system_suppliers",
+    description:
+      "Web-provisioned tenants never got the system suppliers (OMT, Whish, " +
+      "iPick, Katsh, OMT App, Whish App, Loto Liban): TenantRepository." +
+      "seedConfig skipped them as 'sample data', but the modules look them " +
+      "up by provider, so such a shop had no OMT account to settle against " +
+      "(test.liratek.shop, tenant 5, found 2026-10-06). seedConfig now seeds " +
+      "them; this backfills every existing tenant through the same helper " +
+      "(db/systemSuppliers.ts). Per tenant and per provider, insert-if-missing " +
+      "only: existing rows are never changed, so a deactivated supplier stays " +
+      "deactivated and a detached OMT-account child stays detached. A tenant " +
+      "that already has all seven (every desktop install, CornerTech) is a " +
+      "no-op. A provider whose NAME the tenant already uses for another " +
+      "supplier is skipped and logged per tenant — that shop still needs a " +
+      "manual fix. Fresh installs get the same rows from create_db.sql.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "suppliers") || !tableExists(db, "tenants")) {
+        console.log(
+          "Migration v191 skipped: 'suppliers' or 'tenants' table not present",
+        );
+        return;
+      }
+      const tenantIds = (
+        db.prepare(`SELECT id FROM tenants ORDER BY id`).all() as {
+          id: number;
+        }[]
+      ).map((t) => t.id);
+
+      let inserted = 0;
+      for (const tenantId of tenantIds) {
+        const result = seedSystemSuppliers(db, tenantId);
+        inserted += result.inserted;
+        if (result.skippedByName.length > 0) {
+          console.warn(
+            `Migration v191: tenant ${tenantId} NOT seeded for provider(s) ` +
+              `${result.skippedByName.join(", ")} — a supplier with that name ` +
+              `already exists without the provider; fix by hand`,
+          );
+        }
+      }
+      console.log(
+        `Migration v191: ${inserted} system supplier row(s) added across ` +
+          `${tenantIds.length} tenant(s)`,
+      );
+    },
+    down() {
+      // Not reversed: by rollback time a backfilled supplier may already
+      // carry ledger rows, and deleting it would orphan them.
+      console.log(
+        "Migration v191 rollback: no-op (backfilled suppliers are kept)",
       );
     },
   },
