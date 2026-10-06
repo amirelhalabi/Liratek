@@ -24,6 +24,7 @@ import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import type { SaveMaintenanceJobPayload } from "@liratek/core";
 
 // LIRA-176 phase 6 — a job's attached part line, as returned by getJobs.
 type JobPart = {
@@ -411,7 +412,9 @@ export default function Maintenance() {
     checkout?:
       | {
           exchange_rate: number;
-          payments: unknown[];
+          /** Typed from the core save schema (rule 21) — the adapter
+           *  rejects anything looser. */
+          payments: NonNullable<SaveMaintenanceJobPayload["payments"]>;
           paid_by: string;
           change_given_usd: number;
           change_given_lbp: number;
@@ -425,7 +428,7 @@ export default function Maintenance() {
         }
       | undefined;
     transactionTime?: string | undefined;
-  }) => {
+  }): SaveMaintenanceJobPayload => {
     const finalAmount =
       params.finalAmount ??
       computeFinalAmount(params.priorJob, params.price, params.currency);
@@ -439,7 +442,19 @@ export default function Maintenance() {
         ? { client_id: params.clientOverride.client_id }
         : {}),
       client_name: params.clientOverride?.client_name || params.clientName,
-      client_phone: params.clientOverride?.client_phone || params.clientPhone,
+      // LIRA-263: a reopened job's Phone field is pre-filled with the LINKED
+      // client's stored number, which other modules keep as free text
+      // ("03/123456" fails the save schema). Only send the phone when the
+      // operator actually changed it; an untouched one goes out blank — the
+      // backend keeps the job's client link from the unchanged name
+      // (MaintenanceService.saveJob) and stamps the client's stored phone on
+      // the transaction itself.
+      client_phone:
+        params.clientOverride?.client_phone ||
+        (params.priorJob &&
+        params.clientPhone === (params.priorJob.client_phone ?? "")
+          ? ""
+          : params.clientPhone),
       status: params.status,
       paid_usd: params.paidUsd ?? params.priorJob?.paid_usd ?? 0,
       paid_lbp: params.paidLbp ?? params.priorJob?.paid_lbp ?? 0,
@@ -500,7 +515,13 @@ export default function Maintenance() {
       currency: cur,
       status: newStatus,
       clientName: job.client_name || "",
-      clientPhone: job.client_phone || "",
+      // LIRA-263: a status change is not an edit of the client. The NAME is
+      // sent unchanged, which is what makes the backend keep the job's
+      // client link (MaintenanceService.saveJob). The phone is deliberately
+      // NOT re-sent: `job.client_phone` is the linked client's stored
+      // number, which other modules keep as free text, so re-sending it
+      // could fail the save on format alone ("Invalid phone number format").
+      clientPhone: "",
       priorJob: job,
       // No `parts` key — a status transition never touches parts.
     });
@@ -519,10 +540,7 @@ export default function Maintenance() {
       }
     } catch (err) {
       logger.error("Failed to change job status:", err);
-      alert(
-        "Error: " +
-          getApiErrorMessage(err, "Failed to update status"),
-      );
+      alert("Error: " + getApiErrorMessage(err, "Failed to update status"));
     }
   };
 

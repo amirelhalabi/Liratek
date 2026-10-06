@@ -41,10 +41,22 @@ export const saveMaintenanceJobSchema = z.object({
   // normalizer, note #13) BEFORE the regex check, via `.transform().pipe(...)`
   // — an empty string / undefined pass through unchanged (falsy guard below),
   // so `optionalPhoneNumberSchema`'s blank/omitted cases are untouched.
+  //
+  // LIRA-263: a reopened job now pre-fills its Phone field from the linked
+  // client's stored `phone_number` (MaintenanceRepository.getJobs), and
+  // other modules store that number as free text — so the value coming back
+  // can carry formatting `normalizeLineNumber` leaves alone (it returns
+  // anything that isn't a 7/8-digit Lebanese local number unchanged, spaces
+  // and all: "961 70 123 456", "+44 20 7946 0958", "(03) 123456"). Strip
+  // spaces, dashes, dots and brackets afterwards so formatting alone never
+  // makes a resave of that job fail "Invalid phone number format". Digits
+  // and a leading "+" are untouched; anything else still fails the regex.
   client_phone: z
     .string()
     .optional()
-    .transform((v) => (v ? normalizeLineNumber(v) : v))
+    .transform((v) =>
+      v ? normalizeLineNumber(v).replace(/[\s\-.()]/g, "") : v,
+    )
     .pipe(optionalPhoneNumberSchema),
   issue_description: z.string().max(1000).optional(),
   cost_usd: z.number().min(0).optional(),
@@ -96,6 +108,13 @@ export const getMaintenanceStatusHistorySchema = z.object({
 });
 
 export type SaveMaintenanceJobInput = z.infer<typeof saveMaintenanceJobSchema>;
+/** What a caller SENDS to `maintenance:save` / `POST /api/maintenance/jobs`
+ *  (pre-parse, so defaulted keys are optional) — the adapter payload type
+ *  (CLAUDE.md rule 21). Type-only, reachable from `browser.ts` via
+ *  `validators/index.ts` (rule 29). */
+export type SaveMaintenanceJobPayload = z.input<
+  typeof saveMaintenanceJobSchema
+>;
 export type GetMaintenanceJobsInput = z.infer<typeof getMaintenanceJobsSchema>;
 export type GetMaintenanceStatusHistoryInput = z.infer<
   typeof getMaintenanceStatusHistorySchema

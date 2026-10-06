@@ -175,6 +175,29 @@ export const TRANSACTION_PRESENTATION: Record<
 
   // ── Outflows ──────────────────────────────────────────────────────────
   EXPENSE: { label: null, color: "text-red-400", direction: "out" },
+  // LIRA-262 — "the shop used its own stock": an expense at cost. Owner
+  // decision 2026-10-06: badge reads OUT (value left the shop — out of stock
+  // or a provider's prepaid balance), even though no cash drawer moves.
+  EXPENSE_INVENTORY: {
+    label: "Expense · Stock",
+    color: "text-red-400",
+    direction: "out",
+  },
+  EXPENSE_KATSH: {
+    label: "Expense · Katsh",
+    color: "text-red-400",
+    direction: "out",
+  },
+  EXPENSE_IPICK: {
+    label: "Expense · iPick",
+    color: "text-red-400",
+    direction: "out",
+  },
+  EXPENSE_WHISH_APP: {
+    label: "Expense · Whish App",
+    color: "text-red-400",
+    direction: "out",
+  },
 
   // ── Drawer adjustments ────────────────────────────────────────────────
   // External (Cash In) mode is "in" (new money from outside); From-Drawer

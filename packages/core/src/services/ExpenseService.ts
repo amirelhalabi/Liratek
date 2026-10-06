@@ -4,6 +4,7 @@ import {
   CreateExpenseData,
   getExpenseRepository,
 } from "../repositories/ExpenseRepository.js";
+import type { CreateStockExpenseData } from "../validators/expense.js";
 import { toErrorString } from "../utils/errors.js";
 import { expenseLogger } from "../utils/logger.js";
 
@@ -25,15 +26,7 @@ export class ExpenseService {
    */
   addExpense(data: CreateExpenseData, userId: number): ExpenseResult {
     try {
-      if (data.transaction_time) {
-        const txTime = new Date(data.transaction_time);
-        if (isNaN(txTime.getTime())) {
-          throw new Error("Invalid transaction_time format");
-        }
-        if (txTime > new Date()) {
-          throw new Error("transaction_time cannot be in the future");
-        }
-      }
+      assertTransactionTime(data.transaction_time);
 
       const id = this.repo.createExpense(data, userId);
 
@@ -50,6 +43,38 @@ export class ExpenseService {
       return { success: true, id };
     } catch (error) {
       expenseLogger.error({ error, data }, "ExpenseService.addExpense error");
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
+  /**
+   * LIRA-262 — record that the shop used one of its own items (inventory
+   * product, or Katsh / iPick / Whish App catalog item) as an expense at
+   * cost, with no cash leaving any cash drawer. The ONE core entry point
+   * both transports call (IPC `expenses:add-stock-use`, REST
+   * `POST /api/expenses/stock-use`).
+   */
+  addStockExpense(data: CreateStockExpenseData, userId: number): ExpenseResult {
+    try {
+      assertTransactionTime(data.transaction_time);
+
+      const id = this.repo.createStockExpense(data, userId);
+
+      expenseLogger.info(
+        {
+          id,
+          source: data.source,
+          itemId: data.item_id,
+          quantity: data.quantity,
+        },
+        `Added stock-use expense: ${data.source}`,
+      );
+      return { success: true, id };
+    } catch (error) {
+      expenseLogger.error(
+        { error, data },
+        "ExpenseService.addStockExpense error",
+      );
       return { success: false, error: toErrorString(error) };
     }
   }
@@ -136,6 +161,18 @@ export class ExpenseService {
     );
 
     return { success: true, entity: updated, oldValues };
+  }
+}
+
+/** Shared backdate check for both expense writers. */
+function assertTransactionTime(transactionTime: string | undefined): void {
+  if (!transactionTime) return;
+  const txTime = new Date(transactionTime);
+  if (isNaN(txTime.getTime())) {
+    throw new Error("Invalid transaction_time format");
+  }
+  if (txTime > new Date()) {
+    throw new Error("transaction_time cannot be in the future");
   }
 }
 

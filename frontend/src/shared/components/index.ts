@@ -12,6 +12,8 @@ export { ErrorBoundary } from "./ErrorBoundary";
 export { ExportBar } from "./ExportBar";
 export type { ExportBarProps, ExportableTableProps } from "./ExportBar";
 export { EditHistoryPopover } from "./EditHistoryPopover";
+export { PriceChangeWarning } from "./PriceChangeWarning";
+export type { PriceChangeWarningProps } from "./PriceChangeWarning";
 
 // Default re-exports (these components use `export default`)
 export { default as PasswordInput } from "./PasswordInput";

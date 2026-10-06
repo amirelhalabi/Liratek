@@ -378,6 +378,12 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       { label: "Custom Service", type: "CUSTOM_SERVICE" },
       { label: "Maintenance", type: "MAINTENANCE" },
       { label: "Expense", type: "EXPENSE" },
+      // LIRA-262 — "the shop used its own stock" expenses, one type per
+      // source. Manual (never is_auto), so visible by default too.
+      { label: "Expense · Stock", type: "EXPENSE_INVENTORY" },
+      { label: "Expense · Katsh", type: "EXPENSE_KATSH" },
+      { label: "Expense · iPick", type: "EXPENSE_IPICK" },
+      { label: "Expense · Whish App", type: "EXPENSE_WHISH_APP" },
       { label: "Debt Repayment", type: "DEBT_REPAYMENT" },
       // LIRA-080: the paper (no-cash) Accounts-page "Add Credit / Debt" entry.
       // Its cash-moved siblings (CREDIT_CASH_IN/DEBT_CASH_OUT) have no filter
@@ -428,6 +434,12 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   "CUSTOM_SERVICE",
   "MAINTENANCE",
   "EXPENSE",
+  // LIRA-262 — reversible via the generic void/refund (provider leg via
+  // _reversePayments, expense soft-void, inventory restoreExpenseStock).
+  "EXPENSE_INVENTORY",
+  "EXPENSE_KATSH",
+  "EXPENSE_IPICK",
+  "EXPENSE_WHISH_APP",
   "DEBT_REPAYMENT",
   "SUPPLIER_PAYMENT",
   // LIRA-085: PARTNER_SETTLEMENT/PARTNER_PAYMENT/SUPPLIER_SETTLEMENT moved

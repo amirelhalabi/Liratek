@@ -13295,6 +13295,80 @@ export const MIGRATIONS: Migration[] = [
       ).run();
     },
   },
+  {
+    version: 193,
+    name: "expense_stock_use",
+    description:
+      "LIRA-262 (owner decision 2026-10-06) — an expense can now record that " +
+      "the shop USED one of its own items: an inventory product (leaves stock " +
+      "at FIFO cost) or a Katsh / iPick / Whish App catalog item (leaves the " +
+      "provider's prepaid drawer at cost). Adds expenses.item_source / " +
+      "item_id / item_quantity (which item, how many — NULL on every ordinary " +
+      "expense) and expenses.stock_restored (idempotency guard so a reversed " +
+      "inventory expense returns its units exactly once, same role as " +
+      "maintenance_parts.stock_restored). Adds stock_batch_consumptions" +
+      ".expense_id, the batch-consumption owner column for an inventory " +
+      "expense, same shape as sale_item_id/custom_service_id/" +
+      "maintenance_part_id, so the generic void/refund can give the units " +
+      "back to the exact batches they came from. stock_batch_consumptions" +
+      ".reason stays 'ADJUSTMENT' for these rows — altering that CHECK needs " +
+      "a full table rebuild and expense_id already identifies the source. " +
+      "Applies from now on only; no existing row changes.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (tableExists(db, "expenses")) {
+        if (!columnExists(db, "expenses", "item_source")) {
+          db.exec(
+            `ALTER TABLE expenses ADD COLUMN item_source TEXT DEFAULT NULL;`,
+          );
+        }
+        if (!columnExists(db, "expenses", "item_id")) {
+          db.exec(
+            `ALTER TABLE expenses ADD COLUMN item_id INTEGER DEFAULT NULL;`,
+          );
+        }
+        if (!columnExists(db, "expenses", "item_quantity")) {
+          db.exec(
+            `ALTER TABLE expenses ADD COLUMN item_quantity INTEGER DEFAULT NULL;`,
+          );
+        }
+        if (!columnExists(db, "expenses", "stock_restored")) {
+          db.exec(
+            `ALTER TABLE expenses ADD COLUMN stock_restored INTEGER NOT NULL DEFAULT 0;`,
+          );
+        }
+      }
+      if (tableExists(db, "stock_batch_consumptions")) {
+        if (!columnExists(db, "stock_batch_consumptions", "expense_id")) {
+          db.exec(
+            `ALTER TABLE stock_batch_consumptions ADD COLUMN expense_id INTEGER REFERENCES expenses(id) ON DELETE SET NULL;`,
+          );
+        }
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_expense
+             ON stock_batch_consumptions(tenant_id, expense_id)`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      db.exec(
+        `DROP INDEX IF EXISTS idx_stock_batch_consumptions_tenant_expense`,
+      );
+      if (columnExists(db, "stock_batch_consumptions", "expense_id")) {
+        db.exec(`ALTER TABLE stock_batch_consumptions DROP COLUMN expense_id;`);
+      }
+      for (const col of [
+        "stock_restored",
+        "item_quantity",
+        "item_id",
+        "item_source",
+      ]) {
+        if (columnExists(db, "expenses", col)) {
+          db.exec(`ALTER TABLE expenses DROP COLUMN ${col};`);
+        }
+      }
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

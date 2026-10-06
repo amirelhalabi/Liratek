@@ -37,6 +37,7 @@ import {
 } from "../../db/tenantContext";
 import { resetSupplierRepository } from "../SupplierRepository";
 import { resetPaymentMethodRepository } from "../PaymentMethodRepository";
+import { expectPostings, snapshotLedgers } from "../testHelpers/postingAssert";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
 
@@ -536,5 +537,121 @@ describe("BUG 3 repro — refund of a cost/price-flow financial service (price=1
       .prepare("SELECT profit_usd FROM transactions WHERE id = ?")
       .get(refundId) as { profit_usd: number };
     expect(refundProfit.profit_usd).toBeCloseTo(-2, 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// LIRA-259 (owner 2026-10-06, Katsh page): a 450,000 LBP card paid with $6
+// cash at the till's 80,000 rate ($5.625 owed, 30,000 LBP change due); the
+// cashier hands back only 10,000 LBP and keeps the rest.
+//
+// The repository was already right — this pins it from both sides with the
+// EXACT payload KatchForm builds (rule 17 disclosure: characterization, not
+// proven failing-first; the failing-first guards are the frontend tests
+// MultiPaymentInput.underReturnKept / KatchForm.underReturnKept):
+//   - without kept change (what the form sent before the fix) the legs do
+//     not reconcile and NOTHING is written;
+//   - with the un-returned $0.25 as kept change (what it sends now) the sale
+//     books, the drawer moves +$6 / −10,000 LBP, profit includes the kept
+//     $0.25, and a void nets every ledger back to zero (rule 20).
+// ─────────────────────────────────────────────────────────────────────────
+describe("LIRA-259 — Katsh card, $6 paid, only 10,000 of 30,000 LBP change returned", () => {
+  let db: Database.Database;
+  let fsRepo: FinancialServiceRepository;
+  let txnRepo: TransactionRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    resetSupplierRepository();
+    resetTransactionRepository();
+    resetPaymentMethodRepository();
+    fsRepo = new FinancialServiceRepository();
+    txnRepo = new TransactionRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+    resetSupplierRepository();
+    resetTransactionRepository();
+    resetPaymentMethodRepository();
+  });
+
+  /** The single payload KatchForm.handleSubmit sends for one card. */
+  function katshCheckout(kept?: { usd: number; lbp: number }) {
+    return fsRepo.createTransaction({
+      provider: "Katsh",
+      serviceType: "SEND",
+      amount: 450000,
+      cost: 400000,
+      currency: "LBP",
+      commission: 50000,
+      paidByMethod: "CASH",
+      payments: [
+        { method: "CASH", currencyCode: "USD", amount: 6 },
+        { method: "CASH", currencyCode: "LBP", amount: 10000, direction: "OUT" },
+      ],
+      checkoutTotal: { usd: 0, lbp: 450000 },
+      tender_exchange_rate: 80000,
+      ...(kept
+        ? { kept_change_usd: kept.usd, kept_change_lbp: kept.lbp }
+        : {}),
+    });
+  }
+
+  it("WHY it failed: without kept change the legs are $0.25 over the price — rejected, nothing written", () => {
+    const before = snapshotLedgers(db);
+    const txnsBefore = (
+      db.prepare("SELECT COUNT(*) AS n FROM transactions").get() as {
+        n: number;
+      }
+    ).n;
+
+    expect(() => katshCheckout()).toThrow(
+      "Katsh SEND checkout: payment legs do not reconcile — expected $5.63 USD-equivalent ($0.00 + 450,000 LBP), got $5.88 USD-equivalent (IN $6.00, OUT $0.13, kept $0.00), diff $0.25 at rate 80000",
+    );
+
+    expectPostings(before, snapshotLedgers(db), {});
+    expect(
+      (
+        db.prepare("SELECT COUNT(*) AS n FROM transactions").get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(txnsBefore);
+  });
+
+  it("FIXED payload: kept $0.25 reconciles — drawer +$6 / −10,000 LBP, profit includes the kept change, void nets to 0", () => {
+    const before = snapshotLedgers(db);
+
+    const { id: fsId } = katshCheckout({ usd: 0.25, lbp: 0 });
+
+    expectPostings(before, snapshotLedgers(db), {
+      drawers: {
+        "General|USD": 6,
+        "General|LBP": -10000,
+        "Katsh|LBP": -400000,
+      },
+    });
+
+    const txnId = txnIdForFsRow(db, fsId);
+    const sale = db
+      .prepare("SELECT profit_usd, profit_lbp FROM transactions WHERE id = ?")
+      .get(txnId) as { profit_usd: number; profit_lbp: number };
+    // Margin 50,000 LBP + the kept $0.25 (≈ 20,000 LBP at 80,000).
+    expect(sale.profit_lbp).toBeCloseTo(50000, 2);
+    expect(sale.profit_usd).toBeCloseTo(0.25, 6);
+
+    const refundId = txnRepo.refundTransaction(txnId, 1);
+    expectPostings(before, snapshotLedgers(db), {});
+    const refund = db
+      .prepare("SELECT profit_usd, profit_lbp FROM transactions WHERE id = ?")
+      .get(refundId) as { profit_usd: number; profit_lbp: number };
+    expect(refund.profit_lbp).toBeCloseTo(-50000, 2);
+    expect(refund.profit_usd).toBeCloseTo(-0.25, 6);
   });
 });

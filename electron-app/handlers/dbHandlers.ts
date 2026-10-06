@@ -20,6 +20,7 @@ import { requireRole, hasProfitsUnlock } from "../session.js";
 import { audit } from "./auditHelper.js";
 import {
   AddExpenseSchema,
+  CreateStockExpenseSchema,
   ExpenseUpdateMetadataSchema,
   DailyStatsSnapshotQuerySchema,
   validatePayload,
@@ -138,6 +139,34 @@ export function registerDatabaseHandlers(): void {
       return result;
     },
   );
+
+  // LIRA-262 — the shop used one of its own items (inventory product, or a
+  // Katsh / iPick / Whish App catalog item): an expense at cost, no cash
+  // moves. Same role gate as db:add-expense (admin + staff), core schema
+  // shared with POST /api/expenses/stock-use (rule 19b).
+  ipcMain.handle("expenses:add-stock-use", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(CreateStockExpenseSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = expenseService.addStockExpense(v.data, auth.userId);
+    if (result.success) {
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "expense",
+        entity_id: result.id != null ? String(result.id) : undefined,
+        summary: `Recorded shop use: ${v.data.quantity} × ${v.data.source} item #${v.data.item_id}`,
+        metadata: {
+          source: v.data.source,
+          item_id: v.data.item_id,
+          quantity: v.data.quantity,
+        },
+      });
+    }
+    return result;
+  });
 
   // Get Today's Expenses
   ipcMain.handle("db:get-today-expenses", () => {

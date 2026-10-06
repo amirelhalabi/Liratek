@@ -729,3 +729,57 @@ describe("v160 — max_returned_credits_usd override", () => {
     await waitFor(() => expect(creditsInput()).toHaveValue(73));
   });
 });
+
+// LIRA-260 — editing the Only-Days price away from the catalog's saved
+// sell_days_lbp shows the shared amber warning (both prices); restoring the
+// catalog price hides it; the sale still submits at the edited price.
+// Rule 17: NOT proven failing-first — the KatchForm wiring was written before
+// this case (the failing-first proofs for LIRA-260 are the component test and
+// TelecomForm.priceChangeWarning.test.tsx).
+describe("Only-Days price-change warning (LIRA-260)", () => {
+  beforeEach(() => {
+    mockAddOMTTransaction.mockClear();
+    mockCatalogRows.length = 0;
+    mockGetAllSettings.mockClear();
+    mockGetAllSettings.mockResolvedValue([]);
+  });
+
+  it("edit days price -> warning with catalog vs new; restore -> gone; sale not blocked", async () => {
+    mockCatalogRows.push({
+      id: 201,
+      sell_days_lbp: 250_000,
+      sell_credit_lbp: 120_000,
+    });
+    renderWithItem(ITEM_WITH_DAYS_PRICE);
+    await addItemToCart("10");
+    await enableOnlyDays();
+
+    const daysPriceInput = await screen.findByRole("textbox", {
+      name: "Only-Days price",
+    });
+    await waitFor(() => expect(daysPriceInput).toHaveValue("250,000"));
+    expect(screen.queryByTestId("price-change-warning")).not.toBeInTheDocument();
+
+    fireEvent.change(daysPriceInput, { target: { value: "200000" } });
+    expect(await screen.findByTestId("price-change-warning")).toHaveTextContent(
+      `catalog ${(250_000).toLocaleString()} LBP → ${(200_000).toLocaleString()} LBP`,
+    );
+
+    fireEvent.change(daysPriceInput, { target: { value: "250000" } });
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("price-change-warning"),
+      ).not.toBeInTheDocument(),
+    );
+
+    fireEvent.change(daysPriceInput, { target: { value: "200000" } });
+    await screen.findByTestId("price-change-warning");
+    await openSheet();
+    await submitWithCash();
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.amount).toBe(200_000);
+  });
+});

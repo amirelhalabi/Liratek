@@ -278,7 +278,11 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.addOMTTransaction({});
 
     await apiMod.getMaintenanceJobs();
-    await apiMod.saveMaintenanceJob({});
+    // Transport routing only — the payload is typed from the core schema
+    // since LIRA-263 (rule 21), so an empty stub needs a cast.
+    await apiMod.saveMaintenanceJob(
+      {} as Parameters<typeof apiMod.saveMaintenanceJob>[0],
+    );
     await apiMod.deleteMaintenanceJob(1);
 
     await apiMod.getCurrencies();

@@ -23,6 +23,14 @@ import {
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
+    -- LIRA-263: getJobs() reads the linked client's phone from clients.
+    CREATE TABLE clients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      full_name TEXT NOT NULL,
+      phone_number TEXT
+    );
+
     CREATE TABLE maintenance (
       id                INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id         INTEGER,

@@ -433,11 +433,20 @@ export default function Exchange() {
   const fromIsLotTracked = !!fromCurrency && isLotTrackedCurrency(fromCurrency);
   const toIsLotTracked = !!toCurrency && isLotTrackedCurrency(toCurrency);
 
-  // Set initial currencies once loaded
+  // Set initial currencies once loaded. Owner default (LIRA-261): the page
+  // opens on USD → LBP whenever both are active; otherwise fall back to the
+  // first two active currencies. There is no remembered pair — this runs on
+  // every mount.
   useEffect(() => {
     if (currencies.length >= 2 && !fromCurrency && !toCurrency) {
-      setFromCurrency(currencies[0].code);
-      setToCurrency(currencies[1].code);
+      const codes = currencies.map((c) => c.code);
+      if (codes.includes("USD") && codes.includes("LBP")) {
+        setFromCurrency("USD");
+        setToCurrency("LBP");
+      } else {
+        setFromCurrency(currencies[0].code);
+        setToCurrency(currencies[1].code);
+      }
     }
   }, [currencies, fromCurrency, toCurrency]);
 

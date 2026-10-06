@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { DecimalInput } from "./DecimalInput";
+import { formatWithCommas } from "../../utils/number";
 import { roundLBPUp } from "../../config/denominations";
 import {
   allocatePayments,
@@ -248,6 +249,13 @@ export interface MultiPaymentInputProps {
    *  owed is a mistake to fix, never change to return or profit to keep —
    *  and no OUT legs are ever emitted. Still OPT-IN via `onKeptChange`. */
   direction?: "payment" | "payout";
+  /** LIRA-259 (owner 2026-10-06) — OPT-IN, requires `onKeptChange`. When the
+   *  cashier returns LESS cash change than is due without tapping "Keep
+   *  change" (e.g. 10,000 of 30,000 LBP), the un-returned part is reported
+   *  through `onKeptChange` as kept change (profit) instead of leaving an
+   *  under-covered return the server's leg reconciliation rejects. Only for
+   *  consumers whose backend books `kept_change_*` on the same payload. */
+  keepUnreturnedChange?: boolean;
 }
 
 /** Delay before the auto-added debt remainder visually flips the sheet into
@@ -309,6 +317,7 @@ export default function MultiPaymentInput({
   counterFlow,
   allowSplit = true,
   direction = "payment",
+  keepUnreturnedChange = false,
 }: MultiPaymentInputProps) {
   const isPayout = direction === "payout";
   // Seeded lines are captured once — the prop is read at mount only.
@@ -1213,6 +1222,29 @@ export default function MultiPaymentInput({
     setReturnAmountLBP(raw);
   };
 
+  // LIRA-264 (owner 2026-10-06) — "All in $" / "All in LBP": one tap puts
+  // the WHOLE change due in one currency and zeroes the other field. The
+  // rounding reuses the change seed's own rules above (rule 14 — no new
+  // rule): USD to cents; LBP converted from a USD change rounds UP to the
+  // smallest LBP note (`roundLBPUp`, the smart-split remainder rule); an
+  // LBP-denominated change is already exact LBP (`Math.round`, the LBP
+  // seed rule). Writes only the two fields — the OUT legs derive from them
+  // exactly as for typed input.
+  const handleReturnAllUSD = () => {
+    const usd = convertSafe(overpaidTarget, totalAmountCurrency, "USD");
+    setReturnAmountUSD(usd.toFixed(2));
+    setReturnAmountLBP("0");
+  };
+
+  const handleReturnAllLBP = () => {
+    const lbp =
+      totalAmountCurrency === "LBP"
+        ? Math.round(overpaidTarget)
+        : roundLBPUp(convertSafe(overpaidTarget, totalAmountCurrency, "LBP"));
+    setReturnAmountUSD("0");
+    setReturnAmountLBP(String(lbp));
+  };
+
   /** Convert a value from totalAmountCurrency into an arbitrary currency. */
   const convertFromTarget = (v: number, toCurrency: string): number =>
     convertSafe(v, totalAmountCurrency, toCurrency);
@@ -1245,7 +1277,40 @@ export default function MultiPaymentInput({
     effectiveReturnMethod === "CASH" && isOverpaid && !keepChange
       ? returnTotalInTargetCurrency - overpaidTarget
       : 0;
-  const hasReturnMismatch = Math.abs(returnMismatch) > matchTolerance;
+  // LIRA-264 — an over-return that the change rounding rules themselves
+  // produce is not a mismatch: an LBP field holding a whole number of the
+  // smallest note (`roundLBPUp`, as the smart-split seed and "All in LBP"
+  // write it) may exceed the exact change by less than one note, and a
+  // cents-rounded USD figure by half a cent. Without this, the smart-split
+  // seed ($4 + 70,000 LBP for $4.73) and the one-tap autofill buttons
+  // immediately flagged their own output. An UNDER-return is always
+  // flagged, and anything past these bounds is still a real over-return.
+  const lbpNoteRounded =
+    parsedReturnLBP > 0 && roundLBPUp(parsedReturnLBP) === parsedReturnLBP;
+  const roundingOverAllowance =
+    (lbpNoteRounded ? convertSafe(5000, "LBP", totalAmountCurrency) : 0) +
+    (parsedReturnUSD > 0 ? convertSafe(0.005, "USD", totalAmountCurrency) : 0);
+  const hasReturnMismatch =
+    returnMismatch > 0
+      ? returnMismatch > matchTolerance + roundingOverAllowance
+      : -returnMismatch > matchTolerance;
+  // LIRA-259 — opt-in (`keepUnreturnedChange`): a CASH return that covers
+  // LESS than the change due, without the keep-change toggle, keeps the rest
+  // as profit. The OUT legs stay exactly what was typed; the shortfall is
+  // reported as kept change (computed with the keep-change math below), and
+  // the red "not covered" warning gives way to the "Keeping … as profit"
+  // summary. An OVER-return is still a mistake and still flagged.
+  const underReturnKept =
+    keepUnreturnedChange &&
+    !!onKeptChange &&
+    effectiveReturnMethod === "CASH" &&
+    isOverpaid &&
+    !keepChange &&
+    hasReturnMismatch &&
+    returnMismatch < 0;
+  // Either keep-change mode — the toggle (T3/LIRA-084) or the opt-in
+  // under-return (LIRA-259) — computes the kept amount the same way.
+  const keepActive = keepChange || underReturnKept;
 
   // Array of shop→customer change legs (up to 2 for CASH, 0-1 for non-CASH).
   const suggestedReturnLegs: PaymentLine[] = (() => {
@@ -1300,7 +1365,7 @@ export default function MultiPaymentInput({
   // change per currency, a ceiling the operator can partially return
   // against (below), not automatically the whole kept amount.
   const { keptUsd: fullKeptUsd, keptLbp: fullKeptLbp, keptUsdExact: fullKeptUsdExact, keptLbpExact: fullKeptLbpExact } = (() => {
-    if (!keepChange)
+    if (!keepActive)
       return { keptUsd: 0, keptLbp: 0, keptUsdExact: 0, keptLbpExact: 0 };
     const allocationInput = {
       totals: effectiveTotals,
@@ -1346,11 +1411,38 @@ export default function MultiPaymentInput({
   // so there is nothing left to "keep" there: crediting a customer's
   // account already IS the non-profit destination the owner asked for, no
   // separate plumbing needed.
-  const keepChangeReturnUSD = keepChange
-    ? Math.min(Math.max(0, parsedReturnUSD), fullKeptUsd)
+  //
+  // LIRA-259 — the ceiling is the WHOLE change expressed in the field's
+  // currency, not just the change tendered in that currency: a customer who
+  // paid $6 for a 450,000 LBP card is owed 30,000 LBP of change although the
+  // drawer received no LBP. The old per-currency clamp (`min(typed,
+  // fullKeptLbp)` = 0) silently dropped the cashier's 10,000 LBP OUT leg,
+  // so the drawer never recorded the cash that left it.
+  const wholeChangeUsdExact =
+    fullKeptUsdExact + convertSafe(fullKeptLbpExact, "LBP", "USD");
+  const maxReturnUSD = Math.max(
+    fullKeptUsd,
+    Number(wholeChangeUsdExact.toFixed(2)),
+  );
+  const keepChangeReturnUSD = keepActive
+    ? Math.min(Math.max(0, parsedReturnUSD), maxReturnUSD)
     : 0;
-  const keepChangeReturnLBP = keepChange
-    ? Math.min(Math.max(0, parsedReturnLBP), fullKeptLbp)
+  // The ceiling is JOINT: the LBP field may only return what is left of the
+  // whole change after the USD field's return, so the two fields together
+  // can never hand back more than the customer overpaid (LIRA-084's "a typo
+  // can never return more than the drawer received").
+  const maxReturnLBP = Math.max(
+    keepChangeReturnUSD <= fullKeptUsd ? fullKeptLbp : 0,
+    Math.round(
+      convertSafe(
+        Math.max(0, wholeChangeUsdExact - keepChangeReturnUSD),
+        "USD",
+        "LBP",
+      ),
+    ),
+  );
+  const keepChangeReturnLBP = keepActive
+    ? Math.min(Math.max(0, parsedReturnLBP), maxReturnLBP)
     : 0;
   // True while keep-change is active and nothing has been typed into the
   // return fields yet — i.e. the default the toggle lands on, and the only
@@ -1396,26 +1488,59 @@ export default function MultiPaymentInput({
   // MINUS whatever was actually (and validly) returned above. Each currency
   // reduces independently, so returning all the LBP while keeping all the
   // USD (or any other split) works exactly as typed.
-  const keptUsd = keepChange
-    ? Math.max(0, Number((fullKeptUsd - keepChangeReturnUSD).toFixed(2)))
+  //
+  // LIRA-259 — a return in the OTHER currency (10,000 LBP handed back from a
+  // dollar tender) is no longer dropped: whatever a field returns beyond the
+  // change tendered in its own currency is converted and taken off the other
+  // currency's kept amount. Kept change stays in the TENDER currency (see the
+  // lira-107 note above): $6 for 450,000 LBP, 10,000 LBP returned → kept
+  // $0.25, not 20,000 LBP. Same-currency returns keep the exact pre-LIRA-259
+  // arithmetic and rounding.
+  const crossReturnUsd = keepActive
+    ? Math.max(0, keepChangeReturnUSD - fullKeptUsdExact) +
+      convertSafe(
+        Math.max(0, keepChangeReturnLBP - fullKeptLbpExact),
+        "LBP",
+        "USD",
+      )
     : 0;
-  const keptLbp = keepChange
-    ? Math.max(0, Math.round(fullKeptLbp - keepChangeReturnLBP))
+  const keptUsdExactSame = Math.max(
+    0,
+    fullKeptUsdExact - Math.min(keepChangeReturnUSD, fullKeptUsdExact),
+  );
+  const keptLbpExactSame = Math.max(
+    0,
+    fullKeptLbpExact - Math.min(keepChangeReturnLBP, fullKeptLbpExact),
+  );
+  const crossFromUsd = Math.min(keptUsdExactSame, crossReturnUsd);
+  const keptUsdExact = keepActive ? keptUsdExactSame - crossFromUsd : 0;
+  const keptLbpExact = keepActive
+    ? Math.max(
+        0,
+        keptLbpExactSame -
+          convertSafe(crossReturnUsd - crossFromUsd, "USD", "LBP"),
+      )
     : 0;
-  const keptUsdExact = keepChange
-    ? Math.max(0, fullKeptUsdExact - keepChangeReturnUSD)
-    : 0;
-  const keptLbpExact = keepChange
-    ? Math.max(0, fullKeptLbpExact - keepChangeReturnLBP)
-    : 0;
-  const keptKey = keepChange
+  // Half a cent: below that it is float dust from the cents rounding.
+  const hasCrossReturn = crossReturnUsd > 0.005;
+  const keptUsd = !keepActive
+    ? 0
+    : hasCrossReturn
+      ? Math.max(0, Number(keptUsdExact.toFixed(2)))
+      : Math.max(0, Number((fullKeptUsd - keepChangeReturnUSD).toFixed(2)));
+  const keptLbp = !keepActive
+    ? 0
+    : hasCrossReturn
+      ? Math.max(0, Math.round(keptLbpExact))
+      : Math.max(0, Math.round(fullKeptLbp - keepChangeReturnLBP));
+  const keptKey = keepActive
     ? `${keptUsd}:${keptLbp}:${keptUsdExact}:${keptLbpExact}`
     : "off";
   useEffect(() => {
     // Payout mode reports through the payout keep-change effect above.
     if (isPayout) return;
     onKeptChange?.(
-      keepChange
+      keepActive
         ? {
             usd: keptUsd,
             lbp: keptLbp,
@@ -1439,18 +1564,42 @@ export default function MultiPaymentInput({
   const toDisplayCurrency = (v: number): number =>
     convertSafe(v, totalAmountCurrency, displayCurrency);
 
-  const fmtTarget = (v: number) => {
-    const abs = Math.abs(v);
-    const fixed = abs.toFixed(targetDecimals);
-    const parts = fixed.split(".");
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    const formatted = parts.join(".");
-    // Prefix symbols ($, €, £) go before the number, others (LBP) go after
-    if (["$", "€", "£"].includes(targetSymbol)) {
-      return `${targetSymbol}${formatted}`;
+  /** Format an absolute amount with a currency symbol. Thousands grouping
+   *  comes from the shared `formatWithCommas` (packages/ui utils/number.ts —
+   *  locale-independent, unlike toLocaleString). Prefix symbols ($, €, £)
+   *  go before the number, others (LBP) go after. */
+  const fmtWithSymbol = (v: number, symbol: string, decimals: number) => {
+    const formatted = formatWithCommas(Math.abs(v).toFixed(decimals));
+    if (["$", "€", "£"].includes(symbol)) {
+      return `${symbol}${formatted}`;
     }
-    return `${formatted} ${targetSymbol}`;
+    return `${formatted} ${symbol}`;
   };
+
+  const fmtTarget = (v: number) =>
+    fmtWithSymbol(v, targetSymbol, targetDecimals);
+
+  /** LIRA-264 (owner 2026-10-06) — an amount in totalAmountCurrency shown in
+   *  BOTH currencies, USD first then the LBP equivalent at the form's
+   *  effective rate, e.g. "$4.00 | 360,000 LBP" — regardless of the bill's
+   *  own currency. Separate spans so each figure stays individually
+   *  findable. Display-only: no note rounding (that belongs to the change
+   *  fields, not to an equivalent shown for reference). */
+  const renderDualAmount = (vTarget: number) => (
+    <>
+      <span>
+        {fmtWithSymbol(convertSafe(vTarget, totalAmountCurrency, "USD"), "$", 2)}
+      </span>
+      <span className="opacity-60">|</span>
+      <span>
+        {fmtWithSymbol(
+          Math.round(convertSafe(vTarget, totalAmountCurrency, "LBP")),
+          "LBP",
+          0,
+        )}
+      </span>
+    </>
+  );
 
   const toggleSplitMode = () => {
     if (isSplitMode) {
@@ -2223,11 +2372,10 @@ export default function MultiPaymentInput({
                 </button>
               )}
               <span
-                className={`font-mono font-bold ${payoutKeepActive ? "text-emerald-400" : "text-red-400"}`}
+                data-testid="remaining-amount"
+                className={`flex items-center gap-1 font-mono font-bold ${payoutKeepActive ? "text-emerald-400" : "text-red-400"}`}
               >
-                {fmtTarget(
-                  toDisplayCurrency(effectiveTotalInTarget - totalPaid),
-                )}
+                {renderDualAmount(effectiveTotalInTarget - totalPaid)}
               </span>
               {showWaiveButton && (
                 <button
@@ -2317,36 +2465,77 @@ export default function MultiPaymentInput({
               </div>
             </div>
 
+            {/* LIRA-264 — the change due, always in both currencies. */}
+            <div
+              data-testid="change-due"
+              className="flex items-center justify-between gap-2 text-[11px]"
+            >
+              <span className="text-amber-400/80">Change due</span>
+              <span className="flex items-center gap-1 font-mono font-semibold text-amber-300">
+                {renderDualAmount(overpaidTarget)}
+              </span>
+            </div>
+
             {/* CASH: dual USD + LBP editable fields */}
             {effectiveReturnMethod === "CASH" ? (
               <div className="flex gap-2">
-                <div className="flex-1 relative">
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
-                    $
-                  </span>
-                  <input
-                    data-testid="return-usd"
-                    type="text"
-                    inputMode="decimal"
-                    value={returnAmountUSD}
-                    onChange={(e) => handleReturnUSDChange(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
-                  />
+                <div className="flex-1">
+                  <div className="relative">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                      $
+                    </span>
+                    <input
+                      data-testid="return-usd"
+                      type="text"
+                      inputMode="decimal"
+                      value={returnAmountUSD}
+                      onChange={(e) => handleReturnUSDChange(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  {/* LIRA-264 — "All in $" / "All in LBP" autofill. Hidden
+                      while keep-change is active: the fields are then the
+                      partial-return input, and "return it all" is the
+                      keep-change toggle's own off state. */}
+                  {!keepChange && (
+                    <button
+                      type="button"
+                      data-testid="return-all-usd"
+                      onClick={handleReturnAllUSD}
+                      title="Give the whole change in dollars"
+                      className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
+                    >
+                      All in $
+                    </button>
+                  )}
                 </div>
-                <div className="flex-1 relative">
-                  <input
-                    data-testid="return-lbp"
-                    type="text"
-                    inputMode="numeric"
-                    value={returnAmountLBP}
-                    onChange={(e) => handleReturnLBPChange(e.target.value)}
-                    placeholder="0"
-                    className="w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
-                  />
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
-                    LBP
-                  </span>
+                <div className="flex-1">
+                  <div className="relative">
+                    <input
+                      data-testid="return-lbp"
+                      type="text"
+                      inputMode="numeric"
+                      value={returnAmountLBP}
+                      onChange={(e) => handleReturnLBPChange(e.target.value)}
+                      placeholder="0"
+                      className="w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                      LBP
+                    </span>
+                  </div>
+                  {!keepChange && (
+                    <button
+                      type="button"
+                      data-testid="return-all-lbp"
+                      onClick={handleReturnAllLBP}
+                      title="Give the whole change in LBP"
+                      className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
+                    >
+                      All in LBP
+                    </button>
+                  )}
                 </div>
               </div>
             ) : null}
@@ -2354,7 +2543,7 @@ export default function MultiPaymentInput({
             {/* LIRA-084 — live "keeping X / returning Y" summary while
                 keep-change is active, so the operator sees the partial
                 split's effect per currency before confirming. */}
-            {keepChange && (keptUsd > 0.005 || keptLbp > 1) && (
+            {keepActive && (keptUsd > 0.005 || keptLbp > 1) && (
               <p
                 data-testid="keep-change-summary"
                 className="text-[11px] text-emerald-400"
@@ -2377,7 +2566,9 @@ export default function MultiPaymentInput({
             never rewrite each other, so nothing else guarantees they still
             add up to the overpaid amount once the operator edits either one
             — flag it instead of silently over- or under-returning. */}
-            {effectiveReturnMethod === "CASH" && hasReturnMismatch && (
+            {effectiveReturnMethod === "CASH" &&
+              hasReturnMismatch &&
+              !underReturnKept && (
               <p
                 data-testid="return-mismatch-warning"
                 className="text-[11px] text-red-400 mt-1"

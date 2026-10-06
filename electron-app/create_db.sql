@@ -748,6 +748,16 @@ CREATE TABLE IF NOT EXISTS expenses (
     -- parent transaction (e.g. the recharge) is voided/refunded.
     source_ref_table TEXT DEFAULT NULL,
     source_ref_id INTEGER DEFAULT NULL,
+    -- Migration v193 (LIRA-262): an expense recording that the shop USED one
+    -- of its own items. item_source is INVENTORY / KATSH / IPICK / WHISH_APP,
+    -- item_id is products.id or mobile_service_items.id, item_quantity how
+    -- many (all NULL on an ordinary expense). stock_restored is the
+    -- idempotency guard so a reversed inventory expense returns its units
+    -- exactly once (same role as maintenance_parts.stock_restored).
+    item_source TEXT DEFAULT NULL,
+    item_id INTEGER DEFAULT NULL,
+    item_quantity INTEGER DEFAULT NULL,
+    stock_restored INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -1602,6 +1612,9 @@ CREATE TABLE IF NOT EXISTS stock_batch_consumptions (
   -- Migration v170: traces a part consumption back to the maintenance job that
   -- caused it, same shape as sale_item_id/custom_service_id above.
   maintenance_part_id INTEGER REFERENCES maintenance_parts(id) ON DELETE SET NULL,
+  -- Migration v193 (LIRA-262): traces a consumption back to the "shop used
+  -- its own stock" expense that caused it (reason stays 'ADJUSTMENT').
+  expense_id INTEGER REFERENCES expenses(id) ON DELETE SET NULL,
   product_id INTEGER NOT NULL REFERENCES products(id),
   quantity INTEGER NOT NULL,
   unit_cost_usd DECIMAL(10,2) NOT NULL,
@@ -1613,6 +1626,7 @@ CREATE TABLE IF NOT EXISTS stock_batch_consumptions (
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_sale_item ON stock_batch_consumptions(tenant_id, sale_item_id);
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_custom_service ON stock_batch_consumptions(tenant_id, custom_service_id);
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_maint_part ON stock_batch_consumptions(tenant_id, maintenance_part_id);
+CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_expense ON stock_batch_consumptions(tenant_id, expense_id);
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_batch ON stock_batch_consumptions(tenant_id, batch_id);
 
 -- Multi-tenancy indexes (high-volume tables)
@@ -2462,4 +2476,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v192 (LIRA-258) backfills existing 'Session Debt' rows'
     -- covered_usd/covered_lbp (a fresh DB has none) and adds
     -- idx_customer_session_transactions_unified, declared above.
-    (192, 'session_debt_repayment_coverage');
+    (192, 'session_debt_repayment_coverage'),
+    -- v193 (LIRA-262) adds expenses.item_source/item_id/item_quantity/
+    -- stock_restored and stock_batch_consumptions.expense_id (+ index),
+    -- all declared above.
+    (193, 'expense_stock_use');

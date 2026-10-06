@@ -6,6 +6,8 @@ import {
   clearImpersonationSession,
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
+// LIRA-263 — maintenance save payload derived from the core schema (rule 21).
+import type { SaveMaintenanceJobPayload } from "@liratek/core";
 import { messageFrom } from "./apiError";
 import { localDay } from "@/shared/utils/localDay";
 import type {
@@ -63,6 +65,8 @@ import type {
   LotoSellPayload,
   LotoCheckpointSettlePayload,
   LotoCheckpointsSettleBatchPayload,
+  // LIRA-262 — "shop used its own stock" expense payload (rule 21).
+  CreateStockExpenseInput,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -1907,6 +1911,23 @@ export async function deleteExpense(id: number) {
   );
 }
 
+// LIRA-262 — record that the shop used one of its own items (inventory
+// product, or a Katsh / iPick / Whish App catalog item) as an expense at
+// cost; no cash moves. Payload type is core's schema input (rule 21) — no
+// amount, the server derives the cost. Returns the write envelope.
+export async function addStockExpense(
+  payload: CreateStockExpenseInput,
+): Promise<{ success: boolean; id?: number; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().expenses.addStockUse(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/expenses/stock-use`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
 // Edit non-financial metadata (description/category/note) on an expense row
 // (the History modal's inline edit). Was a raw, unguarded
 // `window.api.expenses.updateMetadata()` call with no REST twin (rule 19a) —
@@ -1956,8 +1977,7 @@ export async function getProfitSalesChart(
   clientDay: string = localDay(),
 ): Promise<ChartDataPoint[]> {
   return ipcOrHttp(
-    async () =>
-      getElectronApi().dashboard.getProfitSalesChart(type, clientDay),
+    async () => getElectronApi().dashboard.getProfitSalesChart(type, clientDay),
     async () => {
       const qs = new URLSearchParams({ type, client_day: clientDay });
       const res = await requestJson<{
@@ -2493,7 +2513,7 @@ export async function getMaintenanceJobs(statusFilter?: string) {
   return res.jobs;
 }
 
-export async function saveMaintenanceJob(payload: any) {
+export async function saveMaintenanceJob(payload: SaveMaintenanceJobPayload) {
   if (isElectron()) {
     return (window as any).api.maintenance.save(payload);
   }
@@ -2730,7 +2750,8 @@ export async function getCarrierLineAdjustments(
   filters?: CarrierLineAdjustmentFilters,
 ) {
   return ipcOrHttp(
-    async () => getElectronApi().closing.getCarrierLineAdjustments(filters ?? {}),
+    async () =>
+      getElectronApi().closing.getCarrierLineAdjustments(filters ?? {}),
     async () => {
       const qs = new URLSearchParams();
       if (filters?.date_from) qs.set("date_from", filters.date_from);
@@ -2860,9 +2881,7 @@ export async function getSupplierLedger(supplierId: number, limit?: number) {
 
 // OMT open-credit account (LIRA-188) — read-only rollup across the account
 // parent (OMT) and its children (OMT App, iPick). No role gate.
-export async function getSupplierAccountBalances(): Promise<
-  AccountBalance[]
-> {
+export async function getSupplierAccountBalances(): Promise<AccountBalance[]> {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.getAccountBalances(),
     async () => {
@@ -2917,9 +2936,7 @@ export async function getSupplierAccountExpectedStatement(
 ): Promise<AccountExpectedStatement> {
   return ipcOrHttp(
     async () =>
-      getElectronApi().suppliers.getAccountExpectedStatement(
-        accountSupplierId,
-      ),
+      getElectronApi().suppliers.getAccountExpectedStatement(accountSupplierId),
     async () => {
       const res = await requestJson<{
         success: boolean;
@@ -3669,15 +3686,22 @@ export async function voidTransaction(id: number) {
  * from `row.exchange_rate` instead, a second definition of the rule (rule
  * 14). This closes that gap.
  */
-export async function getRefundBookedRate(transactionId: number): Promise<
+export async function getRefundBookedRate(
+  transactionId: number,
+): Promise<
   | { success: true; bookedRate: number; bookedRateSource: BookedRateSource }
   | { success: false; error?: string }
 > {
   return ipcOrHttp(
-    async () => getElectronApi().transactions.getRefundBookedRate(transactionId),
+    async () =>
+      getElectronApi().transactions.getRefundBookedRate(transactionId),
     async () =>
       requestJson<
-        | { success: true; bookedRate: number; bookedRateSource: BookedRateSource }
+        | {
+            success: true;
+            bookedRate: number;
+            bookedRateSource: BookedRateSource;
+          }
         | { success: false; error?: string }
       >(`/api/transactions/${transactionId}/refund-booked-rate`),
   );
@@ -3824,8 +3848,7 @@ export async function refundSessionBasketItem(
   | { success: false; error?: string }
 > {
   return ipcOrHttp(
-    async () =>
-      getElectronApi().transactions.refundSessionBasketItem(payload),
+    async () => getElectronApi().transactions.refundSessionBasketItem(payload),
     async () => {
       const { sessionId, ...body } = payload;
       return requestJson<
@@ -4021,7 +4044,9 @@ export async function getProfitModuleDetail(
       // Profits.tsx caller's own catch block show the real reason instead
       // of silently rendering `undefined` as an empty drill-down.
       if (!res.success) {
-        throw new Error(res.error || "Failed to load transactions for this module.");
+        throw new Error(
+          res.error || "Failed to load transactions for this module.",
+        );
       }
       return res.data;
     },

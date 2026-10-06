@@ -222,6 +222,10 @@ import {
   type SaleRefundPreviewInput,
   expenseUpdateMetadataSchema,
   type ExpenseUpdateMetadataInput,
+  // LIRA-262 — "shop used its own stock" expense, shared with
+  // POST /api/expenses/stock-use (rule 14/19b).
+  createStockExpenseSchema,
+  type CreateStockExpenseData,
   financialUpdateMetadataSchema,
   type FinancialUpdateMetadataInput,
   customServiceUpdateMetadataSchema,
@@ -443,7 +447,18 @@ export const AddExpenseSchema = z.object({
   amount_usd: z.number().nonnegative(),
   amount_lbp: z.number().nonnegative(),
   expense_date: z.string().min(8),
+  // G41: literal mirror of core's `transactionTimeSchema`
+  // (validators/common.ts) — without this key Zod stripped a backdated
+  // manual expense's time on desktop (rule 23). Same literal-mirror pattern
+  // as FinancialServiceSchema's transaction_time (LIRA-165).
+  transaction_time: z.string().datetime().optional(),
 });
+
+// LIRA-262 — core's schema, cast across the zod-major mismatch (core: zod 4,
+// this workspace: zod 3; the runtime API used is identical). The output type
+// is the parsed shape the service takes.
+export const CreateStockExpenseSchema =
+  createStockExpenseSchema as unknown as z.ZodSchema<CreateStockExpenseData>;
 
 // =============================================================================
 // Maintenance

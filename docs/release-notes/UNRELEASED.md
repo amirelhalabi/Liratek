@@ -48,6 +48,7 @@
   is your shop fee.
 - Voiding an OMT or Whish transfer paid from a wallet with a card/wallet fee now puts the wallet
   back exactly as it was.
+- Suppliers page: a voided transfer now shows as "Voided" in the supplier's transaction history (it used to say "Unpaid"), and it no longer counts toward the unpaid number or the Outstanding total.
 
 ## 🏠 Dashboard
 
@@ -68,6 +69,12 @@
 ## 🔧 Maintenance
 
 - Saving a repair job that is already paid no longer charges the customer a second time.
+- From now on, a repair job stays linked to its customer when you edit it or move it to In progress or Ready. Before, the link could be lost, so the payment showed no customer and "on account" payments were refused. Jobs that already lost their customer need the customer picked again at checkout.
+- Reopening a repair job, and the History list, now show the customer's phone number.
+- A walk-in customer's name now shows on the repair's line in Transactions, even with no phone number.
+- From now on, the repair receipt prints the customer's name and phone number.
+- More phone number formats are now accepted on repair jobs, such as "961 70 123 456" or "(03) 123456".
+- An amber warning shows when a part's price is changed from its saved price.
 
 ## 📊 Profits page
 
@@ -82,6 +89,8 @@
 
 - MTC / Alfa: selling days now also lowers the line's credit balance by the days' cost, so the drawer
   and the lines stay equal. From now on only.
+- Katsh / iPick: you can now hand back less change than due (e.g. 10,000 instead of 34,000 LBP); the
+  rest is kept as shop profit instead of the sale failing.
 
 ## 🎟️ Loto
 
@@ -96,6 +105,7 @@
 ## 💱 Exchange
 
 - Exchange: you can now keep the change — hand out the round amount (e.g. $101 instead of $101.12) and the leftover cents count as shop profit.
+- Exchange: the page now opens on USD → LBP.
 
 ## 🛒 POS
 
@@ -104,7 +114,16 @@
 - POS: when the customer kept their change as store credit, refunding an item now also takes back that item's share of the credit, so the customer is not paid the change twice. From now on only.
 - Customer sessions: if the change or a payout sent to the customer's account cannot be saved, the checkout now stops with an error instead of finishing without the customer's credit.
 - Refunding a sale paid with a gift card now gives the gift card back.
+- Payment form: new buttons under the change fields put the whole change in dollars or in LBP with one tap.
+- Payment form: the remaining amount and the change now show in both dollars and LBP.
+- Payment form: with "Keep change" on, change you hand back in the other currency (for example LBP change from a dollar payment) is now recorded as leaving the drawer — before, it was left out. From now on only.
+- Prices: an amber warning now shows when you change a price away from its saved price — on MTC/Alfa credit, the Katsh/iPick "Only Days" days and credit prices, and Services presets and items — showing the saved price next to the new one. It is only a warning: the sale still goes through.
 
 ## 🌐 Web app
 
 - Web app: a customer's gift cards now show up as a payment option (they were missing in the browser).
+
+## 🧾 Expenses
+
+- Expenses: search and pick any inventory item or Katsh / iPick / Whish App product to record using it for the shop — it comes out of stock at its cost, no cash moves.
+- Desktop app: an expense entered with an earlier date and time now keeps that time (it was saved as "now").

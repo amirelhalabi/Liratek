@@ -56,6 +56,7 @@ import {
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
 import { formatServiceAmount } from "@/features/custom-services/utils/formatServiceAmount";
+import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 
 // =============================================================================
 // Helper
@@ -193,6 +194,13 @@ export default function CustomServices() {
     name: string;
   } | null>(null);
   const productSearchRef = useRef<HTMLDivElement>(null);
+  // LIRA-260: the saved price the Price field was prefilled from (a preset or
+  // an inventory product). Drives the warning-only PriceChangeWarning; null
+  // for free-text services, which have no saved price.
+  const [savedPrice, setSavedPrice] = useState<{
+    currency: "USD" | "LBP";
+    amount: number;
+  } | null>(null);
 
   // ─── History Modal ───
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -257,6 +265,7 @@ export default function CustomServices() {
   // ─── Product Search ───
   const clearProduct = () => {
     setSelectedProduct(null);
+    setSavedPrice(null);
   };
 
   // Populate client name/phone from session, clear when session closes
@@ -759,6 +768,15 @@ export default function CustomServices() {
                                       ? "LBP"
                                       : currency;
                                 setCurrency(usePreset);
+                                const presetPrice =
+                                  usePreset === "USD"
+                                    ? preset.price_usd
+                                    : preset.price_lbp;
+                                setSavedPrice(
+                                  presetPrice > 0
+                                    ? { currency: usePreset, amount: presetPrice }
+                                    : null,
+                                );
                                 if (usePreset === "USD") {
                                   setCostUsd(
                                     preset.cost_usd > 0
@@ -866,6 +884,11 @@ export default function CustomServices() {
                               ? String(product.retail_price)
                               : "",
                           );
+                          setSavedPrice(
+                            product.retail_price > 0
+                              ? { currency: "USD", amount: product.retail_price }
+                              : null,
+                          );
                         }}
                         onFreeText={(text) => {
                           setDescription(text);
@@ -897,7 +920,10 @@ export default function CustomServices() {
                         maxLength={500}
                       />
                       <button
-                        onClick={() => setDescription("")}
+                        onClick={() => {
+                          setDescription("");
+                          setSavedPrice(null);
+                        }}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
                         type="button"
                       >
@@ -1002,6 +1028,29 @@ export default function CustomServices() {
                           placeholder={currency === "USD" ? "0.00" : "0"}
                         />
                       </div>
+                      {/* LIRA-260: warning only. Compared only in the saved
+                          price's own currency (a currency switch clears the
+                          field, so a cross-currency compare is meaningless),
+                          and never on a payout, where this field is the
+                          amount that arrived, not a selling price. */}
+                      {savedPrice &&
+                        !isPayout &&
+                        savedPrice.currency === currency && (
+                          <PriceChangeWarning
+                            catalogPrice={savedPrice.amount}
+                            currentPrice={
+                              // An empty field is "not entered yet", not a
+                              // price of 0 — never warn on it.
+                              (currency === "USD" ? priceUsd : priceLbp) === ""
+                                ? undefined
+                                : currency === "USD"
+                                  ? priceUsdVal
+                                  : priceLbpVal
+                            }
+                            currency={currency}
+                            className="mt-1"
+                          />
+                        )}
                     </div>
                   </div>
 

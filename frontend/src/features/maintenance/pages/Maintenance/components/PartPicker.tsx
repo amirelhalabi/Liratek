@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Search, Plus, Minus, Trash2 } from "lucide-react";
 import { DecimalInput, useApi } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
+import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 
 /**
  * A part line as edited by this component. `product_name` is display-only
@@ -19,6 +20,14 @@ export interface PartLine {
   product_name: string;
   quantity: number;
   unit_price_usd: number;
+  /**
+   * Display-only (LIRA-260): the product's `retail_price` at the moment the
+   * line was added, so editing `unit_price_usd` away from it raises the
+   * shared price-change warning. Absent on lines loaded from a saved job
+   * (their rows carry no catalog price), which therefore show no warning.
+   * Never sent — `toPartsPayload` whitelists the backend fields.
+   */
+  catalog_price_usd?: number | null;
 }
 
 const PARTS_CATEGORY = "Parts";
@@ -101,6 +110,7 @@ export default function PartPicker({
         product_name: product.name,
         quantity: 1,
         unit_price_usd: product.retail_price ?? 0,
+        catalog_price_usd: product.retail_price ?? null,
       },
     ]);
     setSearch("");
@@ -197,61 +207,69 @@ export default function PartPicker({
           {parts.map((part, index) => (
             <div
               key={part.id ?? `new-${index}`}
-              className="flex items-center gap-2 bg-slate-900/60 border border-slate-700/40 rounded-lg px-2.5 py-1.5"
+              className="bg-slate-900/60 border border-slate-700/40 rounded-lg px-2.5 py-1.5"
             >
-              <span className="flex-1 min-w-0 text-xs text-slate-200 truncate">
-                {part.product_name}
-              </span>
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() =>
-                    updateLine(index, {
-                      quantity: Math.max(1, part.quantity - 1),
-                    })
-                  }
-                  className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Minus size={10} />
-                </button>
-                <span className="w-6 text-center text-xs text-white font-mono">
-                  {part.quantity}
+              <div className="flex items-center gap-2">
+                <span className="flex-1 min-w-0 text-xs text-slate-200 truncate">
+                  {part.product_name}
                 </span>
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() =>
-                    updateLine(index, { quantity: part.quantity + 1 })
-                  }
-                  className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Plus size={10} />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      updateLine(index, {
+                        quantity: Math.max(1, part.quantity - 1),
+                      })
+                    }
+                    className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Minus size={10} />
+                  </button>
+                  <span className="w-6 text-center text-xs text-white font-mono">
+                    {part.quantity}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      updateLine(index, { quantity: part.quantity + 1 })
+                    }
+                    className="p-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Plus size={10} />
+                  </button>
+                </div>
+                <div className="relative w-20 shrink-0">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">
+                    $
+                  </span>
+                  <DecimalInput
+                    value={part.unit_price_usd}
+                    onChange={(v) => updateLine(index, { unit_price_usd: v })}
+                    disabled={disabled}
+                    decimals={2}
+                    data-testid={`part-unit-price-${part.product_id}`}
+                    className="w-full bg-slate-800 border border-slate-600 rounded pl-4 pr-1.5 py-1 text-white text-xs font-mono focus:outline-none focus:border-orange-500 disabled:opacity-50"
+                  />
+                </div>
+                {!disabled && (
+                  <button
+                    type="button"
+                    onClick={() => removeLine(index)}
+                    className="p-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 shrink-0"
+                    title="Remove part"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
               </div>
-              <div className="relative w-20 shrink-0">
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">
-                  $
-                </span>
-                <DecimalInput
-                  value={part.unit_price_usd}
-                  onChange={(v) => updateLine(index, { unit_price_usd: v })}
-                  disabled={disabled}
-                  decimals={2}
-                  data-testid={`part-unit-price-${part.product_id}`}
-                  className="w-full bg-slate-800 border border-slate-600 rounded pl-4 pr-1.5 py-1 text-white text-xs font-mono focus:outline-none focus:border-orange-500 disabled:opacity-50"
-                />
-              </div>
-              {!disabled && (
-                <button
-                  type="button"
-                  onClick={() => removeLine(index)}
-                  className="p-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 shrink-0"
-                  title="Remove part"
-                >
-                  <Trash2 size={12} />
-                </button>
-              )}
+              <PriceChangeWarning
+                catalogPrice={part.catalog_price_usd}
+                currentPrice={part.unit_price_usd}
+                currency="USD"
+                className="mt-1"
+              />
             </div>
           ))}
         </div>

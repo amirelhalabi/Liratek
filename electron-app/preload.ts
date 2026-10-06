@@ -17,6 +17,8 @@ import type {
   LotoSellPayload,
   LotoCheckpointSettlePayload,
   LotoCheckpointsSettleBatchPayload,
+  // LIRA-262 — "shop used its own stock" expense payload (rule 21).
+  CreateStockExpenseInput,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -68,6 +70,11 @@ contextBridge.exposeInMainWorld("api", {
       amount_lbp: number;
       expense_date: string;
     }) => ipcRenderer.invoke("db:add-expense", data),
+    // LIRA-262 — the shop used its own stock. Payload is core's
+    // `createStockExpenseSchema` input — no amount: the server derives the
+    // cost.
+    addStockUse: (data: CreateStockExpenseInput) =>
+      ipcRenderer.invoke("expenses:add-stock-use", data),
     getToday: () => ipcRenderer.invoke("db:get-today-expenses"),
     delete: (id: number) => ipcRenderer.invoke("db:delete-expense", id),
     updateMetadata: (data: {

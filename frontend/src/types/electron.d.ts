@@ -11,6 +11,8 @@ import type {
   LotoSellPayload,
   LotoCheckpointSettlePayload,
   LotoCheckpointsSettleBatchPayload,
+  // LIRA-262 — "shop used its own stock" expense payload (core schema input).
+  CreateStockExpenseInput,
 } from "@liratek/core";
 
 /**
@@ -183,7 +185,7 @@ export interface SupplierTransaction {
    * fee for OMT/WHISH SEND, amount + commission for RECEIVE.
    */
   supplier_owed: number;
-  fifo_status: "paid" | "partial" | "unpaid";
+  fifo_status: "paid" | "partial" | "unpaid" | "voided";
   fifo_paid_usd: number;
   created_at: string;
   /** Display-only LEFT JOIN enrichment (FinancialServiceRepository.getAllByProvider)
@@ -747,6 +749,11 @@ export interface ElectronAPI {
       expense_date: string;
       transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** LIRA-262 — the shop used one of its own items (expense at cost, no
+     *  cash moves). */
+    addStockUse: (
+      data: CreateStockExpenseInput,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     getToday: () => Promise<
       Array<{
         id: number;

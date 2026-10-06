@@ -10,6 +10,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Phone, Plus, X } from "lucide-react";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { ensureRechargeClient } from "../utils/ensureClient";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
@@ -110,6 +111,10 @@ interface OnlyDaysPricingResult {
   hasSellDaysPrice: boolean;
   sellDaysLbp: number | null;
   creditPriceLbp: number;
+  /** LIRA-260: the saved (pre-override) days price, for the price-change warning. */
+  catalogSellDaysLbp: number | null;
+  /** LIRA-260: the saved (pre-override) credit price, for the price-change warning. */
+  catalogCreditPriceLbp: number;
   keptCredits: number;
   /** `sellDaysLbp + keptCredits * creditPriceLbp`, or `null` when
    *  `hasSellDaysPrice` is false. */
@@ -159,12 +164,11 @@ function resolveOnlyDaysPricing(
     line.item.id != null ? catalogPricing.get(line.item.id) : undefined;
   const catalogSellDaysLbp = entity?.sell_days_lbp ?? null;
   const sellDaysLbp = line.sellDaysLbpOverride ?? catalogSellDaysLbp;
-  const creditPriceLbp =
-    line.creditPriceLbpOverride ??
-    resolveCreditSellPriceLbp(
-      entity?.sell_credit_lbp,
-      tenantCreditSellPriceLbp,
-    );
+  const catalogCreditPriceLbp = resolveCreditSellPriceLbp(
+    entity?.sell_credit_lbp,
+    tenantCreditSellPriceLbp,
+  );
+  const creditPriceLbp = line.creditPriceLbpOverride ?? catalogCreditPriceLbp;
 
   // The face credit MUST be known before this model can price kept credit.
   // Guarding on it is not defensive noise — `maxReturnableCredits(0)` is 0, so
@@ -214,6 +218,8 @@ function resolveOnlyDaysPricing(
     hasSellDaysPrice: applies,
     sellDaysLbp,
     creditPriceLbp,
+    catalogSellDaysLbp,
+    catalogCreditPriceLbp,
     keptCredits,
     total,
   };
@@ -484,6 +490,12 @@ const ItemCard = memo(function ItemCard({
                       className="w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none focus:border-orange-500"
                     />
                   </div>
+                  <PriceChangeWarning
+                    catalogPrice={onlyDaysPricing.catalogSellDaysLbp}
+                    currentPrice={onlyDaysPricing.sellDaysLbp}
+                    currency="LBP"
+                    className="text-[10px]"
+                  />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] text-slate-400 whitespace-nowrap">
                       Credit price /$
@@ -497,6 +509,12 @@ const ItemCard = memo(function ItemCard({
                       className="w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none focus:border-orange-500"
                     />
                   </div>
+                  <PriceChangeWarning
+                    catalogPrice={onlyDaysPricing.catalogCreditPriceLbp}
+                    currentPrice={onlyDaysPricing.creditPriceLbp}
+                    currency="LBP"
+                    className="text-[10px]"
+                  />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] text-slate-500">
                       Kept credits
@@ -2396,6 +2414,10 @@ function KatchFormInner({
         }}
         onReturnChange={setReturnLegs}
         onKeptChange={setKeptChange}
+        // LIRA-259: handing back less change than due keeps the rest as
+        // profit (sent as kept_change_* on the same payload) instead of
+        // submitting legs the server's reconciliation rejects.
+        keepUnreturnedChange
       >
         <div className="space-y-2">
           <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">

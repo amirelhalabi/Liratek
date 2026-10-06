@@ -36,6 +36,8 @@ const mockApi = {
 jest.mock("@liratek/ui", () => ({
   appEvents: { emit: jest.fn(), on: jest.fn(() => () => {}) },
   useApi: () => mockApi,
+  // LIRA-262: the page now renders the stock-use SearchBar.
+  SearchBar: () => <div data-testid="search-bar" />,
   PageHeader: ({
     title,
     actions,

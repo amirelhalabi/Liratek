@@ -141,8 +141,11 @@ type SupplierTxn = {
    * settlement). All owed math on this page sums this — never re-derive it.
    */
   supplier_owed: number;
-  fifo_status: "paid" | "partial" | "unpaid";
+  /** "voided" (G40, LIRA-258): the row was voided/refunded — it owes nothing
+   *  and is left out of the paid/unpaid counts and the Outstanding total. */
+  fifo_status: "paid" | "partial" | "unpaid" | "voided";
   fifo_paid_usd: number;
+  is_refunded?: number;
   created_at: string;
   /** Display-only LEFT JOIN enrichment (FinancialServiceRepository
    *  .getAllByProvider) — this row's per-currency share of the commission
@@ -360,6 +363,11 @@ function formatOwedCell(
     money === "LBP" ? Math.round(n).toLocaleString() : String(Number(n.toFixed(2)));
   const breakdown = `${fmt(absAmount)} ${op} ${fmt(absFee)} fee`;
   return { main, breakdown };
+}
+
+/** G40 (LIRA-258): a voided/refunded history row — owes nothing. */
+function isVoidedTxn(t: { fifo_status: string; is_refunded?: number }): boolean {
+  return t.fifo_status === "voided" || !!t.is_refunded;
 }
 
 /** Newest-first display order (owner decision 2026-10-02) — matches the
@@ -1012,6 +1020,12 @@ export default function SuppliersPage() {
   // (hasOmtFee, totals, status counts) keeps reading the unsorted `allTxns`
   // — order never matters for those — only the render below uses this.
   const sortedAllTxns = useMemo(() => sortNewestFirst(allTxns), [allTxns]);
+  // G40 — voided/refunded rows owe nothing: excluded from the tallies and
+  // the Outstanding total (they still show in the list, greyed, "Voided").
+  const liveTxns = useMemo(
+    () => allTxns.filter((t) => !isVoidedTxn(t)),
+    [allTxns],
+  );
 
   /**
    * Suggested amount, currency, and default PAY/RECEIVE direction for the
@@ -2384,7 +2398,7 @@ export default function SuppliersPage() {
                           <div
                             key={t.id}
                             data-testid={`supplier-txn-row-${t.id}`}
-                            className="grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30"
+                            className={`grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30 ${isVoidedTxn(t) ? "opacity-60" : ""}`}
                           >
                             <div
                               className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-xs text-slate-300`}
@@ -2454,8 +2468,14 @@ export default function SuppliersPage() {
                               )}
                             </div>
                             <div className="col-span-2 text-right">
-                              {t.supplier_owed === 0 &&
-                              t.settlement_id == null ? (
+                              {isVoidedTxn(t) ? (
+                                // G40 — same grey "voided" treatment the
+                                // ledger rows above already use.
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-600/50 text-slate-300">
+                                  Voided
+                                </span>
+                              ) : t.supplier_owed === 0 &&
+                                t.settlement_id == null ? (
                                 // Wallet-provider transfer (prepaid balance):
                                 // nothing is owed to the supplier, so a
                                 // paid/unpaid status is meaningless here.
@@ -2490,14 +2510,14 @@ export default function SuppliersPage() {
                               carry no payment status — exclude them from the
                               counts, matching the "—" status cell above. */}
                           {
-                            allTxns.filter(
+                            liveTxns.filter(
                               (t) =>
                                 t.supplier_owed > 0 && t.fifo_status === "paid",
                             ).length
                           }{" "}
                           paid ·{" "}
                           {
-                            allTxns.filter(
+                            liveTxns.filter(
                               (t) =>
                                 t.supplier_owed > 0 &&
                                 t.fifo_status === "partial",
@@ -2505,7 +2525,7 @@ export default function SuppliersPage() {
                           }{" "}
                           partial ·{" "}
                           {
-                            allTxns.filter(
+                            liveTxns.filter(
                               (t) =>
                                 t.supplier_owed > 0 &&
                                 t.fifo_status === "unpaid",
@@ -2519,7 +2539,7 @@ export default function SuppliersPage() {
                             // owed-per-row definition — wallet-provider
                             // transfers contribute 0 (nothing is owed for
                             // consuming the shop's own prepaid balance).
-                            const outstandingUsd = allTxns
+                            const outstandingUsd = liveTxns
                               .filter((t) => t.currency !== "LBP")
                               .reduce(
                                 (s, t) =>

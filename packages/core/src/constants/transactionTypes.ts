@@ -160,6 +160,29 @@ export const TRANSACTION_TYPES = {
 
   // Outflows
   EXPENSE: "EXPENSE",
+  /** LIRA-262 (owner decision 2026-10-06) — "the shop uses its own stock":
+   *  an expense picked from the Expenses page search bar, booked AT COST with
+   *  NO cash leaving any cash drawer. One type per source (like Services'
+   *  per-provider types), see `STOCK_EXPENSE_TRANSACTION_TYPES` below:
+   *   - EXPENSE_INVENTORY: products.stock_quantity −qty + FIFO batch
+   *     consumption (owner column `stock_batch_consumptions.expense_id`,
+   *     v193); expense amount_usd = the FIFO cost. No payments row at all.
+   *   - EXPENSE_KATSH / EXPENSE_IPICK / EXPENSE_WHISH_APP: ONE payments row
+   *     debiting the provider's prepaid drawer by cost_lbp × qty (the same
+   *     "Cost: <provider>" leg a catalog sale posts); expense amount_lbp =
+   *     that cost.
+   *  Written ONLY by `ExpenseRepository.createStockExpense` (through the one
+   *  expense writer, `createExpense`). The `expenses` row is what reduces
+   *  net profit (ProfitRepository.getExpenseTotals); the transaction carries
+   *  no profit stamp. Deliberately OUT of NON_REVERSIBLE_TRANSACTION_TYPES
+   *  (rule 20): the generic void/refund reverses the provider leg
+   *  (`_reversePayments`), soft-voids the expense (`_markSourceRefunded`) and
+   *  puts inventory back (`restoreExpenseStock`, expenseStock.ts). Operator-
+   *  initiated, never `is_auto` (rule 26). */
+  EXPENSE_INVENTORY: "EXPENSE_INVENTORY",
+  EXPENSE_KATSH: "EXPENSE_KATSH",
+  EXPENSE_IPICK: "EXPENSE_IPICK",
+  EXPENSE_WHISH_APP: "EXPENSE_WHISH_APP",
 
   // Drawer adjustments
   DRAWER_TOPUP: "DRAWER_TOPUP",
@@ -324,6 +347,41 @@ export const TRANSACTION_TYPES = {
 
 export type TransactionType =
   (typeof TRANSACTION_TYPES)[keyof typeof TRANSACTION_TYPES];
+
+/** LIRA-262 — where a "shop uses its own stock" expense comes from. */
+export const STOCK_EXPENSE_SOURCES = [
+  "INVENTORY",
+  "KATSH",
+  "IPICK",
+  "WHISH_APP",
+] as const;
+export type StockExpenseSource = (typeof STOCK_EXPENSE_SOURCES)[number];
+export type CatalogStockExpenseSource = Exclude<
+  StockExpenseSource,
+  "INVENTORY"
+>;
+
+/** The ONE source → transaction-type map (rule 14). */
+export const STOCK_EXPENSE_TRANSACTION_TYPES: Readonly<
+  Record<StockExpenseSource, TransactionType>
+> = {
+  INVENTORY: TRANSACTION_TYPES.EXPENSE_INVENTORY,
+  KATSH: TRANSACTION_TYPES.EXPENSE_KATSH,
+  IPICK: TRANSACTION_TYPES.EXPENSE_IPICK,
+  WHISH_APP: TRANSACTION_TYPES.EXPENSE_WHISH_APP,
+};
+
+/** Catalog source → `mobile_service_items.provider` spelling (same spellings
+ *  the catalog sale and `MobileServiceItemsContext` use). The server only
+ *  accepts an item whose provider matches — the same table also holds
+ *  OMT_APP / VOUCHER items, which are not part of this feature. */
+export const STOCK_EXPENSE_CATALOG_PROVIDERS: Readonly<
+  Record<CatalogStockExpenseSource, string>
+> = {
+  KATSH: "Katsh",
+  IPICK: "iPick",
+  WHISH_APP: "WHISH_APP",
+};
 
 /**
  * Types that voidTransaction/refundTransaction must REFUSE (enforced in the

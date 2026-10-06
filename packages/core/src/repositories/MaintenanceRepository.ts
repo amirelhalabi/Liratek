@@ -204,6 +204,11 @@ export interface MaintenanceRow {
   refunded_at: string | null;
   parts_cost_usd: number;
   parts_price_usd: number;
+  /** LIRA-263: the linked client's phone (`clients.phone_number`), read by
+   *  `getJobs` only — `maintenance` has no phone column of its own, the
+   *  number lives on the client record the job links to. Absent on rows
+   *  read through `findById`/`getColumns()`. */
+  client_phone?: string | null;
 }
 
 export interface MaintenancePartInput {
@@ -236,6 +241,22 @@ export interface MaintenanceStatusHistoryRow {
   changed_by: number | null;
   note: string | null;
   created_at: string;
+}
+
+/**
+ * LIRA-263: the client name/phone a MAINTENANCE transaction carries. Blank
+ * values become null, and a phone without a name is dropped rather than
+ * stamped — `createTransaction` throws on `client_phone` without
+ * `client_name`, and the save schema allows that combination, so stamping it
+ * would fail the whole checkout.
+ */
+function txnClientIdentity(
+  name: string | null | undefined,
+  phone: string | null | undefined,
+): { client_name: string | null; client_phone: string | null } {
+  const clientName = name?.trim() ? name.trim() : null;
+  const clientPhone = clientName && phone?.trim() ? phone.trim() : null;
+  return { client_name: clientName, client_phone: clientPhone };
 }
 
 export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
@@ -398,14 +419,22 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
    * Get jobs by status filter
    */
   getJobs(statusFilter?: string): MaintenanceRow[] {
+    // LIRA-263: the jobs list (and therefore a reopened job's Phone field,
+    // HistoryModal's phone line, and every resave built from a listed row)
+    // reads the phone from the linked client — `maintenance` stores no phone
+    // of its own. Before this, `client_phone` was simply never returned, so
+    // a reopened job always showed an empty phone. A correlated, tenant-
+    // scoped subselect (not a JOIN) so `getColumns()`'s unqualified column
+    // names stay unambiguous.
+    const columns = `${this.getColumns()}, (SELECT c.phone_number FROM clients c WHERE c.id = maintenance.client_id AND c.tenant_id = maintenance.tenant_id) AS client_phone`;
     if (statusFilter && statusFilter !== "All") {
       const stmt = this.db.prepare(
-        `SELECT ${this.getColumns()} FROM maintenance WHERE status = ? AND tenant_id = ? ORDER BY created_at DESC`,
+        `SELECT ${columns} FROM maintenance WHERE status = ? AND tenant_id = ? ORDER BY created_at DESC`,
       );
       return stmt.all(statusFilter, getCurrentTenantId()) as MaintenanceRow[];
     }
     const stmt = this.db.prepare(
-      `SELECT ${this.getColumns()} FROM maintenance WHERE status NOT IN ('Voided', 'Deleted') AND tenant_id = ? ORDER BY created_at DESC`,
+      `SELECT ${columns} FROM maintenance WHERE status NOT IN ('Voided', 'Deleted') AND tenant_id = ? ORDER BY created_at DESC`,
     );
     return stmt.all(getCurrentTenantId()) as MaintenanceRow[];
   }
@@ -469,6 +498,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       partsMarginUsd?: number;
       exchangeRate: number;
       clientId: number | null;
+      /** LIRA-263: the job's client name/phone, stamped on the MAINTENANCE
+       *  transaction so a name-only walk-in (no `client_id`) still shows a
+       *  name in the Transactions client column. Phone is only stamped with
+       *  a name (`createTransaction` refuses a bare phone). */
+      clientName?: string | null;
+      clientPhone?: string | null;
       changeUsd?: number;
       changeLbp?: number;
       /** T3 keep-change (KC-3): kept change per currency → profit stamp. */
@@ -568,6 +603,15 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         partsMarginUsd + (isLbp ? 0 : profit) + (opts.keptChangeUsd ?? 0),
       profit_lbp: (isLbp ? profit : 0) + (opts.keptChangeLbp ?? 0),
       client_id: opts.clientId ?? null,
+      // An untouched phone arrives blank on a resave (the page never
+      // re-sends the linked client's stored number) — fall back to that
+      // stored number so the transaction/receipt still carries it.
+      ...txnClientIdentity(
+        opts.clientName,
+        opts.clientPhone?.trim()
+          ? opts.clientPhone
+          : this.findClientPhone(opts.clientId, tenantId),
+      ),
       exchange_rate: opts.exchangeRate,
       summary,
       transaction_time: opts.transactionTime,
@@ -1140,6 +1184,20 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   /**
    * Find or create a client by name
    */
+  /** LIRA-263: the linked client's stored phone, or null. */
+  private findClientPhone(
+    clientId: number | null | undefined,
+    tenantId: number,
+  ): string | null {
+    if (!clientId) return null;
+    const row = this.db
+      .prepare(
+        `SELECT phone_number FROM clients WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(clientId, tenantId) as { phone_number: string | null } | undefined;
+    return row?.phone_number ?? null;
+  }
+
   findOrCreateClient(name: string, phone?: string | null): number {
     const tenantId = getCurrentTenantId();
     const existing = this.db

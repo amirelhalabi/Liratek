@@ -47,7 +47,10 @@ router.post(
       const result = maintenanceService.saveJob(req.body, req.user!.userId);
 
       if (!result.success) {
-        res.status(400).json(result);
+        // Rule 19c: a service refusal is HTTP 200 + the IPC-identical
+        // `{ success: false, error }` — the adapter branches on `success`,
+        // and requestJson throws on a non-2xx (LIRA-263).
+        res.status(200).json(result);
         return;
       }
 
@@ -63,7 +66,7 @@ router.post(
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Save maintenance job error");
-      res.status(500).json({ success: false, error: "Failed to save job" });
+      res.status(200).json({ success: false, error: "Failed to save job" });
     }
   },
 );
@@ -76,14 +79,17 @@ router.delete(
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
-        res.status(400).json({ success: false, error: "Invalid job ID" });
+        res.status(200).json({ success: false, error: "Invalid job ID" });
         return;
       }
 
       const result = maintenanceService.deleteJob(id);
 
       if (!result.success) {
-        res.status(400).json(result);
+        // Rule 19c: a service refusal is HTTP 200 + the IPC-identical
+        // `{ success: false, error }` — the adapter branches on `success`,
+        // and requestJson throws on a non-2xx (LIRA-263).
+        res.status(200).json(result);
         return;
       }
 
@@ -98,7 +104,7 @@ router.delete(
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Delete maintenance job error");
-      res.status(500).json({ success: false, error: "Failed to delete job" });
+      res.status(200).json({ success: false, error: "Failed to delete job" });
     }
   },
 );

@@ -4,6 +4,7 @@ import { validateRequest, validateParams } from "../middleware/validation.js";
 import {
   getExpenseService,
   createExpenseSchema,
+  createStockExpenseSchema,
   expenseIdParamSchema,
   expenseUpdateMetadataSchema,
 } from "@liratek/core";
@@ -47,6 +48,37 @@ router.post(
     // branches on result.success, never on status code (LIRA-234: this used
     // to 400 on a business-rule refusal, which made `requestJson` throw on
     // web and swallow the real `result.error` behind a generic catch).
+    res.json(result);
+  },
+);
+
+// POST /api/expenses/stock-use (admin and staff — same gate as POST / above
+// and the "expenses:add-stock-use" IPC handler). LIRA-262: the shop used one
+// of its own items (inventory product, or a Katsh / iPick / Whish App catalog
+// item) — an expense at cost, no cash moves. The body carries no amount: the
+// service derives the cost. Actor from the JWT, never the body.
+router.post(
+  "/stock-use",
+  requireRole(["admin", "staff"]),
+  validateRequest(createStockExpenseSchema),
+  (req, res) => {
+    const service = getExpenseService();
+    const result = service.addStockExpense(req.body, req.user!.userId);
+    if (result.success) {
+      // Mirrors dbHandlers.ts's expenses:add-stock-use audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "expense",
+        entity_id: result.id != null ? String(result.id) : undefined,
+        summary: `Recorded shop use: ${req.body.quantity} × ${req.body.source} item #${req.body.item_id}`,
+        metadata: {
+          source: req.body.source,
+          item_id: req.body.item_id,
+          quantity: req.body.quantity,
+        },
+      });
+    }
+    // Rule 19c: HTTP 200 even on a service failure (IPC-identical envelope).
     res.json(result);
   },
 );

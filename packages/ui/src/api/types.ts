@@ -5,6 +5,8 @@
 // All other entity types used only by the adapter are declared here.
 // =============================================================================
 
+// LIRA-263 — maintenance save payload derived from the core schema (rule 21).
+import type { SaveMaintenanceJobPayload } from "@liratek/core";
 import type {
   ClientEntity,
   // LIRA-185 #1 — recharge payload derived from the core schema (rule 21).
@@ -77,6 +79,8 @@ import type {
   LotoSellPayload,
   LotoCheckpointSettlePayload,
   LotoCheckpointsSettleBatchPayload,
+  // LIRA-262 — "shop used its own stock" expense payload (rule 21).
+  CreateStockExpenseInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -1280,6 +1284,12 @@ export type ApiAdapter = {
   getTodayExpenses: () => Promise<any[]>;
   addExpense: (payload: any) => Promise<ApiResult & { id?: number }>;
   deleteExpense: (id: number) => Promise<ApiResult>;
+  /** LIRA-262 — record that the shop used one of its own items (inventory
+   *  product, or a Katsh / iPick / Whish App catalog item) as an expense at
+   *  cost; no cash moves. Write envelope. */
+  addStockExpense: (
+    payload: CreateStockExpenseInput,
+  ) => Promise<ApiResult & { id?: number }>;
   /** Edit non-financial metadata (description/category/note) on an expense
    *  row (the History modal's inline edit). */
   updateExpenseMetadata: (data: {
@@ -1445,7 +1455,9 @@ export type ApiAdapter = {
   // Maintenance
   // ---------------------------------------------------------------------------
   getMaintenanceJobs: (statusFilter?: string) => Promise<any[]>;
-  saveMaintenanceJob: (payload: any) => Promise<ApiResult & { id?: number }>;
+  saveMaintenanceJob: (
+    payload: SaveMaintenanceJobPayload,
+  ) => Promise<ApiResult & { id?: number }>;
   deleteMaintenanceJob: (id: number) => Promise<ApiResult>;
   // LIRA-176 phase 6 — one job's status transition history. Reads return the
   // RAW array (not the envelope) — see the dual-transport contract.
@@ -1529,7 +1541,9 @@ export type ApiAdapter = {
    *  carrier-line (MTC/Alfa) drawer adjustments (CARRIER_LINE_ADJUSTMENT
    *  transactions), sibling of `getCheckpointTimeline` above. Filters and
    *  row shape are core's own `ClosingRepository` types (rule 21). */
-  getCarrierLineAdjustments: (filters?: CarrierLineAdjustmentFilters) => Promise<{
+  getCarrierLineAdjustments: (
+    filters?: CarrierLineAdjustmentFilters,
+  ) => Promise<{
     success: boolean;
     adjustments?: CarrierLineAdjustmentRecord[];
     error?: string;
@@ -2673,8 +2687,14 @@ export type ApiAdapter = {
   /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
    *  `bookedRateSource` default (the transaction's own recorded rate, else
    *  the day's fallback). Read-only, no write. */
-  getRefundBookedRate: (id: number) => Promise<
-    | { success: true; bookedRate: number; bookedRateSource: "sale" | "transaction" | "fallback" }
+  getRefundBookedRate: (
+    id: number,
+  ) => Promise<
+    | {
+        success: true;
+        bookedRate: number;
+        bookedRateSource: "sale" | "transaction" | "fallback";
+      }
     | { success: false; error?: string }
   >;
   /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided

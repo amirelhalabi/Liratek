@@ -208,6 +208,8 @@ on that expense row existing.
 | Custom service, Via partner OUT (Syria-style payout) | General −cost | — | `THROUGH_CUSTOM_SERVICE` DEBIT = price | — | **immediate** |
 | Maintenance checkout (`processPayments`) | each drawer leg +; change always CASH/General − | — | — | residual → `Maintenance Debt` | parts margin + labour + kept change |
 | Expense, manual | method drawer − | — | — | — | — |
+| Expense, shop uses own inventory — `EXPENSE_INVENTORY` (LIRA-262, `ExpenseRepository.createStockExpense`) | **— none** (no `payments` row); stock: `products.stock_quantity −qty` + FIFO batch consumption (`stock_batch_consumptions.expense_id`, reason `ADJUSTMENT`) | — | — | — | expense row `amount_usd` = FIFO cost → net profit −cost (txn stamps 0) |
+| Expense, shop uses a Katsh / iPick / Whish App item — `EXPENSE_KATSH` / `EXPENSE_IPICK` / `EXPENSE_WHISH_APP` (LIRA-262) | provider drawer (`Katsh` / `iPick` / `Whish_App`) −`cost_lbp × qty` LBP, one leg noted `Cost: <provider>` (internal, not customer cash); **no cash drawer** | — (prepaid at top-up) | — | — | expense row `amount_lbp` = cost → net profit −cost (txn stamps 0) |
 | Hold money drop-off / pickup / void pickup | legs ± | — | — | — (liability lives in `hold_money`) | 0 |
 | Drawer cashout | General − | — | — | — | — |
 
@@ -250,6 +252,7 @@ Generic path: `TransactionRepository._voidTransactionInternal` / `_refundTransac
 | Auto expense | `_cascadeExpenseSiblingVoid` | `expenses.source_ref_*` |
 | Profit | REFUND row negates; VOID sets original `VOIDED` | — |
 | Stock | `_restoreStock`, `_restoreCustomServiceStock`, `_restoreMaintenancePartsStock`, `_reverseSupplierStockIntake`, `_reverseProductUnits` | sale items / batch `transaction_id` |
+| Stock, shop-use expense (LIRA-262) | `_restoreExpenseStock` → `restoreExpenseStock` (`expenseStock.ts`; `stock_restored` guard) — plus `_reversePayments` for the provider leg and `_markSourceRefunded` for the expense row | `expenses.item_source/item_id/item_quantity`, `stock_batch_consumptions.expense_id` |
 | Carrier lines | `_reverseCarrierLineMovements` | `carrier_line_movements.transaction_id` |
 | Exchange lots | `_reverseExchangeLotEffects` (guarded by `_assertExchangeLotsVoidable`) | `source_id` |
 
@@ -325,6 +328,8 @@ Status: **Verified** = re-read by hand · **Reported** = cited by an audit, not 
 | G37 | Whole-sale refund of a gift-card-paid sale reverses the voucher credit but leaves the voucher redeemed — the customer loses its value. Found 2026-10-06 | Fixed in working tree (LIRA-258): whole-sale refund/void restores the voucher to pending |
 | G38 | Item refund of a POS sale linked to an open session basket still skips the FOR_POS share (G5) and the change-credit share (G21). Found 2026-10-06 | Checked: unreachable on current code (a session-linked sale can be neither FOR-partner nor carry its own change credit); guard tests added, no source change |
 | G39 | Web app: a client's gift cards never loaded as a payment option (`fetchClientVouchers` called `window.api` directly — rule 19). Found 2026-10-06 | Fixed in working tree (LIRA-258): routed through `vouchersGetAll` (`ipcOrHttp`) |
+| G40 | Suppliers page Transactions history: a voided row showed "Unpaid", still consumed manual payments in the FIFO (a later real row could read Unpaid) and counted in the Outstanding total. Found 2026-10-06 on cornertech | Fixed in working tree (LIRA-258): FIFO status "voided", skipped by the pool; page shows a grey "Voided" tag and leaves it out of the tallies |
+| G41 | Desktop `AddExpenseSchema` had no `transaction_time` key, so Zod stripped a backdated manual expense's time on desktop only (rule 23). Found 2026-10-06 | Fixed in working tree: key added (literal mirror of core's transactionTimeSchema) |
 
 ### 7.3 Reversal coverage
 

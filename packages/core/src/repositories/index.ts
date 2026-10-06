@@ -340,6 +340,7 @@ export type {
   ExpenseEntity,
   CreateExpenseData,
   ExpenseDrawerOverride,
+  ExpenseStockItem,
 } from "./ExpenseRepository.js";
 
 // Closing Repository

@@ -4,6 +4,7 @@ import {
   positiveIntegerSchema,
   transactionTimeSchema,
 } from "./common.js";
+import { STOCK_EXPENSE_SOURCES } from "../constants/transactionTypes.js";
 
 /**
  * Expense validation schemas
@@ -79,6 +80,33 @@ export const expenseUpdateMetadataSchema = z.object({
   category: z.string().max(100).optional(),
   note: z.string().max(500).optional(),
 });
+
+/**
+ * LIRA-262 — record that the shop USED one of its own items (an inventory
+ * product, or a Katsh / iPick / Whish App catalog item) as an expense.
+ *
+ * Deliberately carries NO amount, currency or drawer: the server derives the
+ * cost itself (FIFO batch cost for inventory, `cost_lbp × quantity` for a
+ * catalog item) and the drawer from the source — a client can never book an
+ * arbitrary amount through this route, and no payment method exists to
+ * pick (no cash moves). Shared by the IPC handler and the REST route (rule
+ * 19b); the adapter's payload type is `z.input` of this schema (rule 21).
+ */
+export const createStockExpenseSchema = z.object({
+  source: z.enum(STOCK_EXPENSE_SOURCES),
+  /** products.id for INVENTORY, mobile_service_items.id otherwise. */
+  item_id: z.number().int().positive(),
+  quantity: z.number().int().positive().max(100000),
+  category: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  // Required, never defaulted: a missing expense_date silently drops the row
+  // out of every Profits range (owner ticket #26, see createExpenseSchema).
+  expense_date: z.string().min(8),
+  transaction_time: transactionTimeSchema,
+});
+
+export type CreateStockExpenseInput = z.input<typeof createStockExpenseSchema>;
+export type CreateStockExpenseData = z.infer<typeof createStockExpenseSchema>;
 
 export type CreateExpenseInput = z.infer<typeof createExpenseSchema>;
 export type DeleteExpenseInput = z.infer<typeof deleteExpenseSchema>;

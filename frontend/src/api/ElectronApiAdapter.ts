@@ -40,8 +40,12 @@ import type {
   LotoSellPayload,
   LotoCheckpointSettlePayload,
   LotoCheckpointsSettleBatchPayload,
+  // LIRA-262 — "shop used its own stock" expense payload (rule 21).
+  CreateStockExpenseInput,
 } from "@liratek/core";
 import * as api from "./backendApi";
+// LIRA-263 — maintenance save payload derived from the core schema (rule 21).
+import type { SaveMaintenanceJobPayload } from "@liratek/core";
 
 export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
@@ -241,6 +245,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   getTodayExpenses = () => api.getTodayExpenses();
   addExpense = (payload: any) => api.addExpense(payload);
   deleteExpense = (id: number) => api.deleteExpense(id);
+  /** LIRA-262 — the shop used one of its own items (expense at cost, no
+   *  cash moves). */
+  addStockExpense = (payload: CreateStockExpenseInput) =>
+    api.addStockExpense(payload);
   /** Edit non-financial metadata (description/category/note) on an expense
    *  row (the History modal's inline edit). */
   updateExpenseMetadata = (data: {
@@ -360,7 +368,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   getMaintenanceJobs = (statusFilter?: string) =>
     api.getMaintenanceJobs(statusFilter);
-  saveMaintenanceJob = (payload: any) => api.saveMaintenanceJob(payload);
+  saveMaintenanceJob = (payload: SaveMaintenanceJobPayload) =>
+    api.saveMaintenanceJob(payload);
   deleteMaintenanceJob = (id: number) => api.deleteMaintenanceJob(id);
   getMaintenanceStatusHistory = (jobId: number) =>
     api.getMaintenanceStatusHistory(jobId);
@@ -609,8 +618,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   /** LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — whole-basket
    *  void/refund, replacing the "Basket item — see admin to reverse" dead
    *  end. Mirrors voidCheckoutGroup immediately above (rule 14). */
-  voidSessionBasket = (sessionId: number) =>
-    api.voidSessionBasket(sessionId);
+  voidSessionBasket = (sessionId: number) => api.voidSessionBasket(sessionId);
   refundSessionBasket = (sessionId: number) =>
     api.refundSessionBasket(sessionId);
   /** LIRA-232 phase 2 — item-level sibling of refundSessionBasket above. */

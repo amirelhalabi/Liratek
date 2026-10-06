@@ -117,6 +117,29 @@ export class MaintenanceService {
         // `client_id` (rule 11) is untouched by this gate — it's read above
         // and always kept.
         let clientId = params.client_id ?? null;
+
+        // LIRA-263: a resave of an EXISTING job keeps its client link when
+        // the caller didn't pick a client and didn't change the name. The
+        // page never sends `client_id` on a draft edit or a status
+        // transition (only the CheckoutModal's client search supplies one),
+        // and before this the first such resave — e.g. Received →
+        // In_Progress — wrote `client_id = NULL` whenever the phone field
+        // was blank, silently unlinking the job: its later checkout then
+        // booked the MAINTENANCE transaction with no client and a
+        // customer-account checkout was refused as "anonymous". One rule
+        // here covers IPC, REST and the session basket. A changed or
+        // cleared name still falls through to the resolution below, so the
+        // old link never sticks to a different person (LIRA-246c).
+        if (!clientId && params.id && params.client_id === undefined) {
+          const stored = this.repo.findById(params.id);
+          const sameName =
+            (stored?.client_name ?? "").trim() ===
+            (params.client_name ?? "").trim();
+          if (stored?.client_id && sameName) {
+            clientId = stored.client_id;
+          }
+        }
+
         if (!clientId && params.client_name && params.client_phone) {
           try {
             clientId = this.repo.findOrCreateClient(
@@ -222,6 +245,8 @@ export class MaintenanceService {
           partsMarginUsd,
           exchangeRate: params.exchange_rate ?? 1,
           clientId,
+          clientName: params.client_name,
+          clientPhone: params.client_phone,
           changeUsd: params.change_given_usd,
           changeLbp: params.change_given_lbp,
           keptChangeUsd: params.kept_change_usd,

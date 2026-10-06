@@ -104,7 +104,8 @@ interface ConsumptionRow {
 type ConsumptionOwnerColumn =
   | "sale_item_id"
   | "custom_service_id"
-  | "maintenance_part_id";
+  | "maintenance_part_id"
+  | "expense_id";
 
 // =============================================================================
 // Constants
@@ -254,6 +255,10 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
        *  exclusive in practice with saleItemId/customServiceId (a consumption
        *  row is owned by exactly one source). */
       maintenancePartId?: number | null;
+      /** LIRA-262 — a "shop used its own stock" expense consuming batch
+       *  units (v193 owner column). Mutually exclusive in practice with the
+       *  three owners above. */
+      expenseId?: number | null;
       reason: ConsumeReason;
       fallbackUnitCostUsd: number;
     },
@@ -281,12 +286,26 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
     let coveredQuantity = 0;
     let totalCostUsd = 0;
 
+    // LIRA-262: `expense_id` (v193) is named in the INSERT ONLY when an
+    // expense owns this consumption — many hand-rolled test schemas predate
+    // that column, and naming it unconditionally would break every sale,
+    // custom service and maintenance job on them.
+    const expenseId = opts.expenseId ?? null;
     const insertConsumption = this.db.prepare(
       `INSERT INTO stock_batch_consumptions (
         tenant_id, batch_id, sale_item_id, custom_service_id, maintenance_part_id,
         product_id, quantity, unit_cost_usd, reason, is_restored, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
+    const insertExpenseConsumption =
+      expenseId != null
+        ? this.db.prepare(
+            `INSERT INTO stock_batch_consumptions (
+        tenant_id, batch_id, sale_item_id, custom_service_id, maintenance_part_id,
+        product_id, quantity, unit_cost_usd, reason, is_restored, created_at, updated_at, expense_id
+      ) VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+          )
+        : null;
     const decrementBatch = this.db.prepare(
       `UPDATE product_stock_batches
        SET quantity_remaining = quantity_remaining - ?, updated_at = CURRENT_TIMESTAMP
@@ -299,17 +318,29 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
       const takeQty = alloc.take;
 
       decrementBatch.run(takeQty, batch.id, tenantId);
-      insertConsumption.run(
-        tenantId,
-        batch.id,
-        opts.saleItemId ?? null,
-        opts.customServiceId ?? null,
-        opts.maintenancePartId ?? null,
-        productId,
-        takeQty,
-        batch.unit_cost_usd,
-        opts.reason,
-      );
+      if (insertExpenseConsumption) {
+        insertExpenseConsumption.run(
+          tenantId,
+          batch.id,
+          productId,
+          takeQty,
+          batch.unit_cost_usd,
+          opts.reason,
+          expenseId,
+        );
+      } else {
+        insertConsumption.run(
+          tenantId,
+          batch.id,
+          opts.saleItemId ?? null,
+          opts.customServiceId ?? null,
+          opts.maintenancePartId ?? null,
+          productId,
+          takeQty,
+          batch.unit_cost_usd,
+          opts.reason,
+        );
+      }
 
       takes.push({
         batch_id: batch.id,
@@ -452,6 +483,17 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
       maintenancePartId,
       quantity,
     );
+  }
+
+  /**
+   * LIRA-262 — "shop used its own stock" expense void/refund path: give the
+   * expense's consumed units back to the batches they came from (owner
+   * column `expense_id`, v193). See `_restoreConsumptions` for the full
+   * semantics; the caller (`restoreExpenseStock`, expenseStock.ts) owns the
+   * `products.stock_quantity` side and the exactly-once guard.
+   */
+  restoreForExpense(expenseId: number, quantity?: number): void {
+    this._restoreConsumptions("expense_id", expenseId, quantity);
   }
 
   /**

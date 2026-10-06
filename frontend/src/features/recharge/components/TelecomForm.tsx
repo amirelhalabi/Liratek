@@ -43,6 +43,7 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
+import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 
 /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — Days/Alfa Gift block + redirect
  *  shown when the typed phone number is this carrier's own shop line.
@@ -918,6 +919,23 @@ export function TelecomForm({
                         placeholder="0"
                       />
                     </div>
+                    {/* LIRA-260: warn (never block) when the price is edited
+                        away from the saved one — amount x the configured
+                        credit sell rate. Days has no saved price; a buy-back
+                        is a payout, not a sale price. */}
+                    {rechargeType !== "DAYS" &&
+                      !isCreditBuyback &&
+                      parseFloat(telecomAmount) > 0 &&
+                      telecomPrice !== "" && (
+                        <PriceChangeWarning
+                          catalogPrice={
+                            parseFloat(telecomAmount) * alfaCreditSellRate
+                          }
+                          currentPrice={parseFloat(telecomPrice)}
+                          currency="LBP"
+                          className="mb-2 pl-1"
+                        />
+                      )}
                     {/* USD equivalent — read-only */}
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-xs">

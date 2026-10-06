@@ -63,6 +63,7 @@ import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 import { getProductUnitRepository } from "./ProductUnitRepository.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { restoreMaintenanceJobParts } from "./maintenancePartsStock.js";
+import { restoreExpenseStock } from "./expenseStock.js";
 import type { TransactionTypeFilterInput } from "../validators/transaction.js";
 // LIRA-232 phase 1 — refundSessionBasketItem's SALE branch reuses
 // SalesRepository's per-line item reversal (rule 14). Both files already
@@ -5341,6 +5342,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         this._restoreMaintenancePartsStock(original.source_id);
       }
 
+      // 6c. LIRA-262, rule 20 — if this transaction IS a "shop used its own
+      // stock" inventory expense (EXPENSE_INVENTORY), put the units back on
+      // the shelf and into the batches they came from. Lives here (not in
+      // ExpenseRepository.deleteExpense) so a void straight from the
+      // Transactions page gets it too; the `stock_restored` guard makes it
+      // exactly once. No-op for every other expense / source_table.
+      if (original.source_table === "expenses" && original.source_id) {
+        this._restoreExpenseStock(original.source_id);
+      }
+
       // 7. Supplier payment: un-apply the FIFO purchase coverage the payment
       // consumed (the ledger row itself is soft-voided by step 4).
       this._unapplySupplierPurchaseCoverage(original);
@@ -5819,6 +5830,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // this lives here rather than in the maintenance module.
     if (original.source_table === "maintenance" && original.source_id) {
       this._restoreMaintenancePartsStock(original.source_id);
+    }
+
+    // 5c. LIRA-262, rule 20 — same inventory-expense stock restore as
+    // voidTransaction's identical step 6c.
+    if (original.source_table === "expenses" && original.source_id) {
+      this._restoreExpenseStock(original.source_id);
     }
 
     // 6. Supplier payment: un-apply the FIFO purchase coverage
@@ -7259,6 +7276,21 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   private _restoreMaintenancePartsStock(maintenanceId: number): void {
     restoreMaintenanceJobParts(this.db, {
       maintenanceId,
+      tenantId: getCurrentTenantId(),
+    });
+  }
+
+  /**
+   * LIRA-262, rule 20 — return a "shop used its own stock" inventory
+   * expense's units (products.stock_quantity + the batches it consumed).
+   * Delegates to the standalone `restoreExpenseStock` (expenseStock.ts) for
+   * the same import-cycle reason as `_restoreMaintenancePartsStock`. No-op
+   * for an ordinary or catalog expense — a catalog expense's only side
+   * effect is its provider-drawer leg, which `_reversePayments` reverses.
+   */
+  private _restoreExpenseStock(expenseId: number): void {
+    restoreExpenseStock(this.db, {
+      expenseId,
       tenantId: getCurrentTenantId(),
     });
   }

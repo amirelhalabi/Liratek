@@ -24,7 +24,9 @@ import { isAppError } from "../utils/errors.js";
 // Types
 // =============================================================================
 
-export type FifoStatus = "paid" | "partial" | "unpaid";
+/** "voided" (G40, LIRA-258): the row was voided/refunded — it owes nothing
+ *  and never takes money from the manual-payment FIFO pool. */
+export type FifoStatus = "paid" | "partial" | "unpaid" | "voided";
 
 export interface TransactionWithFifoStatus extends FinancialServiceEntity {
   fifo_status: FifoStatus;
@@ -261,6 +263,14 @@ export class FinancialService {
       >();
 
       for (const txn of sorted) {
+        // G40 (LIRA-258): a voided/refunded row owes nothing. It must not
+        // consume the payment pool (that made a LATER real row read
+        // "Unpaid") and is labelled "voided", not "Unpaid".
+        if (txn.is_refunded) {
+          statusMap.set(txn.id, { fifo_status: "voided", fifo_paid_usd: 0 });
+          continue;
+        }
+
         // Batch-settled via old settle flow → always paid
         if (txn.settlement_id !== null) {
           statusMap.set(txn.id, {

@@ -4567,7 +4567,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-259** (LIRA-257, LIRA-258 filed 2026-10-06), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-265** (LIRA-257 … LIRA-264 filed 2026-10-06), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -6246,7 +6246,8 @@ with them.
    · G35 drawer recalculation skips them too · G39 gift cards load on the web app.
    Checked, no change: G18, G20, G27, G30. By owner decision: G19 (D6), G25 (D7). Comments: G31.
    G36 partner coverage nets reversals · G37 refund gives the gift card back · G38 checked
-   unreachable (guards only). In progress: G17 (basket profit waits for payment).
+   unreachable (guards only) · G17 basket profit waits for the customer (v192) · G40 voided supplier
+   history rows show "Voided" and stay out of the FIFO and totals (found in the production test).
 
 Docs updated: FEATURE_GUIDE §7 (PCD row), §8 (second-system row), §8.1.0 (SEND); POSTING_MAP §4.1,
 §7; PRIMARY_CASH_DRAWER_PLAN §6 6a.
@@ -6256,3 +6257,23 @@ supplier page as money you owe and no longer takes cash out of a drawer; transfe
 partner on your second system no longer wait for a supplier settlement and their shop fee counts as
 profit straight away; the Dashboard's Pending Settlement banner also lists partners to settle with;
 the Services page explains Amount vs Fee; a repair job is never charged twice; refunding one item of a partner sale lowers what the partner owes; Loto payments must add up and gift cards work on Loto; selling days lowers the line credits; Exchange can keep the leftover cents; gift cards show up on the web app. All from now on only.
+
+---
+
+## LIRA-259 … LIRA-264: owner bug list 2026-10-06 (evening) — IN PROGRESS
+
+Interviewed 2026-10-06. Each item ships with a failing-first guard unless noted in its report.
+
+| Ticket | Item | Owner decision | Status |
+| --- | --- | --- | --- |
+| LIRA-259 | Katsh: handing back less change than due (e.g. card 450,000 LBP, customer pays $6, cashier returns 10,000 instead of ~34,000 LBP) fails | The un-returned part is kept change (shop profit), like partial keep-change elsewhere | DONE — the form never sent the un-returned part, so the server's reconcile refused it; MultiPaymentInput `keepUnreturnedChange` (on for Katsh/iPick). Also fixed globally: with Keep change on, change returned in the other currency was not recorded leaving the drawer. Owner decision pending: whole change kept silently when both change fields are cleared |
+| LIRA-260 | Price-change alert | Any price a cashier changes away from its saved price: amber warning only (saved vs new), sale still goes through | DONE (MTC/Alfa credit, Katsh/iPick Only-Days, Services presets/items, maintenance parts; POS has no editable line price) |
+| LIRA-261 | Exchange default direction | Opens on USD → LBP | DONE |
+| LIRA-262 | Expense from stock | Search bar (like Services) over inventory + Katsh/iPick/Whish App items; shop uses its own stock: leaves stock / provider balance at cost, no cash moves; one transaction type per source | DONE (uncommitted) — `EXPENSE_INVENTORY` / `EXPENSE_KATSH` / `EXPENSE_IPICK` / `EXPENSE_WHISH_APP`; v193; void/refund restores stock + batches / provider drawer (`ExpenseRepository.stockUse.test.ts`). Not done: web e2e, IMEI-tracked products (refused) |
+| LIRA-263 | Maintenance client number lost | Test the full workflow and fix | DONE — link dropped at the first re-save of a job (draft edit / In progress); kept now through payment, receipt shows the customer. Follow-ups: web route envelope (HTTP 200), typed save payload |
+| LIRA-264 | Return-change autofill + both currencies | "All in $" / "All in LBP" buttons; remaining and change always shown as "$ \| LBP" with thousands separators | DONE |
+
+Also from the production test: **G40** — voided supplier history rows read "Unpaid" and still took manual payments in the FIFO; now "Voided", excluded (DONE). **G41** — desktop backdated expense lost its time (schema key missing); fixed (DONE).
+
+**What users will notice:** a warning when a price is changed from its saved price; Exchange opens on USD → LBP; one-tap "All in $ / All in LBP" change buttons and the remaining amount in both currencies; a repair job keeps its customer through payment; voided transfers show as "Voided" on the Suppliers page; on the Expenses page you can search any inventory item or Katsh / iPick / Whish App product and record using it for the shop — it comes out of stock (or the provider balance) at its cost, with no cash moving. (Katsh partial change to be added when done.)
+

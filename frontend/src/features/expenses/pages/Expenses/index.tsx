@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
-import { Plus, History } from "lucide-react";
+import { Plus, History, Package, X } from "lucide-react";
+import type { CreateStockExpenseInput } from "@liratek/core";
 import {
   appEvents,
   PageHeader,
@@ -10,6 +11,7 @@ import {
   type PaymentLine,
 } from "@liratek/ui";
 import { HistoryModal } from "./components/HistoryModal";
+import { StockUsePicker, type StockPick } from "./components/StockUsePicker";
 import { StatsCards } from "../../components/StatsCards";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -81,6 +83,11 @@ export default function Expenses() {
     amount_lbp: 0,
     expense_date: localDay(),
   });
+  // LIRA-262 — "the shop uses its own stock": an item picked from the search
+  // bar replaces the payment section (no cash moves; the server books the
+  // item's cost).
+  const [stockPick, setStockPick] = useState<StockPick | null>(null);
+  const [stockQty, setStockQty] = useState("1");
 
   useEffect(() => {
     loadTodayExpenses();
@@ -97,7 +104,69 @@ export default function Expenses() {
     }
   };
 
+  const resetForm = () => {
+    setFormData({
+      description: "",
+      category: "Shop_Supply",
+      paid_by_method: "CASH",
+      amount_usd: 0,
+      amount_lbp: 0,
+      expense_date: localDay(),
+    });
+    setPaymentLines([
+      {
+        id: crypto.randomUUID(),
+        method: "CASH",
+        currencyCode: "USD",
+        amount: 0,
+      },
+    ]);
+    setStockPick(null);
+    setStockQty("1");
+    setTransactionTime(undefined);
+  };
+
+  // LIRA-262 — record using an item from stock. ONE payload (rule 22), typed
+  // by the core schema's input (rule 21); no amount — the server derives it.
+  const handleAddStockExpense = async (pick: StockPick) => {
+    const quantity = Number(stockQty);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      alert("Please enter a whole quantity of 1 or more.");
+      return;
+    }
+    const payload: CreateStockExpenseInput = {
+      source: pick.source,
+      item_id: pick.item_id,
+      quantity,
+      category: formData.category,
+      description: formData.description.trim() || undefined,
+      expense_date: new Date(formData.expense_date).toISOString(),
+      transaction_time: transactionTime,
+    };
+    try {
+      const result = await api.addStockExpense(payload);
+      if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          "Shop use recorded — taken out at cost",
+          "success",
+        );
+        resetForm();
+        loadTodayExpenses();
+      } else {
+        alert("Error: " + result.error);
+      }
+    } catch (error) {
+      logger.error("Operation failed", { error });
+      alert(getApiErrorMessage(error, "Failed to record shop use"));
+    }
+  };
+
   const handleAddExpense = async () => {
+    if (stockPick) {
+      await handleAddStockExpense(stockPick);
+      return;
+    }
     if (!formData.description.trim()) {
       alert("Please fill in description.");
       return;
@@ -134,23 +203,7 @@ export default function Expenses() {
           "Expense recorded successfully",
           "success",
         );
-        setFormData({
-          description: "",
-          category: "Shop_Supply",
-          paid_by_method: "CASH",
-          amount_usd: 0,
-          amount_lbp: 0,
-          expense_date: localDay(),
-        });
-        setPaymentLines([
-          {
-            id: crypto.randomUUID(),
-            method: "CASH",
-            currencyCode: "USD",
-            amount: 0,
-          },
-        ]);
-        setTransactionTime(undefined);
+        resetForm();
         loadTodayExpenses();
       } else {
         alert("Error: " + result.error);
@@ -232,13 +285,83 @@ export default function Expenses() {
           </h2>
 
           <div className="space-y-4 flex-1 overflow-auto pr-2 custom-scrollbar">
+            {/* LIRA-262 — use an item from the shop's own stock */}
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <Package size={12} className="inline mr-1" />
+                Use an item from stock (optional)
+              </label>
+              {stockPick ? (
+                <div
+                  data-testid="expense-stock-pick"
+                  className="space-y-3 bg-orange-500/10 border border-orange-500/30 rounded-lg px-4 py-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <Package size={14} className="text-orange-400" />
+                    <span className="text-white font-medium text-sm flex-1">
+                      {stockPick.name}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {stockPick.sourceLabel}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Remove item"
+                      onClick={() => {
+                        setStockPick(null);
+                        setStockQty("1");
+                      }}
+                      className="text-slate-400 hover:text-white transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label
+                      htmlFor="expense-stock-qty"
+                      className="text-xs text-slate-400 uppercase tracking-wider"
+                    >
+                      Quantity
+                    </label>
+                    <input
+                      id="expense-stock-qty"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={stockQty}
+                      onChange={(e) => setStockQty(e.target.value)}
+                      className="w-24 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:border-orange-500 outline-none"
+                    />
+                    <span className="text-xs text-slate-400">
+                      Approx. cost{" "}
+                      {stockPick.currency === "USD"
+                        ? `$${(stockPick.unitCost * (Number(stockQty) || 0)).toFixed(2)}`
+                        : `${(stockPick.unitCost * (Number(stockQty) || 0)).toLocaleString()} LBP`}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    {stockPick.source === "INVENTORY"
+                      ? "Comes out of stock at its cost. No cash moves."
+                      : `Comes out of the ${stockPick.sourceLabel} balance at its cost. No cash moves.`}
+                  </p>
+                </div>
+              ) : (
+                <StockUsePicker
+                  onPick={(pick) => {
+                    setStockPick(pick);
+                    setStockQty("1");
+                  }}
+                />
+              )}
+            </div>
+
             {/* Description */}
             <div>
               <label
                 htmlFor="expense-description"
                 className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
               >
-                Description *
+                {stockPick ? "Description (optional)" : "Description *"}
               </label>
               <input
                 id="expense-description"
@@ -275,37 +398,39 @@ export default function Expenses() {
               />
             </div>
 
-            {/* Payment Method & Amount */}
-            <MultiPaymentInput
-              totals={[
-                {
-                  amount: paymentLines[0]?.amount || 0,
-                  currency: paymentLines[0]?.currencyCode || "USD",
-                },
-              ]}
-              currency={paymentLines[0]?.currencyCode || "USD"}
-              totalAmountCurrency={paymentLines[0]?.currencyCode || "USD"}
-              onChange={setPaymentLines}
-              paymentMethods={drawerAffectingMethods.map((m) => ({
-                code: m.code,
-                label: m.label,
-              }))}
-              currencies={[
-                { code: "USD", symbol: "$" },
-                { code: "LBP", symbol: "LBP" },
-              ]}
-              exchangeRate={exchangeRate}
-              label="Payment"
-              showDiscount={false}
-              showPmFee={false}
-              // LIRA-185: an expense has no independently-known "total
-              // owed" for split mode to reconcile against — the form only
-              // ever submits paymentLines[0] (see handleAddExpense above),
-              // so splitting silently mispriced the total and dropped a
-              // second line's payment method. Disabled rather than wired,
-              // see MultiPaymentInput's `allowSplit` prop doc.
-              allowSplit={false}
-            />
+            {/* Payment Method & Amount — hidden for shop use (no cash moves) */}
+            {!stockPick && (
+              <MultiPaymentInput
+                totals={[
+                  {
+                    amount: paymentLines[0]?.amount || 0,
+                    currency: paymentLines[0]?.currencyCode || "USD",
+                  },
+                ]}
+                currency={paymentLines[0]?.currencyCode || "USD"}
+                totalAmountCurrency={paymentLines[0]?.currencyCode || "USD"}
+                onChange={setPaymentLines}
+                paymentMethods={drawerAffectingMethods.map((m) => ({
+                  code: m.code,
+                  label: m.label,
+                }))}
+                currencies={[
+                  { code: "USD", symbol: "$" },
+                  { code: "LBP", symbol: "LBP" },
+                ]}
+                exchangeRate={exchangeRate}
+                label="Payment"
+                showDiscount={false}
+                showPmFee={false}
+                // LIRA-185: an expense has no independently-known "total
+                // owed" for split mode to reconcile against — the form only
+                // ever submits paymentLines[0] (see handleAddExpense above),
+                // so splitting silently mispriced the total and dropped a
+                // second line's payment method. Disabled rather than wired,
+                // see MultiPaymentInput's `allowSplit` prop doc.
+                allowSplit={false}
+              />
+            )}
 
             {/* Date */}
             <div>
