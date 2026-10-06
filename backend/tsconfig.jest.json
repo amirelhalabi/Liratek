@@ -1,0 +1,10 @@
+{
+  // jest-only: transpile each file on its own, without type-checking, for
+  // speed. Backend tests were already run with ts-jest diagnostics off
+  // (jest.config.cjs), so this skips no check that was running before.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "isolatedModules": true,
+    "ignoreDeprecations": "6.0"
+  }
+}

@@ -11,6 +11,11 @@ module.exports = {
         tsconfig: {
           ...require("./tsconfig.json").compilerOptions,
           esModuleInterop: true,
+          // Transpile each file on its own, without type-checking: a cold
+          // run drops from ~96s to ~15s. Test files are still type-checked
+          // by `yarn typecheck` (tsconfig.json includes src/**/*.ts).
+          isolatedModules: true,
+          ignoreDeprecations: "6.0",
         },
         useESM: false,
       },

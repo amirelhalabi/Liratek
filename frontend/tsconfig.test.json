@@ -1,0 +1,13 @@
+{
+  // Type-checks the jest test files. jest itself only transpiles them
+  // (isolatedModules in tsconfig.jest.json), so this is where a type error in
+  // a test is caught. Resolves @liratek/core to its built .d.ts like
+  // tsconfig.app.json, so core sources are not re-checked under frontend flags.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "types": ["vite/client", "node", "jest", "@testing-library/jest-dom"]
+  },
+  "include": ["./src", "jest.setup.ts"],
+  "exclude": []
+}

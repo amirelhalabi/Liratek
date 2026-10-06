@@ -11,6 +11,9 @@
     "resolveJsonModule": true,
     "types": ["node", "jest", "@testing-library/jest-dom", "vite/client"],
     "noEmit": true,
+    // ts-jest transpiles each file on its own, without type-checking (cold
+    // run ~235s -> ~20s). Tests are type-checked by tsconfig.test.json.
+    "isolatedModules": true,
     "paths": {
       "@/*": ["./src/*"],
       "@/components/*": ["./src/components/*"],
