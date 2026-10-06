@@ -22,7 +22,11 @@
  *
  * Usage:
  *   node scripts/run-e2e.mjs electron [--min=N] [-- <playwright args>]
- *   node scripts/run-e2e.mjs web      [--min=N] [-- <playwright args>]
+ *   node scripts/run-e2e.mjs web      [--min=N] [view=on|off] [-- <playwright args>]
+ *
+ * Web runs show the browser window unless `view=off` (or CI is set):
+ *   yarn test:e2e:web            # watch it run
+ *   yarn test:e2e:web view=off   # headless
  *
  * A floor is applied automatically for un-filtered (full-suite) runs. Pass
  * -g/--grep and the floor is skipped automatically — a targeted run
@@ -66,6 +70,19 @@ export const DEFAULT_MIN = {
   electron: 150,
   web: 20,
 };
+
+/**
+ * Web runs open a visible browser by default so the run can be watched.
+ * `view=off` hides it; `view=on` forces it. CI (no display on the web job)
+ * defaults to hidden. Electron always shows its own window, so this applies
+ * to the web target only.
+ */
+export function resolveHeaded(target, viewArg, env) {
+  if (target !== "web") return false;
+  if (viewArg === "off") return false;
+  if (viewArg === "on") return true;
+  return !env.CI;
+}
 
 export function hasGrepFilter(args) {
   return args.some(
@@ -127,11 +144,17 @@ function main() {
   }
 
   let minOverride;
+  let viewArg;
   const passthrough = [];
   for (const arg of rest) {
     const m = /^--min=(\d+)$/.exec(arg);
+    const v = /^view=(on|off)$/.exec(arg);
     if (m) minOverride = Number(m[1]);
+    else if (v) viewArg = v[1];
     else passthrough.push(arg);
+  }
+  if (resolveHeaded(target, viewArg, process.env)) {
+    passthrough.push("--headed");
   }
 
   const min =
