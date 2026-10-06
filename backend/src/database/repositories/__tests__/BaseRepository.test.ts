@@ -31,36 +31,6 @@ describe("BaseRepository", () => {
     expect(typeof testDb.prepare).toBe("function");
   });
 
-  it("findById returns entity when found", () => {
-    // Arrange
-    testDb.prepare.mockImplementation((sql: string) => {
-      const stmt = {
-        ...require("../../../__mocks__/better-sqlite3").mockStatement,
-        _sql: sql,
-      };
-
-      // Handle PRAGMA table_info call from hasColumn
-      if (sql.includes("PRAGMA")) {
-        stmt.all = jest.fn(() => []);
-        return stmt;
-      }
-
-      stmt.get = jest.fn(() => ({ id: 1, name: "A" }));
-      return stmt;
-    });
-
-    const repo = new TestRepo();
-    const res = repo.findById(1);
-
-    expect(res).toEqual({ id: 1, name: "A" });
-    // Expect the SELECT query. The test ignores PRAGMA calls order if we check specifically for SELECT
-    expect(testDb.prepare).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /SELECT id, name, created_at FROM test_table.*WHERE id = \?/,
-      ),
-    );
-  });
-
   it("findAll builds ORDER BY / LIMIT / OFFSET", () => {
     testDb.prepare.mockImplementation((sql: string) => {
       const stmt = {

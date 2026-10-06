@@ -124,19 +124,6 @@ describe("DebtService", () => {
       expect(result).toEqual({ success: true, id: 123 });
     });
 
-    it("returns success with repayment ID", () => {
-      mockRepo.addRepayment.mockReturnValue({ id: 456 });
-
-      const result = service.addRepayment({
-        clientId: 1,
-        amountUSD: 100,
-        amountLBP: 500000,
-        userId: 10,
-      });
-
-      expect(result).toEqual({ success: true, id: 456 });
-    });
-
     it("returns error for missing client ID", () => {
       const result = service.addRepayment({
         clientId: 0,

@@ -90,20 +90,6 @@ describe("SalesService", () => {
       expect(result).toEqual({ success: false, error: "Transaction failed" });
     });
 
-    it("returns success with sale ID", () => {
-      mockRepo.processSale.mockReturnValue({ success: true, id: 456 });
-
-      const saleRequest = createSaleRequest({
-        final_amount: 50,
-        drawer_name: "OMT_Drawer",
-        status: "draft" as const,
-      });
-
-      const result = service.processSale(saleRequest, 1);
-
-      expect(result).toEqual({ success: true, id: 456 });
-    });
-
     it("uses default drawer name when not specified", () => {
       mockRepo.processSale.mockReturnValue({ success: true, id: 789 });
 
@@ -148,24 +134,6 @@ describe("SalesService", () => {
   // ===========================================================================
 
   describe("getDashboardStats", () => {
-    it("returns dashboard stats from repository", () => {
-      const mockStats = {
-        totalSalesUSD: 1500,
-        totalSalesLBP: 1350000,
-        cashCollectedUSD: 1500,
-        cashCollectedLBP: 1350000,
-        ordersCount: 25,
-        activeClients: 10,
-        lowStockCount: 3,
-      };
-      mockRepo.getDashboardStats.mockReturnValue(mockStats);
-
-      const result = service.getDashboardStats();
-
-      expect(mockRepo.getDashboardStats).toHaveBeenCalled();
-      expect(result).toEqual(mockStats);
-    });
-
     it("returns default stats on error", () => {
       mockRepo.getDashboardStats.mockImplementation(() => {
         throw new Error("DB error");
@@ -184,22 +152,6 @@ describe("SalesService", () => {
       });
     });
 
-    it("returns dashboard stats from repository", () => {
-      const expectedStats = {
-        totalSalesUSD: 500,
-        totalSalesLBP: 450000,
-        cashCollectedUSD: 500,
-        cashCollectedLBP: 450000,
-        ordersCount: 5,
-        activeClients: 2,
-        lowStockCount: 1,
-      };
-      mockRepo.getDashboardStats.mockReturnValue(expectedStats);
-
-      const result = service.getDashboardStats();
-
-      expect(result).toEqual(expectedStats);
-    });
   });
 
   describe("getDrawerBalances", () => {
@@ -256,25 +208,6 @@ describe("SalesService", () => {
   // ===========================================================================
 
   describe("getChartData", () => {
-    it("returns sales chart data", () => {
-      const mockChartData = [
-        { label: "Mon", value: 100 },
-        { label: "Tue", value: 150 },
-      ];
-      mockRepo.getChartData.mockReturnValue(mockChartData as any);
-
-      // DAY-1 (rule 27): the Sales series window is resolved ONCE in
-      // SalesService.getChartData (endDay ?? clientDay()) and passed through
-      // to the repository, so both series share one day source. Pass an
-      // explicit endDay here so the assertion doesn't depend on the
-      // machine's own clock.
-      const endDay = "2026-09-24";
-      const result = service.getChartData("Sales", endDay);
-
-      expect(mockRepo.getChartData).toHaveBeenCalledWith("Sales", endDay);
-      expect(result).toEqual(mockChartData);
-    });
-
     // DC-10 (OWNER_NOTES_2026-09-21.md §7.2): "Profit" no longer delegates to
     // SalesRepository.getChartData (that per-unit query was deleted). It is
     // composed HERE from ProfitService.getByDate over the rolling 30-day

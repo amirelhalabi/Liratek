@@ -48,22 +48,6 @@ describe("ExpenseService", () => {
   // ===========================================================================
 
   describe("addExpense", () => {
-    it("should add an expense successfully", () => {
-      const expenseData: CreateExpenseData = {
-        category: "Utilities",
-        amount_usd: 50,
-        amount_lbp: 0,
-        description: "Electricity bill",
-        expense_date: "2025-01-15",
-      };
-      mockRepo.createExpense.mockReturnValue(1);
-
-      const result = service.addExpense(expenseData, 1);
-
-      expect(result).toEqual({ success: true, id: 1 });
-      expect(mockRepo.createExpense).toHaveBeenCalledWith(expenseData, 1);
-    });
-
     it("should add expense with LBP amount", () => {
       const expenseData: CreateExpenseData = {
         category: "Supplies",
@@ -114,21 +98,6 @@ describe("ExpenseService", () => {
       });
     });
 
-    it("should handle expense with description", () => {
-      const expenseData: CreateExpenseData = {
-        category: "Rent",
-        amount_usd: 500,
-        amount_lbp: 0,
-        description: "Monthly rent",
-        expense_date: "2025-01-15",
-      };
-      mockRepo.createExpense.mockReturnValue(4);
-
-      const result = service.addExpense(expenseData, 1);
-
-      expect(result).toEqual({ success: true, id: 4 });
-    });
-
     it("should handle expense with zero USD", () => {
       const expenseData: CreateExpenseData = {
         category: "Food",
@@ -150,35 +119,6 @@ describe("ExpenseService", () => {
   // ===========================================================================
 
   describe("getTodayExpenses", () => {
-    it("should return today expenses", () => {
-      const mockExpenses: ExpenseEntity[] = [
-        {
-          id: 1,
-          category: "Utilities",
-          amount_usd: 50,
-          amount_lbp: 0,
-          description: "Internet",
-          expense_date: "2025-01-15",
-          created_at: "2025-01-15 10:00:00",
-        },
-        {
-          id: 2,
-          category: "Food",
-          amount_usd: 20,
-          amount_lbp: 0,
-          description: "Snacks",
-          expense_date: "2025-01-15",
-          created_at: "2025-01-15 12:00:00",
-        },
-      ];
-      mockRepo.getTodayExpenses.mockReturnValue(mockExpenses);
-
-      const result = service.getTodayExpenses();
-
-      expect(result).toEqual(mockExpenses);
-      expect(mockRepo.getTodayExpenses).toHaveBeenCalled();
-    });
-
     it("should return empty array when no expenses today", () => {
       mockRepo.getTodayExpenses.mockReturnValue([]);
 

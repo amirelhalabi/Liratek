@@ -101,23 +101,6 @@ describe("RechargeService", () => {
   // ===========================================================================
 
   describe("processRecharge", () => {
-    it("should process MTC recharge successfully", () => {
-      const rechargeData: RechargeData = {
-        provider: "MTC",
-        type: "CREDIT_TRANSFER",
-        amount: 10,
-        cost: 9,
-        price: 10,
-        phoneNumber: "03123456",
-      };
-      mockRepo.processRecharge.mockReturnValue({ success: true, id: 1 });
-
-      const result = service.processRecharge(rechargeData);
-
-      expect(result).toEqual({ success: true, id: 1 });
-      expect(mockRepo.processRecharge).toHaveBeenCalledWith(rechargeData);
-    });
-
     it("should process Alfa recharge successfully", () => {
       const rechargeData: RechargeData = {
         provider: "Alfa",

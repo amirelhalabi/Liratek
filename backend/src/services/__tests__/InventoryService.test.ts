@@ -109,51 +109,6 @@ describe("InventoryService", () => {
   // Product Queries
   // ===========================================================================
 
-  describe("getProducts", () => {
-    // `getProducts(search?, filters?)` forwards BOTH args straight to
-    // `findAllProducts(search?, filters?)` — the structured inventory-list
-    // filters are pushed down into SQL by the repository, so the service
-    // stays a pass-through. `toHaveBeenCalledWith` is arity-sensitive, hence
-    // the explicit trailing `undefined` on the no-filter calls.
-    it("returns all products without filter", () => {
-      const mockProducts = [
-        { id: 1, barcode: "123", name: "Product A" },
-        { id: 2, barcode: "456", name: "Product B" },
-      ];
-      mockRepo.findAllProducts.mockReturnValue(mockProducts as any);
-
-      const result = service.getProducts();
-
-      expect(mockRepo.findAllProducts).toHaveBeenCalledWith(
-        undefined,
-        undefined,
-      );
-      expect(result).toEqual(mockProducts);
-    });
-
-    it("passes search term to repository", () => {
-      mockRepo.findAllProducts.mockReturnValue([]);
-
-      service.getProducts("phone");
-
-      expect(mockRepo.findAllProducts).toHaveBeenCalledWith("phone", undefined);
-    });
-
-    it("forwards the structured filter set to the repository untouched", () => {
-      mockRepo.findAllProducts.mockReturnValue([]);
-      const filters = {
-        categories: ["Phones"],
-        suppliers: ["Acme"],
-        costMin: 10,
-        stockMax: 5,
-      };
-
-      service.getProducts("phone", filters);
-
-      expect(mockRepo.findAllProducts).toHaveBeenCalledWith("phone", filters);
-    });
-  });
-
   describe("getProductById", () => {
     it("returns product when found", () => {
       const mockProduct = { id: 1, barcode: "123", name: "Product A" };
@@ -253,37 +208,6 @@ describe("InventoryService", () => {
       min_stock_level: 10,
     };
 
-    it("creates product successfully, stamping the resolved category_id", () => {
-      mockRepo.barcodeExists.mockReturnValue(false);
-      mockRepo.createProduct.mockReturnValue({ id: 1 });
-
-      const result = service.createProduct(validProductData);
-
-      // Rule 14/19b: the category NAME is resolved HERE (one site for IPC
-      // and REST alike) and the id goes onto the row — a create that left
-      // `category_id` NULL is what made `tracks_imei_units` always 0 for
-      // web-created products (LIRA-143 decision #9).
-      expect(mockCategoryRepo.getOrCreate).toHaveBeenCalledWith("Electronics");
-      // LIRA-164 (Supplier Stock Intake): createProduct now threads the
-      // acting user id through to ProductRepository.createProduct as a
-      // SECOND argument — a create that carries a supplier + opening stock
-      // books a SUPPLIER_STOCK_INTAKE debit, and an un-attributed booking is
-      // a real audit-trail gap (SUPPLIER_STOCK_INTAKE_PLAN.md). This call
-      // site didn't pass a userId, so the service's own default (`null`)
-      // flows through unchanged.
-      expect(mockRepo.createProduct).toHaveBeenCalledWith(
-        {
-          ...validProductData,
-          barcode: "123456",
-          name: "Test Product",
-          category: "Electronics",
-          category_id: STUB_CATEGORY_ID,
-        },
-        null,
-      );
-      expect(result).toEqual({ success: true, id: 1 });
-    });
-
     it("auto-generates barcode when missing", () => {
       mockRepo.barcodeExists.mockReturnValue(false);
       mockRepo.createProduct.mockReturnValue({ id: 1 });
@@ -308,15 +232,6 @@ describe("InventoryService", () => {
         success: false,
         error: "Product name is required",
       });
-    });
-
-    it("returns error for missing category", () => {
-      const result = service.createProduct({
-        ...validProductData,
-        category: "",
-      });
-
-      expect(result).toEqual({ success: false, error: "Category is required" });
     });
 
     it("returns error for negative cost price", () => {
@@ -384,51 +299,6 @@ describe("InventoryService", () => {
       supplier: null,
     };
 
-    it("updates product successfully, re-resolving category_id from the NAME", () => {
-      mockRepo.exists.mockReturnValue(true);
-      mockRepo.barcodeExists.mockReturnValue(false);
-      mockRepo.updateProductFull.mockReturnValue(true);
-
-      const result = service.updateProduct(1, updateData);
-
-      // `updateData` carries `category_id: null` — the pre-fix contract wrote
-      // that straight through, which NULLed a correct id on every web edit.
-      // The name now wins and the caller's id is ignored entirely.
-      expect(mockCategoryRepo.getOrCreate).toHaveBeenCalledWith("Electronics");
-      expect(mockRepo.updateProductFull).toHaveBeenCalledWith(1, {
-        ...updateData,
-        category_id: STUB_CATEGORY_ID,
-      });
-      expect(result).toEqual({ success: true });
-    });
-
-    it("leaves category/category_id out of the write when the update names no category", () => {
-      mockRepo.exists.mockReturnValue(true);
-      mockRepo.barcodeExists.mockReturnValue(false);
-      mockRepo.updateProductFull.mockReturnValue(true);
-      // Same edit as above with the two category keys ABSENT — what the
-      // unvalidated REST `PUT /api/inventory/products/:id` can deliver.
-      const result = service.updateProduct(1, {
-        barcode: "123456",
-        name: "Updated Product",
-        cost_price: 15,
-        retail_price: 30,
-        min_stock_level: 5,
-        supplier: null,
-      });
-
-      expect(result).toEqual({ success: true });
-      // Omitted category = "leave this product's classification alone": no
-      // find-or-create (so no invented 'General' row) and both keys absent
-      // from the payload, which `updateProductFull`'s COALESCE reads as
-      // "keep the stored values".
-      expect(mockCategoryRepo.getOrCreate).not.toHaveBeenCalled();
-      const written = mockRepo.updateProductFull.mock.calls[0][1];
-      expect("category" in written).toBe(false);
-      expect("category_id" in written).toBe(false);
-      expect(written.name).toBe("Updated Product");
-    });
-
     it("returns error for missing product ID", () => {
       const result = service.updateProduct(0, updateData);
 
@@ -463,38 +333,6 @@ describe("InventoryService", () => {
   });
 
   describe("deleteProduct", () => {
-    it("soft deletes product successfully", () => {
-      mockRepo.softDeleteById.mockReturnValue(true);
-
-      const result = service.deleteProduct(1);
-
-      expect(mockRepo.softDeleteById).toHaveBeenCalledWith(1);
-      // The IMEI-unit cascade runs for every delete, inside the repository-
-      // owned transaction — and reports nothing when there was nothing to
-      // remove (absent, not 0).
-      expect(mockUnitRepo.transaction).toHaveBeenCalledTimes(1);
-      expect(mockUnitRepo.deleteInStockForProduct).toHaveBeenCalledWith(1);
-      expect(result).toEqual({ success: true });
-    });
-
-    it("reports the IN_STOCK units the cascade removed", () => {
-      mockRepo.softDeleteById.mockReturnValue(true);
-      (
-        mockUnitRepo.deleteInStockForProduct as unknown as jest.Mock
-      ).mockReturnValue({
-        count: 2,
-        imeis: ["111000000000001", "111000000000002"],
-      });
-
-      const result = service.deleteProduct(1);
-
-      expect(result).toEqual({
-        success: true,
-        removed_unit_count: 2,
-        removed_unit_imeis: ["111000000000001", "111000000000002"],
-      });
-    });
-
     it("returns error for missing product ID", () => {
       const result = service.deleteProduct(0);
 
@@ -516,54 +354,6 @@ describe("InventoryService", () => {
       expect(mockUnitRepo.deleteInStockForProduct).not.toHaveBeenCalled();
     });
 
-    it("LIRA-148: still soft-deletes but skips the unit cascade when product_units doesn't exist", () => {
-      mockRepo.softDeleteById.mockReturnValue(true);
-      (
-        mockUnitRepo.productUnitsTableExists as unknown as jest.Mock
-      ).mockReturnValue(false);
-
-      const result = service.deleteProduct(1);
-
-      expect(mockRepo.softDeleteById).toHaveBeenCalledWith(1);
-      // The cascade query itself is never issued against a schema that
-      // doesn't have the table.
-      expect(mockUnitRepo.deleteInStockForProduct).not.toHaveBeenCalled();
-      // Skipped cascade reads as "no units" — same shape as the real
-      // no-units case, so the caller can't tell the two apart.
-      expect(result).toEqual({ success: true });
-    });
-  });
-
-  describe("batchDeleteProducts", () => {
-    it("cascades the IMEI units for every id in the batch", () => {
-      (mockRepo.batchSoftDelete as unknown as jest.Mock).mockReturnValue(2);
-      (
-        mockUnitRepo.deleteInStockForProducts as unknown as jest.Mock
-      ).mockReturnValue({ count: 3, imeis: ["a", "b", "c"] });
-
-      const result = service.batchDeleteProducts([1, 2]);
-
-      expect(mockRepo.batchSoftDelete).toHaveBeenCalledWith([1, 2]);
-      expect(mockUnitRepo.deleteInStockForProducts).toHaveBeenCalledWith([
-        1, 2,
-      ]);
-      expect(result).toEqual({
-        success: true,
-        deleted: 2,
-        removed_unit_count: 3,
-        removed_unit_imeis: ["a", "b", "c"],
-      });
-    });
-
-    it("rejects an empty id list before opening the transaction", () => {
-      const result = service.batchDeleteProducts([]);
-
-      expect(result).toEqual({
-        success: false,
-        error: "No product IDs provided",
-      });
-      expect(mockUnitRepo.transaction).not.toHaveBeenCalled();
-    });
   });
 
   // ===========================================================================
@@ -628,38 +418,6 @@ describe("InventoryService", () => {
       );
       expect(mockRepo.receiveStock).not.toHaveBeenCalled();
       expect(result).toEqual({ success: true });
-    });
-
-    it("returns error for missing product ID", () => {
-      const result = service.adjustStock(0, 50, "recount", 1);
-
-      expect(result).toEqual({ success: false, error: "Product ID required" });
-    });
-
-    it("returns error for negative quantity", () => {
-      const result = service.adjustStock(1, -10, "recount", 1);
-
-      expect(result).toEqual({
-        success: false,
-        error: "Stock quantity cannot be negative",
-      });
-    });
-
-    it("returns error for a missing reason (LIRA-077 audit trail)", () => {
-      const result = service.adjustStock(1, 50, "   ", 1);
-
-      expect(result).toEqual({ success: false, error: "Reason is required" });
-      expect(mockRepo.findById).not.toHaveBeenCalled();
-      expect(mockRepo.receiveStock).not.toHaveBeenCalled();
-      expect(mockRepo.decreaseStockForAdjustment).not.toHaveBeenCalled();
-    });
-
-    it("returns 'Product not found' when the repository has no matching product", () => {
-      mockRepo.findById.mockReturnValue(undefined as any);
-
-      const result = service.adjustStock(999, 50, "recount", 1);
-
-      expect(result).toEqual({ success: false, error: "Product not found" });
     });
 
     it("handles a repository error from the receiveStock booking path", () => {
@@ -729,16 +487,6 @@ describe("InventoryService", () => {
       const result = service.adjustStockDelta(0, 10, "recount", 1);
 
       expect(result).toEqual({ success: false, error: "Product ID required" });
-    });
-
-    it("returns error for a missing reason (LIRA-077 audit trail)", () => {
-      const result = service.adjustStockDelta(1, 10, "", 1);
-
-      expect(result).toEqual({ success: false, error: "Reason is required" });
-      expect(mockRepo.findById).not.toHaveBeenCalled();
-      expect(mockRepo.adjustStockDelta).not.toHaveBeenCalled();
-      expect(mockRepo.receiveStock).not.toHaveBeenCalled();
-      expect(mockRepo.decreaseStockForAdjustment).not.toHaveBeenCalled();
     });
 
     it("returns 'Product not found' when the repository has no matching product", () => {

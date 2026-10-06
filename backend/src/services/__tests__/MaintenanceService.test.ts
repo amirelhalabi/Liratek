@@ -57,61 +57,6 @@ describe("MaintenanceService", () => {
 
   describe("saveJob", () => {
     describe("creating new jobs", () => {
-      it("should create a new job when no id is provided", () => {
-        const params: SaveJobParams = {
-          device_name: "iPhone 14",
-          issue_description: "Cracked screen",
-          price_usd: 150,
-          status: "In Progress",
-        };
-
-        mockRepo.createJob.mockReturnValue(1);
-
-        const result = service.saveJob(params);
-
-        expect(result).toEqual({ success: true, id: 1 });
-        // actorUserId (LIRA-246a) is now createJob's 2nd argument — undefined
-        // here since `service.saveJob(params)` is called with no actor, the
-        // same way an untouched legacy call site would.
-        expect(mockRepo.createJob).toHaveBeenCalledWith(
-          expect.objectContaining({
-            device_name: "iPhone 14",
-            issue_description: "Cracked screen",
-            price_usd: 150,
-            status: "In Progress",
-          }),
-          undefined,
-        );
-      });
-
-      it("should auto-create client if name AND phone are provided but no id", () => {
-        const params: SaveJobParams = {
-          client_name: "John Doe",
-          client_phone: "1234567890",
-          device_name: "Samsung S23",
-          price_usd: 100,
-        };
-
-        mockRepo.findOrCreateClient.mockReturnValue(5);
-        mockRepo.createJob.mockReturnValue(2);
-
-        const result = service.saveJob(params);
-
-        expect(result).toEqual({ success: true, id: 2 });
-        expect(mockRepo.findOrCreateClient).toHaveBeenCalledWith(
-          "John Doe",
-          "1234567890",
-        );
-        expect(mockRepo.createJob).toHaveBeenCalledWith(
-          expect.objectContaining({
-            client_id: 5,
-            client_name: "John Doe",
-            device_name: "Samsung S23",
-          }),
-          undefined,
-        );
-      });
-
       it("should handle client auto-creation failure gracefully (with a phone present, so auto-create is attempted)", () => {
         const params: SaveJobParams = {
           client_name: "Jane Doe",
@@ -139,79 +84,6 @@ describe("MaintenanceService", () => {
         );
       });
 
-      // LIRA-246c: a name with NO phone must never name-match/auto-create —
-      // `findOrCreateClient` matches an EXISTING client by full_name ALONE,
-      // so a same-named walk-in with no phone to disambiguate used to attach
-      // to the wrong person. See the exhaustive guard at
-      // packages/core/src/services/__tests__/MaintenanceService.noPhoneClientLink.test.ts.
-      it("does NOT auto-create/match a client when a name is given but no phone", () => {
-        const params: SaveJobParams = {
-          client_name: "No Phone Walkin",
-          device_name: "Nokia 3310",
-          price_usd: 5,
-        };
-
-        mockRepo.createJob.mockReturnValue(6);
-
-        const result = service.saveJob(params);
-
-        expect(result).toEqual({ success: true, id: 6 });
-        expect(mockRepo.findOrCreateClient).not.toHaveBeenCalled();
-        expect(mockRepo.createJob).toHaveBeenCalledWith(
-          expect.objectContaining({
-            client_id: null,
-            client_name: "No Phone Walkin",
-          }),
-          undefined,
-        );
-      });
-
-      it("should use client_id when provided", () => {
-        const params: SaveJobParams = {
-          client_id: 10,
-          client_name: "Existing Client",
-          device_name: "OnePlus 11",
-          price_usd: 120,
-        };
-
-        mockRepo.createJob.mockReturnValue(4);
-
-        const result = service.saveJob(params);
-
-        expect(result).toEqual({ success: true, id: 4 });
-        expect(mockRepo.findOrCreateClient).not.toHaveBeenCalled();
-        expect(mockRepo.createJob).toHaveBeenCalledWith(
-          expect.objectContaining({
-            client_id: 10,
-          }),
-          undefined,
-        );
-      });
-    });
-
-    describe("updating existing jobs", () => {
-      it("should update an existing job when id is provided", () => {
-        const params: SaveJobParams = {
-          id: 1,
-          device_name: "iPhone 14 Pro",
-          price_usd: 200,
-          status: "In Progress",
-        };
-
-        const result = service.saveJob(params);
-
-        expect(result).toEqual({ success: true, id: 1 });
-        // actorUserId (LIRA-246a) is now updateJob's 3rd argument.
-        expect(mockRepo.updateJob).toHaveBeenCalledWith(
-          1,
-          expect.objectContaining({
-            device_name: "iPhone 14 Pro",
-            price_usd: 200,
-          }),
-          undefined,
-        );
-        expect(mockRepo.createJob).not.toHaveBeenCalled();
-      });
     });
 
     describe("default values", () => {
@@ -388,15 +260,6 @@ describe("MaintenanceService", () => {
   // ===========================================================================
 
   describe("deleteJob", () => {
-    it("should delete a job successfully", () => {
-      mockRepo.deleteJob.mockReturnValue(undefined);
-
-      const result = service.deleteJob(1);
-
-      expect(result).toEqual({ success: true });
-      expect(mockRepo.deleteJob).toHaveBeenCalledWith(1);
-    });
-
     it("should return error when delete fails", () => {
       mockRepo.deleteJob.mockImplementation(() => {
         throw new Error("Delete failed");

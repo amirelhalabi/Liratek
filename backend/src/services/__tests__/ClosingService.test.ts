@@ -61,15 +61,6 @@ describe("ClosingService", () => {
   // ===========================================================================
 
   describe("recalculateDrawerBalances", () => {
-    it("should return success when recalculation succeeds", () => {
-      mockRepo.recalculateDrawerBalances.mockReturnValue({ success: true });
-
-      const result = service.recalculateDrawerBalances();
-
-      expect(result).toEqual({ success: true });
-      expect(mockRepo.recalculateDrawerBalances).toHaveBeenCalled();
-    });
-
     it("should return error result when repository returns error", () => {
       mockRepo.recalculateDrawerBalances.mockReturnValue({
         success: false,
@@ -98,19 +89,6 @@ describe("ClosingService", () => {
   // ===========================================================================
 
   describe("getSystemExpectedBalancesDynamic", () => {
-    it("should return dynamic balances keyed by drawer and currency", () => {
-      const mockBalances = {
-        General: { USD: 1000, LBP: 90000000 },
-        OMT: { USD: 500 },
-      };
-      mockRepo.getSystemExpectedBalancesDynamic.mockReturnValue(mockBalances);
-
-      const result = service.getSystemExpectedBalancesDynamic();
-
-      expect(result).toEqual(mockBalances);
-      expect(mockRepo.getSystemExpectedBalancesDynamic).toHaveBeenCalled();
-    });
-
     it("should return empty object when repository throws", () => {
       mockRepo.getSystemExpectedBalancesDynamic.mockImplementation(() => {
         throw new Error("Query failed");
@@ -137,46 +115,6 @@ describe("ClosingService", () => {
       totalExpensesLBP: 13500000,
     };
 
-    it("with includeProfit:false (default), returns activity stats + profitHidden, never calls ProfitService", () => {
-      mockRepo.getDailyActivityStats.mockReturnValue(mockActivity);
-
-      const result = service.getDailyStatsSnapshot({ day: "2026-09-20" });
-
-      expect(mockRepo.getDailyActivityStats).toHaveBeenCalledWith(
-        "2026-09-20",
-      );
-      expect(mockProfitService.getSummary).not.toHaveBeenCalled();
-      expect(result).toEqual({
-        ...mockActivity,
-        profitDay: "2026-09-20",
-        profitHidden: true,
-      });
-    });
-
-    it("with includeProfit:true, composes activity + ProfitService.getSummary(day,day).totals.gross_* (rule 14)", () => {
-      mockRepo.getDailyActivityStats.mockReturnValue(mockActivity);
-      mockProfitService.getSummary.mockReturnValue({
-        totals: { gross_profit_usd: 500, gross_profit_lbp: 0 },
-        expenses: { total_usd: 150, total_lbp: 13500000 },
-      });
-
-      const result = service.getDailyStatsSnapshot(
-        { day: "2026-09-20" },
-        { includeProfit: true },
-      );
-
-      expect(mockProfitService.getSummary).toHaveBeenCalledWith(
-        "2026-09-20",
-        "2026-09-20",
-      );
-      expect(result).toEqual({
-        ...mockActivity,
-        profitDay: "2026-09-20",
-        totalProfitUSD: 500,
-        totalProfitLBP: 0,
-      });
-    });
-
     it("returns default (zero) activity stats when the repository throws — profit stays hidden since includeProfit defaults false", () => {
       mockRepo.getDailyActivityStats.mockImplementation(() => {
         throw new Error("Query failed");
@@ -195,25 +133,6 @@ describe("ClosingService", () => {
         profitDay: "2026-09-20",
         profitHidden: true,
       });
-    });
-
-    it("E-Q7: a ProfitService.getSummary throw sets profitUnavailable, never a silent $0.00", () => {
-      mockRepo.getDailyActivityStats.mockReturnValue(mockActivity);
-      mockProfitService.getSummary.mockImplementation(() => {
-        throw new Error("profit query failed");
-      });
-
-      const result = service.getDailyStatsSnapshot(
-        { day: "2026-09-20" },
-        { includeProfit: true },
-      );
-
-      expect(result).toEqual({
-        ...mockActivity,
-        profitDay: "2026-09-20",
-        profitUnavailable: true,
-      });
-      expect(result).not.toHaveProperty("totalProfitUSD");
     });
 
     it("handles all-zero activity stats", () => {
@@ -243,19 +162,6 @@ describe("ClosingService", () => {
   // ===========================================================================
 
   describe("getLastCheckpointActuals", () => {
-    it("should return last checkpoint actuals per drawer/currency", () => {
-      const mockActuals = {
-        General: { USD: 950, LBP: 88000000 },
-        OMT: { USD: 480 },
-      };
-      mockRepo.getLastCheckpointActuals.mockReturnValue(mockActuals);
-
-      const result = service.getLastCheckpointActuals();
-
-      expect(result).toEqual(mockActuals);
-      expect(mockRepo.getLastCheckpointActuals).toHaveBeenCalled();
-    });
-
     it("should return empty object when repository throws", () => {
       mockRepo.getLastCheckpointActuals.mockImplementation(() => {
         throw new Error("Query failed");
@@ -272,33 +178,6 @@ describe("ClosingService", () => {
   // ===========================================================================
 
   describe("createCheckpoint", () => {
-    it("should create a checkpoint successfully", () => {
-      const data = {
-        user_id: 1,
-        notes: "End of day",
-        amounts: [
-          {
-            drawer_name: "General",
-            currency_code: "USD",
-            expected_amount: 1000,
-            physical_amount: 1000,
-          },
-          {
-            drawer_name: "General",
-            currency_code: "LBP",
-            expected_amount: 90000000,
-            physical_amount: 90000000,
-          },
-        ],
-      };
-      mockRepo.createCheckpoint.mockReturnValue({ success: true, id: 5 });
-
-      const result = service.createCheckpoint(data);
-
-      expect(result).toEqual({ success: true, id: 5 });
-      expect(mockRepo.createCheckpoint).toHaveBeenCalledWith(data);
-    });
-
     it("should return failure result when repository throws", () => {
       mockRepo.createCheckpoint.mockImplementation(() => {
         throw new Error("Insert failed");

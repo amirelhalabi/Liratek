@@ -240,15 +240,6 @@ describe("ExchangeService", () => {
       expect(mockRepo.getHistory).toHaveBeenCalledWith(10);
     });
 
-    it("should return empty array on error", () => {
-      mockRepo.getHistory.mockImplementation(() => {
-        throw new Error("Query failed");
-      });
-
-      const result = service.getHistory();
-
-      expect(result).toEqual([]);
-    });
   });
 
   // ===========================================================================

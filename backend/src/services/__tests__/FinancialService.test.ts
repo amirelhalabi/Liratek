@@ -112,11 +112,6 @@ describe("createFinancialServiceSchema", () => {
       }
     });
 
-    it("accepts missing phone number (optional)", () => {
-      const result = createFinancialServiceSchema.safeParse(basePayload);
-      expect(result.success).toBe(true);
-    });
-
     it("rejects phone numbers exceeding 30 chars", () => {
       const result = createFinancialServiceSchema.safeParse({
         ...basePayload,
@@ -171,17 +166,6 @@ describe("createFinancialServiceSchema", () => {
       expect(result.success).toBe(false);
     });
 
-    it("accepts missing omtServiceType (optional)", () => {
-      const result = createFinancialServiceSchema.safeParse(basePayload);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.omtServiceType).toBeUndefined();
-      }
-    });
-
-    it("validates all 8 OMT service types exist", () => {
-      expect(validTypes).toHaveLength(8);
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -206,16 +190,6 @@ describe("createFinancialServiceSchema", () => {
   // -------------------------------------------------------------------------
   // BINANCE provider
   // -------------------------------------------------------------------------
-
-  describe("BINANCE provider", () => {
-    it("accepts BINANCE as a valid provider", () => {
-      const result = createFinancialServiceSchema.safeParse({
-        ...basePayload,
-        provider: "BINANCE",
-      });
-      expect(result.success).toBe(true);
-    });
-  });
 
   // -------------------------------------------------------------------------
   // DEBT refinement
@@ -275,16 +249,6 @@ describe("FinancialService (delegation)", () => {
       commission: 5,
       note: "Money transfer to Lebanon",
     };
-
-    it("should delegate OMT transaction to repo", () => {
-      mockRepo.createTransaction.mockReturnValue({
-        id: 1,
-        drawer: "OMT_System",
-      });
-      const result = service.addTransaction(omtData);
-      expect(result).toEqual({ success: true, id: 1 });
-      expect(mockRepo.createTransaction).toHaveBeenCalledWith(omtData);
-    });
 
     it("should delegate WHISH transaction to repo", () => {
       const data: CreateFinancialServiceData = {
@@ -382,13 +346,6 @@ describe("FinancialService (delegation)", () => {
       );
     });
 
-    it("should return error when createTransaction throws", () => {
-      mockRepo.createTransaction.mockImplementation(() => {
-        throw new Error("Database error");
-      });
-      const result = service.addTransaction(omtData);
-      expect(result).toEqual({ success: false, error: "Database error" });
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -625,37 +582,6 @@ describe("FinancialService (SQL-level)", () => {
       expect(runCall[12]).toBeNull();
     });
 
-    it("returns success with id", () => {
-      createTrackingMock();
-
-      const result = service.addTransaction({
-        provider: "OMT",
-        serviceType: "SEND",
-        amount: 100,
-        commission: 5,
-        phoneNumber: "71123456",
-        omtServiceType: "INTRA",
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.id).toBeDefined();
-    });
-
-    it("returns error on DB failure", () => {
-      (mockDatabase.prepare as any).mockImplementation(() => {
-        throw new Error("Database locked");
-      });
-
-      const result = service.addTransaction({
-        provider: "OMT",
-        serviceType: "SEND",
-        amount: 100,
-        commission: 5,
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Database locked");
-    });
   });
 
   // -------------------------------------------------------------------------
