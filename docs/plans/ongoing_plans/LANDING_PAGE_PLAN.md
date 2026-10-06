@@ -1,10 +1,10 @@
 # Public Landing Page on `liratek.shop`
 
-> **Status**: in progress. Phase 1 (site in `landing/`) and Phase 3a (Playwright video,
-> `yarn workspace @liratek/frontend demo:record`) built and checked locally 2026-10-07,
-> not deployed. Remaining: Vercel project + Phase 2 domain switch (owner), Phase 3b
-> (`/brag`, needs install), Phase 4 DNS + Search Console (owner). `robots.txt` and
-> `sitemap.xml` exist.
+> **Status**: in progress. Phases 1–2 LIVE since 2026-10-07 (`liratek.shop` → `liratek-landing`
+> Vercel project; `www` and shop subdomains unchanged, re-verified). Phase 3: owner chose the
+> `/brag` video (3b), shipped as `landing/assets/demo.mp4` with a "Sound on" button; the
+> Playwright recorder (3a) now writes to `frontend/test-results/demo/` only. Remaining: Phase 4
+> DNS records + Search Console (owner).
 > **Written**: 2026-10-07, after the owner asked for `liratek.shop` to open a
 > landing page (with a product video) instead of going straight to login.
 > **Money**: no. **Touches login**: only by moving the bare domain — see §6.
@@ -143,6 +143,16 @@ shop name opens that shop's login page.
 `liratek.shop` may keep jumping to `www` from their cache. Clearing the browser
 cache fixes it. Expected to affect few people today.
 
+**Phase 2 record (2026-10-07)**, live checks after the switch:
+`liratek.shop` 200 (landing page; og.png, robots.txt, sitemap.xml 200); `/login` and `/signup`
+307 → `www/#/login`, `www/#/signup`; `liratek.shop/#/login` forwards to `www` and shows the login
+form; `www` 200 with the app, `signup-status` → `platformHost: true`; `cornertech` →
+`shopName: "CornerTech"`; `api.liratek.shop/health` 200; `deploy-api.mjs --verify-only` host
+checks passed (its Fly machine-count checks could not run: no flyctl on this Mac — no Fly change
+was made). One incident on the way: the "Redirect apex domains to www" box in Vercel's Add Domain
+dialog moved `www` into the landing project for a few minutes, taking down the super-admin login
+and `/#/signup`; shops were unaffected. Untick that box whenever adding the bare domain.
+
 ### Phase 3a — Demo video, Playwright recording
 
 - A dedicated spec, e.g. `frontend/tests/demo/record-demo.spec.ts`, with its
@@ -175,6 +185,11 @@ iPhone and in desktop Chrome. No real customer names or numbers appear in it.
 
 **Pass**: a second `demo.mp4` + `poster.jpg` exists. The owner watches both
 and picks one; the page ships with only the chosen video.
+
+**Result (2026-10-07)**: made by following `/brag-slim` (the plugin hands off to it on Opus 5.5):
+21 s, 1920×1080, music synthesised in A minor, real screens captured from the fictional demo
+database. **The owner chose this one.** Its sources (`comp.html`, `music.py`, `render.mjs`,
+`brag-plan.md`) are in the git-ignored `brag-output/`, not the repo.
 
 ### Phase 4 — Search and email hygiene
 

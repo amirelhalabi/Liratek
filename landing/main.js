@@ -53,6 +53,8 @@
     "msg.invalid": "استعمل أحرفاً إنكليزية وأرقاماً وشرطة (-) فقط.",
     "msg.notfound": "لم نجد محلاً بهذا الاسم. تأكد من الاسم.",
     "msg.checking": "جارٍ التحقق…",
+    "video.soundOn": "تشغيل الصوت",
+    "video.soundOff": "كتم الصوت",
     "wa.text": "مرحباً، أنا مهتم بـ LiraTek لمحلي.",
   };
 
@@ -62,6 +64,7 @@
     "msg.notfound":
       "We couldn't find a shop with that name. Check the spelling.",
     "msg.checking": "Checking…",
+    "video.soundOff": "Sound off",
     "wa.text": "Hello, I'm interested in LiraTek for my shop.",
   };
 
@@ -232,8 +235,29 @@
     new Date().getFullYear(),
   );
 
-  // Respect "reduce motion": keep the poster, don't autoplay.
   var video = document.getElementById("demo-video");
+
+  // Browsers only autoplay muted video; the button turns the music on.
+  var soundToggle = document.getElementById("sound-toggle");
+  function syncSoundLabel() {
+    var on = !video.muted;
+    soundToggle.setAttribute("aria-pressed", String(on));
+    soundToggle.setAttribute(
+      "data-i18n",
+      on ? "video.soundOff" : "video.soundOn",
+    );
+    soundToggle.textContent = t(on ? "video.soundOff" : "video.soundOn");
+  }
+  soundToggle.addEventListener("click", function () {
+    video.muted = !video.muted;
+    if (!video.muted) {
+      video.currentTime = 0;
+      video.play();
+    }
+    syncSoundLabel();
+  });
+
+  // Respect "reduce motion": keep the poster, don't autoplay.
   if (video && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     video.removeAttribute("autoplay");
     video.pause();

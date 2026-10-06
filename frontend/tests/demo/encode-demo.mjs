@@ -1,8 +1,12 @@
-// Turns the Playwright recording of the demo tour into the landing page's
-// video + poster (LANDING_PAGE_PLAN.md, Phase 3a).
+// Turns the Playwright recording of the demo tour into an MP4 + poster
+// (LANDING_PAGE_PLAN.md, Phase 3a).
 //
-//   landing/assets/demo.mp4   H.264, no audio, web-optimised (plays on iPhone)
-//   landing/assets/poster.jpg one frame, shown while the video loads
+// Writes to frontend/test-results/demo/, NOT landing/assets/: the landing page
+// ships the /brag video the owner chose (Phase 3b). Copy these over by hand
+// only if that choice changes.
+//
+//   demo.mp4   H.264, no audio, web-optimised (plays on iPhone)
+//   poster.jpg one frame
 //
 // Needs ffmpeg on PATH. Run after `playwright test --config playwright.demo.config.ts`.
 import { execFileSync } from "node:child_process";
@@ -12,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const outputDir = path.join(here, "..", "..", "test-results", "demo", "output");
-const assetsDir = path.join(here, "..", "..", "..", "landing", "assets");
+const assetsDir = path.join(here, "..", "..", "test-results", "demo");
 
 const tourDir = fs.readdirSync(outputDir).find((name) => name.includes("tour"));
 const webm = tourDir && path.join(outputDir, tourDir, "video.webm");
