@@ -11,6 +11,18 @@ LiraTek is a **desktop POS system for retail management** built as an Electron a
 - **DB**: Current migration version is **v153** (as of 2026-08-10) — this number goes stale fast and has already misled twice; **treat the last entry in `packages/core/src/db/migrations/index.ts` as the only source of truth**, and increment from that when adding a migration
 - **Package manager**: Yarn (use `yarn workspace @liratek/X` commands)
 
+## Spec Kit (big features only)
+
+[GitHub Spec Kit](https://github.com/github/spec-kit) is installed for Claude Code (`.specify/` + `.claude/skills/speckit-*`).
+
+- **Use it only for big user-facing features**: one that spans more than one app or backend (e.g. desktop + web + core), adds a new data model or API surface, or won't fit in one reviewable PR.
+- **Skip it** for everything else and go straight to implementation: small and medium features, bug fixes, refactors, CI/CD, tooling, dependency bumps, docs.
+- **Flow:** `/speckit-specify` → (`/speckit-clarify`) → `/speckit-plan` → `/speckit-tasks` → (`/speckit-analyze`) → `/speckit-implement`.
+- **Numbering = ticket number, not sequential.** Tickets are `LIRA-NNN` in `current_sprint.md` (no external tracker). Invoke `/speckit-specify --number <NNN> <description>`. The vendored skill does not read `--number` itself, so when running it: strip `--number <NNN>` from the description and set `SPECIFY_FEATURE_DIRECTORY` to `specs/<NNN>-<short-name>`, keeping the ticket digits as written (LIRA-286 → `specs/286-…`, LIRA-099 → `specs/099-…`). If that directory prefix already exists, stop and ask — never fall back to the next sequential number.
+- **Non-negotiables** live in `.specify/memory/constitution.md` (a summary of the rules below; this file wins on conflict).
+- **Specs are committed with the feature** they describe, in the same PR.
+- **Vendored files:** `.specify/` (except `.specify/memory/`, which we own) and `.claude/skills/speckit-*` come from upstream — never hand-edit them; they are excluded from Prettier. To refresh, re-run from the repo root: `uvx --from git+https://github.com/github/spec-kit.git specify init --here --integration claude --script sh --force` (`--force` is needed because the directory is not empty; it keeps an existing constitution and overwrites templates/skills). Review the diff afterwards — it also reformats `.claude/settings.json`, which you can revert.
+
 ## Shell Commands
 
 - Always use the **Bash tool** with `cmd /c "..."` for yarn, npm, and any CLI commands — never the PowerShell tool. PowerShell output is unreliable for yarn on this Windows setup.

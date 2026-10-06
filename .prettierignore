@@ -15,3 +15,9 @@ release/
 docs/code-audit.md
 docs/improvements-plan.md
 docs/electron-vite-react-best-practices.md
+
+# GitHub Spec Kit — vendored from upstream; refresh by re-running `specify init`.
+# .specify/memory/ is ours (the constitution), so it stays formatted.
+.specify/*
+!.specify/memory/
+.claude/skills/speckit-*/
