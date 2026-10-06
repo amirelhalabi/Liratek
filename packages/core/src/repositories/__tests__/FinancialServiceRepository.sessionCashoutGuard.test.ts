@@ -48,7 +48,7 @@ jest.mock("../../db/connection", () => {
 
 const mockAddCredit = jest.fn();
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: mockAddCredit }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: mockAddCredit }),
   resetDebtService: jest.fn(),
 }));
 
@@ -120,13 +120,19 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances VALUES (1, 'General', 'USD', 1000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'OMT_System', 'USD', 500, CURRENT_TIMESTAMP);
 
+    -- LIRA-258 (owner D2): the supplier posting is no longer wrapped in a
+    -- silent try/catch, so SupplierRepository.getByProvider's column list
+    -- (contact_name, phone, note, module_key) must exist here.
     CREATE TABLE suppliers (
       tenant_id INTEGER DEFAULT 1,
-      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, provider TEXT,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+      contact_name TEXT, phone TEXT, note TEXT, provider TEXT,
       is_active INTEGER DEFAULT 1, is_system INTEGER DEFAULT 0,
+      module_key TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT', 'OMT', 1);
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('WHISH', 'WHISH', 1);
 
     CREATE TABLE supplier_ledger (
       tenant_id INTEGER DEFAULT 1,
@@ -134,6 +140,8 @@ function createTestDb(): Database.Database {
       entry_type TEXT NOT NULL, amount_usd REAL NOT NULL DEFAULT 0,
       amount_lbp REAL NOT NULL DEFAULT 0, note TEXT, created_by INTEGER,
       transaction_id INTEGER, is_auto INTEGER NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0, refunded_at DATETIME,
+      source_ref_table TEXT DEFAULT NULL, source_ref_id INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

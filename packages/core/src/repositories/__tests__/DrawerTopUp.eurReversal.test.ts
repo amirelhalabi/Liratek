@@ -15,7 +15,8 @@
  * "two drawer movements but only the General-side payments leg — a void
  * would restore General and strand the source drawer's deduction"). That
  * rationale describes `createTopUpFromDrawer` (the internal transfer mode,
- * whose source-drawer debit is a raw UPDATE with no payments row). But
+ * whose source-drawer debit was a raw UPDATE with no payments row; LIRA-258
+ * journals it for new rows, but pre-fix rows still lack it). But
  * `createTopUp` — the External Cash-In mode this ticket's EUR scenario
  * actually uses — shares the exact same `TRANSACTION_TYPES.DRAWER_TOPUP`
  * constant on its transaction row (DrawerTopUpRepository.ts `createTopUp`,

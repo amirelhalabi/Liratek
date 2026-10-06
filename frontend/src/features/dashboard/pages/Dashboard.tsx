@@ -56,6 +56,12 @@ import {
 // component file cannot also export plain functions under
 // react-refresh/only-export-components).
 import { parseLocalDateOnly, niceUsdAxisMax } from "../utils/chartFormat";
+import {
+  buildPartnerSettlementLines,
+  type PartnerBalanceRow,
+  type PartnerSettlementAmount,
+} from "../utils/partnerSettlement";
+import { formatCurrency } from "@/utils/currency";
 import { isDrawerVisible } from "@liratek/core";
 // LIRA-214 (OWNER_NOTES_REMAINING_BUILD.md #24, migration v183) — the shared
 // Hold Money pickup sheet (also used by HoldMoneySection's Active Holds
@@ -454,6 +460,16 @@ export default function Dashboard() {
   const [unsettledSummary, setUnsettledSummary] = useState<UnsettledSummary[]>(
     [],
   );
+  /** D3 (2026-10-06): partner balances — feed the partner lines of the
+   *  "Pending Settlement" banner. Non-critical: a failed fetch just means
+   *  no partner lines. */
+  const [partnerBalances, setPartnerBalances] = useState<PartnerBalanceRow[]>(
+    [],
+  );
+  const partnerSettlementLines = useMemo(
+    () => buildPartnerSettlementLines(partnerBalances),
+    [partnerBalances],
+  );
   /** Active carrier lines, every carrier — feeds the expiry/missing-line
    *  banner (D11 / D4). Non-critical: a failed fetch just means no banner. */
   const [carrierLines, setCarrierLines] = useState<CarrierLineEntity[]>([]);
@@ -676,10 +692,25 @@ export default function Dashboard() {
         // non-critical
       }
 
+      // Load partner balances (non-critical — feeds the partner lines of
+      // the Pending Settlement banner, D3). Inactive partners included: a
+      // deactivated partner with an open balance still has to be settled.
+      // Dual-mode via useApi().partners — no window.api gate.
+      try {
+        const balances: unknown =
+          await apiRef.current.partners.getAllBalances(true);
+        if (Array.isArray(balances)) {
+          setPartnerBalances(balances as PartnerBalanceRow[]);
+        }
+      } catch {
+        // non-critical
+      }
+
       // Load active carrier lines (non-critical — feeds the expiry/missing-
       // line banner, D11/D4). Dual-mode via useApi() — no window.api gate.
       try {
-        const carrierLinesData = await apiRef.current.getAllActiveCarrierLines();
+        const carrierLinesData =
+          await apiRef.current.getAllActiveCarrierLines();
         if (Array.isArray(carrierLinesData)) setCarrierLines(carrierLinesData);
       } catch {
         // non-critical
@@ -1461,9 +1492,19 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Pending Settlement Banner — only shown when there are unsettled commissions */}
-          {unsettledSummary.length > 0 &&
+          {/* Pending Settlement Banner — shown when there are unsettled
+              supplier commissions OR a partner with an open balance (D3). */}
+          {(unsettledSummary.length > 0 || partnerSettlementLines.length > 0) &&
             (() => {
+              const hasSupplierRows = unsettledSummary.length > 0;
+              const fmtPartnerAmounts = (list: PartnerSettlementAmount[]) =>
+                list
+                  .map((a) =>
+                    a.currency === "USDT"
+                      ? formatCurrency(a.amount, "USDT")
+                      : formatAmount(a.amount, a.currency),
+                  )
+                  .join(" + ");
               const totalPendingUsd = unsettledSummary.reduce(
                 (s, r) => s + r.pending_commission_usd,
                 0,
@@ -1495,133 +1536,189 @@ export default function Dashboard() {
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-amber-800 dark:text-amber-300 font-semibold text-sm">
-                      Pending Settlement — {totalTxns} transaction
-                      {totalTxns !== 1 ? "s" : ""}
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-3">
-                      {unsettledSummary.map((r) => {
-                        // LIRA-159 D2: pending_commission_usd is now
-                        // LEGACY-model-only — 0 for a provider whose
-                        // unsettled rows are all post-cutover
-                        // (commission_model = 1). Their commission is
-                        // unknowable until entered at settlement, so
-                        // awaiting_settlement_count is the only honest
-                        // figure; never render a fabricated $0.0000.
-                        const hasPendingUsd = r.pending_commission_usd > 0;
-                        // LBP twin of the total_owed_lbp gap fixed above:
-                        // pending_commission_lbp was typed on UnsettledSummary
-                        // (line 332) and returned by the query, but this
-                        // banner never rendered it — a LEGACY-model
-                        // (commission_model = 0) OMT/WHISH row whose
-                        // commission is entirely LBP-denominated showed no
-                        // commission figure at all, even though the same
-                        // field is rendered on the Profits page
-                        // (Profits.tsx:838). A row only reaches this summary
-                        // if pendingSettlementSql matches it
-                        // (FinancialServiceRepository.ts:915): either
-                        // commission_model = 1 (→ awaiting_settlement_count)
-                        // or commission_model = 0 AND provider IN
-                        // ('OMT','WHISH') AND commission > 0 (→
-                        // pending_commission_usd XOR pending_commission_lbp —
-                        // the query's CASE arms split on currency != 'LBP'
-                        // vs = 'LBP' and are exhaustive). So hasPendingUsd,
-                        // hasPendingLbp and hasAwaiting can never ALL be
-                        // false for a row in this list — at least one
-                        // leading clause always renders, so the label never
-                        // dangles into a bare " — ".
-                        const hasPendingLbp = r.pending_commission_lbp > 0;
-                        const hasAwaiting = r.awaiting_settlement_count > 0;
-                        // Owed-clause fix: a pending Katsh BILL row always has
-                        // total_owed_usd = 0 structurally (SUPPLIER_OWED_EXPR
-                        // — a bill's principal never enters the supplier
-                        // ledger), so the "on $X owed" clause used to render
-                        // unconditionally as a meaningless "on $0.00 owed".
-                        // Separately, total_owed_lbp was returned by the
-                        // query but never rendered anywhere, so an
-                        // LBP-denominated pending row (OMT/WHISH) displayed
-                        // as "$0.00 owed" while carrying real LBP exposure.
-                        // Use !== 0, NOT > 0: SUPPLIER_OWED_EXPR returns
-                        // NEGATIVE values for OMT/WHISH RECEIVE rows (the
-                        // provider owes the shop) — a > 0 guard would hide
-                        // that row's owed figure entirely, which is exactly
-                        // the silent-swallow failure CLAUDE.md rule 26 bans
-                        // on a money surface.
-                        const hasOwedUsd = r.total_owed_usd !== 0;
-                        const hasOwedLbp = r.total_owed_lbp !== 0;
-                        return (
-                          <span
-                            key={r.provider}
-                            className="text-xs text-amber-700 dark:text-amber-400/80 font-mono"
-                          >
-                            {r.provider}:{" "}
-                            {hasPendingUsd && (
-                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
-                                ${r.pending_commission_usd.toFixed(4)}
-                              </span>
-                            )}
-                            {hasPendingUsd && hasPendingLbp && " + "}
-                            {hasPendingLbp && (
-                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
-                                {formatAmount(r.pending_commission_lbp, "LBP")}
-                              </span>
-                            )}
-                            {(hasPendingUsd || hasPendingLbp) && " commission"}
-                            {(hasPendingUsd || hasPendingLbp) &&
-                              hasAwaiting &&
-                              " + "}
-                            {hasAwaiting && (
-                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
-                                {r.awaiting_settlement_count} awaiting
-                                settlement
-                              </span>
-                            )}
-                            {(hasOwedUsd || hasOwedLbp) && " — "}
-                            {hasOwedUsd && (
-                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
-                                {formatAmount(r.total_owed_usd, "USD")}
-                              </span>
-                            )}
-                            {hasOwedUsd && hasOwedLbp && " + "}
-                            {hasOwedLbp && (
-                              <span className="text-amber-900 dark:text-amber-300 font-semibold">
-                                {formatAmount(r.total_owed_lbp, "LBP")}
-                              </span>
-                            )}
-                            {(hasOwedUsd || hasOwedLbp) && " owed"} ({r.count}{" "}
-                            txns)
-                          </span>
-                        );
-                      })}
-                    </div>
-                    <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
-                      {(totalPendingUsd > 0 ||
-                        totalPendingLbp > 0 ||
-                        totalAwaitingSettlement > 0) && (
+                      Pending Settlement
+                      {hasSupplierRows && (
                         <>
-                          Total pending:{" "}
-                          {totalPendingUsd > 0 && (
-                            <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
-                              ${totalPendingUsd.toFixed(4)}
-                            </span>
-                          )}
-                          {totalPendingUsd > 0 && totalPendingLbp > 0 && " + "}
-                          {totalPendingLbp > 0 && (
-                            <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
-                              {formatAmount(totalPendingLbp, "LBP")}
-                            </span>
-                          )}
-                          {(totalPendingUsd > 0 || totalPendingLbp > 0) &&
-                            totalAwaitingSettlement > 0 &&
-                            " + "}
-                          {totalAwaitingSettlement > 0 && (
-                            <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
-                              {totalAwaitingSettlement} awaiting settlement
-                            </span>
-                          )}{" "}
+                          {" "}
+                          — {totalTxns} transaction
+                          {totalTxns !== 1 ? "s" : ""}
                         </>
                       )}
-                      — settle via Settings → Supplier Ledger
                     </p>
+                    {hasSupplierRows && (
+                      <div className="mt-1 flex flex-wrap gap-3">
+                        {unsettledSummary.map((r) => {
+                          // LIRA-159 D2: pending_commission_usd is now
+                          // LEGACY-model-only — 0 for a provider whose
+                          // unsettled rows are all post-cutover
+                          // (commission_model = 1). Their commission is
+                          // unknowable until entered at settlement, so
+                          // awaiting_settlement_count is the only honest
+                          // figure; never render a fabricated $0.0000.
+                          const hasPendingUsd = r.pending_commission_usd > 0;
+                          // LBP twin of the total_owed_lbp gap fixed above:
+                          // pending_commission_lbp was typed on UnsettledSummary
+                          // (line 332) and returned by the query, but this
+                          // banner never rendered it — a LEGACY-model
+                          // (commission_model = 0) OMT/WHISH row whose
+                          // commission is entirely LBP-denominated showed no
+                          // commission figure at all, even though the same
+                          // field is rendered on the Profits page
+                          // (Profits.tsx:838). A row only reaches this summary
+                          // if pendingSettlementSql matches it
+                          // (FinancialServiceRepository.ts:915): either
+                          // commission_model = 1 (→ awaiting_settlement_count)
+                          // or commission_model = 0 AND provider IN
+                          // ('OMT','WHISH') AND commission > 0 (→
+                          // pending_commission_usd XOR pending_commission_lbp —
+                          // the query's CASE arms split on currency != 'LBP'
+                          // vs = 'LBP' and are exhaustive). So hasPendingUsd,
+                          // hasPendingLbp and hasAwaiting can never ALL be
+                          // false for a row in this list — at least one
+                          // leading clause always renders, so the label never
+                          // dangles into a bare " — ".
+                          const hasPendingLbp = r.pending_commission_lbp > 0;
+                          const hasAwaiting = r.awaiting_settlement_count > 0;
+                          // Owed-clause fix: a pending Katsh BILL row always has
+                          // total_owed_usd = 0 structurally (SUPPLIER_OWED_EXPR
+                          // — a bill's principal never enters the supplier
+                          // ledger), so the "on $X owed" clause used to render
+                          // unconditionally as a meaningless "on $0.00 owed".
+                          // Separately, total_owed_lbp was returned by the
+                          // query but never rendered anywhere, so an
+                          // LBP-denominated pending row (OMT/WHISH) displayed
+                          // as "$0.00 owed" while carrying real LBP exposure.
+                          // Use !== 0, NOT > 0: SUPPLIER_OWED_EXPR returns
+                          // NEGATIVE values for OMT/WHISH RECEIVE rows (the
+                          // provider owes the shop) — a > 0 guard would hide
+                          // that row's owed figure entirely, which is exactly
+                          // the silent-swallow failure CLAUDE.md rule 26 bans
+                          // on a money surface.
+                          const hasOwedUsd = r.total_owed_usd !== 0;
+                          const hasOwedLbp = r.total_owed_lbp !== 0;
+                          return (
+                            <span
+                              key={r.provider}
+                              className="text-xs text-amber-700 dark:text-amber-400/80 font-mono"
+                            >
+                              {r.provider}:{" "}
+                              {hasPendingUsd && (
+                                <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                  ${r.pending_commission_usd.toFixed(4)}
+                                </span>
+                              )}
+                              {hasPendingUsd && hasPendingLbp && " + "}
+                              {hasPendingLbp && (
+                                <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                  {formatAmount(
+                                    r.pending_commission_lbp,
+                                    "LBP",
+                                  )}
+                                </span>
+                              )}
+                              {(hasPendingUsd || hasPendingLbp) &&
+                                " commission"}
+                              {(hasPendingUsd || hasPendingLbp) &&
+                                hasAwaiting &&
+                                " + "}
+                              {hasAwaiting && (
+                                <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                  {r.awaiting_settlement_count} awaiting
+                                  settlement
+                                </span>
+                              )}
+                              {(hasOwedUsd || hasOwedLbp) && " — "}
+                              {hasOwedUsd && (
+                                <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                  {formatAmount(r.total_owed_usd, "USD")}
+                                </span>
+                              )}
+                              {hasOwedUsd && hasOwedLbp && " + "}
+                              {hasOwedLbp && (
+                                <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                  {formatAmount(r.total_owed_lbp, "LBP")}
+                                </span>
+                              )}
+                              {(hasOwedUsd || hasOwedLbp) && " owed"} ({r.count}{" "}
+                              txns)
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {hasSupplierRows && (
+                      <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
+                        {(totalPendingUsd > 0 ||
+                          totalPendingLbp > 0 ||
+                          totalAwaitingSettlement > 0) && (
+                          <>
+                            Total pending:{" "}
+                            {totalPendingUsd > 0 && (
+                              <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
+                                ${totalPendingUsd.toFixed(4)}
+                              </span>
+                            )}
+                            {totalPendingUsd > 0 &&
+                              totalPendingLbp > 0 &&
+                              " + "}
+                            {totalPendingLbp > 0 && (
+                              <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
+                                {formatAmount(totalPendingLbp, "LBP")}
+                              </span>
+                            )}
+                            {(totalPendingUsd > 0 || totalPendingLbp > 0) &&
+                              totalAwaitingSettlement > 0 &&
+                              " + "}
+                            {totalAwaitingSettlement > 0 && (
+                              <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
+                                {totalAwaitingSettlement} awaiting settlement
+                              </span>
+                            )}{" "}
+                          </>
+                        )}
+                        — settle via Settings → Supplier Ledger
+                      </p>
+                    )}
+                    {partnerSettlementLines.length > 0 && (
+                      <>
+                        <div
+                          className="mt-1 flex flex-wrap gap-3"
+                          data-testid="partner-settlement-lines"
+                        >
+                          {partnerSettlementLines.map((line) => (
+                            <span
+                              key={line.id}
+                              data-testid="partner-settlement-line"
+                              className="text-xs text-amber-700 dark:text-amber-400/80 font-mono"
+                            >
+                              {line.name} (partner):{" "}
+                              {line.youOwe.length > 0 && (
+                                <>
+                                  you owe{" "}
+                                  <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                    {fmtPartnerAmounts(line.youOwe)}
+                                  </span>
+                                </>
+                              )}
+                              {line.youOwe.length > 0 &&
+                                line.owesYou.length > 0 &&
+                                "; "}
+                              {line.owesYou.length > 0 && (
+                                <>
+                                  owes you{" "}
+                                  <span className="text-amber-900 dark:text-amber-300 font-semibold">
+                                    {fmtPartnerAmounts(line.owesYou)}
+                                  </span>
+                                </>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
+                          Settle partner balances via Partners
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -1666,8 +1763,8 @@ export default function Dashboard() {
                   </div>
                   {chartType === "Sales" && (
                     <p className="relative text-[11px] text-slate-500 mb-2">
-                      The USD line is the USD VALUE of what was sold, not
-                      cash collected in USD.
+                      The USD line is the USD VALUE of what was sold, not cash
+                      collected in USD.
                     </p>
                   )}
                   <div className="flex-1 w-full min-h-0">

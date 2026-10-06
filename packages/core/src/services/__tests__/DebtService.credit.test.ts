@@ -113,6 +113,74 @@ describe("DebtService — Customer Credit System", () => {
     });
   });
 
+  // LIRA-258 / G13: in-transaction callers need a credit write that THROWS,
+  // so the surrounding db.transaction rolls back instead of committing the
+  // flow without the customer's credit.
+  describe("addCreditOrThrow vs addCredit on a failed write", () => {
+    const failCreditWrites = () =>
+      db.exec(`
+        CREATE TRIGGER fail_credit_deposit BEFORE INSERT ON debt_ledger
+        WHEN NEW.transaction_type = 'CREDIT_DEPOSIT'
+        BEGIN SELECT RAISE(ABORT, 'simulated credit write failure'); END;
+      `);
+
+    it("addCreditOrThrow writes the credit and returns its id", () => {
+      const { id } = service.addCreditOrThrow({
+        clientId: CLIENT_ID,
+        amountUsd: 5,
+        amountLbp: 0,
+        userId: USER_ID,
+      });
+      const row = db
+        .prepare("SELECT amount_usd FROM debt_ledger WHERE id = ?")
+        .get(id) as { amount_usd: number };
+      expect(row.amount_usd).toBe(-5);
+    });
+
+    it("addCreditOrThrow rethrows the database error", () => {
+      failCreditWrites();
+      expect(() =>
+        service.addCreditOrThrow({
+          clientId: CLIENT_ID,
+          amountUsd: 5,
+          amountLbp: 0,
+          userId: USER_ID,
+        }),
+      ).toThrow(/simulated credit write failure/);
+    });
+
+    it("addCreditOrThrow throws on validation failures", () => {
+      expect(() =>
+        service.addCreditOrThrow({
+          clientId: 0,
+          amountUsd: 5,
+          amountLbp: 0,
+          userId: USER_ID,
+        }),
+      ).toThrow(/Client ID is required/);
+      expect(() =>
+        service.addCreditOrThrow({
+          clientId: CLIENT_ID,
+          amountUsd: 0,
+          amountLbp: 0,
+          userId: USER_ID,
+        }),
+      ).toThrow(/greater than 0/);
+    });
+
+    it("addCredit keeps the non-throwing envelope for standalone callers", () => {
+      failCreditWrites();
+      const result = service.addCredit({
+        clientId: CLIENT_ID,
+        amountUsd: 5,
+        amountLbp: 0,
+        userId: USER_ID,
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/simulated credit write failure/);
+    });
+  });
+
   describe("useCredit", () => {
     it("should fail if client has no credit", () => {
       const result = service.useCredit({

@@ -358,53 +358,6 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     return this._productUnitsTableExistsCache;
   }
 
-  /**
-   * LIRA-229 — undo whatever drawer deltas this sale's CURRENT payment legs
-   * applied, keyed by `source_table`/`source_id` (not a single
-   * `transaction_id`) so it also mops up any legacy duplicate SALE rows a
-   * pre-fix draft resave may have left behind. Every row this selects was
-   * originally posted via `applyDrawerDelta` inside `processSale`'s
-   * `status === "completed"` block (the `insertPayment.run`/
-   * `upsertBalanceDelta.run` pair, and the change-given legs) —
-   * `applyDrawerDelta`'s upsert is exact under negation regardless of sign,
-   * so a negative (change/OUT) leg's amount negates back to a positive
-   * re-credit correctly.
-   *
-   * Called from ONE place: `processSale`, right before it deletes and
-   * re-inserts this sale's payment rows — which, since a draft never posts
-   * a payment leg in the first place (see the `status === "completed"`
-   * gate), is only ever non-empty when `processSale` is called AGAIN with
-   * `status: "completed"` for a sale that has already been completed once
-   * (a retry/double-submit). A no-op on every normal completion: no prior
-   * payment rows exist yet.
-   */
-  private _reverseExistingSalePayments(
-    db: Database.Database,
-    saleId: number,
-    tenantId: number,
-  ): void {
-    const priorLegs = db
-      .prepare(
-        `SELECT p.drawer_name AS drawer_name, p.currency_code AS currency_code, p.amount AS amount
-         FROM payments p
-         JOIN transactions t ON t.id = p.transaction_id
-         WHERE t.tenant_id = ? AND t.source_table = 'sales' AND t.source_id = ? AND p.tenant_id = ?`,
-      )
-      .all(tenantId, saleId, tenantId) as {
-      drawer_name: string;
-      currency_code: string;
-      amount: number;
-    }[];
-    for (const leg of priorLegs) {
-      applyDrawerDelta(db, {
-        drawerName: leg.drawer_name,
-        currencyCode: leg.currency_code,
-        delta: -leg.amount,
-        tenantId,
-      });
-    }
-  }
-
   // ---------------------------------------------------------------------------
   // Full Transaction Processing
   // ---------------------------------------------------------------------------
@@ -431,6 +384,36 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
     try {
       const processTransaction = db.transaction(() => {
+        // LIRA-258 / G6: a for-partner sale cannot ride a customer-session
+        // basket. Under deferPayment the partner branch below never runs,
+        // so the partner would owe nothing. The session UI never produces
+        // this (POS "Add to session cart" carries no partner fields and the
+        // session checkout has no partner toggle) — refuse it outright.
+        if (sale.deferPayment && sale.partnerMode === "FOR") {
+          throw new BusinessRuleError(
+            "A partner sale can't be added to a customer session basket — complete it from the POS checkout instead.",
+          );
+        }
+
+        // LIRA-258 / G12: an existing sale id may only be a DRAFT being
+        // resaved or completed. Re-running this method on a completed sale
+        // used to re-book stock, FIFO, Sale Debt, FOR_POS and credits
+        // (only the payment legs were reversed) and delete the sold lines;
+        // no real flow needs it (edits go through updateSaleMetadata).
+        if (sale.id) {
+          const existing = db
+            .prepare(`SELECT status FROM sales WHERE id = ? AND tenant_id = ?`)
+            .get(sale.id, tenantId) as { status: string } | undefined;
+          if (!existing) {
+            throw new NotFoundError("sale", sale.id);
+          }
+          if (existing.status !== "draft") {
+            throw new BusinessRuleError(
+              `Sale #${sale.id} is already ${existing.status} — it can't be saved or completed again.`,
+            );
+          }
+        }
+
         let finalClientId = sale.client_id;
         const status = sale.status || "completed";
 
@@ -914,15 +897,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         //
         // The invariant this repairs: a sale has AT MOST ONE ACTIVE,
         // non-reversal SALE transaction row, written exactly once, on
-        // completion. The lookup+update-in-place below exists only to keep
-        // that true if `processSale` is ever called again with
-        // `status: 'completed'` for a sale that already has one (a
-        // retry/double-submit) — the ONLY way this branch runs more than
-        // once for the same sale.id — rather than inserting a second row.
+        // completion. Re-completing an already-completed sale (a
+        // retry/double-submit) is refused at the top of this method
+        // (LIRA-258 / G12), so this block runs at most once per sale.
         if (status === "completed") {
-          const existingTxnId =
-            getTransactionRepository().getActiveSaleTransactionId(saleId);
-
           const txnFields = {
             user_id: userId,
             // Unified-row amounts carry the sale's VALUE in its denominated
@@ -962,19 +940,13 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             },
           };
 
-          const txnId = existingTxnId
-            ? (getTransactionRepository().updateTransactionCore(
-                existingTxnId,
-                txnFields,
-              ),
-              existingTxnId)
-            : getTransactionRepository().createTransaction({
-                ...txnFields,
-                type: TRANSACTION_TYPES.SALE,
-                source_table: "sales",
-                source_id: saleId,
-                transaction_time: sale.transaction_time,
-              });
+          const txnId = getTransactionRepository().createTransaction({
+            ...txnFields,
+            type: TRANSACTION_TYPES.SALE,
+            source_table: "sales",
+            source_id: saleId,
+            transaction_time: sale.transaction_time,
+          });
 
           // Persist payment lines + update running balances (drawer_balances)
           // - If sale.payments is not provided, we store inferred CASH lines from legacy totals.
@@ -1001,20 +973,6 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                     ]
                   : []),
               ];
-
-          // Only reachable on a completion retry (existingTxnId set) — undo
-          // whatever this sale's payment legs posted on the FIRST
-          // completion BEFORE deleting them (and before the fresh legs
-          // below re-post the current state), so a retry can never
-          // double-post a drawer delta. No-op on every normal (first and
-          // only) completion, since no prior payment rows exist yet.
-          // Reversal owner (rule 20): this method itself, symmetric with
-          // the post loop a few lines down.
-          this._reverseExistingSalePayments(db, saleId, tenantId);
-
-          db.prepare(
-            `DELETE FROM payments WHERE tenant_id = ? AND transaction_id IN (SELECT id FROM transactions WHERE tenant_id = ? AND source_table = 'sales' AND source_id = ?)`,
-          ).run(tenantId, tenantId, saleId);
 
           const insertPayment = {
             run: (
@@ -1113,7 +1071,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                   "Client is required to return change as store credit",
                 );
               }
-              getDebtService().addCredit({
+              // Throwing variant: a failed credit write must roll the whole
+              // sale back, never commit it without the customer's credit
+              // (LIRA-258 / G13).
+              getDebtService().addCreditOrThrow({
                 clientId: sale.client_id,
                 amountUsd: r.currency_code === "USD" ? amt : 0,
                 amountLbp: r.currency_code === "LBP" ? amt : 0,
@@ -1958,8 +1919,222 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         exchangeRate: params.exchangeRate,
       });
 
+      // 9. COUNTERPARTY side (LIRA-258 / G5 + G21) — this item's share of
+      // the partner's FOR_POS charge and of the change kept as store
+      // credit. Stamped onto the refund row so `undoSaleItemRefund`
+      // re-posts exactly what was written here.
+      const { partnerReversals, creditReversalIds } =
+        this._applySaleItemCounterpartyShares({
+          saleId: params.saleId,
+          originalTxnId: originalTxn.id,
+          refundTxnId,
+          lineShareOfSale,
+          userId: params.userId,
+        });
+      if (partnerReversals.length > 0 || creditReversalIds.length > 0) {
+        db.prepare(
+          `UPDATE transactions
+              SET metadata_json = json_set(COALESCE(metadata_json, '{}'),
+                    '$.partnerReversals', json(?),
+                    '$.creditReversalIds', json(?))
+            WHERE id = ? AND tenant_id = ?`,
+        ).run(
+          JSON.stringify(partnerReversals),
+          JSON.stringify(creditReversalIds),
+          refundTxnId,
+          tenantId,
+        );
+      }
+
       return refundTxnId;
     });
+  }
+
+  /**
+   * LIRA-258 — the counterparty shares of a standalone per-item refund.
+   *
+   * G5: a for-partner sale booked its FULL price to the partner as ONE
+   * `FOR_POS` DEBIT (`processSale`). Refunding an item writes the item's
+   * pro-rata share back in the generic reversal shape
+   * (`TransactionRepository._reversePartnerLedger`, rule 14): same
+   * `transaction_type` (so the FOR_% balance bucket nets), OPPOSITE
+   * direction, same currency. `lineShareOfSale` is the same base the debt
+   * and payment arms use, so refunding every line nets the partner to 0.
+   *
+   * ONE deliberate difference from the generic shape: the row references the
+   * REFUND transaction (`reference_table='transactions'`, `reference_id =
+   * refundTxnId`), not the sale. Every partner-coverage reader keys on the
+   * sale's reference and treats each FOR_% row as an obligation to be
+   * covered — the profit gates (`notPartnerPending`, `partnerCoverageRatio`)
+   * and the settlement FIFO (`PartnerRepository.applySettlementCoverage`).
+   * A partial CREDIT row under the sale's reference would sit uncovered
+   * forever and block the sale's profit; under the refund's reference those
+   * readers see exactly what they saw before this fix. The whole-sale void
+   * (`_reversePartnerLedger`) still finds only the original row, and a
+   * refund + undo pair nets to zero on its own. The original is the only
+   * FOR_POS DEBIT that references the sale.
+   *
+   * G21: change kept as store credit is a CREDIT_DEPOSIT linked to the
+   * sale's transaction. The money side above hands back the item's share of
+   * the gross IN legs, which include that overpayment, so the same share of
+   * the credit is cancelled here (both currencies) — otherwise item-by-item
+   * refunds pay the overpayment out twice. Voucher deposits are excluded on
+   * purpose: the voucher already became account credit when redeemed, and
+   * the item's 'Sale Debt' share cancellation (`_applySaleItemReversal`)
+   * gives its value back as account credit.
+   *
+   * Standalone refunds only. A session-linked sale is refused by
+   * `refundSaleItem` up front, and the whole-basket path reverses a member's
+   * partner/credit rows through the generic and session reversals.
+   * Must run inside the caller's db.transaction().
+   */
+  private _applySaleItemCounterpartyShares(params: {
+    saleId: number;
+    originalTxnId: number;
+    refundTxnId: number;
+    lineShareOfSale: number;
+    userId: number;
+  }): {
+    partnerReversals: { partner_id: number; amount: number; currency: string }[];
+    creditReversalIds: number[];
+  } {
+    const db = this.db;
+    const tenantId = getCurrentTenantId();
+    const partnerReversals: {
+      partner_id: number;
+      amount: number;
+      currency: string;
+    }[] = [];
+    const creditReversalIds: number[] = [];
+
+    if (this._tableExists("partner_ledger")) {
+      const original = db
+        .prepare(
+          `SELECT partner_id, amount, currency FROM partner_ledger
+            WHERE reference_table = 'sales' AND reference_id = ?
+              AND transaction_type = 'FOR_POS' AND direction = 'DEBIT'
+              AND tenant_id = ?
+            ORDER BY id ASC LIMIT 1`,
+        )
+        .get(params.saleId, tenantId) as
+        | { partner_id: number; amount: number; currency: string }
+        | undefined;
+      const share = original ? original.amount * params.lineShareOfSale : 0;
+      if (original && share > 0.000001) {
+        getPartnerRepository().addLedgerEntry({
+          partner_id: original.partner_id,
+          transaction_type: "FOR_POS",
+          reference_table: "transactions",
+          reference_id: params.refundTxnId,
+          amount: share,
+          currency: original.currency,
+          direction: "CREDIT",
+          user_id: params.userId,
+          notes: `Item refund (txn #${params.refundTxnId}) — Sale #${params.saleId}`,
+        });
+        partnerReversals.push({
+          partner_id: original.partner_id,
+          amount: share,
+          currency: original.currency,
+        });
+      }
+    }
+
+    const changeCredits = this._saleChangeCreditRows(params.originalTxnId);
+    const insertReversal =
+      changeCredits.length > 0
+        ? db.prepare(`
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id)
+      VALUES (?, 'Refund Reversal', ?, ?, ?, 'Store credit cancelled by item refund', ?, ?)
+    `)
+        : null;
+    for (const credit of changeCredits) {
+      const usd = -(credit.amount_usd || 0) * params.lineShareOfSale;
+      const lbp = -(credit.amount_lbp || 0) * params.lineShareOfSale;
+      if (Math.abs(usd) < 0.000001 && Math.abs(lbp) < 0.000001) continue;
+      const res = insertReversal!.run(
+        credit.client_id,
+        usd,
+        lbp,
+        params.refundTxnId,
+        params.userId,
+        tenantId,
+      );
+      creditReversalIds.push(Number(res.lastInsertRowid));
+    }
+
+    return { partnerReversals, creditReversalIds };
+  }
+
+  /**
+   * The CREDIT_DEPOSIT rows a completed sale wrote for change kept as store
+   * credit — every CREDIT_DEPOSIT linked to the sale's transaction EXCEPT the
+   * voucher deposits (`VoucherRepository.redeemByCode`, matched through
+   * `vouchers.redeemed_transaction_id` by owner, currency and amount, one row
+   * per voucher — never by note text).
+   */
+  private _saleChangeCreditRows(originalTxnId: number): {
+    id: number;
+    client_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+  }[] {
+    const db = this.db;
+    const tenantId = getCurrentTenantId();
+    const credits = db
+      .prepare(
+        `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger
+          WHERE transaction_id = ? AND transaction_type = 'CREDIT_DEPOSIT' AND tenant_id = ?
+          ORDER BY id`,
+      )
+      .all(originalTxnId, tenantId) as {
+      id: number;
+      client_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+    }[];
+    if (credits.length === 0 || !this._tableExists("vouchers")) return credits;
+
+    const vouchers = db
+      .prepare(
+        `SELECT client_id, amount, currency_code FROM vouchers
+          WHERE redeemed_transaction_id = ? AND tenant_id = ?`,
+      )
+      .all(originalTxnId, tenantId) as {
+      client_id: number;
+      amount: number;
+      currency_code: string;
+    }[];
+    const near = (x: number | null, y: number) =>
+      Math.abs((x || 0) - y) < 0.005;
+    const remaining = [...credits];
+    for (const v of vouchers) {
+      const isLbp = v.currency_code === "LBP";
+      const idx = remaining.findIndex(
+        (c) =>
+          c.client_id === v.client_id &&
+          (isLbp
+            ? near(c.amount_lbp, -v.amount) && near(c.amount_usd, 0)
+            : near(c.amount_usd, -v.amount) && near(c.amount_lbp, 0)),
+      );
+      if (idx >= 0) remaining.splice(idx, 1);
+    }
+    return remaining;
+  }
+
+  private _tableExistsCache = new Map<string, boolean>();
+  private _tableExists(table: string): boolean {
+    let exists = this._tableExistsCache.get(table);
+    if (exists === undefined) {
+      exists =
+        this.db
+          .prepare(
+            `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+          )
+          .get(table) !== undefined;
+      this._tableExistsCache.set(table, exists);
+    }
+    return exists;
   }
 
   /**
@@ -2226,7 +2401,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       }
 
       // 5. debt_ledger — re-charge exactly what the refund credited back.
-      const reversalRows = db
+      // LIRA-258 / G21: rows the refund wrote to cancel a share of the
+      // change kept as store credit (`creditReversalIds` stamp) are
+      // restored as the credit they were — CREDIT_DEPOSIT, both
+      // currencies — never as a negative 'Sale Debt'.
+      const creditReversalIds = new Set(
+        Array.isArray(metadata.creditReversalIds)
+          ? (metadata.creditReversalIds as unknown[]).map(Number)
+          : [],
+      );
+      const allReversalRows = db
         .prepare(
           `SELECT id, client_id, amount_usd FROM debt_ledger
            WHERE transaction_id = ? AND transaction_type = 'Refund Reversal' AND tenant_id = ?`,
@@ -2236,6 +2420,37 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         client_id: number;
         amount_usd: number;
       }[];
+      const reversalRows = allReversalRows.filter(
+        (r) => !creditReversalIds.has(r.id),
+      );
+      if (creditReversalIds.size > 0) {
+        const creditRows = db
+          .prepare(
+            `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger
+             WHERE transaction_id = ? AND transaction_type = 'Refund Reversal' AND tenant_id = ?`,
+          )
+          .all(params.refundTransactionId, tenantId) as {
+          id: number;
+          client_id: number;
+          amount_usd: number | null;
+          amount_lbp: number | null;
+        }[];
+        const insertCredit = db.prepare(`
+          INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id)
+          VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, 'Store credit restored by undo refund', ?, ?)
+        `);
+        for (const r of creditRows) {
+          if (!creditReversalIds.has(r.id)) continue;
+          insertCredit.run(
+            r.client_id,
+            -(r.amount_usd || 0),
+            -(r.amount_lbp || 0),
+            undoTxnId,
+            params.userId,
+            tenantId,
+          );
+        }
+      }
       const insertRecharge = db.prepare(`
         INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id)
         VALUES (?, 'Sale Debt', ?, ?, 'Debt re-charged by undo refund', ?, ?)
@@ -2282,6 +2497,36 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           delta: negatedAmount,
           tenantId,
         });
+      }
+
+      // 6b. partner_ledger — LIRA-258 / G5: re-charge the partner exactly
+      //     the FOR_POS share the refund reversed (`partnerReversals`
+      //     stamp), same type/currency, direction back to DEBIT, referencing
+      //     this UNDO transaction (see `_applySaleItemCounterpartyShares`
+      //     for why these rows never reference the sale).
+      //     A refund made before this stamp existed reversed nothing, so
+      //     there is nothing to re-post.
+      if (Array.isArray(metadata.partnerReversals)) {
+        for (const raw of metadata.partnerReversals as unknown[]) {
+          const pr = raw as {
+            partner_id?: unknown;
+            amount?: unknown;
+            currency?: unknown;
+          };
+          const amount = Number(pr.amount);
+          if (!Number(pr.partner_id) || !(amount > 0)) continue;
+          getPartnerRepository().addLedgerEntry({
+            partner_id: Number(pr.partner_id),
+            transaction_type: "FOR_POS",
+            reference_table: "transactions",
+            reference_id: undoTxnId,
+            amount,
+            currency: String(pr.currency ?? "USD"),
+            direction: "DEBIT",
+            user_id: params.userId,
+            notes: `Undo refund #${params.refundTransactionId} — Sale #${originalSaleId}`,
+          });
+        }
       }
 
       // 7. sale status — flip back from 'refunded' if this undo leaves

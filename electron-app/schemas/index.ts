@@ -1171,9 +1171,11 @@ export const HoldMoneyVoidPickupSchema =
 
 // External (Cash In) mode only accepts extra_currencies — the from-drawer
 // transfer create has no schema here (out of scope, see
-// DrawerTopUpRepository.CreateDrawerTopUpFromDrawerData: a debit against a
-// missing source-drawer currency row silently no-ops, so only External mode
-// is safe for a brand-new currency).
+// DrawerTopUpRepository.CreateDrawerTopUpFromDrawerData: that transfer only
+// moves USD/LBP. Its source debit used to silently no-op on a missing
+// source-drawer currency row; since LIRA-258 G9/G33 it is journaled as a
+// DRAWER_TRANSFER payments row and applied unconditionally, but widening it
+// to other currencies is still a separate decision).
 export interface DrawerTopUpCreateInput {
   amount_usd: number;
   amount_lbp: number;

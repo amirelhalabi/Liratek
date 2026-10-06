@@ -11,10 +11,11 @@
  * SERVICE, before any row is written.
  *
  * `createTopUpFromDrawer` (From Drawer / transfer mode) deliberately has NO
- * `extra_currencies` field at all — see the CQ-3 survey note on
- * `deductBalance` in DrawerTopUpRepository.ts: a transfer's debit silently
- * no-ops on a missing source-drawer currency row, which would fabricate
- * money for a brand-new currency. That is proven at compile-time below
+ * `extra_currencies` field at all — the transfer only moves USD/LBP.
+ * (Historically its source debit silently no-op'd on a missing
+ * source-drawer currency row and fabricated money; LIRA-258/G33 fixed that,
+ * see DrawerTopUpRepository.sourceLegJournal.test.ts, but widening the
+ * transfer to other currencies is still a separate decision.) That is proven at compile-time below
  * rather than at runtime, since there is nothing to guard if the type
  * doesn't exist on that data shape.
  */
@@ -445,10 +446,8 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
       amount_lbp: 0,
       source_drawer: "OMT_System",
       // @ts-expect-error — extra_currencies must not exist on the from-drawer
-      // transfer type: a debit against a missing source-drawer currency row
-      // silently no-ops (see the CQ-3 survey note in DrawerTopUpRepository.ts),
-      // which would fabricate money for a brand-new currency. External mode
-      // is the only safe path — see CreateDrawerTopUpData.extra_currencies.
+      // transfer type: it only moves USD/LBP. External mode is the path for
+      // other currencies — see CreateDrawerTopUpData.extra_currencies.
       extra_currencies: [{ currency_code: "EUR", amount: 5 }],
     };
 

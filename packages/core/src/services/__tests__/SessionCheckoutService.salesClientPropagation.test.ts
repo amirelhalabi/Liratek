@@ -71,7 +71,7 @@ import {
 // checkout request never passes `payments` and so never actually calls into
 // either.
 jest.mock("../DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 jest.mock("../../repositories/VoucherRepository", () => ({

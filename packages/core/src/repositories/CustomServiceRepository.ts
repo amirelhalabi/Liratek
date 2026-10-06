@@ -248,8 +248,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         //     was explicit that Syria never touches the Whish system
         //     drawer, so this never reads `data.paid_by`/`data.payments`.
         //   - profit_usd/profit_lbp stays price − cost (unchanged formula,
-        //     stamped on createTransaction below) — the commission ($3),
-        //     realized the same day.
+        //     stamped on createTransaction below) — the commission ($3).
+        //     Recognition is deferred until the partner pays: the payout's
+        //     THROUGH_CUSTOM_SERVICE DEBIT goes through the same partner-
+        //     coverage gate as FOR rows (LIRA-258 G16, owner D5), so the
+        //     Profits page counts it proportionally as settlements cover it.
         // The Zod refine (`createCustomServiceSchema`) already rejects
         // `direction: "OUT"` without `partnerMode: "VIA"` and requires both
         // price and cost to be > 0 — this repository still repeats the
@@ -697,7 +700,10 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
                     "Client is required to return change as store credit",
                   );
                 }
-                getDebtService().addCredit({
+                // addCreditOrThrow (LIRA-258, G13): a failed credit write
+                // must roll the whole service back, never commit the cash
+                // leg without the customer's credit.
+                getDebtService().addCreditOrThrow({
                   clientId: data.client_id,
                   amountUsd: leg.currency_code === "USD" ? amt : 0,
                   amountLbp: leg.currency_code === "LBP" ? amt : 0,
@@ -1002,46 +1008,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           txnRepo.voidTransaction(originalTxn.id, service.created_by ?? 1);
         }
 
-        // Reverse payments — get all related payments and reverse drawer
-        // balances. Both the outer `payments` scan and the inner
-        // `transactions` subquery must carry tenant_id — source_id alone
-        // can't cross tenants (it's from one table's own AUTOINCREMENT
-        // sequence), but every tenant-scoped table gets scoped per the
-        // recipe regardless.
-        const payments = this.db
-          .prepare(
-            `SELECT drawer_name, currency_code, amount FROM payments
-             WHERE tenant_id = ? AND transaction_id IN (
-               SELECT id FROM transactions WHERE source_table = 'custom_services' AND source_id = ? AND tenant_id = ?
-             )`,
-          )
-          .all(tenantId, id, tenantId) as Array<{
-          drawer_name: string;
-          currency_code: string;
-          amount: number;
-        }>;
-
-        for (const pmt of payments) {
-          // Reverse the balance effect. CQ-3 survey note: intentionally NOT
-          // `applyDrawerDelta` — a plain UPDATE that must NOT create a row
-          // for a missing drawer (this only ever reverses a drawer that
-          // already received the original payment, one query above).
-          this.db
-            .prepare(
-              `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
-               WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?`,
-            )
-            .run(pmt.amount, pmt.drawer_name, pmt.currency_code, tenantId);
-        }
-
-        // Delete payments
-        this.db
-          .prepare(
-            `DELETE FROM payments WHERE tenant_id = ? AND transaction_id IN (
-              SELECT id FROM transactions WHERE source_table = 'custom_services' AND source_id = ? AND tenant_id = ?
-            )`,
-          )
-          .run(tenantId, id, tenantId);
+        // Drawer reversal is owned by voidTransaction above too: its
+        // _reversePayments writes a negated `payments` row for every leg and
+        // moves drawer_balances back (LIRA-258, POSTING_MAP.md G22). Nothing
+        // is subtracted or deleted here — a second drawer pass plus a hard
+        // DELETE of both the original and reversal rows used to net to 0 but
+        // destroyed the journal that explains drawer_balances.
 
         // Debt reversal is owned by voidTransaction above: its _cancelDebt
         // books a 'Refund Reversal' row against every 'Custom Service Debt'
@@ -1082,9 +1054,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
    * totalPriceUsd/totalCostUsd alongside ordinary walk-in rows would
    * overstate "today's revenue"/"today's cost" by the payout's face amounts.
    * `totalProfitUsd`/`totalProfitLbp` are NOT excluded here — the
-   * commission a payout earns (price − cost) IS real profit realized today
-   * (owner answer #16), so it stays summed in exactly like every other
-   * service's profit. This is the minimal, conservative fix (exclude, don't
+   * commission a payout earns (price − cost) IS real profit, recognised as
+   * the partner's settlements cover the payout's DEBIT (LIRA-258 G16, owner
+   * D5 — it used to count the same day), and the figure below comes from
+   * the Profits page's own partner-coverage definition. This is the
+   * minimal, conservative fix (exclude, don't
    * sub-total by direction) pending the owner's confirmation that excluding
    * is the wanted behaviour rather than a separate payout breakdown.
    */

@@ -1,3 +1,4 @@
+import { AUDIT_ONLY_PAYMENT_METHODS } from "../constants/auditOnlyPaymentMethods.js";
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { closingLogger } from "../utils/logger.js";
@@ -254,6 +255,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       // — genuinely different semantics from every other drawer_balances
       // upsert in the codebase. Left as-is.
       const tenantId = getCurrentTenantId();
+      // G35 (LIRA-258): audit-only payments rows (e.g. PM_FEE) never moved a
+      // drawer when written, so the rebuild must not count them either — the
+      // same single definition the void path uses (_reversePayments).
+      const auditOnlyMethods = [...AUDIT_ONLY_PAYMENT_METHODS];
+      const auditOnlyPlaceholders = auditOnlyMethods.map(() => "?").join(", ");
       this.db
         .prepare(
           `UPDATE drawer_balances SET balance = 0, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?`,
@@ -264,13 +270,15 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           `INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
            SELECT ?, drawer_name, currency_code, SUM(amount)
            FROM payments
-           WHERE method != 'CUSTOMER_ACCOUNT' AND tenant_id = ?
+           WHERE method != 'CUSTOMER_ACCOUNT'
+             AND method NOT IN (${auditOnlyPlaceholders})
+             AND tenant_id = ?
            GROUP BY drawer_name, currency_code
            ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
              balance = excluded.balance,
              updated_at = CURRENT_TIMESTAMP`,
         )
-        .run(tenantId, tenantId);
+        .run(tenantId, ...auditOnlyMethods, tenantId);
       closingLogger.info("Drawer balances recalculated from payments journal");
       return { success: true };
     } catch (error) {

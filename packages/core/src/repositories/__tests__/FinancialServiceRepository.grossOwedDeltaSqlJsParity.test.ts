@@ -80,7 +80,7 @@ jest.mock("../../db/connection", () => {
 });
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 

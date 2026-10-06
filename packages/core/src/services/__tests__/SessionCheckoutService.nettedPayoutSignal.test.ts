@@ -46,7 +46,7 @@ import {
 } from "../../db/tenantContext";
 
 jest.mock("../DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 jest.mock("../../repositories/VoucherRepository", () => ({

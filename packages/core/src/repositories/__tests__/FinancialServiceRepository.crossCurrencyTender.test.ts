@@ -53,7 +53,7 @@ jest.mock("../../db/connection", () => {
 // ─── Mock DebtService (unused by these cases, but imported by the repo) ──────
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 
@@ -206,6 +206,13 @@ function createTestDb(): Database.Database {
       module_key TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    -- LIRA-258 (owner D2): the OMT/WHISH supplier posting is no longer
+    -- wrapped in a silent try/catch, and a missing system supplier is seeded
+    -- via ensureSystemSupplier (which needs the full production schema). This
+    -- hand-rolled schema therefore carries the system supplier rows itself,
+    -- mirroring FinancialServiceRepository.partner.test.ts.
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT',   'OMT',   1);
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('WHISH', 'WHISH', 1);
 
     CREATE TABLE supplier_ledger (
       tenant_id INTEGER DEFAULT 1,
@@ -218,6 +225,10 @@ function createTestDb(): Database.Database {
       created_by INTEGER,
       transaction_id INTEGER,
       is_auto INTEGER NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      refunded_at DATETIME,
+      source_ref_table TEXT DEFAULT NULL,
+      source_ref_id INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -274,6 +285,10 @@ function balance(
   return row ? row.balance : 0;
 }
 
+  // LIRA-258: an OMT/WHISH base-system transfer now also writes its auto
+  // SUPPLIER_PAYMENT ledger sibling (previously skipped silently by a
+  // swallowed error in this hand-rolled schema), so "newest row" is no longer
+  // the transfer's own row — match it by identity (rule 15).
 function lastTransaction(db: Database.Database): {
   summary: string;
   amount_usd: number;
@@ -282,7 +297,7 @@ function lastTransaction(db: Database.Database): {
 } {
   return db
     .prepare(
-      `SELECT summary, amount_usd, amount_lbp, metadata_json FROM transactions ORDER BY id DESC LIMIT 1`,
+      `SELECT summary, amount_usd, amount_lbp, metadata_json FROM transactions WHERE type = 'FINANCIAL_SERVICE' ORDER BY id DESC LIMIT 1`,
     )
     .get() as {
     summary: string;
@@ -299,7 +314,7 @@ function paymentsFor(
   return db
     .prepare(
       `SELECT drawer_name, currency_code, amount FROM payments
-       WHERE transaction_id = (SELECT id FROM transactions ORDER BY id DESC LIMIT 1)
+       WHERE transaction_id = (SELECT id FROM transactions WHERE type = 'FINANCIAL_SERVICE' ORDER BY id DESC LIMIT 1)
        AND method = ?`,
     )
     .all(method) as Array<{

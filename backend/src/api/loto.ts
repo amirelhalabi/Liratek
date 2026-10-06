@@ -538,7 +538,9 @@ router.post("/checkpoints/settle-batch", (req, res) => {
       v.data.totalCommission,
       v.data.settledAt,
       req.user!.userId,
-      v.data.payment,
+      // LIRA-258: split legs (`payments`) or the legacy single `payment`.
+      v.data.payments ?? v.data.payment,
+      v.data.tender_exchange_rate,
     );
     // Mirrors lotoHandlers.ts's loto:checkpoints:settle-batch audit.
     auditRest(req, {
@@ -601,6 +603,7 @@ router.post("/checkpoints/:id/settle", (req, res) => {
       v.data.settledAt,
       req.user!.userId,
       v.data.payments,
+      v.data.tender_exchange_rate,
     );
     // Mirrors lotoHandlers.ts's loto:checkpoint:settle audit.
     auditRest(req, {

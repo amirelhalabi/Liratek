@@ -67,15 +67,17 @@ export const TRANSACTION_TYPES = {
    *  between any two of the shop's own drawers — General ↔ the primary cash
    *  drawer (`OMT_System`/`Whish_System`) is the pair the UI exposes, both
    *  directions now legal (the old `SYSTEM_FLOAT_TOPUP` type only ever moved
-   *  General → OMT_System/Whish_System; `createTopUpFromDrawer`'s raw-UPDATE
-   *  non-reversible path covered the reverse). Renamed from
+   *  General → OMT_System/Whish_System; `createTopUpFromDrawer`'s
+   *  non-reversible path covered the reverse — its source debit was a raw
+   *  UPDATE until LIRA-258 G9/G33 journaled it). Renamed from
    *  `SYSTEM_FLOAT_TOPUP` (the drawer-meaning rename — plan §1: these
    *  drawers are physical cash, not a provider-side float — makes "float
    *  top-up" the wrong name for its own transfer mechanism). Deliberately
-   *  its own type rather than DRAWER_TOPUP — DRAWER_TOPUP is permanently
-   *  non-reversible (see NON_REVERSIBLE_TRANSACTION_TYPES) for a structural
-   *  reason ("two drawer movements but only the General-side payments leg")
-   *  that does not apply here: both legs of THIS flow get a payments row via
+   *  its own type rather than DRAWER_TOPUP — DRAWER_TOPUP stays
+   *  non-reversible (see NON_REVERSIBLE_TRANSACTION_TYPES): rows written
+   *  before LIRA-258 (G9) carry only the General-side payments leg (new rows
+   *  journal both), so a generic void could strand the source deduction.
+   *  That never applied here: both legs of THIS flow get a payments row via
    *  `DrawerTopUpRepository.transferBetweenDrawers`, so it stays reversible,
    *  same pattern as WALLET_EXCHANGE. */
   DRAWER_TRANSFER: "DRAWER_TRANSFER",
@@ -135,9 +137,10 @@ export const TRANSACTION_TYPES = {
    *  "cashout" item — three unrelated things (plan §8.5).
    *
    *  Deliberately kept OUT of `NON_REVERSIBLE_TRANSACTION_TYPES` (D14/rule
-   *  20): unlike `RECHARGE_TOPUP` — non-reversible because its provider-
-   *  drawer credit has no `payments` row — this flow writes the wallet leg
-   *  as a REAL `payments` row, so the generic, type-agnostic
+   *  20): like `RECHARGE_TOPUP` since LIRA-194 (whose provider-drawer
+   *  credit used to have no `payments` row, making it non-reversible), this
+   *  flow writes the wallet leg as a REAL `payments` row, so the generic,
+   *  type-agnostic
    *  `_reversePayments` can restore it, and the `'OMT App'` ledger sibling
    *  is back-linked via `source_ref_table`/`source_ref_id` for the existing
    *  supplier cascade-void to find. `profit_usd`/`profit_lbp` are stamped 0
@@ -338,14 +341,17 @@ export type TransactionType =
  *   `_assertLotoTicketVoidable` blocks a ticket whose checkpoint has already
  *   settled, naming the settlement, since a settled checkpoint's frozen
  *   totals cannot be safely adjusted after the fact.)
- * - LOTO_SETTLEMENT: checkpoint is_settled stamps stay in place, and the
- *   commission credit to General has no payments row to reverse.
- *   (SUPPLIER_SETTLEMENT used to share this rationale — LIRA-085,
- *   2026-07-21, moved it OUT of this set: both gaps are addressable —
- *   TransactionRepository._reverseSupplierSettlement reverses the commission
- *   drawer legs directly from the transaction's own stamped metadata and
- *   un-stamps financial_services.settlement_id/is_settled precisely, see its
- *   doc comment.)
+ * - LOTO_SETTLEMENT: the checkpoint's totals and is_settled/settlement_id
+ *   stamps are frozen once settled, so there is no safe generic reversal.
+ *   (There is no separate commission credit to General any more — the
+ *   settlement legs are the NET amount; see
+ *   LotoCheckpointRepository's settle path.)
+ *   (SUPPLIER_SETTLEMENT used to share the old rationale — LIRA-085,
+ *   2026-07-21, moved it OUT of this set: under the fee-only model there is
+ *   no commission drawer credit to reverse, and
+ *   TransactionRepository._reverseSupplierSettlement soft-voids the
+ *   settlement ledger rows and un-stamps financial_services.settlement_id/
+ *   is_settled precisely, see its doc comment.)
  * - RECHARGE_TOPUP used to be here ("the provider-drawer credit has no
  *   payments row either"). LIRA-194 (2026-09-20) fixed all four writers and
  *   moved it OUT of this set — see its own doc comment on
@@ -433,9 +439,11 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // writes it going forward.
     TRANSACTION_TYPES.MTC_TOPUP,
     TRANSACTION_TYPES.ALFA_TOPUP,
-    // DRAWER_TOPUP (createTopUpFromDrawer): two drawer movements but only the
-    // General-side payments leg — a void would restore General and strand the
-    // source drawer's deduction. Rule-20 owner: an opposite transfer.
+    // DRAWER_TOPUP (createTopUpFromDrawer): two drawer movements, but rows
+    // written before LIRA-258 (G9) carry only the General-side payments leg —
+    // a void would restore General and strand the source drawer's deduction.
+    // New rows journal both legs; reversibility stays an owner decision.
+    // Rule-20 owner: an opposite transfer.
     TRANSACTION_TYPES.DRAWER_TOPUP,
     // DRAWER_CASHOUT: _reversePayments could mechanically restore General (it's
     // a single-drawer negative leg, no stranded second drawer like topup's
@@ -611,6 +619,41 @@ export const SESSION_ITEM_REFUND_CREDIT_TYPE = "Session Item Refund";
  * not a second hand-typed copy.
  */
 export const SESSION_ITEM_REFUND_LINK_TYPE = "session_item_refund";
+
+/**
+ * LIRA-258 / G17 — the debt_ledger type of a session basket's pooled
+ * CUSTOMER_ACCOUNT (+ GIFT_CARD) charge (`SessionPaymentRepository
+ * .insertBasketDebt`, `transaction_id` NULL, `session_id` set). One string,
+ * shared by the repayment coverage FIFO, its reverse unwind and the profit
+ * debt hold (rule 14).
+ */
+export const SESSION_DEBT_TYPE = "Session Debt";
+
+/**
+ * DBT-1 — the MODULE-debt charge types that receive repayment FIFO
+ * coverage (`debt_ledger.covered_usd/lbp`) keyed by their own transaction:
+ * every module charge except 'Sale Debt' (sales recognise via
+ * `sales.paid_usd`). Read by `ProfitRepository.notDebtPending`.
+ */
+export const SERVICE_DEBT_COVERAGE_TYPES: readonly string[] =
+  MODULE_DEBT_TRANSACTION_TYPES.filter((t) => t !== "Sale Debt");
+
+/**
+ * LIRA-258 / G17 (owner decision 2026-10-06: "wait until the customer
+ * pays") — every debt_ledger type a client REPAYMENT FIFO-covers, in ONE
+ * list shared by the forward sweep (`DebtRepository._coverServiceDebtsFIFO`)
+ * and its rule-20 mirror (`TransactionRepository
+ * ._unwindServiceDebtCoverageFifo`). 'Session Debt' joins the module charges
+ * so a basket's on-account items release their profit once the customer
+ * repays, same as outside a basket. On a 'Session Debt' row `covered_*`
+ * means "repaid OR attributed elsewhere": the sales-first share (tracked by
+ * `sales.paid_usd`) and the gift-card share are pre-covered at checkout
+ * (`SessionPaymentService.recordBasketPayment`).
+ */
+export const REPAYMENT_COVERABLE_DEBT_TYPES: readonly string[] = [
+  ...SERVICE_DEBT_COVERAGE_TYPES,
+  SESSION_DEBT_TYPE,
+];
 
 /**
  * LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §2 owner decision #4) — the ONLY

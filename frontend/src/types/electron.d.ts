@@ -7,6 +7,10 @@ import type {
   DailyStatsSnapshotQuery,
   NetProfitWindowResult,
   LotoReportData,
+  // LIRA-258 — loto sell/settle payloads derived from the core schemas.
+  LotoSellPayload,
+  LotoCheckpointSettlePayload,
+  LotoCheckpointsSettleBatchPayload,
 } from "@liratek/core";
 
 /**
@@ -572,6 +576,14 @@ export type PartnerTransactionType =
   | "THROUGH_OMT_RECEIVE"
   | "THROUGH_WHISH_SEND"
   | "THROUGH_WHISH_RECEIVE"
+  | "THROUGH_OMT_APP_SEND"
+  | "THROUGH_OMT_APP_RECEIVE"
+  | "THROUGH_WHISH_APP_SEND"
+  | "THROUGH_WHISH_APP_RECEIVE"
+  | "THROUGH_BINANCE_SEND"
+  | "THROUGH_BINANCE_RECEIVE"
+  | "THROUGH_IPICK_SEND"
+  | "THROUGH_KATSH_SEND"
   | "FOR_OMT_SEND"
   | "FOR_OMT_RECEIVE"
   | "FOR_WHISH_SEND"
@@ -587,6 +599,10 @@ export type PartnerTransactionType =
   | "FOR_BINANCE_SEND"
   | "FOR_BINANCE_RECEIVE"
   | "FOR_LOTO"
+  | "FOR_EXCHANGE"
+  | "FOR_CUSTOM_SERVICE"
+  | "THROUGH_CUSTOM_SERVICE"
+  | "DISCOUNT"
   | "CUSTOM_SERVICE"
   | "WHISH_TOPUP"
   | "SETTLEMENT"
@@ -1386,6 +1402,9 @@ export interface ElectronAPI {
         direction?: "IN" | "OUT";
       }>;
       tender_exchange_rate?: number;
+      // Payout keep-change (owner decision 2026-10-06) — exchangeSubmitSchema.
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
     }) => Promise<{
       success: boolean;
       id?: number;
@@ -2030,26 +2049,9 @@ export interface ElectronAPI {
 
   // Loto
   loto: {
-    sell: (data: {
-      ticket_number?: string;
-      sale_amount: number;
-      payments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-        direction?: "IN" | "OUT";
-      }>;
-      commission_rate?: number;
-      is_winner?: boolean;
-      prize_amount?: number;
-      sale_date?: string;
-      payment_method?: string;
-      currency?: string;
-      note?: string;
-      transaction_time?: string;
-      clientId?: number | null;
-      clientName?: string;
-    }) => Promise<{ success: boolean; ticket?: any; error?: string }>;
+    sell: (
+      data: LotoSellPayload,
+    ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
     get: (
       id: number,
     ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
@@ -2141,19 +2143,7 @@ export interface ElectronAPI {
         checkpoint?: any;
         error?: string;
       }>;
-      settle: (data: {
-        id: number;
-        totalSales: number;
-        totalCommission: number;
-        totalPrizes: number;
-        settledAt?: string;
-        payments?: Array<{
-          method: string;
-          currency_code: string;
-          amount: number;
-          direction?: "IN" | "OUT";
-        }>;
-      }) => Promise<{
+      settle: (data: LotoCheckpointSettlePayload) => Promise<{
         success: boolean;
         checkpoint?: any;
         error?: string;
@@ -2177,18 +2167,9 @@ export interface ElectronAPI {
         checkpointDate?: string,
       ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
       delete: (id: number) => Promise<{ success: boolean; error?: string }>;
-      settleBatch: (data: {
-        checkpointIds: number[];
-        totalSales: number;
-        totalCommission: number;
-        settledAt?: string;
-        payment?: {
-          method: string;
-          drawer_name: string;
-          currency_code: string;
-          amount: number;
-        };
-      }) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
+      settleBatch: (
+        data: LotoCheckpointsSettleBatchPayload,
+      ) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
     };
     cashPrize: {
       create: (data: {

@@ -86,7 +86,7 @@ jest.mock("../../db/connection", () => {
 });
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 
@@ -445,14 +445,19 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md D2 — is_settled at creation", () =>
   });
 
   it("a WHISH RECEIVE (WHISH always forces commission to 0 — 'no commission' business rule) is born commission_model = 1, is_settled = 0", () => {
-    // Base system is OMT (seeded above) — WHISH is the SECONDARY system here,
-    // so a walk-in WHISH transaction must route THROUGH a partner (unrelated
-    // to this predicate; just satisfying that separate guard).
+    // LIRA-258 (owner D3, 2026-10-06): this case used to run THROUGH a
+    // partner on the SECONDARY system (base = OMT). Such rows are no longer
+    // supplier-pending — no supplier settlement ever applies to them — so the
+    // premise moved: WHISH is made the BASE system here and the RECEIVE is a
+    // plain walk-in, which keeps this test's subject (a WHISH RECEIVE is born
+    // commission_model = 1, pending). The secondary-system THROUGH case is
+    // guarded in FinancialServiceRepository.partner.test.ts ("LIRA-258 —
+    // THROUGH partner on the secondary system"). Rewritten, not deleted
+    // (rule 24); not re-proven failing-first.
     // OLD -> NEW (pre-Phase-2): commission_model 0 -> 1, is_settled 1 -> 0.
-    const partnerId = Number(
-      db.prepare("INSERT INTO partners (name) VALUES ('P')").run()
-        .lastInsertRowid,
-    );
+    db.prepare(
+      "UPDATE system_settings SET value = 'WHISH' WHERE key_name = 'shop_base_system'",
+    ).run();
     const { id } = repo.createTransaction({
       provider: "WHISH",
       serviceType: "RECEIVE",
@@ -460,8 +465,6 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md D2 — is_settled at creation", () =>
       currency: "USD",
       commission: 0,
       whishFee: 0,
-      partnerId,
-      partnerMode: "THROUGH",
       paidByMethod: "CASH",
     });
 

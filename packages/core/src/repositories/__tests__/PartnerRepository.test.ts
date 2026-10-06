@@ -50,6 +50,15 @@ function createTestDb(): Database.Database {
       tenant_id        INTEGER DEFAULT 1,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
+
+    -- LIRA-258 / G36: the net-obligation fragments read transactions to
+    -- link item-refund / undo partner rows back to their sale
+    -- (constants/partnerObligation.ts). Production schema always has it.
+    CREATE TABLE transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_table TEXT,
+      source_id INTEGER
+    );
   `);
   return db;
 }

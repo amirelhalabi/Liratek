@@ -188,6 +188,9 @@ describe("LotoTicketRepository — paid-currency legs", () => {
       currency: "LBP",
       userId: 1,
       payments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+      // G14: legs must reconcile to the ticket — $5 = 500,000 LBP at the
+      // till's rate.
+      tender_exchange_rate: 100_000,
     });
 
     expect(balance(db, "USD")).toBeCloseTo(usdBefore + 5, 2);
@@ -209,6 +212,8 @@ describe("LotoTicketRepository — paid-currency legs", () => {
         { method: "CASH", currencyCode: "USD", amount: 3 },
         { method: "CASH", currencyCode: "LBP", amount: 200_000 },
       ],
+      // G14: $3 + 200,000 LBP = 500,000 LBP at the till's rate.
+      tender_exchange_rate: 100_000,
     });
 
     expect(balance(db, "USD")).toBeCloseTo(usdBefore + 3, 2);

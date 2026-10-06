@@ -36,7 +36,7 @@ jest.mock("../../db/connection", () => {
 // ─── Mock DebtService (only used by CUSTOMER_ACCOUNT cashout) ────────────────
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 

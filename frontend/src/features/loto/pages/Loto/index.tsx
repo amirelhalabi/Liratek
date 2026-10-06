@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { localDay } from "@/shared/utils/localDay";
-import { addDaysToDateString } from "@liratek/core";
+import { addDaysToDateString, type LotoSellPayload } from "@liratek/core";
 import { appEvents, useApi, PageHeader, DecimalInput } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -28,6 +28,7 @@ import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteI
 import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import {
   ForPartnerToggle,
   ForPartnerNotice,
@@ -115,9 +116,6 @@ export function LotoPage() {
   const commissionRate = settings
     ? parseFloat(settings.commission_rate)
     : 0.0445;
-  const commissionAmount = saleAmount
-    ? parseFloat(saleAmount) * commissionRate
-    : 0;
 
   useEffect(() => {
     loadSettings();
@@ -272,10 +270,13 @@ export function LotoPage() {
       ? clientName.trim() || undefined
       : undefined;
 
-    const ticketData = {
+    // Typed from the core schema's input (rule 21) so a key the handler
+    // would strip fails typecheck here. (`commission_amount` used to ride
+    // along but was never in the schema — Zod stripped it on both
+    // transports and the service derives it from sale_amount × rate.)
+    const ticketData: LotoSellPayload = {
       sale_amount: parseFloat(saleAmount),
       commission_rate: commissionRate,
-      commission_amount: commissionAmount,
       sale_date: localDay(),
       // PFT-R: omit entirely in partner mode — the backend rejects the
       // ticket if payment_method resolves to ANY drawer-affecting value
@@ -303,6 +304,10 @@ export function LotoPage() {
               currencyCode: l.currencyCode,
               amount: l.amount,
               ...(l.direction ? { direction: l.direction } : {}),
+              // GIFT_CARD: the voucher the repository redeems (LIRA-258
+              // G14). Without it the leg is refused ("needs its gift card
+              // code").
+              ...(l.voucherCode ? { voucherCode: l.voucherCode } : {}),
             })),
             // Change handed back to the customer — booked negative by the repo.
             ...returnLegs.map((l) => ({
@@ -312,6 +317,14 @@ export function LotoPage() {
               direction: "OUT" as const,
             })),
           ],
+      // LIRA-258 G14: the rate MultiPaymentInput converted cross-currency
+      // tender at (the BUY rate) — the repository reconciles the legs
+      // against the ticket at this rate instead of the sell rate. Omitted
+      // in partner mode (no legs) and if the rate is somehow not positive
+      // (the schema would refuse the whole sale).
+      ...(!forPartner && exchangeRate > 0
+        ? { tender_exchange_rate: exchangeRate }
+        : {}),
       transaction_time: transactionTime,
       // T3 keep-change: kept amounts join the ticket's profit stamp. Never
       // applicable in partner mode (no counter cash to keep).
@@ -661,6 +674,11 @@ export function LotoPage() {
                       ]}
                       exchangeRate={exchangeRate}
                       initialMethod={initialPaymentMethod}
+                      // GIFT_CARD lines pick the selected client's voucher
+                      // (same wiring as POS/Recharge); the code rides on the
+                      // leg as `voucherCode`.
+                      clientId={clientId}
+                      fetchClientVouchers={fetchClientVouchers}
                       hasClient={
                         !!clientId ||
                         (!!clientName.trim() && !!clientPhone.trim())

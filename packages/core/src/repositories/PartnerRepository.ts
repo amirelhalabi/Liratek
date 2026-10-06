@@ -10,6 +10,10 @@ import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import {
+  partnerObligationCoverableSql,
+  partnerObligationHeadRowSql,
+} from "../constants/partnerObligation.js";
 import { paymentMethodToDrawerName } from "../utils/payments.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
@@ -123,6 +127,15 @@ export interface UpdatePartnerData {
  * own regex parser requires the `| "LITERAL"` lines below to stay
  * contiguous, so this explanation lives here, not inline in the union.)
  *
+ * LIRA-258 additions — "THROUGH_OMT_APP_SEND" / "THROUGH_OMT_APP_RECEIVE" /
+ * "THROUGH_WHISH_APP_SEND" / "THROUGH_WHISH_APP_RECEIVE": THROUGH-partner
+ * transfers on the app wallets used to be filed under the system keys
+ * (THROUGH_OMT_* / THROUGH_WHISH_*), indistinguishable from OMT/WHISH system
+ * rows in the partner ledger, while FOR already kept them distinct
+ * (FOR_OMT_APP_SEND…). Template-composed by THROUGH_PROVIDER_LEDGER_KEY
+ * exactly like the LIRA-126 four above; this comment naming them by literal
+ * string is what satisfies the guard's "used somewhere" scan.
+ *
  * LIRA-154 addition — "THROUGH_CUSTOM_SERVICE": the "Via Partner" custom
  * service (owner decision D4.1) — the MIRROR of "FOR_CUSTOM_SERVICE". FOR =
  * the partner uses OUR system (no counter payment; the full price books to
@@ -151,6 +164,10 @@ export interface CreateLedgerEntryData {
     | "THROUGH_OMT_RECEIVE"
     | "THROUGH_WHISH_SEND"
     | "THROUGH_WHISH_RECEIVE"
+    | "THROUGH_OMT_APP_SEND"
+    | "THROUGH_OMT_APP_RECEIVE"
+    | "THROUGH_WHISH_APP_SEND"
+    | "THROUGH_WHISH_APP_RECEIVE"
     | "THROUGH_BINANCE_SEND"
     | "THROUGH_BINANCE_RECEIVE"
     | "THROUGH_IPICK_SEND"
@@ -412,7 +429,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
    * partner profit is real only once the partner settles).
    *
    * A SETTLEMENT row of direction D covers the partner's OPPOSITE-direction
-   * FOR_% rows in the SAME currency, oldest first (FIFO), by bumping each
+   * obligation rows (`partnerObligationRowSql`: every FOR_% row, plus — LIRA-258,
+   * owner decision D5 — a Via-Partner payout's THROUGH_CUSTOM_SERVICE DEBIT)
+   * in the SAME currency, oldest first (FIFO), by bumping each
    * row's covered_amount (v128). ProfitRepository treats a source transaction
    * as realized only when its FOR_% rows are fully covered.
    *
@@ -431,19 +450,27 @@ export class PartnerRepository extends BaseRepository<Partner> {
     let remaining = Math.abs(amount);
     if (remaining <= 0.005) return;
     const targetDirection = direction === "CREDIT" ? "DEBIT" : "CREDIT";
+    // LIRA-258 / G36: only obligation HEADS are covered, and each only up
+    // to its NET amount after reversals (refunds, item refunds, undos) —
+    // constants/partnerObligation.ts, the one definition every coverage
+    // reader shares. A refunded obligation no longer absorbs the settlement.
     const open = this.db
       .prepare(
-        `SELECT id, amount, covered_amount FROM partner_ledger
-         WHERE partner_id = ? AND tenant_id = ? AND currency = ?
-           AND direction = ?
-           AND transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
-           AND covered_amount < amount - 0.005
+        `SELECT id, covered_amount, coverable FROM (
+           SELECT pl_open.id, pl_open.covered_amount, pl_open.created_at,
+                  ${partnerObligationCoverableSql("pl_open")} AS coverable
+           FROM partner_ledger pl_open
+           WHERE pl_open.partner_id = ? AND pl_open.tenant_id = ?
+             AND pl_open.currency = ? AND pl_open.direction = ?
+             AND ${partnerObligationHeadRowSql("pl_open")}
+         )
+         WHERE covered_amount < coverable - 0.005
          ORDER BY created_at ASC, id ASC`,
       )
       .all(partnerId, tenantId, currency, targetDirection) as Array<{
       id: number;
-      amount: number;
       covered_amount: number;
+      coverable: number;
     }>;
     const upd = this.db.prepare(
       `UPDATE partner_ledger SET covered_amount = ? WHERE id = ? AND tenant_id = ?`,
@@ -454,7 +481,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
     const takes = allocateFifo(
       open.map((row) => ({
         id: row.id,
-        outstanding: row.amount - row.covered_amount,
+        outstanding: row.coverable - row.covered_amount,
       })),
       remaining,
       0.005,

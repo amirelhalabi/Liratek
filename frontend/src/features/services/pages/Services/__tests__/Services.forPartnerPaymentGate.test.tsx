@@ -1,42 +1,33 @@
 /** @jest-environment jsdom */
 
 /**
- * Services page — LIRA-114 §4 (UI gating): the "For Partner" checkbox
- * (rendered when `provider !== partnerSystem`, ~index.tsx:1476) means the
- * shop disburses its OWN money on a SEND and the partner owes it back — no
- * walk-in customer is paying. Pre-fix, the payment section ignored
- * `forPartner` entirely:
+ * Services page — For-Partner payment-section gating.
  *
- * - `paymentMethods` was the UNFILTERED `allPaymentMethods` on every SEND,
- *   so "Customer Account (Debt)" was selectable even for a For-Partner
- *   disbursement. Picking it hard-rejects the whole submit server-side at
- *   `FinancialServiceRepository.ts:2116` (`assertNoCustomerAccountLeg` over
- *   `returnLegs`) — the operator got a failed submit for a choice the UI
- *   itself offered.
- * - `autoDebtRemainder` was `serviceType === "SEND" && senderName &&
- *   senderPhone` with no `forPartner` gate, so the sheet could add that
- *   same rejected CUSTOMER_ACCOUNT leg on its own, with no operator choice
- *   involved at all.
- * - The section label stayed "Payment" — wrong for a disbursement.
- * - On a For-Partner RECEIVE the section was shown as "Cashout" but the
- *   operator's choice was silently discarded (payload sends `payments: []`)
- *   with no error and no UI cue.
+ * History: LIRA-114 §4 first gated this section (a For-Partner SEND offered
+ * only drawer-affecting methods, relabelled "Paid from", and sent the
+ * shop's disbursement as an OUT leg). LIRA-258 (owner decision D1,
+ * 2026-10-06) REPLACED that contract: a For-Partner SEND on the shop's own
+ * OMT/Whish system now books obligations only — the shop owes the provider
+ * amount + fee, the partner owes the shop amount + fee, and NO drawer moves.
+ * Core rejects any payment leg on that path ("A partner OMT/Whish SEND has
+ * no payment legs — …") and any non-CASH `paidByMethod`
+ * (`assertNoCounterPayment`).
  *
- * This file guards the fix: for a For-Partner SEND the method list is
- * restricted to `drawerAffectingMethods` (the same list
- * `usePaymentMethods()` already computes with `affects_drawer === 1`,
- * mirroring the backend's `isDrawerAffectingMethod` predicate — rule 14,
- * no hand-rolled second filter), `autoDebtRemainder` is forced off, and the
- * label becomes "Paid from". For a For-Partner RECEIVE the whole payment
- * section is replaced by a `ForPartnerNotice`. For-Partner OFF is provably
- * unchanged.
+ * The old "Paid from" / drawer-only-methods / "You pay out" assertions were
+ * REWRITTEN to the new contract (rule 24), not deleted: they now guard that
+ * the picker is gone, that the note says what is actually booked, and that
+ * the submit payload carries no legs and no stale paid-by method.
  *
- * Every assertion below was proven failing-first (rule 17) against the
- * pre-fix `index.tsx` (git-stashed, re-run, restored) — see the task
- * report for the captured failure output.
+ * Payload assertions go through `createFinancialServiceSchema` (rule 24) so
+ * the field names come from the schema itself and Zod's key-stripping is
+ * part of what is checked.
+ *
+ * `mockApi` is a module-level const, so `useApi()` returns a stable
+ * reference across renders (rule 25).
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { createFinancialServiceSchema } from "@liratek/core";
 import Services from "../index";
 
 const mockAddOMTTransaction = jest
@@ -52,11 +43,9 @@ const mockGetSuppliers = jest.fn().mockResolvedValue([]);
 const mockGetSupplierBalances = jest.fn().mockResolvedValue([]);
 
 // A single active partner: PartnerSelector's real "exactly one partner"
-// branch (LIRA-118) auto-selects it the instant the "For Partner" checkbox
-// mounts the selector — no dropdown interaction needed to get a
-// `forPartnerId`. `system_association` is deliberately irrelevant here
-// (the FOR-mode selector has no systemFilter), unlike the THROUGH-mode one
-// guarded by Services.throughPartnerInvariant.test.tsx.
+// branch (LIRA-118) auto-selects it the instant a selector mounts — no
+// dropdown interaction needed. `system_association: "WHISH"` also makes it
+// selectable by the THROUGH-mode selector on the WHISH tab (OMT-base shop).
 const SOLE_PARTNER = {
   id: 77,
   name: "Ziad Supplies",
@@ -81,24 +70,46 @@ const mockApi = {
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
   useApi: () => mockApi,
-  // Capture the exact contract the page feeds the payment section — the
-  // same pattern Services.currencyToggle.test.tsx uses. `paymentMethods` is
-  // reduced to just its `code`s for a readable assertion.
+  // Displays the contract the page feeds the payment section AND exposes a
+  // button that fires the page's real `onChange(lines)`, so a test can
+  // leave `paidByMethod`/`paymentLines` on a non-cash method BEFORE
+  // ticking For Partner (the stale-state case core rejects).
   MultiPaymentInput: ({
     paymentMethods,
     label,
     autoDebtRemainder,
+    onChange,
   }: {
     paymentMethods?: { code: string }[];
     label?: string;
     autoDebtRemainder?: boolean;
+    onChange: (
+      lines: {
+        id: string;
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }[],
+    ) => void;
   }) => (
-    <div data-testid="multi-payment-props">
-      {JSON.stringify({
-        methodCodes: (paymentMethods ?? []).map((m) => m.code),
-        label,
-        autoDebtRemainder: !!autoDebtRemainder,
-      })}
+    <div>
+      <div data-testid="multi-payment-props">
+        {JSON.stringify({
+          methodCodes: (paymentMethods ?? []).map((m) => m.code),
+          label,
+          autoDebtRemainder: !!autoDebtRemainder,
+        })}
+      </div>
+      <button
+        data-testid="mpi-pick-omt-wallet"
+        onClick={() =>
+          onChange([
+            { id: "L1", method: "OMT", currencyCode: "USD", amount: 51 },
+          ])
+        }
+      >
+        Pay via OMT Wallet
+      </button>
     </div>
   ),
   DecimalInput: ({
@@ -155,9 +166,6 @@ jest.mock("@/features/sessions/context/SessionContext", () => ({
   }),
 }));
 
-// Real `methods` (unfiltered) includes CUSTOMER_ACCOUNT; `drawerAffectingMethods`
-// mirrors the hook's real `affects_drawer === 1` filter (usePaymentMethods.ts:64)
-// with CUSTOMER_ACCOUNT excluded — exactly the contract the fix depends on.
 jest.mock("@/hooks/usePaymentMethods", () => ({
   usePaymentMethods: () => ({
     methods: [
@@ -180,14 +188,19 @@ jest.mock("@/hooks/useSellRate", () => ({
   useSellRate: () => ({ sellRate: 89500, buyRate: 89000 }),
 }));
 
-// Base system OMT ⇒ partnerSystem (secondary) is WHISH — the "For Partner"
-// toggle (FOR mode) renders on the OMT tab, which is this page's default.
+// Default: base system OMT ⇒ partnerSystem (secondary) is WHISH — the "For
+// Partner" toggle renders on the OMT tab. One test flips this to a
+// WHISH-base shop (For Partner on the Whish tab). A stable object per
+// configuration, so the hook's return identity does not churn per render.
+const OMT_BASE = { baseSystem: "OMT", partnerSystem: "WHISH", loading: false };
+const WHISH_BASE = {
+  baseSystem: "WHISH",
+  partnerSystem: "OMT",
+  loading: false,
+};
+let mockShopBase: typeof OMT_BASE = OMT_BASE;
 jest.mock("@/hooks/useShopBase", () => ({
-  useShopBase: () => ({
-    baseSystem: "OMT",
-    partnerSystem: "WHISH",
-    loading: false,
-  }),
+  useShopBase: () => mockShopBase,
 }));
 
 jest.mock("@/shared/hooks/useModalFocusFix", () => ({
@@ -212,10 +225,6 @@ jest.mock("@/shared/components/TransactionTimeOverride", () => ({
   TransactionTimeOverride: () => null,
 }));
 
-// Interactive stub (unlike the sibling tests' `() => null`): this file
-// needs to actually type into the sender-name/sender-phone fields, which
-// are `ClientAutocompleteInput`s, not plain `<input>`s (mirrors the
-// `DecimalInput` stub pattern above — id/value/onChange passthrough only).
 jest.mock("@/shared/components/ClientAutocompleteInput", () => ({
   ClientAutocompleteInput: ({
     id,
@@ -241,11 +250,9 @@ jest.mock("@/shared/components/ClientAutocompleteInput", () => ({
   ),
 }));
 
-// NOT mocked here on purpose: @/features/partners/components/PartnerSelector
-// (needed so checking "For Partner" really auto-selects SOLE_PARTNER and a
-// real `forPartnerId` reaches the page) nor
-// @/features/partners/components/ForPartnerToggle (the shared
-// ForPartnerNotice under test must be the real component).
+// NOT mocked on purpose: PartnerSelector (so checking "For Partner" really
+// auto-selects SOLE_PARTNER) and ForPartnerToggle (the real
+// ForPartnerNotice is under test).
 
 jest.mock("../../../components/StatsCards", () => ({
   StatsCards: () => <div data-testid="stats-cards" />,
@@ -281,36 +288,117 @@ function readPaymentProps() {
   );
 }
 
+function typeAmount(value: string) {
+  fireEvent.change(
+    document.getElementById("service-amount") as HTMLInputElement,
+    { target: { value } },
+  );
+}
+
 async function checkForPartnerAndWaitForSelection() {
   fireEvent.click(screen.getByRole("checkbox", { name: /For Partner/i }));
   // PartnerSelector's single-partner effect auto-selects SOLE_PARTNER —
-  // wait for its non-interactive "Partner: Ziad Supplies" line so
-  // `forPartnerId` is committed before asserting anything downstream.
+  // wait for its "Partner: Ziad Supplies" line so `forPartnerId` is
+  // committed before asserting anything downstream.
   await screen.findByText(/Partner: Ziad Supplies/);
+  // The "Partner: …" line renders one commit BEFORE the selector's effect
+  // pushes the id into the page — wait for the page's own "select partner"
+  // warning to clear so `forPartnerId` really is set.
+  await waitFor(() =>
+    expect(screen.queryByText(/Select partner/)).not.toBeInTheDocument(),
+  );
 }
 
-describe("Services page — For-Partner payment-section gating (LIRA-114 §4)", () => {
+/** Submit and return the payload as the core schema parses it. */
+async function submitAndParse() {
+  fireEvent.click(screen.getByRole("button", { name: /Record Send/i }));
+  await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+  const raw = mockAddOMTTransaction.mock.calls[0][0] as Record<string, unknown>;
+  const parsed = createFinancialServiceSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `payload rejected by createFinancialServiceSchema: ${JSON.stringify(parsed.error.issues)}`,
+    );
+  }
+  return { raw, parsed: parsed.data };
+}
+
+describe("Services page — For-Partner payment-section gating (LIRA-114 §4, LIRA-258)", () => {
   beforeEach(() => {
     mockAddOMTTransaction.mockClear();
+    mockShopBase = OMT_BASE;
   });
 
-  it("For Partner ON + SEND: offers only drawer-affecting methods (no Customer Account) and labels the section 'Paid from'", async () => {
+  it("For Partner ON + OMT SEND: the paid-by picker is gone and an obligations-only note replaces it", async () => {
     await renderPage();
     // Default state is already OMT + SEND.
     await checkForPartnerAndWaitForSelection();
 
-    const props = readPaymentProps();
-    expect(props.methodCodes).toEqual(["CASH", "OMT"]);
-    expect(props.methodCodes).not.toContain("CUSTOMER_ACCOUNT");
-    expect(props.label).toBe("Paid from");
+    // Was: "offers only drawer-affecting methods, labelled 'Paid from'".
+    // There is no method to choose any more — no drawer moves.
+    expect(screen.queryByTestId("multi-payment-props")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paid from")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("services-for-partner-send-obligation-notice"),
+    ).toBeInTheDocument();
   });
 
-  it("For Partner ON + SEND: never auto-adds a Customer Account remainder leg, even with sender name+phone filled", async () => {
+  it("For Partner ON + OMT SEND: the note names the partner, the amount + fee total, the OMT supplier page and that no cash leaves a drawer", async () => {
     await renderPage();
+    // $50 INTRA falls in the $0-100 tier ($1 fee); includingFees=false by
+    // default, so what the partner owes is amount + fee = $51.
+    typeAmount("50");
     await checkForPartnerAndWaitForSelection();
 
-    // Fill sender name + phone — the exact condition that (pre-fix) made
-    // `autoDebtRemainder` true unconditionally on any SEND.
+    const notice = screen.getByTestId(
+      "services-for-partner-send-obligation-notice",
+    );
+    // The name comes from the page's own loadData() → activePartnersList,
+    // a separate promise from the selector's — wait for it.
+    await waitFor(() => {
+      expect(notice).toHaveTextContent("Ziad Supplies");
+    });
+    expect(notice).toHaveTextContent("owes you");
+    expect(notice).toHaveTextContent("$51.00");
+    expect(notice).toHaveTextContent("amount + fee");
+    expect(notice).toHaveTextContent("OMT supplier page");
+    expect(notice).toHaveTextContent("money you owe OMT");
+    expect(notice).toHaveTextContent("No cash leaves a drawer");
+    // The superseded "You pay out" disbursement wording must be gone.
+    expect(notice).not.toHaveTextContent(/You pay out/i);
+    expect(
+      screen.queryByTestId("services-for-partner-send-payout-notice"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("For Partner ON + OMT SEND: submits payments: [] and paymentMethodFee 0 with no stale non-cash paid-by method, even after a wallet method was picked first", async () => {
+    await renderPage();
+    typeAmount("50");
+    // Stale state: operator picks OMT wallet as the walk-in payment, THEN
+    // ticks For Partner. Pre-LIRA-258 the method rode through as an OUT
+    // leg; core now rejects both a leg and a non-CASH paidByMethod.
+    fireEvent.click(screen.getByTestId("mpi-pick-omt-wallet"));
+    await checkForPartnerAndWaitForSelection();
+
+    const { raw, parsed } = await submitAndParse();
+    expect(parsed.partnerMode).toBe("FOR");
+    expect(parsed.partnerId).toBe(SOLE_PARTNER.id);
+    expect(parsed.provider).toBe("OMT");
+    expect(parsed.serviceType).toBe("SEND");
+    expect(parsed.payments).toEqual([]);
+    expect(parsed.paymentMethodFee).toBe(0);
+    // Absent, or the harmless CASH default — never "OMT"/"CUSTOMER_ACCOUNT".
+    expect([undefined, "CASH"]).toContain(parsed.paidByMethod);
+    expect(raw).not.toHaveProperty("paymentMethodFeeRate");
+  });
+
+  it("For Partner ON + OMT SEND: sender name+phone filled still cannot produce a Customer Account leg", async () => {
+    await renderPage();
+    typeAmount("50");
+    await checkForPartnerAndWaitForSelection();
+    // Was: "never auto-adds a Customer Account remainder leg" (the
+    // autoDebtRemainder prop). With the picker gone there is no sheet to
+    // auto-add from; the guard is now the payload itself.
     fireEvent.change(
       document.getElementById("service-sender-name") as HTMLInputElement,
       { target: { value: "Walk-in Wendy" } },
@@ -320,7 +408,30 @@ describe("Services page — For-Partner payment-section gating (LIRA-114 §4)", 
       { target: { value: "71234567" } },
     );
 
-    expect(readPaymentProps().autoDebtRemainder).toBe(false);
+    const { parsed } = await submitAndParse();
+    expect(parsed.payments).toEqual([]);
+    expect(parsed.paidByMethod).not.toBe("CUSTOMER_ACCOUNT");
+  });
+
+  it("For Partner ON + WHISH SEND (Whish-base shop): the note says Whish and the payload carries no legs", async () => {
+    mockShopBase = WHISH_BASE;
+    await renderPage();
+    switchTab("WHISH", "SEND");
+    typeAmount("40");
+    await checkForPartnerAndWaitForSelection();
+
+    const notice = screen.getByTestId(
+      "services-for-partner-send-obligation-notice",
+    );
+    expect(notice).toHaveTextContent("Whish supplier page");
+    expect(notice).toHaveTextContent("money you owe Whish");
+    expect(notice).not.toHaveTextContent("OMT");
+
+    const { parsed } = await submitAndParse();
+    expect(parsed.provider).toBe("WHISH");
+    expect(parsed.partnerMode).toBe("FOR");
+    expect(parsed.payments).toEqual([]);
+    expect(parsed.paymentMethodFee).toBe(0);
   });
 
   it("For Partner ON + RECEIVE: the payment section is replaced by a notice, not silently discarded", async () => {
@@ -334,41 +445,6 @@ describe("Services page — For-Partner payment-section gating (LIRA-114 §4)", 
     ).toBeInTheDocument();
   });
 
-  it("For Partner ON + SEND: the payout notice names the real partner and states both sides, with the provider fee folded into the total", async () => {
-    await renderPage();
-    // Default OMT + SEND + INTRA. A $50 send falls in the INTRA $0-100 tier
-    // ($1 fee), so with includingFees=false (the default) `sendPayoutTotal`
-    // is amount + fee = $51 — this exercises the non-trivial branch of the
-    // formula (not just the bare typed amount), and proves the notice
-    // reads the SAME value the payment sheet reconciles against.
-    fireEvent.change(
-      document.getElementById("service-amount") as HTMLInputElement,
-      { target: { value: "50" } },
-    );
-    await checkForPartnerAndWaitForSelection();
-
-    const notice = screen.getByTestId(
-      "services-for-partner-send-payout-notice",
-    );
-    // The name resolves through a SEPARATE fetch from the one
-    // `checkForPartnerAndWaitForSelection` already waited on (that one is
-    // PartnerSelector's own internal `api.partners.getAll` call, which
-    // drives `forPartnerId`; the name here comes from the page's OWN
-    // `loadData()` → `activePartnersList` — a different promise off the
-    // same mock). `waitFor` covers that independent resolution instead of
-    // assuming it's already settled the instant the checkbox effect is.
-    await waitFor(() => {
-      expect(notice).toHaveTextContent("Ziad Supplies");
-    });
-    // Both sides of the disclosure (plan §5 — a one-sided notice is what
-    // misled the owner into filing this ticket): the shop's own payout AND
-    // that the partner owes it back.
-    expect(notice).toHaveTextContent("You pay out");
-    expect(notice).toHaveTextContent("owes you");
-    // The formatted, fee-inclusive total ($50 + $1 INTRA fee).
-    expect(notice).toHaveTextContent("$51.00");
-  });
-
   it("For Partner OFF + SEND: unchanged — Customer Account still offered, section still labelled 'Payment'", async () => {
     await renderPage();
     // Default state: forPartner is off.
@@ -378,14 +454,34 @@ describe("Services page — For-Partner payment-section gating (LIRA-114 §4)", 
     expect(props.label).toBe("Payment");
   });
 
-  it("For Partner OFF + SEND: neither For-Partner notice is rendered", async () => {
+  it("For Partner OFF + SEND: no For-Partner notice is rendered", async () => {
     await renderPage();
 
     expect(
-      screen.queryByTestId("services-for-partner-send-payout-notice"),
+      screen.queryByTestId("services-for-partner-send-obligation-notice"),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("services-for-partner-receive-no-payout-notice"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("THROUGH-partner mode (partner selected on the secondary-system tab): shows the amount/fee hint", async () => {
+    await renderPage();
+    // OMT-base shop ⇒ WHISH is the secondary system (THROUGH mode).
+    switchTab("WHISH", "SEND");
+
+    expect(
+      await screen.findByTestId("services-through-partner-amount-hint"),
+    ).toHaveTextContent(
+      "Amount = what the partner tells you to collect · Fee = your shop fee",
+    );
+  });
+
+  it("THROUGH hint is absent on the base-system tab", async () => {
+    await renderPage();
+    // Default OMT tab — base system, no THROUGH selector.
+    expect(
+      screen.queryByTestId("services-through-partner-amount-hint"),
     ).not.toBeInTheDocument();
   });
 });

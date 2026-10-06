@@ -64,7 +64,9 @@ type TransferDirection = "to_primary" | "to_general";
  *  real-world case, still called the older non-reversible
  *  `drawerTopUp.createFromDrawer`). Any OTHER named source drawer keeps
  *  using `createFromDrawer` unchanged — that append-only, audit-trail-only
- *  move is a deliberately different use case
+ *  move (its source debit journaled as a DRAWER_TRANSFER payments row since
+ *  LIRA-258 G9/G33; the type stays non-reversible because older rows lack
+ *  that leg) is a deliberately different use case
  *  (`DrawerTopUpRepository.createTopUpFromDrawer`'s own doc comment) and
  *  must not be rerouted.
  *

@@ -93,6 +93,12 @@ const SYSTEM_SUPPLIERS = [
   },
 ] as const;
 
+/** Providers `seedSystemSuppliers` can create (LIRA-258: `ensureSystemSupplier`
+ *  seeds only for these, never for a custom provider). */
+export const SYSTEM_SUPPLIER_PROVIDERS: ReadonlySet<string> = new Set(
+  SYSTEM_SUPPLIERS.map((s) => s.provider),
+);
+
 export interface SeedSystemSuppliersResult {
   inserted: number;
   /**

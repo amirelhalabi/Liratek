@@ -13,6 +13,7 @@ import {
 import {
   TENDER_RATE_BAND_PCT,
   tenderRateDeviationPct,
+  PAYOUT_KEEP_CHANGE_MAX,
 } from "@liratek/core";
 
 /**
@@ -235,6 +236,18 @@ export interface MultiPaymentInputProps {
    *  teaching the expense schema/repository to post one leg per line
    *  (a bigger, cross-layer change). */
   allowSplit?: boolean;
+  /** "payment" (default — every existing consumer, unchanged): the lines are
+   *  money the customer PAYS the shop. "payout": the lines are cash the shop
+   *  HANDS OUT (the Exchange payout sheet). In payout mode "keep change"
+   *  flips direction (owner decision 2026-10-06, D9 refined): the toggle is
+   *  offered when the lines are SHORT of the total by a small leftover
+   *  (under `PAYOUT_KEEP_CHANGE_MAX` in the total's currency — $1 / 100,000
+   *  LBP), and `onKeptChange` reports that shortfall as the kept amount
+   *  (e.g. $101.12 owed, $101 handed over → kept $0.12). The overpay
+   *  Return/Change block never renders in payout mode — paying out more than
+   *  owed is a mistake to fix, never change to return or profit to keep —
+   *  and no OUT legs are ever emitted. Still OPT-IN via `onKeptChange`. */
+  direction?: "payment" | "payout";
 }
 
 /** Delay before the auto-added debt remainder visually flips the sheet into
@@ -295,7 +308,9 @@ export default function MultiPaymentInput({
   autoDebtRemainder = false,
   counterFlow,
   allowSplit = true,
+  direction = "payment",
 }: MultiPaymentInputProps) {
+  const isPayout = direction === "payout";
   // Seeded lines are captured once — the prop is read at mount only.
   const seededLinesRef = useRef<PaymentLine[] | null>(
     initialLines && initialLines.length > 0
@@ -1023,7 +1038,9 @@ export default function MultiPaymentInput({
   // Overpaid amount (in totalAmountCurrency); only positive when the customer
   // paid more than the (post-discount) total.
   const overpaidTarget = Math.max(0, totalPaid - effectiveTotalInTarget);
-  const isOverpaid = overpaidTarget > matchTolerance;
+  // Payout mode: an overpaid payout is never "change" (see the `direction`
+  // prop doc) — the whole Return/Change + T3 keep-change path stays off.
+  const isOverpaid = !isPayout && overpaidTarget > matchTolerance;
 
   // --- Waive-remaining derivation ---
   // Shortfall in totalAmountCurrency, converted to USD-equivalent purely for
@@ -1035,6 +1052,59 @@ export default function MultiPaymentInput({
     totalAmountCurrency,
     "USD",
   );
+  // --- Payout keep-change (direction="payout", owner decision 2026-10-06) ---
+  // The shortfall IS the kept amount: the shop hands out the round figure
+  // and keeps the leftover cents as profit. Offered only below the shared
+  // core cap (PAYOUT_KEEP_CHANGE_MAX — the SAME limit the server enforces),
+  // in the total's own currency, and only for USD/LBP totals.
+  const payoutKeepCap =
+    totalAmountCurrency === "USD" || totalAmountCurrency === "LBP"
+      ? PAYOUT_KEEP_CHANGE_MAX[totalAmountCurrency]
+      : 0;
+  const payoutKeepEligible =
+    isPayout &&
+    !!onKeptChange &&
+    remainingShortfall > matchTolerance &&
+    remainingShortfall < payoutKeepCap;
+  const [payoutKeep, setPayoutKeep] = useState(false);
+  // Like T3 (which resets when the overpay clears): once the leftover is no
+  // longer keepable, the toggle disarms — a returning shortfall must be
+  // tapped again, never silently re-kept.
+  useEffect(() => {
+    if (!payoutKeepEligible) setPayoutKeep(false);
+  }, [payoutKeepEligible]);
+  const payoutKeepActive = payoutKeep && payoutKeepEligible;
+  const payoutKeptRounded = payoutKeepActive
+    ? totalAmountCurrency === "LBP"
+      ? Math.round(remainingShortfall)
+      : Number(remainingShortfall.toFixed(2))
+    : 0;
+  const payoutKeptKey = payoutKeepActive
+    ? `${totalAmountCurrency}:${payoutKeptRounded}:${remainingShortfall}`
+    : "off";
+  useEffect(() => {
+    // Not a payout consumer → the T3 effect below owns onKeptChange.
+    if (!isPayout) return;
+    onKeptChange?.(
+      payoutKeepActive
+        ? totalAmountCurrency === "LBP"
+          ? {
+              usd: 0,
+              lbp: payoutKeptRounded,
+              exactUsd: 0,
+              exactLbp: remainingShortfall,
+            }
+          : {
+              usd: payoutKeptRounded,
+              lbp: 0,
+              exactUsd: remainingShortfall,
+              exactLbp: 0,
+            }
+        : null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payoutKeptKey]);
+
   const showWaiveButton =
     !!onWaiveRemaining &&
     remainingShortfall > matchTolerance &&
@@ -1342,6 +1412,8 @@ export default function MultiPaymentInput({
     ? `${keptUsd}:${keptLbp}:${keptUsdExact}:${keptLbpExact}`
     : "off";
   useEffect(() => {
+    // Payout mode reports through the payout keep-change effect above.
+    if (isPayout) return;
     onKeptChange?.(
       keepChange
         ? {
@@ -2111,10 +2183,48 @@ export default function MultiPaymentInput({
 
         {/* Remaining (underpaid → debt) warning */}
         {totalPaid < effectiveTotalInTarget - matchTolerance && (
-          <div className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md bg-red-500/10 border border-red-500/20">
-            <span className="text-red-400">Remaining (Debt)</span>
+          <div
+            data-testid="remaining-row"
+            className={`flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md ${
+              payoutKeepActive
+                ? "bg-emerald-500/10 border border-emerald-500/20"
+                : "bg-red-500/10 border border-red-500/20"
+            }`}
+          >
+            <span
+              className={payoutKeepActive ? "text-emerald-400" : "text-red-400"}
+            >
+              {isPayout
+                ? payoutKeepActive
+                  ? "Change kept (profit)"
+                  : "Remaining to pay out"
+                : "Remaining (Debt)"}
+            </span>
             <span className="flex items-center gap-2">
-              <span className="font-mono font-bold text-red-400">
+              {/* Payout keep-change toggle — same label and look as the T3
+                  overpay toggle, opposite direction (see `direction`). */}
+              {payoutKeepEligible && (
+                <button
+                  type="button"
+                  data-testid="keep-change"
+                  onClick={() => setPayoutKeep(!payoutKeep)}
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
+                    payoutKeepActive
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                      : "bg-slate-900 text-amber-300 border-amber-700/40 hover:border-amber-500"
+                  }`}
+                  title={
+                    payoutKeepActive
+                      ? "Keeping the leftover as profit — tap to pay it out instead"
+                      : "Tap to keep the small leftover as profit instead of paying it out"
+                  }
+                >
+                  {payoutKeepActive ? "Keeping ✓" : "Keep change"}
+                </button>
+              )}
+              <span
+                className={`font-mono font-bold ${payoutKeepActive ? "text-emerald-400" : "text-red-400"}`}
+              >
                 {fmtTarget(
                   toDisplayCurrency(effectiveTotalInTarget - totalPaid),
                 )}

@@ -61,6 +61,10 @@ export interface PaymentSheetProps {
   /** T3 keep-change opt-in pass-through — only wire on flows whose backend
    *  accepts kept_change_* (the button hides otherwise). */
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
+  /** Pass-through to MultiPaymentInput's `direction`: "payout" when the
+   *  lines are cash the shop hands OUT (Exchange) — keep-change then keeps
+   *  a small SHORTFALL instead of an overpay. Default "payment". */
+  direction?: "payment" | "payout";
   onDiscountChange?: (discount: number) => void;
   onPmFeesChange?: (fees: Record<string, number>) => void;
   /** Increment this to remount MultiPaymentInput (e.g. when client is selected) */
@@ -119,6 +123,7 @@ export function PaymentSheet({
   onPaymentChange,
   onReturnChange,
   onKeptChange,
+  direction,
   onDiscountChange,
   onPmFeesChange,
   paymentInputKey,
@@ -248,6 +253,7 @@ export function PaymentSheet({
                 onPaymentChange(lines);
               }}
               {...(onKeptChange ? { onKeptChange } : {})}
+              {...(direction ? { direction } : {})}
               requiresClientForDebt={requiresClientForDebt}
               hasClient={hasClient}
               autoDebtRemainder={autoDebtRemainder}

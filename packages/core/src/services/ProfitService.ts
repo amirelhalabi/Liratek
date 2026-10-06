@@ -261,8 +261,9 @@ export interface ProfitModuleDetailRow {
    *  Owner decision (#14 slice 2): every excluded/partial row must show a
    *  reason, never a bare number. */
   reason: string | null;
-  /** Auto-booked fee tied to this transaction (SMS/Line_Usage —
-   *  `expenses.source_ref_table = 'recharges'`), shown NEXT TO the row —
+  /** Auto-booked fee tied to this transaction (the SMS transfer fee —
+   *  `expenses.source_ref_table = 'recharges'`; Line_Usage is operator-
+   *  initiated and never linked, LIRA-258 G30), shown NEXT TO the row —
    *  never subtracted from `profit_usd`/`counted_profit_usd` above (owner
    *  decision: "+90,000 LBP profit · SMS fee -0.32$ (booked in expenses)").
    *  `null` when this transaction has no linked auto expense. Also reused by
@@ -272,7 +273,7 @@ export interface ProfitModuleDetailRow {
    */
   fee_note: string | null;
   /** LIRA-233 (#14 slice 3, finding 9) — is `fee_note` a real cost DEDUCTION
-   *  ("fee", the RECHARGE SMS/Line_Usage precedent — colour it red) or a
+   *  ("fee", the RECHARGE SMS-fee precedent — colour it red) or a
    *  purely informational aside ("info" — a positive kept-change note, an
    *  off-currency stamp, a settlement-timing explanation — colour it
    *  neutral)? `undefined`/`null` `fee_note` needs no kind. Defaults to

@@ -236,8 +236,7 @@ export default function Services() {
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
-  const { methods: allPaymentMethods, drawerAffectingMethods } =
-    usePaymentMethods();
+  const { methods: allPaymentMethods } = usePaymentMethods();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
     today: { commission: 0, pending_commission: 0, count: 0, byCurrency: [] },
@@ -474,22 +473,23 @@ export default function Services() {
     !forPartner;
 
   // The render-time SEND total: what the customer pays on a walk-in SEND,
-  // AND (LIRA-114 §4) what the shop itself pays out on a For-Partner SEND —
-  // this single value feeds BOTH the `totals` prop MultiPaymentInput
-  // reconciles against (every SEND, forPartner or not) and the
-  // ForPartnerNotice below (forPartner only). Extracted once per rule 14 so
-  // the notice reuses it instead of pasting a third copy of the formula.
-  // The submit-time OUT leg (~handleSubmit, "PFT-3b" comment) is
-  // intentionally NOT rewritten to share this — it uses the submit-time
-  // resolvedOmtFee/resolvedWhishFee rather than this render-time
-  // renderProviderFee, and the payload construction is out of scope for
-  // this change.
+  // AND (LIRA-258) what the partner owes the shop on a For-Partner SEND —
+  // core books that same amount + fee as the partner's debt and as the
+  // shop's debt to the provider (with "including fees" ticked the entered
+  // amount already is amount + fee). This single value feeds BOTH the
+  // `totals` prop MultiPaymentInput reconciles against (walk-in SEND) and
+  // the For-Partner SEND notice. Extracted once per rule 14 so the notice
+  // reuses it instead of pasting a second copy of the formula.
   const sendPayoutTotal =
     serviceType === "SEND"
       ? includingFees
         ? parseFloat(amount) || 0
         : (parseFloat(amount) || 0) + renderProviderFee
       : 0;
+
+  // Shop-owner-facing provider name for the For-Partner SEND notice
+  // ("Whish", not the "WHISH" code). Provider is only ever OMT | WHISH here.
+  const providerDisplayName = provider === "WHISH" ? "Whish" : "OMT";
 
   // Real partner name for the notice, falling back to a generic label if
   // the list hasn't loaded yet or the id doesn't (yet) match anything.
@@ -782,10 +782,14 @@ export default function Services() {
 
   const handleSubmit = useCallback(async () => {
     // Validate: client name + phone required when debt is used (single or split)
+    // A For-Partner transaction has no payment section at all (LIRA-258 /
+    // PFT-3b) and sends no legs, so a stale Customer Account pick made
+    // before "For Partner" was ticked must not demand a sender/receiver.
     const hasDebtLeg =
-      (!isSplitPayment && paidByMethod === "CUSTOMER_ACCOUNT") ||
-      (isSplitPayment &&
-        paymentLines.some((p) => p.method === "CUSTOMER_ACCOUNT"));
+      !forPartner &&
+      ((!isSplitPayment && paidByMethod === "CUSTOMER_ACCOUNT") ||
+        (isSplitPayment &&
+          paymentLines.some((p) => p.method === "CUSTOMER_ACCOUNT")));
     // For SEND: check sender; for RECEIVE: check receiver
     const primaryName = serviceType === "SEND" ? senderName : receiverName;
     const primaryPhone = serviceType === "SEND" ? senderPhone : receiverPhone;
@@ -908,6 +912,12 @@ export default function Services() {
       // this one.
       const omtSystemReceiveInformationalOnly =
         provider === "OMT" && serviceType === "RECEIVE";
+
+      // LIRA-258: a FOR-partner transaction on this page (the shop's own
+      // OMT/WHISH system) carries no payment legs, no PM fee and no
+      // paidByMethod — see the payload's legs block below. Same condition
+      // as the partnerId/partnerMode spread, so the two cannot disagree.
+      const isForPartnerTxn = !!(forPartner && forPartnerId);
 
       // Determine PM fee for non-cash single payments on SEND
       const activePmFeeApplies =
@@ -1049,79 +1059,76 @@ export default function Services() {
         includingFees: omtSystemReceiveInformationalOnly
           ? false
           : includingFees,
-        // S1 — never gate legs on split: forward the full leg set whenever
-        // ANY payment line exists (a single-line payment still carries the
-        // tender's amount + currency the backend needs). This matches the
-        // shape a split payload already produced (payments via toCamelLegs,
-        // no paidByMethod — the repository reads payments[] as authoritative
-        // over paidByMethod whenever it's present, so paidByMethod is only
-        // ever a legacy fallback for callers with no legs at all).
-        ...(paymentLines.length > 0
-          ? {
-              payments: toCamelLegs(
-                paymentLines.map((p) => ({
-                  ...p,
-                  // For non-cash legs on SEND, bake in the PM fee so the backend
-                  // credits the correct (amount + pmFee) to the wallet drawer
-                  amount:
-                    multiPmFeeApplies && multiPmFees[p.id]
-                      ? p.amount + multiPmFees[p.id]
-                      : p.amount,
-                })),
-                returnLegs,
-              ),
-            }
-          : returnLegs.length > 0
-            ? {
-                payments: returnLegs.map((l) => ({
-                  method: l.method,
-                  currencyCode: l.currencyCode,
-                  amount: l.amount,
-                  direction: "OUT" as const,
-                })),
-                paidByMethod,
-              }
-            : { paidByMethod }),
-        // Payment method fee — single non-cash SEND: pass explicit fields
-        // Multi-payment: total PM fee derived from per-leg fees above (baked into amounts)
-        ...(finalPmFee > 0
-          ? {
-              paymentMethodFee: finalPmFee,
-              paymentMethodFeeRate: resolvedPmFeeRate,
-            }
-          : multiPmFeeApplies && Object.keys(multiPmFees).length > 0
-            ? {
-                paymentMethodFee: Object.values(multiPmFees).reduce(
-                  (s, f) => s + f,
-                  0,
-                ),
-                paymentMethodFeeRate: PM_FEE_DEFAULT_RATE,
-              }
-            : {}),
-        // PFT-3b FOR-partner contract (LAST payments/pm-fee spread on purpose
-        // — it must override the walk-in payments AND the PM fee above): a
-        // for-partner SEND carries the SHOP'S DISBURSEMENT as OUT legs (the
-        // drawer follows the method; the partner owes exactly this total) and
-        // never a customer IN leg or PM fee — the repository rejects both. A
-        // for-partner RECEIVE sends no legs at all (the service drawer is
-        // credited server-side; the shop owes the partner amount − fee).
-        ...(forPartner && forPartnerId
-          ? serviceType === "SEND"
-            ? {
-                payments: [
-                  {
-                    method: paidByMethod,
-                    currencyCode: currency,
-                    amount: includingFees
-                      ? amtVal
-                      : amtVal + (resolvedOmtFee ?? resolvedWhishFee ?? 0),
-                    direction: "OUT" as const,
-                  },
-                ],
-                paymentMethodFee: 0,
-              }
-            : { payments: [], paymentMethodFee: 0 }
-          : {}),
+        // Payment legs / paid-by / PM fee — built ONCE (rule 22), two cases:
+        //
+        // FOR-partner (LIRA-258, owner decision D1 2026-10-06, and PFT-3b for
+        // RECEIVE): this page only serves the shop's OWN OMT/WHISH system
+        // (Provider = "OMT" | "WHISH"; OMT_APP/WHISH_APP live in
+        // OmtWhishAppTransferForm.tsx and keep their disbursement legs). On
+        // that system a FOR-partner SEND books obligations only — the shop
+        // owes the provider amount + fee, the partner owes the shop the same
+        // amount + fee — and NO drawer moves; a FOR-partner RECEIVE credits
+        // the provider drawer server-side. Either way the payload carries no
+        // legs, no PM fee and NO paidByMethod: core rejects any leg ("A
+        // partner OMT/Whish SEND has no payment legs") and any non-CASH
+        // paidByMethod (assertNoCounterPayment), and the paid-by state can
+        // still hold a stale method picked before "For Partner" was ticked.
+        // The walk-in block is therefore not spread at all here — never
+        // spread-then-override, which would leak paidByMethod /
+        // paymentMethodFeeRate through.
+        ...(isForPartnerTxn
+          ? { payments: [], paymentMethodFee: 0 }
+          : {
+              // S1 — never gate legs on split: forward the full leg set whenever
+              // ANY payment line exists (a single-line payment still carries the
+              // tender's amount + currency the backend needs). This matches the
+              // shape a split payload already produced (payments via toCamelLegs,
+              // no paidByMethod — the repository reads payments[] as authoritative
+              // over paidByMethod whenever it's present, so paidByMethod is only
+              // ever a legacy fallback for callers with no legs at all).
+              ...(paymentLines.length > 0
+                ? {
+                    payments: toCamelLegs(
+                      paymentLines.map((p) => ({
+                        ...p,
+                        // For non-cash legs on SEND, bake in the PM fee so the backend
+                        // credits the correct (amount + pmFee) to the wallet drawer
+                        amount:
+                          multiPmFeeApplies && multiPmFees[p.id]
+                            ? p.amount + multiPmFees[p.id]
+                            : p.amount,
+                      })),
+                      returnLegs,
+                    ),
+                  }
+                : returnLegs.length > 0
+                  ? {
+                      payments: returnLegs.map((l) => ({
+                        method: l.method,
+                        currencyCode: l.currencyCode,
+                        amount: l.amount,
+                        direction: "OUT" as const,
+                      })),
+                      paidByMethod,
+                    }
+                  : { paidByMethod }),
+              // Payment method fee — single non-cash SEND: pass explicit fields
+              // Multi-payment: total PM fee derived from per-leg fees above (baked into amounts)
+              ...(finalPmFee > 0
+                ? {
+                    paymentMethodFee: finalPmFee,
+                    paymentMethodFeeRate: resolvedPmFeeRate,
+                  }
+                : multiPmFeeApplies && Object.keys(multiPmFees).length > 0
+                  ? {
+                      paymentMethodFee: Object.values(multiPmFees).reduce(
+                        (s, f) => s + f,
+                        0,
+                      ),
+                      paymentMethodFeeRate: PM_FEE_DEFAULT_RATE,
+                    }
+                  : {}),
+            }),
         note: note || `${provider} - ${serviceType}`,
         // THROUGH is hardcoded (not derived from
         // `provider === partner.system_association`) — this is safe ONLY
@@ -1510,6 +1517,18 @@ export default function Services() {
                   {selectedPartnerId === null && (
                     <p className="mt-1.5 text-xs text-amber-400 font-medium">
                       ⚠ Partner required for {partnerSystem} System transactions
+                    </p>
+                  )}
+                  {/* D7 (owner decision): THROUGH mode — the partner's
+                      system carries the transfer, so spell out what each
+                      field means. Text only; no payload change. */}
+                  {selectedPartnerId !== null && (
+                    <p
+                      data-testid="services-through-partner-amount-hint"
+                      className="mt-1.5 text-xs text-slate-400"
+                    >
+                      Amount = what the partner tells you to collect · Fee =
+                      your shop fee
                     </p>
                   )}
                 </div>
@@ -2226,22 +2245,38 @@ export default function Services() {
                 />
               </div>
 
-              {/* Payment Method — LIRA-114 §4 (UI gating): a For-Partner
-                  RECEIVE has no payout method to choose at all (the "PFT-3b"
-                  comment above handleSubmit: the provider drawer is
-                  credited automatically server-side) — the section is
-                  replaced by a two-sided notice instead of silently
-                  discarding whatever the operator picked (the pre-fix
-                  behaviour: `payments: []` sent with zero UI cue). A
-                  For-Partner SEND keeps the section — the chosen method
-                  funds the SHOP'S OWN disbursement, not a customer payment
-                  — but restricts it to drawer-affecting methods only (no
-                  walk-in customer exists to charge to Customer Account;
-                  that combination hard-rejects server-side at
-                  FinancialServiceRepository.ts:2116,
-                  `assertNoCustomerAccountLeg`), relabels it "Paid from",
-                  and disables the SEND debt auto-fill. */}
-              {forPartner && serviceType === "RECEIVE" ? (
+              {/* Payment Method — For-Partner gating. A For-Partner
+                  transaction on this page (the shop's own OMT/Whish system)
+                  has no payment method to choose in either direction, so
+                  the section is replaced by a plain-language notice instead
+                  of offering a choice the payload would discard:
+                    - RECEIVE (LIRA-114 §4 / PFT-3b): the provider drawer is
+                      credited server-side; the shop owes the partner
+                      amount − fee.
+                    - SEND (LIRA-258, owner decision D1 2026-10-06):
+                      obligations only — the shop owes the provider
+                      amount + fee, the partner owes the shop amount + fee,
+                      and no drawer moves. Core rejects any payment leg and
+                      any non-CASH paid-by method on this path, so the
+                      former "Paid from" disbursement picker is gone.
+                  OMT App / Whish App For-Partner SENDs are a different form
+                  (OmtWhishAppTransferForm.tsx) and keep their disbursement
+                  legs. */}
+              {forPartner && serviceType === "SEND" ? (
+                <ForPartnerNotice
+                  testId="services-for-partner-send-obligation-notice"
+                  className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
+                >
+                  For partner:{" "}
+                  <span className="font-bold">{forPartnerName}</span> owes you{" "}
+                  <span className="font-bold">
+                    {formatAmount(sendPayoutTotal, currency)}
+                  </span>{" "}
+                  (amount + fee). It is recorded on the {providerDisplayName}{" "}
+                  supplier page as money you owe {providerDisplayName}. No cash
+                  leaves a drawer.
+                </ForPartnerNotice>
+              ) : forPartner && serviceType === "RECEIVE" ? (
                 <ForPartnerNotice
                   testId="services-for-partner-receive-no-payout-notice"
                   className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
@@ -2323,11 +2358,9 @@ export default function Services() {
                     // means crediting the customer, the opposite direction),
                     // and only with the name+phone the debt validation below
                     // demands — name-only would auto-split then hard-block.
-                    // Never on a For-Partner SEND (LIRA-114 §4): there is no
-                    // walk-in customer to auto-debt, and CUSTOMER_ACCOUNT is
-                    // no longer even in the offered method list below.
+                    // (A For-Partner SEND never reaches this sheet at all —
+                    // LIRA-258 replaced it with a notice above.)
                     autoDebtRemainder={
-                      !forPartner &&
                       serviceType === "SEND" &&
                       !!senderName.trim() &&
                       !!senderPhone.trim()
@@ -2363,30 +2396,9 @@ export default function Services() {
                               pm.code === "WHISH" ||
                               pm.code === "BINANCE",
                           )
-                        : // For-Partner SEND (LIRA-114 §4): the method chosen
-                          // here funds the shop's OWN disbursement, not a
-                          // customer payment — restrict to methods that
-                          // actually affect a drawer (reuses
-                          // usePaymentMethods()'s existing filtered list,
-                          // rule 14 — this is the SAME predicate
-                          // (`affects_drawer === 1`) the backend's
-                          // `isDrawerAffectingMethod` enforces, so it is
-                          // correct by construction, not a hand-rolled
-                          // second copy). CUSTOMER_ACCOUNT is a non-drawer
-                          // method and is excluded by this filter — picking
-                          // it here used to hard-reject the whole submit at
-                          // FinancialServiceRepository.ts:2116.
-                          forPartner
-                          ? drawerAffectingMethods
-                          : allPaymentMethods
+                        : allPaymentMethods
                     }
-                    label={
-                      serviceType === "RECEIVE"
-                        ? "Cashout"
-                        : forPartner
-                          ? "Paid from"
-                          : "Payment"
-                    }
+                    label={serviceType === "RECEIVE" ? "Cashout" : "Payment"}
                     currencies={[
                       { code: "USD", symbol: "$" },
                       { code: "LBP", symbol: "LBP" },
@@ -2423,31 +2435,14 @@ export default function Services() {
                         : undefined
                     }
                   />
-                  {forPartner && serviceType === "SEND" && (
-                    <ForPartnerNotice
-                      testId="services-for-partner-send-payout-notice"
-                      className="mt-2 text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3"
-                    >
-                      You pay out{" "}
-                      <span className="font-bold">
-                        {formatAmount(sendPayoutTotal, currency)}
-                      </span>
-                      . <span className="font-bold">{forPartnerName}</span> owes
-                      you{" "}
-                      <span className="font-bold">
-                        {formatAmount(sendPayoutTotal, currency)}
-                      </span>
-                      .
-                    </ForPartnerNotice>
-                  )}
                 </div>
               )}
 
               {/* PM Fee Amount Input — shown for SEND with non-cash single
                   payment. Gated off `forPartner` (LIRA-142): a For-Partner
-                  SEND disburses the shop's own money, and the submit
-                  payload already forces `paymentMethodFee: 0` for it (the
-                  PFT-3b spread below) — the input's prior unconditional
+                  SEND has no payment legs at all (LIRA-258), and the submit
+                  payload forces `paymentMethodFee: 0` for it (the
+                  For-Partner legs block in handleSubmit) — the input's prior unconditional
                   render let an operator type a value that was then
                   silently discarded on submit, the same
                   offered-but-discarded shape LIRA-114 §4 fixed elsewhere.

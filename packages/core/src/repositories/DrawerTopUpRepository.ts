@@ -30,11 +30,11 @@ export interface CreateDrawerTopUpData {
   transaction_time?: string;
   /** External (Cash In) only — top-ups in currencies other than USD/LBP that
    *  are already enabled for the General drawer (Settings → Currencies).
-   *  Deliberately NOT on CreateDrawerTopUpFromDrawerData — see the CQ-3
-   *  survey note on `deductBalance` below: a from-drawer transfer's debit
-   *  silently no-ops on a missing source-drawer currency row, which would
-   *  fabricate money for a brand-new currency. External mode has no debit
-   *  side, so it's the only safe path for this. */
+   *  Deliberately NOT on CreateDrawerTopUpFromDrawerData: the from-drawer
+   *  transfer only moves USD/LBP. (Historical reason — its source debit
+   *  used to silently no-op on a missing source-drawer currency row and
+   *  fabricate money; LIRA-258/G33 removed that, but widening the transfer
+   *  to other currencies is still a separate decision.) */
   extra_currencies?: Array<{
     currency_code: string;
     amount: number;
@@ -426,12 +426,15 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
    * Deducts from source, credits General, records the transfer.
    *
    * NOT the General <-> primary-cash-drawer transfer path (Primary Cash
-   * Drawer plan §8.6): this method's source-drawer debit is a raw `UPDATE`
-   * (see `deductBalance` below) with no `payments` row on that side, so it
-   * is permanently non-reversible (`TRANSACTION_TYPES.DRAWER_TOPUP` is in
-   * `NON_REVERSIBLE_TRANSACTION_TYPES` for exactly this reason — that
-   * membership is about the missing source-side leg and is UNCHANGED by the
-   * cash-flow-report fix below). The
+   * Drawer plan §8.6). Historically this method's source-drawer debit was a
+   * raw `UPDATE` with no `payments` row on that
+   * side, which is why `TRANSACTION_TYPES.DRAWER_TOPUP` is in
+   * `NON_REVERSIBLE_TRANSACTION_TYPES`. LIRA-258 (G9) now journals the
+   * source leg for NEW rows (G33: unconditionally, even when the source had
+   * no balance row for the currency — it then goes negative), but rows written
+   * before that fix still lack it, so the type STAYS non-reversible —
+   * making it reversible is an owner decision plus a backfill, not part of
+   * the journal fix. The
    * General/OMT_System/Whish_System pair now goes through
    * `transferBetweenDrawers` (below) instead, which posts BOTH legs via
    * `insertPaymentRow`/`applyDrawerDelta` and stays reversible via the
@@ -492,55 +495,56 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         transaction_time: txTime,
       });
 
-      // CQ-3 survey note: `deductBalance` is intentionally NOT
-      // `applyDrawerDelta` — a plain UPDATE that must NOT create a row for a
-      // missing source drawer (this transfer debits an existing named
-      // drawer, e.g. OMT_System; a typo'd/missing source must no-op, not
-      // silently create a phantom negative-balance drawer).
-      const deductBalance = this.db.prepare(`
-        UPDATE drawer_balances
-        SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
-        WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?
-      `);
-
       const note = `Drawer Transfer: ${data.source_drawer} → General${data.notes ? `: ${data.notes}` : ""}`;
 
-      // 3. USD transfer
-      if (data.amount_usd && data.amount_usd > 0) {
-        deductBalance.run(data.amount_usd, data.source_drawer, "USD", tenantId);
+      // 3/4. Per-currency transfer. Both legs go through the shared
+      // `applyDrawerDelta` + `insertPaymentRow` pair, on the SAME transaction:
+      //  - LIRA-258 (G9): the source debit is journaled (a negative
+      //    DRAWER_TRANSFER payments row), so the payments journal explains
+      //    BOTH moves and `ClosingRepository.recalculateDrawerBalances`
+      //    (which rebuilds balances from Σ payments) no longer silently
+      //    restores the source drawer.
+      //  - LIRA-258 (G33): the source debit is UNCONDITIONAL. It used to be a
+      //    raw UPDATE that changed nothing when the source had no
+      //    drawer_balances row for that currency — while General was still
+      //    credited, i.e. money created from nothing. Owner policy
+      //    (FEATURE_GUIDE §7, 2026-08-01): drawers may go negative and no
+      //    drawer operation refuses, so a missing source row is upserted and
+      //    goes negative, exactly like `transferBetweenDrawers` below.
+      const transferLegs: Array<[number | undefined, "USD" | "LBP"]> = [
+        [data.amount_usd, "USD"],
+        [data.amount_lbp, "LBP"],
+      ];
+      for (const [amount, currencyCode] of transferLegs) {
+        if (!amount || amount <= 0) continue;
         applyDrawerDelta(this.db, {
-          drawerName: GENERAL_DRAWER,
-          currencyCode: "USD",
-          delta: data.amount_usd,
+          drawerName: data.source_drawer,
+          currencyCode,
+          delta: -amount,
           tenantId,
         });
         insertPaymentRow(this.db, {
           transactionId: txnId,
           method: DRAWER_TRANSFER_METHOD,
-          drawerName: GENERAL_DRAWER,
-          currencyCode: "USD",
-          amount: data.amount_usd,
+          drawerName: data.source_drawer,
+          currencyCode,
+          amount: -amount,
           note,
           createdBy: userId,
           tenantId,
         });
-      }
-
-      // 4. LBP transfer
-      if (data.amount_lbp && data.amount_lbp > 0) {
-        deductBalance.run(data.amount_lbp, data.source_drawer, "LBP", tenantId);
         applyDrawerDelta(this.db, {
           drawerName: GENERAL_DRAWER,
-          currencyCode: "LBP",
-          delta: data.amount_lbp,
+          currencyCode,
+          delta: amount,
           tenantId,
         });
         insertPaymentRow(this.db, {
           transactionId: txnId,
           method: DRAWER_TRANSFER_METHOD,
           drawerName: GENERAL_DRAWER,
-          currencyCode: "LBP",
-          amount: data.amount_lbp,
+          currencyCode,
+          amount,
           note,
           createdBy: userId,
           tenantId,
@@ -561,7 +565,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
    * special-case drawer names (decision #13's "generic drawer<->General
    * cash transfer" framing). Both the `fromDrawer` debit AND the `toDrawer`
    * credit go through `insertPaymentRow` + `applyDrawerDelta` (never the
-   * raw-UPDATE pattern `createTopUpFromDrawer` uses), so this stays
+   * raw-UPDATE pattern `createTopUpFromDrawer` used before LIRA-258), so this stays
    * reversible via the generic void path (rule 20) — same shape
    * `fundSystemDrawer` already had, just no longer restricted to one
    * direction or to the two PCD names on the `toDrawer` side.

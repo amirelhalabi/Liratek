@@ -1389,8 +1389,14 @@ describe("RechargeRepository.topUpFromSupplier()", () => {
     expect(txn.source_table).toBe("recharges");
   });
 
-  it("works when no supplier is found — still increases drawer, skips ledger", () => {
-    // No supplier seeded for Katsh
+  it("no supplier found and none can be created — the top-up is refused, the drawer never moves without its debt (LIRA-258 G10)", () => {
+    // No supplier seeded for Katsh. Pre-LIRA-258 this test asserted the
+    // drawer WAS credited with no ledger row — the G10 bug itself. Owner
+    // decision D2: never credit the drawer without the supplier debt.
+    // This minimal fixture's suppliers table cannot take the system-supplier
+    // seed (no modules / commission columns), so ensureSystemSupplier cannot
+    // produce one and the whole top-up must be refused. The create-the-
+    // supplier path is covered by RechargeRepository.topUpMissingSupplier.test.ts.
 
     const result = rechargeRepo.topUpFromSupplier({
       provider: "Katsh",
@@ -1399,21 +1405,22 @@ describe("RechargeRepository.topUpFromSupplier()", () => {
       userId: 1,
     });
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
 
-    // Drawer increased
+    // Drawer NOT increased
     const drawer = db
       .prepare(
         "SELECT balance FROM drawer_balances WHERE drawer_name = 'Katsh' AND currency_code = 'USD'",
       )
-      .get() as any;
-    expect(drawer.balance).toBeCloseTo(200, 2);
+      .get() as { balance: number } | undefined;
+    expect(drawer?.balance ?? 0).toBe(0);
 
-    // No ledger entries created
-    const ledgerCount = (
-      db.prepare("SELECT COUNT(*) as cnt FROM supplier_ledger").get() as any
-    ).cnt;
-    expect(ledgerCount).toBe(0);
+    // No ledger entries, no recharge/transaction rows
+    const count = (table: string) =>
+      (db.prepare(`SELECT COUNT(*) as cnt FROM ${table}`).get() as { cnt: number }).cnt;
+    expect(count("supplier_ledger")).toBe(0);
+    expect(count("recharges")).toBe(0);
+    expect(count("transactions")).toBe(0);
   });
 
   it("handles LBP currency — sets amount_lbp in ledger and not amount_usd", () => {

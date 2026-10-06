@@ -37,6 +37,11 @@ import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext";
+import {
+  expectPostings,
+  ledgerDeltas,
+  snapshotLedgers,
+} from "../testHelpers/postingAssert";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
 
@@ -57,7 +62,10 @@ jest.mock("../../db/connection", () => {
 
 const mockAddCredit = jest.fn();
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: mockAddCredit }),
+  getDebtService: () => ({
+    addCredit: jest.fn(),
+    addCreditOrThrow: mockAddCredit,
+  }),
   resetDebtService: jest.fn(),
 }));
 
@@ -408,137 +416,66 @@ describe("FinancialServiceRepository — partner mode", () => {
     // ── OMT SEND ─────────────────────────────────────────────────────────────
 
     describe("OMT SEND for partner", () => {
-      // NOTE (PFT-3b, commit 3ad8204): FOR-mode SEND for OMT/WHISH/OMT_APP/
-      // WHISH_APP no longer reserves/credits the system drawer. The shop
-      // fronts the transfer via an explicit OUT disbursement leg (drawer
-      // follows the leg's method); the partner owes exactly what the shop
-      // disbursed. `FinancialServiceRepository.ts` now throws
-      // "A partner SEND must include the shop's disbursement as OUT payment
-      // legs" if no such leg is supplied — these five cases were written
-      // against the pre-PFT-3b model (system-drawer credit, no legs
-      // required) and are updated here to match the new contract; see
-      // frontend/tests/e2e-electron/lira-119-partner-for-financial-service.spec.ts
-      // for the owner-validated catalog this now follows.
-      const disbursementLeg = (amount: number) => ({
-        payments: [
-          {
-            method: "CASH",
-            currencyCode: "USD",
-            amount,
-            direction: "OUT" as const,
-          },
-        ],
+      // LIRA-258 (owner decision D1, 2026-10-06) replaced the PFT-3b model
+      // these cases were first written against. PFT-3b had the shop "front"
+      // the transfer through an OUT disbursement leg (drawer debited, partner
+      // owed Σ legs) and booked NO supplier posting — which left "I owe OMT"
+      // unrecorded (G1, docs/POSTING_MAP.md). The owner's rule: a FOR-partner
+      // OMT SEND runs on the shop's own OMT rails, so it books obligations
+      // only — supplier OMT +(x+f), partner +(x+f), no drawer moves — the
+      // mirror of FOR-partner RECEIVE. Each case below keeps its original
+      // subject and asserts the new contract (rule 24: rewritten, not
+      // deleted). The cases were NOT re-proven failing-first; the dedicated
+      // "LIRA-258" block at the end of this file was (4 threw "must include
+      // the shop's disbursement", 1 did not throw, on the pre-fix code).
+      const forOmtSend = (partnerId: number) => ({
+        provider: "OMT" as const,
+        serviceType: "SEND" as const,
+        amount: 100,
+        currency: "USD",
+        commission: 0,
+        omtServiceType: "INTRA" as const,
+        omtFee: 5,
+        partnerId,
+        partnerMode: "FOR" as const,
+        payments: [],
       });
 
-      // Primary Cash Drawer plan §8.2 (2026-07-30): the disbursement leg's
-      // drawer is resolved by `resolveServiceCashDrawer(method, ctx)`, not
-      // hardcoded to General. Since this transaction's provider ("OMT")
-      // equals the shop's base system ("OMT", the fixture's default — no
-      // system_settings row means FinancialServiceRepository's try/catch
-      // falls back to "OMT"), the CASH disbursement leg IS a primary-system
-      // cash-family leg and lands in the PCD (OMT_System), exactly like a
-      // walk-in SEND's customer-cash leg. This is a genuine behavior change
-      // from the pre-PCD model (where a FOR-partner SEND's disbursement was
-      // deliberately routed to General because the system drawer was a
-      // provider-side float, not real till cash) — under the current model
-      // there is only ONE physical cash drawer for primary-system transfers,
-      // and every cash leg on that system uses it, partner or not (decision
-      // #6: "route by the SYSTEM the transaction runs on, not the
-      // counterparty").
-      // rule 17: this file's PRE-existing assertion ("stays at `before`") was
-      // run against the implemented primary-cash-drawer production code
-      // (`npx jest FinancialServiceRepository.partner.test.ts`, 2026-07-30)
-      // and observed to FAIL — `Expected: 500, Received: 395`, i.e.
-      // OMT_System DOES move under the current implementation. 395 is what
-      // the implemented `resolveServiceCashDrawer` actually produces for
-      // these inputs (verified by running the suite, not re-derived by hand
-      // alone) — matching the arithmetic derivation in the comment below.
-      it("debits OMT_System (PCD) by the disbursed amount — the disbursement leg IS the money movement, and OMT is the primary system", () => {
+      it("does NOT move OMT_System (PCD) — obligations only, no disbursement leg (LIRA-258)", () => {
         const partnerId = seedPartner(db);
         const before = drawerBalance(db, "OMT_System");
 
-        repo.createTransaction({
-          provider: "OMT",
-          serviceType: "SEND",
-          amount: 100,
-          currency: "USD",
-          commission: 0,
-          omtServiceType: "INTRA",
-          omtFee: 5,
-          partnerId,
-          partnerMode: "FOR",
-          ...disbursementLeg(105),
-        });
+        repo.createTransaction(forOmtSend(partnerId));
 
-        // 395 = before(500) - 105 (principal 100 + fee 5, the full CASH OUT
-        // disbursement leg, routed to the PCD by resolveServiceCashDrawer).
-        expect(drawerBalance(db, "OMT_System")).toBeCloseTo(before - 105, 2);
+        expect(drawerBalance(db, "OMT_System")).toBe(before);
       });
 
-      // rule 17: this file's PRE-existing assertion (`before - 105`) was run
-      // against the implemented production code and observed to FAIL —
-      // `Expected: 895, Received: 1000`, i.e. General is NOT touched under
-      // the current implementation. Flipped to "unchanged" below, verified
-      // green by running the suite.
-      it("does NOT touch General (the disbursement leg now targets the PCD, not General)", () => {
+      it("does NOT touch General", () => {
         const partnerId = seedPartner(db);
         const before = drawerBalance(db, "General");
 
-        repo.createTransaction({
-          provider: "OMT",
-          serviceType: "SEND",
-          amount: 100,
-          currency: "USD",
-          commission: 0,
-          omtServiceType: "INTRA",
-          omtFee: 5,
-          partnerId,
-          partnerMode: "FOR",
-          ...disbursementLeg(105),
-        });
+        repo.createTransaction(forOmtSend(partnerId));
 
         expect(drawerBalance(db, "General")).toBe(before);
       });
 
-      it("creates a DEBIT ledger entry for exactly what the shop disbursed (partner owes us everything)", () => {
+      it("creates a DEBIT ledger entry for x + f (partner owes the gross transfer)", () => {
         const partnerId = seedPartner(db);
 
-        repo.createTransaction({
-          provider: "OMT",
-          serviceType: "SEND",
-          amount: 100,
-          currency: "USD",
-          commission: 0,
-          omtServiceType: "INTRA",
-          omtFee: 5,
-          partnerId,
-          partnerMode: "FOR",
-          ...disbursementLeg(105),
-        });
+        repo.createTransaction(forOmtSend(partnerId));
 
         const entries = partnerLedger(db, partnerId);
         expect(entries).toHaveLength(1);
         expect(entries[0].direction).toBe("DEBIT");
         expect(entries[0].transaction_type).toBe("FOR_OMT_SEND");
-        expect(entries[0].amount).toBeCloseTo(105, 2); // matches the disbursed OUT leg (100 + 5 fee)
+        expect(entries[0].amount).toBeCloseTo(105, 2); // 100 + 5 fee
         expect(entries[0].currency).toBe("USD");
       });
 
       it("ledger reference_id points to the financial_services row", () => {
         const partnerId = seedPartner(db);
 
-        const { id: fsId } = repo.createTransaction({
-          provider: "OMT",
-          serviceType: "SEND",
-          amount: 100,
-          currency: "USD",
-          commission: 0,
-          omtServiceType: "INTRA",
-          omtFee: 5,
-          partnerId,
-          partnerMode: "FOR",
-          ...disbursementLeg(105),
-        });
+        const { id: fsId } = repo.createTransaction(forOmtSend(partnerId));
 
         const entries = partnerLedger(db, partnerId);
         expect(entries[0].reference_id).toBe(fsId);
@@ -548,18 +485,7 @@ describe("FinancialServiceRepository — partner mode", () => {
       it("stores partner_id and partner_mode = FOR on the financial_services row", () => {
         const partnerId = seedPartner(db);
 
-        const { id } = repo.createTransaction({
-          provider: "OMT",
-          serviceType: "SEND",
-          amount: 100,
-          currency: "USD",
-          commission: 0,
-          omtServiceType: "INTRA",
-          omtFee: 5,
-          partnerId,
-          partnerMode: "FOR",
-          ...disbursementLeg(105),
-        });
+        const { id } = repo.createTransaction(forOmtSend(partnerId));
 
         const row = db
           .prepare(
@@ -571,41 +497,23 @@ describe("FinancialServiceRepository — partner mode", () => {
         expect(row.partner_mode).toBe("FOR");
       });
 
-      // Task C (open owner question, PRIMARY_CASH_DRAWER_PLAN.md §6 item 6a):
-      // decision #6 (2026-07-30) resolved the gross supplier-ledger question
-      // for the FOR-partner RECEIVE side only (see the "books a gross
-      // supplier-ledger TOP_UP entry" test below, in the RECEIVE block) — the
-      // SEND side was deliberately left alone. This test pins TODAY'S
-      // behavior (no entry), not an endorsement: the transfer still runs on
-      // the real OMT rails on the SEND side too, so a symmetric gross entry
-      // is arguably owed there as well — flagged as unresolved in the plan,
-      // NOT fixed here (this pass is test-only; the asymmetry is a
-      // production question for the owner, not a test bug).
-      it("[OPEN OWNER QUESTION — see plan §6 item 6a] books NO supplier-ledger entry for a FOR-partner SEND (pre-existing asymmetry, not an endorsement)", () => {
+      // Was "[OPEN OWNER QUESTION — see plan §6 item 6a] books NO
+      // supplier-ledger entry", which pinned the gap. Answered by the owner
+      // 2026-10-06 (D1): the shop owes OMT the gross x + f.
+      it("books a gross supplier-ledger TOP_UP of x + f for OMT (owner decision D1)", () => {
         const partnerId = seedPartner(db);
         const omtId = supplierIdByProvider(db, "OMT");
 
-        repo.createTransaction({
-          provider: "OMT",
-          serviceType: "SEND",
-          amount: 100,
-          currency: "USD",
-          commission: 0,
-          omtServiceType: "INTRA",
-          omtFee: 5,
-          partnerId,
-          partnerMode: "FOR",
-          ...disbursementLeg(105),
-        });
+        const { id: fsId } = repo.createTransaction(forOmtSend(partnerId));
 
-        // The FOR-partner dispatch returns early (FinancialServiceRepository.ts,
-        // "PFT-3b — FOR-PARTNER DISPATCH") before the generic auto-record
-        // supplier-debt block ever runs, and the SEND arm of the dispatch
-        // itself never calls supplierRepo.addLedgerEntry — unlike the
-        // RECEIVE arm, which does (see below). Zero rows is TODAY'S
-        // behavior, asserted so nobody reads this green suite as having
-        // resolved the SEND-side question.
-        expect(ledgerRowsForSupplier(db, omtId)).toHaveLength(0);
+        const entries = ledgerRowsForSupplier(db, omtId);
+        expect(entries).toHaveLength(1);
+        expect(entries[0].entry_type).toBe("TOP_UP");
+        expect(entries[0].amount_usd).toBeCloseTo(105, 2);
+        expect(entries[0].amount_lbp).toBe(0);
+        expect(entries[0].tenant_id).toBe(1);
+        expect(entries[0].source_ref_table).toBe("financial_services");
+        expect(entries[0].source_ref_id).toBe(fsId);
       });
     });
 
@@ -889,18 +797,19 @@ describe("FinancialServiceRepository — partner mode", () => {
       ).toThrow(/CUSTOMER_ACCOUNT/);
     });
 
+    // LIRA-258: an OMT/WHISH (system) FOR SEND no longer takes a
+    // disbursement leg at all; the disbursement model now applies to the app
+    // wallets only, so this guard runs on OMT_APP.
     it("does not throw for a valid FOR-partner disbursement (no counter payment, no CUSTOMER_ACCOUNT leg)", () => {
       const partnerId = seedPartner(db);
 
       expect(() =>
         repo.createTransaction({
-          provider: "OMT",
+          provider: "OMT_APP",
           serviceType: "SEND",
           amount: 100,
           currency: "USD",
           commission: 0,
-          omtServiceType: "INTRA",
-          omtFee: 5,
           partnerId,
           partnerMode: "FOR",
           payments: [
@@ -1240,7 +1149,10 @@ describe("FinancialServiceRepository — partner mode", () => {
       expect(entries[0].transaction_type).toBe("THROUGH_KATSH_SEND");
     });
 
-    it("regression guard — THROUGH-partner OMT_APP/WHISH_APP SEND still map to OMT/WHISH (unchanged by this fix)", () => {
+    it("LIRA-258 — THROUGH-partner OMT_APP/WHISH_APP book their own app-wallet keys, distinct from OMT/WHISH", () => {
+      // Replaces the LIRA-126 regression guard that pinned the collapse
+      // (OMT_APP → THROUGH_OMT_*, WHISH_APP → THROUGH_WHISH_*). FOR already
+      // keeps the app wallets distinct (FOR_OMT_APP_SEND…); THROUGH now does too.
       const omtAppPartnerId = seedPartner(db, "OMT_APP partner");
       const whishAppPartnerId = seedPartner(db, "WHISH_APP partner");
 
@@ -1256,20 +1168,20 @@ describe("FinancialServiceRepository — partner mode", () => {
       });
       repo.createTransaction({
         provider: "WHISH_APP",
-        serviceType: "SEND",
+        serviceType: "RECEIVE",
         amount: 20,
         currency: "USD",
         commission: 0,
+        cashoutMethod: "CASH",
         partnerId: whishAppPartnerId,
         partnerMode: "THROUGH",
-        paidByMethod: "CASH",
       });
 
       expect(partnerLedger(db, omtAppPartnerId)[0].transaction_type).toBe(
-        "THROUGH_OMT_SEND",
+        "THROUGH_OMT_APP_SEND",
       );
       expect(partnerLedger(db, whishAppPartnerId)[0].transaction_type).toBe(
-        "THROUGH_WHISH_SEND",
+        "THROUGH_WHISH_APP_RECEIVE",
       );
     });
 
@@ -1532,16 +1444,8 @@ describe("FinancialServiceRepository — partner mode", () => {
         omtFee: 5,
         partnerId: p1,
         partnerMode: "FOR",
-        // PFT-3b: FOR-mode SEND requires the shop's disbursement as an
-        // explicit OUT payment leg (see the "OMT SEND for partner" block).
-        payments: [
-          {
-            method: "CASH",
-            currencyCode: "USD",
-            amount: 105,
-            direction: "OUT",
-          },
-        ],
+        // LIRA-258: an OMT FOR SEND books obligations only — no legs.
+        payments: [],
       });
 
       repo.createTransaction({
@@ -1658,8 +1562,33 @@ describe("FinancialServiceRepository — partner mode", () => {
     // concept (OMT/WHISH-family SEND transfers) must keep working when
     // `paidByMethod` carries the neutral "CASH" value every live form
     // sends/defaults to, alongside the required OUT disbursement leg.
+    // LIRA-258: the disbursement concept now belongs to the app wallets only
+    // (an OMT/WHISH system FOR SEND takes no legs), so the leg case runs on
+    // OMT_APP, and a second case proves the neutral "CASH" default is still
+    // accepted on a leg-less OMT FOR SEND.
     it("does NOT over-block a legitimate FOR-partner SEND disbursement — paidByMethod='CASH' alongside the required OUT leg still succeeds", () => {
       const partnerId = seedPartner(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "OMT_APP",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          paidByMethod: "CASH",
+          partnerId,
+          partnerMode: "FOR",
+          payments: [
+            {
+              method: "CASH",
+              currencyCode: "USD",
+              amount: 105,
+              direction: "OUT",
+            },
+          ],
+        }),
+      ).not.toThrow();
 
       expect(() =>
         repo.createTransaction({
@@ -1673,14 +1602,7 @@ describe("FinancialServiceRepository — partner mode", () => {
           paidByMethod: "CASH",
           partnerId,
           partnerMode: "FOR",
-          payments: [
-            {
-              method: "CASH",
-              currencyCode: "USD",
-              amount: 105,
-              direction: "OUT",
-            },
-          ],
+          payments: [],
         }),
       ).not.toThrow();
     });
@@ -1982,6 +1904,684 @@ describe("FinancialServiceRepository — partner mode", () => {
       // file — pinned again here, explicitly, as this fix's own guard.
       expect(drawerBalance(db, "General", "USD")).toBe(generalBefore);
       expect(drawerBalance(db, "OMT_System", "USD")).toBe(omtSystemBefore);
+    });
+  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIRA-258 — FOR-partner OMT/WHISH SEND books obligations only
+  // (owner decision D1, 2026-10-06, POSTING_INTEGRITY_PLAN.md item 1.2).
+  // Mirrors the FOR-partner RECEIVE rule (FEATURE_GUIDE §8.1.0): the transfer
+  // runs on the shop's OWN OMT rails, so the shop owes OMT the gross x + f
+  // (the whole fee goes to OMT; the commission comes back at settlement), the
+  // partner owes the shop that same x + f, and NO drawer moves.
+  // Checked with postingAssert: every ledger is compared, so a missing
+  // supplier posting and an unexpected drawer leg both fail.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("LIRA-258 — FOR-partner OMT SEND books obligations only", () => {
+    it("USD: supplier OMT +(x+f), partner +(x+f), no drawer moves", () => {
+      const partnerId = seedPartner(db);
+      const omtId = supplierIdByProvider(db, "OMT");
+      const before = snapshotLedgers(db);
+
+      const { id: fsId } = repo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 500,
+        currency: "USD",
+        commission: 0,
+        omtServiceType: "INTRA",
+        omtFee: 5,
+        partnerId,
+        partnerMode: "FOR",
+        payments: [],
+      });
+
+      expectPostings(before, snapshotLedgers(db), {
+        supplier: { [`${omtId}|USD`]: 505 },
+        partner: { [`${partnerId}|USD`]: 505 },
+      });
+
+      const rows = ledgerRowsForSupplier(db, omtId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].entry_type).toBe("TOP_UP");
+      expect(rows[0].source_ref_table).toBe("financial_services");
+      expect(rows[0].source_ref_id).toBe(fsId);
+      expect(partnerLedger(db, partnerId)[0].transaction_type).toBe(
+        "FOR_OMT_SEND",
+      );
+    });
+
+    it("LBP: supplier and partner both owe x+f in LBP, no drawer moves", () => {
+      const partnerId = seedPartner(db);
+      const omtId = supplierIdByProvider(db, "OMT");
+      const before = snapshotLedgers(db);
+
+      repo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 1_000_000,
+        currency: "LBP",
+        commission: 0,
+        omtFee: 50_000,
+        partnerId,
+        partnerMode: "FOR",
+        payments: [],
+      });
+
+      expectPostings(before, snapshotLedgers(db), {
+        supplier: { [`${omtId}|LBP`]: 1_050_000 },
+        partner: { [`${partnerId}|LBP`]: 1_050_000 },
+      });
+    });
+
+    it("the Settle queue owes exactly what the supplier ledger holds", () => {
+      const partnerId = seedPartner(db);
+      const omtId = supplierIdByProvider(db, "OMT");
+
+      repo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 500,
+        currency: "USD",
+        commission: 0,
+        omtServiceType: "INTRA",
+        omtFee: 5,
+        partnerId,
+        partnerMode: "FOR",
+        payments: [],
+      });
+
+      const queued = repo.getUnsettledBySupplier("OMT") as unknown as {
+        supplier_owed: number;
+      }[];
+      const queuedOwed = queued.reduce((s, r) => s + r.supplier_owed, 0);
+      const ledger = getSupplierRepository().getSupplierBalance(omtId);
+      expect(queuedOwed).toBeCloseTo(505, 2);
+      expect(ledger.balance_usd).toBeCloseTo(queuedOwed, 2);
+    });
+
+    it("void nets every ledger back to zero (rule 20)", () => {
+      const partnerId = seedPartner(db);
+      const before = snapshotLedgers(db);
+
+      const { id: fsId } = repo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 500,
+        currency: "USD",
+        commission: 0,
+        omtServiceType: "INTRA",
+        omtFee: 5,
+        partnerId,
+        partnerMode: "FOR",
+        payments: [],
+      });
+      const parent = getTransactionRepository().getBySourceId(
+        "financial_services",
+        fsId,
+      );
+      expect(parent).not.toBeNull();
+      getTransactionRepository().voidTransaction(parent!.id, 1);
+
+      expectPostings(before, snapshotLedgers(db), {});
+    });
+
+    it("refuses an OUT payment leg — the partner's transfer moves no drawer", () => {
+      const partnerId = seedPartner(db);
+      const before = snapshotLedgers(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: 500,
+          currency: "USD",
+          commission: 0,
+          omtFee: 5,
+          partnerId,
+          partnerMode: "FOR",
+          payments: [
+            {
+              method: "CASH",
+              currencyCode: "USD",
+              amount: 505,
+              direction: "OUT" as const,
+            },
+          ],
+        }),
+      ).toThrow(/no payment legs/i);
+      expectPostings(before, snapshotLedgers(db), {});
+    });
+  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIRA-258 — THROUGH partner on the SECONDARY system (owner D3 + D7,
+  // 2026-10-06, POSTING_INTEGRITY_PLAN.md item 1.4). Fixture base system is
+  // OMT, so WHISH is the secondary system. No supplier settlement ever
+  // applies to these rows (the partner carries the obligation), so they must
+  // not be supplier-pending; the amount is what the partner told the shop to
+  // collect (owed to the partner) and the fee is the shop's own fee — 100%
+  // profit at creation (G3, G32 in docs/POSTING_MAP.md).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("LIRA-258 — THROUGH partner on the secondary system", () => {
+    const throughWhishSend = (partnerId: number) => ({
+      provider: "WHISH" as const,
+      serviceType: "SEND" as const,
+      amount: 101,
+      currency: "USD",
+      commission: 0,
+      whishFee: 2,
+      partnerId,
+      partnerMode: "THROUGH" as const,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 103 }],
+    });
+
+    it("is not supplier-pending and never enters the WHISH Settle queue", () => {
+      const partnerId = seedPartner(db);
+      const { id } = repo.createTransaction(throughWhishSend(partnerId));
+
+      const row = db
+        .prepare("SELECT is_settled FROM financial_services WHERE id = ?")
+        .get(id) as { is_settled: number };
+      expect(row.is_settled).toBe(1);
+      expect(repo.getUnsettledBySupplier("WHISH")).toHaveLength(0);
+    });
+
+    it("stamps the shop fee as profit at creation", () => {
+      const partnerId = seedPartner(db);
+      const { id } = repo.createTransaction(throughWhishSend(partnerId));
+
+      const txn = getTransactionRepository().getBySourceId(
+        "financial_services",
+        id,
+      ) as unknown as { profit_usd: number };
+      expect(txn.profit_usd).toBeCloseTo(2, 2);
+    });
+
+    it("posts General +(amount+fee), owes the partner the amount, no supplier posting; void nets to 0", () => {
+      const partnerId = seedPartner(db);
+      const before = snapshotLedgers(db);
+
+      const { id } = repo.createTransaction(throughWhishSend(partnerId));
+
+      expectPostings(before, snapshotLedgers(db), {
+        drawers: { "General|USD": 103 },
+        partner: { [`${partnerId}|USD`]: -101 },
+      });
+
+      const parent = getTransactionRepository().getBySourceId(
+        "financial_services",
+        id,
+      );
+      getTransactionRepository().voidTransaction(parent!.id, 1);
+      expectPostings(before, snapshotLedgers(db), {});
+    });
+
+    it("regression: THROUGH partner on the BASE system stays supplier-pending", () => {
+      const partnerId = seedPartner(db);
+      const { id } = repo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 100,
+        currency: "USD",
+        commission: 0,
+        omtServiceType: "INTRA",
+        omtFee: 5,
+        partnerId,
+        partnerMode: "THROUGH",
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 105 }],
+      });
+      const row = db
+        .prepare("SELECT is_settled FROM financial_services WHERE id = ?")
+        .get(id) as { is_settled: number };
+      expect(row.is_settled).toBe(0);
+    });
+  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIRA-258 — supplier postings are never skipped or swallowed (owner D2,
+  // 2026-10-06, POSTING_INTEGRITY_PLAN.md item 1.3, gap G4).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("LIRA-258 — supplier postings are never skipped or swallowed", () => {
+    const walkInOmtSend = {
+      provider: "OMT" as const,
+      serviceType: "SEND" as const,
+      amount: 100,
+      currency: "USD",
+      commission: 0,
+      omtServiceType: "INTRA" as const,
+      omtFee: 5,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 105 }],
+    };
+
+    it("a switched-off OMT supplier is re-activated and still gets the posting", () => {
+      const omtId = supplierIdByProvider(db, "OMT");
+      db.prepare("UPDATE suppliers SET is_active = 0 WHERE id = ?").run(omtId);
+      const before = snapshotLedgers(db);
+
+      repo.createTransaction(walkInOmtSend);
+
+      expectPostings(before, snapshotLedgers(db), {
+        drawers: { "OMT_System|USD": 105 },
+        supplier: { [`${omtId}|USD`]: 105 },
+      });
+      const row = db
+        .prepare("SELECT is_active FROM suppliers WHERE id = ?")
+        .get(omtId) as { is_active: number };
+      expect(row.is_active).toBe(1);
+    });
+
+    it("a failed supplier posting rolls the whole transaction back", () => {
+      db.exec("ALTER TABLE supplier_ledger RENAME TO supplier_ledger_gone");
+      const fsBefore = (
+        db.prepare("SELECT COUNT(*) AS n FROM financial_services").get() as {
+          n: number;
+        }
+      ).n;
+
+      expect(() => repo.createTransaction(walkInOmtSend)).toThrow();
+
+      const fsAfter = (
+        db.prepare("SELECT COUNT(*) AS n FROM financial_services").get() as {
+          n: number;
+        }
+      ).n;
+      expect(fsAfter).toBe(fsBefore);
+      db.exec("ALTER TABLE supplier_ledger_gone RENAME TO supplier_ledger");
+    });
+  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIRA-258 — invariant sweep (POSTING_INTEGRITY_PLAN.md item 1.6,
+  // docs/POSTING_MAP.md §6 invariants 1 + 2). Every OMT/WHISH mode, USD and
+  // LBP: the supplier posting is exactly the gross formula (SEND +(x+f),
+  // RECEIVE −x, secondary-system THROUGH nothing), and the Settle queue owes
+  // exactly what the supplier ledger holds. A future branch that skips or
+  // doubles the supplier posting fails here. Fixture base system: OMT.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("LIRA-258 — invariant sweep: every OMT/WHISH mode posts its supplier record", () => {
+    type Mode = "walk-in" | "THROUGH" | "FOR";
+    const cases: Array<{
+      name: string;
+      provider: "OMT" | "WHISH";
+      serviceType: "SEND" | "RECEIVE";
+      mode: Mode;
+      expectedSupplier: (x: number, f: number) => number;
+    }> = [
+      {
+        name: "walk-in SEND",
+        provider: "OMT",
+        serviceType: "SEND",
+        mode: "walk-in",
+        expectedSupplier: (x, f) => x + f,
+      },
+      {
+        name: "walk-in RECEIVE",
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        mode: "walk-in",
+        expectedSupplier: (x) => -x,
+      },
+      {
+        name: "THROUGH base SEND",
+        provider: "OMT",
+        serviceType: "SEND",
+        mode: "THROUGH",
+        expectedSupplier: (x, f) => x + f,
+      },
+      {
+        name: "THROUGH base RECEIVE",
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        mode: "THROUGH",
+        expectedSupplier: (x) => -x,
+      },
+      {
+        name: "FOR SEND",
+        provider: "OMT",
+        serviceType: "SEND",
+        mode: "FOR",
+        expectedSupplier: (x, f) => x + f,
+      },
+      {
+        name: "FOR RECEIVE",
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        mode: "FOR",
+        expectedSupplier: (x) => -x,
+      },
+      {
+        name: "THROUGH secondary SEND",
+        provider: "WHISH",
+        serviceType: "SEND",
+        mode: "THROUGH",
+        expectedSupplier: () => 0,
+      },
+    ];
+    const currencies = [
+      { currency: "USD", x: 100, f: 5 },
+      { currency: "LBP", x: 1_000_000, f: 50_000 },
+    ];
+
+    for (const c of cases) {
+      for (const cur of currencies) {
+        it(`${c.name} (${cur.currency})`, () => {
+          if (cur.currency === "LBP") {
+            db.prepare(
+              "INSERT OR IGNORE INTO drawer_balances VALUES (1, 'OMT_System', 'LBP', 0, CURRENT_TIMESTAMP)",
+            ).run();
+          }
+          const partnerId = c.mode === "walk-in" ? undefined : seedPartner(db);
+          const isSend = c.serviceType === "SEND";
+          const fee = isSend ? cur.f : 0;
+          const supplierId = supplierIdByProvider(db, c.provider);
+          const before = snapshotLedgers(db);
+
+          repo.createTransaction({
+            provider: c.provider,
+            serviceType: c.serviceType,
+            amount: cur.x,
+            currency: cur.currency,
+            commission: 0,
+            ...(c.provider === "OMT" ? { omtFee: fee } : { whishFee: fee }),
+            ...(isSend && c.mode !== "FOR"
+              ? {
+                  payments: [
+                    {
+                      method: "CASH",
+                      currencyCode: cur.currency,
+                      amount: cur.x + fee,
+                    },
+                  ],
+                }
+              : {}),
+            ...(c.mode === "FOR" ? { payments: [] } : {}),
+            ...(!isSend ? { cashoutMethod: "CASH" as const } : {}),
+            ...(partnerId
+              ? { partnerId, partnerMode: c.mode as "THROUGH" | "FOR" }
+              : {}),
+          });
+
+          const delta = ledgerDeltas(before, snapshotLedgers(db));
+          const want = c.expectedSupplier(cur.x, cur.f);
+          expect(
+            delta.supplier[`${supplierId}|${cur.currency}`] ?? 0,
+          ).toBeCloseTo(want, 2);
+
+          // Invariant 2 — the queue owes exactly what the ledger holds.
+          const queued = repo.getUnsettledBySupplier(c.provider) as unknown as {
+            supplier_owed: number;
+            currency: string;
+          }[];
+          const queuedOwed = queued
+            .filter((r) => r.currency === cur.currency)
+            .reduce((sum, r) => sum + r.supplier_owed, 0);
+          expect(queuedOwed).toBeCloseTo(want, 2);
+        });
+      }
+    }
+  });
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Item 4.1 (POSTING_INTEGRITY_PLAN.md, LIRA-258) — partnerOwedDelta
+  // characterization. One case per partner-ledger write in createTransaction,
+  // pinning TODAY's amount, currency, direction and zero-skip so the
+  // extraction of `partnerOwedDelta` is provably a pure refactor. Written
+  // against the pre-refactor code and seen passing there (characterization,
+  // not a failing-first guard — rule 17 does not apply).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("partnerOwedDelta — one rule per partner-ledger write (item 4.1 characterization)", () => {
+    const rows = (partnerId: number) =>
+      partnerLedger(db, partnerId).map((r) => ({
+        type: r.transaction_type,
+        amount: r.amount,
+        currency: r.currency,
+        direction: r.direction,
+      }));
+
+    it("FOR catalog (iPick): partner owes the selling price", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: 100,
+        cost: 90,
+        price: 100,
+        currency: "USD",
+        commission: 0,
+        partnerId,
+        partnerMode: "FOR",
+      });
+      expect(rows(partnerId)).toEqual([
+        { type: "FOR_IPICK", amount: 100, currency: "USD", direction: "DEBIT" },
+      ]);
+    });
+
+    it("FOR catalog (OMT_APP grid): partner owes the selling price, typed FOR_OMT_APP_SEND", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "OMT_APP",
+        serviceType: "SEND",
+        amount: 10,
+        cost: 9,
+        price: 10,
+        currency: "USD",
+        commission: 0,
+        partnerId,
+        partnerMode: "FOR",
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "FOR_OMT_APP_SEND",
+          amount: 10,
+          currency: "USD",
+          direction: "DEBIT",
+        },
+      ]);
+    });
+
+    it("FOR BINANCE SEND: partner owes amount + fee in USD", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "BINANCE",
+        serviceType: "SEND",
+        amount: 100,
+        commission: 2,
+        currency: "USDT",
+        partnerId,
+        partnerMode: "FOR",
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "FOR_BINANCE_SEND",
+          amount: 102,
+          currency: "USD",
+          direction: "DEBIT",
+        },
+      ]);
+    });
+
+    it("FOR OMT SEND (system): partner owes the supplier gross x + f", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 100,
+        omtFee: 5,
+        currency: "USD",
+        commission: 0,
+        partnerId,
+        partnerMode: "FOR",
+        payments: [],
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "FOR_OMT_SEND",
+          amount: 105,
+          currency: "USD",
+          direction: "DEBIT",
+        },
+      ]);
+    });
+
+    it("FOR OMT_APP SEND (transfer): partner owes Σ disbursement legs, one row per currency", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "OMT_APP",
+        serviceType: "SEND",
+        amount: 100,
+        commission: 0,
+        currency: "USD",
+        partnerId,
+        partnerMode: "FOR",
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 40, direction: "OUT" },
+          { method: "CASH", currencyCode: "USD", amount: 20, direction: "OUT" },
+          {
+            method: "CASH",
+            currencyCode: "LBP",
+            amount: 3_600_000,
+            direction: "OUT",
+          },
+        ],
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "FOR_OMT_APP_SEND",
+          amount: 60,
+          currency: "USD",
+          direction: "DEBIT",
+        },
+        {
+          type: "FOR_OMT_APP_SEND",
+          amount: 3_600_000,
+          currency: "LBP",
+          direction: "DEBIT",
+        },
+      ]);
+    });
+
+    it("FOR OMT RECEIVE (system): shop owes the partner x (no fee deducted)", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        amount: 100,
+        omtFee: 0,
+        currency: "USD",
+        commission: 0,
+        partnerId,
+        partnerMode: "FOR",
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "FOR_OMT_RECEIVE",
+          amount: 100,
+          currency: "USD",
+          direction: "CREDIT",
+        },
+      ]);
+    });
+
+    it("FOR WHISH_APP RECEIVE: shop owes the partner x − fee", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "WHISH_APP",
+        serviceType: "RECEIVE",
+        amount: 200,
+        commission: 10,
+        currency: "USD",
+        partnerId,
+        partnerMode: "FOR",
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "FOR_WHISH_APP_RECEIVE",
+          amount: 190,
+          currency: "USD",
+          direction: "CREDIT",
+        },
+      ]);
+    });
+
+    it("FOR BINANCE RECEIVE: shop owes the partner x − fee in USD (drawer moves in USDT)", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "BINANCE",
+        serviceType: "RECEIVE",
+        amount: 100,
+        commission: 3,
+        currency: "USDT",
+        partnerId,
+        partnerMode: "FOR",
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "FOR_BINANCE_RECEIVE",
+          amount: 97,
+          currency: "USD",
+          direction: "CREDIT",
+        },
+      ]);
+    });
+
+    it("FOR app RECEIVE whose fee eats the whole amount writes NO partner row", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "WHISH_APP",
+        serviceType: "RECEIVE",
+        amount: 10,
+        commission: 10,
+        currency: "USD",
+        partnerId,
+        partnerMode: "FOR",
+      });
+      expect(rows(partnerId)).toEqual([]);
+    });
+
+    it("THROUGH SEND: shop owes the partner |amount| (D7 — the fee is the shop's), CREDIT", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 100,
+        omtFee: 5,
+        currency: "USD",
+        commission: 0,
+        partnerId,
+        partnerMode: "THROUGH",
+        paidByMethod: "CASH",
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "THROUGH_OMT_SEND",
+          amount: 100,
+          currency: "USD",
+          direction: "CREDIT",
+        },
+      ]);
+    });
+
+    it("THROUGH RECEIVE: partner owes the shop |amount|, DEBIT", () => {
+      const partnerId = seedPartner(db);
+      repo.createTransaction({
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 0,
+        partnerId,
+        partnerMode: "THROUGH",
+        cashoutMethod: "CASH",
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "THROUGH_WHISH_RECEIVE",
+          amount: 100,
+          currency: "USD",
+          direction: "DEBIT",
+        },
+      ]);
     });
   });
 });

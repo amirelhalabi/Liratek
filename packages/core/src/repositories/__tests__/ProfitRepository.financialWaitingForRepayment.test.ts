@@ -101,6 +101,21 @@ function createSchema(db: Database.Database): void {
       created_by INTEGER, is_refunded INTEGER DEFAULT 0, session_id INTEGER, covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0, refunded_at TEXT DEFAULT NULL
     );
+    -- LIRA-258 / G17: read by notDebtPending's session-basket arm.
+    CREATE TABLE IF NOT EXISTS customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      paid_exchange_rate REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
   db.prepare(
     `INSERT INTO clients (id, tenant_id, full_name, phone_number) VALUES (1, 1, 'Account Client', '71000000')`,
@@ -768,6 +783,21 @@ describe("ProfitRepository.getFinancialWaitingForRepaymentByCurrency — REAL WR
         transaction_id INTEGER, due_date TEXT, note TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         created_by INTEGER, is_refunded INTEGER DEFAULT 0, session_id INTEGER, covered_usd REAL NOT NULL DEFAULT 0,
         covered_lbp REAL NOT NULL DEFAULT 0, refunded_at TEXT DEFAULT NULL
+      );
+      -- LIRA-258 / G17: read by notDebtPending's session-basket arm.
+      CREATE TABLE IF NOT EXISTS customer_session_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER,
+        session_id INTEGER NOT NULL,
+        transaction_type TEXT NOT NULL,
+        transaction_id INTEGER NOT NULL,
+        unified_transaction_id INTEGER,
+        amount_usd REAL NOT NULL DEFAULT 0,
+        amount_lbp REAL NOT NULL DEFAULT 0,
+        profit_usd REAL NOT NULL DEFAULT 0,
+        profit_lbp REAL NOT NULL DEFAULT 0,
+        paid_exchange_rate REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
     `);
 

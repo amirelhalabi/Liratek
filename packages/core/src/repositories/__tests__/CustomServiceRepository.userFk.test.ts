@@ -46,7 +46,10 @@ jest.mock("../../db/connection", () => {
 
 const mockAddCredit = jest.fn();
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: mockAddCredit }),
+  getDebtService: () => ({
+    addCredit: mockAddCredit,
+    addCreditOrThrow: mockAddCredit,
+  }),
   resetDebtService: jest.fn(),
 }));
 

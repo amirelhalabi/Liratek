@@ -9,6 +9,9 @@ import type {
   ClientEntity,
   // LIRA-185 #1 — recharge payload derived from the core schema (rule 21).
   CreateRechargePayload,
+  // Exchange submit payload (incl. payout kept change), derived from the
+  // core schema (rule 21).
+  ExchangeSubmitPayload,
   ProductListFilters,
   DatabaseResetPreview,
   DatabaseResetResult,
@@ -69,6 +72,11 @@ import type {
   // imported directly (rule 21) instead of a hand-typed object literal.
   CarrierLineAdjustmentRecord,
   CarrierLineAdjustmentFilters,
+  // LIRA-258 — loto sell/settle payloads derived from the core schemas
+  // (rule 21).
+  LotoSellPayload,
+  LotoCheckpointSettlePayload,
+  LotoCheckpointsSettleBatchPayload,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -742,27 +750,12 @@ export type LotoCheckpointApi = {
     settledAt?: string,
     settlementId?: number,
   ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
-  settle: (data: {
-    id: number;
-    totalSales: number;
-    totalCommission: number;
-    totalPrizes: number;
-    totalCashPrizes?: number; // DEPRECATED — now read from checkpoint
-    settledAt?: string;
-    payments?: Array<{ method: string; currency_code: string; amount: number }>;
-  }) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
-  settleBatch: (data: {
-    checkpointIds: number[];
-    totalSales: number;
-    totalCommission: number;
-    settledAt?: string;
-    payment?: {
-      method: string;
-      drawer_name: string;
-      currency_code: string;
-      amount: number;
-    };
-  }) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
+  settle: (
+    data: LotoCheckpointSettlePayload,
+  ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+  settleBatch: (
+    data: LotoCheckpointsSettleBatchPayload,
+  ) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
   getTotalSalesUnsettled: () => Promise<{
     success: boolean;
     totalSales?: number;
@@ -833,7 +826,7 @@ export type LotoSettingsApi = {
 
 export type LotoApi = {
   sell: (
-    data: any,
+    data: LotoSellPayload,
   ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
   get: (
     id: number,
@@ -1255,7 +1248,7 @@ export type ApiAdapter = {
   getExchangeRates: () => Promise<any[]>;
   getCurrenciesList: () => Promise<any[]>;
   getExchangeHistory: (limit?: number) => Promise<any[]>;
-  addExchangeTransaction: (payload: any) => Promise<
+  addExchangeTransaction: (payload: ExchangeSubmitPayload) => Promise<
     ApiResult & {
       id?: number;
       /** The server-authoritative final `transactions.profit_usd` for this

@@ -38,7 +38,7 @@ jest.mock("../../db/connection", () => {
 });
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 
@@ -122,12 +122,23 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances VALUES (1, 'General', 'USD', 1000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (2, 'General', 'USD', 5000, CURRENT_TIMESTAMP);
 
+    -- contact_name/phone/note/module_key are REQUIRED: SupplierRepository.
+    -- getColumns() always selects them, so getByProvider throws without them.
     CREATE TABLE suppliers (
       tenant_id INTEGER,
-      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, provider TEXT,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+      contact_name TEXT, phone TEXT, note TEXT, provider TEXT,
       is_active INTEGER DEFAULT 1, is_system INTEGER DEFAULT 0,
+      module_key TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    -- LIRA-258 (owner D2): the OMT/WHISH auto supplier posting is mandatory,
+    -- and SupplierRepository.ensureSystemSupplier looks the row up per
+    -- tenant — so each tenant needs its OWN OMT/WHISH row (tenant_id has no
+    -- default here; a NULL row would be invisible to both tenants).
+    INSERT INTO suppliers (tenant_id, name, provider, is_system) VALUES
+      (1, 'OMT', 'OMT', 1), (1, 'WHISH', 'WHISH', 1),
+      (2, 'OMT', 'OMT', 1), (2, 'WHISH', 'WHISH', 1);
 
     CREATE TABLE supplier_ledger (
       tenant_id INTEGER,
@@ -135,6 +146,8 @@ function createTestDb(): Database.Database {
       entry_type TEXT NOT NULL, amount_usd REAL NOT NULL DEFAULT 0,
       amount_lbp REAL NOT NULL DEFAULT 0, note TEXT, created_by INTEGER,
       transaction_id INTEGER, is_auto INTEGER NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0, refunded_at DATETIME,
+      source_ref_table TEXT DEFAULT NULL, source_ref_id INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

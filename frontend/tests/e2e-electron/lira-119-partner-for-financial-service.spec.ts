@@ -7,9 +7,14 @@
  * CATALOG"): a FOR-partner financial service has NO walk-in customer — no
  * counter cash-in, no payout, no client debt, no supplier auto-record.
  *   SEND  → partner OWES the shop (partner_ledger DEBIT):
- *     - OMT/WHISH/OMT_APP/WHISH_APP: the shop fronts the transfer via OUT
- *       payment legs (drawer follows the method, fee already inside the
- *       disbursement); partner owes EXACTLY what the shop paid, per currency.
+ *     - OMT/WHISH (the shop's OWN system) — LIRA-258 / owner decision D1
+ *       (2026-10-06): obligations only. Partner owes amount+fee
+ *       (FOR_OMT_SEND / FOR_WHISH_SEND DEBIT), the system supplier gets a
+ *       TOP_UP +(amount+fee), NO drawer moves, and any OUT payment leg is
+ *       rejected ("A partner OMT/Whish SEND has no payment legs").
+ *     - OMT_APP/WHISH_APP: the shop fronts the transfer via OUT payment legs
+ *       (drawer follows the method, fee already inside the disbursement);
+ *       partner owes EXACTLY what the shop paid, per currency.
  *     - BINANCE: Binance drawer −USDT; partner owes the USD sell price
  *       (amount + fee) — partner debt is USD, never USDT.
  *     - iPick/Katsh (cost/price): provider drawer −cost; partner owes the
@@ -31,7 +36,10 @@
  * the pre-PFT-3b code (which ran the legacy walk-in dispatch + a collapsed
  * OMT/WHISH auto-record for FOR rows):
  *   - OMT/WHISH SEND: the system drawer delta (old code credited
- *     OMT_System/Whish_System +amount+fee; new leaves it untouched).
+ *     OMT_System/Whish_System +amount+fee; new leaves it untouched) and, since
+ *     LIRA-258, the OMT supplier delta (+amount+fee) with no OUT leg sent —
+ *     the pre-LIRA-258 code debited OMT_System by the disbursement and booked
+ *     no supplier TOP_UP.
  *   - OMT_APP/WHISH_APP SEND: transaction_type (old: FOR_OMT_SEND /
  *     FOR_WHISH_SEND) + the app drawer delta (old wallet block debited it).
  *   - BINANCE: the partner USD balance (old booked USDT → usd delta 0) +
@@ -56,8 +64,19 @@ type LedgerEntry = {
   notes: string | null;
 };
 
+type SupplierRow = { id: number; provider: string | null };
+type SupplierBalanceRow = {
+  supplier_id: number;
+  total_usd: number;
+  total_lbp: number;
+};
+
 type Api = {
   api: {
+    suppliers: {
+      list: (search?: string, includeInactive?: boolean) => Promise<SupplierRow[]>;
+      getBalances: (includeInactive?: boolean) => Promise<SupplierBalanceRow[]>;
+    };
     partners: {
       create: (d: { name: string; phone?: string }) => Promise<{
         success: boolean;
@@ -99,6 +118,9 @@ type Api = {
 type Snapshot = {
   bal: { usd: number; lbp: number };
   drawers: Record<string, { usd: number; lbp: number; usdt: number }>;
+  /** Supplier USD balance keyed by `provider` (identity, never row position;
+   *  includeInactive because the seeded Whish supplier is inactive). */
+  suppliers: Record<string, number>;
 };
 
 async function snapshot(page: Page, partnerId: number): Promise<Snapshot> {
@@ -114,8 +136,21 @@ async function snapshot(page: Page, partnerId: number): Promise<Snapshot> {
         usdt: r.usdtBalance ?? 0,
       };
     }
-    return { bal: { usd: bal.usd, lbp: bal.lbp }, drawers };
+    const supplierRows = await w.api.suppliers.list("", true);
+    const balances = await w.api.suppliers.getBalances(true);
+    const suppliers: Snapshot["suppliers"] = {};
+    for (const s of supplierRows) {
+      // First match wins — same resolution as every other spec's `.find`.
+      if (!s.provider || s.provider in suppliers) continue;
+      suppliers[s.provider] =
+        balances.find((b) => b.supplier_id === s.id)?.total_usd ?? 0;
+    }
+    return { bal: { usd: bal.usd, lbp: bal.lbp }, drawers, suppliers };
   }, partnerId);
+}
+
+function supplierUsd(s: Snapshot, provider: string): number {
+  return s.suppliers[provider] ?? 0;
 }
 
 function drawerVal(
@@ -152,11 +187,15 @@ type Case = {
     field: "usd" | "lbp" | "usdt";
     delta: number;
   }>;
+  /** Supplier USD balance deltas, by supplier `provider` (LIRA-258). */
+  supplierChecks?: Array<{ provider: string; delta: number }>;
 };
 
 const CASES: Case[] = [
   {
-    label: "OMT SEND: disbursed 103.11 via CASH OUT → partner owes 103.11",
+    // LIRA-258: FOR OMT/WHISH SEND books obligations only
+    label:
+      "OMT SEND 100.11 + fee 3 (no legs) → partner owes 103.11, OMT supplier +103.11, no drawer moves",
     payload: {
       provider: "OMT",
       serviceType: "SEND",
@@ -164,25 +203,22 @@ const CASES: Case[] = [
       currency: "USD",
       omtServiceType: "INTRA",
       omtFee: 3,
-      payments: [
-        {
-          method: "CASH",
-          currencyCode: "USD",
-          amount: 103.11,
-          direction: "OUT",
-        },
-      ],
+      // Owner decision D1 (2026-10-06): the shop disburses nothing at the
+      // counter — the Services page sends an empty leg list.
+      payments: [],
     },
     match: "100.11",
     type: "FOR_OMT_SEND",
     direction: "DEBIT",
     balDelta: { usd: 103.11, lbp: 0 },
     drawerChecks: [
-      // The shop fronts the partner's SEND out of the OMT cash drawer: this
-      // runs on the shop's OWN primary rails, so its cash is OMT cash.
-      { name: "OMT_System", field: "usd", delta: -103.11 },
+      // No drawer moves: the send runs on the shop's OWN OMT account, so the
+      // shop now owes OMT (supplier TOP_UP) and the partner owes the shop.
+      // Pre-LIRA-258 this debited OMT_System −103.11.
+      { name: "OMT_System", field: "usd", delta: 0 },
       { name: "General", field: "usd", delta: 0 },
     ],
+    supplierChecks: [{ provider: "OMT", delta: 103.11 }],
   },
   {
     label: "OMT RECEIVE 80.12 → OMT_System +80.12, shop owes full (no fee)",
@@ -441,6 +477,13 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
           `${d.name}.${d.field} delta after create`,
         ).toBeCloseTo(d.delta, 2);
       }
+      for (const sc of c.supplierChecks ?? []) {
+        expect(
+          supplierUsd(afterCreate, sc.provider) -
+            supplierUsd(before, sc.provider),
+          `${sc.provider} supplier usd delta after create`,
+        ).toBeCloseTo(sc.delta, 2);
+      }
 
       // Void (rule 20): partner ledger AND every touched drawer net to 0.
       // Also assert the owner-asked client label: the transactions table
@@ -474,8 +517,73 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
           `${d.name}.${d.field} delta after void`,
         ).toBeCloseTo(0, 2);
       }
+      for (const sc of c.supplierChecks ?? []) {
+        expect(
+          supplierUsd(afterVoid, sc.provider) -
+            supplierUsd(before, sc.provider),
+          `${sc.provider} supplier usd delta after void`,
+        ).toBeCloseTo(0, 2);
+      }
     });
   }
+
+  // LIRA-258: FOR OMT/WHISH SEND books obligations only — so a disbursement
+  // (OUT) leg on a FOR-partner OMT SEND is refused outright rather than
+  // silently ignored or double-booked against a drawer. Nothing is written:
+  // no partner row, no supplier TOP_UP, no drawer move.
+  test("OMT SEND FOR a partner WITH an OUT disbursement leg is REJECTED — a partner OMT/Whish SEND has no payment legs", async ({
+    appPage,
+  }) => {
+    const partnerId = await createPartner(appPage, "L119noLeg");
+    const before = await snapshot(appPage, partnerId);
+
+    const res = await appPage.evaluate(async (partnerId) => {
+      const w = window as unknown as Api;
+      const r = await w.api.omt.addTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 41.17,
+        currency: "USD",
+        omtServiceType: "INTRA",
+        omtFee: 1,
+        partnerId,
+        partnerMode: "FOR",
+        payments: [
+          {
+            method: "CASH",
+            currencyCode: "USD",
+            amount: 42.17,
+            direction: "OUT",
+          },
+        ],
+      });
+      const ledger = await w.api.partners.getLedger(partnerId);
+      return {
+        ok: r.success,
+        error: r.error ?? null,
+        entryCount: ledger.entries.length,
+      };
+    }, partnerId);
+
+    expect(res.ok).toBe(false);
+    expect(res.error ?? "").toContain(
+      "A partner OMT/Whish SEND has no payment legs",
+    );
+    expect(res.entryCount).toBe(0);
+
+    const after = await snapshot(appPage, partnerId);
+    expect(after.bal.usd - before.bal.usd).toBeCloseTo(0, 2);
+    expect(
+      supplierUsd(after, "OMT") - supplierUsd(before, "OMT"),
+      "OMT supplier must be untouched by a rejected transaction",
+    ).toBeCloseTo(0, 2);
+    for (const drawer of ["OMT_System", "General"]) {
+      expect(
+        drawerVal(after, drawer, "usd") - drawerVal(before, drawer, "usd"),
+        `${drawer}.usd must be untouched by a rejected transaction`,
+      ).toBeCloseTo(0, 2);
+    }
+  });
 
   // D1 (OWNER_NOTES_2026-09-21.md §2b case #5): OMT App RECEIVE has no fee
   // "for now" — the repository hard-rejects a nonzero commission/feePayments
@@ -605,18 +713,11 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
             currency: "USD",
             partnerId,
             partnerMode: "FOR",
-            ...(serviceType === "SEND"
-              ? {
-                  payments: [
-                    {
-                      method: "CASH",
-                      currencyCode: "USD",
-                      amount: 40.23,
-                      direction: "OUT",
-                    },
-                  ],
-                }
-              : {}),
+            // LIRA-258: FOR OMT/WHISH SEND books obligations only — no OUT
+            // leg is sent, so the secondary-system guard is the ONLY reason
+            // this can be refused (an OUT leg would now trip the no-legs
+            // guard instead and mask what this test is about).
+            ...(serviceType === "SEND" ? { payments: [] } : {}),
           });
           const ledger = await w.api.partners.getLedger(partnerId);
           return {

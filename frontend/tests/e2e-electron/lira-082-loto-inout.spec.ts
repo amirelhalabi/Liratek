@@ -26,6 +26,7 @@ type Api = {
           currencyCode: string;
           amount: number;
         }>;
+        tender_exchange_rate?: number;
       }) => Promise<{ success: boolean; error?: string }>;
     };
     recharge: {
@@ -114,6 +115,10 @@ test.describe("LIRA-082 (B7) — loto in/out", () => {
         sale_amount: 500_000,
         payment_method: "CASH",
         payments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+        // LIRA-258 G14: legs reconcile against the ticket at the till's
+        // tender rate (else the seeded 90,000 sell rate: $5 = 450,000 <
+        // 500,000 → refused). $5 × 100,000 = the 500,000 ticket exactly.
+        tender_exchange_rate: 100_000,
       });
       const after = await general();
 

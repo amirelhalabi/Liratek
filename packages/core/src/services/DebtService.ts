@@ -54,6 +54,22 @@ export interface RepaymentData {
   tender_exchange_rate?: number;
 }
 
+/** Input for DebtService.addCredit / addCreditOrThrow. */
+export interface AddCreditData {
+  clientId: number;
+  amountUsd: number;
+  amountLbp: number;
+  note?: string;
+  userId: number;
+  transactionTime?: string;
+  /** Session basket this credit belongs to (session cash-out → account). */
+  sessionId?: number;
+  /** The unified transaction this credit is a side effect of (rule 20) —
+   *  see DebtRepository.addCredit's doc. Omit for standalone/manual
+   *  credits with no originating transaction. */
+  transactionId?: number;
+}
+
 // =============================================================================
 // Debt Service Class
 // =============================================================================
@@ -284,22 +300,16 @@ export class DebtService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Add credit to a client's account (shop owes customer)
+   * Add credit to a client's account (shop owes customer) — THROWING variant.
+   *
+   * Use this from any caller running inside a money flow's `db.transaction`
+   * (a sale's change kept as store credit, a payout credited to the account,
+   * …): a failed credit write must abort the whole flow so it rolls back,
+   * never let the sale/transaction commit without the customer's credit
+   * (LIRA-258, POSTING_MAP.md §7 gap G13). Validation failures throw a plain
+   * Error; a database error is rethrown unchanged.
    */
-  addCredit(data: {
-    clientId: number;
-    amountUsd: number;
-    amountLbp: number;
-    note?: string;
-    userId: number;
-    transactionTime?: string;
-    /** Session basket this credit belongs to (session cash-out → account). */
-    sessionId?: number;
-    /** The unified transaction this credit is a side effect of (rule 20) —
-     *  see DebtRepository.addCredit's doc. Omit for standalone/manual
-     *  credits with no originating transaction. */
-    transactionId?: number;
-  }): { success: boolean; id?: number; error?: string } {
+  addCreditOrThrow(data: AddCreditData): { id: number } {
     const {
       clientId,
       amountUsd,
@@ -312,36 +322,56 @@ export class DebtService {
     } = data;
 
     if (!clientId) {
-      return { success: false, error: "Client ID is required" };
+      throw new Error("Client ID is required");
     }
     if ((amountUsd ?? 0) <= 0 && (amountLbp ?? 0) <= 0) {
-      return {
-        success: false,
-        error: "At least one amount must be greater than 0",
-      };
+      throw new Error("At least one amount must be greater than 0");
     }
 
+    const result = this.debtRepo.addCredit({
+      clientId,
+      amountUsd: amountUsd ?? 0,
+      amountLbp: amountLbp ?? 0,
+      note: note || "",
+      createdBy: String(userId),
+      transactionTime,
+      sessionId,
+      transactionId,
+    });
+
+    debtLogger.info(
+      { clientId, amountUsd, amountLbp, creditId: result.id },
+      `Credit of $${amountUsd} and ${amountLbp} LBP added for client ${clientId}`,
+    );
+
+    return { id: result.id };
+  }
+
+  /**
+   * Add credit to a client's account (shop owes customer) — envelope variant:
+   * never throws, returns `{ success: false, error }` instead.
+   *
+   * Only for standalone callers that surface the envelope to the user (the
+   * Debts-page "add credit" IPC handler / REST route). A caller inside a
+   * money flow's transaction MUST use `addCreditOrThrow` — ignoring this
+   * result there silently commits the flow without the credit (G13).
+   */
+  addCredit(data: AddCreditData): {
+    success: boolean;
+    id?: number;
+    error?: string;
+  } {
     try {
-      const result = this.debtRepo.addCredit({
-        clientId,
-        amountUsd: amountUsd ?? 0,
-        amountLbp: amountLbp ?? 0,
-        note: note || "",
-        createdBy: String(userId),
-        transactionTime,
-        sessionId,
-        transactionId,
-      });
-
-      debtLogger.info(
-        { clientId, amountUsd, amountLbp, creditId: result.id },
-        `Credit of $${amountUsd} and ${amountLbp} LBP added for client ${clientId}`,
-      );
-
-      return { success: true, id: result.id };
+      const { id } = this.addCreditOrThrow(data);
+      return { success: true, id };
     } catch (error) {
       debtLogger.error(
-        { error, clientId, amountUsd, amountLbp },
+        {
+          error,
+          clientId: data.clientId,
+          amountUsd: data.amountUsd,
+          amountLbp: data.amountLbp,
+        },
         "Failed to add credit",
       );
       return { success: false, error: (error as Error).message };

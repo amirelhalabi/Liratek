@@ -268,10 +268,17 @@ function buildSchema(db: Database.Database): void {
       receive_fee_model INTEGER NOT NULL DEFAULT 0
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
+    -- contact_name/phone/note are REQUIRED: SupplierRepository.getColumns()
+    -- always selects them. Since LIRA-258 (owner D2) the OMT/WHISH supplier
+    -- posting is no longer wrapped in a swallowing try/catch, so without
+    -- them every OMT/WHISH transaction here rolls back.
     CREATE TABLE IF NOT EXISTS suppliers (
       tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT NOT NULL,
+      contact_name TEXT,
+      phone       TEXT,
+      note        TEXT,
       module_key  TEXT,
       provider    TEXT,
       is_system   INTEGER DEFAULT 0,
@@ -292,6 +299,8 @@ function buildSchema(db: Database.Database): void {
       is_auto     INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at DATETIME,
+      source_ref_table TEXT DEFAULT NULL,
+      source_ref_id    INTEGER DEFAULT NULL,
       created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

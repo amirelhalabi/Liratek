@@ -330,6 +330,10 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
   });
 
   // ── 1. topUpApp (drawer-to-drawer transfer) ────────────────────────────
+  // Dest drawer is iPick (was MTC). LIRA-258 / G15: `topUpApp` now refuses
+  // MTC/Alfa (their drawer must equal Σ line credits, LIRA-252) — see
+  // `RechargeRepository.daysSaleLineCredits.test.ts`. MTC was only an
+  // incidental fixture here; the concern is the void reversing both legs.
 
   describe("topUpApp", () => {
     it.each([
@@ -339,10 +343,10 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
       "%s: create + void nets the source AND dest drawer to exactly 0",
       (currency, amount) => {
         const sourceBefore = balance(db, "General", currency);
-        const destBefore = balance(db, "MTC", currency);
+        const destBefore = balance(db, "iPick", currency);
 
         const result = repo.topUpApp({
-          provider: "MTC",
+          provider: "iPick",
           amount,
           currency,
           sourceDrawer: "General",
@@ -355,7 +359,7 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
           -amount,
           2,
         );
-        expect(balance(db, "MTC", currency) - destBefore).toBeCloseTo(
+        expect(balance(db, "iPick", currency) - destBefore).toBeCloseTo(
           amount,
           2,
         );
@@ -369,14 +373,14 @@ describe("RechargeRepository top-ups — LIRA-194 voidability", () => {
           .all(txnId) as { drawer_name: string; amount: number }[];
         expect(legs).toHaveLength(2);
         const generalLeg = legs.find((l) => l.drawer_name === "General")!;
-        const mtcLeg = legs.find((l) => l.drawer_name === "MTC")!;
+        const destLeg = legs.find((l) => l.drawer_name === "iPick")!;
         expect(generalLeg.amount).toBeCloseTo(-amount, 2);
-        expect(mtcLeg.amount).toBeCloseTo(amount, 2);
+        expect(destLeg.amount).toBeCloseTo(amount, 2);
 
         getTransactionRepository().voidTransaction(txnId, 1);
 
         expect(balance(db, "General", currency)).toBeCloseTo(sourceBefore, 2);
-        expect(balance(db, "MTC", currency)).toBeCloseTo(destBefore, 2);
+        expect(balance(db, "iPick", currency)).toBeCloseTo(destBefore, 2);
 
         const status = (
           db.prepare(`SELECT status FROM transactions WHERE id = ?`).get(

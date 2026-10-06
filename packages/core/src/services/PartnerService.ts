@@ -129,31 +129,38 @@ export class PartnerService {
     moveCash?: boolean;
   }): PartnerLedgerEntry {
     try {
-      const entry = this.repo.addLedgerEntry({
-        partner_id: data.partnerId,
-        transaction_type: data.transactionType,
-        reference_table: data.referenceTable,
-        reference_id: data.referenceId,
-        amount: data.amount,
-        currency: data.currency,
-        direction: data.direction,
-        notes: data.notes,
-        user_id: data.userId,
-        applyCoverage: data.moveCash === true,
+      // LIRA-258 (G11): the ledger row (which applies FIFO coverage when
+      // cash moved) and its money movement / audit transaction commit
+      // together or not at all — a failure in the second step must never
+      // strand an orphan ledger row with coverage already applied.
+      const entry = this.repo.transaction(() => {
+        const entry = this.repo.addLedgerEntry({
+          partner_id: data.partnerId,
+          transaction_type: data.transactionType,
+          reference_table: data.referenceTable,
+          reference_id: data.referenceId,
+          amount: data.amount,
+          currency: data.currency,
+          direction: data.direction,
+          notes: data.notes,
+          user_id: data.userId,
+          applyCoverage: data.moveCash === true,
+        });
+        if (data.moveCash === true) {
+          this.repo.recordSettlementMoneyMovement(
+            entry,
+            data.userId,
+            "PARTNER_PAYMENT",
+          );
+        } else {
+          // LIRA-066: the paper path (no cash) previously wrote ONLY the
+          // partner_ledger row above — invisible on the Transactions page.
+          // Post the visibility-only PARTNER_ADJUSTMENT row now, so exactly
+          // ONE transactions row exists either way (cash-moved or paper).
+          this.repo.recordAdjustmentTransaction(entry, data.userId);
+        }
+        return entry;
       });
-      if (data.moveCash === true) {
-        this.repo.recordSettlementMoneyMovement(
-          entry,
-          data.userId,
-          "PARTNER_PAYMENT",
-        );
-      } else {
-        // LIRA-066: the paper path (no cash) previously wrote ONLY the
-        // partner_ledger row above — invisible on the Transactions page.
-        // Post the visibility-only PARTNER_ADJUSTMENT row now, so exactly
-        // ONE transactions row exists either way (cash-moved or paper).
-        this.repo.recordAdjustmentTransaction(entry, data.userId);
-      }
       partnerLogger.info(
         {
           partnerId: data.partnerId,
@@ -280,77 +287,84 @@ export class PartnerService {
         }
       }
 
-      const entry = this.repo.addLedgerEntry({
-        partner_id: data.partnerId,
-        transaction_type: "SETTLEMENT",
-        amount: data.amount,
-        currency: data.currency,
-        direction,
-        notes: data.notes,
-        user_id: data.userId,
-        settlement_method:
-          data.settlementMethod as CreateLedgerEntryData["settlement_method"],
-      });
+      // LIRA-258 (G11): the SETTLEMENT ledger row (which applies FIFO
+      // coverage), its money movement, and any bundled discount commit as
+      // ONE unit — a failure in any later step rolls back the ledger row and
+      // its coverage instead of leaving an orphan behind.
+      const entry = this.repo.transaction(() => {
+        const entry = this.repo.addLedgerEntry({
+          partner_id: data.partnerId,
+          transaction_type: "SETTLEMENT",
+          amount: data.amount,
+          currency: data.currency,
+          direction,
+          notes: data.notes,
+          user_id: data.userId,
+          settlement_method:
+            data.settlementMethod as CreateLedgerEntryData["settlement_method"],
+        });
 
-      // PFT-6b (owner-approved 2026-07-14): a settlement moves REAL money —
-      // the method's drawer is credited when the partner pays the shop and
-      // debited when the shop pays the partner, with a unified
-      // PARTNER_SETTLEMENT transaction for audit. CLIENT_ACCOUNT settlements
-      // stay bookkeeping-only (no drawer involved) — LIRA-066 residual fix
-      // (2026-07-20): this used to SKIP recordSettlementMoneyMovement
-      // entirely for CLIENT_ACCOUNT, so that settlement wrote ONLY the
-      // partner_ledger row above with no unified `transactions` row at all
-      // (invisible on the Transactions page). Now the call always happens —
-      // PartnerRepository.recordSettlementMoneyMovement itself skips the
-      // payments row + drawer delta when the method is CLIENT_ACCOUNT (a
-      // no-drawer variant of PARTNER_SETTLEMENT, same visibility-only
-      // treatment PARTNER_ADJUSTMENT already gets), so drawers/ledgers are
-      // completely unaffected — only visibility changes.
-      this.repo.recordSettlementMoneyMovement(
-        entry,
-        data.userId,
-        undefined,
-        data.discount,
-        data.payments,
-      );
+        // PFT-6b (owner-approved 2026-07-14): a settlement moves REAL money —
+        // the method's drawer is credited when the partner pays the shop and
+        // debited when the shop pays the partner, with a unified
+        // PARTNER_SETTLEMENT transaction for audit. CLIENT_ACCOUNT settlements
+        // stay bookkeeping-only (no drawer involved) — LIRA-066 residual fix
+        // (2026-07-20): this used to SKIP recordSettlementMoneyMovement
+        // entirely for CLIENT_ACCOUNT, so that settlement wrote ONLY the
+        // partner_ledger row above with no unified `transactions` row at all
+        // (invisible on the Transactions page). Now the call always happens —
+        // PartnerRepository.recordSettlementMoneyMovement itself skips the
+        // payments row + drawer delta when the method is CLIENT_ACCOUNT (a
+        // no-drawer variant of PARTNER_SETTLEMENT, same visibility-only
+        // treatment PARTNER_ADJUSTMENT already gets), so drawers/ledgers are
+        // completely unaffected — only visibility changes.
+        this.repo.recordSettlementMoneyMovement(
+          entry,
+          data.userId,
+          undefined,
+          data.discount,
+          data.payments,
+        );
 
-      // CQ-10 — bundled discount: ONE more partner_ledger row, SAME direction
-      // as the settlement (both reduce the same obligation), which triggers
-      // applySettlementCoverage (DISCOUNT is now a coverage-applying type,
-      // see PartnerRepository.addLedgerEntry) — then its own
-      // COUNTERPARTY_DISCOUNT audit row (signed profit, D1).
-      if (data.discount) {
-        const discountAmount =
-          data.currency === "LBP"
-            ? data.discount.amount_lbp
-            : data.discount.amount_usd;
-        if (discountAmount > 0) {
-          // Atomic: a mid-failure between the ledger row and its audit
-          // transaction must never strand one without the other.
-          this.repo.transaction(() => {
-            const discountEntry = this.repo.addLedgerEntry({
-              partner_id: data.partnerId,
-              transaction_type: "DISCOUNT",
-              // LIRA-085: link the bundled discount's OWN ledger row back to
-              // the settlement's ledger row (`entry.id`) it rode with — the
-              // only way TransactionRepository._reversePartnerSettlementLedger
-              // can find and sweep it when the settlement is voided/refunded
-              // (rule 20: "bundled inside a settlement must be handled by
-              // that settlement's reversal"). Previously these two rows were
-              // linked only by time proximity, which a reversal method cannot
-              // rely on.
-              reference_table: "partner_ledger",
-              reference_id: entry.id,
-              amount: discountAmount,
-              currency: data.currency,
-              direction,
-              notes: data.discount!.reason ?? data.notes,
-              user_id: data.userId,
+        // CQ-10 — bundled discount: ONE more partner_ledger row, SAME direction
+        // as the settlement (both reduce the same obligation), which triggers
+        // applySettlementCoverage (DISCOUNT is now a coverage-applying type,
+        // see PartnerRepository.addLedgerEntry) — then its own
+        // COUNTERPARTY_DISCOUNT audit row (signed profit, D1).
+        if (data.discount) {
+          const discountAmount =
+            data.currency === "LBP"
+              ? data.discount.amount_lbp
+              : data.discount.amount_usd;
+          if (discountAmount > 0) {
+            // Atomic: a mid-failure between the ledger row and its audit
+            // transaction must never strand one without the other.
+            this.repo.transaction(() => {
+              const discountEntry = this.repo.addLedgerEntry({
+                partner_id: data.partnerId,
+                transaction_type: "DISCOUNT",
+                // LIRA-085: link the bundled discount's OWN ledger row back to
+                // the settlement's ledger row (`entry.id`) it rode with — the
+                // only way TransactionRepository._reversePartnerSettlementLedger
+                // can find and sweep it when the settlement is voided/refunded
+                // (rule 20: "bundled inside a settlement must be handled by
+                // that settlement's reversal"). Previously these two rows were
+                // linked only by time proximity, which a reversal method cannot
+                // rely on.
+                reference_table: "partner_ledger",
+                reference_id: entry.id,
+                amount: discountAmount,
+                currency: data.currency,
+                direction,
+                notes: data.discount!.reason ?? data.notes,
+                user_id: data.userId,
+              });
+              this.repo.recordDiscount(discountEntry, data.userId);
             });
-            this.repo.recordDiscount(discountEntry, data.userId);
-          });
+          }
         }
-      }
+        return entry;
+      });
 
       partnerLogger.info(
         {

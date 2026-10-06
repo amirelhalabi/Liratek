@@ -154,6 +154,48 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'OMT_App',    'USD', 500);
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'Binance',    'USDT', 500);
 
+    -- LIRA-258 (owner D2): the OMT/WHISH auto supplier posting is no longer
+    -- wrapped in a swallowing try/catch — without these tables every OMT
+    -- transaction here now rolls back. Columns mirror
+    -- FinancialServiceRepository.partner.test.ts (contact_name/phone/note/
+    -- module_key: SupplierRepository.getColumns() selects them; is_auto/
+    -- is_refunded/refunded_at/source_ref_*: the auto-posting INSERT and the
+    -- void/refund supplier-sibling cascade need them). Rows are seeded so
+    -- ensureSystemSupplier never reaches the real-schema seed path.
+    CREATE TABLE suppliers (
+      tenant_id    INTEGER DEFAULT 1,
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      name         TEXT NOT NULL,
+      contact_name TEXT,
+      phone        TEXT,
+      note         TEXT,
+      provider     TEXT,
+      is_active    INTEGER DEFAULT 1,
+      is_system    INTEGER DEFAULT 0,
+      module_key   TEXT,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT',   'OMT',   1);
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('WHISH', 'WHISH', 1);
+
+    CREATE TABLE supplier_ledger (
+      tenant_id        INTEGER DEFAULT 1,
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      supplier_id      INTEGER NOT NULL,
+      entry_type       TEXT NOT NULL,
+      amount_usd       REAL NOT NULL DEFAULT 0,
+      amount_lbp       REAL NOT NULL DEFAULT 0,
+      note             TEXT,
+      created_by       INTEGER,
+      transaction_id   INTEGER,
+      is_auto          INTEGER NOT NULL DEFAULT 0,
+      is_refunded      INTEGER NOT NULL DEFAULT 0,
+      refunded_at      DATETIME,
+      source_ref_table TEXT DEFAULT NULL,
+      source_ref_id    INTEGER DEFAULT NULL,
+      created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE debt_ledger (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id        INTEGER NOT NULL,

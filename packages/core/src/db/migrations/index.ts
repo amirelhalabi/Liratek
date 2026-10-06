@@ -13252,6 +13252,49 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 192,
+    name: "session_debt_repayment_coverage",
+    description:
+      "LIRA-258 / G17 (owner decision 2026-10-06: wait until the customer " +
+      "pays). A basket's 'Session Debt' row now takes repayment FIFO " +
+      "coverage (covered_usd/covered_lbp) and holds the profit of the " +
+      "basket's non-sale items until it is covered. Applies from now on " +
+      "only: every EXISTING 'Session Debt' row is marked fully covered " +
+      "(covered = amount), so past baskets keep counting their profit " +
+      "exactly as before and never absorb a future repayment meant for the " +
+      "client's other debts. Nothing read covered_* on a 'Session Debt' row " +
+      "before this migration (it was always 0), so no reader changes. " +
+      "Also indexes customer_session_transactions.unified_transaction_id, " +
+      "which the profit debt hold now looks up for every transaction row.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (tableExists(db, "customer_session_transactions")) {
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_customer_session_transactions_unified
+             ON customer_session_transactions(unified_transaction_id)`,
+        );
+      }
+      if (!tableExists(db, "debt_ledger")) return;
+      db.prepare(
+        `UPDATE debt_ledger
+         SET covered_usd = COALESCE(amount_usd, 0),
+             covered_lbp = COALESCE(amount_lbp, 0)
+         WHERE transaction_type = 'Session Debt'`,
+      ).run();
+    },
+    down(db: Database.Database) {
+      db.exec(
+        `DROP INDEX IF EXISTS idx_customer_session_transactions_unified`,
+      );
+      // Before v192 covered_* on a 'Session Debt' row was always 0.
+      if (!tableExists(db, "debt_ledger")) return;
+      db.prepare(
+        `UPDATE debt_ledger SET covered_usd = 0, covered_lbp = 0
+         WHERE transaction_type = 'Session Debt'`,
+      ).run();
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

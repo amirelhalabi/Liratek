@@ -46,9 +46,20 @@ import {
 import {
   TRANSACTION_TYPES,
   SESSION_ITEM_REFUND_LINK_TYPE,
+  SERVICE_DEBT_COVERAGE_TYPES,
+  SESSION_DEBT_TYPE,
 } from "../constants/transactionTypes.js";
+import {
+  coverableChargeSql,
+  coverageOpenSql,
+} from "./sessionDebtCoverage.js";
 import { COMMISSION_PROVIDERS_SQL_LIST } from "../constants/commissionProviders.js";
 import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
+import {
+  partnerObligationHeadRowSql,
+  partnerCoverageRatioWhereSql,
+  partnerUncoveredExistsWhereSql,
+} from "../constants/partnerObligation.js";
 
 // =============================================================================
 // Row types (raw rows returned to the service for assembly)
@@ -310,8 +321,9 @@ export interface RechargeDetailRow {
   has_partner_obligation: 0 | 1;
   partner_coverage_ratio: number;
   debt_pending: 0 | 1;
-  /** Linked auto-booked fee expense(s) (SMS/Line_Usage — `is_auto` rows,
-   *  `expenses.source_ref_table = 'recharges'`), shown NEXT TO this row,
+  /** Linked auto-booked fee expense(s) (the SMS transfer fee — the only
+   *  `is_auto` expense, `expenses.source_ref_table = 'recharges'`; Line_Usage
+   *  is operator-initiated and unlinked, LIRA-258 G30), shown NEXT TO this row,
    *  never subtracted from its profit (owner decision,
    *  OWNER_NOTES_REMAINING_BUILD.md #14 slice 2: "+90,000 LBP profit · SMS
    *  fee -0.32$ (booked in expenses)"). */
@@ -852,15 +864,27 @@ function saleNetRevenueNotFullyPaid(
  * former iPick/Katsh immediate exception). Non-partner rows have no FOR_% rows
  * and pass unchanged. reference_table + reference_id identify the source row
  * globally (one AUTOINCREMENT per table), so no tenant correlation is needed.
+ *
+ * LIRA-258 (owner decision D5): "which rows are obligations" is
+ * `partnerObligationRowSql` (constants/partnerObligation.ts) — every FOR_%
+ * row PLUS a Via-Partner payout's THROUGH_CUSTOM_SERVICE DEBIT. This and the
+ * four sibling fragments below all call it; so do PartnerRepository's
+ * settlement coverage and TransactionRepository's coverage unwind.
+ *
+ * LIRA-258 / G36 — SUPERSEDES the per-row "covered_amount < amount" wording
+ * above and below: pending/ratio are judged on the NET obligation after
+ * reversals (refund, item refund, undo). Only obligation HEADS count, each
+ * up to its net amount; a fully reversed obligation (net 0) has nothing to
+ * wait for. Definition: constants/partnerObligation.ts
+ * (`partnerObligationHeadRowSql`, `partnerObligationCoverableSql`,
+ * `partnerCoverageRatioWhereSql`, `partnerUncoveredExistsWhereSql`).
  */
 export function notPartnerPending(refTable: string, idExpr: string): string {
-  return `NOT EXISTS (
-    SELECT 1 FROM partner_ledger plp
-    WHERE plp.reference_table = '${refTable}'
-      AND plp.reference_id = ${idExpr}
-      AND plp.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
-      AND plp.covered_amount < plp.amount - 0.005
-  )`;
+  // LIRA-258 / G36: judged on the NET obligation after reversals
+  // (constants/partnerObligation.ts — one definition for every reader).
+  return `NOT ${partnerUncoveredExistsWhereSql(
+    `plp.reference_table = '${refTable}' AND plp.reference_id = ${idExpr}`,
+  )}`;
 }
 
 /**
@@ -878,6 +902,11 @@ export function notPartnerPending(refTable: string, idExpr: string): string {
  * a weighting multiplier, or a CASE arm) computing:
  *
  *   SUM(covered_amount) / SUM(amount)
+ *
+ * (LIRA-258 / G36: now Σ MIN(covered, coverable) / Σ coverable over the
+ * source row's obligation HEADS, coverable = net after reversals; 1.0 when
+ * net is 0 — see `partnerCoverageRatioWhereSql` and the note on
+ * {@link notPartnerPending}.)
  *
  * over EXACTLY the same `partner_ledger` rows {@link notPartnerPending}
  * scans for the same `refTable`/`idExpr` pair: matching `reference_table`,
@@ -942,18 +971,11 @@ export function notPartnerPending(refTable: string, idExpr: string): string {
  * behaviour by itself (proven by the unchanged jest baseline).
  */
 export function partnerCoverageRatio(refTable: string, idExpr: string): string {
-  return `COALESCE(
-    (
-      SELECT MAX(0.0, MIN(1.0,
-        SUM(plr.covered_amount) / NULLIF(SUM(plr.amount), 0)
-      ))
-      FROM partner_ledger plr
-      WHERE plr.reference_table = '${refTable}'
-        AND plr.reference_id = ${idExpr}
-        AND plr.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
-    ),
-    1.0
-  )`;
+  // LIRA-258 / G36: covered / NET obligation after reversals; a fully
+  // reversed obligation (net 0) has nothing to wait for and reads 1.0.
+  return partnerCoverageRatioWhereSql(
+    `plr.reference_table = '${refTable}' AND plr.reference_id = ${idExpr}`,
+  );
 }
 
 /**
@@ -967,11 +989,13 @@ export function partnerCoverageRatio(refTable: string, idExpr: string): string {
  * same `partner_ledger` rows and is the one that feeds money weighting.
  */
 export function hasPartnerObligation(refTable: string, idExpr: string): string {
+  // LIRA-258 / G36: an obligation HEAD (the original booking — reversal
+  // rows never count as an obligation of their own).
   return `EXISTS (
     SELECT 1 FROM partner_ledger plo
     WHERE plo.reference_table = '${refTable}'
       AND plo.reference_id = ${idExpr}
-      AND plo.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
+      AND ${partnerObligationHeadRowSql("plo")}
   )`;
 }
 
@@ -984,16 +1008,46 @@ export function hasPartnerObligation(refTable: string, idExpr: string): string {
  * (v129 covered_usd/covered_lbp; DebtRepository._coverServiceDebtsFIFO).
  * 'Sale Debt' is excluded — sales recognize via sales.paid_usd. Refunded
  * charge rows are skipped (their source is excluded via notRefunded anyway).
+ *
+ * LIRA-258 / G17 (owner decision 2026-10-06: "wait until the customer
+ * pays") — second arm, for a SESSION BASKET member: a basket books ONE
+ * pooled 'Session Debt' row (transaction_id NULL, session_id set) instead
+ * of a per-item charge row, so the first arm can never match it. A non-SALE
+ * CHARGE member (positive linked amount; payouts and the item-refund LINK
+ * rows are not charges) is debt-pending while its basket's 'Session Debt'
+ * row is still open. Per-item rule: account debt is attributed to the
+ * basket's SALES FIRST (the existing `backfillSaleSettlement` convention —
+ * that share is tracked by `sales.paid_usd` and pre-covered on the row at
+ * checkout, as is any gift-card share), and the remainder holds every
+ * non-sale charge member together until repayments cover it — binary, the
+ * same all-or-nothing shape as the first arm. SALE members are excluded
+ * here (no double hold). Openness/outstanding come from the shared
+ * `sessionDebtCoverage.ts` fragments the repayment FIFO also reads.
  */
 export function notDebtPending(txnIdExpr: string): string {
-  return `NOT EXISTS (
+  const serviceTypes = SERVICE_DEBT_COVERAGE_TYPES.map((t) => `'${t}'`).join(
+    ", ",
+  );
+  return `(NOT EXISTS (
     SELECT 1 FROM debt_ledger dlp
     WHERE dlp.transaction_id = ${txnIdExpr}
-      AND dlp.transaction_type IN ('Recharge Debt', 'Service Debt', 'Custom Service Debt', 'Loto Debt', 'Maintenance Debt')
+      AND dlp.transaction_type IN (${serviceTypes})
       AND COALESCE(dlp.is_refunded, 0) = 0
-      AND (dlp.covered_usd < COALESCE(dlp.amount_usd, 0) - 0.005
-           OR dlp.covered_lbp < COALESCE(dlp.amount_lbp, 0) - 1)
-  )`;
+      AND ${coverageOpenSql("dlp")}
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM customer_session_transactions cstp
+    JOIN transactions tsp ON tsp.id = cstp.unified_transaction_id
+    JOIN debt_ledger dls ON dls.session_id = cstp.session_id
+      AND dls.tenant_id = tsp.tenant_id
+      AND dls.transaction_type = '${SESSION_DEBT_TYPE}'
+    WHERE cstp.unified_transaction_id = ${txnIdExpr}
+      AND tsp.type <> 'SALE'
+      AND cstp.transaction_type <> '${SESSION_ITEM_REFUND_LINK_TYPE}'
+      AND (cstp.amount_usd > 0 OR cstp.amount_lbp > 0)
+      AND ${coverableChargeSql("dls")}
+      AND ${coverageOpenSql("dls")}
+  ))`;
 }
 
 /**
@@ -1104,13 +1158,9 @@ export function cashlessCommissionBatch(
  * directly instead of hand-copying its SQL text a second time.
  */
 export function txnNotPartnerPending(alias: string): string {
-  return `NOT EXISTS (
-    SELECT 1 FROM partner_ledger plp
-    WHERE plp.reference_table = ${alias}.source_table
-      AND plp.reference_id = ${alias}.source_id
-      AND plp.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
-      AND plp.covered_amount < plp.amount - 0.005
-  )`;
+  return `NOT ${partnerUncoveredExistsWhereSql(
+    `plp.reference_table = ${alias}.source_table AND plp.reference_id = ${alias}.source_id`,
+  )}`;
 }
 
 /**
@@ -3139,7 +3189,9 @@ export function maintenanceCostUsd(alias: string): string {
  * differs), so this doc comment restates that fragment's rationale rather
  * than inventing a second one:
  *
- * - Returns `SUM(covered_amount) / SUM(amount)` over the row's FOR_%
+ * - Returns `SUM(covered_amount) / SUM(amount)` (LIRA-258 / G36: now
+ *   covered / NET obligation after reversals, 1.0 at net 0 — see
+ *   {@link notPartnerPending}'s note) over the row's FOR_%
  *   `partner_ledger` rows, selected by a WHERE clause copy-identical to
  *   {@link txnNotPartnerPending}'s own (rule 14 — one definition of "what
  *   counts as a partner row" for the transactions-alias case). The only
@@ -3184,18 +3236,9 @@ export function maintenanceCostUsd(alias: string): string {
  * same reason `partnerCoverageRatio` itself is exported.
  */
 export function txnPartnerCoverageRatio(alias: string): string {
-  return `COALESCE(
-    (
-      SELECT MAX(0.0, MIN(1.0,
-        SUM(plr.covered_amount) / NULLIF(SUM(plr.amount), 0)
-      ))
-      FROM partner_ledger plr
-      WHERE plr.reference_table = ${alias}.source_table
-        AND plr.reference_id = ${alias}.source_id
-        AND plr.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
-    ),
-    1.0
-  )`;
+  return partnerCoverageRatioWhereSql(
+    `plr.reference_table = ${alias}.source_table AND plr.reference_id = ${alias}.source_id`,
+  );
 }
 
 /**
@@ -5240,7 +5283,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * debt-pending ones `getRechargesByCarrier`'s own WHERE hard-excludes —
    * the service (rule 13) needs those to render the "not counted yet"
    * section and state why. Auto-booked fee expenses
-   * (SMS/Line_Usage, `expenses.source_ref_table = 'recharges'`) are attached
+   * (the SMS transfer fee, `expenses.source_ref_table = 'recharges'`;
+   * Line_Usage carries no source link, LIRA-258 G30) are attached
    * per row via a correlated subquery, never subtracted from profit here
    * (owner decision — the service/UI show them as a separate note). The fee
    * subqueries gate via {@link activeExpense} (rule 14, PROF-DD-FIX m1) —

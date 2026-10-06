@@ -278,8 +278,9 @@ export function getCashFlowDirection(
     //    drawer debited at all — metadata has no `source_drawer` key → "in".
     //  - "From Drawer" (`DrawerTopUpRepository.createTopUpFromDrawer`): a
     //    real named source drawer (e.g. OMT_System/Whish_System, itself
-    //    cash-equivalent) is debited via a raw UPDATE straight into General
-    //    — metadata stamps `source_drawer` → "both". This is the identical
+    //    cash-equivalent) is debited straight into General — since LIRA-258
+    //    G9/G33 via a negative DRAWER_TRANSFER payments row (it used to be
+    //    a raw UPDATE) — metadata stamps `source_drawer` → "both". This is the identical
     //    real-world move `DRAWER_TRANSFER`'s `to_general` direction already
     //    renders "both" for, through a separate legacy code path (see the
     //    audit's §5 note).

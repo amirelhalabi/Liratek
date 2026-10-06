@@ -249,6 +249,21 @@ function createTestDb(): Database.Database {
       tenant_id        INTEGER DEFAULT 1,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    -- LIRA-258 / G17: read by notDebtPending's session-basket arm.
+    CREATE TABLE IF NOT EXISTS customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      paid_exchange_rate REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
 
     CREATE TABLE financial_services (
       supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
@@ -409,7 +424,11 @@ describe("RechargeRepository.getTodayStats (LIRA-250 follow-up)", () => {
     expect(refundedRow.is_refunded).toBe(1);
 
     // 3. NOT counted: a TOP_UP (drawer move, transaction type
-    //    RECHARGE_TOPUP, not RECHARGE).
+    //    RECHARGE_TOPUP, not RECHARGE). LIRA-258 / G15: `topUpApp` now
+    //    REFUSES MTC/Alfa (drawer must equal Σ line credits, LIRA-252), so
+    //    a new one cannot be booked — assert the refusal, then seed a
+    //    LEGACY today TOP_UP row of the shape `topUpApp` used to write
+    //    (pre-LIRA-258 shops have them) and keep proving it is excluded.
     const topUp = repo.topUpApp({
       provider: "MTC",
       amount: 50,
@@ -417,7 +436,20 @@ describe("RechargeRepository.getTodayStats (LIRA-250 follow-up)", () => {
       sourceDrawer: "General",
       userId: 1,
     });
-    expect(topUp.success).toBe(true);
+    expect(topUp.success).toBe(false);
+    const legacyTopUpAt = localDateTime(db, 0);
+    const legacyTopUpId = Number(
+      db
+        .prepare(
+          `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, created_at, tenant_id)
+           VALUES ('MTC', 'TOP_UP', 50, 0, 0, 'USD', ?, 1)`,
+        )
+        .run(legacyTopUpAt).lastInsertRowid,
+    );
+    db.prepare(
+      `INSERT INTO transactions (type, status, source_table, source_id, amount_usd, created_at, tenant_id)
+       VALUES ('RECHARGE_TOPUP', 'ACTIVE', 'recharges', ?, 50, ?, 1)`,
+    ).run(legacyTopUpId, legacyTopUpAt);
 
     // 4. NOT counted: a CREDIT_BUYBACK (cash-out payout, transaction type
     //    TELECOM_CREDIT_BUYBACK, not RECHARGE).

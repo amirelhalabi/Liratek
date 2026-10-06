@@ -41,7 +41,7 @@ describe("MaintenanceService", () => {
       getPartsForJobs: jest.fn(() => new Map()),
       syncParts: jest.fn(),
       findById: jest.fn(() => undefined),
-      hasPayments: jest.fn(() => false),
+      isJobCharged: jest.fn(() => false),
       processPayments: jest.fn(),
     };
 

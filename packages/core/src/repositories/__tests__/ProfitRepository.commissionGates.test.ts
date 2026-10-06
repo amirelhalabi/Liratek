@@ -127,6 +127,21 @@ function createSchema(db: Database.Database): void {
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0
     , refunded_at TEXT DEFAULT NULL);
+    -- LIRA-258 / G17: read by notDebtPending's session-basket arm.
+    CREATE TABLE IF NOT EXISTS customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      paid_exchange_rate REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 

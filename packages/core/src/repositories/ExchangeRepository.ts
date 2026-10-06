@@ -15,7 +15,9 @@ import {
   assertPartnerIdRequired,
   reconcileLegs,
   expectedTotalIn,
+  resolveStampedExchangeRate,
 } from "./moneyPosting.js";
+import { PAYOUT_KEEP_CHANGE_MAX } from "../validators/exchange.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import {
@@ -132,6 +134,15 @@ export interface CreateExchangeData {
    * spread doesn't false-reject (lira-095).
    */
   tender_exchange_rate?: number;
+  /**
+   * Payout "keep the change" (owner decision 2026-10-06, D9 refined): the
+   * small leftover the shop does NOT hand out (owed − paid), per currency.
+   * Owner example: $101.12 owed, cashier hands over $101, keeps $0.12.
+   * Opposite direction to T3 (which keeps an overpay) because the exchange
+   * sheet is a PAYOUT. Requires payout legs; see createTransaction.
+   */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
 }
 
 /**
@@ -254,6 +265,10 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         }
       }
 
+      // Payout "keep the change" (owner decision 2026-10-06, D9 refined).
+      // Guarded before any row is written (throwing rolls back everything).
+      const kept = this._resolvePayoutKeptChange(data, isForPartner);
+
       // Auto-register currencies that don't exist (e.g. API currencies like GBP, AED)
       const ensureCurrency = this.db.prepare(
         `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id)
@@ -358,6 +373,28 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             id,
             tenantId,
           );
+      }
+
+      // Payout keep-change: the kept leftover is shop profit. Folded into the
+      // exchange row's OWN profit columns (payout-side leg + profit_usd) —
+      // that is what the Profits page's Exchange total reads
+      // (ProfitRepository EXCHANGE_LEG_PROFIT, gated by is_refunded so a
+      // refund nets it out) — and, via `profitUsd`, into the unified row's
+      // profit_usd, which the generic REFUND negates (rule 20). Applied AFTER
+      // the lot-effects UPDATE above: that UPDATE overwrites the leg columns
+      // (e.g. an acquire leg is zeroed, Q8), so kept added at INSERT time
+      // would be silently wiped. Payout-side leg = leg2 for a cross exchange
+      // (USD -> toCurrency), else leg1.
+      if (kept.profitUsd > 0) {
+        const legCol = data.viaCurrency ? "leg2_profit_usd" : "leg1_profit_usd";
+        profitUsd += kept.profitUsd;
+        this.db
+          .prepare(
+            `UPDATE exchange_transactions
+             SET ${legCol} = COALESCE(${legCol}, 0) + ?, profit_usd = ?
+             WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(kept.profitUsd, profitUsd, id, tenantId);
       }
 
       // Compute amount_usd and amount_lbp for the unified transactions ledger.
@@ -484,6 +521,12 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
                 lot_market_qty: lotEffects.lotMarketQty ?? 0,
               }
             : {}),
+          ...(kept.profitUsd > 0
+            ? {
+                kept_change_usd: kept.usd,
+                kept_change_lbp: kept.lbp,
+              }
+            : {}),
         },
         transaction_time: data.transaction_time,
       });
@@ -555,12 +598,14 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           }
         }
 
+        // Keep-change: the lines must cover amountOut MINUS the kept
+        // leftover (per currency). `keptChange` is deliberately NOT passed —
+        // reconcileLegs subtracts it from the tender (overpay semantics), the
+        // opposite of a payout.
+        const owed = expectedTotalIn(Math.abs(data.amountOut), data.toCurrency);
         reconcileLegs({
           inLegs: payoutLegs,
-          expectedTotals: expectedTotalIn(
-            Math.abs(data.amountOut),
-            data.toCurrency,
-          ),
+          expectedTotals: { usd: owed.usd - kept.usd, lbp: owed.lbp - kept.lbp },
           // Fallback rate only, used when `tenderExchangeRate` is absent —
           // the stamped `rate` is the from→to exchange rate (possibly
           // EUR-per-USD etc.), NOT a USD↔LBP rate, so the server sell rate
@@ -667,6 +712,92 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           : {}),
       };
     })();
+  }
+
+  /**
+   * Payout "keep the change" (owner decision 2026-10-06, D9 refined) —
+   * validates the kept leftover and returns it plus its USD profit value.
+   *
+   * The exchange sheet is a PAYOUT (each line is cash the shop hands out), so
+   * keep-change runs opposite to T3's overpay: the lines are SHORT of
+   * amountOut by a small leftover, and that leftover (owed − paid) is kept as
+   * profit. Refuses (throws) anything that could book a loss or a real
+   * shortchange as profit:
+   *   - FOR-partner exchanges (no customer counter to round);
+   *   - no payout legs (the lump fallback pays the FULL amountOut);
+   *   - a non-USD/LBP payout currency, or kept in the other currency;
+   *   - kept at/above {@link PAYOUT_KEEP_CHANGE_MAX};
+   *   - lines that already cover amountOut (an overpaid or exact payout —
+   *     this also closes the reconcile epsilon, which would otherwise accept
+   *     a few kept cents on a payout paid in full).
+   * Whether kept equals the actual shortfall is enforced by the reconcile in
+   * createTransaction (lines must equal amountOut − kept).
+   *
+   * Exchange profit is USD-only (no LBP profit column on
+   * exchange_transactions), so an LBP leftover is valued at the SAME rate the
+   * payout reconciles at (tender rate, else the server sell rate).
+   */
+  private _resolvePayoutKeptChange(
+    data: CreateExchangeData,
+    isForPartner: boolean,
+  ): { usd: number; lbp: number; profitUsd: number } {
+    const usd = data.kept_change_usd ?? 0;
+    const lbp = data.kept_change_lbp ?? 0;
+    if (!Number.isFinite(usd) || !Number.isFinite(lbp) || usd < 0 || lbp < 0) {
+      throw new Error("Kept change must be a non-negative amount");
+    }
+    if (usd === 0 && lbp === 0) return { usd: 0, lbp: 0, profitUsd: 0 };
+
+    if (isForPartner) {
+      throw new Error(
+        "A partner exchange cannot keep change — there is no customer payout to round",
+      );
+    }
+    const legs = (data.payments ?? []).filter((p) => Math.abs(p.amount) > 0);
+    if (legs.length === 0) {
+      throw new Error(
+        "Keeping change needs the payout lines — without them the full payout is paid out",
+      );
+    }
+    const to = data.toCurrency;
+    if (to !== "USD" && to !== "LBP") {
+      throw new Error("Keeping change requires a USD or LBP payout currency");
+    }
+    const keptInPayout = to === "USD" ? usd : lbp;
+    const keptOther = to === "USD" ? lbp : usd;
+    if (keptOther > 0) {
+      throw new Error(`Kept change must be in the payout currency (${to})`);
+    }
+    const cap = PAYOUT_KEEP_CHANGE_MAX[to];
+    if (keptInPayout >= cap) {
+      throw new Error(
+        `Kept change must be a small leftover — under ${formatMoneyAmount(cap, to)}`,
+      );
+    }
+
+    const rate = resolveStampedExchangeRate(
+      getUsdLbpSellRate(this.db),
+      data.tender_exchange_rate,
+    );
+    const toPayout = (amount: number, currency: string): number => {
+      if (currency === to) return amount;
+      if (currency === "USD" && to === "LBP") return amount * rate;
+      if (currency === "LBP" && to === "USD") return amount / rate;
+      return amount;
+    };
+    const paid = legs.reduce(
+      (sum, l) => sum + toPayout(Math.abs(l.amount), l.currencyCode),
+      0,
+    );
+    const tolerance = to === "LBP" ? 0.5 : 0.005;
+    if (paid >= Math.abs(data.amountOut) - tolerance) {
+      throw new Error(
+        "Keep change applies only when the payout is short of the amount owed — the payout lines already cover it",
+      );
+    }
+
+    const profitUsd = to === "USD" ? keptInPayout : keptInPayout / rate;
+    return { usd, lbp, profitUsd };
   }
 
   // ---------------------------------------------------------------------------

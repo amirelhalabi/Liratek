@@ -523,8 +523,10 @@ interface Row {
   profitUsd: number | null;
   /** Whether `metaPaidBy` (if non-null) has ANY backing effect (a `payments`
    * row with that exact method, or a `debt_ledger` row for CUSTOMER_ACCOUNT/
-   * GIFT_CARD) — computed BEFORE refund runs, since refund/void DELETES the
-   * `payments` rows outright (see CustomServiceRepository.deleteService). */
+   * GIFT_CARD) — computed BEFORE refund runs. (deleteService used to
+   * hard-DELETE the `payments` rows; since LIRA-258/G22 it keeps them and
+   * the void adds negated reversal rows, so the pre-refund read is still the
+   * unambiguous one.) */
   paidByHadEffect: boolean | null;
   /** Raw `payments` row count for this transaction at create time (before
    * refund deletes them) — lets a scenario prove "zero payment rows were
@@ -652,10 +654,10 @@ function runScenario(
       : null;
     row.profitUsd = txn?.profit_usd ?? null;
 
-    // MUST run before refund: `deleteService` hard-DELETEs `payments` rows
-    // (not a reversal row) — checking effect afterwards would always read
-    // as "no effect", masking real postings as false positives for the
-    // exact bug this harness exists to catch.
+    // Read before refund: historically `deleteService` hard-DELETEd
+    // `payments` rows (fixed in LIRA-258/G22 — the void's reversal rows now
+    // stay alongside the originals), and the pre-refund read keeps this
+    // check independent of how the reversal is journaled.
     if (txn) {
       row.paymentRowCountAtCreate = (
         db

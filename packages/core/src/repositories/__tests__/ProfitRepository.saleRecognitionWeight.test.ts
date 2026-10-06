@@ -40,7 +40,20 @@ function createSchema(db: Database.Database): void {
       reference_id INTEGER,
       transaction_type TEXT,
       amount REAL NOT NULL,
-      covered_amount REAL NOT NULL DEFAULT 0
+      covered_amount REAL NOT NULL DEFAULT 0,
+      -- LIRA-258: read by partnerObligationRowSql (constants/partnerObligation.ts).
+      direction TEXT,
+      -- G36: the net-obligation group keys on currency (NOT NULL in production).
+      currency TEXT NOT NULL DEFAULT 'USD'
+    );
+
+    -- LIRA-258 / G36: the net-obligation fragments read transactions to
+    -- link item-refund / undo partner rows back to their sale
+    -- (constants/partnerObligation.ts). Production schema always has it.
+    CREATE TABLE transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_table TEXT,
+      source_id INTEGER
     );
   `);
 }

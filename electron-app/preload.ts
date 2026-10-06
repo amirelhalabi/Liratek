@@ -11,6 +11,12 @@ import type {
   // single-item refund payload/preview contracts.
   SessionItemRefundInput,
   SessionItemRefundPreviewInput,
+  // LIRA-258 — loto sell/settle payloads, derived from the core schemas
+  // (rule 21) so tender_exchange_rate / voucherCode / split settle legs
+  // cannot drift from what the handlers validate.
+  LotoSellPayload,
+  LotoCheckpointSettlePayload,
+  LotoCheckpointsSettleBatchPayload,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -445,6 +451,9 @@ contextBridge.exposeInMainWorld("api", {
         direction?: "IN" | "OUT";
       }>;
       tender_exchange_rate?: number;
+      // Payout keep-change (owner decision 2026-10-06) — exchangeSubmitSchema.
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
     }) => ipcRenderer.invoke("exchange:add-transaction", data),
     getHistory: () => ipcRenderer.invoke("exchange:get-history"),
     updateMetadata: (data: {
@@ -842,26 +851,7 @@ contextBridge.exposeInMainWorld("api", {
 
   // Loto
   loto: {
-    sell: (data: {
-      ticket_number?: string;
-      sale_amount: number;
-      payments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-        direction?: "IN" | "OUT";
-      }>;
-      commission_rate?: number;
-      is_winner?: boolean;
-      prize_amount?: number;
-      sale_date?: string;
-      payment_method?: string;
-      currency?: string;
-      note?: string;
-      transaction_time?: string;
-      clientId?: number | null;
-      clientName?: string;
-    }) => ipcRenderer.invoke("loto:sell", data),
+    sell: (data: LotoSellPayload) => ipcRenderer.invoke("loto:sell", data),
     get: (id: number) => ipcRenderer.invoke("loto:get", id),
     getByDateRange: (from: string, to: string) =>
       ipcRenderer.invoke("loto:get-by-date-range", from, to),
@@ -894,30 +884,10 @@ contextBridge.exposeInMainWorld("api", {
           settledAt,
           settlementId,
         ),
-      settle: (data: {
-        id: number;
-        totalSales: number;
-        totalCommission: number;
-        totalPrizes: number;
-        settledAt?: string;
-        payments?: Array<{
-          method: string;
-          currency_code: string;
-          amount: number;
-        }>;
-      }) => ipcRenderer.invoke("loto:checkpoint:settle", data),
-      settleBatch: (data: {
-        checkpointIds: number[];
-        totalSales: number;
-        totalCommission: number;
-        settledAt?: string;
-        payment?: {
-          method: string;
-          drawer_name: string;
-          currency_code: string;
-          amount: number;
-        };
-      }) => ipcRenderer.invoke("loto:checkpoints:settle-batch", data),
+      settle: (data: LotoCheckpointSettlePayload) =>
+        ipcRenderer.invoke("loto:checkpoint:settle", data),
+      settleBatch: (data: LotoCheckpointsSettleBatchPayload) =>
+        ipcRenderer.invoke("loto:checkpoints:settle-batch", data),
       getTotalSalesUnsettled: () =>
         ipcRenderer.invoke("loto:checkpoint:get-total-sales-unsettled"),
       getTotalCommissionUnsettled: () =>

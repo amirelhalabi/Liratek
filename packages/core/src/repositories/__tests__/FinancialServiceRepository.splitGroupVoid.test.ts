@@ -57,10 +57,15 @@
  * supplier row exists for the provider (FEATURE_GUIDE §9's standing gap at
  * the time this file was written — "voiding a FINANCIAL_SERVICE row leaves
  * its auto SUPPLIER_PAYMENT sibling standing", FIXED 2026-07-21 by LIRA-091).
- * This fixture deliberately seeds NO supplier row for "Katsh", so that branch
- * stays a no-op here (`getByProvider` returns undefined, the code logs and
- * skips) — supplier_ledger was out of scope for THIS fix's acceptance
- * criteria (payments/drawers/debt_ledger/profit only). The supplier-sibling
+ * This fixture originally seeded NO supplier row for "Katsh" to keep that
+ * branch a no-op. Since LIRA-258 (owner D2) that is no longer possible — a
+ * missing system supplier is created by `ensureSystemSupplier` — so the
+ * fixture now seeds Katsh/OMT/WHISH. supplier_ledger still stays at 0 here
+ * for a real reason: every BILL this repository creates today is born
+ * `commission_model = 1`, and only the legacy `commission_model = 0` branch
+ * books a BILL supplier entry; WHISH_APP is a wallet provider (no posting).
+ * supplier_ledger was out of scope for THIS fix's acceptance criteria
+ * (payments/drawers/debt_ledger/profit only). The supplier-sibling
  * cascade itself — including a Katsh BILL split-group member voided via
  * `voidCheckoutGroup`, which delegates to the same `_voidTransactionInternal`
  * every single void uses — is proved in
@@ -96,7 +101,7 @@ jest.mock("../../db/connection", () => {
 // ─── Mock DebtService (unused by these cases, but imported by the repo) ──────
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 
@@ -238,18 +243,31 @@ function createTestDb(): Database.Database {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
-    -- Empty on purpose (see the file doc's scope note): no Katsh supplier
-    -- row means the BILL branch's supplier-ledger auto-entry is a no-op,
-    -- keeping supplier_ledger out of scope for this fix.
+    -- LIRA-258 (owner D2): the auto supplier posting is no longer optional —
+    -- a missing system supplier (Katsh, OMT, WHISH…) is created/re-activated
+    -- by SupplierRepository.ensureSystemSupplier, so an EMPTY table no longer
+    -- turns the BILL branch's supplier-ledger auto-entry into a no-op. Seed
+    -- the providers this file transacts with directly, so ensureSystemSupplier
+    -- finds them and never reaches the real-schema seed path (which needs
+    -- modules / commission_* / account_supplier_id). contact_name/phone/note/
+    -- is_system are REQUIRED: SupplierRepository.getColumns() always selects
+    -- them, so without them getByProvider throws.
     CREATE TABLE suppliers (
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
+      contact_name TEXT,
+      phone TEXT,
+      note TEXT,
       provider TEXT,
       is_active INTEGER NOT NULL DEFAULT 1,
+      is_system INTEGER NOT NULL DEFAULT 0,
       module_key TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('Katsh', 'Katsh', 1);
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT',   'OMT',   1);
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('WHISH', 'WHISH', 1);
 
     CREATE TABLE supplier_ledger (
       tenant_id INTEGER DEFAULT 1,
@@ -262,6 +280,12 @@ function createTestDb(): Database.Database {
       created_by INTEGER,
       transaction_id INTEGER,
       is_auto INTEGER NOT NULL DEFAULT 0,
+      -- v120 / v136: needed by the auto-posting INSERT and by the void
+      -- cascade (TransactionRepository supplier-sibling soft-void).
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      refunded_at DATETIME,
+      source_ref_table TEXT DEFAULT NULL,
+      source_ref_id    INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

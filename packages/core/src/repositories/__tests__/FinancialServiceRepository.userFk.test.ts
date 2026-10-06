@@ -40,7 +40,7 @@ jest.mock("../../db/connection", () => {
 });
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 
@@ -164,13 +164,21 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances VALUES (1, 'General', 'LBP', 20000000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'Katsh',   'LBP', 5000000,  CURRENT_TIMESTAMP);
 
+    -- contact_name/phone/note/module_key are REQUIRED: SupplierRepository.
+    -- getColumns() always selects them. Since LIRA-258 (owner D2) the BILL
+    -- supplier lookup is no longer wrapped in a swallowing try/catch, so a
+    -- missing column fails the transaction instead of silently skipping.
     CREATE TABLE suppliers (
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
+      contact_name TEXT,
+      phone TEXT,
+      note TEXT,
       provider TEXT,
       is_active INTEGER DEFAULT 1,
       is_system INTEGER DEFAULT 0,
+      module_key TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     INSERT INTO suppliers (name, provider, is_system) VALUES ('Katsh', 'Katsh', 0);
@@ -187,6 +195,9 @@ function createTestDb(): Database.Database {
       transaction_id INTEGER,
       is_auto INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
+      refunded_at DATETIME,
+      source_ref_table TEXT DEFAULT NULL,
+      source_ref_id    INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

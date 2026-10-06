@@ -72,7 +72,7 @@ import {
 // ─── Mock DebtService (CUSTOMER_ACCOUNT/GIFT_CARD unused in this file — every
 // leg here is CASH) ────────────────────────────────────────────────────────
 jest.mock("../DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 jest.mock("../../repositories/VoucherRepository", () => ({
@@ -599,4 +599,84 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
     // kept as profit wherever it sits. OLD -> NEW: 0 -> 5.
     assertInvariant(before, after, { commission: 5 });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // LIRA-258 G18 (POSTING_MAP.md §7) — the Whish RECEIVE fee in a session
+  // basket is profit ONCE. `whishReceiveFeeProfit` stamps it on the FS
+  // transaction even under deferPayment; the basket books only the MONEY
+  // (recordBasketPayment writes no transaction/profit of its own), and
+  // ProfitRepository sums `transactions.profit_usd` — so this stamp is the
+  // ONLY place the fee becomes profit. Gating it on !deferPayment would count
+  // it ZERO times. Guard, not failing-first: it passed on the code as found
+  // (verdict "correct, no change"). Replays processCartItem by hand (like
+  // case (c)), so it proves the transactions level, not checkout() itself.
+  // ═══════════════════════════════════════════════════════════════════════
+  it.each([
+    { label: "fee on top", includingFees: false, inLeg: 5, payout: 100 },
+    { label: "fee deducted", includingFees: true, inLeg: 0, payout: 95 },
+  ])(
+    "G18: basket WHISH RECEIVE x=100 f=5 ($label) — fee profit counted exactly once across all transactions",
+    ({ includingFees, inLeg, payout }) => {
+      const { id: fsId } = finRepo.createTransaction({
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 0,
+        whishFee: 5,
+        cashoutMethod: "CASH",
+        includingFees,
+        deferPayment: true,
+        exchangeRate: 90000,
+      });
+
+      const sessionId = 503;
+      linkReceiveItemToSession(db, sessionId, fsId, payout);
+
+      service.recordBasketPayment(sessionId, {
+        legs: [
+          ...(inLeg > 0
+            ? [
+                {
+                  method: "CASH",
+                  currencyCode: "USD",
+                  amount: inLeg,
+                  direction: "IN" as const,
+                },
+              ]
+            : []),
+          {
+            method: "CASH",
+            currencyCode: "USD",
+            amount: payout,
+            direction: "OUT" as const,
+            kind: "PAYOUT" as const,
+          },
+        ],
+        exchangeRate: 90000,
+        userId: 1,
+        clientId: 1,
+        feeOnTopReceiveFsIds: includingFees ? [] : [fsId],
+      });
+
+      const totals = db
+        .prepare(
+          `SELECT COALESCE(SUM(profit_usd), 0) AS usd,
+                  COALESCE(SUM(profit_lbp), 0) AS lbp,
+                  SUM(CASE WHEN profit_usd <> 0 OR profit_lbp <> 0 THEN 1 ELSE 0 END) AS rows_with_profit
+             FROM transactions WHERE status = 'ACTIVE'`,
+        )
+        .get() as { usd: number; lbp: number; rows_with_profit: number };
+      expect(totals.usd).toBeCloseTo(5, 5);
+      expect(totals.lbp).toBeCloseTo(0, 5);
+      expect(totals.rows_with_profit).toBe(1);
+
+      const fsTxn = db
+        .prepare(
+          `SELECT profit_usd FROM transactions WHERE source_table = 'financial_services' AND source_id = ?`,
+        )
+        .get(fsId) as { profit_usd: number };
+      expect(fsTxn.profit_usd).toBeCloseTo(5, 5);
+    },
+  );
 });

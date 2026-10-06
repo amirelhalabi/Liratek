@@ -32,6 +32,14 @@ import type {
   // LIRA-252 wave 2 — carrier-line manual-drawer-adjustment filters, derived
   // from ClosingRepository (rule 21).
   CarrierLineAdjustmentFilters,
+  // Exchange submit payload (incl. payout kept change), derived from the
+  // core schema (rule 21).
+  ExchangeSubmitPayload,
+  // LIRA-258 — loto sell/settle payloads derived from the core schemas
+  // (rule 21).
+  LotoSellPayload,
+  LotoCheckpointSettlePayload,
+  LotoCheckpointsSettleBatchPayload,
 } from "@liratek/core";
 import * as api from "./backendApi";
 
@@ -219,7 +227,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   getExchangeRates = () => api.getExchangeRates();
   getCurrenciesList = () => api.getCurrenciesList();
   getExchangeHistory = (limit?: number) => api.getExchangeHistory(limit);
-  addExchangeTransaction = (payload: any) =>
+  addExchangeTransaction = (payload: ExchangeSubmitPayload) =>
     api.addExchangeTransaction(payload);
   updateExchangeMetadata = (payload: {
     id: number;
@@ -1248,7 +1256,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Loto
   // ---------------------------------------------------------------------------
   loto = {
-    sell: (data: any) => api.lotoSell(data),
+    sell: (data: LotoSellPayload) => api.lotoSell(data),
     get: (id: number) => api.lotoGet(id),
     getByDateRange: (from: string, to: string) =>
       api.lotoGetByDateRange(from, to),
@@ -1270,31 +1278,10 @@ export class ElectronApiAdapter implements ApiAdapter {
       update: (id: number, data: any) => api.lotoCheckpointUpdate(id, data),
       markSettled: (id: number, settledAt?: string, settlementId?: number) =>
         api.lotoCheckpointMarkSettled(id, settledAt, settlementId),
-      settle: (data: {
-        id: number;
-        totalSales: number;
-        totalCommission: number;
-        totalPrizes: number;
-        totalCashPrizes?: number;
-        settledAt?: string;
-        payments?: Array<{
-          method: string;
-          currency_code: string;
-          amount: number;
-        }>;
-      }) => api.lotoCheckpointSettle(data),
-      settleBatch: (data: {
-        checkpointIds: number[];
-        totalSales: number;
-        totalCommission: number;
-        settledAt?: string;
-        payment?: {
-          method: string;
-          drawer_name: string;
-          currency_code: string;
-          amount: number;
-        };
-      }) => api.lotoCheckpointSettleBatch(data),
+      settle: (data: LotoCheckpointSettlePayload) =>
+        api.lotoCheckpointSettle(data),
+      settleBatch: (data: LotoCheckpointsSettleBatchPayload) =>
+        api.lotoCheckpointSettleBatch(data),
       getTotalSalesUnsettled: () => api.lotoCheckpointGetTotalSalesUnsettled(),
       getTotalCommissionUnsettled: () =>
         api.lotoCheckpointGetTotalCommissionUnsettled(),

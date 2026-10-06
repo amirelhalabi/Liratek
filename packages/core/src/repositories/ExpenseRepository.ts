@@ -188,14 +188,18 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
           expense_date: data.expense_date,
           // Derived — never caller-supplied. Mirrors the SUPPLIER_PAYMENT
           // precedent (CQ-8/D2, migration v130): a system-generated sibling
-          // row (recharge SMS fee, financial-service fee, supplier-ledger
-          // auto expense, …) is flagged so the Transactions table can hide
-          // it by default without hiding a manual expense entry. Sourced
-          // from `source_ref_table`, the same generic parent-link column
-          // all five auto-expense writers already set (v166) — one
-          // derivation here instead of five call sites passing the flag
-          // themselves, so a future sixth writer gets it for free and none
-          // can drift. Assigned AFTER the extra_metadata spread (like
+          // row is flagged so the Transactions table can hide it by default
+          // without hiding a manual expense entry. Sourced from
+          // `source_ref_table` (v166), the generic parent link a sibling
+          // carries — derived once here rather than passed by each call
+          // site, so a future auto writer gets it for free and none can
+          // drift. Today the ONLY writer that passes it is
+          // RechargeRepository's `SMS_Transfer_Fee` (parent: the recharge).
+          // The other two callers are deliberately NOT auto (rule 26 —
+          // operator-initiated, no parent to link): ExpenseService (manual
+          // expense) and CarrierLineRepository.recordUsage (`Line_Usage`,
+          // the operator records a SIM balance they read; LIRA-258 G30).
+          // Assigned AFTER the extra_metadata spread (like
           // category/paid_by/expense_date above) so a caller's own
           // extra_metadata can never override it either way; `undefined` is
           // dropped by JSON.stringify, so a manual expense's metadata_json

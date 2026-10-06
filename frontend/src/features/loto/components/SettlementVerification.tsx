@@ -8,6 +8,10 @@ import {
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
+import type {
+  LotoCheckpointSettlePayload,
+  LotoCheckpointsSettleBatchPayload,
+} from "@liratek/core";
 import {
   Calculator,
   CheckCircle,
@@ -204,47 +208,54 @@ export function SettlementVerification({
         currency_code: p.currencyCode,
         amount: sign * Math.abs(p.amount),
       }));
+      // LIRA-258 G23: the rate MultiPaymentInput converted cross-currency
+      // legs at (BUY rate) — the repository reconciles the legs against the
+      // net settlement at it. Omitted if not positive (schema would refuse).
+      const tenderRate =
+        exchangeRate > 0 ? { tender_exchange_rate: exchangeRate } : {};
 
       // If there's unchecked activity but no checkpoints, create a checkpoint first
       if (unsettledCheckpoints.length === 0 && uncheckedActivity) {
-        try {
-          const checkpointResult =
-            await api.loto.checkpoint.createScheduled(today);
-          if (checkpointResult.success && checkpointResult.checkpoint) {
-            // Now settle the newly created checkpoint
-            const newCheckpoint = checkpointResult.checkpoint;
-            const settleResult = await api.loto.checkpoint.settle({
-              id: newCheckpoint.id,
-              totalSales: newCheckpoint.total_sales,
-              totalCommission: newCheckpoint.total_commission,
-              totalPrizes: newCheckpoint.total_prizes,
-              payments: paymentsPayload,
-            });
-            if (!settleResult.success) {
-              throw new Error(
-                settleResult.error || "Failed to settle checkpoint",
-              );
-            }
-          }
-        } catch (checkpointErr) {
-          console.error("Failed to create checkpoint:", checkpointErr);
-          throw new Error("Failed to create checkpoint for unchecked activity");
+        const checkpointResult =
+          await api.loto.checkpoint.createScheduled(today);
+        if (!checkpointResult.success || !checkpointResult.checkpoint) {
+          throw new Error(
+            checkpointResult.error ||
+              "Failed to create checkpoint for unchecked activity",
+          );
+        }
+        // Now settle the newly created checkpoint (exactly one checkpoint,
+        // so its own net is the net the legs were entered against).
+        const newCheckpoint = checkpointResult.checkpoint;
+        const settlePayload: LotoCheckpointSettlePayload = {
+          id: newCheckpoint.id,
+          totalSales: newCheckpoint.total_sales,
+          totalCommission: newCheckpoint.total_commission,
+          totalPrizes: newCheckpoint.total_prizes,
+          payments: paymentsPayload,
+          ...tenderRate,
+        };
+        const settleResult = await api.loto.checkpoint.settle(settlePayload);
+        if (!settleResult.success) {
+          throw new Error(settleResult.error || "Failed to settle checkpoint");
         }
       } else {
-        // Settle all existing checkpoints
-        for (const checkpoint of unsettledCheckpoints) {
-          const result = await api.loto.checkpoint.settle({
-            id: checkpoint.id,
-            totalSales: checkpoint.total_sales,
-            totalCommission: checkpoint.total_commission,
-            totalPrizes: checkpoint.total_prizes,
-            payments: paymentsPayload,
-          });
-          if (!result.success) {
-            throw new Error(
-              result.error || `Failed to settle checkpoint #${checkpoint.id}`,
-            );
-          }
+        // Settle ALL existing checkpoints in ONE atomic batch. The payment
+        // lines were entered against the COMBINED net of every checkpoint,
+        // so they must be posted once against that combined net — never
+        // re-sent on a per-checkpoint call (that booked the full payment
+        // once per checkpoint pre-G23, and is refused post-G23 because each
+        // checkpoint's legs must match its own net).
+        const batchPayload: LotoCheckpointsSettleBatchPayload = {
+          checkpointIds: unsettledCheckpoints.map((cp) => cp.id),
+          totalSales: totals.totalSales,
+          totalCommission: totals.totalCommission,
+          payments: paymentsPayload,
+          ...tenderRate,
+        };
+        const result = await api.loto.checkpoint.settleBatch(batchPayload);
+        if (!result.success) {
+          throw new Error(result.error || "Failed to settle checkpoints");
         }
       }
 
@@ -277,8 +288,21 @@ export function SettlementVerification({
     }
   }
 
-  // Calculate totals across all checkpoints
+  // Calculate totals across all checkpoints. With no checkpoint yet ("Create
+  // Checkpoint & Settle"), the payment is entered against the unchecked
+  // activity the new checkpoint will sweep — otherwise the payment input
+  // asked for 0 and the legs were always signed as "LOTO pays us".
   function calculateTotals() {
+    if (unsettledCheckpoints.length === 0 && uncheckedActivity) {
+      const weOweLoto = uncheckedActivity.sales - uncheckedActivity.commission;
+      return {
+        totalSales: uncheckedActivity.sales,
+        totalCommission: uncheckedActivity.commission,
+        totalCashPrizes: uncheckedActivity.cashPrizes,
+        weOweLoto,
+        net: uncheckedActivity.net,
+      };
+    }
     const totalSales = unsettledCheckpoints.reduce(
       (sum, cp) => sum + cp.total_sales,
       0,

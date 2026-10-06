@@ -40,7 +40,71 @@
 - Web app: shops created on the web now get OMT, iPick, Katsh, OMT App, Whish App and Loto Liban on
   the Suppliers page, like desktop shops always had. Existing web shops get the missing ones added
   automatically.
+- Sending an OMT or Whish transfer for a partner now shows on the OMT/Whish supplier page as money
+  you owe, and no longer takes cash out of a drawer. From now on only.
+- Transfers you do through a partner on your second system no longer appear as waiting for a
+  supplier settlement; your shop fee on them now counts as profit straight away. From now on only.
+- Services page: a short hint explains that Amount is what the partner tells you to collect and Fee
+  is your shop fee.
+- Voiding an OMT or Whish transfer paid from a wallet with a card/wallet fee now puts the wallet
+  back exactly as it was.
+
+## 🏠 Dashboard
+
+- The Pending Settlement banner on the Dashboard now also lists partners you still need to settle
+  with.
+
+## 🤝 Partners
+
+- Partners page: a transfer you do through a partner on OMT App or Whish App now shows as "OMT APP"
+  or "WHISH APP" in the partner's history, instead of looking like a regular OMT or Whish transfer.
+  From now on only.
+- From now on, partner payments count against what the partner still owes after refunds, so profit on later partner sales is no longer held back by refunded ones.
 
 ## 🧾 Transactions
 
 - Refunding a currency exchange now works: the refund simply swaps the money back.
+
+## 🔧 Maintenance
+
+- Saving a repair job that is already paid no longer charges the customer a second time.
+
+## 📊 Profits page
+
+- A payout you make for a partner (for example a transfer you hand out on a partner's behalf) now
+  counts its profit only as the partner pays you back, the same way "for partner" sales already
+  do. This also applies to earlier payouts, but partner payments you recorded before this update
+  do not count toward them.
+- Profits: items in a customer basket put on the customer's account now count as profit only once
+  the customer pays for them, same as outside a basket. From now on only.
+
+## 📱 MTC / Alfa
+
+- MTC / Alfa: selling days now also lowers the line's credit balance by the days' cost, so the drawer
+  and the lines stay equal. From now on only.
+
+## 🎟️ Loto
+
+- Loto: a ticket's payment must now add up to its price. From now on, change kept as store credit
+  is recorded on the customer's account.
+- Loto settlement: the payment you record must now match the settlement amount.
+- Loto tickets can now be paid with a customer's gift card.
+- A Loto ticket paid in dollars is now accepted at the till's exchange rate.
+- "Settle All" on the Loto page now records one payment covering all open checkpoints, and
+  "Create Checkpoint & Settle" asks for the correct amount.
+
+## 💱 Exchange
+
+- Exchange: you can now keep the change — hand out the round amount (e.g. $101 instead of $101.12) and the leftover cents count as shop profit.
+
+## 🛒 POS
+
+- POS: a sale that was already completed can no longer be completed a second time (for example when the web app loses its connection right after you press Complete and you press it again) — before, it could take the stock, the customer's debt and a partner's charge twice.
+- POS: refunding one item from a sale made for a partner now lowers what the partner owes by that item's price, and "Undo refund" puts it back. From now on only — earlier item refunds are not changed.
+- POS: when the customer kept their change as store credit, refunding an item now also takes back that item's share of the credit, so the customer is not paid the change twice. From now on only.
+- Customer sessions: if the change or a payout sent to the customer's account cannot be saved, the checkout now stops with an error instead of finishing without the customer's credit.
+- Refunding a sale paid with a gift card now gives the gift card back.
+
+## 🌐 Web app
+
+- Web app: a customer's gift cards now show up as a payment option (they were missing in the browser).

@@ -140,9 +140,9 @@ describe("LIRA-185 profit audit — financial_services", () => {
         exchangeRate: 90000,
         partnerId: pid,
         partnerMode: "FOR",
-        payments: [
-          { method: "CASH", currencyCode: "USD", amount: 510, direction: "OUT" },
-        ],
+        // LIRA-258: a FOR-partner OMT SEND books obligations only (supplier
+        // +(x+f), partner +(x+f)) and takes no disbursement legs.
+        payments: [],
       });
       const settle = new SupplierRepository().settleTransactions({
         supplier_id: OMT_SUPPLIER_ID,

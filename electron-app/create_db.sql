@@ -525,6 +525,8 @@ CREATE INDEX IF NOT EXISTS idx_customer_sessions_active ON customer_sessions(is_
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_user ON customer_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_tenant_id ON customer_sessions(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_customer_session_transactions_session ON customer_session_transactions(session_id);
+-- v192 (LIRA-258): the profit debt hold looks members up by unified txn id.
+CREATE INDEX IF NOT EXISTS idx_customer_session_transactions_unified ON customer_session_transactions(unified_transaction_id);
 
 CREATE TABLE IF NOT EXISTS session_cart_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2456,4 +2458,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- directly, so a fresh DB needs no separate ALTER/backfill — same shape
     -- as v185/v186/v187's marker notes above.
     (190, 'add_custom_services_work_status'),
-    (191, 'backfill_system_suppliers');
+    (191, 'backfill_system_suppliers'),
+    -- v192 (LIRA-258) backfills existing 'Session Debt' rows'
+    -- covered_usd/covered_lbp (a fresh DB has none) and adds
+    -- idx_customer_session_transactions_unified, declared above.
+    (192, 'session_debt_repayment_coverage');

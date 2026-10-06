@@ -83,7 +83,7 @@ jest.mock("../../db/connection", () => {
 // FEE leg varies) ──────────────────────────────────────────────────────────
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 

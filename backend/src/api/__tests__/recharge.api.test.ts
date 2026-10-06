@@ -184,7 +184,25 @@ function createTestDb(): DatabaseType.Database {
       created_by       INTEGER,
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
     , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL
-    , covered_usd REAL NOT NULL DEFAULT 0, covered_lbp REAL NOT NULL DEFAULT 0);
+    , covered_usd REAL NOT NULL DEFAULT 0, covered_lbp REAL NOT NULL DEFAULT 0
+    , session_id INTEGER);
+
+    -- LIRA-258 / G17: read by ProfitRepository.notDebtPending's
+    -- session-basket arm (getTodayStats goes through it).
+    CREATE TABLE customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      paid_exchange_rate REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
 
     -- A CREDIT_TRANSFER recharge books its SMS transfer fee as an
     -- SMS_Transfer_Fee expense via ExpenseRepository.createExpense;

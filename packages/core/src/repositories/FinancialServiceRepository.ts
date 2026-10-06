@@ -146,9 +146,11 @@ const RECEIVE_FEE_MODEL_CUTOVER = 1;
 
 const THROUGH_PROVIDER_LEDGER_KEY: Readonly<Record<string, string>> = {
   OMT: "OMT",
-  OMT_APP: "OMT",
+  // LIRA-258: app wallets keep their own THROUGH_*_APP_* keys (mirrors FOR's
+  // FOR_OMT_APP_SEND…) instead of collapsing into the system OMT/WHISH keys.
+  OMT_APP: "OMT_APP",
   WHISH: "WHISH",
-  WHISH_APP: "WHISH",
+  WHISH_APP: "WHISH_APP",
   BINANCE: "BINANCE",
   iPick: "IPICK",
   Katsh: "KATSH",
@@ -834,6 +836,148 @@ function grossOwedDelta(params: {
     return fee;
   }
   return Math.abs(params.amount);
+}
+
+/** One partner_ledger line: unsigned amount in its own currency. */
+interface PartnerOwedLine {
+  amount: number;
+  currency: string;
+}
+
+/**
+ * What a financial-service row puts on a partner's tab — the ONE definition
+ * of the partner obligation (POSTING_INTEGRITY_PLAN.md item 4.1, G24/G25,
+ * rule 14), the partner-side sibling of `grossOwedDelta` above. Every
+ * partner_ledger write in `createTransaction` takes its amount, currency and
+ * direction from here; the call sites only choose the transaction_type and
+ * move drawers.
+ *
+ * Pure: no I/O. Lines are unsigned (partner_ledger carries the sign in
+ * `direction`); DEBIT = the partner owes the shop, CREDIT = the shop owes the
+ * partner. A rule that skips a zero/negative line says so below — the others
+ * always write their line, exactly as before the extraction.
+ *
+ * FOR mode (the partner uses the shop's rails — PFT-3b catalog,
+ * PARTNER_FOR_TRANSACTIONS_PLAN.md):
+ *   - Catalog item / bill (cost/price flow, any provider): DEBIT the selling
+ *     `price` — the margin is the shop's, the partner pays list price.
+ *   - OMT/WHISH SEND (the shop's own system): DEBIT the supplier gross
+ *     `x + f` — owner decision D1 (2026-10-06): the partner owes the shop
+ *     exactly what the shop owes the provider. Passed in as `supplierOwed`
+ *     (the value `grossOwedDelta` returned for the supplier posting), never
+ *     recomputed, so the two sides cannot drift (G24). Skipped when ≤ 0.
+ *   - BINANCE SEND: DEBIT `amount + fee`, always in USD (owner decision — a
+ *     partner never carries a USDT balance).
+ *   - OMT_APP/WHISH_APP SEND (transfer): DEBIT Σ of the shop's OUT
+ *     disbursement legs, one line per leg currency, native and never
+ *     converted (the T2 lesson). Legs must be drawer-affecting and USD/LBP.
+ *   - RECEIVE: CREDIT `x` on OMT/WHISH (no fee: OMT takes none from the
+ *     customer, a Whish fee is the shop's profit), `x − fee` on the app
+ *     wallets and BINANCE (BINANCE in USD). Skipped when ≤ 0.
+ *
+ * THROUGH mode (the shop uses the partner's rails): `|amount|` for every
+ * provider — owner decision D7 (2026-10-06): the amount is what the partner
+ * tells the shop to collect and is owed to the partner; the fee is the
+ * shop's own fee (100% profit), so it never enters the partner amount (G25
+ * closed as by design). SEND → CREDIT, anything else → DEBIT.
+ */
+function partnerOwedDelta(params: {
+  mode: "FOR" | "THROUGH";
+  provider: CreateFinancialServiceData["provider"];
+  serviceType: CreateFinancialServiceData["serviceType"];
+  /** Cost/price catalog flow (`useCostPriceFlow`). */
+  isCatalog: boolean;
+  /** Service currency (`data.currency ?? "USD"`). */
+  currency: string;
+  /** `data.amount` (sign ignored). */
+  amount: number;
+  /** The shop's fee on the row (`calculatedCommission`, sign ignored). */
+  fee: number;
+  /** Catalog selling price. */
+  price: number;
+  /** FOR OMT/WHISH SEND only: the signed supplier gross from grossOwedDelta. */
+  supplierOwed?: number;
+  /** FOR app-wallet SEND only: the shop's OUT disbursement legs. */
+  disbursementLegs?: ReadonlyArray<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+  }>;
+}): { direction: "DEBIT" | "CREDIT"; lines: PartnerOwedLine[] } {
+  const amountAbs = Math.abs(params.amount);
+  const fee = Math.abs(params.fee);
+
+  if (params.mode === "THROUGH") {
+    return {
+      direction: params.serviceType === "SEND" ? "CREDIT" : "DEBIT",
+      lines: [{ amount: amountAbs, currency: params.currency }],
+    };
+  }
+
+  if (params.isCatalog) {
+    return {
+      direction: "DEBIT",
+      lines: [{ amount: Math.abs(params.price), currency: params.currency }],
+    };
+  }
+
+  if (params.serviceType === "SEND") {
+    if (params.provider === "BINANCE") {
+      return {
+        direction: "DEBIT",
+        lines: [{ amount: amountAbs + fee, currency: "USD" }],
+      };
+    }
+    if (params.provider === "OMT" || params.provider === "WHISH") {
+      if (params.supplierOwed === undefined) {
+        throw new Error(
+          "partnerOwedDelta: a FOR-partner OMT/Whish SEND needs the supplier gross it mirrors",
+        );
+      }
+      const owed = params.supplierOwed;
+      return {
+        direction: "DEBIT",
+        lines: owed > 0 ? [{ amount: owed, currency: params.currency }] : [],
+      };
+    }
+    // OMT_APP / WHISH_APP transfer: the partner owes what the shop disbursed.
+    const byCurrency = new Map<string, number>();
+    for (const r of params.disbursementLegs ?? []) {
+      const amt = Math.abs(r.amount);
+      if (amt <= 0) continue;
+      if (!isDrawerAffectingMethod(r.method)) {
+        throw new Error(
+          "A partner SEND disbursement leg must use a drawer-affecting method",
+        );
+      }
+      if (r.currencyCode !== "USD" && r.currencyCode !== "LBP") {
+        throw new Error(
+          "Partner debt must be USD or LBP — pick a USD/LBP disbursement method",
+        );
+      }
+      byCurrency.set(
+        r.currencyCode,
+        (byCurrency.get(r.currencyCode) ?? 0) + amt,
+      );
+    }
+    return {
+      direction: "DEBIT",
+      lines: [...byCurrency].map(([currency, amount]) => ({
+        amount,
+        currency,
+      })),
+    };
+  }
+
+  // RECEIVE
+  const isSystem = params.provider === "OMT" || params.provider === "WHISH";
+  const credit = isSystem ? amountAbs : amountAbs - fee;
+  const creditCurrency =
+    params.provider === "BINANCE" ? "USD" : params.currency;
+  return {
+    direction: "CREDIT",
+    lines: credit > 0 ? [{ amount: credit, currency: creditCurrency }] : [],
+  };
 }
 
 // SQL mirror of grossOwedDelta (see its doc comment for the shared shape
@@ -1680,7 +1824,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         commission,
         supplierCommissionEligible,
       });
-      const isSettled = isPendingSettlement ? 0 : 1;
+      // LIRA-258 (owner D3, 2026-10-06): a THROUGH-partner transfer on the
+      // SECONDARY system never meets a supplier settlement — no supplier
+      // posting is written for it (skipSecondarySupplierLedger) and the
+      // partner carries the obligation on their tab. Stamping it pending
+      // left it in the "awaiting settlement" counts forever (G3).
+      const isThroughSecondary =
+        isThroughPartner && skipSecondarySupplierLedger;
+      const isSettled = isPendingSettlement && !isThroughSecondary ? 0 : 1;
       const settledAt = isSettled ? new Date().toISOString() : null;
 
       // 1. Insert the financial_services row
@@ -2108,6 +2259,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           ? resolvedProviderFee
           : 0;
 
+      // LIRA-258 (owner D7, 2026-10-06): on a THROUGH-partner transfer on
+      // the secondary system the amount is what the partner told the shop
+      // to collect (owed to the partner) and the fee is the shop's OWN fee,
+      // 100% profit. The model-1 rule "stamp 0, recognise at supplier
+      // settlement" never fires for these rows (no settlement), so the fee
+      // was never counted (G32). A WHISH RECEIVE fee is already stamped by
+      // whishReceiveFeeProfit; OMT RECEIVE takes no fee.
+      const throughSecondaryFeeProfit =
+        isThroughSecondary && data.serviceType === "SEND"
+          ? resolvedProviderFee
+          : 0;
+
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.FINANCIAL_SERVICE,
         source_table: "financial_services",
@@ -2172,7 +2335,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               ? commission
               : 0) +
           (data.kept_change_usd ?? 0) +
-          (currency === "USD" ? whishReceiveFeeProfit : 0),
+          (currency === "USD"
+            ? whishReceiveFeeProfit + throughSecondaryFeeProfit
+            : 0),
         profit_lbp:
           (commissionModel === 1 && !useCostPriceFlow
             ? 0
@@ -2180,7 +2345,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               ? commission
               : 0) +
           (data.kept_change_lbp ?? 0) +
-          (currency === "LBP" ? whishReceiveFeeProfit : 0),
+          (currency === "LBP"
+            ? whishReceiveFeeProfit + throughSecondaryFeeProfit
+            : 0),
         client_id: resolvedPrimaryClientId ?? null,
         // For-partner services label the row with the partner (owner ask: the
         // transactions table shows "<partner> [partner]" in the client column).
@@ -2445,7 +2612,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // Shared OUT-leg processor — the ONE loop that debits drawer-affecting
       // OUT legs (rule 16: no flow-specific branch may iterate them again).
       // Legacy path: change handed back to the customer. FOR-partner path:
-      // the shop's own disbursement legs (note relabeled accordingly).
+      // only an OMT_APP/WHISH_APP transfer SEND carries OUT legs (the shop's
+      // own disbursement, note relabeled accordingly) — a FOR OMT/WHISH SEND
+      // books obligations only and rejects any leg (LIRA-258).
       const processReturnLegs = (noteLabel = "Change returned") => {
         for (const r of deferPayment ? [] : returnLegs) {
           const amt = Math.abs(r.amount);
@@ -2456,7 +2625,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 "Client is required to return change as store credit",
               );
             }
-            getDebtService().addCredit({
+            getDebtService().addCreditOrThrow({
               clientId: resolvedPrimaryClientId,
               amountUsd: r.currencyCode === "USD" ? amt : 0,
               amountLbp: r.currencyCode === "LBP" ? amt : 0,
@@ -2466,9 +2635,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             });
           } else if (isDrawerAffectingMethod(r.method)) {
             // Primary Cash Drawer plan §8.2/§2#2: a primary-system change/
-            // return leg (classic walk-in change, or a FOR-partner SEND's
-            // disbursement OUT legs — see the FOR-partner dispatch below)
-            // comes back out of the PCD, not General.
+            // return leg (classic walk-in change) comes back out of the PCD,
+            // not General. A FOR-partner app-wallet SEND's disbursement OUT
+            // legs resolve here too, but OMT_APP/WHISH_APP is never the base
+            // system, so their cash legs land in General.
             const drawerName = resolveServiceCashDrawer(
               r.method,
               cashDrawerCtx,
@@ -2565,7 +2735,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // Owner-validated catalog (docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
       // "⭐ VALIDATED FLOW CATALOG"): a for-partner financial service has NO
       // walk-in customer — no customer cash-in, no payout, no client debt, no
-      // pm-fee row, no supplier auto-record, no commission cash inflow. The
+      // pm-fee row, no commission cash inflow. The one supplier auto-record
+      // is the OMT/WHISH system obligation (bookForPartnerSystemSupplier,
+      // SEND and RECEIVE — LIRA-258). The
       // partner owes (SEND → DEBIT) or is owed (RECEIVE → CREDIT) on
       // partner_ledger, settled later on the Partners page. Returning here
       // means the entire legacy walk-in dispatch below never runs in FOR mode
@@ -2582,7 +2754,6 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         const partnerId = data.partnerId as number;
         const serviceDrawer = this.mapDrawerName(data.provider);
         const amountAbs = Math.abs(data.amount);
-        const fee = Math.abs(calculatedCommission);
 
         // No walk-in customer: any customer-paid IN leg is a modeling error —
         // reject rather than book a phantom cash-in (mirrors SalesRepository /
@@ -2654,6 +2825,89 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           });
         };
 
+        // Item 4.1: every FOR-partner obligation goes through
+        // partnerOwedDelta (one definition, rule 14) — this closure only
+        // supplies the row's facts and writes whatever lines it returns.
+        const bookPartnerOwed = (
+          transactionType: ForPartnerLedgerType,
+          extra: Pick<
+            Parameters<typeof partnerOwedDelta>[0],
+            "supplierOwed" | "disbursementLegs"
+          > = {},
+        ) => {
+          const { direction, lines } = partnerOwedDelta({
+            mode: "FOR",
+            provider: data.provider,
+            serviceType: data.serviceType,
+            isCatalog: useCostPriceFlow,
+            currency,
+            amount: data.amount,
+            fee: calculatedCommission,
+            price,
+            ...extra,
+          });
+          for (const line of lines) {
+            insertPartnerLedger(
+              transactionType,
+              line.amount,
+              line.currency,
+              direction,
+            );
+          }
+        };
+
+        // FOR-partner OMT/WHISH (the shop's OWN system rails), SEND and
+        // RECEIVE alike: the provider obligation is the same gross figure a
+        // walk-in books — grossOwedDelta, one definition (rule 14) — written
+        // as a TOP_UP back-linked to this row, so the generic void/refund
+        // sibling cascade reverses it (rule 20). Returns the signed amount
+        // (SEND +(x+f), RECEIVE −x) so the caller can reuse the SAME number
+        // for the partner side (LIRA-258).
+        //
+        // No try/catch: a failed supplier posting must roll the whole
+        // transaction back, never commit without it (G4,
+        // POSTING_INTEGRITY_PLAN.md item 1.3). A missing supplier row is
+        // created / re-activated by ensureSystemSupplier (item 1.3).
+        const bookForPartnerSystemSupplier = (
+          serviceType: "SEND" | "RECEIVE",
+        ): number => {
+          const ledgerAmount = grossOwedDelta({
+            serviceType,
+            provider: data.provider,
+            fee: resolvedProviderFee,
+            cost: 0,
+            amount: data.amount,
+            // Creation path: this row's own stamp, never a hardcoded 1 —
+            // the two must not be able to disagree.
+            commissionModel,
+            commission,
+            // D1 trace (OWNER_NOTES_2026-09-21.md §2b, matrix row 3): a
+            // cutover RECEIVE owes the full principal; OMT takes no fee here.
+            receiveFeeModel,
+          });
+          const supplierRepo = getSupplierRepository();
+          const supplier = supplierRepo.ensureSystemSupplier(data.provider);
+          if (!supplier) {
+            financialLogger.warn(
+              { provider: data.provider, financialServiceId: id },
+              "FOR-partner transfer: no active supplier row for provider — supplier posting skipped",
+            );
+            return ledgerAmount;
+          }
+          supplierRepo.addLedgerEntry({
+            supplier_id: supplier.id,
+            entry_type: "TOP_UP",
+            amount_usd: currency === "USD" ? ledgerAmount : 0,
+            amount_lbp: currency === "LBP" ? ledgerAmount : 0,
+            note: `Auto: ${serviceType} via ${data.provider} (for partner)${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+            created_by: createdBy,
+            is_auto: true,
+            source_ref_table: "financial_services",
+            source_ref_id: id,
+          });
+          return ledgerAmount;
+        };
+
         if (useCostPriceFlow) {
           // ── Catalog items + bills (iPick / Katsh / app-wallet grids): the
           // shop consumes provider stock at cost as normal; the partner owes
@@ -2690,7 +2944,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             );
             upsertBalanceDelta.run(serviceDrawer, currency, -Math.abs(cost));
           }
-          insertPartnerLedger(forType, Math.abs(price), currency, "DEBIT");
+          bookPartnerOwed(forType);
           processTelecomCreditReturn();
         } else if (data.serviceType === "SEND") {
           if (data.provider === "BINANCE") {
@@ -2714,15 +2968,31 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               createdBy,
             );
             upsertBalanceDelta.run(serviceDrawer, "USDT", -amountAbs);
-            insertPartnerLedger(
-              "FOR_BINANCE_SEND",
-              amountAbs + fee,
-              "USD",
-              "DEBIT",
+            bookPartnerOwed("FOR_BINANCE_SEND");
+          } else if (data.provider === "OMT" || data.provider === "WHISH") {
+            // LIRA-258 (owner decision D1, 2026-10-06): a FOR-partner SEND on
+            // the shop's OWN OMT/WHISH system books OBLIGATIONS ONLY — the
+            // mirror of FOR-partner RECEIVE (FEATURE_GUIDE §8.1.0). The
+            // transfer runs on the shop's rails, so the shop owes the
+            // provider the gross x + f (the whole fee goes to the provider;
+            // the shop's commission comes back at settlement), and the
+            // partner owes the shop that SAME x + f. No drawer moves: the
+            // partner's customer paid the partner, not our till. Before this,
+            // the branch debited a drawer by the OUT legs and wrote no
+            // supplier posting at all, so "I owe OMT" was never recorded
+            // while the row still sat in the Settle queue (G1/G2 in
+            // docs/POSTING_MAP.md).
+            if (returnLegs.length > 0) {
+              throw new Error(
+                "A partner OMT/Whish SEND has no payment legs — the shop owes the provider and the partner owes the shop; no drawer moves",
+              );
+            }
+            const owed = bookForPartnerSystemSupplier("SEND");
+            bookPartnerOwed(
+              data.provider === "OMT" ? "FOR_OMT_SEND" : "FOR_WHISH_SEND",
+              { supplierOwed: owed },
             );
           } else if (
-            data.provider === "OMT" ||
-            data.provider === "WHISH" ||
             data.provider === "OMT_APP" ||
             data.provider === "WHISH_APP"
           ) {
@@ -2738,35 +3008,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               );
             }
             const forType =
-              data.provider === "OMT"
-                ? "FOR_OMT_SEND"
-                : data.provider === "WHISH"
-                  ? "FOR_WHISH_SEND"
-                  : data.provider === "OMT_APP"
-                    ? "FOR_OMT_APP_SEND"
-                    : "FOR_WHISH_APP_SEND";
-            const byCurrency = new Map<string, number>();
-            for (const r of returnLegs) {
-              const amt = Math.abs(r.amount);
-              if (amt <= 0) continue;
-              if (!isDrawerAffectingMethod(r.method)) {
-                throw new Error(
-                  "A partner SEND disbursement leg must use a drawer-affecting method",
-                );
-              }
-              if (r.currencyCode !== "USD" && r.currencyCode !== "LBP") {
-                throw new Error(
-                  "Partner debt must be USD or LBP — pick a USD/LBP disbursement method",
-                );
-              }
-              byCurrency.set(
-                r.currencyCode,
-                (byCurrency.get(r.currencyCode) ?? 0) + amt,
-              );
-            }
-            for (const [legCurrency, total] of byCurrency) {
-              insertPartnerLedger(forType, total, legCurrency, "DEBIT");
-            }
+              data.provider === "OMT_APP"
+                ? "FOR_OMT_APP_SEND"
+                : "FOR_WHISH_APP_SEND";
+            bookPartnerOwed(forType, { disbursementLegs: returnLegs });
             // The legs themselves are debited ONCE by processReturnLegs below.
           } else {
             throw new Error(
@@ -2782,37 +3027,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               "A partner RECEIVE has no payout legs — the shop owes the partner on their tab and pays at settlement",
             );
           }
+          // Amount + currency of the partner CREDIT: partnerOwedDelta (item
+          // 4.1). Only the type and the drawer currency are chosen here.
           let forType: ForPartnerLedgerType;
-          let creditAmount: number;
-          let creditCurrency: string;
           let drawerCurrency: string;
           if (data.provider === "OMT") {
             // Full amount, no fee (owner: OMT system receive has no fee; the
             // shop's system commission is stamped as profit, not deducted).
             forType = "FOR_OMT_RECEIVE";
-            creditAmount = amountAbs;
-            creditCurrency = currency;
             drawerCurrency = currency;
           } else if (data.provider === "WHISH") {
             forType = "FOR_WHISH_RECEIVE";
-            creditAmount = amountAbs;
-            creditCurrency = currency;
             drawerCurrency = currency;
           } else if (data.provider === "OMT_APP") {
             forType = "FOR_OMT_APP_RECEIVE";
-            creditAmount = amountAbs - fee;
-            creditCurrency = currency;
             drawerCurrency = currency;
           } else if (data.provider === "WHISH_APP") {
             forType = "FOR_WHISH_APP_RECEIVE";
-            creditAmount = amountAbs - fee;
-            creditCurrency = currency;
             drawerCurrency = currency;
           } else if (data.provider === "BINANCE") {
             // Drawer moves in USDT; the partner is owed USD (owner decision).
             forType = "FOR_BINANCE_RECEIVE";
-            creditAmount = amountAbs - fee;
-            creditCurrency = "USD";
             drawerCurrency = "USDT";
           } else {
             throw new Error(
@@ -2826,8 +3061,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // the PCD (the partner's customer dealt with the partner's own
           // counter, not the shop's till). Obligations only: the provider
           // still owes/is owed on the real OMT/WHISH rails (gross supplier
-          // ledger, same formula a walk-in RECEIVE books) and the partner
-          // owes the shop on their tab (partner ledger, below). The
+          // ledger, same formula a walk-in RECEIVE books) and the shop owes
+          // the partner on their tab (partner ledger CREDIT, below). The
           // partner's later collection pays out of the PCD via the normal
           // partner-settlement payment legs (resolveServiceCashDrawer at
           // settlement time — SupplierRepository/PartnerRepository, not
@@ -2839,46 +3074,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           const isPrimarySystemProvider =
             data.provider === "OMT" || data.provider === "WHISH";
           if (isPrimarySystemProvider) {
-            try {
-              const supplierRepo = getSupplierRepository();
-              const supplier = supplierRepo.getByProvider(data.provider);
-              if (supplier) {
-                const ledgerAmount = grossOwedDelta({
-                  serviceType: "RECEIVE",
-                  provider: data.provider,
-                  fee: resolvedProviderFee,
-                  cost: 0,
-                  amount: data.amount,
-                  // Creation path: this row's own stamp, never a hardcoded 1 —
-                  // the two must not be able to disagree.
-                  commissionModel,
-                  commission,
-                  // D1 trace (OWNER_NOTES_2026-09-21.md §2b, matrix row 3):
-                  // this FOR-partner RECEIVE booking used to net `fee` out of
-                  // what OMT/WHISH owe even though the comment above already
-                  // says OMT takes "no fee" here (the CREDIT to the partner's
-                  // tab never subtracted one) — the supplier ledger disagreed
-                  // with its own neighbor comment. Passing the row's own
-                  // stamp fixes it the same way the generic booking below is
-                  // fixed: a cutover row owes the full principal regardless.
-                  receiveFeeModel,
-                });
-                supplierRepo.addLedgerEntry({
-                  supplier_id: supplier.id,
-                  entry_type: "TOP_UP",
-                  amount_usd: currency === "USD" ? ledgerAmount : 0,
-                  amount_lbp: currency === "LBP" ? ledgerAmount : 0,
-                  note: `Auto: RECEIVE via ${data.provider} (for partner)${data.itemKey ? ` [${data.itemKey}]` : ""}`,
-                  created_by: createdBy,
-                  is_auto: true,
-                  source_ref_table: "financial_services",
-                  source_ref_id: id,
-                });
-              }
-            } catch {
-              // Supplier auto-record is non-critical; don't fail the transaction
-              // (mirrors the general "Auto-record supplier debt" site below).
-            }
+            bookForPartnerSystemSupplier("RECEIVE");
           } else {
             insertPayment.run(
               txnId,
@@ -2892,14 +3088,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             upsertBalanceDelta.run(serviceDrawer, drawerCurrency, amountAbs);
           }
 
-          if (creditAmount > 0) {
-            insertPartnerLedger(
-              forType,
-              creditAmount,
-              creditCurrency,
-              "CREDIT",
-            );
-          }
+          bookPartnerOwed(forType);
         } else {
           // Bills (serviceType "BILL") without a cost/price pair have no
           // FOR_* mapping yet — follow-up, not silently mis-booked.
@@ -2908,8 +3097,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           );
         }
 
-        // The shop's disbursement OUT legs (transfer SEND) — debited exactly
-        // once by the ONE shared OUT-leg processor.
+        // The shop's disbursement OUT legs (OMT_APP/WHISH_APP transfer SEND
+        // only — every other FOR branch rejects legs) — debited exactly once
+        // by the ONE shared OUT-leg processor.
         processReturnLegs("Partner disbursement");
         return { id, drawer: legacyDrawerLabel };
       }
@@ -3033,17 +3223,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         } else {
           // Single payment (backwards-compatible)
           if (price > 0 && isDrawerAffectingMethod(paidBy)) {
+            // G28 (POSTING_INTEGRITY_PLAN.md item 4.5): the customer hands
+            // over price + pm fee and the fee stays in the paying drawer —
+            // the same single-payment rule as the system SEND's
+            // totalCustomerPays. Profit already counts it
+            // (financial_services.payment_method_fee); before this the
+            // drawer never got it. No PM_FEE audit row here: the generic
+            // void mirrors that zero-balance row as a real drawer movement
+            // (TransactionRepository._reversePayments), so adding one would
+            // leave the drawer −pmFee after a void (rule 20).
             const paidByDrawer = paymentMethodToDrawerName(paidBy);
+            const customerPays = Math.abs(price) + pmFee;
             insertPayment.run(
               txnId,
               paidBy,
               paidByDrawer,
               currency,
-              Math.abs(price),
+              customerPays,
               note,
               createdBy,
             );
-            upsertBalanceDelta.run(paidByDrawer, currency, Math.abs(price));
+            upsertBalanceDelta.run(paidByDrawer, currency, customerPays);
           }
 
           // DEBT: create debt_ledger entry
@@ -3259,17 +3459,23 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   tenantId,
                 });
               } else if (isDrawerAffectingMethod(paidBy)) {
+                // G28 (item 4.5): the customer also hands over the pm fee,
+                // which stays in the paying drawer — same rule and same
+                // no-audit-row reason as the catalog single payment above.
+                // The on-account branch keeps cashTotal, exactly as the
+                // system SEND's debt keeps totalCollected.
                 const cashDrawer = paymentMethodToDrawerName(paidBy);
+                const customerPays = cashTotal + pmFee;
                 insertPayment.run(
                   txnId,
                   paidBy,
                   cashDrawer,
                   cashCurrency,
-                  cashTotal,
+                  customerPays,
                   `${data.provider} SEND payment`,
                   createdBy,
                 );
-                upsertBalanceDelta.run(cashDrawer, cashCurrency, cashTotal);
+                upsertBalanceDelta.run(cashDrawer, cashCurrency, customerPays);
               }
             }
           } else {
@@ -3353,7 +3559,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   );
                 }
                 const debtService = getDebtService();
-                debtService.addCredit({
+                debtService.addCreditOrThrow({
                   clientId: resolvedPrimaryClientId,
                   amountUsd: cashCurrency === "USD" ? payoutAmount : 0,
                   amountLbp: cashCurrency === "LBP" ? payoutAmount : 0,
@@ -3395,7 +3601,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                           "Client is required for CUSTOMER_ACCOUNT cashout",
                         );
                       }
-                      getDebtService().addCredit({
+                      getDebtService().addCreditOrThrow({
                         clientId: resolvedPrimaryClientId,
                         amountUsd: leg.currencyCode === "USD" ? legAmount : 0,
                         amountLbp: leg.currencyCode === "LBP" ? legAmount : 0,
@@ -3960,15 +4166,19 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   "Client is required for CUSTOMER_ACCOUNT cashout",
                 );
               }
-              const debtService = getDebtService();
-              debtService.addCredit({
-                clientId: resolvedPrimaryClientId,
-                amountUsd: currency === "USD" ? payoutAmount : 0,
-                amountLbp: currency === "LBP" ? payoutAmount : 0,
-                note: `${data.provider} RECEIVE cashout — credited to account`,
-                userId: createdBy,
-                transactionId: txnId,
-              });
+              // `payoutAmount > 0`: the throwing credit (G13) rejects a 0/0
+              // credit, which the old swallowing addCredit silently dropped —
+              // nothing to credit is still nothing to post.
+              if (payoutAmount > 0) {
+                getDebtService().addCreditOrThrow({
+                  clientId: resolvedPrimaryClientId,
+                  amountUsd: currency === "USD" ? payoutAmount : 0,
+                  amountLbp: currency === "LBP" ? payoutAmount : 0,
+                  note: `${data.provider} RECEIVE cashout — credited to account`,
+                  userId: createdBy,
+                  transactionId: txnId,
+                });
+              }
             }
           } else {
             // Non-CUSTOMER_ACCOUNT: debit the appropriate drawer based on cashout method
@@ -4120,7 +4330,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                       "Client is required for CUSTOMER_ACCOUNT cashout",
                     );
                   }
-                  getDebtService().addCredit({
+                  getDebtService().addCreditOrThrow({
                     clientId: resolvedPrimaryClientId,
                     amountUsd: usd,
                     amountLbp: lbp,
@@ -4175,13 +4385,24 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // skipSecondarySupplierLedger are resolved earlier (right after
       // isThroughPartner/isForPartner, alongside the walk-in-secondary
       // rejection) — rule 14, one definition, reused here unchanged.
-      try {
+      // LIRA-258 (owner D2, G4): no try/catch — a failed supplier posting
+      // rolls the whole transaction back instead of committing without it,
+      // and a missing or switched-off supplier is created / re-activated
+      // (ensureSystemSupplier) instead of silently skipped. The secondary-
+      // system skip is decided inside, BEFORE any lookup, so a THROUGH
+      // transfer on the second system never re-activates that supplier.
+      {
         const supplierRepo = getSupplierRepository();
-        const supplier = supplierRepo.getByProvider(data.provider);
+        const supplier =
+          skipSecondarySupplierLedger ||
+          (data.serviceType === "SEND" && useCostPriceFlow) ||
+          isWalletProvider(data.provider)
+            ? undefined
+            : supplierRepo.ensureSystemSupplier(data.provider);
         if (!supplier) {
           financialLogger.debug(
             { provider: data.provider },
-            `Skipping supplier ledger for inactive provider: ${data.provider}`,
+            `No supplier posting for provider: ${data.provider}`,
           );
         } else {
           // Ledger amount — grossOwedDelta (rule 14, see its doc comment):
@@ -4303,8 +4524,6 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             }
           }
         }
-      } catch {
-        // Supplier auto-record is non-critical; don't fail the transaction
       }
 
       // Auto-create partner ledger entry for THROUGH-partner transactions.
@@ -4325,30 +4544,43 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           );
         }
         // Template-composed, not a literal (see partnerLedgerTypes.guard.test.ts) —
-        // every mapped key is one of OMT/WHISH/BINANCE/IPICK/KATSH, so in
+        // every mapped key is one of OMT/OMT_APP/WHISH/WHISH_APP/BINANCE/
+        // IPICK/KATSH (LIRA-258 G26 added the app wallets), so in
         // practice the result is always one of the corresponding THROUGH_*
         // union members; typed as plain `string` here (not inferred as a
         // template-literal type) because a hypothetical BILL serviceType
         // would widen beyond the union, and this must stay a narrowing (not
         // same-widening) cast.
         const ledgerType: string = `THROUGH_${providerKey}_${data.serviceType}`;
-        const direction = data.serviceType === "SEND" ? "CREDIT" : "DEBIT";
-        const ledgerAmount = Math.abs(data.amount);
-        // CQ-7: routed through PartnerRepository.addLedgerEntry instead of a
-        // raw INSERT — same row values (reference_table fixed to
-        // 'financial_services', matching the prior literal; `notes` stays
-        // unset/NULL, matching the prior column list which omitted it).
-        getPartnerRepository().addLedgerEntry({
-          partner_id: data.partnerId as number,
-          transaction_type: ledgerType as ForPartnerLedgerType,
-          reference_table: "financial_services",
-          reference_id: id,
-          amount: ledgerAmount,
+        // Item 4.1: amount/direction from partnerOwedDelta (D7: |amount|,
+        // the fee is the shop's own — see its doc comment).
+        const { direction, lines } = partnerOwedDelta({
+          mode: "THROUGH",
+          provider: data.provider,
+          serviceType: data.serviceType,
+          isCatalog: useCostPriceFlow,
           currency,
-          direction,
-          user_id: createdBy,
-          created_at: data.transaction_time ?? undefined,
+          amount: data.amount,
+          fee: calculatedCommission,
+          price,
         });
+        for (const line of lines) {
+          // CQ-7: routed through PartnerRepository.addLedgerEntry instead of a
+          // raw INSERT — same row values (reference_table fixed to
+          // 'financial_services', matching the prior literal; `notes` stays
+          // unset/NULL, matching the prior column list which omitted it).
+          getPartnerRepository().addLedgerEntry({
+            partner_id: data.partnerId as number,
+            transaction_type: ledgerType as ForPartnerLedgerType,
+            reference_table: "financial_services",
+            reference_id: id,
+            amount: line.amount,
+            currency: line.currency,
+            direction,
+            user_id: createdBy,
+            created_at: data.transaction_time ?? undefined,
+          });
+        }
       }
 
       // Return (OUT) legs: change handed back to the customer via a chosen

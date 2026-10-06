@@ -70,6 +70,10 @@ test.describe("LIRA-088 — change legs in all forms", () => {
             direction: "OUT",
           },
         ],
+        // LIRA-258 G14: legs reconcile against the ticket at the till's
+        // tender rate (else the seeded 90,000 sell rate). $10 × 100,000 −
+        // 700,000 change = the 300,000 ticket exactly.
+        tender_exchange_rate: 100_000,
       }),
     );
     const after = await general(appPage);

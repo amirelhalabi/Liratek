@@ -1,4 +1,5 @@
 import {
+  MAINTENANCE_ALREADY_PAID_ERROR,
   MaintenanceRepository,
   MaintenanceRow,
   MaintenanceJob,
@@ -192,6 +193,19 @@ export class MaintenanceService {
         const defer = params.deferPayment === true;
         const isPaidStatus =
           params.status === "Delivered_Paid" || params.status === "Delivered";
+        // Does this save ask to post money? (payment lines on a paid status,
+        // or a session-basket deferral, whose basket then posts the legs.)
+        const wantsToCharge =
+          defer || (isPaidStatus && (params.payments?.length ?? 0) > 0);
+
+        // LIRA-258 / D8: never charge a job twice. Checked BEFORE any write so
+        // a refused save leaves the job untouched (no partial update), and so
+        // a re-checkout with different amounts gets this message rather than
+        // the amount-lock one. A save that posts no money (status/notes only)
+        // is unaffected.
+        if (params.id && wantsToCharge && this.repo.isJobCharged(params.id)) {
+          throw new Error(MAINTENANCE_ALREADY_PAID_ERROR);
+        }
 
         // Shared processPayments opts builder. `parts` here is a PRICE-ONLY
         // receipt snapshot (never cost/margin — see processPayments' own
@@ -261,13 +275,11 @@ export class MaintenanceService {
 
           this.repo.updateJob(params.id, jobData, actorUserId);
 
-          // Process payments only on first transition to paid status.
-          // Deferred (session basket): always create the unified transaction (so
-          // the basket can link + back-fill it) even with no payment lines.
-          if (
-            (defer || (isPaidStatus && params.payments?.length)) &&
-            !this.repo.hasPayments(params.id)
-          ) {
+          // Process payments only when this save charges the job (already-
+          // charged jobs were refused above). Deferred (session basket): always
+          // create the unified transaction (so the basket can link + back-fill
+          // it) even with no payment lines.
+          if (wantsToCharge) {
             this.repo.processPayments(
               params.id,
               params.payments ?? [],
@@ -328,7 +340,7 @@ export class MaintenanceService {
           // If creating with payment data (checkout from new job form).
           // Deferred (session basket): always create the unified transaction (so
           // the basket can link + back-fill it) even with no payment lines.
-          if (defer || (isPaidStatus && params.payments?.length)) {
+          if (wantsToCharge) {
             this.repo.processPayments(
               newId,
               params.payments ?? [],

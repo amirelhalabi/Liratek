@@ -31,10 +31,10 @@
 
 import Database from "better-sqlite3";
 
-// ─── Mock DebtService (addCredit — used only for OUT-on-account store credit) ──
+// ─── Mock DebtService (addCreditOrThrow — used only for OUT-on-account store credit) ──
 const mockAddCredit = jest.fn();
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: mockAddCredit }),
+  getDebtService: () => ({ addCreditOrThrow: mockAddCredit }),
   resetDebtService: jest.fn(),
 }));
 
@@ -178,7 +178,9 @@ function createTestDb(): Database.Database {
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_by       INTEGER,
       session_id       INTEGER
-    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL,
+      -- DBT-1 (v129); LIRA-258 / G17 writes a basket's pre-coverage here.
+      covered_usd REAL NOT NULL DEFAULT 0, covered_lbp REAL NOT NULL DEFAULT 0);
 
     -- Seed the General drawer (cash) at zero so deltas are easy to read.
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'USD', 0);
@@ -529,7 +531,7 @@ describe("SessionPaymentService.recordBasketPayment — basket allocation/payout
       userId: 1,
     });
 
-    // Credit booked via DebtService.addCredit, carrying session_id (pre-fix it
+    // Credit booked via DebtService.addCreditOrThrow, carrying session_id (pre-fix it
     // was called with no sessionId and note "Basket change returned").
     expect(mockAddCredit).toHaveBeenCalledTimes(1);
     expect(mockAddCredit).toHaveBeenCalledWith(

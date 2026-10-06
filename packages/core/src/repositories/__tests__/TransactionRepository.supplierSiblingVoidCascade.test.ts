@@ -59,6 +59,7 @@ import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext";
+import { expectPostings, snapshotLedgers } from "../testHelpers/postingAssert";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
 
@@ -742,5 +743,76 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
       .get(siblingFs.id) as { status: string };
     expect(carrierFsTxn.status).toBe("VOIDED");
     expect(siblingFsTxn.status).toBe("VOIDED");
+  });
+  // ── (e) G20 (LIRA-258) — REFUND of the parent, not void ───────────────────
+  // Characterization, NOT failing-first: written against unchanged code and
+  // green on first run. Proves the refund path's cascade (which reuses the
+  // VOID helper for the hidden sibling) is a label difference only — every
+  // ledger, drawer and profit total nets to 0 per currency.
+  it("(e) G20: REFUNDING an OMT SEND cascades its auto sibling with VOID semantics — every ledger and profit nets to 0 (label only)", () => {
+    const omtId = supplierIdByProvider(db, "OMT");
+    const before = snapshotLedgers(db);
+    const activeProfit = () =>
+      db
+        .prepare(
+          `SELECT COALESCE(SUM(profit_usd), 0) AS usd, COALESCE(SUM(profit_lbp), 0) AS lbp
+             FROM transactions WHERE status = 'ACTIVE'`,
+        )
+        .get() as { usd: number; lbp: number };
+    const profitBefore = activeProfit();
+
+    fsRepo.createTransaction({
+      provider: "OMT",
+      serviceType: "SEND",
+      amount: 100,
+      currency: "USD",
+      commission: 0,
+      omtServiceType: "INTRA",
+      omtFee: 5,
+      paidByMethod: "CASH",
+      exchangeRate: 90000,
+    });
+
+    // Rule 28a — the sibling really exists and really moved the supplier
+    // ledger, so the net 0 below is not vacuous.
+    const created = ledgerRowsForSupplier(db, omtId);
+    expect(created).toHaveLength(1);
+    expect(created[0].amount_usd).toBeCloseTo(105, 2);
+    const siblingTxnId = created[0].transaction_id!;
+    expect(txnStatus(db, siblingTxnId)).toBe("ACTIVE");
+
+    const parentTxn = txnRepo.getBySourceId("financial_services", 1)!;
+    txnRepo.refundTransaction(parentTxn.id, 1);
+
+    // Numbers: drawers, supplier, partner, debt all back to pre-create.
+    expectPostings(before, snapshotLedgers(db), {});
+    expect(getSupplierRepository().getSupplierBalance(omtId).balance_usd).toBe(0);
+    const profitAfter = activeProfit();
+    expect(profitAfter.usd).toBeCloseTo(profitBefore.usd, 6);
+    expect(profitAfter.lbp).toBeCloseTo(profitBefore.lbp, 6);
+
+    // Labels: parent keeps REFUND semantics, sibling gets VOID semantics.
+    expect(txnStatus(db, parentTxn.id)).toBe("ACTIVE");
+    const parentReversal = db
+      .prepare(`SELECT type FROM transactions WHERE reverses_id = ?`)
+      .get(parentTxn.id) as { type: string };
+    expect(parentReversal.type).toBe("REFUND");
+    expect(txnStatus(db, siblingTxnId)).toBe("VOIDED");
+    const siblingReversal = db
+      .prepare(
+        `SELECT type, profit_usd, profit_lbp, metadata_json FROM transactions WHERE reverses_id = ?`,
+      )
+      .get(siblingTxnId) as {
+      type: string;
+      profit_usd: number;
+      profit_lbp: number;
+      metadata_json: string;
+    };
+    expect(siblingReversal.type).toBe("SUPPLIER_PAYMENT");
+    expect(siblingReversal.profit_usd).toBe(0);
+    expect(siblingReversal.profit_lbp).toBe(0);
+    // Still hidden from the default Transactions view (rule 26).
+    expect(JSON.parse(siblingReversal.metadata_json).is_auto).toBe(true);
+    expect(ledgerRowsForSupplier(db, omtId)[0].is_refunded).toBe(1);
   });
 });

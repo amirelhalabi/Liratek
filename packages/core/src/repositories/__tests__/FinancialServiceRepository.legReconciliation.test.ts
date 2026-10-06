@@ -38,7 +38,7 @@ jest.mock("../../db/connection", () => {
 });
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 
@@ -187,6 +187,13 @@ function createTestDb(): Database.Database {
       module_key TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    -- LIRA-258 (owner D2): the OMT/WHISH supplier posting is no longer
+    -- wrapped in a silent try/catch, and a missing system supplier is seeded
+    -- via ensureSystemSupplier (which needs the full production schema). This
+    -- hand-rolled schema therefore carries the system supplier rows itself,
+    -- mirroring FinancialServiceRepository.partner.test.ts.
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT',   'OMT',   1);
+    INSERT INTO suppliers (name, provider, is_system) VALUES ('WHISH', 'WHISH', 1);
 
     CREATE TABLE supplier_ledger (
       tenant_id INTEGER DEFAULT 1,
@@ -199,6 +206,10 @@ function createTestDb(): Database.Database {
       created_by INTEGER,
       transaction_id INTEGER,
       is_auto INTEGER NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      refunded_at DATETIME,
+      source_ref_table TEXT DEFAULT NULL,
+      source_ref_id INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -625,7 +636,9 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
         payments: [{ method: "CASH", currencyCode: "USD", amount: 10 }],
         exchangeRate: 90000,
       });
-      expect(counts(db).transactions).toBe(before.transactions + 1);
+      // LIRA-258: the FINANCIAL_SERVICE row + its auto SUPPLIER_PAYMENT ledger
+      // sibling (the base-system supplier posting is no longer silently skipped).
+      expect(counts(db).transactions).toBe(before.transactions + 2);
       // PCD model: the customer's CASH leg lands directly in OMT_System (the
       // PCD) — §1 table, SEND fee-on-top, f=0 (no omtFee), c=0 (commission
       // 0) → PCD leg = +(x+f) = +10. There is no more separate float-reserve
@@ -653,7 +666,9 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
         ],
         exchangeRate: 90000,
       });
-      expect(counts(db).transactions).toBe(before.transactions + 1);
+      // LIRA-258: the FINANCIAL_SERVICE row + its auto SUPPLIER_PAYMENT ledger
+      // sibling (the base-system supplier posting is no longer silently skipped).
+      expect(counts(db).transactions).toBe(before.transactions + 2);
       const debt = db
         .prepare(`SELECT amount_usd FROM debt_ledger ORDER BY id DESC LIMIT 1`)
         .get() as { amount_usd: number } | undefined;
@@ -706,7 +721,9 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
         ],
         exchangeRate: 90000,
       });
-      expect(counts(db).transactions).toBe(before.transactions + 1);
+      // LIRA-258: the FINANCIAL_SERVICE row + its auto SUPPLIER_PAYMENT ledger
+      // sibling (the base-system supplier posting is no longer silently skipped).
+      expect(counts(db).transactions).toBe(before.transactions + 2);
       // PCD model: a CASH RECEIVE payout on the primary provider (OMT) now
       // debits OMT_System, not General — §1 table, RECEIVE fee-on-top, f=0
       // (no omtFee) → PCD legs = −x split across both tendered currencies

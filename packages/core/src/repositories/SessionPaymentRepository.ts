@@ -26,6 +26,7 @@ import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import { getSettingsRepository } from "./SettingsRepository.js";
 import type { BaseSystem } from "../utils/payments.js";
 import { closingLogger } from "../utils/logger.js";
+import { SESSION_DEBT_TYPE } from "../constants/transactionTypes.js";
 
 export interface InsertSessionLegInput {
   sessionId: number;
@@ -43,6 +44,12 @@ export interface InsertBasketDebtInput {
   clientId: number;
   amountUsd: number;
   amountLbp: number;
+  /** LIRA-258 / G17 — the part of the charge that is NOT waiting for a
+   *  repayment at checkout (sales-first share, tracked by sales.paid_usd,
+   *  plus the gift-card share), written as the row's initial
+   *  covered_usd/covered_lbp. Defaults to 0. */
+  coveredUsd?: number;
+  coveredLbp?: number;
   userId: number;
 }
 
@@ -166,19 +173,25 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
 
   /**
    * Insert the single basket debt-ledger entry for the whole
-   * CUSTOMER_ACCOUNT (+ GIFT_CARD) portion, due in 30 days.
+   * CUSTOMER_ACCOUNT (+ GIFT_CARD) portion, due in 30 days. Its initial
+   * `covered_*` is the caller-computed pre-coverage (LIRA-258 / G17); the
+   * rest is covered by client repayments (DebtRepository
+   * ._coverServiceDebtsFIFO), which releases the basket items' profit.
    */
   insertBasketDebt(input: InsertBasketDebtInput): void {
     this.db
       .prepare(
         `INSERT INTO debt_ledger (
-          client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date, session_id, tenant_id
-        ) VALUES (?, 'Session Debt', ?, ?, NULL, ?, ?, datetime('now', '+30 days'), ?, ?)`,
+          client_id, transaction_type, amount_usd, amount_lbp, covered_usd, covered_lbp, transaction_id, note, created_by, due_date, session_id, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, datetime('now', '+30 days'), ?, ?)`,
       )
       .run(
         input.clientId,
+        SESSION_DEBT_TYPE,
         input.amountUsd,
         input.amountLbp,
+        input.coveredUsd ?? 0,
+        input.coveredLbp ?? 0,
         `Session #${input.sessionId} basket`,
         input.userId,
         input.sessionId,

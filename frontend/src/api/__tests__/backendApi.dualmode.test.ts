@@ -243,7 +243,11 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.getExchangeRates();
     await apiMod.getCurrenciesList();
     await apiMod.getExchangeHistory(10);
-    await apiMod.addExchangeTransaction({});
+    // Transport routing only (no validation here) — the payload is typed from
+    // the core schema since LIRA-258 (rule 21), so an empty stub needs a cast.
+    await apiMod.addExchangeTransaction(
+      {} as Parameters<typeof apiMod.addExchangeTransaction>[0],
+    );
 
     await apiMod.getTodayExpenses();
     await apiMod.addExpense({});

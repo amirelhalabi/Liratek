@@ -47,6 +47,7 @@ import {
   getSessionPaymentRepository,
   type SessionPaymentRepository,
   type SessionCashSplitContext,
+  type SessionSaleRow,
 } from "../repositories/SessionPaymentRepository.js";
 import { getDebtService } from "./DebtService.js";
 import {
@@ -124,6 +125,16 @@ export interface RecordBasketPaymentInput {
    * totals. Omitted/empty = no fee-on-top RECEIVE items (legacy baskets).
    */
   feeOnTopReceiveFsIds?: number[];
+}
+
+/** LIRA-258 / G17 — `allocateBasketAccountDebt`'s sales-first split. */
+interface BasketAccountDebtAllocation {
+  /** USD-equivalent value available to mark the basket's sales paid. */
+  salesPaidPoolUsd: number;
+  /** Initial covered_usd/covered_lbp of the basket's 'Session Debt' row
+   *  (gift-card share + sales-attributed share). */
+  preCoveredUsd: number;
+  preCoveredLbp: number;
 }
 
 export interface RecordBasketPaymentResult {
@@ -395,7 +406,10 @@ export class SessionPaymentService {
               "Client is required to settle a payout to store credit",
             );
           }
-          getDebtService().addCredit({
+          // Throwing variant: a failed credit write must roll the whole
+          // checkout back, never commit it without the customer's credit
+          // (LIRA-258 / G13).
+          getDebtService().addCreditOrThrow({
             clientId: sessionClientId,
             amountUsd: leg.currencyCode === "USD" ? amt : 0,
             amountLbp: leg.currencyCode === "LBP" ? amt : 0,
@@ -518,6 +532,17 @@ export class SessionPaymentService {
       }
     }
 
+    result.debtUsd = debtUsd;
+    result.debtLbp = debtLbp;
+    result.giftCardUsd = giftCardUsd;
+    result.giftCardLbp = giftCardLbp;
+
+    // ONE allocation of the account debt across the basket (sales first —
+    // see `allocateBasketAccountDebt`), shared by the debt row's
+    // pre-coverage and the sale back-fill below (rule 14).
+    const saleRows = this.paymentRepo.getSessionSaleRows(sessionId);
+    const allocation = this.allocateBasketAccountDebt(saleRows, result, rate);
+
     // ONE debt-ledger entry for the whole CUSTOMER_ACCOUNT (+ GIFT_CARD) portion.
     if (debtUsd > 0 || debtLbp > 0) {
       if (!sessionClientId) {
@@ -528,17 +553,15 @@ export class SessionPaymentService {
         clientId: sessionClientId,
         amountUsd: debtUsd,
         amountLbp: debtLbp,
+        coveredUsd: allocation.preCoveredUsd,
+        coveredLbp: allocation.preCoveredLbp,
         userId,
       });
     }
-    result.debtUsd = debtUsd;
-    result.debtLbp = debtLbp;
-    result.giftCardUsd = giftCardUsd;
-    result.giftCardLbp = giftCardLbp;
 
     // Back-fill the paid state of the session's SALE rows so the Profits page
     // classifies them correctly (covered → realized; on-account → pending).
-    this.backfillSaleSettlement(sessionId, result, rate);
+    this.backfillSaleSettlement(saleRows, allocation, rate);
 
     // F3 (round-3 review) — stamp the rate this basket was ACTUALLY checked
     // out at onto every member, so a later session-item refund defaults to
@@ -573,21 +596,74 @@ export class SessionPaymentService {
   }
 
   /**
+   * LIRA-258 / G17 — the ONE allocation of a basket's on-account debt across
+   * its items. Rule — "account debt to sales first" (conservative, the
+   * existing lira-session-allocation convention):
+   *
+   * A session basket is paid with ONE pooled payment, so we cannot know which
+   * specific item a given cash leg or account charge was "for". We attribute
+   * the CUSTOMER_ACCOUNT debt to the basket's SALES first (their share stays
+   * pending through `sales.paid_usd`, released by repayments via
+   * `DebtRepository._markSalesPaidFIFO`); whatever account debt the sales
+   * do not absorb is the NON-SALE share, which holds every non-sale charge
+   * item's profit until the customer repays it (`ProfitRepository
+   * .notDebtPending`'s session arm, fed by the 'Session Debt' row's
+   * `covered_*`). GIFT_CARD value is prepaid/collected: it is part of the
+   * debt row (it consumes the voucher's deposited credit) but never waits for
+   * a repayment, so it is excluded from the account debt here.
+   *
+   * Returns, besides the sales' paid pool, the debt row's PRE-COVERAGE: the
+   * gift-card share (per currency) plus the sales-attributed share (USD
+   * column first, the rest converted into the LBP column at the basket
+   * rate) — so the row's uncovered remainder is exactly the non-sale share,
+   * and a repayment that pays the sales (via `sales.paid_usd`) is never
+   * counted a second time on the row.
+   */
+  private allocateBasketAccountDebt(
+    saleRows: SessionSaleRow[],
+    drawer: RecordBasketPaymentResult,
+    rate: number,
+  ): BasketAccountDebtAllocation {
+    const safeRate = rate > 0 ? rate : 1;
+    const accountUsd = Math.max(0, drawer.debtUsd - drawer.giftCardUsd);
+    const accountLbp = Math.max(0, drawer.debtLbp - drawer.giftCardLbp);
+    const accountDebtUsdEquiv = accountUsd + accountLbp / safeRate;
+
+    // Total goods value of the session's sales (USD-equivalent).
+    const salesTotalUsdEquiv = saleRows.reduce(
+      (sum, s) => sum + (s.final_usd ?? 0),
+      0,
+    );
+    const salesAttributedUsdEquiv = Math.min(
+      salesTotalUsdEquiv,
+      accountDebtUsdEquiv,
+    );
+
+    const salesOnUsd = Math.min(accountUsd, salesAttributedUsdEquiv);
+    const salesOnLbp = Math.min(
+      accountLbp,
+      (salesAttributedUsdEquiv - salesOnUsd) * safeRate,
+    );
+
+    return {
+      salesPaidPoolUsd: Math.max(
+        0,
+        salesTotalUsdEquiv - salesAttributedUsdEquiv,
+      ),
+      preCoveredUsd: drawer.giftCardUsd + salesOnUsd,
+      preCoveredLbp: drawer.giftCardLbp + salesOnLbp,
+    };
+  }
+
+  /**
    * Back-fill each session SALE's paid_usd/paid_lbp/exchange_rate_snapshot so the
    * Profits page classifies it correctly (covered → realized; on-account → pending).
    *
-   * Allocation rule — "account debt to sales first" (conservative):
-   *
-   * A session basket is paid with ONE pooled payment, so we cannot know which
-   * specific item a given cash leg or account charge was "for". The only basket
-   * items that can stay PENDING are SALES (recharges/financial/etc. realize on
-   * creation regardless). We therefore attribute the CUSTOMER_ACCOUNT debt to
-   * sales first, and let sales realize from whatever value is left.
-   *
-   * Concretely: a sale is paid only for the portion of the sales total that the
-   * on-account debt does NOT cover. This is the conservative choice — when the
-   * pooled payment is ambiguous we err toward leaving profit PENDING rather than
-   * realizing money that wasn't collected. It fixes two bugs the previous
+   * Uses `allocateBasketAccountDebt`'s sales-first split: a sale is paid
+   * only for the portion of the sales total that the on-account debt does
+   * NOT cover. This is the conservative choice — when the pooled payment is
+   * ambiguous we err toward leaving profit PENDING rather than realizing
+   * money that wasn't collected. It fixes two bugs the previous
    * "cash-in first" rule had:
    *   - cash that actually paid for a NON-sale item no longer realizes a sale
    *     (cross-item cash bleed), and
@@ -595,35 +671,14 @@ export class SessionPaymentService {
    *     gift-card value is prepaid/collected and is excluded from the debt here.
    */
   private backfillSaleSettlement(
-    sessionId: number,
-    drawer: RecordBasketPaymentResult,
+    saleRows: SessionSaleRow[],
+    allocation: BasketAccountDebtAllocation,
     rate: number,
   ): void {
-    // Resolve this session's SALE rows (unified txn → source sale id + amount).
-    const saleRows = this.paymentRepo.getSessionSaleRows(sessionId);
-
     if (saleRows.length === 0) return;
 
-    // Total goods value of the session's sales (USD-equivalent).
-    const salesTotalUsdEquiv = saleRows.reduce(
-      (sum, s) => sum + (s.final_usd ?? 0),
-      0,
-    );
-
-    // On-ACCOUNT (CUSTOMER_ACCOUNT) debt only, in USD-equivalent. Gift-card is a
-    // subset of debt* but is PREPAID/collected value, so it must NOT keep a sale
-    // pending — exclude it here.
-    const accountDebtUsdEquiv = Math.max(
-      0,
-      drawer.debtUsd -
-        drawer.giftCardUsd +
-        (drawer.debtLbp - drawer.giftCardLbp) / rate,
-    );
-
-    // Value available to realize sales = sales total minus the account debt
-    // attributed to them. Allocated across sales in creation order.
-    let salesPaidPool = salesTotalUsdEquiv - accountDebtUsdEquiv;
-    if (salesPaidPool < 0) salesPaidPool = 0;
+    // Value available to realize sales, allocated across sales in creation order.
+    let salesPaidPool = allocation.salesPaidPoolUsd;
 
     const salesRepo = getSalesRepository();
     for (const sale of saleRows) {

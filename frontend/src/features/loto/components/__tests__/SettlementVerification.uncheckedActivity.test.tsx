@@ -103,9 +103,12 @@ describe("SettlementVerification — Unchecked Activity reads the checkpoint swe
 
     expect(await screen.findByText("Unchecked Activity")).toBeTruthy();
     expect(screen.getByText(/1 ticket/)).toBeTruthy();
+    // LIRA-258: the payment input now also asks for this same amount (it
+    // used to show 0 with no checkpoint yet), so the figure appears more
+    // than once — both read the same unchecked-activity net.
     expect(
-      screen.getByText(new RegExp((300000 - 13350).toLocaleString())),
-    ).toBeTruthy();
+      screen.getAllByText(new RegExp((300000 - 13350).toLocaleString())).length,
+    ).toBeGreaterThan(0);
   });
 
   it("case B: a voided ticket does not inflate 'We pay LOTO'", async () => {
@@ -123,9 +126,10 @@ describe("SettlementVerification — Unchecked Activity reads the checkpoint swe
     await openDialog();
 
     expect(await screen.findByText("We pay LOTO")).toBeTruthy();
+    // See case A: the payment input shows the same net too (LIRA-258).
     expect(
-      screen.getByText(new RegExp((477750).toLocaleString())),
-    ).toBeTruthy();
+      screen.getAllByText(new RegExp((477750).toLocaleString())).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText(new RegExp((955500).toLocaleString()))).toBeNull();
   });
 

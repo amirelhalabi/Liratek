@@ -359,16 +359,23 @@ function balance(db: Database.Database, drawer: string, currency: string): numbe
   return row ? row.balance : 0;
 }
 
+// The client's net balance is SUM(amount_*): repayments and credits are
+// their own NEGATIVE rows. `covered_*` is repayment/attribution bookkeeping
+// for profit recognition, not a balance — and since LIRA-258 / G17 a
+// basket's 'Session Debt' row carries its sales-first share as checkout
+// pre-coverage, so subtracting it would under-read the debt. (Every row in
+// this file had covered_* = 0 before G17, so the two definitions agreed on
+// every scenario here.)
 function clientNetDebtUsd(db: Database.Database, clientId: number): number {
   const row = db
-    .prepare(`SELECT COALESCE(SUM(amount_usd - covered_usd), 0) AS total FROM debt_ledger WHERE client_id = ?`)
+    .prepare(`SELECT COALESCE(SUM(amount_usd), 0) AS total FROM debt_ledger WHERE client_id = ?`)
     .get(clientId) as { total: number };
   return row.total;
 }
 
 function clientNetDebtLbp(db: Database.Database, clientId: number): number {
   const row = db
-    .prepare(`SELECT COALESCE(SUM(amount_lbp - covered_lbp), 0) AS total FROM debt_ledger WHERE client_id = ?`)
+    .prepare(`SELECT COALESCE(SUM(amount_lbp), 0) AS total FROM debt_ledger WHERE client_id = ?`)
     .get(clientId) as { total: number };
   return row.total;
 }

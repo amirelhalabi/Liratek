@@ -36,7 +36,7 @@ jest.mock("../../db/connection", () => {
 // ─── Mock DebtService (unused by SEND, but imported by the repo) ─────────────
 
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: jest.fn(), addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 

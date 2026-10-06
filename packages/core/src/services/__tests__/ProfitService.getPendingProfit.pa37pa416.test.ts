@@ -74,7 +74,7 @@ function createSchema(d: TestDb): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER DEFAULT 1, type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ACTIVE', source_table TEXT NOT NULL, source_id INTEGER NOT NULL,
       client_id INTEGER, client_name TEXT, client_phone TEXT,
-      profit_usd REAL DEFAULT 0, profit_lbp REAL DEFAULT 0, created_at TEXT
+      profit_usd REAL DEFAULT 0, profit_lbp REAL DEFAULT 0, created_at TEXT, reverses_id INTEGER /* LIRA-258 / G17 */
     );
     CREATE TABLE clients (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER DEFAULT 1, full_name TEXT, phone_number TEXT);
     CREATE TABLE partner_ledger (
@@ -87,7 +87,22 @@ function createSchema(d: TestDb): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER DEFAULT 1, client_id INTEGER NOT NULL,
       transaction_type TEXT NOT NULL, amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0,
       transaction_id INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, is_refunded INTEGER DEFAULT 0,
-      covered_usd REAL NOT NULL DEFAULT 0, covered_lbp REAL NOT NULL DEFAULT 0, refunded_at TEXT DEFAULT NULL
+      covered_usd REAL NOT NULL DEFAULT 0, covered_lbp REAL NOT NULL DEFAULT 0, refunded_at TEXT DEFAULT NULL, session_id INTEGER /* LIRA-258 / G17 */
+    );
+    -- LIRA-258 / G17: read by notDebtPending's session-basket arm.
+    CREATE TABLE IF NOT EXISTS customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      paid_exchange_rate REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE financial_services (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER DEFAULT 1, provider TEXT,

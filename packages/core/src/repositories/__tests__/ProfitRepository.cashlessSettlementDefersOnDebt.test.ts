@@ -168,7 +168,22 @@ function createSchema(db: Database.Database): void {
       is_refunded INTEGER DEFAULT 0,
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0,
-      refunded_at TEXT DEFAULT NULL
+      refunded_at TEXT DEFAULT NULL, session_id INTEGER /* LIRA-258 / G17 */
+    );
+    -- LIRA-258 / G17: read by notDebtPending's session-basket arm.
+    CREATE TABLE IF NOT EXISTS customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      paid_exchange_rate REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     -- Every OTHER table ProfitRepository's Rule-14 fragments or getByDate's
@@ -241,7 +256,22 @@ function createLegacySchema(db: Database.Database): void {
     CREATE TABLE debt_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER DEFAULT 1, client_id INTEGER NOT NULL, transaction_type TEXT NOT NULL,
       amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0, transaction_id INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      is_refunded INTEGER DEFAULT 0, covered_usd REAL NOT NULL DEFAULT 0, covered_lbp REAL NOT NULL DEFAULT 0, refunded_at TEXT DEFAULT NULL
+      is_refunded INTEGER DEFAULT 0, covered_usd REAL NOT NULL DEFAULT 0, covered_lbp REAL NOT NULL DEFAULT 0, refunded_at TEXT DEFAULT NULL, session_id INTEGER /* LIRA-258 / G17 */
+    );
+    -- LIRA-258 / G17: read by notDebtPending's session-basket arm.
+    CREATE TABLE IF NOT EXISTS customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      paid_exchange_rate REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, status TEXT, final_amount_usd REAL DEFAULT 0, paid_usd REAL DEFAULT 0, paid_lbp REAL DEFAULT 0, exchange_rate_snapshot REAL DEFAULT 90000, created_at TEXT);
     CREATE TABLE sale_items (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, sale_id INTEGER, sold_price_usd REAL DEFAULT 0, cost_price_snapshot_usd REAL DEFAULT 0, quantity INTEGER DEFAULT 1, is_refunded INTEGER DEFAULT 0);

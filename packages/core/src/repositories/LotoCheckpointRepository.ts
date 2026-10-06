@@ -14,7 +14,75 @@ import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
-import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  reconcileLegs,
+} from "./moneyPosting.js";
+import { resolveLotoSupplierId } from "./LotoTicketRepository.js";
+
+/** A settlement payment leg as both settle entry points receive it. Signed:
+ *  positive = LOTO pays the shop (money in), negative = the shop pays LOTO. */
+interface SettlementLeg {
+  method: string;
+  currency_code: string;
+  amount: number;
+  direction?: "IN" | "OUT";
+}
+
+/**
+ * LIRA-258 G23 (POSTING_INTEGRITY_PLAN.md item 3.6): the settlement's drawer
+ * legs must be the net settlement — no more, no less — before anything is
+ * written. Pre-fix any amount was booked, and OUT / non-drawer legs were
+ * silently skipped while the supplier balance was still zeroed in full.
+ *   - every leg moves a drawer (a settlement has no customer account);
+ *   - no OUT (change) legs — a settlement is one payment, one direction;
+ *   - every leg points the same way as the net (negative = the shop pays);
+ *   - Σ|legs| reconciles to |net| through the shared `reconcileLegs`
+ *     (same tolerance/rate handling as the ticket and recharge flows).
+ * No legs at all is still accepted (settling without recording a payment —
+ * existing callers and the e2e settle helper rely on it).
+ */
+function assertSettlementLegsReconcile(
+  legs: SettlementLeg[],
+  netSettlement: number,
+  exchangeRate: number,
+  tenderExchangeRate: number | undefined,
+  context: string,
+): void {
+  if (legs.length === 0) return;
+  for (const leg of legs) {
+    if (leg.direction === "OUT") {
+      throw new Error(
+        `${context}: change (OUT) legs are not part of a supplier settlement`,
+      );
+    }
+    if (!isDrawerAffectingMethod(leg.method)) {
+      throw new Error(
+        `${context}: payment method "${leg.method}" moves no drawer — a settlement must be paid from a drawer`,
+      );
+    }
+    if (leg.amount !== 0 && Math.sign(leg.amount) !== Math.sign(netSettlement)) {
+      throw new Error(
+        netSettlement < 0
+          ? `${context}: payment direction does not match — the shop pays LOTO here, so every leg must be a payment out`
+          : `${context}: payment direction does not match — LOTO pays the shop here, so every leg must be a payment in`,
+      );
+    }
+  }
+  reconcileLegs({
+    inLegs: legs.map((l) => ({
+      method: l.method,
+      currencyCode: l.currency_code,
+      amount: l.amount,
+    })),
+    expectedTotals: { usd: 0, lbp: Math.abs(netSettlement) },
+    exchangeRate,
+    tenderExchangeRate,
+    context,
+  });
+}
 
 export interface LotoCheckpoint {
   id: number;
@@ -246,12 +314,10 @@ export class LotoCheckpointRepository {
     _totalCashPrizes: number, // DEPRECATED — read from checkpoint instead
     settledAt: string | undefined,
     userId: number,
-    payments?: Array<{
-      method: string;
-      currency_code: string;
-      amount: number;
-      direction?: "IN" | "OUT";
-    }>,
+    payments?: SettlementLeg[],
+    /** The rate the till converted cross-currency legs at (reconciliation
+     *  compares at it when present — see `reconcileLegs`). */
+    tenderExchangeRate?: number,
   ): LotoCheckpoint {
     const tenantId = getCurrentTenantId();
     const settleInTxn = this.db.transaction(() => {
@@ -271,14 +337,24 @@ export class LotoCheckpointRepository {
       const supplierPaysShop = totalCommission + totalCashPrizes;
       const netSettlement = supplierPaysShop - shopPaysSupplier;
 
-      // Get LOTO supplier ID
-      const supplierStmt = this.db.prepare(
-        `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
+      // G23: legs must be the net settlement (before any write).
+      assertSettlementLegsReconcile(
+        payments ?? [],
+        netSettlement,
+        getUsdLbpSellRate(this.db),
+        tenderExchangeRate,
+        `Loto settlement #${id}`,
       );
-      const supplier = supplierStmt.get(tenantId) as { id: number } | undefined;
-      const supplierId = supplier?.id || 1;
 
-      // 1. Create unified transaction for settlement
+      // The LOTO supplier — same lookup/create as the ticket sale (G23: the
+      // old `supplierId || 1` fallback posted to whatever supplier id 1 is).
+      const supplierId = resolveLotoSupplierId(this.db, tenantId);
+
+      // 1. Create unified transaction for settlement. LOTO_SETTLEMENT stays in
+      // NON_REVERSIBLE_TRANSACTION_TYPES: the checkpoint's totals and its
+      // is_settled/settlement_id stamps are frozen once settled, so there is
+      // no safe generic reversal. `exchange_rate` omitted → the market-rate
+      // snapshot every other loto flow stamps (was a hard-coded 100,000).
       const txnRepo = getTransactionRepository();
       const txnId = txnRepo.createTransaction({
         type: TRANSACTION_TYPES.LOTO_SETTLEMENT,
@@ -287,7 +363,6 @@ export class LotoCheckpointRepository {
         user_id: userId,
         amount_usd: 0,
         amount_lbp: netSettlement,
-        exchange_rate: 100000,
         summary: `Loto settlement for checkpoint #${id}`,
         metadata_json: {
           total_sales: totalSales,
@@ -334,6 +409,7 @@ export class LotoCheckpointRepository {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
+      // G23: linked to its own LOTO_SETTLEMENT transaction (was NULL).
       insertLedger.run(
         tenantId,
         supplierId,
@@ -342,7 +418,7 @@ export class LotoCheckpointRepository {
         netSettlement,
         `Settlement for checkpoint #${id}: ${settlementNote}`,
         userId,
-        null,
+        txnId,
       );
 
       // 4. NO separate commission drawer credit. The settlement payment leg is
@@ -353,12 +429,12 @@ export class LotoCheckpointRepository {
       // delta was 2× commission vs the 1× stamped profit); see
       // LotoCheckpointRepository.settleDrawer.test.ts.
 
-      // 5. Record payment legs and update drawer balances
+      // 5. Record payment legs and update drawer balances (validated and
+      // reconciled above — every leg here is a drawer leg in the net's
+      // direction).
       if (payments && payments.length > 0) {
         for (const p of payments) {
-          // OUT legs (returned change) are not part of a supplier settlement.
-          if (p.direction === "OUT") continue;
-          if (!isDrawerAffectingMethod(p.method)) continue;
+          if (p.amount === 0) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
           insertPaymentRow(this.db, {
             transactionId: txnId,
@@ -412,15 +488,29 @@ export class LotoCheckpointRepository {
     totalCommission: number,
     settledAt: string | undefined,
     userId: number,
-    payment?: {
-      method: string;
-      drawer_name: string;
-      currency_code: string;
-      amount: number; // positive = supplier pays us (IN), negative = we pay supplier (OUT)
-    },
+    /** One leg (legacy) or split legs (LIRA-258: the Settle dialog's
+     *  MultiPaymentInput). Positive = supplier pays us (IN), negative = we
+     *  pay the supplier (OUT). A leg's `drawer_name`, when sent, is ignored
+     *  for posting (G23): the drawer is the one `method` maps to. */
+    payment?:
+      | {
+          method: string;
+          drawer_name: string;
+          currency_code: string;
+          amount: number;
+        }
+      | SettlementLeg[],
+    /** See settleCheckpoint's `tenderExchangeRate`. */
+    tenderExchangeRate?: number,
   ): LotoCheckpoint[] {
     if (checkpointIds.length === 0)
       throw new Error("No checkpoint IDs provided");
+
+    const legs: SettlementLeg[] = Array.isArray(payment)
+      ? payment
+      : payment
+        ? [payment]
+        : [];
 
     const tenantId = getCurrentTenantId();
     const settleInTxn = this.db.transaction(() => {
@@ -436,14 +526,20 @@ export class LotoCheckpointRepository {
 
       const netSettlement = totalCommission + totalCashPrizes - totalSales;
 
-      const supplier = this.db
-        .prepare(
-          `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
-        )
-        .get(tenantId) as { id: number } | undefined;
-      const supplierId = supplier?.id || 1;
+      // G23: the payment must be the net settlement (before any write).
+      assertSettlementLegsReconcile(
+        legs,
+        netSettlement,
+        getUsdLbpSellRate(this.db),
+        tenderExchangeRate,
+        "Loto batch settlement",
+      );
 
-      // 1. Create unified transaction
+      // Same LOTO supplier lookup/create as the ticket sale (no `|| 1`).
+      const supplierId = resolveLotoSupplierId(this.db, tenantId);
+
+      // 1. Create unified transaction (non-reversible + market-rate snapshot:
+      // see settleCheckpoint).
       const txnRepo = getTransactionRepository();
       const txnId = txnRepo.createTransaction({
         type: TRANSACTION_TYPES.LOTO_SETTLEMENT,
@@ -452,7 +548,6 @@ export class LotoCheckpointRepository {
         user_id: userId,
         amount_usd: 0,
         amount_lbp: netSettlement,
-        exchange_rate: 100000,
         summary: `Loto batch settlement for ${checkpointIds.length} checkpoint(s)`,
         metadata_json: {
           checkpoint_ids: checkpointIds,
@@ -504,7 +599,7 @@ export class LotoCheckpointRepository {
           netSettlement,
           `Batch settlement for checkpoints [${checkpointIds.join(", ")}]`,
           userId,
-          null,
+          txnId,
         );
 
       // 4. NO separate commission drawer credit — same reasoning as
@@ -512,22 +607,25 @@ export class LotoCheckpointRepository {
       // (commission kept back), so a standalone credit double-counts the
       // commission. See LotoCheckpointRepository.settleDrawer.test.ts.
 
-      // 5. Record net payment and update drawer balance
-      if (payment && payment.amount !== 0) {
+      // 5. Record each payment leg and update its drawer (validated and
+      // reconciled above — every leg is a drawer leg in the net's direction).
+      for (const leg of legs) {
+        if (leg.amount === 0) continue;
+        const drawerName = paymentMethodToDrawerName(leg.method);
         insertPaymentRow(this.db, {
           transactionId: txnId,
-          method: payment.method,
-          drawerName: payment.drawer_name,
-          currencyCode: payment.currency_code,
-          amount: payment.amount,
+          method: leg.method,
+          drawerName,
+          currencyCode: leg.currency_code,
+          amount: leg.amount,
           note: `Loto batch settlement`,
           createdBy: userId,
           tenantId,
         });
         applyDrawerDelta(this.db, {
-          drawerName: payment.drawer_name,
-          currencyCode: payment.currency_code,
-          delta: payment.amount,
+          drawerName,
+          currencyCode: leg.currency_code,
+          delta: leg.amount,
           tenantId,
         });
       }

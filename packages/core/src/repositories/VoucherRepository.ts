@@ -298,6 +298,49 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
 
     return this.findByIdOrFail(voucher.id);
   }
+
+  /**
+   * LIRA-258 / G37 — give back every voucher redeemed in `transactionId`
+   * when that transaction is voided or refunded as a whole.
+   *
+   * Redemption wrote two things: a CREDIT_DEPOSIT of the face value to the
+   * owner (note `Voucher redeemed <code>`, linked to the transaction) and the
+   * `redeemed` status. The generic reversal
+   * (`TransactionRepository._cancelDebt`) cancels the deposit; this undoes
+   * the status, so the refund returns both the ledger AND the voucher to
+   * their pre-sale state (rule 20). Keeping the deposit instead would leave
+   * the owner's account changed by the refund.
+   *
+   * Only vouchers whose own deposit is linked to this transaction are
+   * restored (the deposit is what `_cancelDebt` reverses), so the two halves
+   * can never disagree. Redemptions without a transaction id (session
+   * checkout passes `transactionId: null`) are not reachable from here.
+   * An expired voucher comes back `pending` and still reads as expired
+   * (`VOUCHER_COLUMNS`' status CASE / `redeemByCode`'s expiry check).
+   *
+   * Must run inside the caller's db.transaction(). Returns how many vouchers
+   * were restored.
+   */
+  restoreRedeemedByTransaction(transactionId: number): number {
+    const tenantId = getCurrentTenantId();
+    const result = this.db
+      .prepare(
+        `UPDATE vouchers
+            SET status = 'pending', redeemed_at = NULL, redeemed_by = NULL,
+                redeemed_in_transaction = NULL, redeemed_transaction_id = NULL,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE redeemed_transaction_id = ? AND status = 'redeemed' AND tenant_id = ?
+            AND EXISTS (
+              SELECT 1 FROM debt_ledger d
+               WHERE d.transaction_id = vouchers.redeemed_transaction_id
+                 AND d.transaction_type = 'CREDIT_DEPOSIT'
+                 AND d.note = 'Voucher redeemed ' || vouchers.code
+                 AND d.tenant_id = vouchers.tenant_id
+            )`,
+      )
+      .run(transactionId, tenantId);
+    return result.changes;
+  }
 }
 
 // =============================================================================

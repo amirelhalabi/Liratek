@@ -381,6 +381,14 @@ export default function Exchange() {
     number | undefined
   >();
   const [payoutSheetKey, setPayoutSheetKey] = useState(0);
+  // Payout "keep the change" (owner decision 2026-10-06, D9 refined): the
+  // small leftover the cashier does NOT hand out (e.g. $101.12 owed, $101
+  // paid, $0.12 kept) — reported by the payout sheet, sent in the ONE
+  // payload below as kept_change_usd/kept_change_lbp, booked as profit.
+  const [payoutKept, setPayoutKept] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { methods: allPaymentMethods } = usePaymentMethods();
 
@@ -1067,6 +1075,14 @@ export default function Exchange() {
           ? {
               payments: toCamelLegs(lines),
               tender_exchange_rate: payoutTenderRate ?? payoutSeedRate,
+              // Kept leftover rides with the payout legs only — the server
+              // refuses kept change without them.
+              ...(payoutKept
+                ? {
+                    kept_change_usd: payoutKept.usd,
+                    kept_change_lbp: payoutKept.lbp,
+                  }
+                : {}),
             }
           : {}),
       });
@@ -1119,6 +1135,7 @@ export default function Exchange() {
         setTransactionTime(undefined);
         setShowPayoutSheet(false);
         setPayoutLines([]);
+        setPayoutKept(null);
         setPayoutTenderRate(undefined);
         loadHistory();
       } else {
@@ -1865,6 +1882,7 @@ export default function Exchange() {
                   // partner mode and exotic targets keep the direct submit.
                   if (canSplitPayout) {
                     setPayoutLines([]);
+                    setPayoutKept(null);
                     setPayoutTenderRate(undefined);
                     setPayoutSheetKey((k) => k + 1);
                     setShowPayoutSheet(true);
@@ -1986,6 +2004,8 @@ export default function Exchange() {
         paymentInputKey={payoutSheetKey}
         initialPaymentMethod="CASH"
         onPaymentChange={setPayoutLines}
+        direction="payout"
+        onKeptChange={setPayoutKept}
       />
 
       {/* Your Rates — configured buy/sell spreads + stamped-profit preview */}

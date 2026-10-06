@@ -74,7 +74,12 @@ export interface SellTicketData {
     currencyCode: string;
     amount: number;
     direction?: "IN" | "OUT";
+    /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
+    voucherCode?: string;
   }>;
+  /** The rate the till converted cross-currency tender at (leg
+   *  reconciliation compares at it — see LotoTicketCreate). */
+  tender_exchange_rate?: number;
   /** Session-basket deferred payment mode (basket owns the customer-cash post). */
   deferPayment?: boolean;
   /** Operator-edited USD↔LBP rate of record, threaded by the session checkout. */
@@ -175,6 +180,7 @@ export class LotoService {
         payments: data.payments,
         deferPayment: data.deferPayment,
         exchange_rate: data.exchange_rate,
+        tender_exchange_rate: data.tender_exchange_rate,
         kept_change_usd: data.kept_change_usd,
         kept_change_lbp: data.kept_change_lbp,
         partnerId: data.partnerId,
@@ -814,7 +820,15 @@ export class LotoService {
     totalCashPrizes: number,
     settledAt: string | undefined,
     userId: number,
-    payments?: Array<{ method: string; currency_code: string; amount: number }>,
+    payments?: Array<{
+      method: string;
+      currency_code: string;
+      amount: number;
+      direction?: "IN" | "OUT";
+    }>,
+    /** The till's conversion rate for cross-currency legs (LIRA-258 G23 —
+     *  the legs must reconcile to the net settlement at this rate). */
+    tenderExchangeRate?: number,
   ): LotoCheckpoint {
     try {
       const checkpoint = this.checkpointRepo.settleCheckpoint(
@@ -826,6 +840,7 @@ export class LotoService {
         settledAt,
         userId,
         payments,
+        tenderExchangeRate,
       );
       lotoLogger.info(
         `Loto checkpoint ${id} settled: sales=${totalSales}, commission=${totalCommission}, cash_prizes=${totalCashPrizes}`,
@@ -846,12 +861,22 @@ export class LotoService {
     totalCommission: number,
     settledAt: string | undefined,
     userId: number,
-    payment?: {
-      method: string;
-      drawer_name: string;
-      currency_code: string;
-      amount: number;
-    },
+    /** One leg (legacy) or split legs — see the repository. */
+    payment?:
+      | {
+          method: string;
+          drawer_name: string;
+          currency_code: string;
+          amount: number;
+        }
+      | Array<{
+          method: string;
+          currency_code: string;
+          amount: number;
+          direction?: "IN" | "OUT";
+        }>,
+    /** See settleCheckpoint's `tenderExchangeRate`. */
+    tenderExchangeRate?: number,
   ): LotoCheckpoint[] {
     try {
       const checkpoints = this.checkpointRepo.settleCheckpoints(
@@ -861,6 +886,7 @@ export class LotoService {
         settledAt,
         userId,
         payment,
+        tenderExchangeRate,
       );
       lotoLogger.info(
         `Loto batch settlement: ${checkpointIds.length} checkpoint(s) settled, sales=${totalSales}, commission=${totalCommission}`,

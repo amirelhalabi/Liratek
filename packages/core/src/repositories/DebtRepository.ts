@@ -18,6 +18,13 @@ import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
+import {
+  COVERAGE_EPSILON_LBP,
+  COVERAGE_EPSILON_USD,
+  coverableChargeSql,
+  coverageOpenSql,
+  coverageOutstandingSql,
+} from "./sessionDebtCoverage.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {
   applyDrawerDelta,
@@ -939,6 +946,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * as realized only when its charge row is fully covered in BOTH currencies.
    * Refunded charge rows are skipped (their source is excluded from profit
    * anyway, and covering them would waste repayment budget).
+   *
+   * LIRA-258 / G17 — a session basket's 'Session Debt' charge is covered by
+   * the same sweep (REPAYMENT_COVERABLE_DEBT_TYPES), so basket items put on
+   * the account release their profit as the customer repays. Which rows are
+   * open and how much each absorbs come from the shared
+   * `sessionDebtCoverage.ts` fragments (rule 14 — the profit hold reads the
+   * same definition); a wholly reversed basket's charge is never covered.
    */
   private _coverServiceDebtsFIFO(
     clientId: number,
@@ -952,23 +966,21 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
     const open = this.db
       .prepare(
-        `SELECT id, COALESCE(amount_usd, 0) AS amount_usd,
-                COALESCE(amount_lbp, 0) AS amount_lbp,
-                covered_usd, covered_lbp
-         FROM debt_ledger
-         WHERE client_id = ? AND tenant_id = ?
-           AND transaction_type IN ('Recharge Debt', 'Service Debt', 'Custom Service Debt', 'Loto Debt', 'Maintenance Debt')
-           AND COALESCE(is_refunded, 0) = 0
-           AND (covered_usd < COALESCE(amount_usd, 0) - 0.005
-                OR covered_lbp < COALESCE(amount_lbp, 0) - 1)
-         ORDER BY created_at ASC, id ASC`,
+        `SELECT dl.id, dl.covered_usd, dl.covered_lbp,
+                ${coverageOutstandingSql("dl", "usd")} AS outstanding_usd,
+                ${coverageOutstandingSql("dl", "lbp")} AS outstanding_lbp
+         FROM debt_ledger dl
+         WHERE dl.client_id = ? AND dl.tenant_id = ?
+           AND ${coverableChargeSql("dl")}
+           AND ${coverageOpenSql("dl")}
+         ORDER BY dl.created_at ASC, dl.id ASC`,
       )
       .all(clientId, tenantId) as Array<{
       id: number;
-      amount_usd: number;
-      amount_lbp: number;
       covered_usd: number;
       covered_lbp: number;
+      outstanding_usd: number;
+      outstanding_lbp: number;
     }>;
 
     const upd = this.db.prepare(
@@ -986,18 +998,18 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const usdTakes = allocateFifo(
       open.map((row) => ({
         id: row.id,
-        outstanding: row.amount_usd - row.covered_usd,
+        outstanding: Math.max(0, row.outstanding_usd),
       })),
       remainingUsd,
-      0.005,
+      COVERAGE_EPSILON_USD,
     );
     const lbpTakes = allocateFifo(
       open.map((row) => ({
         id: row.id,
-        outstanding: row.amount_lbp - row.covered_lbp,
+        outstanding: Math.max(0, row.outstanding_lbp),
       })),
       remainingLbp,
-      1,
+      COVERAGE_EPSILON_LBP,
     );
     const usdById = new Map(usdTakes.map((t) => [t.id, t.take]));
     const lbpById = new Map(lbpTakes.map((t) => [t.id, t.take]));

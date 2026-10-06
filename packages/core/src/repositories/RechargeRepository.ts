@@ -428,7 +428,10 @@ interface TelecomStockLeg {
  * validity — the validity decrement is a SEPARATE `CarrierLineService
  * .applyMovement` call in `processRecharge`, right after this function's
  * result is applied. See `RechargeRepository.daysChargeValidityDecrement
- * .test.ts` (LIRA-113).
+ * .test.ts` (LIRA-113). Since LIRA-258 (owner D4, 2026-10-06) that same
+ * movement also lowers the primary line's `credits` by this leg's
+ * `amountUsd`, so drawer == Σ line credits holds for DAYS too
+ * (`RechargeRepository.daysSaleLineCredits.test.ts`).
  *
  * The days figure comes from the operator-submitted cost, already converted to
  * USD by the caller — never recomputed from the day count, because the Days
@@ -693,6 +696,22 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     userId: number;
   }): { success: boolean; error?: string } {
     try {
+      // LIRA-258 / G15 — MTC/Alfa are NOT drawer top-up targets. Their
+      // drawer must always equal Σ the carrier's active line credits
+      // (LIRA-252), and a drawer-to-drawer transfer here raises the drawer
+      // with no carrier-line movement. The UI already dropped them from the
+      // Top-Up button (Recharge page, Phase 8.2: "a path never designed or
+      // tested for those two providers"); the schema still accepts them, so
+      // refuse here for both transports. Line credits are added through
+      // Settings → Shop Lines (LIRA-252 B posts the matching drawer
+      // adjustment) or the Credit tab's buy-back flip.
+      if (data.provider === "MTC" || data.provider === "Alfa") {
+        return {
+          success: false,
+          error: `${TOP_UP_PROVIDER_LABELS[data.provider]} credits are added on the phone line itself (Settings → Shop Lines), not by a drawer top-up`,
+        };
+      }
+
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const currency = data.currency;
       const amount = Math.abs(data.amount);
@@ -1358,6 +1377,16 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           if (primaryLine) {
             const validityMovement = getCarrierLineService().applyMovement({
               carrierLineId: primaryLine.id,
+              // LIRA-258 / G15 (owner D4, 2026-10-06: "when we sell days, we
+              // pay an amount per 1 month, and yes in real life that amount
+              // is reduced from our credits"). The line's credits drop by
+              // EXACTLY what left the drawer above — `stockLeg.amountUsd`,
+              // one derivation (rule 14), 0 when the cost is 0 and no drawer
+              // leg posted — so drawer == Σ line credits holds (LIRA-252).
+              // Same movement row as the validity decrement, so the generic
+              // `_reverseCarrierLineMovements` restores credits, validity and
+              // days_owed together on void/refund (rule 20).
+              creditsDelta: stockLeg?.amountUsd ?? 0,
               validityDaysDelta: -Math.abs(data.amount),
               reason: "DAYS_SALE",
               transactionId: txnId,
@@ -1399,7 +1428,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           } else {
             rechargeLogger.warn(
               { carrier },
-              "processRecharge(DAYS): no primary carrier line configured — validity decrement skipped",
+              "processRecharge(DAYS): no primary carrier line configured — validity and credits decrement skipped",
             );
           }
         } else if (stockLeg) {
@@ -1587,7 +1616,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
                 "Client is required to return change as store credit",
               );
             }
-            getDebtService().addCredit({
+            // G13 (LIRA-258): the THROWING variant — a failed credit must
+            // roll the whole recharge back, never commit it without the
+            // customer's change (addCredit swallows errors).
+            getDebtService().addCreditOrThrow({
               clientId: data.clientId,
               amountUsd: r.currencyCode === "USD" ? amt : 0,
               amountLbp: r.currencyCode === "LBP" ? amt : 0,
@@ -1885,7 +1917,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
                 "Client is required for CUSTOMER_ACCOUNT cashout",
               );
             }
-            getDebtService().addCredit({
+            // G13 (LIRA-258): throwing variant — a failed credit rolls the
+            // buy-back back. postPayoutLegs only calls this for a leg with a
+            // positive amount (USD or LBP), so a valid leg is never 0/0; a
+            // leg in any other currency arrives as 0/0 and is now refused
+            // instead of silently dropped.
+            getDebtService().addCreditOrThrow({
               clientId: data.clientId,
               amountUsd: usd,
               amountLbp: lbp,
@@ -2035,6 +2072,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
    * supplier row (`create_db.sql`'s system-supplier seed), which
    * LIRA-187's migration parents under `'OMT'` — so this booking lands in
    * the OMT open-credit account automatically, with zero new code here.
+   *
+   * LIRA-258 G10 (owner decision D2): the supplier is now resolved with
+   * `ensureSystemSupplier` (created / re-activated when missing or off),
+   * and the top-up is refused when no supplier can be produced — the
+   * drawer is never credited without the TOP_UP debt.
    */
   topUpFromSupplier(data: {
     provider: "iPick" | "Katsh" | "OMT_APP";
@@ -2049,10 +2091,25 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const amountLabel = formatMoneyAmount(amount, currency);
       const tenantId = getCurrentTenantId();
 
-      // Find matching active supplier for this provider
-      const supplier = getSupplierRepository().getByProvider(data.provider);
+      let supplierId: number | null = null;
 
       this.db.transaction(() => {
+        // G10 (LIRA-258, owner decision D2): the supplier the TOP_UP debt
+        // lands on is created / re-activated when missing or switched off —
+        // never skipped. Resolved INSIDE the transaction so a seed or
+        // re-activation rolls back with the rest if a later write fails.
+        // When even that cannot produce one, refuse the whole top-up: the
+        // drawer must never be credited without its supplier debt.
+        const supplier = getSupplierRepository().ensureSystemSupplier(
+          data.provider,
+        );
+        if (!supplier) {
+          throw new Error(
+            `No supplier found for ${TOP_UP_PROVIDER_LABELS[data.provider]} — add one on the Suppliers page before topping up on credit`,
+          );
+        }
+        supplierId = supplier.id;
+
         // Insert TOP_UP recharge record (no paid_by drawer — funded by supplier)
         const rechargeResult = this.db
           .prepare(
@@ -2093,17 +2150,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // of a raw INSERT — same entry_type/amounts/note/is_auto(=0) as
         // before, plus the RECHARGE_TOPUP transaction_id link the raw INSERT
         // never stamped.
-        if (supplier) {
-          getSupplierRepository().addLedgerEntry({
-            supplier_id: supplier.id,
-            entry_type: "TOP_UP",
-            amount_usd: currency === "USD" ? amount : 0,
-            amount_lbp: currency === "LBP" ? amount : 0,
-            note: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amountLabel}`,
-            created_by: data.userId,
-            transaction_id: txnId,
-          });
-        }
+        getSupplierRepository().addLedgerEntry({
+          supplier_id: supplier.id,
+          entry_type: "TOP_UP",
+          amount_usd: currency === "USD" ? amount : 0,
+          amount_lbp: currency === "LBP" ? amount : 0,
+          note: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amountLabel}`,
+          created_by: data.userId,
+          transaction_id: txnId,
+        });
 
         // Increase the provider drawer balance — a REAL `payments` row
         // (rule 20/LIRA-194), not a bare `applyDrawerDelta`, so the generic
@@ -2136,7 +2191,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           amount,
           currency,
           destDrawer,
-          supplierId: supplier?.id ?? null,
+          supplierId,
         },
         `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up → ${destDrawer}: ${amountLabel}`,
       );
@@ -2253,11 +2308,26 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         };
       }
 
-      const supplier = getSupplierRepository().getByProvider(data.provider);
       const commission = omtAppCashoutCommission(amount, currency);
       const creditedLabel = formatMoneyAmount(amount + commission, currency);
+      let supplierId: number | null = null;
 
       this.db.transaction(() => {
+        // G10 (LIRA-258, owner decision D2) — same rule as
+        // topUpFromSupplier: the 'OMT App' supplier is created /
+        // re-activated inside this transaction, and the wallet never moves
+        // without the account credit. Pre-fix a missing supplier only
+        // logged a warning and skipped the ledger side.
+        const supplier = getSupplierRepository().ensureSystemSupplier(
+          data.provider,
+        );
+        if (!supplier) {
+          throw new Error(
+            `No supplier found for ${TOP_UP_PROVIDER_LABELS[data.provider]} — add one on the Suppliers page before cashing out`,
+          );
+        }
+        supplierId = supplier.id;
+
         // Insert a TOP_UP-shaped recharges record (see doc comment §3) —
         // no `paid_by` drawer in the sense of a customer payment; `paid_by`
         // instead names the drawer this cashout actually debited, mirroring
@@ -2329,28 +2399,17 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // transaction the existing cascade-void can find via
         // source_ref_table/source_ref_id when the WALLET_CASHOUT
         // transaction above is voided.
-        if (supplier) {
-          getSupplierRepository().addLedgerEntry({
-            supplier_id: supplier.id,
-            entry_type: "PAYMENT",
-            amount_usd: currency === "USD" ? amount + commission : 0,
-            amount_lbp: currency === "LBP" ? amount + commission : 0,
-            note: `Cash Out to OMT: ${amountLabel} + ${formatMoneyAmount(commission, currency)} commission`,
-            created_by: data.userId,
-            is_auto: true,
-            source_ref_table: "recharges",
-            source_ref_id: rechargeId,
-          });
-        } else {
-          // Mirrors topUpFromSupplier's own established convention: a
-          // missing 'OMT App' supplier row (a minimal/pre-seed fixture)
-          // logs and skips the ledger side rather than failing the whole
-          // wallet movement.
-          rechargeLogger.warn(
-            { provider: data.provider },
-            "cashoutToSupplier: no 'OMT App' supplier found — account ledger entry skipped",
-          );
-        }
+        getSupplierRepository().addLedgerEntry({
+          supplier_id: supplier.id,
+          entry_type: "PAYMENT",
+          amount_usd: currency === "USD" ? amount + commission : 0,
+          amount_lbp: currency === "LBP" ? amount + commission : 0,
+          note: `Cash Out to OMT: ${amountLabel} + ${formatMoneyAmount(commission, currency)} commission`,
+          created_by: data.userId,
+          is_auto: true,
+          source_ref_table: "recharges",
+          source_ref_id: rechargeId,
+        });
       })();
 
       rechargeLogger.info(
@@ -2360,7 +2419,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           currency,
           commission,
           destDrawer,
-          supplierId: supplier?.id ?? null,
+          supplierId,
         },
         `Cash Out to OMT: ${destDrawer} -${amountLabel} → OMT account +${creditedLabel}`,
       );

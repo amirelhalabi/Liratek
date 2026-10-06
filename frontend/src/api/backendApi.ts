@@ -55,6 +55,14 @@ import type {
   // (rule 21).
   CarrierLineAdjustmentRecord,
   CarrierLineAdjustmentFilters,
+  // Exchange submit payload (incl. payout kept change), derived from the
+  // core schema (rule 21).
+  ExchangeSubmitPayload,
+  // LIRA-258 — loto sell/settle payloads derived from the core schemas
+  // (rule 21): tender_exchange_rate, GIFT_CARD voucherCode, split settle legs.
+  LotoSellPayload,
+  LotoCheckpointSettlePayload,
+  LotoCheckpointsSettleBatchPayload,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -1823,7 +1831,7 @@ export async function getExchangeHistory(limit?: number) {
   return res.history;
 }
 
-export async function addExchangeTransaction(payload: any) {
+export async function addExchangeTransaction(payload: ExchangeSubmitPayload) {
   if (isElectron()) {
     return (window as any).api.exchange.addTransaction(payload);
   }
@@ -6352,17 +6360,9 @@ export async function updateCustomServiceMetadata(data: {
 
 // ==================== Loto API ====================
 
-export async function lotoSell(data: {
-  ticket_number?: string;
-  sale_amount: number;
-  commission_rate?: number;
-  is_winner?: boolean;
-  prize_amount?: number;
-  sale_date?: string;
-  payment_method?: string;
-  currency?: string;
-  note?: string;
-}): Promise<{ success: boolean; ticket?: any; error?: string }> {
+export async function lotoSell(
+  data: LotoSellPayload,
+): Promise<{ success: boolean; ticket?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.sell(data),
     async () =>
@@ -6789,15 +6789,9 @@ export async function lotoCheckpointMarkSettled(
   );
 }
 
-export async function lotoCheckpointSettle(data: {
-  id: number;
-  totalSales: number;
-  totalCommission: number;
-  totalPrizes: number;
-  totalCashPrizes?: number;
-  settledAt?: string;
-  payments?: Array<{ method: string; currency_code: string; amount: number }>;
-}): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
+export async function lotoCheckpointSettle(
+  data: LotoCheckpointSettlePayload,
+): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.checkpoint.settle(data),
     async () =>
@@ -6811,18 +6805,9 @@ export async function lotoCheckpointSettle(data: {
   );
 }
 
-export async function lotoCheckpointSettleBatch(data: {
-  checkpointIds: number[];
-  totalSales: number;
-  totalCommission: number;
-  settledAt?: string;
-  payment?: {
-    method: string;
-    drawer_name: string;
-    currency_code: string;
-    amount: number;
-  };
-}): Promise<{ success: boolean; checkpoints?: any[]; error?: string }> {
+export async function lotoCheckpointSettleBatch(
+  data: LotoCheckpointsSettleBatchPayload,
+): Promise<{ success: boolean; checkpoints?: any[]; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.checkpoint.settleBatch(data),
     async () =>

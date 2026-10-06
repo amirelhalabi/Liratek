@@ -60,6 +60,9 @@ jest.mock("@liratek/core", () => ({
 }));
 
 import Exchange from "../index";
+// Rule 24: payload field names are asserted THROUGH the core schema (the
+// direct validator module — @liratek/core itself is stubbed above).
+import { exchangeSubmitSchema } from "../../../../../../../packages/core/src/validators/exchange";
 
 const mockAddExchangeTransaction = jest
   .fn()
@@ -75,13 +78,17 @@ const mockGetRates = jest.fn().mockResolvedValue([
 ]);
 const mockGetExchangeHistory = jest.fn().mockResolvedValue([]);
 
+// Rule 25: useApi() must return a STABLE reference (production's is a
+// module-level singleton) — a fresh literal per call hides identity-churn
+// render loops.
+const mockApi = {
+  getRates: mockGetRates,
+  getExchangeHistory: mockGetExchangeHistory,
+  addExchangeTransaction: mockAddExchangeTransaction,
+};
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
-  useApi: () => ({
-    getRates: mockGetRates,
-    getExchangeHistory: mockGetExchangeHistory,
-    addExchangeTransaction: mockAddExchangeTransaction,
-  }),
+  useApi: () => mockApi,
   // LIRA-213 #20 added a SECOND DecimalInput to the page (the typeable
   // "Customer Gets" target box), so this stub must respect a caller-passed
   // `data-testid` instead of always rendering "amount-in" — otherwise two
@@ -124,6 +131,7 @@ jest.mock("@/features/recharge/components/PaymentSheet", () => ({
     paymentMethods: Array<{ code: string }>;
     onPaymentChange: (lines: unknown[]) => void;
     onExchangeRateChange?: (rate: number) => void;
+    onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
     onConfirm: () => void;
   }) => {
     lastSheetProps = props as unknown as Record<string, unknown>;
@@ -146,6 +154,23 @@ jest.mock("@/features/recharge/components/PaymentSheet", () => ({
         <button
           data-testid="stub-edit-rate"
           onClick={() => props.onExchangeRateChange?.(89_000)}
+        />
+        <button
+          data-testid="stub-inject-short"
+          onClick={() =>
+            props.onPaymentChange([
+              {
+                id: "S1",
+                method: "CASH",
+                currencyCode: "LBP",
+                amount: 8_890_000,
+              },
+            ])
+          }
+        />
+        <button
+          data-testid="stub-keep"
+          onClick={() => props.onKeptChange?.({ usd: 0, lbp: 10_000 })}
         />
         <button data-testid="stub-confirm" onClick={props.onConfirm} />
       </div>
@@ -322,5 +347,48 @@ describe("Exchange page — split payout contract", () => {
 
     // No edit → the seed itself travels as the tender rate.
     expect(payload.tender_exchange_rate).toBe(payload.leg1Rate);
+  });
+
+  it("payout keep-change: the sheet runs in payout mode and the kept leftover rides in the ONE payload (schema-named)", async () => {
+    const btn = await renderAndCalculate();
+    fireEvent.click(btn);
+    await screen.findByTestId("stub-payout-sheet");
+
+    expect(lastSheetProps.direction).toBe("payout");
+    expect(typeof lastSheetProps.onKeptChange).toBe("function");
+
+    // 100 USD → 8,900,000 LBP owed; cashier hands 8,890,000 and keeps 10,000.
+    fireEvent.click(screen.getByTestId("stub-inject-short"));
+    fireEvent.click(screen.getByTestId("stub-keep"));
+    fireEvent.click(screen.getByTestId("stub-confirm"));
+    await waitFor(() =>
+      expect(mockAddExchangeTransaction).toHaveBeenCalledTimes(1),
+    );
+
+    expect(mockAddExchangeTransaction.mock.calls[0]).toHaveLength(1);
+    const parsed = exchangeSubmitSchema.parse(
+      mockAddExchangeTransaction.mock.calls[0][0],
+    );
+    expect(parsed.kept_change_usd).toBe(0);
+    expect(parsed.kept_change_lbp).toBe(10_000);
+    expect(parsed.payments).toEqual([
+      expect.objectContaining({ currencyCode: "LBP", amount: 8_890_000 }),
+    ]);
+  });
+
+  it("no kept change reported → no kept fields in the payload", async () => {
+    const btn = await renderAndCalculate();
+    fireEvent.click(btn);
+    await screen.findByTestId("stub-payout-sheet");
+    fireEvent.click(screen.getByTestId("stub-inject-split"));
+    fireEvent.click(screen.getByTestId("stub-confirm"));
+    await waitFor(() =>
+      expect(mockAddExchangeTransaction).toHaveBeenCalledTimes(1),
+    );
+    const parsed = exchangeSubmitSchema.parse(
+      mockAddExchangeTransaction.mock.calls[0][0],
+    );
+    expect(parsed.kept_change_usd).toBeUndefined();
+    expect(parsed.kept_change_lbp).toBeUndefined();
   });
 });

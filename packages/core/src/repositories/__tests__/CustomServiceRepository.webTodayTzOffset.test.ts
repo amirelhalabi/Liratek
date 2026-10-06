@@ -96,7 +96,11 @@ function createSchema(d: Database.Database): void {
       reference_id INTEGER,
       transaction_type TEXT,
       amount REAL,
-      covered_amount REAL DEFAULT 0
+      covered_amount REAL DEFAULT 0,
+      -- LIRA-258: read by partnerObligationRowSql (constants/partnerObligation.ts).
+      direction TEXT,
+      -- G36: the net-obligation group keys on currency (NOT NULL in production).
+      currency TEXT NOT NULL DEFAULT 'USD'
     );
     CREATE TABLE debt_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,7 +110,22 @@ function createSchema(d: Database.Database): void {
       amount_usd REAL DEFAULT 0,
       amount_lbp REAL DEFAULT 0,
       covered_usd REAL DEFAULT 0,
-      covered_lbp REAL DEFAULT 0
+      covered_lbp REAL DEFAULT 0, session_id INTEGER, tenant_id INTEGER /* LIRA-258 / G17 */
+    );
+    -- LIRA-258 / G17: read by notDebtPending's session-basket arm.
+    CREATE TABLE IF NOT EXISTS customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      paid_exchange_rate REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
 }

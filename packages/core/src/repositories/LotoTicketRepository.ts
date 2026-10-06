@@ -20,17 +20,107 @@ import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
+  partitionLegs,
 } from "../utils/payments.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
   assertPartnerIdRequired,
   assertNoCounterPayment,
+  reconcileLegs,
+  expectedTotalIn,
 } from "./moneyPosting.js";
+import { getVoucherRepository } from "./VoucherRepository.js";
+import { getDebtService } from "../services/DebtService.js";
 
 function fmtPaymentMethod(method: string): string {
   return method.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Minimal leg shape {@link assertLotoLegsPostable} needs. */
+interface LotoLeg {
+  method: string;
+  currencyCode: string;
+  amount: number;
+  voucherCode?: string;
+}
+
+/**
+ * LIRA-258 G14: refuse, before anything is written, any leg the ticket flow
+ * cannot post — instead of silently dropping it (the pre-fix behaviour for
+ * every non-drawer leg other than an IN CUSTOMER_ACCOUNT one).
+ *   - IN legs: a drawer method, CUSTOMER_ACCOUNT (on-account → Loto Debt) or
+ *     GIFT_CARD with its voucher code (redeem + Loto Debt, as Recharge does).
+ *   - OUT (change) legs: a drawer method, or CUSTOMER_ACCOUNT (change kept as
+ *     store credit) — the latter needs a client to credit.
+ *   - At least one IN leg: OUT-only legs would skip reconciliation entirely
+ *     (`reconcileLegs` no-ops on an empty IN set).
+ */
+function assertLotoLegsPostable(
+  inLegs: LotoLeg[],
+  outLegs: LotoLeg[],
+  clientId: number | null | undefined,
+): void {
+  if (inLegs.length === 0) {
+    throw new Error(
+      "Loto ticket: the payment has change legs but no payment received",
+    );
+  }
+  for (const leg of inLegs) {
+    if (isDrawerAffectingMethod(leg.method)) continue;
+    if (leg.method === "CUSTOMER_ACCOUNT") continue;
+    if (leg.method === "GIFT_CARD") {
+      if (!leg.voucherCode || !leg.voucherCode.trim()) {
+        throw new Error(
+          "Loto ticket: a gift card payment needs its gift card code",
+        );
+      }
+      continue;
+    }
+    throw new Error(
+      `Loto ticket: payment method "${leg.method}" cannot be used — it is not a drawer, a customer account or a gift card`,
+    );
+  }
+  for (const leg of outLegs) {
+    if (isDrawerAffectingMethod(leg.method)) continue;
+    if (leg.method === "CUSTOMER_ACCOUNT") {
+      if (!clientId) {
+        throw new Error("Client is required to return change as store credit");
+      }
+      continue;
+    }
+    throw new Error(
+      `Loto ticket: change cannot be returned by "${leg.method}" — use a drawer or the customer's account`,
+    );
+  }
+}
+
+/**
+ * The LOTO system supplier for the current tenant, created if missing — the
+ * ONE lookup both the ticket sale (TOP_UP) and the checkpoint settlement
+ * (SETTLEMENT) post against (rule 14; LIRA-258 G23 retired the settlement's
+ * own copy, which fell back to supplier id 1 — some other supplier — when no
+ * LOTO row existed). Must run inside the caller's db.transaction.
+ */
+export function resolveLotoSupplierId(
+  db: Database.Database,
+  tenantId: number,
+): number {
+  const existing = db
+    .prepare(
+      `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
+    )
+    .get(tenantId) as { id: number } | undefined;
+  if (existing) return existing.id;
+  const created = db
+    .prepare(
+      `INSERT INTO suppliers (tenant_id, name, provider, is_active, is_system)
+       VALUES (?, ?, ?, 1, 1)`,
+    )
+    .run(tenantId, "Loto Liban", "LOTO");
+  return Number(created.lastInsertRowid);
 }
 
 export interface LotoTicket {
@@ -91,7 +181,16 @@ export interface LotoTicketCreate {
     currencyCode: string;
     amount: number;
     direction?: "IN" | "OUT";
+    /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
+    voucherCode?: string;
   }>;
+  /**
+   * The rate the till actually converted cross-currency tender at (the
+   * Loto page's payment input uses the BUY rate). Leg reconciliation
+   * compares at this rate when present — same contract as
+   * `RechargeData.tender_exchange_rate` (`reconcileLegs`).
+   */
+  tender_exchange_rate?: number;
   /**
    * Session-basket deferred payment mode. When true, the ticket + unified
    * transaction + supplier ledger are created but the customer-cash drawer post
@@ -144,6 +243,54 @@ export class LotoTicketRepository {
   createTicket(data: LotoTicketCreate): LotoTicket {
     const tenantId = getCurrentTenantId();
     const createInTxn = this.db.transaction(() => {
+      // 0. LIRA-258 G14 (POSTING_INTEGRITY_PLAN.md item 2.8): validate the
+      // payment shape BEFORE anything is written. Pre-fix the legs were
+      // booked one by one with no check that they add up to the ticket, and
+      // every non-drawer leg other than an IN CUSTOMER_ACCOUNT leg was
+      // silently dropped (gift cards redeemed nothing, change kept as store
+      // credit credited no one) — and a for-partner ticket still posted OUT
+      // drawer legs because the leg loop ran before the partner guard.
+      const isForPartner = !data.deferPayment && data.partnerMode === "FOR";
+      const legs = data.payments ?? [];
+      const { inLegs, outLegs } = partitionLegs(legs);
+      if (isForPartner) {
+        assertPartnerIdRequired(data.partnerId);
+        // A partner ticket takes no counter payment at all — ANY leg (IN or
+        // OUT, drawer or not) or a legacy single-field counter payment means
+        // the caller tried to move money at the counter. The legacy
+        // `payment_method` checks keep their pre-existing semantics; the
+        // CUSTOMER_ACCOUNT case is folded into this SAME guard (see
+        // moneyPosting.ts's assertNoCounterPayment doc).
+        const hasLegacyCounterPayment =
+          data.payment_method !== undefined &&
+          data.payment_method !== "CUSTOMER_ACCOUNT" &&
+          isDrawerAffectingMethod(data.payment_method);
+        assertNoCounterPayment(
+          legs.some((l) => Math.abs(l.amount) > 0) ||
+            hasLegacyCounterPayment ||
+            data.payment_method === "CUSTOMER_ACCOUNT",
+          undefined,
+          "loto ticket",
+        );
+      } else if (!data.deferPayment && legs.length > 0) {
+        assertLotoLegsPostable(inLegs, outLegs, data.clientId);
+        // Same contract and tolerance as RechargeRepository: the customer's
+        // legs (IN − change − kept change) must cover the ticket's face
+        // value, converted at the till's own tender rate when supplied.
+        reconcileLegs({
+          inLegs,
+          outLegs,
+          keptChange: { usd: data.kept_change_usd, lbp: data.kept_change_lbp },
+          expectedTotals: expectedTotalIn(
+            data.sale_amount,
+            data.currency || "LBP",
+          ),
+          exchangeRate: data.exchange_rate ?? getUsdLbpSellRate(this.db),
+          tenderExchangeRate: data.tender_exchange_rate,
+          context: "Loto ticket",
+        });
+      }
+
       // 1. Insert the ticket record
       // LIRA-185 (loto lead 6): a backdated ticket (transaction_time set) is
       // filed under the business day of THAT instant, bucketed by the SAME
@@ -187,11 +334,10 @@ export class LotoTicketRepository {
       // PFT-R (Partner FOR-Transactions, full-amount model — supersedes the
       // PFT-4 "remainder" model): a "for partner" loto ticket takes NO
       // counter payment at all — the partner owes the FULL sale_amount,
-      // settled later on the Partners page. Computed early so the legacy
-      // single-field payment branches below (2 & 3) can be gated off in
-      // partner mode instead of silently defaulting to a phantom CASH
-      // payment for the full amount when no payment info is sent.
-      const isForPartner = !data.deferPayment && data.partnerMode === "FOR";
+      // settled later on the Partners page. `isForPartner` (step 0) gates the
+      // legacy single-field payment branches below (2 & 3) off in partner
+      // mode instead of silently defaulting to a phantom CASH payment for the
+      // full amount when no payment info is sent.
 
       // 2. Create unified transaction record
       const txnRepo = getTransactionRepository();
@@ -272,35 +418,80 @@ export class LotoTicketRepository {
       let debtUsd = 0;
       let debtLbp = 0;
 
-      if (!data.deferPayment && data.payments && data.payments.length > 0) {
-        // Structured legs: book what the customer ACTUALLY handed over, each
-        // leg in its own currency (a 500,000 LBP ticket paid with $5 books
-        // General +5 USD — not a phantom +500,000 LBP). IN legs positive,
-        // OUT (change) legs negative.
-        for (const leg of data.payments) {
+      if (!data.deferPayment && !isForPartner && legs.length > 0) {
+        // Structured legs (validated + reconciled in step 0): book what the
+        // customer ACTUALLY handed over, each leg in its own currency (a
+        // 500,000 LBP ticket paid with $5 books General +5 USD — not a
+        // phantom +500,000 LBP). IN legs positive; drawer change legs
+        // negative in the shared OUT loop below (rule 16: this IN loop never
+        // touches an OUT leg).
+        for (const leg of inLegs) {
+          const amt = Math.abs(leg.amount);
+          if (amt === 0) continue;
+          if (leg.method === "GIFT_CARD") {
+            // Same as RechargeRepository: the voucher's full value is
+            // deposited to its owner's account (CREDIT_DEPOSIT linked to
+            // this transaction), and the ticket is then charged to the
+            // customer's account as debt below.
+            getVoucherRepository().redeemByCode({
+              code: (leg.voucherCode ?? "").trim().toUpperCase(),
+              context: "loto",
+              transactionId: txnId,
+              userId: data.userId,
+            });
+          }
           if (!isDrawerAffectingMethod(leg.method)) {
-            if (leg.method === "CUSTOMER_ACCOUNT" && leg.direction !== "OUT") {
-              if (leg.currencyCode === "USD") debtUsd += Math.abs(leg.amount);
-              else debtLbp += Math.abs(leg.amount);
-            }
+            // CUSTOMER_ACCOUNT or GIFT_CARD (step 0 refused anything else).
+            if (leg.currencyCode === "USD") debtUsd += amt;
+            else debtLbp += amt;
             continue;
           }
           const legDrawer = paymentMethodToDrawerName(leg.method);
-          const signed =
-            leg.direction === "OUT"
-              ? -Math.abs(leg.amount)
-              : Math.abs(leg.amount);
           insertPayment.run(
             tenantId,
             txnId,
             leg.method,
             legDrawer,
             leg.currencyCode,
-            signed,
+            amt,
             data.note || txnSummary,
             data.userId,
           );
-          upsertBalanceLeg.run(tenantId, legDrawer, leg.currencyCode, signed);
+          upsertBalanceLeg.run(tenantId, legDrawer, leg.currencyCode, amt);
+        }
+
+        // Change (OUT legs): handed back from a drawer, or kept on the
+        // customer's account as store credit — booked as CREDIT_DEPOSIT
+        // linked to this transaction (the generic void/refund reverses it,
+        // rule 20), exactly like RechargeRepository. The throwing variant
+        // (G13): a failed credit must roll the whole sale back, never leave
+        // the customer without their change.
+        for (const r of outLegs) {
+          const amt = Math.abs(r.amount);
+          if (amt === 0) continue;
+          if (r.method === "CUSTOMER_ACCOUNT") {
+            getDebtService().addCreditOrThrow({
+              clientId: data.clientId as number,
+              amountUsd: r.currencyCode === "USD" ? amt : 0,
+              amountLbp: r.currencyCode === "LBP" ? amt : 0,
+              note: "Change returned",
+              userId: data.userId,
+              transactionId: txnId,
+            });
+            continue;
+          }
+          const legDrawer = paymentMethodToDrawerName(r.method);
+          insertPayment.run(
+            tenantId,
+            txnId,
+            r.method,
+            legDrawer,
+            r.currencyCode,
+            -amt,
+            "Change returned",
+            data.userId,
+          );
+          upsertBalanceLeg.run(tenantId, legDrawer, r.currencyCode, -amt);
         }
       } else if (
         !data.deferPayment &&
@@ -347,43 +538,10 @@ export class LotoTicketRepository {
       // instead of a client's debt_ledger; the normal supplier-float/ticket
       // flow above (steps 1, 2, 4) is unchanged.
       if (isForPartner) {
-        assertPartnerIdRequired(data.partnerId);
-
-        // A partner ticket takes no counter payment at all — any
-        // drawer-affecting IN leg, CUSTOMER_ACCOUNT leg (structured or
-        // legacy single-field), or client-debt accumulation means the
-        // caller tried to take a payment at the counter. Reject rather than
-        // silently splitting the amount between drawer/client debt and the
-        // partner (the superseded PFT-4 "remainder" behavior).
-        const hasCounterPaymentLeg = (data.payments ?? []).some(
-          (l) => l.direction !== "OUT" && isDrawerAffectingMethod(l.method),
-        );
-        const hasLegacyCounterPayment =
-          data.payment_method !== undefined &&
-          data.payment_method !== "CUSTOMER_ACCOUNT" &&
-          isDrawerAffectingMethod(data.payment_method);
-        const hasLegacyCustomerAccount =
-          data.payment_method === "CUSTOMER_ACCOUNT";
-
-        // The CUSTOMER_ACCOUNT case (hasLegacyCustomerAccount) is folded
-        // into this SAME "no counter payment" guard, not a separate
-        // mutual-exclusivity guard — it already threw this exact message,
-        // never a distinct one (see moneyPosting.ts's assertNoCounterPayment
-        // doc). `legacyPaidBy` (the guard's now-required 2nd param) stays
-        // `undefined` here — this repo already folds its OWN legacy
-        // `data.payment_method` check into `hasLegacyCounterPayment`/
-        // `hasLegacyCustomerAccount` above (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md
-        // §3 is scoped to Custom Services this slice; Loto is the ONE module
-        // that already got this right, so its existing logic is left as-is).
-        assertNoCounterPayment(
-          hasCounterPaymentLeg ||
-            hasLegacyCounterPayment ||
-            hasLegacyCustomerAccount ||
-            debtUsd > 0 ||
-            debtLbp > 0,
-          undefined,
-          "loto ticket",
-        );
+        // The "no counter payment" guard ran in step 0, before any write
+        // (LIRA-258 G14 moved it there: it used to run AFTER the leg loop
+        // and only looked at IN legs, so an OUT drawer leg on a partner
+        // ticket still moved the drawer).
 
         // Book the FULL sale amount to the partner's tab. Loto is always
         // LBP-denominated — never a converted figure.
@@ -419,22 +577,8 @@ export class LotoTicketRepository {
       // 4. Create supplier ledger entry (we owe LOTO: sale_amount - commission)
       const amountWeOwe = data.sale_amount - data.commission_amount;
 
-      // Get or create LOTO supplier
-      let supplierStmt = this.db.prepare(
-        `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
-      );
-      let supplier = supplierStmt.get(tenantId) as { id: number } | undefined;
-
-      if (!supplier) {
-        const createSupplier = this.db.prepare(`
-          INSERT INTO suppliers (tenant_id, name, provider, is_active, is_system)
-          VALUES (?, ?, ?, 1, 1)
-        `);
-        const result = createSupplier.run(tenantId, "Loto Liban", "LOTO");
-        supplier = { id: result.lastInsertRowid as number };
-      }
-
-      const supplierId = supplier.id;
+      // Get or create LOTO supplier (shared with the checkpoint settlement).
+      const supplierId = resolveLotoSupplierId(this.db, tenantId);
 
       // Positive amount = shop owes LOTO (standard supplier convention: the
       // Suppliers page sums ledger rows and reads >0 as "You owe"). TOP_UP —
@@ -485,24 +629,29 @@ export class LotoTicketRepository {
   }
 
   updateTicket(id: number, data: LotoTicketUpdate): LotoTicket | null {
+    // LIRA-258 G14: the sale amount and commission were already posted at
+    // sale time (drawer legs, LOTO supplier TOP_UP, profit stamp, and any
+    // checkpoint totals). Editing them in place moved none of those, so the
+    // books silently disagreed with the ticket. Refuse — the correction path
+    // is void (or refund) and sell again. Both transports' update schema
+    // (`lotoTicketUpdateSchema`) already strip these fields; this closes the
+    // repository door for any other caller.
+    if (
+      data.sale_amount !== undefined ||
+      data.commission_rate !== undefined ||
+      data.commission_amount !== undefined
+    ) {
+      throw new Error(
+        "A loto ticket's sale amount and commission cannot be changed after the sale — void the ticket and sell it again",
+      );
+    }
+
     const fields: string[] = [];
     const values: (string | number | null)[] = [];
 
     if (data.ticket_number !== undefined) {
       fields.push("ticket_number = ?");
       values.push(data.ticket_number);
-    }
-    if (data.sale_amount !== undefined) {
-      fields.push("sale_amount = ?");
-      values.push(data.sale_amount);
-    }
-    if (data.commission_rate !== undefined) {
-      fields.push("commission_rate = ?");
-      values.push(data.commission_rate);
-    }
-    if (data.commission_amount !== undefined) {
-      fields.push("commission_amount = ?");
-      values.push(data.commission_amount);
     }
     if (data.is_winner !== undefined) {
       fields.push("is_winner = ?");

@@ -115,7 +115,10 @@ describe("Loto page report — kept change shown next to commission (LIRA-185)",
     lotoService().sellTicket({
       sale_amount: 500000,
       userId: 1,
-      payments: [{ method: "CASH", currencyCode: "USD", amount: 7 }],
+      // $6 handed over, $1 kept, $5 = 500,000 LBP at the till's rate (G14:
+      // legs must now reconcile to the ticket).
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 6 }],
+      tender_exchange_rate: 100000,
       kept_change_usd: 1,
     });
 
@@ -154,7 +157,10 @@ describe("Loto page report — kept change shown next to commission (LIRA-185)",
     const refunded = lotoService().sellTicket({
       sale_amount: 500000,
       userId: 1,
-      payments: [{ method: "CASH", currencyCode: "USD", amount: 7 }],
+      // $6 handed over, $1 kept, $5 = 500,000 LBP at the till's rate (G14:
+      // legs must now reconcile to the ticket).
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 6 }],
+      tender_exchange_rate: 100000,
       kept_change_usd: 1,
     });
     lotoService().sellTicket({

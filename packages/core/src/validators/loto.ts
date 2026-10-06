@@ -25,9 +25,18 @@ export const lotoSellSchema = z
           currencyCode: z.string().min(1),
           amount: z.number(),
           direction: z.enum(["IN", "OUT"]).optional(),
+          // GIFT_CARD legs: the voucher code to redeem (LIRA-258 G14 — the
+          // repository redeems it like Recharge does; without this key Zod
+          // would strip the code and the redemption would fail).
+          voucherCode: z.string().optional(),
         }),
       )
       .optional(),
+    // The rate the till converted cross-currency tender at (the Loto page's
+    // payment input uses the BUY rate). The repository reconciles the legs
+    // against the ticket at this rate when present — same contract as the
+    // recharge schema's `tender_exchange_rate`.
+    tender_exchange_rate: z.number().positive().optional(),
     commission_rate: z.number().optional(),
     is_winner: z.boolean().optional(),
     prize_amount: z.number().optional(),
@@ -193,24 +202,45 @@ export const lotoCheckpointSettleSchema = z.object({
   totalCashPrizes: z.number().optional(),
   settledAt: z.string().optional(),
   payments: z.array(checkpointPaymentSchema).optional(),
+  // LIRA-258 G23: the rate the till converted cross-currency legs at (the
+  // Settle dialog's payment input uses the BUY rate). The repository
+  // reconciles the legs against the net settlement at this rate when
+  // present — same contract as `lotoSellSchema.tender_exchange_rate`.
+  tender_exchange_rate: z.number().positive().optional(),
 });
 
-export const lotoCheckpointsSettleBatchSchema = z.object({
-  checkpointIds: z
-    .array(z.number().int().positive())
-    .min(1, "At least one checkpoint required"),
-  totalSales: z.number().nonnegative(),
-  totalCommission: z.number().nonnegative(),
-  settledAt: z.string().optional(),
-  payment: z
-    .object({
-      method: z.string().min(1),
-      drawer_name: z.string().min(1),
-      currency_code: z.string().min(1),
-      amount: z.number(), // can be negative (we pay out)
-    })
-    .optional(),
-});
+export const lotoCheckpointsSettleBatchSchema = z
+  .object({
+    checkpointIds: z
+      .array(z.number().int().positive())
+      .min(1, "At least one checkpoint required"),
+    totalSales: z.number().nonnegative(),
+    totalCommission: z.number().nonnegative(),
+    settledAt: z.string().optional(),
+    // Legacy single leg (SettlementDrawerIntegration). Prefer `payments`.
+    payment: z
+      .object({
+        method: z.string().min(1),
+        drawer_name: z.string().min(1),
+        currency_code: z.string().min(1),
+        amount: z.number(), // can be negative (we pay out)
+      })
+      .optional(),
+    // LIRA-258 G23: the Settle dialog's split legs (MultiPaymentInput), the
+    // same leg shape as the single-checkpoint settle. The repository
+    // reconciles them against the COMBINED net of every checkpoint in the
+    // batch — the only way a multi-checkpoint settle can add up (per-
+    // checkpoint calls each need legs matching that checkpoint's own net,
+    // which a combined payment cannot be split into when nets differ in sign
+    // or the legs mix currencies).
+    payments: z.array(checkpointPaymentSchema).optional(),
+    // See lotoCheckpointSettleSchema.tender_exchange_rate.
+    tender_exchange_rate: z.number().positive().optional(),
+  })
+  .refine((d) => !(d.payment && d.payments), {
+    message: "Send either payment or payments, not both",
+    path: ["payments"],
+  });
 
 /**
  * Loto ticket metadata edit — a NARROWER sibling of `lotoTicketUpdateSchema`
@@ -228,6 +258,15 @@ export const lotoUpdateMetadataSchema = z.object({
 });
 
 export type LotoSellInput = z.infer<typeof lotoSellSchema>;
+// Rule 21 — adapter/preload payload types, derived from the schemas (the
+// INPUT side: what a caller may send, before defaults/refines).
+export type LotoSellPayload = z.input<typeof lotoSellSchema>;
+export type LotoCheckpointSettlePayload = z.input<
+  typeof lotoCheckpointSettleSchema
+>;
+export type LotoCheckpointsSettleBatchPayload = z.input<
+  typeof lotoCheckpointsSettleBatchSchema
+>;
 export type LotoCashPrizeInput = z.infer<typeof lotoCashPrizeSchema>;
 export type LotoTicketUpdateInput = z.infer<typeof lotoTicketUpdateSchema>;
 export type LotoUpdateMetadataInput = z.infer<typeof lotoUpdateMetadataSchema>;

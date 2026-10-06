@@ -4567,7 +4567,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-258** (LIRA-257 filed 2026-10-06), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-259** (LIRA-257, LIRA-258 filed 2026-10-06), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -6204,3 +6204,55 @@ tenant 5 has (not checked against live data: flyctl was unavailable).
 **What users will notice:** On the web app, the Suppliers page of a shop created on the web now lists
 OMT, iPick, Katsh, OMT App, Whish App and Loto Liban (plus Whish, switched off), and new shops start
 with them.
+
+## LIRA-258: posting integrity — every multi-ledger gap from the 2026-10-06 audit (G1–G39) — HIGH — IN PROGRESS
+
+| Field    | Value                                                          |
+| -------- | -------------------------------------------------------------- |
+| Epic     | Posting integrity                                              |
+| Type     | Bug                                                            |
+| Priority | High                                                           |
+| Status   | IN PROGRESS 2026-10-06                                         |
+| Source   | Plan `docs/plans/ongoing_plans/POSTING_INTEGRITY_PLAN.md` batch 1 (gap list: `docs/POSTING_MAP.md` §7) |
+
+### Summary
+
+1. **FOR-partner OMT/WHISH SEND books obligations only** (owner decision D1, 2026-10-06) — supplier
+   OMT/WHISH `TOP_UP` **+(x+f)** back-linked to the `financial_services` row (the generic void
+   cascade reverses it); partner `FOR_OMT_SEND`/`FOR_WHISH_SEND` DEBIT = the same `x+f` from
+   `grossOwedDelta`; **no drawer moves**; OUT legs rejected. `OMT_APP`/`WHISH_APP`/`BINANCE`
+   unchanged. The FOR RECEIVE supplier booking now shares the same helper and no longer swallows
+   errors. Closes **G1**, **G24** (FOR half) and **G2** for the FOR-SEND case. Failing-first proven
+   on pre-fix code: 4 tests threw "A partner SEND must include the shop's disbursement as OUT
+   payment legs", 1 "did not throw". Guard: `FinancialServiceRepository.partner.test.ts`, "LIRA-258"
+   block. Also answers PRIMARY_CASH_DRAWER_PLAN §6 item 6a.
+2. **Through-partner transfers on the SECOND system** (owner D3/D7) — no longer flagged
+   supplier-pending; the shop fee counts as profit immediately (**G3**, **G32**). Dashboard "Pending
+   Settlement" banner gains partner lines. Services form hint: "Amount = what the partner tells you
+   to collect · Fee = your shop fee".
+3. **Missing or turned-off supplier is created / re-activated automatically** (D2, **G4**) — reuses
+   LIRA-257's `packages/core/src/db/systemSuppliers.ts`.
+
+4. **Batches 2–4, same day** (each with a failing-first guard unless noted in POSTING_MAP §7):
+   G5 item refund reverses the partner share · G6 FOR sale in a basket refused · G7 maintenance
+   never charges twice (D8) · G8 one payments row per currency · G9/G33 drawer-to-drawer source leg
+   journaled, may go negative · G10 top-up/cashout ensure the supplier · G11 supplier and partner
+   operations atomic · G12 re-completing a completed sale refused · G13 store-credit failure rolls
+   back (POS, recharge, custom services, transfers, baskets) · G14/G23 Loto legs reconciled,
+   gift card, settlement linked + screens wired · G15 DAYS sale lowers line credits (D4) · G16
+   via-partner payout profit waits for the partner (D5) · G21 item refund cancels the credit share
+   · G22 custom-service delete keeps the journal · G26 THROUGH app-wallet ledger keys · G28 pm fee
+   reaches the drawer · G29 Exchange payout keep-change (D9) · G34 void skips audit-only PM_FEE rows
+   · G35 drawer recalculation skips them too · G39 gift cards load on the web app.
+   Checked, no change: G18, G20, G27, G30. By owner decision: G19 (D6), G25 (D7). Comments: G31.
+   G36 partner coverage nets reversals · G37 refund gives the gift card back · G38 checked
+   unreachable (guards only). In progress: G17 (basket profit waits for payment).
+
+Docs updated: FEATURE_GUIDE §7 (PCD row), §8 (second-system row), §8.1.0 (SEND); POSTING_MAP §4.1,
+§7; PRIMARY_CASH_DRAWER_PLAN §6 6a.
+
+**What users will notice:** Sending an OMT or Whish transfer for a partner now shows on the OMT/Whish
+supplier page as money you owe and no longer takes cash out of a drawer; transfers done through a
+partner on your second system no longer wait for a supplier settlement and their shop fee counts as
+profit straight away; the Dashboard's Pending Settlement banner also lists partners to settle with;
+the Services page explains Amount vs Fee; a repair job is never charged twice; refunding one item of a partner sale lowers what the partner owes; Loto payments must add up and gift cards work on Loto; selling days lowers the line credits; Exchange can keep the leftover cents; gift cards show up on the web app. All from now on only.

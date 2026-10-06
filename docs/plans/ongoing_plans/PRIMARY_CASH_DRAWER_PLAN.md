@@ -296,9 +296,12 @@ before upgrade — flag at release time.
    needs its own pass; highest seam risk.
 6. **Idempotency gap** (handover §6) — unchanged, still unowned; the new transfer endpoint
    inherits it.
-   6a. **[OWNER] FOR-partner SEND books no supplier-ledger entry** (pre-existing, unchanged).
-   Decision #6 resolved the RECEIVE side only. The transfer still runs on the real provider
-   rails, so a symmetric gross entry is arguably owed — left as-is rather than guessed.
+   6a. ~~**[OWNER] FOR-partner SEND books no supplier-ledger entry**~~ **ANSWERED 2026-10-06
+   (owner decision D1, LIRA-258, `POSTING_INTEGRITY_PLAN.md` batch 1).** Decision #6 had resolved
+   the RECEIVE side only. Answer: SEND mirrors RECEIVE — obligations only. Supplier OMT/WHISH
+   `TOP_UP` **+(x + f)** back-linked to the `financial_services` row, partner
+   `FOR_OMT_SEND`/`FOR_WHISH_SEND` DEBIT of the same `x + f`, **no drawer moves**, OUT legs
+   rejected. Being built in the working tree (not yet committed); see FEATURE_GUIDE §8.1.0.
    6b. **Session cart fee convention** (Phase D): the pro-rata split assumes a cart line's
    `amount` for an FS SEND already INCLUDES the customer fee. If the cart stores it
    fee-excluded, the split mechanism stays correct but the ratio's input is wrong. Confirm

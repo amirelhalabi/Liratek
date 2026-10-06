@@ -36,6 +36,8 @@ import {
   isSessionPayoutMember,
   type SessionPayoutMemberCandidate,
 } from "../constants/sessionPayoutMember.js";
+import { partnerObligationHeadRowSql } from "../constants/partnerObligation.js";
+import { isAuditOnlyPaymentMethod } from "../constants/auditOnlyPaymentMethods.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
 import {
@@ -83,6 +85,10 @@ import { getSalesRepository } from "./SalesRepository.js";
 // touches the other's import at module-evaluation time, only from inside a
 // method body.
 import { getDebtRepository } from "./DebtRepository.js";
+import { getVoucherRepository } from "./VoucherRepository.js";
+// LIRA-258 / G17 — the shared repayment-coverable type list (rule 14/20),
+// same lazy circular-import pattern as above (only read inside a method).
+import { repaymentCoverableTypesSqlList } from "./sessionDebtCoverage.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -6825,6 +6831,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * exact mirror of `_coverServiceDebtsFIFO`: same MODULE-debt type set,
    * newest-first, each currency allocated independently via the shared
    * allocator and merged into one UPDATE per row.
+   *
+   * LIRA-258 / G17 (rule 20) — the type set is the SAME shared
+   * REPAYMENT_COVERABLE_DEBT_TYPES the forward sweep covers, so a voided
+   * repayment also gives back the coverage it put on a basket's
+   * 'Session Debt' row (re-holding the basket items' profit). Same
+   * accepted LIFO approximation as above: an interleaved give-back can
+   * reach into a 'Session Debt' row's checkout pre-coverage, which only
+   * ever DEFERS profit.
    */
   private _unwindServiceDebtCoverageFifo(
     clientId: number,
@@ -6842,7 +6856,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       `SELECT id, covered_usd, covered_lbp
        FROM debt_ledger
        WHERE client_id = ? AND tenant_id = ?
-         AND transaction_type IN ('Recharge Debt', 'Service Debt', 'Custom Service Debt', 'Loto Debt', 'Maintenance Debt')
+         AND transaction_type IN (${repaymentCoverableTypesSqlList()})
          AND (covered_usd > 0 OR covered_lbp > 0)
        ORDER BY created_at DESC, id DESC`,
       clientId,
@@ -7054,6 +7068,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         createdBy: userId,
         tenantId,
       });
+      // LIRA-258 (G34): an audit-only row (PM_FEE) never moved a drawer on
+      // create — its money is inside another leg — so mirror it for the
+      // journal but apply no delta, or the void takes the fee back twice.
+      if (isAuditOnlyPaymentMethod(p.method)) continue;
       applyDrawerDelta(this.db, {
         drawerName: p.drawer_name,
         currencyCode: p.currency_code,
@@ -7283,8 +7301,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       client_id: number;
       amount_usd: number;
       amount_lbp: number;
+      transaction_type: string;
     }>(
-      `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger
+      `SELECT id, client_id, amount_usd, amount_lbp, transaction_type FROM debt_ledger
        WHERE transaction_id = ? AND transaction_type IN (${typePlaceholders}) AND tenant_id = ?`,
       originalTxnId,
       ...CANCELLABLE_LEDGER_TYPES,
@@ -7306,6 +7325,22 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         userId,
         tenantId,
       );
+    }
+
+    // LIRA-258 / G37 — a gift card redeemed in this transaction: its deposit
+    // to the owner was just cancelled above, so give the voucher itself back
+    // (redeemed → pending). Ledgers AND voucher return to their pre-sale
+    // state; before this the customer lost the voucher's value.
+    // (Skips hand-rolled test DBs without a vouchers table.)
+    if (
+      debts.some((d) => d.transaction_type === "CREDIT_DEPOSIT") &&
+      this.db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vouchers'`,
+        )
+        .get()
+    ) {
+      getVoucherRepository().restoreRedeemedByTransaction(originalTxnId);
     }
   }
 
@@ -7577,8 +7612,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * (instead of oldest-first) and subtracting (instead of adding). `direction`
    * is the settlement/payment's OWN direction (same param
    * `applySettlementCoverage` takes) — the target bucket is derived
-   * identically (opposite direction, `FOR_%` type only; `THROUGH_%` rows are
-   * never covered by a settlement, so never unwound either).
+   * identically (opposite direction, obligation rows only — the SAME
+   * `partnerObligationRowSql` fragment `applySettlementCoverage` uses: every
+   * `FOR_%` row plus a Via-Partner payout's `THROUGH_CUSTOM_SERVICE` DEBIT,
+   * LIRA-258; any other row is never covered, so never unwound either).
    */
   private _unwindPartnerSettlementCoverage(
     partnerId: number,
@@ -7589,13 +7626,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   ): void {
     if (budget <= 0.005) return;
     const targetDirection = direction === "CREDIT" ? "DEBIT" : "CREDIT";
+    // LIRA-258 / G36: the same obligation HEADS applySettlementCoverage
+    // covers (constants/partnerObligation.ts); reversal and item-refund rows
+    // are never covered, so they are never unwound either.
     const open = this.query<{ id: number; covered_amount: number }>(
-      `SELECT id, covered_amount FROM partner_ledger
-       WHERE partner_id = ? AND tenant_id = ? AND currency = ?
-         AND direction = ?
-         AND transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
-         AND covered_amount > 0
-       ORDER BY created_at DESC, id DESC`,
+      `SELECT pl_cov.id, pl_cov.covered_amount FROM partner_ledger pl_cov
+       WHERE pl_cov.partner_id = ? AND pl_cov.tenant_id = ? AND pl_cov.currency = ?
+         AND pl_cov.direction = ?
+         AND ${partnerObligationHeadRowSql("pl_cov")}
+         AND pl_cov.covered_amount > 0
+       ORDER BY pl_cov.created_at DESC, pl_cov.id DESC`,
       partnerId,
       tenantId,
       currency,

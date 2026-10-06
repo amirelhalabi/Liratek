@@ -9,6 +9,26 @@ import {
  * Exchange/currency validation schemas
  */
 
+/**
+ * Payout "keep the change" cap (owner decision 2026-10-06, D9 refined) — the
+ * ONE definition (rule 14) read by ExchangeRepository's server-side refusal
+ * and by `@liratek/ui`'s MultiPaymentInput payout mode (which only offers the
+ * toggle below it). A kept leftover must be STRICTLY LESS than this, in the
+ * payout currency: under $1 for a USD payout, under 100,000 LBP for an LBP
+ * payout. Exists so a hand-built payload cannot book a real shortchange
+ * (e.g. $50 not paid out) as "kept change" profit.
+ */
+export const PAYOUT_KEEP_CHANGE_MAX = { USD: 1, LBP: 100_000 } as const;
+
+/** Kept-change fields shared by both exchange schemas below — one
+ *  definition so neither schema can silently strip them (rule 23). */
+const keptChangeFields = {
+  /** Payout keep-change: the leftover (owed − paid) the shop keeps as
+   *  profit instead of handing it out. See ExchangeRepository. */
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
+};
+
 export const createExchangeSchema = z
   .object({
     fromCurrency: currencyCodeSchema,
@@ -44,6 +64,7 @@ export const createExchangeSchema = z
     /** The USD→LBP rate the payment sheet actually converted payout legs at
      *  (lira-095 — reconcile at the till's rate, not the server rate). */
     tender_exchange_rate: z.number().positive().optional(),
+    ...keptChangeFields,
   })
   .refine((data) => data.fromCurrency !== data.toCurrency, {
     message: "From and To currencies must be different",
@@ -124,6 +145,7 @@ export const exchangeSubmitSchema = z
       )
       .optional(),
     tender_exchange_rate: z.number().positive().optional(),
+    ...keptChangeFields,
   })
   .superRefine((data, ctx) => {
     // A cross exchange (viaCurrency set) needs a USD anchor for its
@@ -156,6 +178,9 @@ export const exchangeSubmitSchema = z
   });
 
 export type ExchangeSubmitInput = z.infer<typeof exchangeSubmitSchema>;
+/** The payload type the frontend adapters send (rule 21 — derived from the
+ *  schema, never hand-copied). */
+export type ExchangeSubmitPayload = z.input<typeof exchangeSubmitSchema>;
 
 export const getExchangeHistorySchema = z.object({
   limit: z.coerce.number().int().positive().max(500).default(50),

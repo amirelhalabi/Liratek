@@ -19,11 +19,12 @@
  * PART A — UI gating (Services/index.tsx ~:1508 "For Partner" toggle,
  * ~:2143 payment-section gate). Checked in this order so the later
  * assertions are proven CONDITIONAL, not incidental defaults:
- *   1. For Partner ON + SEND  → section labelled "Paid from", Customer
- *      Account no longer offered (drawerAffectingMethods only).
- *   2. The two-sided `services-for-partner-send-payout-notice` names the
- *      selected partner and states both the shop's payout and that the
- *      partner owes it.
+ *   1. For Partner ON + SEND  → LIRA-258 (owner decision D1, 2026-10-06): a
+ *      FOR-partner SEND on the shop's own OMT/Whish system books obligations
+ *      only, so the paid-by picker is hidden entirely (which also means
+ *      Customer Account cannot be offered — the LIRA-114 §4 bug).
+ *   2. Nothing on the page tells the operator they "pay out" — the shop
+ *      disburses nothing at the counter any more.
  *   3. For Partner ON + RECEIVE (same tab, same partner — the toggle isn't
  *      reset by a direction switch) → the whole payment section disappears,
  *      replaced by `services-for-partner-receive-no-payout-notice`.
@@ -32,12 +33,11 @@
  *      not a blanket removal that happens to look right by coincidence.
  *
  * PART B — the seam itself: submit a real For-Partner SEND through the form
- * (not `page.evaluate`) and prove it lands correctly — the chosen drawer
- * (the shop's own base-system cash drawer, `resolveServiceCashDrawer`
- * routes CASH there only when `provider === baseSystem`, `utils/payments.ts`)
- * is debited by exactly what the sheet disbursed, General stays untouched,
- * and the partner ledger carries the matching DEBIT. This is the half
- * `lira-119` cannot cover by construction.
+ * (not `page.evaluate`) and prove it lands correctly — LIRA-258: NO drawer
+ * moves (base-system cash drawer and General both untouched), the partner
+ * ledger carries a DEBIT of amount+fee, and the base-system supplier
+ * (OMT/WHISH) balance rises by the same amount+fee (TOP_UP). This is the
+ * half `lira-119` cannot cover by construction.
  *
  * Rule 15 (shared accumulating DB): a FRESH partner (identity by returned
  * id — a brand-new partner's ledger has exactly zero rows before, one
@@ -69,6 +69,15 @@ type BaseSystem = "OMT" | "WHISH";
 
 type Api = {
   api: {
+    suppliers: {
+      list: (
+        search?: string,
+        includeInactive?: boolean,
+      ) => Promise<Array<{ id: number; provider: string | null }>>;
+      getBalances: (
+        includeInactive?: boolean,
+      ) => Promise<Array<{ supplier_id: number; total_usd: number }>>;
+    };
     settings: {
       getAll: () => Promise<Array<{ key_name: string; value: string }>>;
     };
@@ -165,6 +174,23 @@ async function drawerUsd(page: Page, name: string): Promise<number> {
   }, name);
 }
 
+/** USD balance of the supplier whose `provider` matches (identity, never row
+ *  position; includeInactive because the seeded Whish supplier is inactive). */
+async function supplierUsd(page: Page, provider: string): Promise<number> {
+  return page.evaluate(async (p) => {
+    const w = window as unknown as Api;
+    const supplier = (await w.api.suppliers.list("", true)).find(
+      (s) => s.provider === p,
+    );
+    if (!supplier) throw new Error(`no supplier with provider ${p}`);
+    return (
+      (await w.api.suppliers.getBalances(true)).find(
+        (b) => b.supplier_id === supplier.id,
+      )?.total_usd ?? 0
+    );
+  }, provider);
+}
+
 async function partnerLedgerEntries(page: Page, partnerId: number) {
   return page.evaluate(async (id) => {
     const w = window as unknown as Api;
@@ -201,7 +227,7 @@ async function toggleForPartnerOnAndSelect(page: Page, partnerName: string) {
 }
 
 test.describe("Services (OMT/Whish) — real For-Partner form, UI-driven", () => {
-  test("For-Partner payment gating (Paid from / notices / Customer Account) and a real SEND lands on the partner ledger + drawer", async ({
+  test("For-Partner payment gating (no picker on SEND / notices / Customer Account) and a real SEND books partner + supplier obligations with no drawer move", async ({
     appPage,
   }) => {
     const ts = Date.now();
@@ -214,7 +240,9 @@ test.describe("Services (OMT/Whish) — real For-Partner form, UI-driven", () =>
     // Run-unique, inside the OMT INTRA $0-100 tier ($1 fee) — when the base
     // system is WHISH there is no default fee (LIRA-023, no fee typed) so
     // EXPECTED_OUT collapses to the bare amount. Either way this is
-    // deterministic, not "probably OMT" (see file header).
+    // deterministic, not "probably OMT" (see file header). EXPECTED_OUT is
+    // the obligation (amount+fee) booked on BOTH the partner and the
+    // base-system supplier — no cash leaves the shop (LIRA-258).
     const AMOUNT = Number((44 + (ts % 900) / 100).toFixed(2));
     const FEE = baseSystem === "OMT" ? 1 : 0;
     const EXPECTED_OUT = Number((AMOUNT + FEE).toFixed(2));
@@ -234,26 +262,20 @@ test.describe("Services (OMT/Whish) — real For-Partner form, UI-driven", () =>
     // dropdown. ───────────────────────────────────────────────────────────
     await toggleForPartnerOnAndSelect(appPage, TARGET_NAME);
 
-    // ── Part A.1: label becomes "Paid from"; Customer Account is no longer
-    // offered — the exact combination the backend hard-rejects at
-    // FinancialServiceRepository.ts:2116 (assertNoCustomerAccountLeg). ─────
-    await expect(
-      paymentPanel.getByText("Paid from", { exact: true }),
-    ).toBeVisible({ timeout: 10_000 });
-    const optionsOn = await paymentMethodSelect(appPage)
-      .locator("option")
-      .allTextContents();
-    expect(optionsOn.some((t) => /customer account/i.test(t))).toBe(false);
+    // ── Part A.1 — LIRA-258: FOR OMT/WHISH SEND books obligations only, so
+    // the paid-by picker is gone entirely (no "Paid from", no method select,
+    // and therefore no Customer Account — the combination the backend
+    // hard-rejects via assertNoCustomerAccountLeg). ────────────────────────
+    await expect(paymentPanel).toHaveCount(0, { timeout: 10_000 });
+    await expect(paymentMethodSelect(appPage)).toHaveCount(0);
 
-    // ── Part A.2: the two-sided send-payout notice names the partner and
-    // states both the shop's payout and that the partner owes it. ─────────
-    const sendNotice = appPage.getByTestId(
-      "services-for-partner-send-payout-notice",
-    );
-    await expect(sendNotice).toBeVisible({ timeout: 10_000 });
-    await expect(sendNotice).toContainText(TARGET_NAME);
-    await expect(sendNotice).toContainText("You pay out");
-    await expect(sendNotice).toContainText("owes you");
+    // ── Part A.2 — LIRA-258: the shop disburses nothing at the counter, so
+    // nothing on the page may tell the operator they "pay out". ────────────
+    await expect(appPage.getByText(/You pay out/i)).toHaveCount(0);
+    // LIRA-258: positive check — the obligations notice replaces the panel.
+    await expect(
+      appPage.getByTestId("services-for-partner-send-obligation-notice"),
+    ).toContainText(/No cash leaves a drawer/i);
 
     // ── Part A.3: For Partner ON + RECEIVE (same base-system tab) — the
     // whole payment section is replaced by a notice, never silently
@@ -268,8 +290,12 @@ test.describe("Services (OMT/Whish) — real For-Partner form, UI-driven", () =>
 
     // Back to SEND — forPartner/forPartnerId and the typed amount persist
     // across the tab switches (neither is touched by the tab onClick).
+    // LIRA-258: FOR OMT/WHISH SEND books obligations only — still no picker.
     await pickTab(appPage, baseSystem, "SEND");
-    await expect(sendNotice).toBeVisible({ timeout: 10_000 });
+    await expect(
+      appPage.getByTestId("services-for-partner-receive-no-payout-notice"),
+    ).toHaveCount(0, { timeout: 10_000 });
+    await expect(paymentPanel).toHaveCount(0);
 
     // ── Part A.4: toggling OFF restores Customer Account and the "Payment"
     // label — proves the gate is conditional on the toggle, not a blanket
@@ -287,11 +313,11 @@ test.describe("Services (OMT/Whish) — real For-Partner form, UI-driven", () =>
     // page.evaluate) — the seam lira-119-partner-for-financial-service.spec.ts
     // cannot cover, since it drives window.api.omt.addTransaction directly
     // and never renders this page. Re-enable the toggle (unchecking above
-    // cleared forPartnerId) and re-pick the same partner, then explicitly
-    // pick CASH as the disbursing method — the "chosen drawer" this test
-    // proves gets debited. ──────────────────────────────────────────────────
+    // cleared forPartnerId) and re-pick the same partner.
+    // LIRA-258: FOR OMT/WHISH SEND books obligations only — there is no
+    // disbursing method to pick any more (the picker is hidden). ───────────
     await toggleForPartnerOnAndSelect(appPage, TARGET_NAME);
-    await paymentMethodSelect(appPage).selectOption("CASH");
+    await expect(paymentPanel).toHaveCount(0);
     await expect(amountInput).toHaveValue(String(AMOUNT));
 
     const drawerBefore = await drawerUsd(appPage, systemDrawer);
@@ -299,6 +325,7 @@ test.describe("Services (OMT/Whish) — real For-Partner form, UI-driven", () =>
     const ledgerBefore = await partnerLedgerEntries(appPage, partnerId);
     expect(ledgerBefore).toHaveLength(0);
     const partnerBefore = await partnerUsd(appPage, partnerId);
+    const supplierBefore = await supplierUsd(appPage, baseSystem);
 
     await appPage.getByRole("button", { name: /Record Send/i }).click();
     // A successful submit clears the amount; a rejected one leaves it filled
@@ -309,13 +336,14 @@ test.describe("Services (OMT/Whish) — real For-Partner form, UI-driven", () =>
     const generalAfter = await drawerUsd(appPage, "General");
     const ledgerAfter = await partnerLedgerEntries(appPage, partnerId);
     const partnerAfter = await partnerUsd(appPage, partnerId);
+    const supplierAfter = await supplierUsd(appPage, baseSystem);
 
-    // The shop's own disbursement debits the BASE system's cash drawer —
-    // never General (resolveServiceCashDrawer routes CASH to the primary
-    // cash drawer only when provider === baseSystem, which is exactly this
-    // tab, packages/core/src/utils/payments.ts).
-    expect(drawerAfter - drawerBefore).toBeCloseTo(-EXPECTED_OUT, 2);
+    // LIRA-258: FOR OMT/WHISH SEND books obligations only — NO drawer moves
+    // (pre-LIRA-258 the base-system cash drawer was debited −EXPECTED_OUT).
+    expect(drawerAfter - drawerBefore).toBeCloseTo(0, 2);
     expect(generalAfter - generalBefore).toBeCloseTo(0, 2);
+    // The shop now owes its own system the full amount+fee (supplier TOP_UP).
+    expect(supplierAfter - supplierBefore).toBeCloseTo(EXPECTED_OUT, 2);
 
     // Identity: the fresh partner has EXACTLY one ledger row — ours.
     expect(ledgerAfter).toHaveLength(1);

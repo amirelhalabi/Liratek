@@ -15,6 +15,7 @@ import {
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import { resolveLotoSupplierId } from "./LotoTicketRepository.js";
 
 /**
  * LIRA-201c (rule 14) — the ONE "exclude a basket-voided prize" predicate,
@@ -156,22 +157,9 @@ export class LotoCashPrizeRepository {
 
       // 4. Create supplier ledger entry (LOTO owes us this amount - reimbursable)
 
-      // Get or create LOTO supplier
-      let supplierStmt = this.db.prepare(
-        `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
-      );
-      let supplier = supplierStmt.get(tenantId) as { id: number } | undefined;
-
-      if (!supplier) {
-        const createSupplier = this.db.prepare(`
-          INSERT INTO suppliers (tenant_id, name, provider, is_active, is_system)
-          VALUES (?, ?, ?, 1, 1)
-        `);
-        const result = createSupplier.run(tenantId, "Loto Liban", "LOTO");
-        supplier = { id: result.lastInsertRowid as number };
-      }
-
-      const supplierId = supplier.id;
+      // Get or create LOTO supplier — the ONE shared lookup (rule 14), same
+      // as the ticket sale and the checkpoint settlement.
+      const supplierId = resolveLotoSupplierId(this.db, tenantId);
 
       // Negative amount = LOTO owes us / reduces what we owe (standard
       // supplier convention: the Suppliers page reads <0 as "They owe you").

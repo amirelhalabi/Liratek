@@ -75,6 +75,15 @@ function createMinimalSchema(db: Database.Database): void {
       covered_amount REAL NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- LIRA-258 / G36: the net-obligation coverage fragment
+    -- (constants/partnerObligation.ts) links rows to their source through
+    -- transactions.source_table/source_id; left empty here.
+    CREATE TABLE transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_table TEXT,
+      source_id INTEGER
+    );
   `);
 }
 
@@ -257,7 +266,22 @@ function createGetByDateSchema(db: Database.Database): void {
       is_refunded INTEGER DEFAULT 0,
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0,
-      refunded_at TEXT DEFAULT NULL
+      refunded_at TEXT DEFAULT NULL, session_id INTEGER /* LIRA-258 / G17 */
+    );
+    -- LIRA-258 / G17: read by notDebtPending's session-basket arm.
+    CREATE TABLE IF NOT EXISTS customer_session_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      session_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      unified_transaction_id INTEGER,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      paid_exchange_rate REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
 }

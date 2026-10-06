@@ -64,7 +64,7 @@ import {
 // mock the two leaf dependencies the same way the sibling money-proof file
 // does, to keep this fixture minimal.
 jest.mock("../DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCreditOrThrow: jest.fn() }),
   resetDebtService: jest.fn(),
 }));
 jest.mock("../../repositories/VoucherRepository", () => ({

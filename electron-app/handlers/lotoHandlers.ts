@@ -500,6 +500,7 @@ export function registerLotoHandlers(): void {
         v.data.settledAt,
         auth.userId,
         v.data.payments,
+        v.data.tender_exchange_rate,
       );
       audit(e.sender.id, {
         action: "settle",
@@ -539,7 +540,9 @@ export function registerLotoHandlers(): void {
         v.data.totalCommission,
         v.data.settledAt,
         auth.userId,
-        v.data.payment,
+        // LIRA-258: split legs (`payments`) or the legacy single `payment`.
+        v.data.payments ?? v.data.payment,
+        v.data.tender_exchange_rate,
       );
       audit(e.sender.id, {
         action: "settle",

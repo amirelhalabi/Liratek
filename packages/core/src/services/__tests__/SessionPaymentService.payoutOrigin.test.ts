@@ -50,7 +50,7 @@ import Database from "better-sqlite3";
 
 const mockAddCredit = jest.fn();
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: mockAddCredit }),
+  getDebtService: () => ({ addCreditOrThrow: mockAddCredit }),
   resetDebtService: jest.fn(),
 }));
 

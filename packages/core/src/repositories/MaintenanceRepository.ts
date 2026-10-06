@@ -115,6 +115,15 @@ const MAINTENANCE_AMOUNT_FIELDS = [
 export const MAINTENANCE_AMOUNT_EDIT_BLOCKED_ERROR =
   "Cannot change the amount of a paid maintenance job while its transaction is still active — void or refund it first.";
 
+/**
+ * LIRA-258 / owner decision D8 (2026-10-06): "Never charge twice. Once a job
+ * has its payment transaction, saving again changes nothing about money. To
+ * change the payment, refund it first." Returned when a save would post money
+ * (payment lines, or a session-basket deferral) for a job `isJobCharged`.
+ */
+export const MAINTENANCE_ALREADY_PAID_ERROR =
+  "This job is already paid. Refund it first to change the payment.";
+
 export const MAINTENANCE_PARTS_EDIT_BLOCKED_ERROR =
   "Cannot change the parts of a paid maintenance job while its transaction is still active — void or refund it first.";
 
@@ -402,16 +411,38 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   }
 
   /**
-   * Check if payments already exist for a maintenance job
+   * LIRA-258 — the ONE "has this job already been charged?" predicate used by
+   * every `saveJob` entry point (create/update, direct or session basket)
+   * before it may post money. True while the job has a live charge: a
+   * MAINTENANCE transaction for it that is ACTIVE, is not itself a void
+   * reversal (`reverses_id IS NULL`), and has no REFUND row pointing at it.
+   *
+   * Reads the transaction, never `payments` rows (the old `hasPayments`
+   * gate): a fully CUSTOMER_ACCOUNT checkout or a session-deferred job has
+   * NO payments rows, so counting them let a re-save charge the customer a
+   * second time (POSTING_MAP gap G7). Also deliberately does NOT read
+   * `maintenance.is_refunded`: that is a job-level marker, not tied to any
+   * one transaction, so the transaction rows are the only reliable answer
+   * once a job has been refunded and then charged again.
    */
-  hasPayments(jobId: number): boolean {
+  isJobCharged(jobId: number): boolean {
     const tenantId = getCurrentTenantId();
     const row = this.db
       .prepare(
-        `SELECT COUNT(*) as cnt FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'maintenance' AND source_id = ? AND tenant_id = ?) AND tenant_id = ?`,
+        `SELECT 1 AS charged FROM transactions t
+          WHERE t.source_table = 'maintenance' AND t.source_id = ?
+            AND t.type = ? AND t.status = 'ACTIVE' AND t.reverses_id IS NULL
+            AND t.tenant_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM transactions r
+               WHERE r.reverses_id = t.id AND r.type = 'REFUND' AND r.tenant_id = ?
+            )
+          LIMIT 1`,
       )
-      .get(jobId, tenantId, tenantId) as { cnt: number };
-    return row.cnt > 0;
+      .get(jobId, TRANSACTION_TYPES.MAINTENANCE, tenantId, tenantId) as
+      | { charged: number }
+      | undefined;
+    return row !== undefined;
   }
 
   /**
@@ -558,12 +589,23 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       },
     });
 
-    // Clear any old payment rows for this job (idempotent)
+    // LIRA-258: a new live charge makes the job "paid" again. A job that was
+    // refunded/voided and is now re-charged must stop reading as refunded —
+    // otherwise `isJobMoneyLocked` (delete-block, amount/parts lock) and the
+    // Refunded badge would treat a live paid job as unlocked.
     this.db
       .prepare(
-        `DELETE FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'maintenance' AND source_id = ? AND tenant_id = ?) AND tenant_id = ?`,
+        `UPDATE maintenance SET is_refunded = 0, refunded_at = NULL, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND tenant_id = ? AND COALESCE(is_refunded, 0) <> 0`,
       )
-      .run(jobId, tenantId, tenantId);
+      .run(jobId, tenantId);
+
+    // LIRA-258: there used to be a "clear any old payment rows for this job"
+    // DELETE here. It never adjusted drawer_balances, and once the
+    // `isJobCharged` gate made re-charging reachable only after a refund/void
+    // it could only ever erase the ORIGINAL charge's legs (while the refund's
+    // reversal legs survived) — wiping payment history. Removed: a fresh
+    // charge simply adds its own legs to its own new transaction.
 
     const insertPayment = {
       run: (
