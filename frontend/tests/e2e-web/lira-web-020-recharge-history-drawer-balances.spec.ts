@@ -65,7 +65,13 @@
  * FAILS against the pre-fix code (revert the relevant call sites) before
  * trusting it as a guard.
  */
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  gotoAndSettle,
+  BACKEND_URL,
+} from "./fixtures";
 
 test.describe("Recharge history tab + drawer-balance readout over REST (LIRA-103)", () => {
   test("drawer-balance readout: the 'Drawer' stat renders via GET /api/recharge/drawer-balances", async ({
@@ -73,11 +79,10 @@ test.describe("Recharge history tab + drawer-balance readout over REST (LIRA-103
   }) => {
     await loginAsAdmin(page);
 
-    await page.goto("/#/recharge");
     // Default provider tab is MTC (first PROVIDER_CONFIGS entry) — let the
-    // mount effects (loadDrawerBalances among them) settle, same margin
+    // mount effects (loadDrawerBalances among them) settle, same helper
     // lira-web-001 uses for "known-good pages render without crashing".
-    await page.waitForTimeout(1_500);
+    await gotoAndSettle(page, "/#/recharge");
 
     await expect(page.locator("#root")).not.toContainText(
       "Something went wrong",
@@ -120,8 +125,7 @@ test.describe("Recharge history tab + drawer-balance readout over REST (LIRA-103
     ).json();
     expect(seeded.success, JSON.stringify(seeded)).toBeTruthy();
 
-    await page.goto("/#/recharge");
-    await page.waitForTimeout(1_500);
+    await gotoAndSettle(page, "/#/recharge");
     await expect(page.locator("#root")).not.toContainText(
       "Something went wrong",
     );
@@ -167,8 +171,7 @@ test.describe("Recharge history tab + drawer-balance readout over REST (LIRA-103
     ).json();
     expect(seeded.success, JSON.stringify(seeded)).toBeTruthy();
 
-    await page.goto("/#/recharge");
-    await page.waitForTimeout(1_500);
+    await gotoAndSettle(page, "/#/recharge");
     await expect(page.locator("#root")).not.toContainText(
       "Something went wrong",
     );

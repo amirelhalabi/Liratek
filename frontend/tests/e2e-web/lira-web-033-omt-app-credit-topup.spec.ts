@@ -35,7 +35,13 @@
  * the gap as untested, not as by-design non-reversibility.
  */
 import type { Page } from "@playwright/test";
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  gotoAndSettle,
+  BACKEND_URL,
+} from "./fixtures";
 
 async function authHeaders(
   page: Page,
@@ -163,14 +169,14 @@ test.describe("OMT App wallet credit top-up (LIRA-190)", () => {
   }) => {
     const headers = await authHeaders(page);
 
-    await page.goto("/#/recharge");
-    await page.waitForTimeout(1_500);
+    await gotoAndSettle(page, "/#/recharge");
     await expect(page.locator("#root")).not.toContainText(
       "Something went wrong",
     );
 
     await page.getByRole("button", { name: "OMT App" }).click();
-    await page.waitForTimeout(500);
+    // The cash-out button renders only on the OMT App tab.
+    await expect(page.getByTestId("omt-app-cashout-button")).toBeVisible();
 
     const before = await drawerBalances(page, headers);
     const omtSystemBefore = drawerOf(before, "OMT_System");
@@ -243,10 +249,10 @@ test.describe("OMT App wallet credit top-up (LIRA-190)", () => {
     ).json();
     expect(injected.success, JSON.stringify(injected)).toBeTruthy();
 
-    await page.goto("/#/recharge");
-    await page.waitForTimeout(1_500);
+    await gotoAndSettle(page, "/#/recharge");
     await page.getByRole("button", { name: "OMT App" }).click();
-    await page.waitForTimeout(500);
+    // The cash-out button renders only on the OMT App tab.
+    await expect(page.getByTestId("omt-app-cashout-button")).toBeVisible();
 
     const before = await drawerBalances(page, headers);
     const omtSystemBefore = drawerOf(before, "OMT_System");

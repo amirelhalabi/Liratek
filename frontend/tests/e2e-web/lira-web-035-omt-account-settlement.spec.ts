@@ -72,7 +72,13 @@
  * guess at unfixed UI structure is called out in a comment at that call site.
  */
 import type { Page } from "@playwright/test";
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  gotoAndSettle,
+  BACKEND_URL,
+} from "./fixtures";
 
 async function authHeaders(page: Page): Promise<{ Authorization: string }> {
   await loginAsAdmin(page);
@@ -718,8 +724,7 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     const unsettledBefore = await getAccountUnsettled(page, headers, omtId);
     const row = findUnsettled(unsettledBefore, "iPick", "TOP_UP", UI_AMOUNT);
 
-    await page.goto("/#/suppliers");
-    await page.waitForTimeout(1_500);
+    await gotoAndSettle(page, "/#/suppliers");
     await expect(page.locator("#root")).not.toContainText(
       "Something went wrong",
     );

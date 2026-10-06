@@ -42,7 +42,13 @@
  * spec actually runs (not run in this pass — rule 17/L11 instruction).
  */
 import type { Page } from "@playwright/test";
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  gotoAndSettle,
+  BACKEND_URL,
+} from "./fixtures";
 
 interface AccountChildBalance {
   supplier_id: number;
@@ -400,8 +406,7 @@ test.describe("OMT open-credit account rollup over REST (LIRA-188)", () => {
     page,
   }) => {
     await loginAsAdmin(page);
-    await page.goto("/#/suppliers");
-    await page.waitForTimeout(1_500);
+    await gotoAndSettle(page, "/#/suppliers");
     await expect(page.locator("#root")).not.toContainText(
       "Something went wrong",
     );
@@ -423,7 +428,6 @@ test.describe("OMT open-credit account rollup over REST (LIRA-188)", () => {
     // is selected (AccountLedgerTable's own doc comment:
     // `isSelectedAccountParent`) — select it via the card header first.
     await card.getByTestId("supplier-tile-OMT").click();
-    await page.waitForTimeout(500);
     await expect(page.getByTestId("supplier-ledger-type-filter")).toBeVisible();
   });
 });

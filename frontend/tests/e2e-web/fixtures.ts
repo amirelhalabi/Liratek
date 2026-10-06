@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { test as base, expect, type Page } from "@playwright/test";
+import {
+  test as base,
+  expect,
+  type Page,
+  type Request,
+} from "@playwright/test";
 // Same import global-setup.ts already uses — every spec in this suite runs
 // under the Node ABI (rule "rebuild:node before ... web e2e"), so a direct
 // better-sqlite3 open is safe from here too.
@@ -111,6 +116,58 @@ export async function loginAsUser(
   await page.waitForURL((url) => !url.hash.includes("/login"), {
     timeout: 15_000,
   });
+}
+
+/**
+ * Navigate to a hash route and wait until the page's REST calls have
+ * finished: no `/api/` fetch/XHR in flight for `quietMs`. Replaces a fixed
+ * `waitForTimeout(1_500)` after `page.goto`.
+ *
+ * `waitForLoadState("networkidle")` cannot be used: the app keeps a
+ * socket.io connection open (src/api/socket.ts), so the network never goes
+ * idle. That traffic is excluded here.
+ */
+export async function gotoAndSettle(
+  page: Page,
+  route: string,
+  { quietMs = 300, timeoutMs = 15_000 } = {},
+): Promise<void> {
+  let inFlight = 0;
+  let lastChange = Date.now();
+  const isApi = (req: Request) =>
+    (req.resourceType() === "fetch" || req.resourceType() === "xhr") &&
+    req.url().includes("/api/") &&
+    !req.url().includes("/socket.io");
+  const onStart = (req: Request) => {
+    if (!isApi(req)) return;
+    inFlight++;
+    lastChange = Date.now();
+  };
+  const onEnd = (req: Request) => {
+    if (!isApi(req)) return;
+    inFlight = Math.max(0, inFlight - 1);
+    lastChange = Date.now();
+  };
+  page.on("request", onStart);
+  page.on("requestfinished", onEnd);
+  page.on("requestfailed", onEnd);
+  try {
+    await page.goto(route);
+    const deadline = Date.now() + timeoutMs;
+    while (inFlight > 0 || Date.now() - lastChange < quietMs) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `gotoAndSettle(${route}): ${inFlight} /api/ request(s) still in flight after ${timeoutMs}ms`,
+        );
+      }
+      // eslint-disable-next-line no-restricted-syntax -- polling the in-flight counter, not a blind sleep
+      await page.waitForTimeout(50);
+    }
+  } finally {
+    page.off("request", onStart);
+    page.off("requestfinished", onEnd);
+    page.off("requestfailed", onEnd);
+  }
 }
 
 /** Log in as the seeded admin through the real UI form. */

@@ -7,7 +7,7 @@
  * docs/plans/done_plans/WEBAPP_MULTI_TENANT_PLAN.md (Appendix A) — add them here as
  * they get fixed.
  */
-import { test, expect, loginAsAdmin } from "./fixtures";
+import { test, expect, loginAsAdmin, gotoAndSettle } from "./fixtures";
 
 // Routes verified clean in web mode (2026-07-10 smoke run + broken-page
 // fixes + loto REST routes). All 20 routes covered.
@@ -80,8 +80,9 @@ test.describe.serial("web boot path", () => {
   test("known-good pages render without crashing", async ({ page }) => {
     await loginAsAdmin(page);
     for (const route of CLEAN_ROUTES) {
-      await page.goto(`/#${route}`);
-      await page.waitForTimeout(1_500); // let data effects settle
+      // Wait for the page's REST calls to finish (an ErrorBoundary trip
+      // usually follows a response), not a fixed 1.5s per route.
+      await gotoAndSettle(page, `/#${route}`);
       const root = page.locator("#root");
       await expect(
         root,
