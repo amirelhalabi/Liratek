@@ -62,7 +62,8 @@
     "msg.notfound":
       "We couldn't find a shop with that name. Check the spelling.",
     "msg.checking": "Checking…",
-    "video.soundOff": "Sound off",
+    "video.soundOn": "Turn sound on",
+    "video.soundOff": "Turn sound off",
   };
 
   // Before this page existed, liratek.shop redirected to www, so old links
@@ -124,6 +125,7 @@
     toggle.lang = lang === "ar" ? "en" : "ar";
 
     setMessage("", false);
+    if (soundToggle) syncSoundLabel();
   }
 
   function savedLang() {
@@ -238,15 +240,15 @@
 
   // Browsers only autoplay muted video; the button turns the music on.
   var soundToggle = document.getElementById("sound-toggle");
+  // Icon button: the label lives in aria-label/title, in the current language.
   function syncSoundLabel() {
     var on = !video.muted;
+    var label = t(on ? "video.soundOff" : "video.soundOn");
     soundToggle.setAttribute("aria-pressed", String(on));
-    soundToggle.setAttribute(
-      "data-i18n",
-      on ? "video.soundOff" : "video.soundOn",
-    );
-    soundToggle.textContent = t(on ? "video.soundOff" : "video.soundOn");
+    soundToggle.setAttribute("aria-label", label);
+    soundToggle.setAttribute("title", label);
   }
+  syncSoundLabel();
   soundToggle.addEventListener("click", function () {
     video.muted = !video.muted;
     if (!video.muted) {

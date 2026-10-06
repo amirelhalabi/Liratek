@@ -226,15 +226,24 @@ html[lang="ar"] h1 {
   position: absolute;
   inset-inline-end: 12px;
   bottom: 12px;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
   color: var(--text);
   background: rgba(4, 8, 30, 0.75);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 6px 14px;
   cursor: pointer;
+}
+
+.sound-toggle .icon-on,
+.sound-toggle[aria-pressed="true"] .icon-muted {
+  display: none;
+}
+
+.sound-toggle[aria-pressed="true"] .icon-on {
+  display: block;
 }
 
 .sound-toggle:hover {

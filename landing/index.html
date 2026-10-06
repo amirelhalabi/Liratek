@@ -112,9 +112,18 @@
               class="sound-toggle"
               id="sound-toggle"
               aria-pressed="false"
-              data-i18n="video.soundOn"
+              aria-label="Turn sound on"
+              title="Turn sound on"
             >
-              Sound on
+              <!-- Speaker with a cross (muted) / with waves (sound on). -->
+              <svg class="icon-muted" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <path fill="currentColor" d="M11 5 6 9H3v6h3l5 4z" />
+                <path d="m16 9 6 6m0-6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
+              </svg>
+              <svg class="icon-on" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <path fill="currentColor" d="M11 5 6 9H3v6h3l5 4z" />
+                <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
+              </svg>
             </button>
           </div>
         </div>
