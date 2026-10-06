@@ -1,9 +1,10 @@
 # Public Landing Page on `liratek.shop`
 
-> **Status**: in progress. Phases 1–2 LIVE since 2026-10-07 (`liratek.shop` → `liratek-landing`
-> Vercel project; `www` and shop subdomains unchanged, re-verified). Phase 3: owner chose the
-> `/brag` video (3b), shipped as `landing/assets/demo.mp4` with a "Sound on" button; the
-> Playwright recorder (3a) now writes to `frontend/test-results/demo/` only. Remaining: Phase 4
+> **Status**: in progress. Phases 1–2 LIVE since 2026-10-07. Phase 3: the `/brag` video ships
+> on the page; its source now lives in `tools/launch-video/` (`yarn launch-video`, landscape +
+> vertical cut for Reels/TikTok). Page views via Vercel Web Analytics and a WhatsApp-click count
+> via `/wa` added 2026-10-07 — both need Web Analytics enabled on the `liratek-landing` project.
+> Remaining: owner enables analytics and tests the WhatsApp button on a real phone; Phase 4
 > DNS records + Search Console (owner).
 > **Written**: 2026-10-07, after the owner asked for `liratek.shop` to open a
 > landing page (with a product video) instead of going straight to login.
@@ -221,3 +222,20 @@ Under `## 🌐 Web app` in `docs/release-notes/UNRELEASED.md`, when Phase 2 ship
 
 > liratek.shop now opens an information page about LiraTek. Shops keep logging
 > in at their own address, as before.
+
+## 8. Follow-ups added 2026-10-07
+
+- **Video source in the repo** — `tools/launch-video/` (README there). Screens come from
+  `frontend/tests/demo/capture-screens.spec.ts`; `demo:record` is pinned to
+  `record-demo.spec.ts` so the two never share a run.
+- **Vertical cut** — 1080×1920, text kept out of the bottom ~20% and right ~12% (approximate
+  Reels/TikTok button areas). Not committed; render with `yarn launch-video --format vertical`.
+- **Analytics** — Vercel Web Analytics script on `index.html` and `wa.html`. Page views work on
+  Hobby; custom events are Pro/Enterprise only (Vercel docs, checked 2026-10-07), which is why:
+- **WhatsApp click count** — all WhatsApp links go to `/wa` (`wa.html`), which records a page
+  view and then opens the fixed `wa.me` link (English, or Arabic with `?lang=ar`). Destinations
+  are hard-coded, never read from the URL. It leaves as soon as the analytics script loads (+0.3
+  s), at once if the script is blocked, and after 1.5 s at most. **Unverified**: whether iPhone
+  Safari opens the WhatsApp app from this redirect as it does from a direct tap — test on a
+  real phone; if it adds a step, point the buttons back at `wa.me`.
+

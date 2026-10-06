@@ -1,0 +1,336 @@
+<!doctype html>
+<!--
+  LiraTek launch video — the composition. Every frame is a pure function of
+  time: render.mjs calls window.render(t) and screenshots the page.
+  ?format=landscape (1920x1080, default) or ?format=vertical (1080x1920).
+  Screens come from shots/ (see README.md for how they are captured).
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;800&family=IBM+Plex+Sans+Arabic:wght@500;600&family=JetBrains+Mono:wght@700&display=block"
+      rel="stylesheet"
+    />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { overflow: hidden; background: #050833; }
+      body { font-family: Inter, sans-serif; color: #eef1ff; -webkit-font-smoothing: antialiased; }
+      #stage { position: absolute; left: 0; top: 0; overflow: hidden;
+        background: radial-gradient(1200px 700px at 70% 10%, #1b2a7a 0%, transparent 60%),
+                    radial-gradient(900px 600px at 10% 100%, #0d3b4a 0%, transparent 60%), #050833; }
+      .layer { position: absolute; inset: 0; opacity: 0; }
+      .ar { font-family: "IBM Plex Sans Arabic", sans-serif; direction: rtl; }
+      .center { position: absolute; left: 0; right: 0; text-align: center; padding: 0 var(--pad, 0px); }
+      .title { font-size: var(--title, 68px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.12; }
+      .subar { font-size: var(--subar, 36px); color: #a7f3d0; margin-top: 8px; }
+      .num { position: absolute; font-family: "JetBrains Mono", monospace; font-weight: 700; white-space: nowrap; }
+      .card { position: absolute; overflow: hidden; border-radius: 22px; border: 2px solid #2a3680;
+        box-shadow: 0 40px 120px -30px rgba(0,0,0,.8); background: #03052c; }
+      .cam { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+      .cam img { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+      .mask { position: absolute; }
+      .ring { position: absolute; border: 4px solid #10b981; border-radius: 14px; box-shadow: 0 0 40px rgba(16,185,129,.55); opacity: 0; }
+      .tile { position: absolute; overflow: hidden; border-radius: 18px; }
+      .tile img { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+      #cursor { position: absolute; opacity: 0; filter: drop-shadow(0 6px 10px rgba(0,0,0,.6)); }
+      #ripple { position: absolute; border-radius: 50%; border: 4px solid #6ee7b7; opacity: 0; }
+      .pill { display: inline-flex; align-items: center; gap: 14px; background: #10b981; color: #04261b;
+        font-weight: 700; font-size: var(--pill, 40px); padding: 0.45em 1em; border-radius: 18px; }
+      .pill svg { width: 1.05em; height: 1.05em; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <!-- 1. Hook -->
+      <div class="layer" id="s1">
+        <div class="num" id="n1" style="color:#6ee7b7">$33.00</div>
+        <div class="num" id="n2" style="color:#d8b4fe">2,970,000 LBP</div>
+        <div class="num" id="n3" style="color:#fcd34d">+$2.00 OMT fee</div>
+        <div class="num" id="n4" style="color:#6ee7b7">$152.00</div>
+        <div class="center" id="hookText">
+          <div class="title" id="hookTitle">Two currencies. One counter.</div>
+          <div class="ar subar" id="hookAr">عملتان. صندوق واحد.</div>
+        </div>
+      </div>
+
+      <!-- 2. Reveal -->
+      <div class="layer" id="s2">
+        <div class="center" id="revealBox">
+          <div style="display:inline-flex;align-items:center;gap:0.24em" id="brand">
+            <svg id="logo" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#10b981"/><path d="M22 14v30h22" fill="none" stroke="#0a0f2e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 30h20M16 38h20" stroke="#0a0f2e" stroke-width="4" stroke-linecap="round"/></svg>
+            <span id="word" style="font-weight:800;letter-spacing:-0.03em">LiraTek</span>
+          </div>
+          <div id="tag">
+            <div id="tagEn" style="font-weight:600;color:#c7cdf5">The POS for Lebanese phone shops</div>
+            <div class="ar subar" id="tagAr">نظام البيع لمحلات الهواتف في لبنان</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Checkout -->
+      <div class="layer" id="s3">
+        <div class="center" id="t3">
+          <div class="title">Sell in dollars or lira</div>
+          <div class="ar subar">بِع بالدولار أو بالليرة</div>
+        </div>
+        <div class="card" id="c3">
+          <div class="cam" id="cam3">
+            <img src="shots/checkout.png" id="img3" />
+            <div class="ring" id="ring3"></div>
+            <div id="ripple"></div>
+            <svg id="cursor" viewBox="0 0 24 24"><path d="M4 2l16 9-7 2-3 7z" fill="#fff" stroke="#0a0f2e" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. OMT -->
+      <div class="layer" id="s4">
+        <div class="center" id="t4">
+          <div class="title">OMT fees, worked out</div>
+          <div class="ar subar">عمولة OMT محسوبة تلقائياً</div>
+        </div>
+        <div class="card" id="c4">
+          <div class="cam" id="cam4">
+            <img src="shots/omt.png" id="img4" />
+            <div class="mask" id="typeMask" style="background:#1a2761"></div>
+            <div class="mask" id="fee1" style="background:#050939"></div>
+            <div class="mask" id="fee2" style="background:#050939"></div>
+            <div class="mask" id="fee3" style="background:#050939"></div>
+            <div class="ring" id="ring4"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Drawers -->
+      <div class="layer" id="s5">
+        <div class="center" id="t5">
+          <div class="title">Every drawer, balanced</div>
+          <div class="ar subar">كل صندوق مضبوط</div>
+        </div>
+        <div id="back5" class="card" style="border:none;box-shadow:none">
+          <div class="cam"><img src="shots/dashboard.png" id="img5" /></div>
+        </div>
+        <div id="tiles5"></div>
+      </div>
+
+      <!-- 6. Outro -->
+      <div class="layer" id="s6">
+        <div class="center" id="outroBox">
+          <div style="display:inline-flex;align-items:center;gap:0.27em" id="o1">
+            <svg id="logo2" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#10b981"/><path d="M22 14v30h22" fill="none" stroke="#0a0f2e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 30h20M16 38h20" stroke="#0a0f2e" stroke-width="4" stroke-linecap="round"/></svg>
+            <span style="font-weight:800;letter-spacing:-0.03em">LiraTek</span>
+          </div>
+          <div id="o2" class="ar" style="color:#c7cdf5">محلك كله، بالدولار والليرة، في مكان واحد</div>
+          <div id="o3" style="font-weight:800;color:#6ee7b7;letter-spacing:-0.01em">liratek.shop</div>
+          <div id="o4"><span class="pill"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Z"/></svg>Talk to us on WhatsApp</span></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ---- layouts ---------------------------------------------------------
+      // Rect = [x, y, w, h]. Crops are in screenshot pixels (1920x1080).
+      // Vertical keeps text out of the bottom ~20% and right ~12%, where
+      // Reels/TikTok draw their own buttons and captions (approximate).
+      const LAYOUTS = {
+        landscape: {
+          W: 1920, H: 1080, pad: 0, title: 68, subar: 36,
+          nums: [[250, 250, 92], [980, 330, 84], [330, 560, 76], [1150, 640, 96]],
+          hookTop: 430, hookTitle: 96, hookAr: 44,
+          reveal: { top: 300, logo: 170, word: 150, tagGap: 40, tagEn: 58, tagAr: 42 },
+          titleTop: { t3: 70, t4: 70, t5: 90 },
+          c3: { rect: [211, 300, 1498, 710], crop: [24, 82], s: 0.8, focus: [480, 868], z: 1.85, ring: [70, 818, 845, 118] },
+          c4: { rect: [230, 320, 1460, 600], crop: [420, 190], s: 1.0, focus: [640, 690], z: 1.6 },
+          back5: { rect: [118, 420, 1685, 449], crop: [420, 370], s: 1.15, opacity: 0.2 },
+          // Same place as on the backdrop: tile i sits where it was on the page.
+          tiles: null,
+          outro: { top: 250, logo: 120, word: 110, ar: 52, url: 84, pill: 40, gap: [26, 46, 40] },
+        },
+        vertical: {
+          W: 1080, H: 1920, pad: 130, title: 76, subar: 40,
+          nums: [[90, 330, 84], [300, 470, 72], [110, 1140, 66], [420, 1280, 88]],
+          hookTop: 740, hookTitle: 96, hookAr: 46,
+          reveal: { top: 640, logo: 140, word: 124, tagGap: 44, tagEn: 54, tagAr: 44 },
+          titleTop: { t3: 250, t4: 250, t5: 250 },
+          c3: { rect: [72, 520, 936, 888], crop: [960, 82], s: 1.0, focus: [1420, 270], z: 1.9, ring: [1278, 228, 290, 56] },
+          c4: { rect: [74, 560, 933, 636], crop: [420, 190], s: 1.06, focus: [640, 690], z: 1.6 },
+          back5: { rect: [0, 0, 1, 1], crop: [420, 370], s: 1, opacity: 0 },
+          tiles: [
+            // [image rect], [left, top], scale
+            [[420, 376, 700, 96], [80, 540], 1.19],
+            [[420, 575, 272, 175], [80, 700], 1.5],
+            [[718, 575, 272, 175], [506, 700], 1.5],
+            [[1016, 575, 272, 175], [80, 980], 1.5],
+            [[1313, 575, 273, 175], [506, 980], 1.5],
+            [[1611, 575, 273, 175], [293, 1260], 1.5],
+          ],
+          outro: { top: 600, logo: 130, word: 124, ar: 50, url: 96, pill: 42, gap: [30, 56, 48] },
+        },
+      };
+      const FORMAT = new URLSearchParams(location.search).get("format") === "vertical" ? "vertical" : "landscape";
+      const Lx = LAYOUTS[FORMAT];
+
+      const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+      const seg = (t, a, b) => clamp((t - a) / (b - a));
+      const eOut = (x) => 1 - Math.pow(1 - x, 3);
+      const eInOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+      const eBack = (x) => { const c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+      const lerp = (a, b, x) => a + (b - a) * x;
+      const $ = (id) => document.getElementById(id);
+      const px = (v) => v + "px";
+      function box(el, [x, y, w, h]) { el.style.left = px(x); el.style.top = px(y); el.style.width = px(w); el.style.height = px(h); }
+
+      // ---- static layout ------------------------------------------------------
+      const stage = $("stage");
+      stage.style.width = px(Lx.W); stage.style.height = px(Lx.H);
+      document.documentElement.style.setProperty("--pad", px(Lx.pad));
+      document.documentElement.style.setProperty("--title", px(Lx.title));
+      document.documentElement.style.setProperty("--subar", px(Lx.subar));
+      document.documentElement.style.setProperty("--pill", px(Lx.outro.pill));
+      Lx.nums.forEach(([x, y, size], i) => { const el = $("n" + (i + 1)); el.style.left = px(x); el.style.top = px(y); el.style.fontSize = px(size); });
+      $("hookText").style.top = px(Lx.hookTop);
+      $("hookTitle").style.fontSize = px(Lx.hookTitle);
+      $("hookAr").style.fontSize = px(Lx.hookAr);
+      const R = Lx.reveal;
+      $("revealBox").style.top = px(R.top);
+      $("logo").setAttribute("width", R.logo); $("logo").setAttribute("height", R.logo);
+      $("brand").style.fontSize = px(R.word);
+      $("tag").style.marginTop = px(R.tagGap);
+      $("tagEn").style.fontSize = px(R.tagEn);
+      $("tagAr").style.fontSize = px(R.tagAr);
+      for (const [id, top] of Object.entries(Lx.titleTop)) $(id).style.top = px(top);
+      box($("c3"), Lx.c3.rect); box($("c4"), Lx.c4.rect); box($("back5"), Lx.back5.rect);
+      $("back5").style.opacity = Lx.back5.opacity;
+      const O = Lx.outro;
+      $("outroBox").style.top = px(O.top);
+      $("logo2").setAttribute("width", O.logo); $("logo2").setAttribute("height", O.logo);
+      $("o1").style.fontSize = px(O.word);
+      $("o2").style.fontSize = px(O.ar); $("o2").style.marginTop = px(O.gap[0]);
+      $("o3").style.fontSize = px(O.url); $("o3").style.marginTop = px(O.gap[1]);
+      $("o4").style.marginTop = px(O.gap[2]);
+
+      // Drawer tiles: landscape puts each where it sits on the dimmed page;
+      // vertical lays them out in a grid.
+      const PAGE_TILES = [[420, 376, 1464, 96], [420, 575, 272, 175], [718, 575, 272, 175], [1016, 575, 272, 175], [1313, 575, 273, 175], [1611, 575, 273, 175]];
+      const TILES = Lx.tiles || PAGE_TILES.map((r) => {
+        const b = Lx.back5;
+        return [r, [b.rect[0] + (r[0] - b.crop[0]) * b.s, b.rect[1] + (r[1] - b.crop[1]) * b.s], b.s];
+      });
+      TILES.forEach(([[x, y, w, h], [left, top], s], i) => {
+        const d = document.createElement("div"); d.className = "tile"; d.id = "tile" + i;
+        const img = document.createElement("img"); img.src = "shots/dashboard.png"; d.appendChild(img);
+        box(d, [left, top, w * s, h * s]);
+        img.style.transform = `translate(${-x * s}px, ${-y * s}px) scale(${s})`;
+        $("tiles5").appendChild(d);
+      });
+
+      // ---- camera helpers -------------------------------------------------------
+      function setCam(camEl, imgEl, C, zoomK) {
+        const [x0, y0] = C.crop, s = C.s, cw = C.rect[2], ch = C.rect[3];
+        imgEl.style.transform = `translate(${-x0 * s}px, ${-y0 * s}px) scale(${s})`;
+        const fx = (C.focus[0] - x0) * s, fy = (C.focus[1] - y0) * s;
+        const z = lerp(1, C.z, zoomK);
+        const tx = lerp(0, cw / 2 - fx * C.z, zoomK), ty = lerp(0, ch / 2 - fy * C.z, zoomK);
+        // Never pull the screenshot's edge inside the card.
+        camEl.style.transform = `translate(${clamp(tx, cw - cw * z, 0)}px, ${clamp(ty, ch - ch * z, 0)}px) scale(${z})`;
+      }
+      function placeImg(el, C, [x, y, w, h]) {
+        const [x0, y0] = C.crop, s = C.s;
+        box(el, [(x - x0) * s, (y - y0) * s, w * s, h * s]);
+      }
+
+      // ---- timeline -----------------------------------------------------------------
+      const S = { s1: [0, 3.0], s2: [3.0, 5.8], s3: [5.8, 9.8], s4: [9.8, 13.8], s5: [13.8, 17.5], s6: [17.5, 21.0] };
+      const IN = 0.35, OUT = 0.3;
+      function vis(t, [a, b], last) {
+        const i = a === 0 ? 1 : eOut(seg(t, a, a + IN));
+        const o = last ? 1 : 1 - seg(t, b - OUT, b);
+        return t < a || t > b ? 0 : Math.min(i, o);
+      }
+
+      function render(t) {
+        for (const k of Object.keys(S)) $(k).style.opacity = vis(t, S[k], k === "s6");
+
+        // 1. Hook — amounts drop in, then the line settles.
+        ["n1", "n2", "n3", "n4"].forEach((id, i) => {
+          const p = seg(t, 0.05 + i * 0.2, 0.38 + i * 0.2);
+          const away = seg(t, 1.0, 1.3);
+          const el = $(id);
+          el.style.opacity = eOut(p) * (1 - 0.82 * away);
+          el.style.transform = `translateY(${(1 - eOut(p)) * -60}px) scale(${lerp(1.25, 1, eBack(p)) * lerp(1, 0.9, away)})`;
+          el.style.filter = `blur(${away * 6}px)`;
+        });
+        const h = eOut(seg(t, 1.1, 1.4));
+        $("hookText").style.opacity = h;
+        $("hookText").style.transform = `translateY(${(1 - h) * 30}px)`;
+
+        // 2. Reveal
+        const r = t - 3.0;
+        const lg = eBack(seg(r, 0.05, 0.55));
+        $("logo").style.transform = `scale(${lg}) rotate(${(1 - lg) * -20}deg)`;
+        const w = eOut(seg(r, 0.25, 0.7));
+        $("word").style.opacity = w; $("word").style.transform = `translateX(${(1 - w) * -40}px)`;
+        $("word").style.display = "inline-block";
+        const tg = eOut(seg(r, 0.45, 0.8));
+        $("tag").style.opacity = tg; $("tag").style.transform = `translateY(${(1 - tg) * 24}px)`;
+
+        // 3. Checkout — card rises, cursor clicks Complete Sale, then zoom.
+        const C3 = Lx.c3, c = t - 5.8;
+        const ci = eOut(seg(c, 0.1, 0.6));
+        $("c3").style.transform = `translateY(${(1 - ci) * 80}px)`;
+        $("t3").style.opacity = eOut(seg(c, 0, 0.35));
+        setCam($("cam3"), $("img3"), C3, eInOut(seg(c, 2.15, 3.0)));
+        const mv = eInOut(seg(c, 0.6, 1.6));
+        const cursorPx = 46 / C3.s;
+        placeImg($("cursor"), C3, [lerp(1100, 1700, mv), lerp(620, 900, mv), cursorPx, cursorPx]);
+        $("cursor").style.opacity = seg(c, 0.5, 0.7) * (1 - seg(c, 2.0, 2.2));
+        const click = seg(c, 1.75, 2.25);
+        placeImg($("ripple"), C3, [1700 - 10 - click * 60, 900 - 10 - click * 60, 20 + click * 120, 20 + click * 120]);
+        $("ripple").style.opacity = click > 0 && click < 1 ? 1 - click : 0;
+        placeImg($("ring3"), C3, C3.ring);
+        $("ring3").style.opacity = eOut(seg(c, 2.8, 3.1));
+
+        // 4. OMT — "150" types in, fee lines appear, customer total circled.
+        const C4 = Lx.c4, o = t - 9.8;
+        const oi = eOut(seg(o, 0.1, 0.6));
+        $("c4").style.transform = `translateY(${(1 - oi) * 80}px)`;
+        $("t4").style.opacity = eOut(seg(o, 0, 0.35));
+        const typed = o < 0.75 ? 0 : o < 0.95 ? 1 : o < 1.15 ? 2 : 3;
+        const charX = [494, 508, 521, 537][typed];
+        placeImg($("typeMask"), C4, [charX, 545, 560 - charX, 36]);
+        [["fee1", 672, 1.45], ["fee2", 699, 1.75], ["fee3", 726, 2.05]].forEach(([id, y, at]) => {
+          placeImg($(id), C4, [508, y, 300, 27]);
+          $(id).style.opacity = 1 - eOut(seg(o, at, at + 0.2));
+        });
+        setCam($("cam4"), $("img4"), C4, eInOut(seg(o, 2.35, 3.1)));
+        placeImg($("ring4"), C4, [500, 724, 290, 32]);
+        $("ring4").style.opacity = eOut(seg(o, 2.9, 3.2));
+
+        // 5. Drawers — each drawer pops in.
+        const d = t - 13.8;
+        $("t5").style.opacity = eOut(seg(d, 0, 0.35));
+        const B = Lx.back5;
+        $("img5").style.transform = `translate(${-B.crop[0] * B.s}px, ${-B.crop[1] * B.s}px) scale(${B.s})`;
+        TILES.forEach((_, i) => {
+          const el = $("tile" + i);
+          const p = eBack(seg(d, 0.35 + i * 0.22, 0.75 + i * 0.22));
+          el.style.opacity = clamp(p * 1.4);
+          el.style.transform = `translateY(${(1 - p) * 40}px) scale(${lerp(0.92, 1, p)})`;
+        });
+
+        // 6. Outro
+        const u = t - 17.5;
+        [["o1", 0.05], ["o2", 0.35], ["o3", 0.6], ["o4", 0.85]].forEach(([id, a]) => {
+          const p = eOut(seg(u, a, a + 0.45));
+          $(id).style.opacity = p; $(id).style.transform = `translateY(${(1 - p) * 28}px)`;
+        });
+      }
+      window.LAYOUT = Lx;
+      window.render = render;
+      render(0);
+    </script>
+  </body>
+</html>

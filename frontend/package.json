@@ -20,7 +20,8 @@
     "env:dev": "cp .env.dev .env",
     "env:prod": "cp .env.prod .env",
     "test:e2e:web": "node ../scripts/run-e2e.mjs web",
-    "demo:record": "playwright test --config playwright.demo.config.ts && node tests/demo/encode-demo.mjs"
+    "demo:record": "playwright test --config playwright.demo.config.ts tests/demo/record-demo.spec.ts && node tests/demo/encode-demo.mjs",
+    "launch-video": "node ../tools/launch-video/make.mjs"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
