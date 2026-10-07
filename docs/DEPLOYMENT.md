@@ -483,8 +483,10 @@ Other guards on `POST /api/auth/signup`:
   whole model.
 
 The login page asks `GET /api/auth/signup-status` (public) and shows **Sign
-up** only when `selfServeEnabled` is true. With self-serve off (no Turnstile
-keys), the link is hidden and new shops join only through an admin invite.
+up** only when `selfServeEnabled` is true. With self-serve off
+(`SIGNUP_SELF_SERVE_ENABLED` unset), the link is hidden and new shops join
+through an admin invite — or with Google, once Google is configured
+(§ 5b-google).
 
 Desktop is untouched: Electron provisions its single tenant through the
 first-run setup wizard, and the login page hides the sign-up link outside the
@@ -500,8 +502,9 @@ Sign-up now also works through a single-use emailed link. Details are in
   email address and passes Cloudflare Turnstile.
 
 Both flows are off until email is configured. Self-serve is also off until
-Turnstile is configured (as of 2026-10-07 it is not, by owner decision, so
-sign-up is by admin invite only).
+`SIGNUP_SELF_SERVE_ENABLED=true` (LIRA-278). Turnstile is now an optional
+extra check on that form, used only when both its keys are set (as of
+2026-10-07 they are not, by owner decision).
 
 **One-time setup by the owner (go-live runbook):**
 
@@ -554,7 +557,14 @@ sign-up is by admin invite only).
 | --- | --- |
 | `SIGNUP_REQUEST_RATE_LIMIT_MAX` | 5 requests per IP per hour |
 | `SIGNUP_CHECK_RATE_LIMIT_MAX` | 30 link checks per IP per hour |
-| `SIGNUP_SELF_SERVE_DAILY_CAP` | 50 self-serve emails per day |
+| `SIGNUP_SELF_SERVE_DAILY_CAP` | 20 public sign-ups per rolling 24 hours: emailed self-serve requests plus shops created with Google (§ 5b-google) |
+| `PASSWORD_RESET_FORGOT_RATE_LIMIT_MAX` | 5 "Forgot password?" requests per IP per hour |
+| `PASSWORD_RESET_TOKEN_RATE_LIMIT_MAX` | 30 reset-link checks/submits per IP per hour |
+| `USER_INVITE_LINK_RATE_LIMIT_MAX` | 30 user-invite link checks/accepts per IP per hour |
+| `EMAIL_VERIFY_LINK_RATE_LIMIT_MAX` | 30 email-verification link opens per IP per hour |
+
+"Per IP" means the `CLIENT_IP_HEADER` value when it is set (one shared
+helper, `backend/src/middleware/clientIp.ts`), else `req.ip`.
 
 The per-email limit (3 requests per hour) is fixed.
 
@@ -618,12 +628,19 @@ origins, which is why the flow does not run on `<shop>.liratek.shop`.
   An account connected in several shops gets a "choose your shop" page.
 - **Sign up:** "Create a shop with Google" skips the emailed link (Google
   proved the address) but still asks for the shop address, an admin username
-  **and a password**. One shop per email still applies. It is public
-  self-serve sign-up by another door, so it stays closed (link hidden,
-  refused server-side) until `SIGNUP_SELF_SERVE_ENABLED=true` too — turning
-  Google on for sign-in does not open sign-up. The self-serve daily cap
-  (`SIGNUP_SELF_SERVE_DAILY_CAP`) counts emailed links only and does **not**
-  limit Google sign-ups; only the per-IP sign-up limiter does.
+  **and a password**. One shop per email still applies. Owner decision
+  2026-10-07: it is **open whenever Google is configured**, independent of
+  `SIGNUP_SELF_SERVE_ENABLED` (that switch only controls the emailed form).
+  The login page shows "Create a shop with Google", and `/signup` offers
+  "Continue with Google" even while the emailed form is off.
+- **One daily limit for all public sign-ups.** `SIGNUP_SELF_SERVE_DAILY_CAP`
+  (default 20, rolling 24 hours) counts emailed self-serve requests **plus**
+  shops created with Google (`tenants.google_signup_at`, migration v197).
+  When it is reached, the emailed form still says "check your inbox" and
+  sends nothing, while Google sign-up is refused with "Today's limit for new
+  shops has been reached" (the person is signed in with Google, so they are
+  told). Both log "Public sign-up daily cap reached". The per-IP sign-up
+  limiter also applies.
 
 **Known limit:** finding which shops a Google account opens reads every
 shop's `user_identities` from one database. That works in the current

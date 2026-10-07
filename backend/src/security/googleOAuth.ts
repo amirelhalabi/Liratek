@@ -34,7 +34,6 @@ import {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
   JWT_SECRET,
-  SIGNUP_SELF_SERVE_ENABLED,
 } from "@liratek/core";
 import { resolveInviteBaseUrl } from "../email/emailConfig.js";
 
@@ -61,19 +60,6 @@ export function googleConfig(): GoogleConfig | null {
     platformBaseUrl,
     redirectUri: `${platformBaseUrl}${GOOGLE_CALLBACK_PATH}`,
   };
-}
-
-/**
- * Can a visitor CREATE A SHOP with Google? Google sign-up is public
- * self-serve sign-up by another door, so it opens only with the same switch
- * as the email form (SIGNUP_SELF_SERVE_ENABLED; owner decision: sign-up is
- * invite-only until self-serve is turned on). Sign-in and linking need only
- * `googleConfig()`. Email is not required here: Google proved the address.
- * Note: the self-serve daily cap counts emailed invites and does NOT apply
- * to Google sign-ups; only the per-IP sign-up limiter does.
- */
-export function isGoogleSignupOpen(): boolean {
-  return googleConfig() !== null && SIGNUP_SELF_SERVE_ENABLED;
 }
 
 // ── Signed tickets ───────────────────────────────────────────────────────

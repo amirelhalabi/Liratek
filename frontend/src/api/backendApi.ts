@@ -8084,22 +8084,6 @@ export async function acceptUserInvitation(
   );
 }
 
-/**
- * LIRA-276: email a user a password-reset link, from Settings -> Users.
- * Feature C owns the endpoint (`POST /api/password-reset/send/:userId`,
- * contract C); only the button lives in feature B. NOTE FOR THE MERGE: the
- * contract also lists this function under [auth-C] — keep ONE copy.
- */
-export async function sendPasswordReset(
-  userId: number,
-): Promise<AccountRouteResult<{ sent: true }>> {
-  assertWebOnly("Sending a password reset link");
-  return requestJson<AccountRouteResult<{ sent: true }>>(
-    `/api/password-reset/send/${userId}`,
-    { method: "POST" },
-  );
-}
-
 // [auth-C] forgot / reset password (LIRA-275/276)
 // Payload types are the core schemas' input types (rule 21); the import sits
 // here, under this anchor, so parallel branches never touch the file's top.
@@ -8159,10 +8143,13 @@ export async function resetPassword(input: ResetPasswordInput) {
 }
 
 /** A shop admin emails one of the shop's users a reset link (LIRA-276,
- * web only; the Settings → Users button belongs to feature B). Refusal
+ * web only; the ONE copy — the Settings → Users button (feature B) calls it
+ * through `runAccountAction`, which reads this envelope). Refusal
  * codes: NOT_FOUND, USER_HAS_NO_EMAIL, EMAIL_NOT_VERIFIED,
  * EMAIL_NOT_CONFIGURED, RATE_LIMITED. */
-export async function sendPasswordReset(userId: number) {
+export async function sendPasswordReset(
+  userId: number,
+): Promise<PasswordResetEnvelope<{ sent: true }>> {
   assertWebOnly("Password reset");
   return requestJson<PasswordResetEnvelope<{ sent: true }>>(
     `/api/password-reset/send/${userId}`,
@@ -8194,8 +8181,6 @@ export async function googleAuthStatus() {
       enabled: boolean;
       startUrl: string | null;
       shop?: string | null;
-      /** "Create a shop with Google" may be offered (self-serve on). */
-      signupEnabled?: boolean;
     }>
   >("/api/auth/google/status", { auth: false });
 }

@@ -598,3 +598,67 @@ describe("create shop-name echo by source", () => {
   });
 });
 
+
+// Owner decision 2026-10-07: ONE daily limit for every public sign-up —
+// emailed self-serve requests AND shops created with Google. The count is a
+// single repository predicate over two platform tables (rule 14), so both
+// doors read the same number.
+describe("public sign-up daily cap (email requests + Google sign-ups)", () => {
+  const { authLogger } = require("../../utils/logger.js") as typeof import("../../utils/logger.js");
+
+  beforeEach(() => {
+    let n = 0;
+    service = new SignupInvitationService(
+      inviteRepo,
+      outboxRepo,
+      () => `tok_cap_${(n += 1)}`,
+    );
+  });
+
+  function googleShop(slug: string, googleSignupAt: string): void {
+    db.prepare(
+      `INSERT INTO tenants (name, slug, status, contact_email, google_signup_at)
+       VALUES (?, ?, 'active', ?, ?)`,
+    ).run(slug, slug, `${slug}@gmail.com`, googleSignupAt);
+  }
+
+  function req(email: string, dailyCap: number, now = T0) {
+    return service.requestSelfServe({
+      email,
+      now,
+      baseUrl: BASE_URL,
+      supportEmail: "help@liratek.test",
+      emailConfigured: true,
+      dailyCap,
+    });
+  }
+
+  it("Google sign-ups fill the cap: the next email request is not sent", () => {
+    googleShop("g1", plus(T0, -HOUR_MS));
+    googleShop("g2", plus(T0, -2 * HOUR_MS));
+    expect(req("a@example.com", 2)).toEqual({ queued: false, reason: "daily_cap" });
+    expect(countOutbox()).toBe(0);
+  });
+
+  it("email requests fill the cap: a Google sign-up is refused, with a warning", () => {
+    const warn = jest.spyOn(authLogger, "warn");
+    expect(req("a@example.com", 2).queued).toBe(true);
+    expect(service.isPublicSignupCapReached({ now: T0, dailyCap: 2 })).toBe(false);
+    expect(req("b@example.com", 2).queued).toBe(true);
+    expect(service.isPublicSignupCapReached({ now: T0, dailyCap: 2 })).toBe(true);
+    expect(JSON.stringify(warn.mock.calls)).toContain("cap");
+    warn.mockRestore();
+  });
+
+  it("counts both kinds together, over a rolling 24 hours only", () => {
+    expect(req("a@example.com", 5).queued).toBe(true);
+    googleShop("recent", plus(T0, -23 * HOUR_MS));
+    googleShop("old", plus(T0, -25 * HOUR_MS));
+    // Admin-created shops (no google_signup_at) and admin invites never count.
+    insertTenant("byadmin", "boss@example.com");
+    service.create(params({ email: "invited@example.com", now: T0 }));
+    expect(inviteRepo.countPublicSignupsSince(plus(T0, -24 * HOUR_MS))).toBe(2);
+    expect(service.isPublicSignupCapReached({ now: T0, dailyCap: 3 })).toBe(false);
+    expect(service.isPublicSignupCapReached({ now: T0, dailyCap: 2 })).toBe(true);
+  });
+});

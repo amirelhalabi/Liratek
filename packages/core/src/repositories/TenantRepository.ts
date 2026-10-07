@@ -47,6 +47,9 @@ export interface TenantEntity {
   notes: string | null;
   /** v195 (LIRA-267): lowercased; NULL for shops created without one. */
   contact_email: string | null;
+  /** v197 (LIRA-280): UTC ISO instant the shop was created with Google;
+   * NULL for every other shop. Counted by the public sign-up daily cap. */
+  google_signup_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -64,6 +67,8 @@ export interface CreateTenantData {
   notes?: string | null;
   /** Must already be trimmed + lowercased (the service normalises it). */
   contact_email?: string | null;
+  /** v197: set only for a shop created with Google (UTC ISO). */
+  google_signup_at?: string | null;
 }
 
 /**
@@ -386,8 +391,8 @@ export class TenantRepository {
   create(data: CreateTenantData): TenantEntity {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO tenants (name, slug, contact_name, contact_phone, notes, contact_email, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO tenants (name, slug, contact_name, contact_phone, notes, contact_email, google_signup_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `);
       const result = stmt.run(
         data.name,
@@ -396,6 +401,7 @@ export class TenantRepository {
         data.contact_phone ?? null,
         data.notes ?? null,
         data.contact_email ?? null,
+        data.google_signup_at ?? null,
       );
       const created = this.getById(result.lastInsertRowid as number);
       if (!created) {

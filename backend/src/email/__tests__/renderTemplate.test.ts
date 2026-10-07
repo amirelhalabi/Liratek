@@ -19,6 +19,7 @@ function template(parts: Partial<EmailTemplate>): EmailTemplate {
     subject: "Hello",
     html: "",
     text: "",
+    secretKeys: [],
     ...parts,
   };
 }

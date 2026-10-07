@@ -152,6 +152,7 @@
 - Web app, Settings → Users: each user can now have an email address. When you add or change one, LiraTek emails a link to confirm it, and the list shows whether each email is confirmed. You can send the link again if it got lost.
 - Web app, Settings → Users: "Invite by email" lets you add a staff member or admin by email. They get a link to choose their own username and password, with their email already confirmed. Invitations that are still waiting are listed with Resend and Revoke.
 - Web app, Settings → Users: "Send password reset" emails a user a link to choose a new password. It works for users whose email is confirmed.
+- Web app, Settings → Users: while a shop's subscription has lapsed, inviting users by email, changing a user's email and sending reset links are unavailable, like other staff changes. Revoking a waiting invitation still works.
 
 ## 🧾 Expenses
 

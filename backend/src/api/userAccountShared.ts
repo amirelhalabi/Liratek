@@ -17,6 +17,10 @@ import {
 import { resolveTenantHost, isHostTenancyActive } from "../middleware/tenantHost.js";
 import { isPerTenantDbMode } from "../database/tenantDbMode.js";
 import { logger } from "../server.js";
+import {
+  clientIpRateLimitKey,
+  resolveClientIp,
+} from "../middleware/clientIp.js";
 
 /**
  * Where a PUBLIC by-token route may look a token up.
@@ -95,9 +99,8 @@ function envLimit(name: string, fallback: number): number {
 
 /**
  * Per-IP limiter for the public link routes (join check/accept, email
- * verify). Local to feature B because `middleware/rateLimit.ts` belongs to
- * feature A; it keys on `req.ip` like the LIRA-267 limiters until A's
- * real-client-IP key generator lands.
+ * verify). Keys on the real client IP (`CLIENT_IP_HEADER`, else `req.ip`)
+ * through the one shared helper in `middleware/clientIp.ts`.
  */
 export function createPublicLinkLimiter(envName: string, label: string) {
   return rateLimit({
@@ -105,8 +108,12 @@ export function createPublicLinkLimiter(envName: string, label: string) {
     max: envLimit(envName, 30),
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => clientIpRateLimitKey(req),
     handler: (req, res) => {
-      logger.warn({ ip: req.ip, path: req.path }, `Rate limit exceeded - ${label}`);
+      logger.warn(
+        { ip: resolveClientIp(req), path: req.path },
+        `Rate limit exceeded - ${label}`,
+      );
       res.status(429).json({
         success: false,
         error: "Too many requests, please try again later",

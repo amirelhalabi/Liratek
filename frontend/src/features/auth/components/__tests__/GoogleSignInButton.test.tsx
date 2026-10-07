@@ -30,7 +30,6 @@ it("links to the www start with intent=login and this host's shop", async () => 
       enabled: true,
       startUrl: "https://www.liratek.shop/api/auth/google/start",
       shop: "two",
-      signupEnabled: true,
     },
   });
   render(<GoogleSignInButton />);
@@ -48,19 +47,34 @@ it("links to the www start with intent=login and this host's shop", async () => 
   );
 });
 
-it("offers sign-in only while shop sign-up is closed (self-serve off)", async () => {
+// Owner decision 2026-10-07: creating a shop with Google is open whenever
+// Google is configured — there is no separate sign-up switch in the status.
+it("the sign-up variant (Signup page) links straight to intent=signup", async () => {
   googleAuthStatus.mockResolvedValue({
     success: true,
     data: {
       enabled: true,
       startUrl: "https://www.liratek.shop/api/auth/google/start",
       shop: null,
-      signupEnabled: false,
     },
   });
-  render(<GoogleSignInButton />);
-  await screen.findByRole("link", { name: /continue with google/i });
+  render(<GoogleSignInButton intent="signup" />);
+  const link = await screen.findByRole("link", { name: /continue with google/i });
+  expect(link).toHaveAttribute(
+    "href",
+    "https://www.liratek.shop/api/auth/google/start?intent=signup",
+  );
   expect(screen.queryByRole("link", { name: /create a shop with google/i })).toBeNull();
+});
+
+it("shows the fallback, not the button, while Google is dormant", async () => {
+  googleAuthStatus.mockResolvedValue({
+    success: true,
+    data: { enabled: false, startUrl: null, shop: null },
+  });
+  render(<GoogleSignInButton intent="signup" fallback={<p>closed</p>} />);
+  expect(await screen.findByText("closed")).toBeInTheDocument();
+  expect(screen.queryByRole("link")).toBeNull();
 });
 
 it("stays hidden while Google sign-in is dormant", async () => {

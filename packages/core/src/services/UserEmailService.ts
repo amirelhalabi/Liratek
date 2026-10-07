@@ -54,6 +54,9 @@ export const EMAIL_VERIFY_WINDOW_MS = 60 * 60 * 1000;
 
 /** The outbox template that carries a verification link. */
 export const VERIFY_EMAIL_TEMPLATE = "verify-email";
+/** The outbox data key holding the secret verification link; the outbox
+ * worker scrubs it once the email reaches a final status. */
+export const EMAIL_VERIFY_URL_KEY = "verifyUrl";
 
 /** The ONE refusal for every unusable verification link. */
 export const EMAIL_VERIFY_INVALID_MESSAGE =
@@ -302,7 +305,7 @@ export class UserEmailService {
         template: VERIFY_EMAIL_TEMPLATE,
         toEmail: email,
         data: {
-          verifyUrl: verifyUrl(baseUrl, token),
+          [EMAIL_VERIFY_URL_KEY]: verifyUrl(baseUrl, token),
           username,
           shopName: shop.name,
           expiresAtText: formatInviteExpiry(expiresAt),

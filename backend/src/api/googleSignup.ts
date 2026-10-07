@@ -1,6 +1,9 @@
 /**
  * POST /api/auth/signup — the Google branch (LIRA-280, feature D).
  *
+ * Open whenever Google is configured (owner decision 2026-10-07: NOT tied
+ * to SIGNUP_SELF_SERVE_ENABLED), inside the one public sign-up daily cap.
+ *
  * Mounted from auth.ts under its `[auth-D]` anchor, ahead of the invite-link
  * route, for bodies that carry `googleTicket`. Google already proved the
  * email (the callback refuses `email_verified !== true`), so the emailed-link
@@ -28,10 +31,14 @@ import {
   EMAIL_ALREADY_HAS_SHOP,
   ErrorCodes,
   GOOGLE_NOT_CONFIGURED,
+  SIGNUP_DAILY_CAP,
+  SIGNUP_DAILY_CAP_MESSAGE,
+  SIGNUP_SELF_SERVE_DAILY_CAP,
   createErrorResponse,
   createSuccessResponse,
   getAuditService,
   getGoogleAuthService,
+  getSignupInvitationService,
   getTenantProvisioningService,
   getUserRepository,
   googleSignupSchema,
@@ -43,7 +50,7 @@ import { validateRequest } from "../middleware/validation.js";
 import { provisionTenantDomain } from "../services/tenantDomains.js";
 import { resolveTenantBaseUrl } from "../email/emailConfig.js";
 import {
-  isGoogleSignupOpen,
+  googleConfig,
   readSignupTicket,
   verifyTicket,
 } from "../security/googleOAuth.js";
@@ -72,10 +79,25 @@ interface GoogleSignupBody {
   googleTicket: string;
 }
 
+/**
+ * Has the ONE public sign-up daily cap (SIGNUP_SELF_SERVE_DAILY_CAP: emailed
+ * self-serve requests + shops created with Google, rolling 24 hours) been
+ * reached? Counted on the platform tables; the service warns when it is.
+ */
+export function isGoogleSignupCapReached(now: string): boolean {
+  return runWithoutTenant(() =>
+    getSignupInvitationService().isPublicSignupCapReached({
+      now,
+      dailyCap: SIGNUP_SELF_SERVE_DAILY_CAP,
+    }),
+  );
+}
+
 function handleGoogleSignup(req: Request, res: Response): void {
-  // Re-checked here, not only at /start: a ticket minted before the
-  // self-serve switch was turned off stays signed for 30 minutes.
-  if (!isGoogleSignupOpen()) {
+  // Owner decision 2026-10-07: creating a shop with Google is open whenever
+  // Google is configured — it does NOT follow the self-serve email switch.
+  // Re-checked here because a ticket stays signed for 30 minutes.
+  if (!googleConfig()) {
     // Contract envelope: 200 + top-level `code` (GOOGLE_NOT_CONFIGURED).
     res.json({
       success: false,
@@ -91,8 +113,23 @@ function handleGoogleSignup(req: Request, res: Response): void {
     return;
   }
 
+  const now = new Date().toISOString();
+  // The authoritative cap check: the shop is created on this request. The
+  // person is signed in with Google, so they are told (no silent drop).
+  if (isGoogleSignupCapReached(now)) {
+    logger.warn(
+      { slug: body.slug },
+      "Google sign-up refused: public sign-up daily cap reached",
+    );
+    res.json({
+      success: false,
+      error: SIGNUP_DAILY_CAP_MESSAGE,
+      code: SIGNUP_DAILY_CAP,
+    });
+    return;
+  }
+
   try {
-    const now = new Date().toISOString();
     // Fields listed explicitly so nothing else in the body (googleTicket,
     // a stray contactEmail) reaches provisioning.
     const tenant = runWithoutTenant(() =>
@@ -106,6 +143,8 @@ function handleGoogleSignup(req: Request, res: Response): void {
         adminPassword: body.adminPassword,
         contactEmail: ticket.email,
         contactEmailVerifiedAt: ticket.verifiedAt,
+        // Marks the shop as a Google sign-up: the daily cap counts it.
+        googleSignupAt: now,
       }),
     ) as TenantEntity;
 

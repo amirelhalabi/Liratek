@@ -4,7 +4,7 @@
  * Every 30 seconds it takes up to 20 due rows from `email_outbox` and, for
  * each: claim (pending -> sending, a conditional UPDATE, so a row is sent by
  * one run only) -> render -> transport.send -> markAccepted -> scrub the
- * invite link out of `data_json` (research R3).
+ * link out of `data_json` (research R3; every template's `secretKeys`).
  *
  * Mirrors `services/lapseSweep.ts`: a plain unref'd interval, one run at
  * boot, everything inside `runWithoutTenant` (the outbox is platform data),
@@ -29,7 +29,6 @@ import {
   EMAIL_FROM,
   EMAIL_REPLY_TO,
   RESEND_API_KEY,
-  SIGNUP_INVITE_URL_KEY,
   SMTP_PASS,
   TURNSTILE_SECRET_KEY,
   emailLogger,
@@ -49,7 +48,10 @@ import {
   resolveEmailTransport,
 } from "./createTransport.js";
 import { renderTemplate, type TemplateVars } from "./renderTemplate.js";
-import { getEmailTemplate } from "./templates/index.js";
+import {
+  getEmailTemplate,
+  listEmailSecretDataKeys,
+} from "./templates/index.js";
 
 /** How often due rows are picked up. */
 export const EMAIL_OUTBOX_INTERVAL_MS = 30 * 1000;
@@ -66,8 +68,9 @@ export const EMAIL_OUTBOX_STUCK_AFTER_MS = 10 * 60 * 1000;
 /** What a redacted secret is replaced with in stored/logged error text. */
 export const REDACTED = "[redacted]";
 
-/** Keys holding a secret that must not outlive a final status (R3). */
-const SECRET_DATA_KEYS = [SIGNUP_INVITE_URL_KEY] as const;
+/** Keys holding a secret that must not outlive a final status (R3): every
+ * template's declared `secretKeys` (invite, user invite, verify, reset). */
+const SECRET_DATA_KEYS: readonly string[] = listEmailSecretDataKeys();
 
 export interface OutboxWorkerDeps {
   outbox: EmailOutboxRepository;

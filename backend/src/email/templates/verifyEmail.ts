@@ -9,6 +9,7 @@
  *   supportEmail    where to write for help
  */
 
+import { EMAIL_VERIFY_URL_KEY } from "@liratek/core";
 import type { EmailTemplate } from "../renderTemplate.js";
 import { emailButton, renderLayout, renderTextLayout } from "./layout.js";
 
@@ -34,6 +35,8 @@ Didn't expect this email? You can ignore it. Questions? Write to {{supportEmail}
 
 export const verifyEmailTemplate: EmailTemplate = {
   name: "verify-email",
+  // The link is a bearer secret: scrubbed from the outbox once final.
+  secretKeys: [EMAIL_VERIFY_URL_KEY],
   subject: "Confirm your email for LiraTek",
   html: renderLayout({
     preheader: "Confirm the email address on your LiraTek account.",

@@ -11,6 +11,7 @@
  *   supportEmail    where to write for help
  */
 
+import { USER_INVITE_URL_KEY } from "@liratek/core";
 import type { EmailTemplate } from "../renderTemplate.js";
 import { emailButton, renderLayout, renderTextLayout } from "./layout.js";
 
@@ -36,6 +37,8 @@ Didn't expect this email? You can ignore it. Questions? Write to {{supportEmail}
 
 export const userInviteTemplate: EmailTemplate = {
   name: "user-invite",
+  // The link is a bearer secret: scrubbed from the outbox once final.
+  secretKeys: [USER_INVITE_URL_KEY],
   // Subjects are substituted verbatim (plain text, not HTML).
   subject: "{{shopName}} invited you to LiraTek",
   html: renderLayout({

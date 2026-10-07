@@ -168,6 +168,19 @@ export default defineConfig({
         SIGNUP_CHECK_RATE_LIMIT_MAX: "100000",
         SIGNUP_REQUEST_RATE_LIMIT_MAX: "100000",
         SIGNUP_SELF_SERVE_DAILY_CAP: "100000",
+        // The account limiters (LIRA-275/276/279/281), raised for the same
+        // re-run reason: forgot / reset-link check+reset, the /#/join link
+        // check+accept, the /#/verify-email link.
+        PASSWORD_RESET_FORGOT_RATE_LIMIT_MAX: "100000",
+        PASSWORD_RESET_TOKEN_RATE_LIMIT_MAX: "100000",
+        USER_INVITE_LINK_RATE_LIMIT_MAX: "100000",
+        EMAIL_VERIFY_LINK_RATE_LIMIT_MAX: "100000",
+        // Pinned empty (dotenv-leak, as above): the limiters key on req.ip,
+        // and Google stays dormant — its flows are unit-tested only (no
+        // Google account in e2e).
+        CLIENT_IP_HEADER: "",
+        GOOGLE_CLIENT_ID: "",
+        GOOGLE_CLIENT_SECRET: "",
         LOG_LEVEL: "warn",
       },
     },

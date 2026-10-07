@@ -14,13 +14,23 @@ import { googleStartQuerySchema } from "./account.js";
 export const GOOGLE_NOT_CONFIGURED = "GOOGLE_NOT_CONFIGURED";
 
 /**
+ * Google sign-up is refused because the platform reached its ONE daily limit
+ * for public sign-ups (email requests + Google sign-ups, owner decision
+ * 2026-10-07). The person IS signed in with Google, so — unlike the email
+ * form, which answers identically to hide the cap — they are told.
+ */
+export const SIGNUP_DAILY_CAP = "SIGNUP_DAILY_CAP";
+export const SIGNUP_DAILY_CAP_MESSAGE =
+  "Today's limit for new shops has been reached. Please try again tomorrow.";
+
+/**
  * The `error=` values the Google callback can redirect a browser with, to
  * `/#/auth/google?error=…` (or `/#/settings?…&google=…` for a link). The page
  * compares these, never message text.
  */
 export const GOOGLE_AUTH_ERRORS = [
   "not_configured",
-  "signup_closed",
+  "signup_limit",
   "no_account",
   "cancelled",
   "expired",

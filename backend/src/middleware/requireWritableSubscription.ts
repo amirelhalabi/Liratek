@@ -80,6 +80,19 @@ const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  *   Verified route-by-route: none of them write a drawer leg or move money.
  * - `/api/currencies` — adding/removing currencies and their module
  *   associations.
+ * - `/api/user-invitations`, `/api/user-email` — Settings › Users email
+ *   invites and user email addresses (LIRA-279/281): staff administration,
+ *   the same as `/api/users`. Their PUBLIC token routes are exempt below.
+ * - `/api/password-reset/send` — the admin's "send reset link" button
+ *   (LIRA-276). The public `/forgot`, `/check`, `/reset` are not under it.
+ * - `/api/auth/google/link/start` — "Connect Google" from Settings
+ *   (LIRA-280). Only that path: sign-in, the hand-off and the chooser stay
+ *   open, and DELETE `/api/auth/google/link` (disconnect) is not under it.
+ *
+ * `SUBSCRIPTION_GATE_EXEMPT` carves the public token routes and the
+ * access-REMOVING actions out of those prefixes: an invitee opening a link
+ * in a browser that holds a lapsed shop's token must still get through, and
+ * a lapsed admin must still be able to revoke a pending invite.
  *
  * DELIBERATELY NOT HERE, each for a stated reason — do not "tidy" one of
  * these in just because its name looks similar to an entry above:
@@ -116,12 +129,25 @@ const SUBSCRIPTION_GATED_PREFIXES = [
   "/api/service-presets",
   "/api/mobile-service-items",
   "/api/currencies",
+  "/api/user-invitations",
+  "/api/user-email",
+  "/api/password-reset/send",
+  "/api/auth/google/link/start",
+];
+
+/** Paths under a gated prefix that stay writable (see the comment above):
+ * public token routes, and revoking an invite (it only removes access). */
+const SUBSCRIPTION_GATE_EXEMPT: readonly RegExp[] = [
+  /^\/api\/user-invitations\/(check|accept)$/,
+  /^\/api\/user-invitations\/\d+\/revoke$/,
+  /^\/api\/user-email\/verify$/,
 ];
 
 function isSubscriptionGated(originalUrl: string): boolean {
   // Compare against the path only — a query string must not smuggle a match
   // and must not prevent one either.
   const path = originalUrl.split("?")[0] ?? "";
+  if (SUBSCRIPTION_GATE_EXEMPT.some((exempt) => exempt.test(path))) return false;
   return SUBSCRIPTION_GATED_PREFIXES.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`),
   );

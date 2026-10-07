@@ -201,6 +201,35 @@ describe("createPerTenantStorageProvisioner", () => {
       }
     });
 
+    // v197 (LIRA-280). NOT proven failing-first (rule 17): written after the
+    // passthrough, in the integration pass, to cover the middle of the
+    // route -> provisioner -> platform row chain the daily cap counts on.
+    it("stores googleSignupAt on the PLATFORM row (what the public sign-up cap counts)", () => {
+      const at = "2026-10-07T12:00:00.000Z";
+      const google = provisioner.createTenant({
+        name: "Google Shop",
+        slug: "googleshop",
+        contactName: null,
+        contactPhone: null,
+        notes: null,
+        contactEmail: "g@example.com",
+        googleSignupAt: at,
+        adminUsername: "admin",
+        passwordHash: "hashed-password-value",
+      });
+      const plain = provisioner.createTenant({
+        name: "Plain Shop",
+        slug: "plainshop",
+        contactName: null,
+        contactPhone: null,
+        notes: null,
+        adminUsername: "admin",
+        passwordHash: "hashed-password-value",
+      });
+      expect(platformTenantRepo.getById(google.id)?.google_signup_at).toBe(at);
+      expect(platformTenantRepo.getById(plain.id)?.google_signup_at).toBeNull();
+    });
+
     it("links the shop file's admin user to the sign-up email, with the verified stamp (v196)", () => {
       const proven = "2026-10-07T12:00:00.000Z";
       const created = provisioner.createTenant({

@@ -72,7 +72,6 @@ import {
   GOOGLE_START_PATH,
   clearStateCookie,
   googleConfig,
-  isGoogleSignupOpen,
   readChooseTicket,
   readLinkTicket,
   readStateCookie,
@@ -86,6 +85,7 @@ import {
   type StateTicket,
 } from "../security/googleOAuth.js";
 import { sendWebLoginResponse } from "../services/webLoginSession.js";
+import { isGoogleSignupCapReached } from "./googleSignup.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
@@ -153,8 +153,9 @@ router.get("/status", (req, res): void => {
       // a sign-in started here comes back here when the account has several.
       startUrl: config ? `${config.platformBaseUrl}${GOOGLE_START_PATH}` : null,
       shop: config && realm.kind === "tenant" ? realm.tenant.slug : null,
-      // Whether "Create a shop with Google" may be offered (self-serve on).
-      signupEnabled: isGoogleSignupOpen(),
+      // No separate sign-up switch (owner decision 2026-10-07): creating a
+      // shop with Google is open whenever Google is configured, inside the
+      // one public sign-up daily cap.
     }),
   );
 });
@@ -218,10 +219,6 @@ router.get("/start", (req, res): void => {
     res.redirect(302, errorUrl(config, "expired"));
     return;
   }
-  if (parsed.data.intent === "signup" && !isGoogleSignupOpen()) {
-    res.redirect(302, errorUrl(config, "signup_closed"));
-    return;
-  }
   beginGoogleFlow(req, res, config, {
     intent: parsed.data.intent,
     ...(parsed.data.shop ? { shop: parsed.data.shop } : {}),
@@ -245,10 +242,6 @@ router.post("/start", (req, res): void => {
     return;
   }
   const { intent, shop, ticket } = parsed.data;
-  if (intent === "signup" && !isGoogleSignupOpen()) {
-    res.redirect(302, errorUrl(config, "signup_closed"));
-    return;
-  }
   const link =
     intent === "link" ? readLinkTicket(verifyTicket("link", ticket)) : null;
   if (intent === "link" && !link) {
@@ -453,8 +446,11 @@ router.get("/callback", async (req, res): Promise<void> => {
         res.redirect(302, signInRedirect(config, claims, state.shop, now));
         return;
       case "signup": {
-        if (!isGoogleSignupOpen()) {
-          res.redirect(302, errorUrl(config, "signup_closed"));
+        // The one public sign-up daily cap (email requests + Google
+        // sign-ups). Checked here so nobody fills in the form for nothing;
+        // the authoritative check is when the shop is created.
+        if (isGoogleSignupCapReached(now)) {
+          res.redirect(302, errorUrl(config, "signup_limit"));
           return;
         }
         // The instant Google confirmed the address is what the new admin's

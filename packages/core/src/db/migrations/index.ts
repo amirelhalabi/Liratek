@@ -13714,6 +13714,37 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 197,
+    name: "tenants_google_signup_at",
+    description:
+      "LIRA-280 (owner decision 2026-10-07): Google sign-ups count toward " +
+      "the ONE public sign-up daily cap (SIGNUP_SELF_SERVE_DAILY_CAP) " +
+      "together with emailed self-serve requests. tenants gains " +
+      "google_signup_at (UTC ISO instant, NULL for every other shop): the " +
+      "durable, platform-level marker the cap counts. tenants is the " +
+      "platform registry, so the count also works in per-tenant DB mode, " +
+      "where audit_log and user_identities live in each shop's own file. " +
+      "An explicit ISO stamp rather than created_at, which is " +
+      "CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS') and would not compare " +
+      "correctly against an ISO window start.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (
+        tableExists(db, "tenants") &&
+        !columnExists(db, "tenants", "google_signup_at")
+      ) {
+        db.exec(
+          `ALTER TABLE tenants ADD COLUMN google_signup_at TEXT DEFAULT NULL;`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      if (columnExists(db, "tenants", "google_signup_at")) {
+        db.exec(`ALTER TABLE tenants DROP COLUMN google_signup_at;`);
+      }
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

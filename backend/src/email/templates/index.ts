@@ -36,3 +36,18 @@ export function getEmailTemplate(name: string): EmailTemplate {
 export function listEmailTemplateNames(): string[] {
   return Object.keys(TEMPLATES);
 }
+
+/**
+ * Every `data` key any template declares as a secret link, derived from the
+ * registry so a new template is covered by declaring its `secretKeys`. The
+ * worker scrubs the whole set from every final row: removing a key a row
+ * does not have is a no-op, and a row whose template is unknown still loses
+ * any link it carries.
+ */
+export function listEmailSecretDataKeys(): string[] {
+  const keys = new Set<string>();
+  for (const template of Object.values(TEMPLATES)) {
+    for (const key of template.secretKeys) keys.add(key);
+  }
+  return [...keys];
+}

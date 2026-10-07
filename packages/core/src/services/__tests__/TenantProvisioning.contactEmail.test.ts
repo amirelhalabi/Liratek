@@ -231,3 +231,34 @@ describe("deleteTenant after an invite created the shop (LIRA-267)", () => {
     expect(row.used_by_tenant_id).toBeNull();
   });
 });
+
+// v197 (LIRA-280). NOT proven failing-first (rule 17): written after the
+// passthrough, in the integration pass, to cover the shared-mode middle of
+// the Google sign-up -> tenants.google_signup_at chain the daily cap counts.
+describe("provisionTenant — googleSignupAt (shared mode)", () => {
+  it("stores it on the tenants row; any other shop keeps NULL", () => {
+    const at = "2026-10-07T12:00:00.000Z";
+    const google = runWithoutTenant(() =>
+      service.provisionTenant({
+        ...BASE,
+        name: "Shop g",
+        slug: "gshop",
+        contactEmail: "g@example.com",
+        googleSignupAt: at,
+      }),
+    );
+    const plain = provision("plainshop", "p@example.com");
+    const stampOf = (id: number) =>
+      (
+        db.prepare(`SELECT google_signup_at FROM tenants WHERE id = ?`).get(id) as {
+          google_signup_at: string | null;
+        }
+      ).google_signup_at;
+    expect(stampOf(google.id)).toBe(at);
+    expect(stampOf(plain.id)).toBeNull();
+    // ...and the cap's one count sees exactly the Google shop.
+    expect(
+      new SignupInvitationRepository().countPublicSignupsSince("2026-10-07T00:00:00.000Z"),
+    ).toBe(1);
+  });
+});

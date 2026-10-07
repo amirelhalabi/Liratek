@@ -1,5 +1,5 @@
 /**
- * lira-web-040 — LIRA-275: "Forgot password?" end to end on the web app.
+ * lira-web-041 — LIRA-275: "Forgot password?" end to end on the web app.
  *
  * The backend runs with EMAIL_TRANSPORT=file (playwright.web.config.ts), so
  * the reset email lands in EMAIL_FILE_DIR as `password-reset-<outboxId>.*`.

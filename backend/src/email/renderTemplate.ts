@@ -18,6 +18,12 @@ export interface EmailTemplate {
   subject: string;
   html: string;
   text: string;
+  /**
+   * The `data` keys holding a secret (a single-use link). The outbox worker
+   * removes them from `data_json` once the row reaches a final status.
+   * Required, so a new template cannot forget to declare its link.
+   */
+  secretKeys: readonly string[];
 }
 
 export type TemplateValue = string | number | boolean | null | undefined;

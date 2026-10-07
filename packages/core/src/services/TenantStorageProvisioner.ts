@@ -60,6 +60,9 @@ export interface CreateTenantStorageInput {
    * unverified. Ignored when there is no contactEmail.
    */
   adminEmailVerifiedAt?: string | null;
+  /** v197: the UTC ISO instant of a Google sign-up; absent/null otherwise.
+   * Stored on the platform `tenants` row, where the daily cap counts it. */
+  googleSignupAt?: string | null;
   adminUsername: string;
   /** Already hashed — `TenantProvisioningService` owns password validation
    * and hashing; this port never sees a plaintext password. */
@@ -141,6 +144,7 @@ export class SharedTenantStorageProvisioner implements TenantStorageProvisioner 
         contact_phone: input.contactPhone,
         notes: input.notes,
         contact_email: input.contactEmail ?? null,
+        google_signup_at: input.googleSignupAt ?? null,
       });
 
       // shop_name seeds from the tenant's own name — see

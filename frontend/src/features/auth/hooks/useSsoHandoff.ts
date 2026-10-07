@@ -22,6 +22,7 @@ import {
   reloadAtHome,
   removeHashParam,
 } from "@/features/auth/utils/browserNavigation";
+import { markFreshSignIn } from "@/features/auth/utils/freshSignIn";
 
 const SSO_FAILED = "This sign-in link is not valid. Please sign in again.";
 
@@ -40,6 +41,9 @@ export function useSsoHandoff(): { exchanging: boolean; error: string | null } {
     ssoExchange({ token })
       .then((res) => {
         if (res.success && res.data) {
+          // The reload boots through session restore; this marker makes it
+          // run the same post-sign-in steps as a password login.
+          markFreshSignIn();
           reloadAtHome();
           return;
         }

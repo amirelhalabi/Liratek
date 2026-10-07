@@ -181,8 +181,8 @@ describe("rate-limit counts (self-serve only)", () => {
     const since = "2026-10-07T09:30:00.000Z";
     expect(repo.countSelfRequestsByEmailSince("owner@example.com", since)).toBe(1);
     expect(repo.countSelfRequestsByEmailSince("other@example.com", since)).toBe(1);
-    expect(repo.countSelfRequestsSince(since)).toBe(2);
-    expect(repo.countSelfRequestsSince("2026-10-07T00:00:00.000Z")).toBe(3);
+    expect(repo.countPublicSignupsSince(since)).toBe(2);
+    expect(repo.countPublicSignupsSince("2026-10-07T00:00:00.000Z")).toBe(3);
   });
 });
 

@@ -12,6 +12,7 @@ import {
   getToken,
 } from "@/api/httpClient";
 import { localDay } from "@/shared/utils/localDay";
+import { consumeFreshSignIn } from "@/features/auth/utils/freshSignIn";
 
 interface User {
   id: number;
@@ -64,6 +65,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // needing to plumb an extra effect/listener for it.
   const impersonationInfo = getImpersonationInfo();
   const isImpersonating = impersonationInfo.active;
+
+  // The ONE post-sign-in step, shared by the password login and the boot
+  // that follows a "Continue with Google" hand-off (freshSignIn.ts): is
+  // today's opening balance set? Sends the CLIENT's own local calendar day —
+  // on web the server can't be trusted to know the shop's timezone (see
+  // ClosingRepository.hasOpeningBalanceToday's doc), so the browser supplies
+  // it rather than letting the server guess.
+  const checkOpeningBalance = async () => {
+    try {
+      const hasOpening = await api.hasOpeningBalanceToday(localDay());
+      setNeedsOpening(!hasOpening);
+    } catch (error) {
+      logger.error("Failed to check opening balance:", error);
+      // Don't block login on this error
+    }
+  };
 
   // Restore session from encrypted storage on mount
   useEffect(() => {
@@ -118,6 +135,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const result = await api.me();
             if (result.success && result.user) {
               setUser(result.user);
+              // A boot right after a Google hand-off is a fresh sign-in:
+              // same post-sign-in step as login(). A plain refresh is not.
+              if (consumeFreshSignIn()) await checkOpeningBalance();
             }
           } catch {
             // ignore
@@ -234,18 +254,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem("sessionToken", result.sessionToken);
         }
 
-        // Check if opening balance needs to be set for today. Sends the
-        // CLIENT's own local calendar day — on web the server can't be
-        // trusted to know the shop's timezone (see
-        // ClosingRepository.hasOpeningBalanceToday's doc), so the browser
-        // supplies it rather than letting the server guess.
-        try {
-          const hasOpening = await api.hasOpeningBalanceToday(localDay());
-          setNeedsOpening(!hasOpening);
-        } catch (error) {
-          logger.error("Failed to check opening balance:", error);
-          // Don't block login on this error
-        }
+        // Check if opening balance needs to be set for today.
+        await checkOpeningBalance();
 
         return { success: true, role: result.user.role };
       }

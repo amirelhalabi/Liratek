@@ -1,5 +1,5 @@
 /**
- * "Continue with Google" on the login page (LIRA-280). Web only.
+ * "Continue with Google" on the login and sign-up pages (LIRA-280). Web only.
  *
  * Rendered only when the backend says Google sign-in is enabled — it is
  * dormant until the owner sets GOOGLE_CLIENT_ID/SECRET — so a deployment
@@ -9,21 +9,40 @@
  * own subdomain. `shop` brings a person with several shops back to this one.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { googleAuthStatus, isElectron } from "@/api/backendApi";
 
 interface Links {
   login: string;
-  /** Null while shop sign-up is closed (self-serve off). */
-  signup: string | null;
+  signup: string;
 }
 
 function startLink(startUrl: string, params: Record<string, string>): string {
   return `${startUrl}?${new URLSearchParams(params).toString()}`;
 }
 
-export default function GoogleSignInButton() {
-  const [links, setLinks] = useState<Links | null>(null);
+interface GoogleSignInButtonProps {
+  /**
+   * "login" (default, the login page): "Continue with Google" signs in, and
+   * a second line offers "Create a shop with Google". "signup" (the Signup
+   * page): the one button starts a Google sign-up. Creating a shop with
+   * Google is open whenever Google is configured (owner decision
+   * 2026-10-07), inside the one public sign-up daily cap.
+   */
+  intent?: "login" | "signup";
+  /** Rendered instead of the button once the backend says Google is off
+   * (dormant, or unreachable). Nothing is rendered while it is asked. */
+  fallback?: ReactNode;
+}
+
+export default function GoogleSignInButton({
+  intent = "login",
+  fallback = null,
+}: GoogleSignInButtonProps = {}) {
+  // undefined = still asking; null = Google is not available here.
+  const [links, setLinks] = useState<Links | null | undefined>(() =>
+    isElectron() ? null : undefined,
+  );
 
   useEffect(() => {
     if (isElectron()) return;
@@ -33,26 +52,31 @@ export default function GoogleSignInButton() {
     Promise.resolve()
       .then(() => googleAuthStatus())
       .then((res) => {
+        if (cancelled) return;
         const data = res.success ? res.data : undefined;
-        if (cancelled || !data?.enabled || !data.startUrl) return;
+        if (!data?.enabled || !data.startUrl) {
+          setLinks(null);
+          return;
+        }
         setLinks({
           login: startLink(data.startUrl, {
             intent: "login",
             ...(data.shop ? { shop: data.shop } : {}),
           }),
-          signup: data.signupEnabled
-            ? startLink(data.startUrl, { intent: "signup" })
-            : null,
+          signup: startLink(data.startUrl, { intent: "signup" }),
         });
       })
       // A backend that cannot answer cannot sign anyone in with Google either.
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setLinks(null);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (!links) return null;
+  if (links === undefined) return null;
+  if (links === null) return <>{fallback}</>;
 
   return (
     <div className="mt-6 space-y-3">
@@ -62,7 +86,7 @@ export default function GoogleSignInButton() {
         <span className="h-px flex-1 bg-slate-600/40" />
       </div>
       <a
-        href={links.login}
+        href={intent === "signup" ? links.signup : links.login}
         data-testid="google-sign-in"
         className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-500/40 bg-white px-4 py-3 font-semibold text-gray-800 transition-colors hover:bg-gray-100"
       >
@@ -71,7 +95,7 @@ export default function GoogleSignInButton() {
         </span>
         Continue with Google
       </a>
-      {links.signup && (
+      {intent === "login" && (
         <p className="text-center text-xs text-slate-500">
           New here?{" "}
           <a

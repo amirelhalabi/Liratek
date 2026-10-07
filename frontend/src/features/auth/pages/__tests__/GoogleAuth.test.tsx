@@ -55,9 +55,9 @@ it("explains that no shop uses this Google account, and offers sign-up", () => {
   expect(screen.getByRole("link", { name: /sign up/i })).toBeInTheDocument();
 });
 
-it("explains that creating a shop with Google is closed", () => {
-  renderAt("#/auth/google?error=signup_closed");
-  expect(screen.getByText(/not open right now/i)).toBeInTheDocument();
+it("explains that today's limit for new shops was reached", () => {
+  renderAt("#/auth/google?error=signup_limit");
+  expect(screen.getByText(/limit for new shops/i)).toBeInTheDocument();
 });
 
 it("explains a cancelled or failed sign-in", () => {

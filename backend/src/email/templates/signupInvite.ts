@@ -10,6 +10,7 @@
  *   supportEmail    where to write for help
  */
 
+import { SIGNUP_INVITE_URL_KEY } from "@liratek/core";
 import type { EmailTemplate } from "../renderTemplate.js";
 import { emailButton, renderLayout, renderTextLayout } from "./layout.js";
 
@@ -41,6 +42,8 @@ Didn't expect this email? You can ignore it. Questions? Write to {{supportEmail}
 
 export const signupInviteTemplate: EmailTemplate = {
   name: "signup-invite",
+  // The link is a bearer secret: scrubbed from the outbox once final.
+  secretKeys: [SIGNUP_INVITE_URL_KEY],
   subject: SIGNUP_INVITE_SUBJECT,
   html: renderLayout({
     preheader: "Your personal link to set up your shop on LiraTek.",

@@ -69,6 +69,11 @@ export interface ProvisionTenantData {
    * the first admin is then linked to it unverified.
    */
   contactEmailVerifiedAt?: string | null;
+  /**
+   * v197 (LIRA-280): set ONLY by the Google sign-up route — the instant the
+   * shop was created with Google. The public sign-up daily cap counts it.
+   */
+  googleSignupAt?: string | null;
   adminUsername: string;
   adminPassword: string;
 }
@@ -182,6 +187,7 @@ export class TenantProvisioningService {
         notes: data.notes?.trim() || null,
         contactEmail: data.contactEmail?.trim().toLowerCase() || null,
         adminEmailVerifiedAt: data.contactEmailVerifiedAt ?? null,
+        googleSignupAt: data.googleSignupAt ?? null,
         adminUsername,
         passwordHash,
       });

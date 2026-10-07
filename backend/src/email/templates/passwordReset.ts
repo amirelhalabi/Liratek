@@ -10,6 +10,7 @@
  *   supportEmail    where to write for help
  */
 
+import { PASSWORD_RESET_URL_KEY } from "@liratek/core";
 import type { EmailTemplate } from "../renderTemplate.js";
 import { emailButton, renderLayout, renderTextLayout } from "./layout.js";
 
@@ -37,6 +38,8 @@ Didn't ask for this? You can ignore this email; your password stays the same. Qu
 
 export const passwordResetTemplate: EmailTemplate = {
   name: "password-reset",
+  // The link is a bearer secret: scrubbed from the outbox once final.
+  secretKeys: [PASSWORD_RESET_URL_KEY],
   subject: PASSWORD_RESET_SUBJECT,
   html: renderLayout({
     preheader: "Your link to choose a new LiraTek password.",

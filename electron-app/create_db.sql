@@ -12,6 +12,9 @@
 -- DROP COLUMN (v195 down()) cuts the stored CREATE text back to the last
 -- comma before the column, so a "--" comment containing a comma just above
 -- it makes the rewrite fail with "incomplete input".
+-- google_signup_at (v197, LIRA-280): the UTC ISO instant the shop was created
+-- with Google; NULL for every other shop. The public sign-up daily cap counts
+-- it. Same single line as contact_email for the same reason.
 CREATE TABLE IF NOT EXISTS tenants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -26,7 +29,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     contact_phone TEXT,
     notes TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, contact_email TEXT DEFAULT NULL
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, contact_email TEXT DEFAULT NULL, google_signup_at TEXT DEFAULT NULL
 );
 
 -- One shop per email (v195). Partial, so every NULL row is unaffected.
@@ -2657,4 +2660,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v196 adds users.email/email_verified_at (+ idx_users_tenant_email),
     -- user_invitations, password_reset_tokens, email_verification_tokens,
     -- user_identities and sso_handoff_tokens, all declared above.
-    (196, 'user_emails_and_auth_tokens');
+    (196, 'user_emails_and_auth_tokens'),
+    -- v197 (LIRA-280) adds tenants.google_signup_at, declared above.
+    (197, 'tenants_google_signup_at');

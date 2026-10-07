@@ -90,6 +90,9 @@ export const USER_INVITATION_LIST_LIMIT = 200;
 
 /** The outbox template that carries a user invite. */
 export const USER_INVITE_TEMPLATE = "user-invite";
+/** The outbox data key holding the secret /#/join link; the outbox worker
+ * scrubs it once the email reaches a final status. */
+export const USER_INVITE_URL_KEY = "inviteUrl";
 
 /**
  * The ONE refusal for every unusable /#/join link — unknown, expired, used,
@@ -316,9 +319,9 @@ export class UserInvitationService {
             template: USER_INVITE_TEMPLATE,
             toEmail: invite.email,
             data: {
-              // Named `inviteUrl` on purpose: the outbox worker scrubs that
-              // key once the email is final, so the link does not linger.
-              inviteUrl: joinUrl(baseUrl, token),
+              // The `user-invite` template lists this key as a secret, so the
+              // outbox worker scrubs it once the email is final.
+              [USER_INVITE_URL_KEY]: joinUrl(baseUrl, token),
               shopName: shop.name,
               roleText: ROLE_TEXT[params.role],
               expiresAtText: formatInviteExpiry(expiresAt),

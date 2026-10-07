@@ -104,6 +104,8 @@ const svc = {
 };
 
 const provisionTenant = jest.fn<(input: Record<string, unknown>) => unknown>();
+/** The ONE public sign-up daily cap (email requests + Google sign-ups). */
+const capReached = jest.fn<(input: { now: string; dailyCap: number }) => boolean>();
 const auditLog = jest.fn();
 
 const TENANTS: Record<number, { id: number; name: string; slug: string; status: string }> = {
@@ -118,6 +120,7 @@ jest.mock("@liratek/core", () => {
     ...actual,
     getGoogleAuthService: () => svc,
     getTenantProvisioningService: () => ({ provisionTenant }),
+    getSignupInvitationService: () => ({ isPublicSignupCapReached: capReached }),
     getAuditService: () => ({ log: auditLog }),
     getAuditRepository: () => ({ log: auditLog }),
     getAuthService: () => ({ login: jest.fn(), logout: jest.fn() }),
@@ -192,6 +195,7 @@ beforeEach(() => {
   clientSecret = undefined;
   baseDomain = "liratek.shop";
   selfServe = false;
+  capReached.mockReturnValue(false);
   svc.createHandoff.mockReturnValue("handoff-token");
   svc.exchangeCodeForClaims.mockResolvedValue({
     sub: "g-sub",
@@ -267,7 +271,7 @@ describe("dormant while GOOGLE_CLIENT_ID is unset", () => {
     const app = buildApp();
     let res = await request(app).get("/api/auth/google/status").set("Host", WWW);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ success: true, data: { enabled: false, startUrl: null, shop: null, signupEnabled: false } });
+    expect(res.body).toEqual({ success: true, data: { enabled: false, startUrl: null, shop: null } });
     clientId = "cid";
     res = await request(app).get("/api/auth/google/status").set("Host", WWW);
     expect(res.body.data.enabled).toBe(false);
@@ -327,7 +331,6 @@ describe("start: authorization code with PKCE, state in a signed cookie", () => 
       enabled: true,
       startUrl: "https://www.liratek.shop/api/auth/google/start",
       shop: "two",
-      signupEnabled: false,
     });
   });
 
@@ -620,11 +623,9 @@ describe("POST /sso-exchange", () => {
 // ── Sign-up ──────────────────────────────────────────────────────────────
 
 describe("sign-up with a Google ticket", () => {
-  // Creating a shop with Google is public self-serve sign-up: it opens only
-  // with the self-serve switch (owner: sign-up is invite-only until then).
-  beforeEach(() => {
-    selfServe = true;
-  });
+  // Owner decision 2026-10-07: Google sign-up is ALWAYS open when Google is
+  // configured, whatever the self-serve email switch says (`selfServe` stays
+  // false throughout this block).
 
   async function signupTicket(app: Express): Promise<string> {
     const url = await signInFlow(app, "intent=signup");
@@ -663,6 +664,8 @@ describe("sign-up with a Google ticket", () => {
     const input = provisionTenant.mock.calls[0]![0];
     expect(input.contactEmail).toBe("owner@gmail.com");
     expect(typeof input.contactEmailVerifiedAt).toBe("string");
+    // Marks the shop as a Google sign-up: what the daily cap counts.
+    expect(typeof input.googleSignupAt).toBe("string");
     expect(input.adminPassword).toBe("Str0ng-Password!");
     expect(svc.linkIdentity).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 99, subject: "g-sub", email: "owner@gmail.com" }),
@@ -727,7 +730,7 @@ describe("sign-up with a Google ticket", () => {
   });
 });
 
-describe("Google sign-up obeys the self-serve switch (SIGNUP_SELF_SERVE_ENABLED)", () => {
+describe("Google sign-up: always open when configured, inside the one daily cap", () => {
   const shopFields = {
     name: "New Shop",
     slug: "newshop",
@@ -735,43 +738,58 @@ describe("Google sign-up obeys the self-serve switch (SIGNUP_SELF_SERVE_ENABLED)
     adminPassword: "Str0ng-Password!",
   };
 
-  it("status says sign-up is closed while self-serve is off, open when on", async () => {
+  it("status carries no separate sign-up switch, and start(signup) runs with self-serve OFF", async () => {
     enable();
-    const app = buildApp();
-    let res = await request(app).get("/api/auth/google/status").set("Host", WWW);
-    expect(res.body.data.enabled).toBe(true);
-    expect(res.body.data.signupEnabled).toBe(false);
-    selfServe = true;
-    res = await request(app).get("/api/auth/google/status").set("Host", WWW);
-    expect(res.body.data.signupEnabled).toBe(true);
-  });
-
-  it("start with intent=signup is refused while self-serve is off", async () => {
-    enable();
-    const res = await request(buildApp())
-      .get("/api/auth/google/start?intent=signup")
-      .set("Host", WWW);
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toContain("error=signup_closed");
-    expect(svc.buildAuthorizationUrl).not.toHaveBeenCalled();
-  });
-
-  it("a ticket minted while open cannot create a shop once self-serve is off", async () => {
-    enable();
-    selfServe = true;
-    const app = buildApp();
-    const url = await signInFlow(app, "intent=signup");
-    const googleTicket = hashParams(url).get("google")!;
     selfServe = false;
-    const res = await request(app)
-      .post("/api/auth/signup")
-      .send({ ...shopFields, googleTicket });
-    expect(res.body.success).toBe(false);
-    expect(provisionTenant).not.toHaveBeenCalled();
+    const app = buildApp();
+    const res = await request(app).get("/api/auth/google/status").set("Host", WWW);
+    expect(res.body.data.enabled).toBe(true);
+    expect(res.body.data).not.toHaveProperty("signupEnabled");
+    const url = await signInFlow(app, "intent=signup");
+    expect(url.hash.startsWith("#/signup?google=")).toBe(true);
   });
 
-  it("sign-in with Google still works while sign-up is closed", async () => {
+  it("creates the shop with self-serve OFF", async () => {
     enable();
+    selfServe = false;
+    const app = buildApp();
+    const googleTicket = hashParams(await signInFlow(app, "intent=signup")).get("google")!;
+    provisionTenant.mockReturnValue({ id: 9, name: "New Shop", slug: "newshop" });
+    const res = await request(app).post("/api/auth/signup").send({ ...shopFields, googleTicket });
+    expect(res.status).toBe(201);
+    expect(provisionTenant).toHaveBeenCalledTimes(1);
+  });
+
+  it("cap reached at the callback: back to the Google page with error=signup_limit", async () => {
+    enable();
+    capReached.mockReturnValue(true);
+    const url = await signInFlow(buildApp(), "intent=signup");
+    expect(url.hash).toContain("error=signup_limit");
+    expect(url.hash).not.toContain("google=");
+  });
+
+  it("cap reached when the form is submitted: refused with a clear message, nothing created, warn logged", async () => {
+    enable();
+    const app = buildApp();
+    const googleTicket = hashParams(await signInFlow(app, "intent=signup")).get("google")!;
+    capReached.mockReturnValue(true);
+    const { logger } = jest.requireMock<{ logger: { warn: jest.Mock } }>("../../server.js");
+    const res = await request(app).post("/api/auth/signup").send({ ...shopFields, googleTicket });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.code).toBe("SIGNUP_DAILY_CAP");
+    expect(String(res.body.error)).toMatch(/today/i);
+    expect(provisionTenant).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalled();
+    // The cap is the platform's one setting (SIGNUP_SELF_SERVE_DAILY_CAP).
+    expect(capReached).toHaveBeenCalledWith(
+      expect.objectContaining({ dailyCap: expect.any(Number), now: expect.any(String) }),
+    );
+  });
+
+  it("sign-in with Google is never subject to the sign-up cap", async () => {
+    enable();
+    capReached.mockReturnValue(true);
     svc.findSignInMatches.mockReturnValue([
       { identity_id: 1, user_id: 20, tenant_id: 2, username: "boss", role: "admin" },
     ]);

@@ -51,6 +51,27 @@ beforeEach(() => {
   reloadAtHome.mockReset();
 });
 
+it("marks a FRESH sign-in before the reload, so the app runs the post-login opening check", async () => {
+  sessionStorage.clear();
+  let markerAtReload: string | null = "unset";
+  reloadAtHome.mockImplementation(() => {
+    markerAtReload = sessionStorage.getItem("liratek:fresh-sign-in");
+  });
+  ssoExchange.mockResolvedValue({ success: true, data: { token: "jwt" } });
+  renderAt("#/login?sso=tok-fresh");
+  await waitFor(() => expect(reloadAtHome).toHaveBeenCalledTimes(1));
+  expect(markerAtReload).toBe("1");
+  sessionStorage.clear();
+});
+
+it("a refused hand-off leaves no fresh-sign-in marker", async () => {
+  sessionStorage.clear();
+  ssoExchange.mockResolvedValue({ success: false, error: "nope" });
+  renderAt("#/login?sso=tok-bad");
+  await waitFor(() => expect(ssoExchange).toHaveBeenCalledTimes(1));
+  expect(sessionStorage.getItem("liratek:fresh-sign-in")).toBeNull();
+});
+
 it("exchanges the token once, clears it from the URL, then restarts at home", async () => {
   ssoExchange.mockResolvedValue({ success: true, data: { token: "jwt" } });
   renderAt("#/login?sso=tok-1");

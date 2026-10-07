@@ -155,6 +155,42 @@ Phase 3 (LIRA-280) ── after Phase 2; Spec Kit (/speckit-specify --number 280
 3. **Phase 3:**
    - A Google sign-up **still sets a password**.
    - Existing users link Google **from Settings only**, never automatically.
+   - **Google sign-up is always allowed when Google is configured.** It does
+     not follow `SIGNUP_SELF_SERVE_ENABLED` (that switch is for the emailed
+     form only). `/status` has no separate sign-up flag; the login page
+     offers "Create a shop with Google", and `/signup` offers "Continue with
+     Google" even while the emailed form is off.
+   - **Google sign-ups count toward the one daily cap**
+     (`SIGNUP_SELF_SERVE_DAILY_CAP`, default 20): one limit for every public
+     sign-up, emailed requests and Google sign-ups together.
+     - Source of the count: a new platform column, `tenants.google_signup_at`
+       (migration **v197**, UTC ISO), set only when a shop is created with
+       Google. `tenants` is the platform registry, so the count also works in
+       per-tenant DB mode, where `audit_log` and `user_identities` live in
+       each shop's own file. `created_at` was not used: it is
+       `CURRENT_TIMESTAMP` text, which does not compare correctly with an ISO
+       window start.
+     - One count, defined once: `SignupInvitationRepository.countPublicSignupsSince`
+       (self-serve invites + Google shops, rolling 24 hours), asked through
+       `SignupInvitationService.isPublicSignupCapReached`, which the email
+       form and the Google route both use.
+     - When the cap is reached, the email form still answers "check your
+       inbox" and sends nothing (it must not reveal the cap). Google sign-up
+       is refused openly, because the person is signed in with Google: the
+       callback sends them to `/#/auth/google?error=signup_limit`, and the
+       shop-creating request answers 200 `{success:false, code:"SIGNUP_DAILY_CAP"}`.
+       Both log a warning. The check at shop creation is the authoritative
+       one; two sign-ups racing at the last free place can both pass (a soft
+       cap).
+   - **After Google sign-in, the app is left in the same state as after a
+     password login.** The hand-off reloads the app, which boots through
+     session restore. A one-shot marker (`freshSignIn.ts`) makes that boot
+     run the same post-sign-in step as `login()`: the opening-balance check
+     that sets `needsOpening`. Note (unverified owner question): nothing
+     in the app reads `needsOpening` today. The automatic Checkpoint pop-up
+     after login was removed in v1.18.49, so neither sign-in path shows a
+     pop-up; the Dashboard's opening-balance alerts come from the shop's
+     data and show after either.
 
 ---
 

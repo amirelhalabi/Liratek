@@ -368,14 +368,34 @@ export class SignupInvitationService {
    * Self-serve "email me a sign-up link" (US4, research R9). Checks, in
    * order: the address already has a shop -> the per-email limit (3 per
    * hour) -> the platform-wide daily cap (rolling 24 hours; warns, so the
-   * owner sees it in the logs) -> creates a `source: 'self'` invite with no
-   * inviter. Only `source='self'` rows count toward either limit.
+   * owner sees it in the logs; shared with Google sign-up, see
+   * `isPublicSignupCapReached`) -> creates a `source: 'self'` invite with no
+   * inviter. Admin invites count toward neither limit.
    *
    * Never throws for a business outcome: the route answers every reason
    * identically (FR-028), so a shop appearing between the check and the
    * insert is reported as `has_shop`, not as a 409. The address is logged
    * only as `hashToken(email)`.
    */
+  /**
+   * Has the platform reached its ONE daily limit for public sign-ups —
+   * emailed self-serve requests plus shops created with Google, over a
+   * rolling 24 hours (owner decision 2026-10-07)? Both doors ask this, so
+   * neither can spend the other's budget unseen. Warns when reached, so the
+   * owner sees it in the logs.
+   */
+  isPublicSignupCapReached(params: { now: string; dailyCap: number }): boolean {
+    const inWindow = this.inviteRepo.countPublicSignupsSince(
+      addMs(params.now, -SELF_SERVE_DAILY_WINDOW_MS),
+    );
+    if (inWindow < params.dailyCap) return false;
+    authLogger.warn(
+      { dailyCap: params.dailyCap, signupsInWindow: inWindow },
+      "Public sign-up daily cap reached: no new self-serve links are emailed and no shops are created with Google",
+    );
+    return true;
+  }
+
   requestSelfServe(params: RequestSelfServeParams): SelfServeRequestResult {
     const emailHash = hashToken(params.email);
     const refused = (reason: SelfServeRequestReason): SelfServeRequestResult => {
@@ -395,14 +415,9 @@ export class SignupInvitationService {
       return refused("email_limit");
     }
 
-    const today = this.inviteRepo.countSelfRequestsSince(
-      addMs(params.now, -SELF_SERVE_DAILY_WINDOW_MS),
-    );
-    if (today >= params.dailyCap) {
-      authLogger.warn(
-        { dailyCap: params.dailyCap, requestsInWindow: today },
-        "Self-serve sign-up daily cap reached: requests are not being emailed",
-      );
+    if (
+      this.isPublicSignupCapReached({ now: params.now, dailyCap: params.dailyCap })
+    ) {
       return refused("daily_cap");
     }
 

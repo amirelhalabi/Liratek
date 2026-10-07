@@ -106,6 +106,7 @@ export interface PlatformTenantRepoLike {
     contact_phone: string | null;
     notes: string | null;
     contact_email?: string | null;
+    google_signup_at?: string | null;
   }): TenantEntity;
   update(
     id: number,
@@ -215,6 +216,7 @@ export function createPerTenantStorageProvisioner(
           contact_phone: input.contactPhone,
           notes: input.notes,
           contact_email: input.contactEmail ?? null,
+          google_signup_at: input.googleSignupAt ?? null,
         });
         const provisioning = opts.platformTenantRepo.update(row.id, {
           status: "provisioning",

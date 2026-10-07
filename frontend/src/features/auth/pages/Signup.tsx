@@ -46,6 +46,7 @@ import { TurnstileWidget } from "@/features/auth/components/TurnstileWidget";
 import logger from "@/utils/logger";
 // [auth-D] Google sign-up (LIRA-280): its own form, for `?google=<ticket>`.
 import GoogleSignupForm from "@/features/auth/components/GoogleSignupForm";
+import GoogleSignInButton from "@/features/auth/components/GoogleSignInButton";
 
 /**
  * Mirror of the server's slug rule so the field can be corrected before a
@@ -432,7 +433,14 @@ export default function Signup() {
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
           <h1 className={clsx(headingClass, "mb-2")}>Sign up</h1>
-          <p className={subtleClass}>Sign-up is not available right now.</p>
+          {/* Google sign-up is open whenever Google is configured, even with
+              the emailed form off (owner decision 2026-10-07). */}
+          <GoogleSignInButton
+            intent="signup"
+            fallback={
+              <p className={subtleClass}>Sign-up is not available right now.</p>
+            }
+          />
           {signInFooter}
         </div>
       </div>
@@ -554,6 +562,7 @@ export default function Signup() {
             {requesting ? "Sending..." : "Email me a sign-up link"}
           </button>
 
+          <GoogleSignInButton intent="signup" />
           {signInFooter}
         </form>
       </div>

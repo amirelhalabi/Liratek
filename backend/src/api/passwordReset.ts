@@ -29,9 +29,8 @@ import express, {
   type Request,
   type Response,
 } from "express";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import rateLimit from "express-rate-limit";
 import {
-  CLIENT_IP_HEADER,
   PASSWORD_RESET_TTL_MINUTES,
   PASSWORD_RESET_CODES,
   PASSWORD_RESET_INVALID_MESSAGE,
@@ -56,6 +55,10 @@ import {
   type AuthRequest,
 } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
+import {
+  clientIpRateLimitKey,
+  resolveClientIp,
+} from "../middleware/clientIp.js";
 import { auditRest } from "../middleware/audit.js";
 import { resolveTenantHost } from "../middleware/tenantHost.js";
 import { isEmailConfigured } from "../email/createTransport.js";
@@ -72,23 +75,6 @@ const router = express.Router();
 // Client IP + limiters
 // =============================================================================
 
-/**
- * The real client IP: the first value of `CLIENT_IP_HEADER` (e.g.
- * `fly-client-ip`) when configured, else `req.ip` (through `trust proxy`).
- *
- * Local on purpose: feature A owns the shared `middleware/clientIp.ts` and
- * the limiter key generators in `rateLimit.ts`, built in parallel. Swap this
- * for A's helper when the branches meet — the rule is the same.
- */
-export function clientIp(req: Request): string {
-  if (CLIENT_IP_HEADER) {
-    const raw = req.header(CLIENT_IP_HEADER);
-    const first = raw?.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  return req.ip ?? "";
-}
-
 function envLimit(name: string, fallback: number): number {
   const raw = Number(process.env[name]);
   return Number.isFinite(raw) && raw > 0 ? raw : fallback;
@@ -100,12 +86,12 @@ function hourlyLimiter(label: string, envName: string, max: number) {
     max: envLimit(envName, max),
     standardHeaders: true,
     legacyHeaders: false,
-    // ipKeyGenerator groups an IPv6 client by its /56, as the library
-    // requires of any custom key that is an IP.
-    keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
+    // The real client IP (CLIENT_IP_HEADER, else req.ip), IPv6 grouped by
+    // its /56 — the one helper every public limiter shares.
+    keyGenerator: (req) => clientIpRateLimitKey(req),
     handler: (req, res) => {
       logger.warn(
-        { ip: clientIp(req), path: req.path },
+        { ip: resolveClientIp(req), path: req.path },
         `Rate limit exceeded - ${label}`,
       );
       res.status(429).json({
@@ -250,7 +236,7 @@ router.post(
           ...mailOptions(new Date().toISOString()),
           tenantId,
           email: body.email,
-          requesterIp: clientIp(req) || null,
+          requesterIp: resolveClientIp(req) || null,
         }),
       );
       sent();

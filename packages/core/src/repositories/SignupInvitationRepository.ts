@@ -358,14 +358,25 @@ export class SignupInvitationRepository extends BaseRepository<SignupInvitationE
     return row.n;
   }
 
-  /** All self-serve requests since `sinceIso` (platform-wide daily cap). */
-  countSelfRequestsSince(sinceIso: string): number {
+  /**
+   * Every PUBLIC sign-up since `sinceIso`: emailed self-serve requests plus
+   * shops created with Google (owner decision 2026-10-07: one daily limit
+   * for all public sign-ups). Both tables are platform-level and both
+   * stamps are UTC ISO strings written by the app, so the comparison is a
+   * plain string compare. Admin invites and admin-created shops never count.
+   * The ONE definition of the cap's count (rule 14).
+   */
+  countPublicSignupsSince(sinceIso: string): number {
     const row = this.db
       .prepare(
-        `SELECT COUNT(*) AS n FROM signup_invitations
-          WHERE source = 'self' AND created_at >= ?`,
+        `SELECT
+           (SELECT COUNT(*) FROM signup_invitations
+             WHERE source = 'self' AND created_at >= ?)
+         + (SELECT COUNT(*) FROM tenants
+             WHERE google_signup_at IS NOT NULL AND google_signup_at >= ?)
+           AS n`,
       )
-      .get(sinceIso) as { n: number };
+      .get(sinceIso, sinceIso) as { n: number };
     return row.n;
   }
 }

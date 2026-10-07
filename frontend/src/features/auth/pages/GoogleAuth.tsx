@@ -29,8 +29,8 @@ import {
 const ERROR_TEXT: Record<GoogleAuthErrorCode, string> = {
   no_account:
     "No LiraTek account is connected to this Google account. Sign in with your username and password, then connect Google in Settings — or create a new shop.",
-  signup_closed:
-    "Creating a new shop with Google is not open right now. If you already have a shop, sign in instead.",
+  signup_limit:
+    "Today's limit for new shops has been reached. Please try again tomorrow. If you already have a shop, sign in instead.",
   cancelled: "Google sign-in was cancelled.",
   expired: "This Google sign-in took too long. Please try again.",
   failed: "Google sign-in did not work. Please try again.",
