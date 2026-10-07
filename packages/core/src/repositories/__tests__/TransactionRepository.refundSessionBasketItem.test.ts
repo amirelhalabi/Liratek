@@ -661,9 +661,12 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
         )
         .run(type, USER_ID, -amountLbp, tenantId).lastInsertRowid,
     );
+    // LIRA-270: the LBP prize goes in amount_lbp. It used to be written
+    // into amount_usd (a −5,400,000 "USD" member), which the new
+    // nothing-to-collect check correctly read as a basket owing nothing.
     db.prepare(
       `INSERT INTO customer_session_transactions (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp)
-       VALUES (?, 'loto_cash_prize', 1, ?, ?, 0)`,
+       VALUES (?, 'loto_cash_prize', 1, ?, 0, ?)`,
     ).run(sessionId, txnId, -amountLbp);
     return txnId;
   }

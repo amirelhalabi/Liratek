@@ -388,9 +388,15 @@ describe("CustomServices Page", () => {
     fireEvent.change(screen.getByPlaceholderText(/Phone screen repair/), {
       target: { value: "Test service" },
     });
-    fireEvent.click(screen.getByText("Submit Service"));
+    // Owner decision 2026-10-07: with no selling price the sale waits —
+    // Submit is disabled outright (so the old "enter a cost or price" alert
+    // is no longer reached on a customer-pays sale) and nothing is sent.
+    const submit = screen
+      .getByText("Submit Service")
+      .closest("button") as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.click(submit);
 
-    expect(alertSpy).toHaveBeenCalledWith("Please enter a cost or price.");
     expect(mockAddCustomService).not.toHaveBeenCalled();
 
     alertSpy.mockRestore();
@@ -506,6 +512,11 @@ describe("CustomServices Page", () => {
 
   it("should show required indicator for DEBT payment", () => {
     render(<CustomServices />);
+    // Owner decision 2026-10-07: the payment sheet waits for a selling
+    // price, so enter one before looking for it.
+    fireEvent.change(screen.getAllByPlaceholderText("0.00")[1], {
+      target: { value: "10" },
+    });
 
     const select = screen.getByTestId("paid-by-select");
     fireEvent.change(select, { target: { value: "CUSTOMER_ACCOUNT" } });
@@ -571,6 +582,11 @@ describe("CustomServices Page", () => {
     const toggle = screen.getByTestId("custom-service-for-partner-toggle");
     expect(toggle).toBeInTheDocument();
 
+    // Owner decision 2026-10-07: the payment sheet waits for a selling
+    // price, so enter one before looking for it.
+    fireEvent.change(screen.getAllByPlaceholderText("0.00")[1], {
+      target: { value: "10" },
+    });
     // Payment Method (MultiPaymentInput) is visible by default...
     expect(screen.getByTestId("multi-payment-input")).toBeInTheDocument();
 

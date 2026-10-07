@@ -4567,7 +4567,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-274** (LIRA-257 … LIRA-266 and LIRA-268 … LIRA-273 filed 2026-10-06/07; LIRA-267 taken by the email-invite spec), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-283** (LIRA-257 … LIRA-266, LIRA-268 … LIRA-274 and LIRA-282 filed 2026-10-06/07; LIRA-267 and LIRA-275 … LIRA-281 taken by the email/sign-up work), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -6338,14 +6338,14 @@ shop edited).
 
 ---
 
-## LIRA-266: kept change built once, used by every payment page — HIGH — IN REVIEW
+## LIRA-266: kept change built once, used by every payment page — HIGH — DONE
 
 | Field    | Value                                                                 |
 | -------- | --------------------------------------------------------------------- |
 | Epic     | Payments / Posting integrity                                          |
 | Type     | Feature + bug fixes (POSTING_MAP G42, G43, G44)                       |
 | Priority | High                                                                  |
-| Status   | IN REVIEW (uncommitted, 2026-10-07)                                   |
+| Status   | DONE (2026-10-07)                                   |
 | Modules  | pos, maintenance, sessions, debts, custom_services, expenses, omt_whish, recharge, hold money, refunds |
 
 ### Owner decisions (2026-10-07)
@@ -6369,53 +6369,67 @@ Debts cash-out of $101.12 paid with $101 clears the credit and shows $0.12 as pr
 ### Open follow-ups
 
 - Hold Money pickup profit is not read by the Profits page or Closing yet (ProfitRepository buckets).
-- Owner questions pending: fold session KEPT_CHANGE row (rec: keep), reconcile every basket/sale, basket-level
-  partner refusal, two-currency Hold Money pickup, block Pay when a payout is over the amount, cost-only custom service.
+- Owner answers 2026-10-07 (interview): no server-side "payment adds up" check on every sale (the screen already
+  blocks underpaid sales); a basket with a partner item MAY keep change as profit; two-currency Hold Money pickup
+  keeps a leftover per currency with NO cap; overpaying a payout stays as today (server refuses, no on-screen block);
+  a custom service with no selling price means the cashier types the price on the spot — the payment waits for it
+  (never charges the cost); kept change on refunds of ALL modules (LIRA-272 → do); a legs-only debt repayment reduces
+  the debt by money in minus change back.
 
 ---
 
-## LIRA-268: Binance profit invisible on the Profits page — MEDIUM — TODO
+## LIRA-268: Binance profit invisible on the Profits page — MEDIUM — DONE
 
 Found 2026-10-07 by the payouts agent. A Binance transaction's profit stamp has no commission term because
 `fs.currency` is USDT, and the Profits Overview shows neither its commission nor its kept change. Kept change is
 stamped and voids correctly, it just never appears. Fix the USDT bucketing so Binance profit counts.
 
+What users will notice: Binance fees and kept change now appear on the Profits page (as US dollars), including past days; Binance amounts also count in revenue. Still open: Commissions tab excludes Binance; Binance payment-method fees not counted.
+
 ---
 
-## LIRA-269: discount on Binance / app RECEIVE payout sheets is refused — MEDIUM — TODO
+## LIRA-269: discount on Binance / app RECEIVE payout sheets is refused — MEDIUM — DONE
 
 Found 2026-10-07. On the Crypto and OMT/Whish App RECEIVE payout sheets a discount lowers the sheet's target,
 while the server still pays out the full amount, so the payout is refused. Align the target the sheet shows with
 what the server pays.
 
+What users will notice: On Binance cash-out and OMT/Whish App receive, a discount lowers the shop's fee and the customer is paid that much more; the payout goes through. SEND side fixed too (OMT/Whish App and Binance sends with a discount; Services page discount box removed).
+
 ---
 
-## LIRA-270: session checkout posts stale payment lines on a zero-net basket — HIGH — TODO
+## LIRA-270: session checkout posts stale payment lines on a zero-net basket — HIGH — DONE
 
 Found 2026-10-07 by the sessions agent (probed). When nothing is left to collect, the payment input unmounts but
 `paymentLines` is not cleared, so a stale `IN CASH $105` leg is still sent and posted. The server does not catch it
 because no kept change is claimed. Clear lines on unmount and refuse legs on a zero-net basket server-side.
 
+What users will notice: If a payout covers the whole basket, the checkout records no customer payment, even if one was typed before the payout was added.
+
 ---
 
-## LIRA-271: session fee-on-top rule differs between client and server — MEDIUM — TODO
+## LIRA-271: session fee-on-top rule differs between client and server — MEDIUM — DONE
 
 Found 2026-10-07. The server's fee-on-top rule (WHISH fees, `isFeeOnTopReceiveItem`, batch sub-items) differs from
 the client's (`omt_system`/`whish_system` only, `omtFee`, top-level formData). It used to skew only the drawer
 split; with the new kept-change check it can refuse an honest kept claim. Make one shared definition.
 
+What users will notice: A basket with an OMT receive no longer adds the OMT fee to what the customer pays; one shared fee rule (`utils/sessionFeeOnTop.ts`).
+
 ---
 
-## LIRA-272: kept change on refunds of other modules — OWNER QUESTION — TODO
+## LIRA-272: kept change on refunds of other modules — HIGH — DONE
 
 Found 2026-10-07. Refund kept change works for SALE and DEBT_REPAYMENT refunds only. For OMT/Whish, recharge,
 custom services, maintenance and Loto, the Profits page drops the refunded row and never reads its REFUND row, so
 kept profit there would be invisible; the server refuses kept on those refunds for now. Extending needs a
 ProfitRepository change. Owner to decide whether to extend.
 
+What users will notice: The Transactions page refund window offers to keep small change on refunds of transfers, recharges, custom services, repairs and Loto tickets (cash or wallet); it shows on Profits under Kept change.
+
 ---
 
-## LIRA-273: undoing a session item refund leaves Profits at the refunded level — MEDIUM — TODO
+## LIRA-273: undoing a session item refund leaves Profits at the refunded level — MEDIUM — DONE
 
 Found 2026-10-07 (pre-existing, no kept change involved). The REFUND_UNDO row is not counted by
 `ProfitService.getSummary`, so after Undo refund the Profits total stays as if the refund still stood. Same for a POS per-item refund's undo (measured: gross 13.12 → 3 after refund, still 3 after undo).
@@ -6466,4 +6480,29 @@ Context: `mail@liratek.shop` (Spacemail) passes SPF, DKIM and DMARC in Gmail, bu
 - Do NOT tighten before then: if anything ever sends as `liratek.shop` without passing SPF/DKIM, `quarantine` sends it to spam.
 - Later (optional): `p=reject` once `quarantine` has run cleanly for a few weeks.
 - No code change; no user-visible change (no release note).
+
+What users will notice: After 'Undo refund', the Profits page and day close return to the pre-refund figures.
+
+---
+
+## LIRA-274: For-Partner transfer in a customer basket was charged twice — HIGH — DONE
+
+Found and proven 2026-10-07. A For-Partner OMT SEND ($100 + $5 fee) in a basket with a $20 walk-in item made the
+checkout ask the customer for $125; paying it booked the same $105 as customer cash AND partner debt. A For-Partner
+RECEIVE in a basket made checkout refuse. Fix: one shared rule (`utils/sessionForPartnerItem.ts`) — a For-Partner item
+contributes 0 to the basket's customer charge on client and server; its partner/supplier postings are unchanged.
+Baskets checked out before the fix are not repaired.
+
+What users will notice: Session Checkout asks the customer only for their own items; a For Partner transfer in the
+basket shows $0 and goes on the partner's account only.
+
+---
+
+## LIRA-282: API rate limit can lock out a shop's tills — HIGH — OWNER DECISION
+
+Found 2026-10-07 during the cornertech production test. The API allows 1,000 requests per 15 minutes per IP and one page
+load costs about 25–30 requests; the test exhausted it twice (≈11:45 and ≈11:54–12:01 Beirut). Any till sharing that
+internet connection then sees "Failed to load data. Tap refresh to retry." with no reason given. A shop with several
+tills on one connection could hit this in normal use. Options to decide: key the limit per authenticated user/tenant
+instead of per IP, raise the read limit, and show a clear "too many requests, wait a minute" message.
 

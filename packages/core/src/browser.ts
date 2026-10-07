@@ -209,6 +209,12 @@ export * from "./constants/refundTolerance.js";
 // session-group derivation (useTransactionRows.ts). Pure data, no Node.js
 // deps — see this module's own doc for the bug this closes.
 export * from "./constants/sessionPayoutMember.js";
+// LIRA-271 — the ONE session-basket fee-on-top RECEIVE rule, shared by the
+// checkout modal and SessionCheckoutService (pure leaf, rule 29).
+export * from "./utils/sessionFeeOnTop.js";
+// A For-Partner basket item costs the walk-in customer nothing — the ONE
+// rule shared by the checkout modal and SessionCheckoutService (pure leaf).
+export * from "./utils/sessionForPartnerItem.js";
 
 // Tender exchange-rate sanity band (LIRA-240, owner decision 2026-09-28) —
 // pure constant + pure arithmetic, no Node.js deps. `@liratek/ui`'s
@@ -349,6 +355,7 @@ export * from "./constants/transactionTypes.js";
 // this one definition (rule 14). Must be exported HERE too (rule 29 /
 // telecomCredit.js note).
 export * from "./utils/rechargeDiscount.js";
+export * from "./utils/walletReceivePayout.js";
 
 // LIRA-267 — the admin invite list's row shape and the invite-check answer.
 // Type-only (erased at compile time), so the Node-only service module lands

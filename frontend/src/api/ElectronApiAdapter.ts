@@ -42,6 +42,7 @@ import type {
   // LIRA-258 — loto sell/settle payloads derived from the core schemas
   // (rule 21).
   LotoSellPayload,
+  CreateCustomServicePayload,
   LotoCheckpointSettlePayload,
   LotoCheckpointsSettleBatchPayload,
   // LIRA-262 — "shop used its own stock" expense payload (rule 21).
@@ -51,6 +52,8 @@ import type {
 import * as api from "./backendApi";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// Session basket checkout payload, derived from the core schema (rule 21).
+import type { SessionCheckoutPayload } from "@liratek/core";
 
 export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
@@ -943,7 +946,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     cartRemove: (sessionId: number, itemId: string) =>
       api.sessionCartRemove(sessionId, itemId),
     cartClear: (sessionId: number) => api.sessionCartClear(sessionId),
-    checkout: (data: unknown) => api.processSessionCheckout(data),
+    checkout: (data: SessionCheckoutPayload) =>
+      api.processSessionCheckout(data),
   };
 
   // Nested namespace mirroring window.api.holdMoney (dual-mode IPC/REST).
@@ -1237,36 +1241,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   }) => api.getCustomServices(filter);
   getCustomServicesSummary = () => api.getCustomServicesSummary();
   getCustomServiceById = (id: number) => api.getCustomServiceById(id);
-  addCustomService = (data: {
-    description: string;
-    cost_usd?: number;
-    cost_lbp?: number;
-    price_usd?: number;
-    price_lbp?: number;
-    paid_by?: string;
-    status?: string;
-    client_id?: number;
-    client_name?: string;
-    phone_number?: string;
-    note?: string;
-    category?: string;
-    transaction_time?: string;
-    /** Operator-edited USD↔LBP rate of record — stamped verbatim onto the
-     *  transaction; omitted falls back to a live snapshot rate. */
-    exchange_rate?: number;
-    partnerId?: number;
-    /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
-     *  service and we owe them the cost instead. */
-    partnerMode?: "FOR" | "VIA";
-    /** OWNER_NOTES_REMAINING_BUILD.md #16 — "OUT" is a payout (Via-Partner
-     *  only): cash leaves the General drawer to a local recipient instead
-     *  of a customer paying the shop. Omitted/"IN" is the existing flow. */
-    direction?: "IN" | "OUT";
-    /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
-     *  operator picked a product from the inventory SearchBar; decrements 1
-     *  unit of stock. */
-    product_id?: number;
-  }) => api.addCustomService(data);
+  addCustomService = (data: CreateCustomServicePayload) =>
+    api.addCustomService(data);
   deleteCustomService = (id: number) => api.deleteCustomService(id);
   advanceCustomServiceFulfillment = (data: {
     id: number;

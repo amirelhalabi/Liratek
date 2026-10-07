@@ -142,7 +142,11 @@ describe("calculateOmtWhishAppFees — SEND with a fee (the missing-$2 bug)", ()
   // customer total as amount + 0 — the fee vanished from the drawer/debt/
   // profit records (it existed only on screen). The SEND fee is charged on
   // top and kept whole by the shop, exactly like RECEIVE.
-  it.each(["OMT_APP", "WHISH_APP"] as const)(
+  // Whish App SEND was originally in this it.each too, but the form has never
+  // offered a fee on Whish App SEND (the Fee Breakdown is hidden for it) — a
+  // fee there could only be a stale one carried over from RECEIVE (production
+  // testing 2026-10-07). See the "Whish App SEND has no fee" block below.
+  it.each(["OMT_APP"] as const)(
     "%s SEND $20 + $2 fee: wallet sends 20, customer owes 22, shop profits the full fee",
     (activeProvider) => {
       const result = calculateOmtWhishAppFees({
@@ -202,5 +206,57 @@ describe("calculateOmtWhishAppFees — unaffected paths", () => {
     expect(result.walletAmount).toBeCloseTo(100, 2);
     expect(result.totalAmount).toBeCloseTo(100, 2);
     expect(result.shopProfit).toBe(0);
+  });
+});
+
+describe("calculateOmtWhishAppFees — Whish App SEND has no fee (production testing 2026-10-07)", () => {
+  // The form shows no fee input on Whish App SEND, yet a fee typed on Whish
+  // App RECEIVE survived the switch to SEND and was charged to the customer
+  // and booked as commission. The calculator forces it to 0 — the single
+  // place this math lives — so no stale input can leak in.
+  it("ignores a leftover manual fee: no fee, no commission, customer pays the bare amount", () => {
+    const result = calculateOmtWhishAppFees({
+      ...base,
+      activeProvider: "WHISH_APP",
+      serviceType: "SEND",
+      parsedAmount: 100,
+      manualFee: "5",
+    });
+
+    expect(result.providerFee).toBe(0);
+    expect(result.shopProfit).toBe(0);
+    expect(result.commission).toBe(0);
+    expect(result.walletAmount).toBeCloseTo(100, 2);
+    expect(result.totalAmount).toBeCloseTo(100, 2);
+    expect(result.customerPays).toBeCloseTo(100, 2);
+  });
+
+  it("LBP too: a leftover fee is not charged", () => {
+    const result = calculateOmtWhishAppFees({
+      ...base,
+      activeProvider: "WHISH_APP",
+      serviceType: "SEND",
+      currency: "LBP",
+      parsedAmount: 1_000_000,
+      manualFee: "50000",
+    });
+
+    expect(result.providerFee).toBe(0);
+    expect(result.commission).toBe(0);
+    expect(result.customerPays).toBe(1_000_000);
+  });
+
+  it("guard: OMT App SEND still charges its fee", () => {
+    const result = calculateOmtWhishAppFees({
+      ...base,
+      activeProvider: "OMT_APP",
+      serviceType: "SEND",
+      parsedAmount: 100,
+      manualFee: "5",
+    });
+
+    expect(result.providerFee).toBe(5);
+    expect(result.commission).toBe(5);
+    expect(result.customerPays).toBeCloseTo(105, 2);
   });
 });

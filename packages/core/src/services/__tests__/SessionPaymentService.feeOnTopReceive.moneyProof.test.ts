@@ -545,9 +545,13 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
     );
   });
 
-  it("fee-attribution wiring matters: WITHOUT feeOnTopReceiveFsIds the $5 fee is misrouted to General instead of the PCD (documents the pre-fix-equivalent gap)", () => {
-    const before = snapshot(db);
-
+  // LIRA-270 rewrite (rule 24 — not deleted): this case used to document
+  // that WITHOUT the gate the $5 fee IN leg was silently MISROUTED to
+  // General. The wiring still matters — more so now: without the gate the
+  // server sees no charge at all (net 0), so the fee leg is a customer
+  // payment on a basket with nothing to collect and the checkout is
+  // REFUSED before anything is written, instead of posting it anywhere.
+  it("fee-attribution wiring matters: WITHOUT feeOnTopReceiveFsIds the $5 fee leg has no charge behind it and the basket is refused (LIRA-270)", () => {
     const { id: fsId } = finRepo.createTransaction({
       provider: "WHISH",
       serviceType: "RECEIVE",
@@ -563,41 +567,33 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
 
     const sessionId = 502;
     linkReceiveItemToSession(db, sessionId, fsId, 100);
+    const before = snapshot(db);
 
-    service.recordBasketPayment(sessionId, {
-      legs: [
-        { method: "CASH", currencyCode: "USD", amount: 5, direction: "IN" },
-        {
-          method: "CASH",
-          currencyCode: "USD",
-          amount: 100,
-          direction: "OUT",
-          kind: "PAYOUT",
-        },
-      ],
-      exchangeRate: 90000,
-      userId: 1,
-      clientId: 1,
-      // Gate omitted — chargeTotalUsd has no fee contribution, so the
-      // charge-side ratio's denominator is 0 and the $5 fee IN leg falls
-      // through to General (splitCashLegByItemShare's ratio<=0 branch) while
-      // the payout side (fed purely by the linked item, unaffected by the
-      // gate) still correctly finds its own 100% primary-system share.
-      feeOnTopReceiveFsIds: [],
-    });
+    expect(() =>
+      db.transaction(() =>
+        service.recordBasketPayment(sessionId, {
+          legs: [
+            { method: "CASH", currencyCode: "USD", amount: 5, direction: "IN" },
+            {
+              method: "CASH",
+              currencyCode: "USD",
+              amount: 100,
+              direction: "OUT",
+              kind: "PAYOUT",
+            },
+          ],
+          exchangeRate: 90000,
+          userId: 1,
+          clientId: 1,
+          // Gate omitted — chargeTotalUsd has no fee contribution.
+          feeOnTopReceiveFsIds: [],
+        }),
+      )(),
+    ).toThrow(/nothing left to collect/);
 
     const after = snapshot(db);
-
-    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(-100, 5);
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(5, 5);
-    // Aggregate conservation still holds (money isn't lost, only misrouted
-    // between PCD/General) — the invariant sums ALL drawers, so it cannot
-    // see a routing bug on its own; this is exactly why the PCD-specific
-    // assertions above (not just the invariant) are the regression guard.
-    // D1 cutover: supplierUsd owes -x=-100 regardless of where the fee
-    // physically landed; the invariant's commission term is the fee (5),
-    // kept as profit wherever it sits. OLD -> NEW: 0 -> 5.
-    assertInvariant(before, after, { commission: 5 });
+    expect(drawerDelta(before, after, "Whish_System_USD")).toBeCloseTo(0, 5);
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
   });
 
   // ═══════════════════════════════════════════════════════════════════════

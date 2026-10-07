@@ -147,7 +147,7 @@ test("bug 10: cash-out through the Debts page UI works in the browser (no window
     .filter({ hasText: /Cash Out/i })
     .first()
     .click();
-  await expect(page.getByText("Process Repayment")).toBeVisible();
+  await expect(page.getByText("Cash Out Credit")).toBeVisible();
 
   // The payout amount auto-prefills with the credit (abs value); fill it
   // explicitly to be robust to formatting.
@@ -155,7 +155,7 @@ test("bug 10: cash-out through the Debts page UI works in the browser (no window
     .locator('[data-testid^="payment-amount-"]')
     .first()
     .fill(String(CREDIT));
-  await page.getByRole("button", { name: /^Confirm Payment$/ }).click();
+  await page.getByRole("button", { name: /^Confirm Cash Out$/ }).click();
 
   await expect(
     page.locator('[role="alert"]', { hasText: /Cash out processed/i }).first(),

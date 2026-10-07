@@ -192,17 +192,6 @@ describe("Hold Money pickup — kept change (payer = payout)", () => {
       );
     });
 
-    it("kept on a pickup returning both USD and LBP (exact amount required)", () => {
-      const id = holdUsd(50.12, 100_000);
-      expectRefused(
-        {
-          id,
-          payments: [cashUsd(50), cashLbp(100_000)],
-          kept_change_usd: 0.12,
-        },
-        /one currency/i,
-      );
-    });
 
     it("an OUT (change) leg — a payout never receives change", () => {
       const id = holdUsd(50);
@@ -401,5 +390,253 @@ describe("Hold Money pickup profit — Profits surfaces", () => {
     const c2 = svc().getByClient(from, to).find((r) => r.client_name === "Rami");
     expect(c2?.profit_usd ?? 0).toBeCloseTo(0, 9);
     expect(c2?.revenue_usd ?? 0).toBeCloseTo(0, 9);
+  });
+});
+
+/**
+ * Two-currency pickup kept change (owner decision 2026-10-07, second half):
+ * a pickup paid out in BOTH currencies may keep a leftover in EACH currency,
+ * with NO cap. Per currency: handed ≤ held, kept = held − handed. Written
+ * failing-first (rule 17) against a repository that refused any kept change
+ * on a two-currency pickup ("keeping change works only when returning one
+ * currency"). Replaces the old "kept on a pickup returning both USD and LBP
+ * (exact amount required)" refusal test, whose premise the owner reversed.
+ */
+describe("Hold Money pickup — two-currency kept change (uncapped, per currency)", () => {
+  function txnCount(): number {
+    return (db.prepare(`SELECT COUNT(*) AS n FROM transactions`).get() as { n: number }).n;
+  }
+  function expectRefused(body: Record<string, unknown>, message: RegExp): void {
+    const before = snapshotLedgers(db);
+    const n = txnCount();
+    const res = collect(body);
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(message);
+    const d = ledgerDeltas(before, snapshotLedgers(db));
+    expect(Object.values(d.drawers).every((v) => Math.abs(v) < 1e-9)).toBe(true);
+    expect(txnCount()).toBe(n);
+  }
+
+  it("owner example: held $50 + 1,000,000 LBP, hands $50 + 950,000 LBP → 50,000 LBP profit, hold fully closed", () => {
+    const id = holdUsd(50, 1_000_000);
+    const before = snapshotLedgers(db);
+
+    const res = collect({
+      id,
+      payments: [cashUsd(50), cashLbp(950_000)],
+      kept_change_lbp: 50_000,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+
+    const txn = collectTxn();
+    expect(txn.profit_lbp).toBe(50_000);
+    expect(txn.profit_usd).toBe(0);
+
+    const d = ledgerDeltas(before, snapshotLedgers(db));
+    expect(d.drawers["General|USD"]).toBeCloseTo(-50, 6);
+    expect(d.drawers["General|LBP"]).toBeCloseTo(-950_000, 6);
+
+    const pickup = db
+      .prepare(`SELECT usd_amount, lbp_amount FROM hold_money_pickups WHERE hold_money_id = ?`)
+      .get(id) as { usd_amount: number; lbp_amount: number };
+    expect(pickup.usd_amount).toBeCloseTo(50, 6);
+    expect(pickup.lbp_amount).toBe(1_000_000);
+
+    const hold = repo.getById(id)!;
+    expect(hold.status).toBe("collected");
+    expect(hold.remaining_usd).toBeCloseTo(0, 6);
+    expect(hold.remaining_lbp).toBe(0);
+  });
+
+  it("kept in BOTH currencies at once, above the one-currency cap (no cap here)", () => {
+    const id = holdUsd(52.5, 1_250_000);
+    const res = collect({
+      id,
+      payments: [cashUsd(50), cashLbp(1_000_000)],
+      kept_change_usd: 2.5,
+      kept_change_lbp: 250_000,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+    const txn = collectTxn();
+    expect(txn.profit_usd).toBeCloseTo(2.5, 6);
+    expect(txn.profit_lbp).toBe(250_000);
+    expect(repo.getById(id)!.status).toBe("collected");
+  });
+
+  it("the cents case that used to be refused: held $50.12 + 100,000 LBP, hands $50 + 100,000 LBP → $0.12 kept", () => {
+    const id = holdUsd(50.12, 100_000);
+    const res = collect({
+      id,
+      payments: [cashUsd(50), cashLbp(100_000)],
+      kept_change_usd: 0.12,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+    const txn = collectTxn();
+    expect(txn.profit_usd).toBeCloseTo(0.12, 6);
+    expect(txn.profit_lbp).toBe(0);
+  });
+
+  it("a partial two-currency pickup keeps per currency against the PORTION, not the whole hold", () => {
+    const id = holdUsd(100, 2_000_000);
+    const res = collect({
+      id,
+      usd_amount: 50,
+      lbp_amount: 1_000_000,
+      payments: [cashUsd(50), cashLbp(950_000)],
+      kept_change_lbp: 50_000,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+    expect(collectTxn().profit_lbp).toBe(50_000);
+    const hold = repo.getById(id)!;
+    expect(hold.status).toBe("held");
+    expect(hold.remaining_usd).toBeCloseTo(50, 6);
+    expect(hold.remaining_lbp).toBe(1_000_000);
+  });
+
+  describe("tamper guards — refused before any write", () => {
+    it("claimed kept larger than held − handed", () => {
+      const id = holdUsd(50, 1_000_000);
+      expectRefused(
+        { id, payments: [cashUsd(50), cashLbp(950_000)], kept_change_lbp: 60_000 },
+        /kept|add up/i,
+      );
+    });
+
+    it("claimed kept SMALLER than held − handed (money unaccounted)", () => {
+      const id = holdUsd(50, 1_000_000);
+      expectRefused(
+        { id, payments: [cashUsd(50), cashLbp(950_000)], kept_change_lbp: 40_000 },
+        /kept|add up/i,
+      );
+    });
+
+    it("a kept claim in a currency where the full amount was handed", () => {
+      const id = holdUsd(50, 1_000_000);
+      expectRefused(
+        {
+          id,
+          payments: [cashUsd(50), cashLbp(950_000)],
+          kept_change_usd: 1,
+          kept_change_lbp: 50_000,
+        },
+        /kept|add up/i,
+      );
+    });
+
+    it("handing more than held in one currency while claiming kept in the other", () => {
+      const id = holdUsd(50, 1_000_000);
+      expectRefused(
+        { id, payments: [cashUsd(60), cashLbp(100_000)], kept_change_lbp: 900_000 },
+        /more than/i,
+      );
+    });
+
+    it("a kept claim with no payout lines (the CASH fallback would pay the full amount)", () => {
+      const id = holdUsd(50, 1_000_000);
+      expectRefused({ id, kept_change_lbp: 50_000 }, /payout|lines|kept/i);
+    });
+
+    it("an OUT leg alongside a two-currency kept claim", () => {
+      const id = holdUsd(50, 1_000_000);
+      expectRefused(
+        {
+          id,
+          payments: [
+            cashUsd(50),
+            cashLbp(1_000_000),
+            { ...cashLbp(50_000), direction: "OUT" },
+          ],
+          kept_change_lbp: 50_000,
+        },
+        /OUT|change/i,
+      );
+    });
+  });
+
+  it("unchanged: an exact cross-currency two-currency pickup with no claim still reconciles", () => {
+    const id = holdUsd(50, 895_000);
+    // $50 + 895,000 LBP at 89,500 = $60 — all paid in USD.
+    const res = collect({
+      id,
+      payments: [cashUsd(60)],
+      exchange_rate: 89_500,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+    const txn = collectTxn();
+    expect(txn.profit_usd).toBe(0);
+    expect(txn.profit_lbp).toBe(0);
+  });
+
+  it("unchanged: an unclaimed per-currency shortfall is still refused (no silent kept)", () => {
+    const id = holdUsd(50, 1_000_000);
+    expectRefused(
+      { id, payments: [cashUsd(50), cashLbp(950_000)], exchange_rate: 89_500 },
+      /reconcile|add up/i,
+    );
+  });
+
+  it("rule 20 — voiding the two-currency pickup nets drawers, profit (both currencies) and the held balance to 0", () => {
+    const id = holdUsd(52.5, 1_000_000);
+    const before = snapshotLedgers(db);
+    const res = collect({
+      id,
+      payments: [cashUsd(50), cashLbp(950_000)],
+      kept_change_usd: 2.5,
+      kept_change_lbp: 50_000,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+
+    const pickupId = repo.getPickups(id)[0]!.id;
+    const v = repo.voidPickup(pickupId, 1);
+    expect(v.error).toBeUndefined();
+    expect(v.success).toBe(true);
+
+    const d = ledgerDeltas(before, snapshotLedgers(db));
+    for (const ledger of Object.values(d)) {
+      for (const delta of Object.values(ledger)) {
+        expect(Math.abs(delta)).toBeLessThan(1e-9);
+      }
+    }
+    const p = profitSum();
+    expect(p.usd).toBeCloseTo(0, 9);
+    expect(p.lbp).toBe(0);
+
+    const hold = repo.getById(id)!;
+    expect(hold.status).toBe("held");
+    expect(hold.remaining_usd).toBeCloseTo(52.5, 6);
+    expect(hold.remaining_lbp).toBe(1_000_000);
+  });
+
+  it("Profits overview shows the LBP kept (hold_money.profit_lbp), and the void nets it to 0", () => {
+    const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    const from = day(Date.now() - 3 * 86_400_000);
+    const to = day(Date.now() + 3 * 86_400_000);
+    const svc = new ProfitService(new ProfitRepository());
+    const id = holdUsd(50, 1_000_000);
+    const base = svc.getSummary(from, to);
+    expect(
+      collect({
+        id,
+        payments: [cashUsd(50), cashLbp(950_000)],
+        kept_change_lbp: 50_000,
+      }).success,
+    ).toBe(true);
+    const s1 = svc.getSummary(from, to);
+    expect(s1.hold_money.profit_lbp).toBe(50_000);
+    expect(s1.hold_money.profit_usd).toBe(0);
+    expect(s1.hold_money.count).toBe(1);
+    expect(s1.totals.gross_profit_lbp - base.totals.gross_profit_lbp).toBe(50_000);
+
+    const pickupId = repo.getPickups(id)[0]!.id;
+    expect(repo.voidPickup(pickupId, 1).success).toBe(true);
+    const s2 = svc.getSummary(from, to);
+    expect(s2.hold_money.profit_lbp).toBe(0);
+    expect(s2.totals.gross_profit_lbp - base.totals.gross_profit_lbp).toBe(0);
   });
 });

@@ -11,6 +11,7 @@
 import Database from "better-sqlite3";
 import { ProfitRepository } from "../ProfitRepository";
 import { runWithTenant } from "../../db/tenantContext";
+import { ProfitService } from "../../services/ProfitService";
 
 const D = "2026-10-07 10:00:00";
 const FROM = "2026-10-07 00:00:00";
@@ -122,6 +123,22 @@ describe("Profits — kept change on a credit cash-out", () => {
     const rows = runWithTenant(1, () => repo.getByUser(FROM, TO));
     const total = rows.reduce((s, r) => s + r.profit_usd, 0);
     expect(total).toBeCloseTo(0.12, 6);
+  });
+
+  // LIRA-268 follow-up (Kept Change drill-down label): a cash-out row read
+  // as the generic "Kept change", indistinguishable from a sale's. Written
+  // before the label change and run against the old label first (rule 17).
+  it("the Kept Change drill-down labels a cash-out row \"Debts cash-out\"", () => {
+    seedCashOut(db, 0.12);
+    const detail = runWithTenant(1, () =>
+      new ProfitService(repo).getModuleDetail(
+        "KEPT_CHANGE",
+        "2026-10-07",
+        "2026-10-07",
+      ),
+    );
+    expect(detail.counted).toHaveLength(1);
+    expect(detail.counted[0].detail).toBe("Debts cash-out kept change");
   });
 
   it("an older cash-out (no kept, stamp 0) adds nothing and is not counted", () => {

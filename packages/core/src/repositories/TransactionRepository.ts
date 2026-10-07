@@ -70,6 +70,7 @@ import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { restoreMaintenanceJobParts } from "./maintenancePartsStock.js";
 import { restoreExpenseStock } from "./expenseStock.js";
 import {
+  REFUND_KEPT_CHANGE_META,
   REFUND_KEPT_CHANGE_TYPES,
   type TransactionTypeFilterInput,
 } from "../validators/transaction.js";
@@ -93,7 +94,10 @@ import { getSalesRepository } from "./SalesRepository.js";
 // imports `getTransactionRepository` at its own top level, and neither class
 // touches the other's import at module-evaluation time, only from inside a
 // method body.
-import { getDebtRepository } from "./DebtRepository.js";
+import {
+  getDebtRepository,
+  readRepaymentCoverage,
+} from "./DebtRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 // LIRA-258 / G17 — the shared repayment-coverable type list (rule 14/20),
 // same lazy circular-import pattern as above (only read inside a method).
@@ -5752,7 +5756,21 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   ): number {
     const tenantId = getCurrentTenantId();
     let metadataStr = original.metadata_json;
-    if (extraMetadata) {
+    // LIRA-272 — the change THIS refund kept, under its own dedicated keys
+    // (`REFUND_KEPT_CHANGE_META`), so the Profits page can show it for a
+    // module whose refunded original it drops (FINANCIAL_SERVICE, RECHARGE,
+    // CUSTOM_SERVICE, MAINTENANCE, LOTO). Never the copied
+    // `kept_change_usd/lbp`, which may be the ORIGINAL's sale-time kept
+    // change. One place for every caller: the generic refund and the
+    // non-SALE session item refund both create their row here.
+    const refundKeptMeta =
+      kept && (kept.usd > 0 || kept.lbp > 0)
+        ? {
+            [REFUND_KEPT_CHANGE_META.usd]: kept.usd,
+            [REFUND_KEPT_CHANGE_META.lbp]: kept.lbp,
+          }
+        : undefined;
+    if (extraMetadata || refundKeptMeta) {
       let base: Record<string, unknown> = {};
       if (original.metadata_json) {
         try {
@@ -5761,7 +5779,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           base = {};
         }
       }
-      metadataStr = JSON.stringify({ ...base, ...extraMetadata });
+      metadataStr = JSON.stringify({
+        ...base,
+        ...extraMetadata,
+        ...refundKeptMeta,
+      });
     }
     // The refund carries NEGATED profit: the original stays ACTIVE (profit
     // queries sum SALE + REFUND rows), so without the negative stamp a
@@ -6980,6 +7002,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * voiding the cash side of a discounted repayment must leave the bundled
    * discount exactly as forgiven as before.
    *
+   * Exact path (2026-10-07): repayments now record the rows their coverage
+   * landed on (`readRepaymentCoverage`, DebtRepository) and step 2 gives
+   * back exactly that. The approximation below remains only for repayments
+   * booked before that record existed.
+   *
    * Approximation (same shape as `_unapplySupplierPurchaseCoverage`):
    * nothing records exactly which sale/charge rows THIS repayment's coverage
    * landed on, so the give-back budget is re-derived from the 'Repayment'
@@ -7054,7 +7081,38 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       tenantId,
     );
 
-    // 2. Unwind the FIFO coverage this repayment applied. Sales absorb first
+    // 2. Unwind the FIFO coverage this repayment applied. When the
+    // repayment recorded exactly which rows it covered (addRepayment stamps
+    // REPAYMENT_COVERAGE_KEY on its metadata), give back exactly that —
+    // each take capped at the row's current coverage. Without the record,
+    // the legacy newest-first re-derivation below reached into sales the
+    // repayment never touched (any sale with paid_usd > 0, incl. sales paid
+    // in cash at checkout) whenever its coverage had gone to module charges.
+    const recorded = readRepaymentCoverage(original.metadata_json);
+    if (recorded) {
+      const updSale = this.db.prepare(
+        // status = 'completed' mirrors the legacy unwind (and the forward
+        // _markSalesPaidFIFO): a sale refunded since keeps its paid_usd.
+        `UPDATE sales SET paid_usd = MAX(0, paid_usd - ?)
+         WHERE id = ? AND tenant_id = ? AND status = 'completed'`,
+      );
+      for (const s of recorded.sales) {
+        if (s.usd > 0) updSale.run(s.usd, s.id, tenantId);
+      }
+      const updCharge = this.db.prepare(
+        `UPDATE debt_ledger
+           SET covered_usd = MAX(0, covered_usd - ?), covered_lbp = MAX(0, covered_lbp - ?)
+         WHERE id = ? AND client_id = ? AND tenant_id = ?`,
+      );
+      for (const c of recorded.charges) {
+        if (c.usd > 0 || c.lbp > 0) {
+          updCharge.run(c.usd, c.lbp, c.id, ledger.client_id, tenantId);
+        }
+      }
+      return;
+    }
+
+    // Legacy (repayments booked before the record existed). Sales absorb first
     // (mirrors _markSalesPaidFIFO's priority in the forward direction); the
     // USD remainder plus the full LBP budget then unwinds module-debt
     // covered_usd/covered_lbp (mirrors _coverServiceDebtsFIFO). Same budget
@@ -7291,8 +7349,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * refund side of `resolveKeptChange` (payer "payout": the shop hands money
    * to the customer) — the ONE check-and-split every kept-change flow uses
    * (rule 14); the refund adds only its own preconditions on top:
-   *   - every return line is CASH (kept change is coins not handed back —
-   *     an OMT/Whish/card return has no "change");
+   *   - every return line is DRAWER money — cash or a wallet (OMT, WHISH,
+   *     Binance, …), per `isDrawerAffectingMethod` — never a customer
+   *     account or gift card (owner decision 2026-10-07, the same funding
+   *     rule `resolveKeptChange` applies to payouts);
    *   - the refund is in exactly ONE currency (USD or LBP), and every
    *     return line is in it ("same currency", owner decision);
    *   - the refund moves money OUT of the shop (a money-IN original — a
@@ -7343,10 +7403,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       );
     }
     const legs = args.refundLegs ?? [];
+    // Funding rule (owner decision 2026-10-07): kept change must be drawer
+    // money — cash OR wallet. `isDrawerAffectingMethod` is the ONE
+    // definition (rule 14), the same predicate `resolveKeptChange`'s payout
+    // branch applies; checked here first only for refund-worded refusal.
     for (const leg of legs) {
-      if (leg.method !== "CASH") {
+      if (!isDrawerAffectingMethod(leg.method)) {
         throw new DatabaseError(
-          `${context}: kept change applies only to a cash refund — every return line must be Cash`,
+          `${context}: change can only be kept on a cash or wallet refund — a customer account or gift card return line cannot keep change`,
           { entityId },
         );
       }

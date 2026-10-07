@@ -82,11 +82,14 @@ import type {
   // LIRA-258 — loto sell/settle payloads derived from the core schemas
   // (rule 21).
   LotoSellPayload,
+  CreateCustomServicePayload,
   LotoCheckpointSettlePayload,
   LotoCheckpointsSettleBatchPayload,
   // LIRA-262 — "shop used its own stock" expense payload (rule 21).
   CreateStockExpenseInput,
   CreateExpenseRequest,
+  // Session basket checkout payload, derived from the core schema (rule 21).
+  SessionCheckoutPayload,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -2189,7 +2192,7 @@ export type ApiAdapter = {
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     cartRemove: (sessionId: number, itemId: string) => Promise<ApiResult>;
     cartClear: (sessionId: number) => Promise<ApiResult>;
-    checkout: (data: unknown) => Promise<any>;
+    checkout: (data: SessionCheckoutPayload) => Promise<any>;
   };
 
   /** Hold money — cash held in / collected out on the customer's behalf
@@ -2598,38 +2601,10 @@ export type ApiAdapter = {
     totalProfitLbp: number;
   }>;
   getCustomServiceById: (id: number) => Promise<any>;
-  addCustomService: (data: {
-    description: string;
-    cost_usd?: number;
-    cost_lbp?: number;
-    price_usd?: number;
-    price_lbp?: number;
-    paid_by?: string;
-    status?: string;
-    client_id?: number;
-    client_name?: string;
-    phone_number?: string;
-    note?: string;
-    category?: string;
-    transaction_time?: string;
-    /** Operator-edited USD↔LBP rate of record — stamped verbatim onto the
-     *  transaction; omitted falls back to a live snapshot rate. */
-    exchange_rate?: number;
-    /** LIRA-081: for-partner custom service — no counter payment, the FULL
-     *  price books to the partner's tab instead. LIRA-154: "VIA" is the
-     *  mirror — the partner performs the service and we owe them the cost
-     *  instead. */
-    partnerId?: number;
-    partnerMode?: "FOR" | "VIA";
-    /** OWNER_NOTES_REMAINING_BUILD.md #16 — "OUT" is a payout (Via-Partner
-     *  only): cash leaves the General drawer to a local recipient instead
-     *  of a customer paying the shop. Omitted/"IN" is the existing flow. */
-    direction?: "IN" | "OUT";
-    /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
-     *  operator picked a product from the inventory SearchBar; decrements 1
-     *  unit of stock. Omitted (preset/free-text) -> NULL -> no stock move. */
-    product_id?: number;
-  }) => Promise<ApiResult & { id?: number }>;
+  /** Rule 21: the core schema's input type (createCustomServiceSchema). */
+  addCustomService: (
+    data: CreateCustomServicePayload,
+  ) => Promise<ApiResult & { id?: number }>;
   deleteCustomService: (id: number) => Promise<ApiResult>;
   /** LIRA-155 — advance an insurance-style custom service's fulfilment
    *  status (ORDERED -> ISSUED -> RECEIVED -> DELIVERED). Moves no money;

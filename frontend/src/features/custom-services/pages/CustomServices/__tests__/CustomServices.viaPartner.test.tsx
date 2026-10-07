@@ -320,6 +320,11 @@ describe("CustomServices — Via Partner (LIRA-154)", () => {
 
   it("KEEPS the payment section mounted when Via Partner is checked (unlike For Partner, which hides it)", () => {
     render(<CustomServices />);
+    // Owner decision 2026-10-07: the payment sheet waits for a selling
+    // price, so enter one before looking for it.
+    fireEvent.change(screen.getAllByPlaceholderText("0.00")[1], {
+      target: { value: "10" },
+    });
 
     expect(screen.getByTestId("multi-payment-input")).toBeInTheDocument();
 

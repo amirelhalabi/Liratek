@@ -20,6 +20,7 @@ import {
   type CounterpartyDiscountData,
 } from "../repositories/index.js";
 import { debtLogger } from "../utils/logger.js";
+import { partitionLegs } from "../utils/payments.js";
 
 // =============================================================================
 // Types
@@ -68,6 +69,73 @@ export interface AddCreditData {
    *  see DebtRepository.addCredit's doc. Omit for standalone/manual
    *  credits with no originating transaction. */
   transactionId?: number;
+}
+
+// =============================================================================
+// Legs-only repayment reduction
+// =============================================================================
+
+/**
+ * The debt reduction for a repayment that sent ONLY payment lines (amountUSD
+ * and amountLBP both 0). Owner decision 2026-10-07: the debt goes down by the
+ * money that came IN minus the change handed back, never by the sum of every
+ * line (a $120 payment with $20 change used to book $140).
+ *
+ * Per currency: IN − OUT (rule 16, `partitionLegs`) − the kept-change claim
+ * in that currency. The kept claim is subtracted here so the repository's
+ * `resolveKeptChange` (which still runs, unchanged) sees IN − OUT − kept =
+ * reduction; it keeps refusing a negative claim, a claim without payment
+ * lines, and a claim not funded by cash/wallet money.
+ *
+ * A currency is never booked negative (that would RAISE the debt in that
+ * currency). When change was given in the other currency, the deficit is
+ * settled against the other side at the payload's tender rate — the client's
+ * own rate (rule 27), the same one the repository stamps and reconciles kept
+ * change at. Without a tender rate the request is refused: this service may
+ * not read the server rate itself (rule 13), and guessing one would book a
+ * figure the cashier never saw.
+ */
+function legsOnlyReduction(args: {
+  payments: RepaymentPaymentLine[] | undefined;
+  keptChangeUSD: number | undefined;
+  keptChangeLBP: number | undefined;
+  tenderExchangeRate: number | undefined;
+}): { usd: number; lbp: number } | { error: string } {
+  const { inLegs, outLegs } = partitionLegs(args.payments);
+  const sum = (legs: RepaymentPaymentLine[], ccy: string): number =>
+    legs
+      .filter((l) => l.currencyCode === ccy)
+      .reduce((s, l) => s + Math.abs(l.amount), 0);
+
+  let usd =
+    sum(inLegs, "USD") - sum(outLegs, "USD") - (args.keptChangeUSD ?? 0);
+  let lbp =
+    sum(inLegs, "LBP") - sum(outLegs, "LBP") - (args.keptChangeLBP ?? 0);
+
+  if ((usd < 0 && lbp > 0) || (lbp < 0 && usd > 0)) {
+    const rate = args.tenderExchangeRate;
+    if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
+      return {
+        error:
+          "The change was given in a different currency from the payment. Send the exchange rate used so the debt reduction can be worked out.",
+      };
+    }
+    if (usd < 0) {
+      lbp += usd * rate;
+      usd = 0;
+    } else {
+      usd += lbp / rate;
+      lbp = 0;
+    }
+  }
+
+  if (usd <= 0 && lbp <= 0) {
+    return {
+      error:
+        "There is nothing left to repay: the change given back is as much as the money received.",
+    };
+  }
+  return { usd: Math.max(0, usd), lbp: Math.max(0, lbp) };
 }
 
 // =============================================================================
@@ -168,18 +236,23 @@ export class DebtService {
     // USD figure and sends amountLBP: 0, and re-deriving LBP from the legs
     // here double-counted the reduction (paid $30-worth, credited $30 + the
     // LBP legs again). Only derive from legs when BOTH amounts are absent
-    // (legs-only callers).
+    // (legs-only callers) — see legsOnlyReduction for how change is netted.
     const callerProvidedAmounts = amountUSD > 0 || amountLBP > 0;
-    const resolvedAmountUSD = callerProvidedAmounts
-      ? amountUSD
-      : (payments
-          ?.filter((p) => p.currencyCode === "USD")
-          .reduce((s, p) => s + p.amount, 0) ?? 0);
-    const resolvedAmountLBP = callerProvidedAmounts
-      ? amountLBP
-      : (payments
-          ?.filter((p) => p.currencyCode === "LBP")
-          .reduce((s, p) => s + p.amount, 0) ?? 0);
+    let resolvedAmountUSD = amountUSD;
+    let resolvedAmountLBP = amountLBP;
+    if (!callerProvidedAmounts) {
+      const derived = legsOnlyReduction({
+        payments,
+        keptChangeUSD,
+        keptChangeLBP,
+        tenderExchangeRate: tender_exchange_rate,
+      });
+      if ("error" in derived) {
+        return { success: false, error: derived.error };
+      }
+      resolvedAmountUSD = derived.usd;
+      resolvedAmountLBP = derived.lbp;
+    }
 
     try {
       const result = this.debtRepo.addRepayment({

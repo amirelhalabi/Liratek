@@ -62,6 +62,12 @@ export const sessionCheckoutSchema = z
   .passthrough();
 
 export type SessionCheckoutInput = z.infer<typeof sessionCheckoutSchema>;
+/**
+ * Rule 21 — what a caller SENDS to session checkout (both transports), derived
+ * from the schema: `ApiAdapter.session.checkout`, `processSessionCheckout`
+ * and the Electron adapter type their payload as this, never a hand copy.
+ */
+export type SessionCheckoutPayload = z.input<typeof sessionCheckoutSchema>;
 export type SessionCheckoutPaymentInput = z.infer<
   typeof sessionCheckoutPaymentSchema
 >;

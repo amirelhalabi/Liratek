@@ -56,6 +56,7 @@ import type {
 } from "../../types";
 import { PROVIDER_CONFIGS } from "../../types";
 import { deriveSubmittedRechargeType } from "@/shared/utils/rechargeLabels";
+import { cryptoAmounts } from "../../utils/cryptoAmounts";
 
 // Fix round 1 (major, rule 25 — render-loop): a stable, module-level empty
 // array so the shop-lines effect below never sets a FRESH `[]` reference on
@@ -219,9 +220,8 @@ export default function MobileRecharge() {
   // it still always lands on the primary line (RechargeRepository's existing
   // `getCarrierLineRepository().getPrimary(carrier)` call, unchanged), which
   // is what "the line selected on the MTC/Alfa page" means in practice.
-  const [shopLines, setShopLines] = useState<CarrierLineEntity[]>(
-    NO_SHOP_LINES,
-  );
+  const [shopLines, setShopLines] =
+    useState<CarrierLineEntity[]>(NO_SHOP_LINES);
   // Fix round 1 (major, rule 25): `api` is read through a ref so this
   // effect's dependency list never carries the (possibly per-render-fresh)
   // `useApi()` identity itself — only `activeProvider`, which is real state
@@ -283,8 +283,7 @@ export default function MobileRecharge() {
     return appEvents.on("carrier-lines:changed", (carrier) => {
       if (
         (activeProvider === "MTC" || activeProvider === "Alfa") &&
-        (!carrier ||
-          carrier === (activeProvider === "MTC" ? "mtc" : "alfa"))
+        (!carrier || carrier === (activeProvider === "MTC" ? "mtc" : "alfa"))
       ) {
         void loadShopLines(activeProvider);
       }
@@ -342,6 +341,10 @@ export default function MobileRecharge() {
     payout: boolean;
   } | null>(null);
   const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
+  // LIRA-269: the crypto sheet's discount. On a cash-out it comes off the
+  // shop's fee (the customer receives more): booked as `commission = fee −
+  // discount` via cryptoAmounts — the helper CryptoForm sized the sheet with.
+  const [cryptoDiscount, setCryptoDiscount] = useState(0);
   // Payment-Legs Integrity: the rate the crypto PaymentSheet is ACTUALLY
   // converting tender at (seeded buy rate, or the operator's edit of the
   // sheet's header field) — sent as tender_exchange_rate so the backend's
@@ -1293,7 +1296,8 @@ export default function MobileRecharge() {
     const price = parseFloat(giftPriceLbp);
     const cost = parseFloat(giftCostLbp);
     // LIRA-185 #1: same discount contract as handleTelecomSubmit.
-    const discountField = telecomDiscount > 0 ? { discount: telecomDiscount } : {};
+    const discountField =
+      telecomDiscount > 0 ? { discount: telecomDiscount } : {};
     const chargedPrice = price - telecomDiscount;
 
     const clientResult = await ensureRechargeClient({
@@ -1445,27 +1449,23 @@ export default function MobileRecharge() {
 
   const handleCryptoSubmit = useCallback(async () => {
     const fee = parseFloat(cryptoFee) || 0;
-    const rawAmount = parseFloat(cryptoAmount);
-    // fee included → the entered amount already contains the fee
-    // SEND:    feeIncluded → USDT sent = amount - fee;  !feeIncluded → USDT sent = amount
-    // RECEIVE: feeIncluded → USDT received = amount;    !feeIncluded → USDT received = amount + fee
-    // RECEIVE mode C (cryptoFeeCollectedSeparately): the wallet receives the
-    // BARE amount — same "else" branch as feeIncluded=true — because the fee
-    // is collected back from the customer via feePayments[] instead of being
-    // netted through the wallet. Must be excluded from the "+fee" branch or
-    // the fee gets double-counted into the wallet AND collected separately.
-    let amount: number;
-    if (cryptoType === "SEND" && cryptoFeeIncluded) {
-      amount = rawAmount - fee;
-    } else if (
-      cryptoType === "RECEIVE" &&
-      !cryptoFeeIncluded &&
-      !cryptoFeeCollectedSeparately
-    ) {
-      amount = rawAmount + fee;
-    } else {
-      amount = rawAmount;
-    }
+    // Fee-mode math + cash-out discount: the SAME helper CryptoForm sized
+    // the sheet with (cryptoAmounts.ts). `amount` is the USDT that moves
+    // (the gross wallet amount, fee toggles folded in); `commission` is the
+    // fee after a cash-out discount. No discount inside a session — the
+    // basket books none.
+    const {
+      apiAmount: amount,
+      commission,
+      sendCustomerPays,
+    } = cryptoAmounts({
+      cryptoType,
+      parsedAmount: parseFloat(cryptoAmount),
+      fee,
+      feeIncluded: cryptoFeeIncluded,
+      feeCollectedSeparately: cryptoFeeCollectedSeparately,
+      discount: activeSession ? 0 : cryptoDiscount,
+    });
     const isSplitPayment = cryptoPaymentLines.length > 1;
     const paidByMethod =
       cryptoPaymentLines.length === 1
@@ -1550,6 +1550,7 @@ export default function MobileRecharge() {
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
+      setCryptoDiscount(0);
       return;
     }
 
@@ -1569,7 +1570,7 @@ export default function MobileRecharge() {
         clientId: resolvedCryptoClientId || undefined,
         clientName: cryptoClientName,
         referenceNumber: cryptoDescription,
-        commission: fee,
+        commission,
         paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
         payments: useCryptoStructuredPayments
           ? toCamelLegs(cryptoPaymentLines, cryptoChangeLegs)
@@ -1579,6 +1580,14 @@ export default function MobileRecharge() {
         // false-reject against the stamped sell rate without this).
         ...(useCryptoStructuredPayments
           ? { tender_exchange_rate: cryptoTenderRate ?? exchangeRate }
+          : {}),
+        // LIRA-269 follow-up: a SEND tells the server what the customer
+        // really pays (after the sheet's discount, the same helper as
+        // `commission`), so the cash legs are reconciled against it and the
+        // fee booked cannot disagree with the cash taken in. USD: the
+        // Binance cash side is always dollars.
+        ...(cryptoType === "SEND" && useCryptoStructuredPayments
+          ? { checkoutTotal: { usd: sendCustomerPays, lbp: 0 } }
           : {}),
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
           ? { cashoutMethod: derivedCashoutMethod }
@@ -1654,6 +1663,7 @@ export default function MobileRecharge() {
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
+      setCryptoDiscount(0);
       setCryptoTransactionTime(undefined);
       loadBinanceData();
       loadDrawerBalances();
@@ -1681,6 +1691,7 @@ export default function MobileRecharge() {
     cryptoPaymentLines,
     cryptoReturnLegs,
     cryptoKeptChange,
+    cryptoDiscount,
     cryptoPaidBy,
     cryptoTenderRate,
     exchangeRate,
@@ -1804,7 +1815,9 @@ export default function MobileRecharge() {
                   : telecomStats.commission
               }
               todayCount={
-                isTelecomFormMode ? rechargeTodayStats.count : telecomStats.count
+                isTelecomFormMode
+                  ? rechargeTodayStats.count
+                  : telecomStats.count
               }
               todayByCurrency={
                 isTelecomFormMode
@@ -2191,6 +2204,7 @@ export default function MobileRecharge() {
               }
             }}
             onReturnChange={setCryptoReturnLegs}
+            onDiscountChange={setCryptoDiscount}
             exchangeRate={exchangeRate}
             onExchangeRateChange={setCryptoTenderRate}
             onTransactionTimeChange={setCryptoTransactionTime}

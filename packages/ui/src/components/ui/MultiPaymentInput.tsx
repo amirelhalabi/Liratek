@@ -164,7 +164,13 @@ export interface MultiPaymentInputProps {
   /** Callback when exchange rate changes */
   onRateChange?: (rate: number) => void;
   /** Show an optional discount field that reduces the amount the customer pays.
-   *  Discount is subtracted from the totals before payment matching. */
+   *  Discount is subtracted from the totals before payment matching.
+   *  On a payout (`payer="payout"`, LIRA-269) the discount is the shop giving
+   *  up part of its fee, so the customer receives MORE — by an amount only the
+   *  caller's fee model knows. There the field only REPORTS the discount
+   *  (`onDiscountChange`) and never touches the totals: the caller folds it
+   *  into the total it passes. With no `onDiscountChange` a payout hides the
+   *  field, since a discount nobody books would only move the target. */
   showDiscount?: boolean;
   /** Maximum allowed discount (in totalAmountCurrency). Cannot exceed cost. */
   maxDiscount?: number;
@@ -515,13 +521,18 @@ export default function MultiPaymentInput({
     maxDiscount !== undefined
       ? Math.min(discountNormalized, maxDiscount)
       : discountNormalized;
+  // LIRA-269: on a payout the caller folds the discount into the total (see
+  // the `showDiscount` prop doc), so it is never subtracted here — and the
+  // field is only offered when the caller books it.
+  const discountVisible = showDiscount && (!isPayout || !!onDiscountChange);
+  const discountLowersTotal = !isPayout;
 
   // What is owed, per currency — the native composition callers provide.
   // Discount (normalized to totalAmountCurrency) is taken out of the buckets
   // largest-first.
   const baseTotals: Money[] = totalsProp ?? [];
   const effectiveTotals: Money[] = (() => {
-    if (clampedDiscount <= 0) return baseTotals;
+    if (clampedDiscount <= 0 || !discountLowersTotal) return baseTotals;
     let discountLeft = clampedDiscount;
     return [...baseTotals]
       .sort(
@@ -1338,6 +1349,22 @@ export default function MultiPaymentInput({
     hasReturnMismatch &&
     returnMismatch < 0;
   const keepActive = underReturnKept;
+
+  // Production testing 2026-10-07: the "Paid" figure is red (with a warning
+  // icon) only for a REAL problem — never merely because change is due or
+  // kept, which are normal states the cashier should not read as an error.
+  // A problem is: underpaid with nothing kept, a payout handing out more
+  // than owed, or a CASH change return that does not add up (over-return,
+  // or an under-return this page cannot keep).
+  const paidExact = Math.abs(totalPaid - effectiveTotalInTarget) < matchTolerance;
+  const paidHasProblem =
+    !paidExact &&
+    ((remainingShortfall > matchTolerance && !payoutKeepActive) ||
+      (isPayout && overpaidTarget > matchTolerance) ||
+      (effectiveReturnMethod === "CASH" &&
+        hasReturnMismatch &&
+        !underReturnKept) ||
+      (isOverpaid && returnNeedsClient));
 
   // Array of shop→customer change legs (up to 2 for CASH, 0-1 for non-CASH).
   const suggestedReturnLegs: PaymentLine[] = (() => {
@@ -2218,7 +2245,7 @@ export default function MultiPaymentInput({
         )}
 
         {/* Discount */}
-        {showDiscount && (
+        {discountVisible && (
           <div className="flex items-center justify-between gap-2 py-1">
             <span className="text-xs text-emerald-400 font-medium">
               Discount
@@ -2273,15 +2300,17 @@ export default function MultiPaymentInput({
               </div>
               {discountAmount > 0 && (
                 <span className="font-mono text-emerald-400 text-xs">
-                  -{fmtTarget(toDisplayCurrency(clampedDiscount))}
+                  {/* Payout: off the shop's fee — the customer gets more. */}
+                  {discountLowersTotal ? "-" : "+"}
+                  {fmtTarget(toDisplayCurrency(clampedDiscount))}
                 </span>
               )}
             </div>
           </div>
         )}
 
-        {/* After discount */}
-        {showDiscount && clampedDiscount > 0 && (
+        {/* After discount (a payout's total already includes it) */}
+        {discountVisible && discountLowersTotal && clampedDiscount > 0 && (
           <div className="flex justify-between text-xs pt-1 border-t border-emerald-700/20">
             <span className="text-emerald-300 font-medium">After Discount</span>
             <span className="font-mono text-emerald-200 font-medium">
@@ -2291,7 +2320,7 @@ export default function MultiPaymentInput({
         )}
 
         {/* Discount cap warning */}
-        {showDiscount &&
+        {discountVisible &&
           maxDiscount !== undefined &&
           discountNormalized > maxDiscount && (
             <div className="text-[11px] text-red-400">
@@ -2303,7 +2332,7 @@ export default function MultiPaymentInput({
         <div className="flex justify-between items-center text-xs pt-1.5 border-t border-slate-700/40">
           <span className="text-slate-300 font-medium">Paid</span>
           <span className="flex items-center gap-1.5">
-            {Math.abs(totalPaid - effectiveTotalInTarget) < matchTolerance ? (
+            {paidExact ? (
               <svg
                 width="12"
                 height="12"
@@ -2315,7 +2344,7 @@ export default function MultiPaymentInput({
               >
                 <polyline points="20 6 9 17 4 12" />
               </svg>
-            ) : (
+            ) : paidHasProblem ? (
               <svg
                 width="12"
                 height="12"
@@ -2329,12 +2358,14 @@ export default function MultiPaymentInput({
                 <line x1="12" y1="8" x2="12" y2="12" />
                 <line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
-            )}
+            ) : null}
             <span
               className={`font-mono font-semibold ${
-                Math.abs(totalPaid - effectiveTotalInTarget) < matchTolerance
+                paidExact
                   ? "text-emerald-400"
-                  : "text-red-400"
+                  : paidHasProblem
+                    ? "text-red-400"
+                    : "text-slate-100"
               }`}
             >
               {fmtTarget(toDisplayCurrency(totalPaid))}
@@ -2548,9 +2579,9 @@ export default function MultiPaymentInput({
               >
                 {returnMismatch > 0
                   ? isShopPayer
-                    ? `Getting back ${convertSafe(returnMismatch, totalAmountCurrency, "USD").toFixed(2)}$ more than was overpaid.`
-                    : `Returning ${convertSafe(returnMismatch, totalAmountCurrency, "USD").toFixed(2)}$ more than the customer overpaid.`
-                  : `${convertSafe(-returnMismatch, totalAmountCurrency, "USD").toFixed(2)}$ of the change is not covered by these fields yet.`}
+                    ? `Getting back ${fmtWithSymbol(convertSafe(returnMismatch, totalAmountCurrency, "USD"), "$", 2)} more than was overpaid.`
+                    : `Returning ${fmtWithSymbol(convertSafe(returnMismatch, totalAmountCurrency, "USD"), "$", 2)} more than the customer overpaid.`
+                  : `${fmtWithSymbol(convertSafe(-returnMismatch, totalAmountCurrency, "USD"), "$", 2)} of the change is not covered by these fields yet.`}
               </p>
             )}
             {effectiveReturnMethod !== "CASH" && (

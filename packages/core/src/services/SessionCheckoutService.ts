@@ -33,6 +33,8 @@ import { getCustomerSessionRepository } from "../repositories/CustomerSessionRep
 import { getTransactionRepository } from "../repositories/TransactionRepository.js";
 import { getClientRepository } from "../repositories/ClientRepository.js";
 import { clientLogger } from "../utils/logger.js";
+import { isSessionPooledFeeReceive } from "../utils/sessionFeeOnTop.js";
+import { sessionBasketCustomerAmount } from "../utils/sessionForPartnerItem.js";
 
 export interface CheckoutCartItem {
   id: string;
@@ -301,32 +303,17 @@ function checkoutPaymentsToBasketLegs(payments: CheckoutPayment[]) {
 // Exported for direct unit coverage (SessionCheckoutService.feeOnTopGate.test.ts)
 // — the narrowest seam that pins this gate's condition without standing up
 // the full async checkout() transaction.
+//
+// LIRA-271: delegates to the ONE shared rule (`utils/sessionFeeOnTop.ts`)
+// the checkout modal also uses, so the two can never disagree about what
+// the customer owes. It used to flag EVERY fee-on-top RECEIVE (OMT, app
+// wallets included) and rely on the SQL's provider gate in
+// `getSessionCashSplitContext` to zero the non-WHISH ones — that gate stays
+// as a second line of defence.
 export function isFeeOnTopReceiveItem(
   formData: Record<string, unknown>,
 ): boolean {
-  return formData.serviceType === "RECEIVE" && formData.includingFees !== true;
-}
-
-/**
- * G42 — does the basket hold a FOR-partner item (top level or a batch
- * sub-item)? A FOR-partner custom/financial service still books its partner
- * ledger under deferPayment, and the owner rule (2026-10-07) is that a
- * FOR-partner transaction refuses kept change. Exported for tests.
- */
-export function basketHasForPartnerItem(
-  cartItems: Array<{ formData: Record<string, unknown> }>,
-): boolean {
-  return cartItems.some((item) => {
-    const fd = item.formData ?? {};
-    if (fd.partnerMode === "FOR") return true;
-    return (
-      fd._batch === true &&
-      Array.isArray(fd.items) &&
-      (fd.items as Array<Record<string, unknown>>).some(
-        (sub) => sub?.partnerMode === "FOR",
-      )
-    );
-  });
+  return isSessionPooledFeeReceive(formData);
 }
 
 /** Resolve the unified transactions.id for a just-created source record. */
@@ -508,6 +495,11 @@ export class SessionCheckoutService {
         for (const item of cartItems) {
           try {
             const isBatch = item.formData._batch === true;
+            // What the walk-in customer pays (+) / is paid (−) for this item:
+            // 0 for a For-Partner item, whatever amount the client sent — its
+            // obligation is the partner's and is booked by the item itself
+            // (one shared rule with the checkout modal, rule 14).
+            const customerAmount = sessionBasketCustomerAmount(item);
 
             if (isBatch) {
               const batchResults = processBatchCartItem(
@@ -552,10 +544,10 @@ export class SessionCheckoutService {
                   // silently dropped a USDT item to 0/0, making it invisible
                   // to the sign-based `isSessionPayoutMember` guard.
                   item.currency !== "LBP"
-                    ? item.amount / batchResults.length
+                    ? customerAmount / batchResults.length
                     : 0,
                   item.currency === "LBP"
-                    ? item.amount / batchResults.length
+                    ? customerAmount / batchResults.length
                     : 0,
                   subProfitUsd,
                   subProfitLbp,
@@ -611,8 +603,8 @@ export class SessionCheckoutService {
                 // (rule 14). A strict `=== "USD"` check made a USDT item's
                 // real (negative, netted) value invisible to every
                 // sign-based payout reader — it was stamped 0/0 instead.
-                item.currency !== "LBP" ? item.amount : 0,
-                item.currency === "LBP" ? item.amount : 0,
+                item.currency !== "LBP" ? customerAmount : 0,
+                item.currency === "LBP" ? customerAmount : 0,
                 itemProfitUsd,
                 itemProfitLbp,
                 unifiedId,
@@ -626,8 +618,8 @@ export class SessionCheckoutService {
               });
             }
 
-            if (item.currency === "LBP") checkoutTotalLbp += item.amount;
-            else checkoutTotalUsd += item.amount;
+            if (item.currency === "LBP") checkoutTotalLbp += customerAmount;
+            else checkoutTotalUsd += customerAmount;
 
             if (item.formData._batch && Array.isArray(item.formData.items)) {
               for (const sub of item.formData.items as Array<
@@ -679,9 +671,6 @@ export class SessionCheckoutService {
               clientId: sessionClientId ?? null,
               feeOnTopReceiveFsIds,
               keptChange: claimsKept ? keptClaim : null,
-              basketHasForPartner: claimsKept
-                ? basketHasForPartnerItem(cartItems)
-                : false,
             },
           );
           keptUsd = basket.keptUsd;

@@ -45,6 +45,7 @@ import {
   WHISH_FEE_TIERS,
   lookupOmtFee,
   lookupIntraLbpFee,
+  isForPartnerPayload,
   type OmtServiceType,
 } from "@liratek/core";
 
@@ -1234,9 +1235,14 @@ export default function Services() {
         // Fee-included has nothing extra to show here: it's already netted
         // out of the (smaller) payout below.
         const receiveFee = resolvedFee ?? 0;
+        // Production testing 2026-10-07: OMT never charges the customer a
+        // fee on a receive (D1 — the fee there only estimates the
+        // commission), so the label must not show one.
+        const omtReceiveNoFeeLabel =
+          provider === "OMT" && serviceType === "RECEIVE";
         const feeLabelStr =
           serviceType === "RECEIVE"
-            ? receiveFee > 0
+            ? receiveFee > 0 && !omtReceiveNoFeeLabel
               ? currency === "LBP"
                 ? ` · fee ${receiveFee.toLocaleString()} LBP${includingFees ? " (incl.)" : ""}`
                 : ` · fee $${receiveFee.toFixed(2)}${includingFees ? " (incl.)" : ""}`
@@ -1252,7 +1258,13 @@ export default function Services() {
           currency === "LBP"
             ? `${sentAmount.toLocaleString()} LBP`
             : `$${sentAmount.toFixed(2)}`;
-        const label = `${provider} ${serviceType} - ${clientLabel || "Unknown"} - ${amountStr}${feeLabelStr}`;
+        // A For-Partner line costs the walk-in customer nothing — the basket
+        // counts it as $0 by the same shared rule (`isForPartnerPayload`,
+        // behind `sessionBasketCustomerAmount`) — so its label says where it
+        // goes instead of quoting fees the customer does not pay.
+        const label = isForPartnerPayload(apiPayload)
+          ? `${provider} ${serviceType} - ${clientLabel || "Unknown"} - ${amountStr} for ${forPartnerName} — on partner account`
+          : `${provider} ${serviceType} - ${clientLabel || "Unknown"} - ${amountStr}${feeLabelStr}`;
         // Customer total — the WIRE CONTRACT payout: for SEND, customer pays
         // amount + fees (unchanged). For RECEIVE (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md
         // §1.5/§4 Phase F): fee-on-top → the FULL requested amount `x` (the
@@ -1355,6 +1367,7 @@ export default function Services() {
     selectedPartnerId,
     forPartner,
     forPartnerId,
+    forPartnerName,
     api,
     activeSession,
     linkTransaction,
@@ -2334,6 +2347,14 @@ export default function Services() {
                     // Remount on toggle so the seeded payment line re-opens in
                     // the newly selected currency (line currency is mount-only).
                     key={currency}
+                    // No discount on an OMT/Whish system transfer: the whole
+                    // fee is owed to the provider and the shop's commission
+                    // is only booked at settlement (Whish system: none), so
+                    // there is no margin at creation for a discount to come
+                    // out of. The input's default showed a field nothing
+                    // booked — the server then refused (or, under $0.05,
+                    // silently absorbed) the shortfall.
+                    showDiscount={false}
                     totals={[
                       {
                         // On SEND:

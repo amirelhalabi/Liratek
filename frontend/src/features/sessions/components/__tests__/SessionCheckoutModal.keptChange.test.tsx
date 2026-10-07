@@ -207,4 +207,29 @@ describe("SessionCheckoutModal — kept change (G42)", () => {
     expect(payload).not.toHaveProperty(KEPT_USD);
     expect(payload).not.toHaveProperty(KEPT_LBP);
   });
+
+  // LIRA-270 — the payment input unmounts when nothing is left to collect,
+  // but the lines it reported earlier used to stay in state and ride along
+  // as a real IN leg (a phantom $105 cash payment the server then posted).
+  it("does not send stale payment lines once the basket has nothing left to collect", async () => {
+    const { rerender } = render(
+      <SessionCheckoutModal isOpen={true} onClose={() => {}} />,
+    );
+    fireEvent.click(screen.getByTestId("tender-105-keep-5"));
+
+    mockCartItems = [CHARGE, PRIZE];
+    rerender(<SessionCheckoutModal isOpen={true} onClose={() => {}} />);
+    expect(screen.queryByTestId("stub-multi-payment-input")).toBeNull();
+
+    confirm();
+    await waitFor(() => expect(mockCheckout).toHaveBeenCalledTimes(1));
+    const payload = mockCheckout.mock.calls[0][0] as SessionCheckoutInput;
+    const legs = payload.payments ?? [];
+    // No customer-paid (IN) leg and no change leg: only payout legs may
+    // remain, and a $100 prize netted against a $100 charge needs none.
+    expect(legs.filter((l) => l.direction !== "OUT")).toEqual([]);
+    expect(
+      legs.filter((l) => l.direction === "OUT" && l.kind !== "PAYOUT"),
+    ).toEqual([]);
+  });
 });

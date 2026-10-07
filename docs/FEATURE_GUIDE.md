@@ -209,9 +209,17 @@ parentheses.
 **Where it applies today:** customer — POS, Maintenance, session checkout,
 Debts repayment, Custom Services, recharge/OMT sales; payout — OMT/Whish
 RECEIVE, Binance cash-out, app RECEIVE, credit buy-back, Whish top-up from a
-client, Debts credit cash-out, Hold Money pickup (one currency only), refunds
-of SALE / DEBT_REPAYMENT (cash, one currency); shop — Expenses. Kept change is
-refused on partner transactions and on refunds of other modules (LIRA-272).
+client, Debts credit cash-out, Hold Money pickup (one currency: capped as
+above; both currencies: kept per currency with NO cap — handed ≤ held in each
+currency and the claim must equal held − handed; owner decision 2026-10-07),
+refunds of SALE, DEBT_REPAYMENT, FINANCIAL_SERVICE, RECHARGE, CUSTOM_SERVICE,
+MAINTENANCE and LOTO (one currency, cash or wallet return lines; the five module
+types record the kept part as `metadata_json.refund_kept_change_usd/lbp`, read by
+`ProfitRepository.getRefundKeptChangeProfit`); shop — Expenses. Kept change is
+refused on partner transactions — except a customer session basket, which may
+keep change even when it holds a For-Partner item (owner decision 2026-10-07);
+a For-Partner item contributes 0 to the basket's customer charge
+(`utils/sessionForPartnerItem.ts`) and its own partner posting is unchanged.
 
 **Migration checklist for a module** (one module per change):
 
@@ -707,6 +715,13 @@ booked once, at load time. Do not "fix" that.
 ---
 
 ## 11. Sessions (customer baskets)
+
+> **Basket rules added 2026-10-07 (LIRA-270/271/274):** a customer payment on a
+> basket with nothing left to collect is refused (`basketNetCharge` /
+> `basketHasNothingToCollect` in `SessionPaymentService`). Fee-on-top RECEIVE:
+> only a WHISH system RECEIVE adds its fee to the charge, by the one rule in
+> `utils/sessionFeeOnTop.ts` used by both the modal and the server. A For-Partner
+> item contributes 0 to the customer charge (`utils/sessionForPartnerItem.ts`).
 
 - Start requires a name (auto-creates client with phone). Only an **ACTIVE** session
   blocks a duplicate; multiple sequential sessions per day are allowed

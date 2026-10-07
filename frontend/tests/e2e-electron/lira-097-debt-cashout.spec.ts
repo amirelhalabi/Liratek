@@ -135,7 +135,7 @@ async function openCashOutModal(page: Page, clientName: string) {
     .filter({ hasText: /Cash Out/i })
     .first()
     .click();
-  await expect(page.getByText("Process Repayment")).toBeVisible();
+  await expect(page.getByText("Cash Out Credit")).toBeVisible();
 }
 
 test.describe("LIRA-097 — creditor cash out", () => {
@@ -165,7 +165,7 @@ test.describe("LIRA-097 — creditor cash out", () => {
       .locator('[data-testid^="payment-amount-"]')
       .first()
       .fill(String(CREDIT));
-    await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
+    await appPage.getByRole("button", { name: /^Confirm Cash Out$/ }).click();
 
     await expect(
       appPage
@@ -333,11 +333,11 @@ test.describe("LIRA-097 — creditor cash out", () => {
       .filter({ hasText: /Cash Out/i })
       .first()
       .click();
-    await expect(appPage.getByText("Process Repayment")).toBeVisible();
+    await expect(appPage.getByText("Cash Out Credit")).toBeVisible();
     await expect(
       appPage.locator('[data-testid^="payment-amount-"]').first(),
     ).toHaveValue(String(USD_CREDIT));
-    await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
+    await appPage.getByRole("button", { name: /^Confirm Cash Out$/ }).click();
     await expect(
       appPage
         .locator('[role="alert"]', { hasText: /Cash out processed/i })
@@ -571,11 +571,11 @@ test.describe("LIRA-097 — creditor cash out", () => {
       appPage.locator("button").filter({ hasText: /Settle Debt/i }),
     ).toHaveCount(0);
     await cashOutBtn.click();
-    await expect(appPage.getByText("Process Repayment")).toBeVisible();
+    await expect(appPage.getByText("Cash Out Credit")).toBeVisible();
     await expect(
       appPage.locator('[data-testid^="payment-amount-"]').first(),
     ).toHaveValue(String(USD_CREDIT));
-    await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
+    await appPage.getByRole("button", { name: /^Confirm Cash Out$/ }).click();
     await expect(
       appPage
         .locator('[role="alert"]', { hasText: /Cash out processed/i })

@@ -345,7 +345,7 @@ describe("Debts page — tender_exchange_rate propagation (owner decision 2026-0
     fireEvent.click(await screen.findByText("Cash Out"));
     fireEvent.click(screen.getByText("Set Rate"));
     fireEvent.click(screen.getByText("Set Lines"));
-    fireEvent.click(screen.getByText("Confirm Payment"));
+    fireEvent.click(screen.getByText("Confirm Cash Out"));
 
     await waitFor(() => expect(mockCashOut).toHaveBeenCalled());
     const payload = mockCashOut.mock.calls[0][0];

@@ -7,24 +7,28 @@ import { WORK_STATUSES } from "../utils/customServiceWorkStatus.js";
  * Custom Service validation schemas
  */
 
+// `z.coerce.number<number>()`: same runtime coercion (a REST body may still
+// send "12"), but the schema's INPUT type says `number` instead of
+// `unknown`, so `CreateCustomServicePayload` (z.input, rule 21) actually
+// type-checks the amounts the adapters send.
 export const createCustomServiceSchema = z
   .object({
     description: z.string().min(0).max(500).optional().default(""),
-    cost_usd: z.coerce.number().min(0).default(0),
-    cost_lbp: z.coerce.number().min(0).default(0),
-    price_usd: z.coerce.number().min(0).default(0),
-    price_lbp: z.coerce.number().min(0).default(0),
+    cost_usd: z.coerce.number<number>().min(0).default(0),
+    cost_lbp: z.coerce.number<number>().min(0).default(0),
+    price_usd: z.coerce.number<number>().min(0).default(0),
+    price_lbp: z.coerce.number<number>().min(0).default(0),
     paid_by: z.string().min(1).default("CASH"),
     status: z.enum(["pending", "completed"]).default("completed"),
-    client_id: z.coerce.number().int().positive().optional(),
+    client_id: z.coerce.number<number>().int().positive().optional(),
     client_name: z.string().max(255).optional(),
     phone_number: z.string().max(50).optional(),
     note: z.string().max(1000).optional(),
     category: z.string().max(100).optional(),
     transaction_time: transactionTimeSchema,
     // T3 keep-change (KC-3): kept change per currency → profit stamp.
-    kept_change_usd: z.coerce.number().min(0).optional(),
-    kept_change_lbp: z.coerce.number().min(0).optional(),
+    kept_change_usd: z.coerce.number<number>().min(0).optional(),
+    kept_change_lbp: z.coerce.number<number>().min(0).optional(),
     voucher_code: z.string().optional(),
     // Structured payment legs in the currency the customer ACTUALLY paid
     // (split payments, pay-in-other-currency, and change/return legs). Snake
@@ -45,7 +49,7 @@ export const createCustomServiceSchema = z
     deferPayment: z.boolean().optional(),
     // Operator-edited USD↔LBP rate of record, threaded by the session checkout so
     // the unified transaction stores it (the viewer's "@ <rate>" + USD/LBP display).
-    exchange_rate: z.coerce.number().positive().optional(),
+    exchange_rate: z.coerce.number<number>().positive().optional(),
     // LIRA-081 (PFT-R): a "for partner" custom service — mirrors FOR_RECHARGE.
     // No counter payment; the FULL price (per currency) books to the
     // partner's tab instead. See CustomServiceRepository.createService.
@@ -89,7 +93,7 @@ export const createCustomServiceSchema = z
     // send this, so they stay NULL -> no stock movement (unchanged
     // behaviour). Always consumes exactly 1 unit; no `quantity` field — the
     // form has no quantity control for a single ad-hoc service.
-    product_id: z.coerce.number().int().positive().optional(),
+    product_id: z.coerce.number<number>().int().positive().optional(),
     // LIRA-155 — an insurance-style custom service starts fulfilment
     // tracking at creation (typically 'ORDERED'). Optional and NULL by
     // default so every non-insurance custom service (the overwhelming
@@ -161,6 +165,16 @@ export const createCustomServiceSchema = z
   );
 
 export type CreateCustomServiceInput = z.infer<
+  typeof createCustomServiceSchema
+>;
+
+/**
+ * Rule 21 — the WIRE payload of `custom-services:add` / `POST
+ * /api/custom-services`: the schema's INPUT type (defaulted fields
+ * optional), which the dual-transport adapters and the desktop `window.api`
+ * type use instead of a hand-copied literal.
+ */
+export type CreateCustomServicePayload = z.input<
   typeof createCustomServiceSchema
 >;
 

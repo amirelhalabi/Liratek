@@ -13,6 +13,17 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { subscribeToInvalidation } from "@/api/realtime";
 import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import type { CartItem, CartTotals } from "../types/cart";
+import { sessionBasketCustomerAmount } from "@liratek/core";
+
+/** A basket line shows what the walk-in customer pays (+) or is paid (−):
+ *  0 for a For-Partner item, whose obligation is the partner's (one shared
+ *  rule with the checkout modal and the server, @liratek/core). Applied when
+ *  a line is added and when the basket is reloaded, so the floating basket,
+ *  its totals and the receipt never show it as the customer's. */
+function withCustomerAmount(item: CartItem): CartItem {
+  const amount = sessionBasketCustomerAmount(item);
+  return amount === item.amount ? item : { ...item, amount };
+}
 
 interface CustomerSession {
   id: number;
@@ -139,15 +150,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const result = await api.session.cartGet(sessionId);
       if (result.success && result.items) {
         // Convert DB rows to CartItem shape
-        const items: CartItem[] = result.items.map((row) => ({
-          id: row.item_id,
-          module: row.module as CartItem["module"],
-          label: row.label,
-          amount: row.amount,
-          currency: row.currency as CartItem["currency"],
-          formData: JSON.parse(row.form_data),
-          ipcChannel: row.ipc_channel,
-        }));
+        const items: CartItem[] = result.items
+          .map((row) => ({
+            id: row.item_id,
+            module: row.module as CartItem["module"],
+            label: row.label,
+            amount: row.amount,
+            currency: row.currency as CartItem["currency"],
+            formData: JSON.parse(row.form_data),
+            ipcChannel: row.ipc_channel,
+          }))
+          .map(withCustomerAmount);
         setCartItems(items);
       }
     } catch (err) {
@@ -158,10 +171,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const addToCart = useCallback(
     async (item: Omit<CartItem, "id">) => {
       if (!activeSession) return;
-      const newItem: CartItem = {
+      const newItem: CartItem = withCustomerAmount({
         ...item,
         id: crypto.randomUUID(),
-      };
+      });
       const sessionId = activeSession.id;
 
       // Persist to DB
@@ -536,15 +549,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         try {
           const cartResult = await api.session.cartGet(activeSession.id);
           if (cartResult.success && cartResult.items) {
-            const items: CartItem[] = cartResult.items.map((row) => ({
-              id: row.item_id,
-              module: row.module as CartItem["module"],
-              label: row.label,
-              amount: row.amount,
-              currency: row.currency as CartItem["currency"],
-              formData: JSON.parse(row.form_data),
-              ipcChannel: row.ipc_channel,
-            }));
+            const items: CartItem[] = cartResult.items
+              .map((row) => ({
+                id: row.item_id,
+                module: row.module as CartItem["module"],
+                label: row.label,
+                amount: row.amount,
+                currency: row.currency as CartItem["currency"],
+                formData: JSON.parse(row.form_data),
+                ipcChannel: row.ipc_channel,
+              }))
+              .map(withCustomerAmount);
             setCartItems((prev) => {
               // Only update if actually changed (avoid unnecessary re-renders)
               if (JSON.stringify(prev) !== JSON.stringify(items)) {

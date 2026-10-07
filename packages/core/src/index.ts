@@ -41,9 +41,16 @@ export * from "./utils/currency.js";
 export * from "./utils/currencyConverter.js";
 export * from "./utils/tenantSlug.js";
 export * from "./utils/localDate.js";
+// LIRA-271 — the ONE session-basket fee-on-top RECEIVE rule, shared by the
+// checkout modal and SessionCheckoutService (pure leaf, rule 29).
+export * from "./utils/sessionFeeOnTop.js";
+// A For-Partner basket item costs the walk-in customer nothing — the ONE
+// rule shared by the checkout modal and SessionCheckoutService (pure leaf).
+export * from "./utils/sessionForPartnerItem.js";
 export * from "./utils/requestDay.js";
 export * from "./utils/telecomCredit.js";
 export * from "./utils/rechargeDiscount.js";
+export * from "./utils/walletReceivePayout.js";
 // Generic calendar-date arithmetic (rule 14 — the one definition, moved out
 // of carrierLineValidity.js so date-neutral callers don't import a
 // carrier-line module to add a day to a date). Re-exported from BOTH entry

@@ -23,6 +23,9 @@ import type {
   CreateStockExpenseInput,
   // Manual expense payload — bill + cash lines + change back (rule 21).
   CreateExpenseRequest,
+  // Rule 21 — session:checkout and custom-services:add payloads.
+  SessionCheckoutPayload,
+  CreateCustomServicePayload,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -308,9 +311,6 @@ contextBridge.exposeInMainWorld("api", {
       clientId: number;
       amountUSD: number;
       amountLBP: number;
-      paidAmountUSD?: number | undefined;
-      paidAmountLBP?: number | undefined;
-      drawerName?: string | undefined;
       note?: string;
       userId?: number;
       paidByMethod?: string;
@@ -1643,35 +1643,11 @@ contextBridge.exposeInMainWorld("api", {
       amountUsd: number;
       amountLbp: number;
     }) => ipcRenderer.invoke("session:linkTransaction", data),
-    checkout: (data: {
-      sessionId: number;
-      cartItems: Array<{
-        id: string;
-        module: string;
-        label: string;
-        amount: number;
-        currency: string;
-        formData: Record<string, unknown>;
-        ipcChannel: string;
-      }>;
-      paidByMethod?: string;
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-        direction?: "IN" | "OUT";
-        kind?: "PAYOUT" | "CHANGE";
-        /** Owner decision #11-A (netted session checkout, 2026-09-24) —
-         *  meaningful only on a `kind: "PAYOUT"` leg. See
-         *  SessionPaymentService's `payoutOrigin` doc for the full contract. */
-        payoutOrigin?: "SYSTEM" | "GENERAL";
-        voucher_code?: string;
-      }>;
-      exchangeRate?: number;
-      clientId?: number;
-      clientName?: string;
-      userId: number;
-    }) => ipcRenderer.invoke("session:checkout", data),
+    /** Rule 21: the core schema's input type (sessionCheckoutSchema) —
+     *  carries kept_change_usd / kept_change_lbp, which the hand-written
+     *  type here used to omit. */
+    checkout: (data: SessionCheckoutPayload) =>
+      ipcRenderer.invoke("session:checkout", data),
 
     // Cart persistence
     cartAdd: (
@@ -1915,48 +1891,9 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("custom-services:list", filter),
     get: (id: number) => ipcRenderer.invoke("custom-services:get", id),
     summary: () => ipcRenderer.invoke("custom-services:summary"),
-    add: (data: {
-      description: string;
-      cost_usd?: number;
-      cost_lbp?: number;
-      price_usd?: number;
-      price_lbp?: number;
-      paid_by?: string;
-      status?: string;
-      client_id?: number;
-      client_name?: string;
-      phone_number?: string;
-      note?: string;
-      category?: string;
-      transaction_time?: string;
-      voucher_code?: string;
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-        voucher_code?: string;
-        direction?: "IN" | "OUT";
-      }>;
-      /** Change the customer left with the shop — checked server-side
-       *  against the payment lines, then booked as profit. */
-      kept_change_usd?: number;
-      kept_change_lbp?: number;
-      /** The rate the payment sheet converted at (reconciles the lines). */
-      exchange_rate?: number;
-      partnerId?: number;
-      /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
-       *  service and we owe them the cost instead. */
-      partnerMode?: "FOR" | "VIA";
-      /** OWNER_NOTES_REMAINING_BUILD.md #16 — "OUT" is a payout (Via-Partner
-       *  only): cash leaves the General drawer to a local recipient instead
-       *  of a customer paying the shop. Omitted/"IN" is the existing flow. */
-      direction?: "IN" | "OUT";
-      /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
-       *  operator picked a product from the inventory SearchBar; decrements
-       *  1 unit of stock. Omitted (preset/free-text) -> NULL -> no stock
-       *  movement. */
-      product_id?: number;
-    }) => ipcRenderer.invoke("custom-services:add", data),
+    /** Rule 21: the core schema's input type (createCustomServiceSchema). */
+    add: (data: CreateCustomServicePayload) =>
+      ipcRenderer.invoke("custom-services:add", data),
     delete: (id: number) => ipcRenderer.invoke("custom-services:delete", id),
     updateMetadata: (data: {
       id: number;

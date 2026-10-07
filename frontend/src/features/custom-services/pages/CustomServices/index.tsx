@@ -322,6 +322,24 @@ export default function CustomServices() {
     (keptChange.usd > 0 || keptChange.lbp > 0)
       ? keptChange
       : null;
+  // Owner decision 2026-10-07: a service with no selling price only means
+  // the price is not pre-filled — the cashier types it on the spot. Until
+  // they do, the payment sheet has nothing to collect (it is never the cost)
+  // and the sale cannot be submitted or added to a session basket. Not for
+  // FOR (no customer pays) or a payout (its own Arrived/Paid Out rule). The
+  // server refuses the same case (CustomServiceRepository.createService).
+  const awaitingSellingPrice =
+    !isForPartner && !isPayout && priceUsdVal <= 0 && priceLbpVal <= 0;
+  // The payment sheet unmounts while it waits for a price; what it held
+  // (legs, change legs, kept change) belonged to the old price, so drop it
+  // rather than letting it ride into the next sale. Fires only when the
+  // waiting state flips on, so the fresh arrays cannot loop.
+  useEffect(() => {
+    if (!awaitingSellingPrice) return;
+    setPaymentLines([]);
+    setReturnLegs([]);
+    setKeptChange(null);
+  }, [awaitingSellingPrice]);
   const profitUsd = priceUsdVal - costUsdVal + (sentKeptChange?.usd ?? 0);
   const profitLbp = priceLbpVal - costLbpVal + (sentKeptChange?.lbp ?? 0);
 
@@ -334,6 +352,10 @@ export default function CustomServices() {
       priceLbpVal <= 0
     ) {
       alert("Please enter a cost or price.");
+      return;
+    }
+    if (awaitingSellingPrice) {
+      alert("Enter a selling price first.");
       return;
     }
     const hasDebtLine = paymentLines.some(
@@ -355,7 +377,13 @@ export default function CustomServices() {
     // via the partner (price) AND the amount handed to the recipient
     // (cost). Checked BEFORE the VIA payment-leg guard below, which does not
     // apply to a payout (it pays OUT, it never collects a leg).
-    if (isPayout && !((priceUsdVal > 0 || priceLbpVal > 0) && (costUsdVal > 0 || costLbpVal > 0))) {
+    if (
+      isPayout &&
+      !(
+        (priceUsdVal > 0 || priceLbpVal > 0) &&
+        (costUsdVal > 0 || costLbpVal > 0)
+      )
+    ) {
       alert(
         "Enter both the amount that arrived (Arrived) and the amount to pay out (Paid Out).",
       );
@@ -511,12 +539,12 @@ export default function CustomServices() {
       // cash PAID OUT of a session's own drawer, a different mechanism this
       // ticket does not build); a payout always posts immediately.
       if (activeSession && !isForPartner && !isPayout) {
+        // Never the cost — a basket line always has a selling price here
+        // (awaitingSellingPrice is checked above).
         const amountLabel =
           priceUsdVal > 0
             ? `$${priceUsdVal.toFixed(2)}`
-            : priceLbpVal > 0
-              ? `${priceLbpVal.toLocaleString()} LBP`
-              : `$${costUsdVal.toFixed(2)}`;
+            : `${priceLbpVal.toLocaleString()} LBP`;
         const label = `Service: ${description.trim().substring(0, 40)} - ${amountLabel}`;
 
         addToSessionCart({
@@ -525,10 +553,7 @@ export default function CustomServices() {
           // Single-currency model: pair amount with the active toggle currency
           // (an LBP service used to book amount 0 here — USD fields are
           // cleared when the toggle is on LBP).
-          amount:
-            currency === "USD"
-              ? priceUsdVal || costUsdVal
-              : priceLbpVal || costLbpVal,
+          amount: currency === "USD" ? priceUsdVal : priceLbpVal,
           currency,
           // Must be the REAL handler channel — the session-checkout replayer
           // invokes it verbatim ("customService:create" was a dead channel
@@ -778,7 +803,10 @@ export default function CustomServices() {
                                     : preset.price_lbp;
                                 setSavedPrice(
                                   presetPrice > 0
-                                    ? { currency: usePreset, amount: presetPrice }
+                                    ? {
+                                        currency: usePreset,
+                                        amount: presetPrice,
+                                      }
                                     : null,
                                 );
                                 if (usePreset === "USD") {
@@ -890,7 +918,10 @@ export default function CustomServices() {
                           );
                           setSavedPrice(
                             product.retail_price > 0
-                              ? { currency: "USD", amount: product.retail_price }
+                              ? {
+                                  currency: "USD",
+                                  amount: product.retail_price,
+                                }
                               : null,
                           );
                         }}
@@ -1311,8 +1342,8 @@ export default function CustomServices() {
                     <span className="font-bold">
                       {formatServiceAmount(costUsdVal, costLbpVal)}
                     </span>{" "}
-                    cash, now, from the General drawer — the difference is
-                    the shop&apos;s commission, booked as profit today.
+                    cash, now, from the General drawer — the difference is the
+                    shop&apos;s commission, booked as profit today.
                   </ForPartnerNotice>
                 ) : (
                   <div className="space-y-4">
@@ -1337,58 +1368,66 @@ export default function CustomServices() {
                       <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
                         Payment Method
                       </label>
-                      <MultiPaymentInput
-                        // Currency in the key: the seeded line currency is
-                        // mount-only, so toggling USD/LBP must remount the widget.
-                        key={`${paymentInputKey}-${currency}`}
-                        // Single-currency model: the toggle clears the other
-                        // currency's fields, so the owed total lives entirely in
-                        // the active currency. Hardcoding the USD pair here made
-                        // an LBP-priced service show a $0 payment total.
-                        totals={[
-                          currency === "USD"
-                            ? {
-                                amount: priceUsdVal || costUsdVal,
-                                currency: "USD",
-                              }
-                            : {
-                                amount: priceLbpVal || costLbpVal,
-                                currency: "LBP",
-                              },
-                        ]}
-                        currency={currency}
-                        totalAmountCurrency={currency}
-                        onChange={setPaymentLines}
-                        onReturnChange={setReturnLegs}
-                        // The walk-in customer pays the shop: change they
-                        // leave behind is shop profit (checked server-side
-                        // by resolveKeptChange). Payout and FOR never render
-                        // this widget.
-                        payer="customer"
-                        // Unwired in a session: the basket checkout owns
-                        // kept change, so the item sheet offers none.
-                        {...(activeSession
-                          ? {}
-                          : { onKeptChange: setKeptChange })}
-                        requiresClientForDebt={true}
-                        hasClient={!!clientId || !!clientName}
-                        // Auto-debt needs a RESOLVED client here: the submit
-                        // guard rejects debt legs without clientId (name-only
-                        // would auto-split and then dead-end at that alert).
-                        autoDebtRemainder={!!clientId}
-                        paymentMethods={methods}
-                        currencies={[
-                          { code: "USD", symbol: "$" },
-                          { code: "LBP", symbol: "LBP" },
-                        ]}
-                        exchangeRate={exchangeRate}
-                        onExchangeRateChange={setEffectiveRate}
-                        clientId={clientId}
-                        fetchClientVouchers={fetchClientVouchers}
-                        {...(paymentInitialMethod
-                          ? { initialMethod: paymentInitialMethod }
-                          : {})}
-                      />
+                      {awaitingSellingPrice ? (
+                        // Owner decision 2026-10-07: the payment form waits
+                        // for the cashier's selling price — it is not
+                        // mounted (nothing to collect, no seeded or
+                        // auto-split lines) until one is entered.
+                        <p
+                          data-testid="custom-service-awaiting-price-notice"
+                          className="text-sm text-slate-400 bg-slate-900/60 border border-slate-700 rounded-xl px-4 py-3"
+                        >
+                          Enter a selling price to take payment.
+                        </p>
+                      ) : (
+                        <MultiPaymentInput
+                          // Currency in the key: the seeded line currency is
+                          // mount-only, so toggling USD/LBP must remount the widget.
+                          key={`${paymentInputKey}-${currency}`}
+                          // Single-currency model: the toggle clears the other
+                          // currency's fields, so the owed total lives entirely in
+                          // the active currency. Hardcoding the USD pair here made
+                          // an LBP-priced service show a $0 payment total.
+                          // The selling price only — never the cost.
+                          totals={[
+                            currency === "USD"
+                              ? { amount: priceUsdVal, currency: "USD" }
+                              : { amount: priceLbpVal, currency: "LBP" },
+                          ]}
+                          currency={currency}
+                          totalAmountCurrency={currency}
+                          onChange={setPaymentLines}
+                          onReturnChange={setReturnLegs}
+                          // The walk-in customer pays the shop: change they
+                          // leave behind is shop profit (checked server-side
+                          // by resolveKeptChange). Payout and FOR never render
+                          // this widget.
+                          payer="customer"
+                          // Unwired in a session: the basket checkout owns
+                          // kept change, so the item sheet offers none.
+                          {...(activeSession
+                            ? {}
+                            : { onKeptChange: setKeptChange })}
+                          requiresClientForDebt={true}
+                          hasClient={!!clientId || !!clientName}
+                          // Auto-debt needs a RESOLVED client here: the submit
+                          // guard rejects debt legs without clientId (name-only
+                          // would auto-split and then dead-end at that alert).
+                          autoDebtRemainder={!!clientId}
+                          paymentMethods={methods}
+                          currencies={[
+                            { code: "USD", symbol: "$" },
+                            { code: "LBP", symbol: "LBP" },
+                          ]}
+                          exchangeRate={exchangeRate}
+                          onExchangeRateChange={setEffectiveRate}
+                          clientId={clientId}
+                          fetchClientVouchers={fetchClientVouchers}
+                          {...(paymentInitialMethod
+                            ? { initialMethod: paymentInitialMethod }
+                            : {})}
+                        />
+                      )}
                     </div>
                   </div>
                 )}
@@ -1408,6 +1447,7 @@ export default function CustomServices() {
                 onClick={handleSubmit}
                 disabled={
                   isSubmitting ||
+                  awaitingSellingPrice ||
                   (hasPartnerMode && !selectedPartnerId) ||
                   // LIRA-154: VIA additionally needs a real payment leg —
                   // the alert-based guard in handleSubmit is the source of

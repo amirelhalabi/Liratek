@@ -257,21 +257,29 @@ describe("splitBasketCashSides — system RECEIVE fee-on-top (BIDIRECTIONAL_PAYM
     formData,
   });
 
-  it("adds an OMT RECEIVE fee-on-top to the CHARGE bucket, alongside the full payout", () => {
+  // LIRA-271: this case used to expect chargeUsd 5 — the modal asked the
+  // customer to pay an OMT RECEIVE's fee while the server (D1) never counted
+  // it, so an honest kept claim was refused. Rewritten to the shared rule:
+  // an OMT RECEIVE's omtFee is informational only.
+  it("does NOT add an OMT RECEIVE's fee — OMT never takes a fee on RECEIVE (D1)", () => {
     const result = splitBasketCashSides([
       systemReceive("omt_system", 100, "USD", {
+        provider: "OMT",
+        serviceType: "RECEIVE",
         omtFee: 5,
         includingFees: false,
       }),
     ]);
 
-    expect(result.chargeUsd).toBe(5);
+    expect(result.chargeUsd).toBe(0);
     expect(result.payoutUsd).toBe(100);
   });
 
   it("adds a WHISH RECEIVE fee-on-top to the CHARGE bucket", () => {
     const result = splitBasketCashSides([
       systemReceive("whish_system", 200, "USD", {
+        provider: "WHISH",
+        serviceType: "RECEIVE",
         whishFee: 8,
         includingFees: false,
       }),
@@ -286,6 +294,8 @@ describe("splitBasketCashSides — system RECEIVE fee-on-top (BIDIRECTIONAL_PAYM
     // the netted $95 payout. Adding the fee again here would double-book it.
     const result = splitBasketCashSides([
       systemReceive("whish_system", 95, "USD", {
+        provider: "WHISH",
+        serviceType: "RECEIVE",
         whishFee: 5,
         includingFees: true,
       }),
@@ -297,8 +307,10 @@ describe("splitBasketCashSides — system RECEIVE fee-on-top (BIDIRECTIONAL_PAYM
 
   it("keys the fee off the item's OWN currency (LBP), independent of the payout bucket", () => {
     const result = splitBasketCashSides([
-      systemReceive("omt_system", 1_000_000, "LBP", {
-        omtFee: 50_000,
+      systemReceive("whish_system", 1_000_000, "LBP", {
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        whishFee: 50_000,
         includingFees: false,
       }),
     ]);
@@ -318,7 +330,12 @@ describe("splitBasketCashSides — system RECEIVE fee-on-top (BIDIRECTIONAL_PAYM
         module: "omt_system",
         amount: 105,
         currency: "USD",
-        formData: { omtFee: 5, includingFees: false },
+        formData: {
+          provider: "OMT",
+          serviceType: "SEND",
+          omtFee: 5,
+          includingFees: false,
+        },
       },
     ]);
 
@@ -334,11 +351,104 @@ describe("splitBasketCashSides — system RECEIVE fee-on-top (BIDIRECTIONAL_PAYM
         module: "loto_prize",
         amount: -20,
         currency: "USD",
-        formData: { omtFee: 5, includingFees: false },
+        formData: { whishFee: 5, includingFees: false },
       },
     ]);
 
     expect(result.chargeUsd).toBe(0);
     expect(result.payoutUsd).toBe(20);
+  });
+});
+
+describe("splitBasketCashSides — LIRA-271: ONE fee-on-top rule shared with the server", () => {
+  // The modal and the server must agree on which RECEIVE fee the pooled
+  // basket payment collects, or the server refuses an honest kept claim.
+  // The shared rule (FEATURE_GUIDE §8.1 / D1): only a WHISH system RECEIVE
+  // with the fee on top — read from the item's own formData, top level or a
+  // batch sub-item. An OMT RECEIVE never takes a fee from the customer; an
+  // app-wallet RECEIVE's fee arrives in the wallet, not over the counter.
+  it("an OMT system RECEIVE's fee is NOT collected (D1 — informational only)", () => {
+    const result = splitBasketCashSides([
+      {
+        module: "omt_system",
+        amount: -100,
+        currency: "USD",
+        formData: {
+          provider: "OMT",
+          serviceType: "RECEIVE",
+          omtFee: 1,
+          includingFees: false,
+        },
+      },
+    ]);
+
+    expect(result.chargeUsd).toBe(0);
+    expect(result.systemChargeUsd).toBe(0);
+    expect(result.payoutUsd).toBe(100);
+  });
+
+  it("a WHISH system RECEIVE's fee on top IS collected (unchanged)", () => {
+    const result = splitBasketCashSides([
+      {
+        module: "whish_system",
+        amount: -200,
+        currency: "USD",
+        formData: {
+          provider: "WHISH",
+          serviceType: "RECEIVE",
+          whishFee: 8,
+          includingFees: false,
+        },
+      },
+    ]);
+
+    expect(result.chargeUsd).toBe(8);
+    expect(result.systemChargeUsd).toBe(8);
+    expect(result.payoutUsd).toBe(200);
+  });
+
+  it("a Whish App RECEIVE's fee is NOT collected — it arrives in the wallet", () => {
+    const result = splitBasketCashSides([
+      {
+        module: "whish_app",
+        amount: -40,
+        currency: "USD",
+        formData: {
+          provider: "WHISH_APP",
+          serviceType: "RECEIVE",
+          whishFee: 1,
+          includingFees: false,
+        },
+      },
+    ]);
+
+    expect(result.chargeUsd).toBe(0);
+    expect(result.payoutUsd).toBe(40);
+  });
+
+  it("a WHISH RECEIVE inside a batch has its fee on top collected, like the server", () => {
+    const result = splitBasketCashSides([
+      {
+        module: "whish_system",
+        amount: -100,
+        currency: "USD",
+        formData: {
+          _batch: true,
+          items: [
+            {
+              provider: "WHISH",
+              serviceType: "RECEIVE",
+              amount: 100,
+              currency: "USD",
+              whishFee: 2,
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(result.chargeUsd).toBe(2);
+    expect(result.systemChargeUsd).toBe(2);
+    expect(result.payoutUsd).toBe(100);
   });
 });

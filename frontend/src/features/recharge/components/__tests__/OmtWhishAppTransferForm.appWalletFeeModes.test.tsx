@@ -319,9 +319,9 @@ describe("OmtWhishAppTransferForm — Phase D app-wallet fee modes", () => {
   // (c, submit variant) D1: a fee typed while on OMT App SEND (where the Fee
   // Breakdown block — including the manual fee input — is still shown, D1
   // doesn't touch SEND) must have ZERO effect after switching to RECEIVE,
-  // even though the `manualFee` state itself isn't cleared by the tab switch
-  // (pre-existing behavior, out of scope for D1 — see omtWhishAppFees.ts's
-  // docblock). This is the actual "stale value" scenario the util's
+  // (since production testing 2026-10-07 the tab switch also clears
+  // `manualFee` — OmtWhishAppTransferForm.directionSwitchFee.test.tsx — so
+  // this case now guards the util's forcing behind that reset). This is the actual "stale value" scenario the util's
   // `omtAppReceiveHasNoFee` forcing exists to defend, driven through the
   // real form rather than the util in isolation (a helper test passes while
   // the form is broken).

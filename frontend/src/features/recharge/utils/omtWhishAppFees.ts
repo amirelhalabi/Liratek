@@ -1,3 +1,5 @@
+import { walletReceiveAmounts, walletSendAmounts } from "@liratek/core";
+
 export interface OmtWhishAppFeeInputs {
   activeProvider: "OMT_APP" | "WHISH_APP";
   serviceType: "SEND" | "RECEIVE";
@@ -7,7 +9,10 @@ export interface OmtWhishAppFeeInputs {
    *  to the auto-fee. Any other string (including "0") is an explicit user
    *  value and overrides the auto-fee, including to zero. */
   manualFee: string;
-  /** Whether the entered amount already nets out the fee. Ignored for SEND.
+  /** Whether the entered amount already nets out the fee. Ignored for SEND
+   *  (the form only offers it on a RECEIVE, but its state survives a switch
+   *  to SEND — honouring it there sent `amount − fee` while charging
+   *  `amount + fee`).
    *  The "Fee included in amount" checkbox only renders for Whish App, so
    *  OMT App RECEIVE always resolves this to its default `false` — the fee
    *  is always charged on top of the entered amount for OMT App today. */
@@ -28,6 +33,16 @@ export interface OmtWhishAppFeeInputs {
    * amounts to before this field existed.
    */
   feeCollectedSeparately?: boolean;
+  /**
+   * LIRA-269: the payment sheet's discount (already capped at the fee by the
+   * sheet; capped again here). It comes off the shop's fee: SEND charges the
+   * customer that much less (the sheet subtracts it from `totalAmount`
+   * itself; `customerPays` is the result, from `walletSendAmounts`); RECEIVE
+   * pays the customer that much MORE — `totalAmount` below already includes
+   * it, because a payout sheet never subtracts a discount (MultiPaymentInput,
+   * `payer="payout"`). Default 0.
+   */
+  discount?: number;
 }
 
 export interface OmtWhishAppFeeResult {
@@ -44,7 +59,8 @@ export interface OmtWhishAppFeeResult {
   /** The amount sent to the API as `data.amount` — for an app-wallet RECEIVE
    *  this is the GROSS wallet inflow, not the cash the customer receives. */
   walletAmount: number;
-  /** SEND: the customer's total cash payment (amount + fee).
+  /** SEND: the sheet's target — amount + fee BEFORE the discount (the
+   *  sheet takes the discount off itself; see `customerPays`).
    *  App-wallet RECEIVE (OMT App or Whish App): the cash payout the customer
    *  actually receives. */
   totalAmount: number;
@@ -54,6 +70,16 @@ export interface OmtWhishAppFeeResult {
    *  (amount + commission) — a 0 here silently dropped the fee from the
    *  drawer, debt, and profit records. */
   shopProfit: number;
+  /** LIRA-269: what is booked as `commission` — the fee after the discount.
+   *  RECEIVE: from `walletReceiveAmounts`, the helper the server pays out by. */
+  commission: number;
+  /** Mode C RECEIVE only: what the separately-paid fee legs must add up to
+   *  (fee − discount). 0 otherwise. */
+  feeToCollect: number;
+  /** SEND only: what the customer pays after the discount — `amount +
+   *  commission`, from `walletSendAmounts`, the helper the server checks
+   *  `checkoutTotal` against. 0 for a RECEIVE. */
+  customerPays: number;
 }
 
 /**
@@ -70,6 +96,7 @@ export function calculateOmtWhishAppFees({
   manualFee,
   includingFees,
   feeCollectedSeparately = false,
+  discount = 0,
 }: OmtWhishAppFeeInputs): OmtWhishAppFeeResult {
   // D1 (owner decision, 2026-09-23, supersedes the lira-101 "mirrors Whish
   // App" contract for this one combination): OMT App RECEIVE has no fee at
@@ -81,16 +108,24 @@ export function calculateOmtWhishAppFees({
   // RECEIVE) can never leak into the wallet/payout/profit figures.
   const omtAppReceiveHasNoFee =
     activeProvider === "OMT_APP" && serviceType === "RECEIVE";
+  // Production testing 2026-10-07: Whish App SEND has no fee either — the
+  // form never offers a fee input for it (the Fee Breakdown is hidden), but a
+  // fee typed on Whish App RECEIVE survived the switch to SEND and was
+  // charged to the customer and booked as commission. Forced here for the
+  // same reason as OMT App RECEIVE above.
+  const whishAppSendHasNoFee =
+    activeProvider === "WHISH_APP" && serviceType === "SEND";
+  const hasNoFee = omtAppReceiveHasNoFee || whishAppSendHasNoFee;
 
   const autoFee =
-    !omtAppReceiveHasNoFee &&
+    !hasNoFee &&
     activeProvider === "WHISH_APP" &&
     serviceType === "RECEIVE" &&
     currency === "USD" &&
     parsedAmount > 0
       ? parsedAmount * 0.01
       : 0;
-  const providerFee = omtAppReceiveHasNoFee
+  const providerFee = hasNoFee
     ? 0
     : manualFee !== ""
       ? parseFloat(manualFee) || 0
@@ -105,27 +140,49 @@ export function calculateOmtWhishAppFees({
   // A/B use.
   const walletAmount =
     serviceType === "SEND"
-      ? includingFees
-        ? parsedAmount - providerFee
-        : parsedAmount
+      ? parsedAmount
       : feeCollectedSeparately
         ? parsedAmount
         : includingFees
           ? parsedAmount
           : parsedAmount + providerFee;
 
-  const totalAmount =
-    serviceType === "SEND"
-      ? parsedAmount + providerFee
-      : feeCollectedSeparately
-        ? parsedAmount
-        : includingFees
-          ? parsedAmount - providerFee
-          : parsedAmount;
-
   // SEND and RECEIVE alike: the fee is charged to the customer on top of the
   // transfer and kept whole by the shop (LEFT_TO_DO.md 2026-07-04 decision).
   const shopProfit = providerFee;
+
+  // RECEIVE (LIRA-269): payout, booked fee and fee-to-collect come from the
+  // ONE helper the repository's wallet-RECEIVE branch pays out by, fed the
+  // wallet inflow above (mode A: amount + fee; B: amount; C: amount). With
+  // no discount this is exactly amount / amount − fee / amount as before.
+  const receive =
+    serviceType === "RECEIVE"
+      ? walletReceiveAmounts({
+          walletInflow: walletAmount,
+          fee: providerFee,
+          discount,
+          feeCollectedSeparately,
+        })
+      : null;
+
+  // SEND (LIRA-269 follow-up): the ONE helper the repository's wallet-SEND
+  // branch checks `checkoutTotal` against. The sheet's target stays the
+  // undiscounted amount + fee — it subtracts the discount itself.
+  const send =
+    serviceType === "SEND"
+      ? walletSendAmounts({
+          walletOutflow: walletAmount,
+          fee: providerFee,
+          discount,
+        })
+      : null;
+
+  const totalAmount = receive
+    ? receive.payout
+    : walletAmount + providerFee;
+  const commission = receive
+    ? receive.commission
+    : (send?.commission ?? 0);
 
   return {
     autoFee,
@@ -134,5 +191,8 @@ export function calculateOmtWhishAppFees({
     walletAmount,
     totalAmount,
     shopProfit,
+    commission,
+    feeToCollect: receive?.feeToCollect ?? 0,
+    customerPays: send?.customerPays ?? 0,
   };
 }

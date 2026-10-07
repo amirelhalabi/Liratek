@@ -797,7 +797,10 @@ export class ProfitService {
         // USDT row) used to be lumped into the USD bucket by the old
         // `!== "LBP"` fallback. It now contributes to neither (dropped, per
         // owner's own sanctioned option — see the repo's matching fix for
-        // the fuller rationale).
+        // the fuller rationale). LIRA-268: a Binance USDT row no longer
+        // reaches this loop as a third currency — the repository reports
+        // USDT as USD (`fsReportingCurrency`) and adds its fee, so it lands
+        // in the USD branch below. EUR and other currencies still drop.
         // LO-V10 (round 2): `count` moved INSIDE each branch — a dropped
         // third-currency row's transactions used to still inflate
         // `finSvc.count` even though its money landed in neither bucket
@@ -1021,6 +1024,12 @@ export class ProfitService {
       // profit-only, pickup + void net to 0 (rule 20).
       const holdMoney = this.repo.getHoldMoneyProfit(fromDt, toDt);
 
+      // LIRA-272 — kept change on a refund of a module whose refunded
+      // original drops out of this page (FS/recharge/custom/maintenance/
+      // loto): only the kept part, folded into gross and the Kept Change
+      // card below (`kept_change`), never a second copy of anything above.
+      const refundKept = this.repo.getRefundKeptChangeProfit(fromDt, toDt);
+
       // 7. Expenses.
       const expenses = this.repo.getExpenseTotals(fromDt, toDt);
 
@@ -1106,7 +1115,8 @@ export class ProfitService {
         discounts.usd +
         supplierCommission.profit_usd +
         topupsBuybacks.profit_usd +
-        holdMoney.profit_usd;
+        holdMoney.profit_usd +
+        refundKept.profit_usd;
       const grossProfitLbp =
         sales.profit_lbp +
         finSvc.commission_lbp +
@@ -1124,7 +1134,8 @@ export class ProfitService {
         discounts.lbp +
         supplierCommission.profit_lbp +
         topupsBuybacks.profit_lbp +
-        holdMoney.profit_lbp;
+        holdMoney.profit_lbp +
+        refundKept.profit_lbp;
 
       // LO-V1 / LO-R2 — additive visibility roll-up for the Kept Change card
       // (see ProfitSummary.kept_change's own doc comment); already inside
@@ -1137,8 +1148,14 @@ export class ProfitService {
           finSvc.kept_change_usd +
           // Exchange payout keep-change (owner decision 2026-10-06): kept
           // cents are shown here, not inside the Exchange row's margin.
-          exchange.kept_change_usd,
-        lbp: recharges.kept_change_lbp + mobileSvc.kept_change_lbp + finSvc.kept_change_lbp,
+          exchange.kept_change_usd +
+          // LIRA-272 — kept change on a module refund.
+          refundKept.profit_usd,
+        lbp:
+          recharges.kept_change_lbp +
+          mobileSvc.kept_change_lbp +
+          finSvc.kept_change_lbp +
+          refundKept.profit_lbp,
       };
 
       const netProfitUsd = grossProfitUsd - expenses.total_usd;
@@ -1443,7 +1460,15 @@ export class ProfitService {
       // reports `margin_pct: null` ("N/A") for these rows instead. Read
       // `profit_usd`/`profit_lbp` for the row's dollar amount, never
       // `revenue_usd`/`revenue_lbp` (now always 0 here).
-      const keptChange = this.repo.getDebtRepaymentProfit(fromDt, toDt);
+      // LIRA-272 — a module refund's kept change joins this row (and its
+      // drill-down, `getKeptChangeDetail`), the same profit-only kind.
+      const debtKept = this.repo.getDebtRepaymentProfit(fromDt, toDt);
+      const refundKept = this.repo.getRefundKeptChangeProfit(fromDt, toDt);
+      const keptChange = {
+        profit_usd: debtKept.profit_usd + refundKept.profit_usd,
+        profit_lbp: debtKept.profit_lbp + refundKept.profit_lbp,
+        count: debtKept.count + refundKept.count,
+      };
       if (keptChange.profit_usd !== 0 || keptChange.profit_lbp !== 0) {
         results.push({
           module: "KEPT_CHANGE",
@@ -2500,7 +2525,14 @@ export class ProfitService {
           ? "Kept-change reversal"
           : r.txn_type === "DEBT_REPAYMENT"
             ? "Debt repayment kept change"
-            : "Kept change";
+            : // A Debts credit cash-out (DebtRepository.cashOutCredit) —
+              // named so it is not mistaken for a sale's kept change.
+              r.txn_type === "CREDIT_CASH_OUT"
+              ? "Debts cash-out kept change"
+              : // LIRA-272 — the change kept on a module refund.
+                r.txn_type === "REFUND_KEPT_CHANGE"
+                ? "Refund kept change"
+                : "Kept change";
       const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
       const reason = isRealMoney
         ? null
