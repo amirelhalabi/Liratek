@@ -38,6 +38,7 @@ import { PartnerSelector } from "@/features/partners/components/PartnerSelector"
 import { useShopBase } from "@/hooks/useShopBase";
 import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
 import type { Partner } from "@/types/electron";
+import { getLoadErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   OMT_COMMISSION_RATES,
   INTRA_FEE_TIERS,
@@ -585,7 +586,10 @@ export default function Services() {
       setOwedByProvider(owed);
     } catch (error) {
       logger.error("Failed to load data:", error);
-      setLoadError("Failed to load data. Tap refresh to retry.");
+      // LIRA-282: a rate-limit refusal says "wait a minute" instead.
+      setLoadError(
+        getLoadErrorMessage(error, "Failed to load data. Tap refresh to retry."),
+      );
     } finally {
       setIsLoading(false);
     }

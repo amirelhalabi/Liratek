@@ -136,20 +136,25 @@ export const refundKeptChangeSchema = z.object(refundKeptChangeFields);
  * repository gate (`TransactionRepository._resolveRefundKeptChange`) and
  * the refund popup both read (rule 14). Kept profit lives in the REFUND
  * row's own profit stamp (−original profit + kept), so the generic refund
- * negates it with everything else. Two groups, by how the Profits page
- * reaches that kept part:
- *   - {@link REFUND_KEPT_CHANGE_STAMP_NETTED_TYPES}: the page sums the
- *     REFUND row's whole stamp next to the original's — sales
- *     (`getSalesProfit`: SALE + REFUND) and debt repayments
- *     (`keptChangeSource`: DEBT_REPAYMENT + REFUND) — so the kept part
- *     shows by itself.
- *   - {@link REFUND_KEPT_CHANGE_MODULE_TYPES} (LIRA-272, owner decision
- *     2026-10-07: refunds of ALL modules may keep a leftover): the page
- *     drops a refunded original entirely and never sums its REFUND row, so
- *     the refund stamps the kept part separately
- *     ({@link REFUND_KEPT_CHANGE_META}) and the Profits page reads exactly
- *     that (`ProfitRepository.getRefundKeptChangeProfit`).
- * A new type must join exactly one group, or its kept profit is invisible.
+ * negates it with everything else.
+ *
+ * How the Profits page reaches the kept part (owner decision 2026-10-07:
+ * on the REFUND's own day, every module): `ProfitRepository` reads it off
+ * the refund's own markers (`refundKeptChangeAmount`) for every refund but
+ * a debt repayment's, dates it by the refund row, and takes it off any sum
+ * that dates the rest of the REFUND stamp by the original (a sale's
+ * SALE + REFUND). The two groups below are historical labels (LIRA-272)
+ * kept for the exported names:
+ *   - {@link REFUND_KEPT_CHANGE_STAMP_NETTED_TYPES}: originals whose REFUND
+ *     row the page sums next to the original. DEBT_REPAYMENT
+ *     (`keptChangeSource`) already sums its whole stamp on the refund's
+ *     own day, so its kept part is NOT read separately; SALE's is (taken
+ *     off the sale's day, counted on the refund's day).
+ *   - {@link REFUND_KEPT_CHANGE_MODULE_TYPES}: originals the page drops
+ *     entirely once refunded; only the refund's kept part shows.
+ * A new type here is picked up by the Profits page automatically, as long
+ * as its refund writer stamps {@link REFUND_KEPT_CHANGE_META} (the generic
+ * refund does).
  */
 export const REFUND_KEPT_CHANGE_STAMP_NETTED_TYPES: readonly string[] = [
   "SALE",

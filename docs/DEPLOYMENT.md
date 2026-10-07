@@ -69,7 +69,8 @@ cp .env.deploy.example .env.deploy
 #   CORS_ORIGIN           http://<your-ip>  (or https://<host> later)
 #   SUPER_ADMIN_USERNAME  the platform control-plane account
 #   SUPER_ADMIN_PASSWORD  must pass validatePasswordComplexity()
-#   API_RATE_LIMIT_MAX    1000 — the 100 default is sized for one user
+#   API_RATE_LIMIT_MAX    1000 — anonymous per-IP cap (signed-in users have
+#                         their own per-user limit, API_USER_RATE_LIMIT_MAX)
 nano .env.deploy
 
 docker compose up -d --build     # first build is slow (native compile)

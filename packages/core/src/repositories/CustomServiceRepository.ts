@@ -10,6 +10,10 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { customServiceLogger } from "../utils/logger.js";
 import { BusinessRuleError } from "../utils/errors.js";
+import {
+  hasSellingPrice,
+  NO_SELLING_PRICE_ERROR,
+} from "../utils/customServiceSellingPrice.js";
 // LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
 // module (no other repository import), so importing it directly here never
 // risks a require cycle.
@@ -55,21 +59,15 @@ import {
  * the total the Services page's payment sheet asks for. Never the cost:
  * owner decision 2026-10-07 — a service saved with no selling price only
  * means the price is not pre-filled; the cashier types it on the spot, and a
- * customer-pays sale with no price is refused (`hasSellingPrice` below)
- * rather than charging the customer the cost. Defined once so the server
- * reconciles against exactly what the page shows.
+ * customer-pays or For-Partner sale with no price is refused
+ * (`hasSellingPrice`, utils/customServiceSellingPrice.ts) rather than
+ * charging the customer the cost.
+ * Defined once so the server reconciles against exactly what the page shows.
  */
 function customerAmountDue(data: CreateCustomServiceInput): ExpectedTotals {
   return { usd: data.price_usd ?? 0, lbp: data.price_lbp ?? 0 };
 }
 
-/** True when a selling price was entered in either currency. */
-function hasSellingPrice(data: CreateCustomServiceInput): boolean {
-  return (data.price_usd ?? 0) > 0 || (data.price_lbp ?? 0) > 0;
-}
-
-/** The plain refusal a customer-pays sale with no selling price gets. */
-const NO_SELLING_PRICE_ERROR = "Enter a selling price first.";
 
 function toReconciliationLegs(
   legs: NonNullable<CreateCustomServiceInput["payments"]>,
@@ -348,22 +346,21 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             "A custom service payout cannot keep change — the recipient is paid the exact amount",
           );
         }
-        // Owner decision 2026-10-07 — a customer-pays sale needs a selling
-        // price; it is never reconciled against the cost. Scoped to the
-        // direct customer-pays path only:
+        // Owner decision 2026-10-07 — a sale needs a selling price; it is
+        // never reconciled against the cost. Applies to customer-pays AND
+        // For-Partner sales (owner follow-up, same day: a For-Partner
+        // service with no price booked the partner nothing and recorded a
+        // loss of the cost). Exempt:
         //   - payout: has its own both-sides rule above;
-        //   - FOR partner: no customer pays (the partner is booked the price);
         //   - session-basket item (deferPayment): the basket owns the
         //     customer's money, and `session_cart_items` is persisted, so a
-        //     basket opened before this rule must still check out. The page
-        //     refuses to add a no-price item to the basket instead.
+        //     basket opened before this rule must still check out. Adding a
+        //     no-price line to a basket is refused instead — by the page and,
+        //     server-side, by CustomerSessionRepository.addCartItem — and
+        //     SessionCheckoutService refuses a no-price line that was never
+        //     saved to the basket.
         // Runs before the first write, so nothing is rolled back.
-        if (
-          !isPayout &&
-          !isForPartner &&
-          !data.deferPayment &&
-          !hasSellingPrice(data)
-        ) {
+        if (!isPayout && !data.deferPayment && !hasSellingPrice(data)) {
           throw new BusinessRuleError(NO_SELLING_PRICE_ERROR);
         }
         let keptUsd = 0;

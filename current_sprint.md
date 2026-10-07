@@ -4567,7 +4567,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-283** (LIRA-257 … LIRA-266, LIRA-268 … LIRA-274 and LIRA-282 filed 2026-10-06/07; LIRA-267 and LIRA-275 … LIRA-281 taken by the email/sign-up work), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-285** (LIRA-257 … LIRA-266, LIRA-268 … LIRA-274 and LIRA-282 filed 2026-10-06/07; LIRA-267 and LIRA-275 … LIRA-281 taken by the email/sign-up work), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -6425,7 +6425,7 @@ custom services, maintenance and Loto, the Profits page drops the refunded row a
 kept profit there would be invisible; the server refuses kept on those refunds for now. Extending needs a
 ProfitRepository change. Owner to decide whether to extend.
 
-What users will notice: The Transactions page refund window offers to keep small change on refunds of transfers, recharges, custom services, repairs and Loto tickets (cash or wallet); it shows on Profits under Kept change.
+What users will notice: The Transactions page refund window offers to keep small change on refunds of transfers, recharges, custom services, repairs and Loto tickets (cash or wallet); it shows on Profits under Kept change. Kept change on a refund counts on the day the refund was made — in Overview, By Date, By Cashier/Client and that day's close.
 
 ---
 
@@ -6498,11 +6498,66 @@ basket shows $0 and goes on the partner's account only.
 
 ---
 
-## LIRA-282: API rate limit can lock out a shop's tills — HIGH — OWNER DECISION
+## LIRA-282: API rate limit can lock out a shop's tills — HIGH — DONE (owner: per user + clear message, 2026-10-07)
 
 Found 2026-10-07 during the cornertech production test. The API allows 1,000 requests per 15 minutes per IP and one page
 load costs about 25–30 requests; the test exhausted it twice (≈11:45 and ≈11:54–12:01 Beirut). Any till sharing that
 internet connection then sees "Failed to load data. Tap refresh to retry." with no reason given. A shop with several
 tills on one connection could hit this in normal use. Options to decide: key the limit per authenticated user/tenant
 instead of per IP, raise the read limit, and show a clear "too many requests, wait a minute" message.
+
+> Owner answers 2026-10-07 (second interview): rate limit per logged-in user with a clear "too many requests"
+> message (LIRA-282); Whish App send never charges a fee (confirmed); a For-Partner custom service needs a selling
+> price like walk-in; customer baskets opened before the update with a no-price service are left as they are;
+> refund kept change lands on the refund day; the $0.10 cornertech test residual is left for the reset.
+
+Built: signed-in traffic limited per user (tenant + user, 200/min, `API_USER_RATE_LIMIT_MAX`); per-IP flood cap 10,000/min (`API_IP_FLOOD_RATE_LIMIT_MAX`) because req.ip is shared by all shops (LIRA-283); login/signup/password limiters unchanged; 429 says "Too many requests — please wait a minute and try again." and the Services page shows it.
+
+What users will notice: on the web app, shops with several tills stop seeing "Failed to load data. Tap refresh to retry." when everyone is busy; if one person ever sends too many requests, only their screen asks them to wait a minute.
+
+---
+
+## LIRA-283: the API sees every visitor as the same address — URGENT — TODO
+
+Measured 2026-10-07 on production: every session on cornertech records `ip_address = 66.241.124.103` (a hosting
+proxy address) while the real client was 185.187.131.199. So `req.ip` behind Vercel → Fly is the proxy, not the shop's
+connection, and EVERY per-IP limiter is shared by ALL shops:
+- the failed-login limiter (`AUTH_RATE_LIMIT_MAX`, 5 per 15 min by default) — a few wrong passwords anywhere can lock
+  every shop's login for 15 minutes;
+- the sign-up / invite limiters (`SIGNUP_*`, 5 per hour) — LIRA-267 self-serve sign-up is capped globally;
+- the profits-unlock limiter, the anonymous API bucket, and the authenticated flood cap (raised to 10,000/min as a stop-gap in LIRA-282).
+Fix: read the real client address safely (Vercel's forwarded-for header, with the right `trust proxy` hop count, and
+refusing spoofed headers on requests that reach Fly directly), verify on production what each hop adds, then key the
+limiters on it. Check the production values of `AUTH_RATE_LIMIT_MAX` / `SIGNUP_*` first — if they are the defaults,
+this is live now. Do not touch X-Forwarded-Host handling (tenant login depends on it).
+
+---
+
+## LIRA-284: "Add category" in Settings → Mobile Services does nothing — MEDIUM — DONE (owner decisions 2026-10-07)
+
+Owner-reported 2026-10-07 on the web app (desktop is the same): Settings → Mobile Services → WHISH_APP → "Category",
+type "test", confirm — nothing happens and nothing is saved. Cause: a category has no table of its own; it is only the
+`category` text on items, so it exists once an item uses it. The confirm opened a subcategory input inside the new
+category's row, which cannot render until the category has an item — a dead end. The Recharge page's inline "+" only
+added items to EXISTING categories, so there was no way anywhere to create a new category.
+
+> Owner answers 2026-10-07: any category name is allowed, no warning for alfa/mtc-like names; admins must be able to
+> add a new category from the sale screen too.
+
+Built: confirming a new category opens the new-item form with the category filled in and an editable Subcategory
+field (saved with its first item). Recharge page (`KatchForm` for iPick/Katsh, `FinancialForm` for WHISH_APP): admin
+"New category" button under the cards, using one shared inline form (`NewServiceItemInlineForm`) and one payload
+builder (`buildNewServiceItemPayload`, `utils/catalogNames.ts`). Typed category/subcategory names reuse an existing
+spelling on a case-insensitive match (`resolveCatalogName`), because `parseCarrierKey` lowercases while
+`KatchForm.isTelecomVoucher` compares exactly. Settings now refreshes the shared `MobileServiceItemsContext` after
+every create/edit/delete/toggle (it loaded only at login, so Settings changes did not reach the Recharge page until a
+reload). Guards: `MobileServicesManager.addCategory`, `FinancialForm.newCategory`, `KatchForm.newCategory`. Failing-first,
+honestly: on the unfixed code the Settings tests failed at the missing Subcategory field and the FinancialForm tests at
+the missing button — that proves the dead end, but the spelling-reuse and catalog-refresh assertions were never reached
+on old code. The KatchForm tests failed first only because they did not wait for "Loading items...", so they are NOT
+proven failing-first, and the non-admin guard was never seen failing. Not run: web/desktop e2e and a real-app click-through. Not done: the hand-written `createMobileServiceItem` payload
+types in `backendApi.ts` / `ApiAdapter` (rule 21 debt, pre-existing).
+
+What users will notice: "Category" in Settings → Mobile Services now works, admins can add a new category from the
+Recharge page, and Settings changes show on the Recharge page without a reload.
 

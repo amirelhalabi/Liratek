@@ -12,13 +12,19 @@
  * cost — i.e. the customer was charged the cost, while the unified
  * transaction stamped `amount_usd = price = 0` and a negative profit.
  *
- * Now a customer-pays sale (not For-partner, not a payout, not a
- * session-basket item) with no price in either currency is refused before
- * anything is written. The flows that legitimately carry no price are pinned
- * here too so the guard cannot widen silently:
+ * Now a customer-pays sale (not a payout, not a session-basket item) with no
+ * price in either currency is refused before anything is written.
+ *
+ * For partner (owner decision 2026-10-07, follow-up): a For-Partner sale
+ * needs a selling price too, same as walk-in. Before, a cost-only For-Partner
+ * service booked the partner nothing and recorded a loss of the cost; now it
+ * is refused with the same plain message, before any write, and a priced one
+ * books the partner exactly the price.
+ *
+ * The flows that legitimately carry no price are pinned here too so the
+ * guard cannot widen silently:
  *   - payout (Via partner, direction OUT) — unaffected, has its own
  *     both-sides rule;
- *   - For partner — no customer pays; left unchanged (open owner question);
  *   - session-basket item (deferPayment) — the basket owns the customer's
  *     money, and `session_cart_items` is persisted in the DB, so refusing
  *     here would strand a basket opened before this upgrade. The page now
@@ -57,16 +63,22 @@ let db: Database.Database;
 let partnerId: number;
 let clientId: number;
 
-type Input = z.input<typeof createCustomServiceSchema>;
+// The wire payload, plus `deferPayment` — which the schema deliberately
+// strips (server-only), so it is re-applied AFTER the parse exactly as
+// SessionCheckoutService.processCartItem injects it server-side.
+type Input = z.input<typeof createCustomServiceSchema> & {
+  deferPayment?: boolean;
+};
 
-function attempt(input: Input): {
+function attempt({ deferPayment, ...input }: Input): {
   success: boolean;
   id?: number;
   error?: string;
 } {
-  const parsed = createCustomServiceSchema.parse(
-    input,
-  ) as CreateCustomServiceInput;
+  const parsed: CreateCustomServiceInput = {
+    ...createCustomServiceSchema.parse(input),
+    ...(deferPayment !== undefined ? { deferPayment } : {}),
+  };
   return runWithTenant(1, () =>
     new CustomServiceRepository().createService(parsed, 1),
   );
@@ -241,17 +253,6 @@ describe("flows that legitimately carry no customer price are untouched", () => 
     expect(res.success).toBe(true);
   });
 
-  it("For partner, cost only → still accepted (no customer pays; open owner question)", () => {
-    const res = attempt({
-      description: "For partner cost-only",
-      cost_usd: 3,
-      paid_by: "CASH",
-      partnerId,
-      partnerMode: "FOR",
-    });
-    expect(res.success).toBe(true);
-  });
-
   it("session-basket item (deferPayment), cost only → still accepted (persisted baskets)", () => {
     const res = attempt({
       description: "Basket cost-only",
@@ -260,5 +261,109 @@ describe("flows that legitimately carry no customer price are untouched", () => 
       deferPayment: true,
     });
     expect(res.success).toBe(true);
+  });
+});
+
+describe("For partner needs a selling price too (owner decision 2026-10-07)", () => {
+  function partnerLedger(serviceId: number) {
+    return db
+      .prepare(
+        `SELECT amount, currency, direction, transaction_type FROM partner_ledger
+         WHERE reference_table = 'custom_services' AND reference_id = ?
+         ORDER BY currency`,
+      )
+      .all(serviceId) as Array<{
+      amount: number;
+      currency: string;
+      direction: string;
+      transaction_type: string;
+    }>;
+  }
+
+  it("For partner, USD cost only, no price → refused, nothing written", () => {
+    const before = counts();
+    const ledgerBefore = (
+      db.prepare(`SELECT COUNT(*) AS n FROM partner_ledger`).get() as {
+        n: number;
+      }
+    ).n;
+    const res = attempt({
+      description: "For partner cost-only",
+      cost_usd: 3,
+      paid_by: "CASH",
+      partnerId,
+      partnerMode: "FOR",
+    });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe(NO_PRICE_MESSAGE);
+    expect(counts()).toEqual(before);
+    expect(
+      (
+        db.prepare(`SELECT COUNT(*) AS n FROM partner_ledger`).get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(ledgerBefore);
+  });
+
+  it("For partner, LBP cost only, no price → refused", () => {
+    const before = counts();
+    const res = attempt({
+      description: "For partner LBP cost-only",
+      cost_lbp: 270_000,
+      paid_by: "CASH",
+      partnerId,
+      partnerMode: "FOR",
+    });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe(NO_PRICE_MESSAGE);
+    expect(counts()).toEqual(before);
+  });
+
+  it("For partner, price $5 / cost $3 → accepted, partner booked $5, profit $2", () => {
+    const res = attempt({
+      description: "For partner priced",
+      cost_usd: 3,
+      price_usd: 5,
+      paid_by: "CASH",
+      partnerId,
+      partnerMode: "FOR",
+    });
+    expect(res.success).toBe(true);
+    expect(partnerLedger(res.id as number)).toEqual([
+      {
+        amount: 5,
+        currency: "USD",
+        direction: "DEBIT",
+        transaction_type: "FOR_CUSTOM_SERVICE",
+      },
+    ]);
+    const txn = db
+      .prepare(
+        `SELECT amount_usd, profit_usd FROM transactions
+         WHERE source_table = 'custom_services' AND source_id = ? AND type = 'CUSTOM_SERVICE'`,
+      )
+      .get(res.id) as { amount_usd: number; profit_usd: number };
+    expect(txn.amount_usd).toBe(5);
+    expect(txn.profit_usd).toBe(2);
+  });
+
+  it("For partner, LBP price only → accepted, partner booked the LBP price", () => {
+    const res = attempt({
+      description: "For partner LBP priced",
+      price_lbp: 450_000,
+      paid_by: "CASH",
+      partnerId,
+      partnerMode: "FOR",
+    });
+    expect(res.success).toBe(true);
+    expect(partnerLedger(res.id as number)).toEqual([
+      {
+        amount: 450_000,
+        currency: "LBP",
+        direction: "DEBIT",
+        transaction_type: "FOR_CUSTOM_SERVICE",
+      },
+    ]);
   });
 });

@@ -29,12 +29,20 @@ import {
   hasKeptChangeClaim,
   resolveBasketKeptChange,
 } from "./SessionPaymentService.js";
-import { getCustomerSessionRepository } from "../repositories/CustomerSessionRepository.js";
+import {
+  getCustomerSessionRepository,
+  type SessionCartItem,
+} from "../repositories/CustomerSessionRepository.js";
 import { getTransactionRepository } from "../repositories/TransactionRepository.js";
 import { getClientRepository } from "../repositories/ClientRepository.js";
 import { clientLogger } from "../utils/logger.js";
 import { isSessionPooledFeeReceive } from "../utils/sessionFeeOnTop.js";
 import { sessionBasketCustomerAmount } from "../utils/sessionForPartnerItem.js";
+import {
+  customServiceCartLineHasSellingPrice,
+  isCustomServiceCartChannel,
+  NO_SELLING_PRICE_ERROR,
+} from "../utils/customServiceSellingPrice.js";
 
 export interface CheckoutCartItem {
   id: string;
@@ -254,6 +262,48 @@ export function processCartItem(
   }
 }
 
+/**
+ * Owner rule (2026-10-07): a custom service with no selling price has nothing
+ * to pay, so it cannot go through a basket. Checkout replays the cart items
+ * the CLIENT sends, not the saved `session_cart_items` rows, so the cart-add
+ * refusal (CustomerSessionRepository.addCartItem) alone would not stop a
+ * hand-built checkout.
+ *
+ * Owner decision (same day): baskets opened BEFORE this rule that already
+ * hold such a line are left as they are. A no-price custom-service line is
+ * therefore accepted only when this session already has it saved (same
+ * `item_id`) AND the saved row itself has no price — a line saved before
+ * cart-add started refusing. Everything else (never saved, or borrowing the
+ * id of a saved priced line) is a new line and is refused.
+ *
+ * Returns the first refused line, or null. Exported for its test.
+ */
+export function findUnpricedNewCustomServiceLine(
+  cartItems: CheckoutCartItem[],
+  savedRows: SessionCartItem[],
+): CheckoutCartItem | null {
+  for (const item of cartItems) {
+    if (!isCustomServiceCartChannel(item.ipcChannel)) continue;
+    if (customServiceCartLineHasSellingPrice(item.formData)) continue;
+    const saved = savedRows.find(
+      (row) =>
+        row.item_id === item.id && isCustomServiceCartChannel(row.ipc_channel),
+    );
+    let savedFormData: unknown = null;
+    if (saved) {
+      try {
+        savedFormData = JSON.parse(saved.form_data);
+      } catch {
+        savedFormData = null;
+      }
+    }
+    const isLegacySavedLine =
+      !!saved && !customServiceCartLineHasSellingPrice(savedFormData);
+    if (!isLegacySavedLine) return item;
+  }
+  return null;
+}
+
 /** Process _batch items (FinancialForm/KatchForm) — multiple sub-items. */
 function processBatchCartItem(
   item: CheckoutCartItem,
@@ -403,6 +453,19 @@ export class SessionCheckoutService {
       }
       if (!sessionResult.session.is_active) {
         return { success: false, error: "Session is already closed" };
+      }
+
+      // Owner rule (2026-10-07): refuse a NEW no-price custom-service line
+      // before anything is written; baskets saved before the rule are left
+      // as they are (see findUnpricedNewCustomServiceLine).
+      if (cartItems.some((i) => isCustomServiceCartChannel(i.ipcChannel))) {
+        const refused = findUnpricedNewCustomServiceLine(
+          cartItems,
+          getCustomerSessionRepository().getCartItems(sessionId),
+        );
+        if (refused) {
+          return { success: false, error: NO_SELLING_PRICE_ERROR };
+        }
       }
 
       // G42: a kept-change claim is reconciled at the basket's rate — never

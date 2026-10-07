@@ -325,11 +325,13 @@ export default function CustomServices() {
   // Owner decision 2026-10-07: a service with no selling price only means
   // the price is not pre-filled — the cashier types it on the spot. Until
   // they do, the payment sheet has nothing to collect (it is never the cost)
-  // and the sale cannot be submitted or added to a session basket. Not for
-  // FOR (no customer pays) or a payout (its own Arrived/Paid Out rule). The
-  // server refuses the same case (CustomServiceRepository.createService).
+  // and the sale cannot be submitted or added to a session basket. Applies
+  // to For Partner too (owner follow-up, same day: the partner is booked the
+  // selling price, so with none they would be booked nothing). Not for a
+  // payout (its own Arrived/Paid Out rule). The server refuses the same case
+  // (CustomServiceRepository.createService).
   const awaitingSellingPrice =
-    !isForPartner && !isPayout && priceUsdVal <= 0 && priceLbpVal <= 0;
+    !isPayout && priceUsdVal <= 0 && priceLbpVal <= 0;
   // The payment sheet unmounts while it waits for a price; what it held
   // (legs, change legs, kept change) belonged to the old price, so drop it
   // rather than letting it ride into the next sale. Fires only when the
@@ -1310,12 +1312,21 @@ export default function CustomServices() {
                     className="text-sm text-teal-200 bg-teal-500/10 border border-teal-500/30 rounded-xl px-4 py-4"
                   >
                     No price is collected from a customer for a partner service.
-                    The full{" "}
-                    <span className="font-bold">
-                      {formatServiceAmount(priceUsdVal, priceLbpVal)}
-                    </span>{" "}
-                    goes on the selected partner&apos;s account, settled later
-                    on the Partners page.
+                    {awaitingSellingPrice ? (
+                      // Owner decision 2026-10-07: the partner is booked the
+                      // selling price, so the sale waits for one.
+                      <> Enter a selling price first.</>
+                    ) : (
+                      <>
+                        {" "}
+                        The full{" "}
+                        <span className="font-bold">
+                          {formatServiceAmount(priceUsdVal, priceLbpVal)}
+                        </span>{" "}
+                        goes on the selected partner&apos;s account, settled
+                        later on the Partners page.
+                      </>
+                    )}
                     {(costUsdVal > 0 || costLbpVal > 0) && (
                       <>
                         {" "}

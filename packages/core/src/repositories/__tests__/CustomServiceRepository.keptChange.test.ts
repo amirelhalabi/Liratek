@@ -61,12 +61,21 @@ function t<T>(fn: () => T): T {
 }
 
 // The schema's own input type — a misspelt key is a compile error here.
-type Input = z.input<typeof createCustomServiceSchema>;
+// `deferPayment` is server-only (the schema strips it), so it is re-applied
+// AFTER the parse exactly as SessionCheckoutService.processCartItem does.
+type Input = z.input<typeof createCustomServiceSchema> & {
+  deferPayment?: boolean;
+};
 
-function attempt(input: Input): { success: boolean; id?: number; error?: string } {
-  const parsed = createCustomServiceSchema.parse(
-    input,
-  ) as CreateCustomServiceInput;
+function attempt({ deferPayment, ...input }: Input): {
+  success: boolean;
+  id?: number;
+  error?: string;
+} {
+  const parsed: CreateCustomServiceInput = {
+    ...createCustomServiceSchema.parse(input),
+    ...(deferPayment !== undefined ? { deferPayment } : {}),
+  };
   return t(() => new CustomServiceRepository().createService(parsed, 1));
 }
 

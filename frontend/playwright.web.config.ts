@@ -146,6 +146,10 @@ export default defineConfig({
         // A single UI session fires hundreds of requests; production defaults
         // (100/15min) would 429 the suite (see rateLimit.ts env knobs).
         API_RATE_LIMIT_MAX: "1000000",
+        // LIRA-282: the suite signs in as one user and makes thousands of
+        // calls; the per-user (200/min) and per-IP flood caps would 429 it.
+        API_USER_RATE_LIMIT_MAX: "1000000",
+        API_IP_FLOOD_RATE_LIMIT_MAX: "1000000",
         AUTH_RATE_LIMIT_MAX: "100000",
         // LIRA-267 (lira-web-039): email invites + self-serve sign-up.
         // Every value pinned, NOT omitted, for the same dotenv-leak reason

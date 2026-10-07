@@ -24,6 +24,8 @@ import {
 import type { MobileServiceItem } from "@/types/electron";
 import { DecimalInput, Select, useApi } from "@liratek/ui";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
+import { resolveCatalogName } from "@/features/recharge/utils/catalogNames";
+import { useOptionalMobileServiceItemsContext } from "@/contexts/MobileServiceItemsContext";
 import {
   isTelecomSplitComplete,
   deriveItemEconomics,
@@ -243,6 +245,15 @@ export default function MobileServicesManager() {
     load();
   }, [load]);
 
+  // After any create/edit/delete/toggle, also refresh the shared catalog the
+  // sale screen reads (MobileServiceItemsContext loads once at login), so a
+  // change here shows on the Recharge page without a reload.
+  const catalog = useOptionalMobileServiceItemsContext();
+  const reloadAfterChange = async () => {
+    await load();
+    await catalog?.refresh();
+  };
+
   // Resale table reference price — dual-transport (rule 19) via
   // api.getAllSettings(), same pattern TelecomForm.tsx uses for
   // alfa_credit_cost_lbp. Best-effort: any failure just leaves the
@@ -405,7 +416,7 @@ export default function MobileServicesManager() {
         return;
       }
       setEditing(null);
-      await load();
+      await reloadAfterChange();
     } catch {
       setError("Update failed");
     }
@@ -416,7 +427,7 @@ export default function MobileServicesManager() {
     try {
       const res = await api.deleteMobileServiceItem(item.id);
       if (!res.success) setError(res.error ?? "Failed to delete");
-      else await load();
+      else await reloadAfterChange();
     } catch {
       setError("Delete failed");
     }
@@ -425,7 +436,7 @@ export default function MobileServicesManager() {
   const handleToggleActive = async (item: MobileServiceItem) => {
     try {
       await api.toggleActiveMobileServiceItem(item.id);
-      await load();
+      await reloadAfterChange();
     } catch {
       // silent
     }
@@ -454,7 +465,7 @@ export default function MobileServicesManager() {
       if (!res.success) failed++;
     }
     if (failed > 0) setError(`${failed} items failed to delete`);
-    await load();
+    await reloadAfterChange();
   };
 
   const handleDeleteCategory = async (provider: string, category: string) => {
@@ -473,12 +484,16 @@ export default function MobileServicesManager() {
       if (!res.success) failed++;
     }
     if (failed > 0) setError(`${failed} items failed to delete`);
-    await load();
+    await reloadAfterChange();
   };
 
   const handleAddItem = async () => {
     if (!newItemForm) return;
     setError("");
+    if (!newItemForm.subcategory.trim()) {
+      setError("Subcategory is required");
+      return;
+    }
     if (
       !newItemForm.label.trim() ||
       !newItemForm.cost_lbp ||
@@ -515,7 +530,10 @@ export default function MobileServicesManager() {
       const res = await api.createMobileServiceItem({
         provider: newItemForm.provider,
         category: newItemForm.category,
-        subcategory: newItemForm.subcategory,
+        subcategory: resolveCatalogName(
+          newItemForm.subcategory,
+          subcategoriesOf(newItemForm.provider, newItemForm.category),
+        ),
         label: newItemForm.label.trim(),
         cost_lbp: costLbp,
         sell_lbp: sellLbp,
@@ -538,20 +556,35 @@ export default function MobileServicesManager() {
         return;
       }
       setNewItemForm(null);
-      await load();
+      await reloadAfterChange();
     } catch {
       setError("Create failed");
     }
   };
 
+  // Names already used under a provider / provider+category. A category or
+  // subcategory is only text on its items, so these are the only "existing"
+  // names there are; a typed name reuses one on a case-insensitive match.
+  const categoriesOf = (provider: string) =>
+    items.filter((i) => i.provider === provider).map((i) => i.category);
+  const subcategoriesOf = (provider: string, category: string) =>
+    items
+      .filter((i) => i.provider === provider && i.category === category)
+      .map((i) => i.subcategory);
+
   const handleAddCategory = async () => {
     if (!newCategoryInput || !newCategoryInput.value.trim()) return;
-    // Create a placeholder item so the category appears
-    // User will then add subcategories and items
-    setNewSubcategoryInput({
+    // A category has no table of its own — it exists once an item uses it.
+    // Open the item form straight away so it is saved with its first item.
+    // (This used to open a subcategory input inside the new category's row,
+    // which cannot render before the category has an item: a dead end.)
+    setNewItemForm({
+      ...EMPTY_NEW_ITEM,
       provider: newCategoryInput.provider,
-      category: newCategoryInput.value.trim(),
-      value: "",
+      category: resolveCatalogName(
+        newCategoryInput.value,
+        categoriesOf(newCategoryInput.provider),
+      ),
     });
     setNewCategoryInput(null);
   };
@@ -563,7 +596,13 @@ export default function MobileServicesManager() {
       ...EMPTY_NEW_ITEM,
       provider: newSubcategoryInput.provider,
       category: newSubcategoryInput.category,
-      subcategory: newSubcategoryInput.value.trim(),
+      subcategory: resolveCatalogName(
+        newSubcategoryInput.value,
+        subcategoriesOf(
+          newSubcategoryInput.provider,
+          newSubcategoryInput.category,
+        ),
+      ),
     });
     setNewSubcategoryInput(null);
   };
@@ -648,15 +687,32 @@ export default function MobileServicesManager() {
           <h4 className="text-white font-medium text-sm">
             New Item in{" "}
             <span className="text-violet-400">
-              {newItemForm.provider} / {newItemForm.category} /{" "}
-              {newItemForm.subcategory}
+              {newItemForm.provider} / {newItemForm.category}
             </span>
           </h4>
           <div className="flex items-end gap-3">
+            <div className="w-40">
+              <label className="text-slate-400 text-xs block mb-1">
+                Subcategory
+              </label>
+              <input
+                autoFocus={!newItemForm.subcategory}
+                type="text"
+                value={newItemForm.subcategory}
+                onChange={(e) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    subcategory: e.target.value,
+                  })
+                }
+                placeholder="e.g. Prepaid, pubg"
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
             <div className="flex-1">
               <label className="text-slate-400 text-xs block mb-1">Label</label>
               <input
-                autoFocus
+                autoFocus={!!newItemForm.subcategory}
                 type="text"
                 value={newItemForm.label}
                 onChange={(e) =>

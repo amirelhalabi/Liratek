@@ -556,7 +556,12 @@ describe("LIRA-272 — refund kept change on every module reaches every Profits 
     });
   });
 
-  it("dated by the refunded transaction's own day — a refund today of an older OMT transfer lands where By Cashier puts it", () => {
+  it("dated by the REFUND's own day (owner decision 2026-10-07) — a refund today of an older OMT transfer lands today, not on the transfer's day", () => {
+    // Rewritten for the 2026-10-07 owner decision: this test used to pin the
+    // OLD rule (kept change on the refunded original's day). The kept part
+    // now lands on the refund's day on every view, so the day close matches
+    // the drawer; the full Mon/Wed/range matrix per module lives in
+    // ProfitRepository.refundKeptChangeRefundDay.test.ts.
     freshWorld();
     const id = createOmtSend();
     const day = today();
@@ -581,14 +586,14 @@ describe("LIRA-272 — refund kept change on every module reaches every Profits 
       pastWindow.by_date_usd,
       pastWindow.by_cashier_usd,
       pastWindow.day_close_usd,
-    ]).toEqual([0.5, 0.5, 0.5, 0.5, 0.5]);
+    ]).toEqual([0, 0, 0, 0, 0]);
     expect([
       todayWindow.overview_usd,
       todayWindow.by_module_usd,
       todayWindow.by_date_usd,
       todayWindow.by_cashier_usd,
       todayWindow.day_close_usd,
-    ]).toEqual([0, 0, 0, 0, 0]);
+    ]).toEqual([0.5, 0.5, 0.5, 0.5, 0.5]);
   });
 });
 

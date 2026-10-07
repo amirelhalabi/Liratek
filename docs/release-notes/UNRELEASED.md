@@ -58,6 +58,8 @@
 - Custom services: when a service has no selling price saved, the price box now stays empty and you type the price before you can take payment or add it to a customer's basket. Before, the customer was charged the cost.
 - From now on, a fee typed on a Whish App receive is no longer charged on a Whish App send. Switching between Send and Receive also clears the fee you typed.
 - In a customer basket, an OMT receive line no longer shows a fee, and a For Partner transfer says it goes on the partner's account instead of listing fees the customer doesn't pay.
+- Custom services: a For Partner service now needs a selling price, like a walk-in sale. Until you type one, "Submit to Partner" stays greyed out and the page asks for a price, so the partner is always charged the price.
+- Desktop app: insurance services now start their fulfilment tracking (Ordered → Issued → Received → Delivered) like on the web app — before, the desktop app dropped it.
 
 ## 🏠 Dashboard
 
@@ -74,11 +76,12 @@
 ## 🧾 Transactions
 
 - Refunding a currency exchange now works: the refund simply swaps the money back.
-- Refunds: you can now hand back a round amount and keep a small leftover (under $1 or 100,000 LBP, in the refund's currency) as shop profit — for example, refund $20.12, hand back $20. Works for sales, debt payments, OMT/Whish and wallet transfers, recharges, custom services, repairs and Loto tickets, paid back in cash or through a wallet (not a customer account or gift card). It shows on the Profits page under Kept change and in the day close. From now on.
+- Refunds: you can now hand back a round amount and keep a small leftover (under $1 or 100,000 LBP, in the refund's currency) as shop profit — for example, refund $20.12, hand back $20. Works for sales, debt payments, OMT/Whish and wallet transfers, recharges, custom services, repairs and Loto tickets, paid back in cash or through a wallet (not a customer account or gift card). It shows on the Profits page under Kept change on the day of the refund (not the day of the original sale or transfer), and in that day's close, so the close matches the drawer.
 - Customer basket checkout: when a cash prize or payout covers the whole basket, a payment typed in earlier is no longer recorded as if the customer had paid it.
 - Customer basket checkout: an OMT receive no longer asks the customer to pay the OMT fee — OMT never charges a fee on a receive.
 - Customer basket checkout: a For Partner OMT or Whish transfer in the basket is no longer added to what the customer pays; it goes on the partner's account only. A For Partner receive is no longer paid out to the customer. From now on.
 - Customer basket checkout: you can keep change as profit even when the basket includes a For Partner transfer.
+- Customer basket: if an item can't be added to the basket, you now get a message saying why, and the item is not shown in the basket. Before, it showed for a moment even though it wasn't saved, then disappeared without explanation — or made the checkout fail later.
 
 ## 🔧 Maintenance
 
@@ -173,9 +176,17 @@
 - Web app, Settings → Users: "Invite by email" lets you add a staff member or admin by email. They get a link to choose their own username and password, with their email already confirmed. Invitations that are still waiting are listed with Resend and Revoke.
 - Web app, Settings → Users: "Send password reset" emails a user a link to choose a new password. It works for users whose email is confirmed.
 - Web app, Settings → Users: while a shop's subscription has lapsed, inviting users by email, changing a user's email and sending reset links are unavailable, like other staff changes. Revoking a waiting invitation still works.
+- Several tills in the same shop no longer lock each other out with "Failed to load data" — each signed-in user now has their own allowance, and if it's ever reached the screen says to wait a minute and try again.
 
 ## 🧾 Expenses
 
 - Expenses: search and pick any inventory item or Katsh / iPick / Whish App product to record using it for the shop — it comes out of stock at its cost, no cash moves.
 - Desktop app: an expense entered with an earlier date and time now keeps that time (it was saved as "now").
 - Recording an expense now has a separate Bill amount. If you hand the vendor more than the bill, enter the change you got back — it goes back into your drawer, and any change the vendor kept is added to the expense. From now on.
+
+## ⚙️ Settings
+
+- Settings → Mobile Services: "Category" now works. Type the new category's name and the new item form opens; the category is saved with its first item. You can now also change the subcategory in that form.
+- Recharge page: admins can add a new category with the "New category" button under the cards (iPick, Katsh and Whish App), not only new items in existing categories.
+- If you type a category or subcategory name that already exists with different capital letters (for example "ALFA"), the item goes into the existing one instead of a second copy.
+- Items added or changed in Settings → Mobile Services now show on the Recharge page straight away, without reloading the app.

@@ -33,3 +33,33 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+/**
+ * What the server says on a rate-limit refusal (backend `RATE_LIMIT_MESSAGE`,
+ * `backend/src/middleware/rateLimit.ts`). Used only when a 429 arrives
+ * without a usable message of its own, so the cashier is still told to wait.
+ */
+const RATE_LIMITED_FALLBACK =
+  "Too many requests — please wait a minute and try again.";
+
+/**
+ * Message for a page whose initial LOAD failed (LIRA-282).
+ *
+ * A load failure keeps the page's own generic `fallback` — a raw server or
+ * database message ("SQLITE_BUSY…") means nothing to a cashier — EXCEPT a
+ * rate-limit refusal (HTTP 429, thrown by `requestJson` as
+ * `{ status: 429, message }`), where the server's message is the one thing
+ * that tells them what to do: wait a minute. Without this, several tills in
+ * one shop hitting the limit all saw "Failed to load data" and kept
+ * refreshing, which only made it worse.
+ */
+export function getLoadErrorMessage(error: unknown, fallback: string): string {
+  if (
+    error &&
+    typeof error === "object" &&
+    (error as { status?: unknown }).status === 429
+  ) {
+    return getApiErrorMessage(error, RATE_LIMITED_FALLBACK);
+  }
+  return fallback;
+}

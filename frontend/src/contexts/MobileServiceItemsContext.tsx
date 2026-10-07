@@ -305,6 +305,16 @@ export function MobileServiceItemsProvider({
   );
 }
 
+/**
+ * Same context, but `null` outside the provider instead of throwing — for
+ * screens that only need to NOTIFY the shared catalog (Settings → Mobile
+ * Services calls `refresh()` after an edit so the sale screen sees it without
+ * a reload) and that are also rendered on their own in tests.
+ */
+export function useOptionalMobileServiceItemsContext(): MobileServiceItemsContextValue | null {
+  return useContext(MobileServiceItemsContext);
+}
+
 export function useMobileServiceItemsContext(): MobileServiceItemsContextValue {
   const ctx = useContext(MobileServiceItemsContext);
   if (!ctx)
