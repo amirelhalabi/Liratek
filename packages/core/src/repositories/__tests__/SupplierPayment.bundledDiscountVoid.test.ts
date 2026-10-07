@@ -188,6 +188,43 @@ describe("supplier payment void removes its bundled discount", () => {
     expect(r6(profitAfter.lbp)).toBe(r6(profitBefore.lbp));
   });
 
+  // Owner decision 2026-10-07: the compensating COUNTERPARTY_DISCOUNT row
+  // carries the ORIGINAL discount row's exchange rate, never the market
+  // rate at void time. The original is re-stamped and the market moved, so
+  // a market-snapshot reversal cannot pass by coincidence.
+  it("voiding the payment: the discount's reversal row copies the original discount row's exchange rate", () => {
+    const { supplierId } = seedSupplierOwed(100);
+    getSupplierRepository().recordSupplierCashflow({
+      supplier_id: supplierId,
+      direction: "PAY",
+      payments: [{ method: "CASH", currency_code: "USD", amount: 60 }],
+      discount: { amount_usd: 40, amount_lbp: 0, reason: "volume" },
+      exchange_rate: RATE,
+      created_by: 1,
+    });
+    const original = db
+      .prepare(
+        `SELECT id FROM transactions WHERE type = 'COUNTERPARTY_DISCOUNT' AND reverses_id IS NULL ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { id: number };
+    db.prepare(
+      `UPDATE transactions SET exchange_rate = 91234 WHERE id = ?`,
+    ).run(original.id);
+    db.prepare(
+      `UPDATE exchange_rates SET market_rate = 95000 WHERE to_code = 'LBP' AND tenant_id = 1`,
+    ).run();
+
+    getTransactionRepository().voidTransaction(paymentTxnId(), 1);
+
+    const reversal = db
+      .prepare(
+        `SELECT exchange_rate FROM transactions WHERE type = 'COUNTERPARTY_DISCOUNT' AND reverses_id = ?`,
+      )
+      .get(original.id) as { exchange_rate: number | null } | undefined;
+    expect(reversal).toBeDefined();
+    expect(reversal!.exchange_rate).toBe(91234);
+  });
+
   it("a discount row already in a supplier settlement blocks the payment void up front (nothing changes)", () => {
     const { supplierId } = seedSupplierOwed(100);
     getSupplierRepository().recordSupplierCashflow({

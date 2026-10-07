@@ -270,6 +270,36 @@ describe("Hold Money pickup — kept change (payer = payout)", () => {
     expect(hold.remaining_usd).toBeCloseTo(50.12, 6);
   });
 
+  // Owner decision 2026-10-07: a reversal row carries the ORIGINAL row's
+  // exchange rate (as the generic void/refund do), never the market rate
+  // at void time. The market rate is moved between collect and void so a
+  // market-snapshot void cannot pass by coincidence.
+  it("voiding a pickup copies the pickup's exchange rate, not the market rate at void time", () => {
+    const id = holdUsd(50);
+    expect(collect({ id, payments: [cashUsd(50)] }).success).toBe(true);
+    const original = db
+      .prepare(
+        `SELECT exchange_rate FROM transactions WHERE type = 'HOLD_MONEY_COLLECT' ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { exchange_rate: number | null };
+    expect(original.exchange_rate).toBeGreaterThan(0);
+
+    db.prepare(
+      `UPDATE exchange_rates SET market_rate = 95000 WHERE to_code = 'LBP' AND tenant_id = 1`,
+    ).run();
+    expect(original.exchange_rate).not.toBe(95000);
+
+    const pickupId = repo.getPickups(id)[0]!.id;
+    expect(repo.voidPickup(pickupId, 1).success).toBe(true);
+
+    const voidRow = db
+      .prepare(
+        `SELECT exchange_rate FROM transactions WHERE type = 'HOLD_MONEY_COLLECT_VOID'`,
+      )
+      .get() as { exchange_rate: number | null };
+    expect(voidRow.exchange_rate).toBe(original.exchange_rate);
+  });
+
   it("an exact pickup with no kept change still books zero profit (unchanged)", () => {
     const id = holdUsd(50, 100_000);
     const res = collect({ id, payments: [cashUsd(50), cashLbp(100_000)] });

@@ -433,6 +433,32 @@ describe("LIRA-085 — PARTNER_SETTLEMENT / PARTNER_PAYMENT reversal", () => {
       expect(sumActiveProfitUsd(db)).toBeCloseTo(0, 2);
     });
 
+    // Owner decision 2026-10-07: the compensating COUNTERPARTY_DISCOUNT row
+    // carries the ORIGINAL discount row's exchange rate, never the market
+    // snapshot at void time. The original is stamped with a rate no market
+    // snapshot can produce, so the assertion cannot pass by coincidence.
+    for (const reverse of ["void", "refund"] as const) {
+      it(`${reverse.toUpperCase()}: the discount's reversal row copies the original discount row's exchange rate`, () => {
+        const txnId = makeSettlementWithDiscount();
+        const original = discountTxnRow(db)!;
+        db.prepare(
+          `UPDATE transactions SET exchange_rate = 91234 WHERE id = ?`,
+        ).run(original.id);
+
+        if (reverse === "void") txnRepo.voidTransaction(txnId, 1);
+        else txnRepo.refundTransaction(txnId, 1);
+
+        const reversal = db
+          .prepare(
+            `SELECT exchange_rate FROM transactions
+             WHERE type = 'COUNTERPARTY_DISCOUNT' AND reverses_id = ?`,
+          )
+          .get(original.id) as { exchange_rate: number | null } | undefined;
+        expect(reversal).toBeDefined();
+        expect(reversal!.exchange_rate).toBe(91234);
+      });
+    }
+
     it("REFUND does the identical full sweep (ledger, coverage, profit)", () => {
       const txnId = makeSettlementWithDiscount();
       txnRepo.refundTransaction(txnId, 1);

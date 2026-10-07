@@ -64,8 +64,8 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
   },
   {
     // Products, categories and the product-supplier names are KEPT (the
-    // products with stock set to 0 — RESET_ZERO_TABLES), so only stock and
-    // its history appear here.
+    // products with stock and minimum stock set to 0 — RESET_ZERO_TABLES),
+    // so only stock and its history appear here.
     label: "Stock & purchases",
     tables: [
       "product_stock_batches",
@@ -207,7 +207,10 @@ export function ResetDataPanel() {
           <li>Currencies and exchange rates</li>
           <li>Drawer configuration (which currencies each drawer holds)</li>
           <li>Your product categories</li>
-          <li>Your products (names, barcodes, prices) — with stock set to 0</li>
+          <li>
+            Your products (names, barcodes, prices) — with stock and minimum
+            stock set to 0
+          </li>
           <li>Your Mobile Services items, including the ones you added</li>
           <li>Your service presets</li>
           <li>Your partners and suppliers — with balances set to 0</li>

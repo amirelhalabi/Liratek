@@ -47,6 +47,7 @@ import {
   type ReconciliationLeg,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { LOW_STOCK_PREDICATE_SQL } from "./lowStockFragment.js";
 
 // =============================================================================
 // Types
@@ -3414,7 +3415,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         `
         SELECT COUNT(*) as count
         FROM products
-        WHERE stock_quantity <= min_stock_level AND is_active = 1 AND tenant_id = ?
+        WHERE ${LOW_STOCK_PREDICATE_SQL} AND is_active = 1 AND tenant_id = ?
       `,
         tenantId,
       );

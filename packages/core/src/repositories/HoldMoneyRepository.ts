@@ -654,10 +654,14 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           pickup.transaction_id != null
             ? (this.db
                 .prepare(
-                  `SELECT profit_usd, profit_lbp FROM transactions WHERE id = ? AND tenant_id = ?`,
+                  `SELECT profit_usd, profit_lbp, exchange_rate FROM transactions WHERE id = ? AND tenant_id = ?`,
                 )
                 .get(pickup.transaction_id, tenantId) as
-                | { profit_usd: number | null; profit_lbp: number | null }
+                | {
+                    profit_usd: number | null;
+                    profit_lbp: number | null;
+                    exchange_rate: number | null;
+                  }
                 | undefined)
             : undefined;
 
@@ -670,6 +674,11 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           amount_lbp: pickup.lbp_amount,
           profit_usd: 0 - (original?.profit_usd ?? 0),
           profit_lbp: 0 - (original?.profit_lbp ?? 0),
+          // Owner decision 2026-10-07: a reversal carries the ORIGINAL
+          // row's rate, copied verbatim like the generic void/refund
+          // (`voidTransaction`). No pickup transaction (a pre-v183 pickup)
+          // → nothing to copy, so createTransaction's market snapshot applies.
+          ...(original ? { exchange_rate: original.exchange_rate } : {}),
           client_id: hold.client_id,
           client_name: hold.client_name,
           client_phone: hold.phone_number,

@@ -1328,8 +1328,11 @@ export default function ProductList() {
                   })()}
                 </td>
                 <td className="p-4">
+                  {/* Same low-stock rule as the server's
+                      LOW_STOCK_PREDICATE_SQL: a minimum of 0 means "no
+                      minimum", so it never paints red. */}
                   <div
-                    className={`font-medium ${(product.stock_quantity ?? 0) <= (product.min_stock_level ?? 5) ? "text-red-400" : "text-slate-300"}`}
+                    className={`font-medium ${(product.min_stock_level ?? 5) > 0 && (product.stock_quantity ?? 0) <= (product.min_stock_level ?? 5) ? "text-red-400" : "text-slate-300"}`}
                   >
                     {product.stock_quantity ?? 0} units
                   </div>

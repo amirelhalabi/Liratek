@@ -21,6 +21,7 @@ import type { ProductListFilters } from "../validators/product.js";
 // module (no other repository import), so importing it directly here never
 // risks a require cycle.
 import { localDayExpr } from "./reportingTimeFragments.js";
+import { LOW_STOCK_PREDICATE_SQL } from "./lowStockFragment.js";
 
 // =============================================================================
 // Types
@@ -1332,7 +1333,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         `
         SELECT id, name, stock_quantity, min_stock_level
         FROM ${this.tableName}
-        WHERE stock_quantity <= min_stock_level AND is_active = 1 AND is_deleted = 0
+        WHERE ${LOW_STOCK_PREDICATE_SQL} AND is_active = 1 AND is_deleted = 0
           AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
           AND tenant_id = ?
         ORDER BY name ASC

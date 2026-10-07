@@ -6599,6 +6599,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       amount_lbp: 0,
       profit_usd: -discountTxn.profit_usd,
       profit_lbp: -discountTxn.profit_lbp,
+      // Owner decision 2026-10-07: the reversal carries the ORIGINAL row's
+      // rate, copied verbatim like `voidTransaction`'s reversal row.
+      exchange_rate: discountTxn.exchange_rate,
       client_id: null,
       summary,
       metadata_json: { reversed_discount_txn_id: discountTxn.id },

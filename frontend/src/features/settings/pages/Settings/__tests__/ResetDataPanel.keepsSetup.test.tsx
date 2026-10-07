@@ -40,7 +40,7 @@ describe("ResetDataPanel keeps/deletes text", () => {
 
     const keeps = within(screen.getByTestId("reset-data-keeps"));
     keeps.getByText(/product categories/i);
-    keeps.getByText(/products.*stock.*set to 0/i);
+    keeps.getByText(/products.*stock and minimum stock set to 0/i);
     keeps.getByText(/mobile services items/i);
     keeps.getByText(/service presets/i);
     keeps.getByText(/partners and suppliers.*balances.*0/i);

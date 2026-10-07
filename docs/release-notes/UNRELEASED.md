@@ -95,6 +95,7 @@
 - OMT/Whish supplier rows now say "Owed to OMT increased/reduced by …" instead of "Supplier TOP_UP".
 - For items paid as part of a customer basket, the "@ rate" now shows the rate the customer actually paid at, not the rate when the item was added to the basket. Kept-change rows no longer show a rate on their own.
 - From now on, change kept at session checkout is saved at the checkout's rate.
+- From now on, voiding a held-money pickup, or voiding or refunding a supplier or partner payment that included a discount, saves the original entry's exchange rate on the reversal instead of today's rate.
 
 ## 🔧 Maintenance
 
@@ -126,7 +127,7 @@
 - The Kept change details no longer list voided entries, and an empty entry no longer says "repayment" when it wasn't one.
 - By Cashier and By Client: the Transactions count now matches the number Avg Profit/Txn is worked out from, and clients or cashiers with nothing to show are hidden.
 - The Product Sales card now says its count is net: voided, fully refunded and unpaid sales are not counted.
-- The Custom Services card always shows a number of jobs, and zero costs or expenses now read "$0.00" instead of "-$0.00".
+- The Custom Services card always shows a number of jobs, and zero costs or expenses now read "$0.00" instead of "-$0.00" on every card (including Mobile Services, Custom Services and Mobile Recharges).
 
 ## 📱 MTC / Alfa
 
@@ -193,6 +194,7 @@
 ## 🌐 Web app
 
 - Web app: you can now sign in with Google. Connect your Google account once in Settings, then use "Continue with Google" on the login page. You can also create a new shop with Google. Your username and password keep working as before.
+- Web app: a Google account can now be connected to one shop only. If it is already connected to another shop, "Connect Google" in Settings says so — disconnect it there first, or use a different Google account. Creating a new shop with a Google account that is already connected to a shop is refused too; sign in with Google instead. Accounts already connected to more than one shop keep working until you disconnect one.
 - Web app: a customer's gift cards now show up as a payment option (they were missing in the browser).
 - liratek.shop now opens an information page about LiraTek, in English and Arabic. Shops keep logging in at their own address, as before, and the page has a box to jump to your shop's login.
 - Web app: sign-up no longer uses an invite code. New shops join through an email invitation from LiraTek: open the link in the email to finish creating your shop.
@@ -222,3 +224,7 @@
 - Web app, Settings → Users: adding a user and inviting one by email now share one row. Pick "Create username/password" or "Send invitation" from the first dropdown.
 - Reset Data no longer signs you out: you and everyone else in the shop stay signed in after a reset, and the "Done — rows removed" confirmation now shows. On the desktop app this applies from the next update.
 - Settings › Reset Data now keeps your shop's setup: product categories, products (stock set to 0), Mobile Services items including the ones you added, service presets, and your partners and suppliers (balances set to 0). Sales, payments, clients, debts, stock history, closings and the audit log are still deleted.
+- Reset Data now also sets each product's minimum stock to 0, so no low-stock warnings appear right after a reset. Set a minimum on a product again to get its warnings back.
+
+## 📦 Inventory
+- A product with a minimum stock of 0 no longer shows low-stock warnings (top-bar alert, Dashboard count, red stock figure on the Inventory list).

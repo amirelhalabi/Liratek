@@ -27,6 +27,8 @@ import {
 } from "../DatabaseResetRepository.js";
 import { SupplierRepository } from "../SupplierRepository.js";
 import { PartnerRepository } from "../PartnerRepository.js";
+import { ProductRepository } from "../ProductRepository.js";
+import { SalesRepository } from "../SalesRepository.js";
 import { runWithTenant, resetTenantContext } from "../../db/tenantContext.js";
 
 type TestGlobal = typeof globalThis & {
@@ -199,7 +201,7 @@ describe("Reset Data keeps the shop's setup", () => {
     expect(count(db, "partner_ledger")).toBe(0);
   });
 
-  it("keeps products with their catalog details, zeroes stock, and wipes stock batches / IMEI units / stock history", () => {
+  it("keeps products with their catalog details, zeroes stock and minimum stock, and wipes stock batches / IMEI units / stock history", () => {
     const categoryId = (
       db
         .prepare(
@@ -247,7 +249,8 @@ describe("Reset Data keeps the shop's setup", () => {
     expect(product?.category_id).toBe(categoryId);
     expect(product?.cost_price_usd).toBe(300);
     expect(product?.selling_price_usd).toBe(400);
-    expect(product?.min_stock_level).toBe(2);
+    // Owner decision 2026-10-07: minimum stock resets with the stock.
+    expect(product?.min_stock_level).toBe(0);
 
     for (const table of [
       "product_stock_batches",
@@ -257,6 +260,39 @@ describe("Reset Data keeps the shop's setup", () => {
     ]) {
       expect(count(db, table)).toBe(0);
     }
+  });
+
+  // Owner decision 2026-10-07: a reset sets each product's minimum stock to
+  // 0 as well as its stock, so no low-stock warning fires right after a
+  // reset. Asserted through the two REAL readers a user sees — the TopBar
+  // low-stock notification (`findLowStock`) and the Dashboard's low-stock
+  // count (`getDashboardStats().lowStockCount`).
+  it("after a reset no product appears as low on stock (TopBar list and Dashboard count)", () => {
+    db.prepare(
+      `INSERT INTO products (tenant_id, barcode, name, item_type, min_stock_level, stock_quantity)
+       VALUES (1, 'BC-LOW-1', 'Well stocked', 'Product', 5, 10),
+              (1, 'BC-LOW-2', 'Already low', 'Product', 5, 3)`,
+    ).run();
+    // Precondition: the readers really do flag a low product before reset,
+    // so an empty list afterwards means the reset changed it.
+    runWithTenant(1, () => {
+      expect(new ProductRepository().findLowStock().map((p) => p.name)).toEqual(
+        ["Already low"],
+      );
+    });
+
+    reset();
+
+    runWithTenant(1, () => {
+      expect(new ProductRepository().findLowStock()).toEqual([]);
+      expect(new SalesRepository().getDashboardStats().lowStockCount).toBe(0);
+    });
+    const mins = db
+      .prepare(
+        `SELECT DISTINCT min_stock_level AS m FROM products WHERE tenant_id = 1 AND barcode LIKE 'BC-LOW-%'`,
+      )
+      .all() as { m: number }[];
+    expect(mins).toEqual([{ m: 0 }]);
   });
 
   it("the preview never lists a kept setup table as something to remove", () => {

@@ -524,15 +524,35 @@ function profitClass(value: number): string {
  * that rounds to zero — reads "$0.00". The ONE place this rule lives
  * (rule 14); every deduction line on this page goes through it.
  */
+function roundsToZero(value: number, currency: "USD" | "LBP"): boolean {
+  const scale = currency === "LBP" ? 1 : 100;
+  return Math.round(Math.abs(value) * scale) === 0;
+}
+
 function deductionLabel(
   value: number,
   currency: "USD" | "LBP",
   formatAmount: (value: number, currency: "USD" | "LBP") => string,
 ): string {
-  const scale = currency === "LBP" ? 1 : 100;
-  if (Math.round(Math.abs(value) * scale) === 0)
-    return formatAmount(0, currency);
+  if (roundsToZero(value, currency)) return formatAmount(0, currency);
   return `-${formatAmount(value, currency)}`;
+}
+
+/**
+ * Two-currency deduction line (Mobile Services / Custom Services / Mobile
+ * Recharges Cost) — same rule as `deductionLabel`: the minus appears only
+ * when some side is nonzero at its shown precision. Dust on one side is
+ * treated as zero so it neither earns a minus nor shows up as "$0.00 + …".
+ */
+function combinedDeductionLabel(
+  usd: number,
+  lbp: number,
+  formatAmount: (value: number, currency: "USD" | "LBP") => string,
+): string {
+  const u = roundsToZero(usd, "USD") ? 0 : usd;
+  const l = roundsToZero(lbp, "LBP") ? 0 : lbp;
+  const label = combinedAmountLabel(u, l, formatAmount);
+  return u === 0 && l === 0 ? label : `-${label}`;
 }
 
 /**
@@ -1786,8 +1806,7 @@ export default function Profits() {
                     <div className="flex justify-between">
                       <span>Cost</span>
                       <span className="text-red-400">
-                        -
-                        {combinedAmountLabel(
+                        {combinedDeductionLabel(
                           summary.mobile_services.cost_usd,
                           summary.mobile_services.cost_lbp,
                           formatAmount,
@@ -1838,8 +1857,7 @@ export default function Profits() {
                   <div className="flex justify-between">
                     <span>Cost</span>
                     <span className="text-red-400">
-                      -
-                      {combinedAmountLabel(
+                      {combinedDeductionLabel(
                         summary.custom_services.cost_usd,
                         summary.custom_services.cost_lbp,
                         formatAmount,
@@ -1888,8 +1906,7 @@ export default function Profits() {
                     <div className="flex justify-between">
                       <span>Cost</span>
                       <span className="text-red-400">
-                        -
-                        {combinedAmountLabel(
+                        {combinedDeductionLabel(
                           summary.recharges.cost_usd,
                           summary.recharges.cost_lbp,
                           formatAmount,
@@ -1939,6 +1956,7 @@ export default function Profits() {
                         formatAmount,
                       )}
                       {(summary.maintenance.cost_lbp ?? 0) > 0 &&
+                        !roundsToZero(summary.maintenance.cost_lbp, "LBP") &&
                         ` − ${formatAmount(summary.maintenance.cost_lbp, "LBP")}`}
                     </span>
                   </div>

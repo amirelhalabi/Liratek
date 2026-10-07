@@ -67,9 +67,11 @@
  *   drawer = Σ active line credits invariant). `validity_expires_at` is
  *   deliberately NOT zeroed/cleared: it is the SIM's real-world expiry date,
  *   not a derived balance. `products.stock_quantity` (2026-10-07) joined for
- *   the same reason: the product (name, barcode, category, prices, minimum
- *   stock) is catalog setup; the quantity on hand is stock, which a reset
- *   wipes. Its stock batches, IMEI units, consumptions and adjustments are
+ *   the same reason: the product (name, barcode, category, prices) is
+ *   catalog setup; the quantity on hand is stock, which a reset wipes.
+ *   `products.min_stock_level` (owner decision 2026-10-07) is zeroed with
+ *   it so no low-stock warning fires right after a reset — a minimum of 0
+ *   means "no minimum" to `LOW_STOCK_PREDICATE_SQL`. Its stock batches, IMEI units, consumptions and adjustments are
  *   in WIPE, so quantity 0 + no batches is consistent — and a product with
  *   no batches is already a supported state (`StockBatchRepository.consume`
  *   prices uncovered units at `cost_price_usd`).
@@ -179,8 +181,9 @@ export const RESET_ZERO_TABLES: readonly ResetZeroColumnsSpec[] = [
   { table: "carrier_lines", columns: ["credits", "days_owed"] },
   // 2026-10-07: the product is catalog setup and survives; only the
   // quantity on hand resets (its batches / IMEI units / stock history are
-  // in WIPE, so 0 matches them).
-  { table: "products", columns: ["stock_quantity"] },
+  // in WIPE, so 0 matches them), together with its minimum stock so no
+  // low-stock warning fires after the reset (min 0 = no minimum).
+  { table: "products", columns: ["stock_quantity", "min_stock_level"] },
 ];
 
 /** Table names only, derived (rule 14) — for call sites that only need
