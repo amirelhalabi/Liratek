@@ -33,9 +33,12 @@ import type {
 import { getEmailOutboxRepository } from "../repositories/EmailOutboxRepository.js";
 import { generateToken, hashToken } from "../utils/crypto.js";
 import {
+  DatabaseError,
   EMAIL_ALREADY_HAS_SHOP,
   EmailAlreadyHasShopError,
   EmailNotConfiguredError,
+  NotFoundError,
+  SignupInvitationUsedError,
   isAppError,
 } from "../utils/errors.js";
 import { authLogger } from "../utils/logger.js";
@@ -50,6 +53,16 @@ export const SIGNUP_INVITE_TTL_MS = 72 * 60 * 60 * 1000;
 /** A claim older than this has lapsed (research R4): a crash between claim
  * and finalize frees the link on its own after 10 minutes. */
 export const SIGNUP_INVITE_CLAIM_STALE_MS = 10 * 60 * 1000;
+
+/** Self-serve: at most this many requests per email address... */
+export const SELF_SERVE_PER_EMAIL_LIMIT = 3;
+/** ...within this rolling window (FR-029). */
+export const SELF_SERVE_PER_EMAIL_WINDOW_MS = 60 * 60 * 1000;
+/** The platform-wide daily cap counts over this rolling window. */
+export const SELF_SERVE_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** The admin list shows at most this many invites (contracts/api.md). */
+export const SIGNUP_INVITATION_LIST_LIMIT = 200;
 
 /** The outbox template that announces an invite. */
 export const SIGNUP_INVITE_TEMPLATE = "signup-invite";
@@ -130,16 +143,42 @@ export interface SignupInvitationView {
   } | null;
 }
 
-/** The extra outbox fields the view needs beyond the list row. */
-export interface SignupInvitationViewExtras {
-  emailAttempts: number;
-  usedByTenant: { id: number; slug: string } | null;
-}
-
 export interface SignupInviteCheckResult {
   email: string;
   shopNameHint: string | null;
   expiresAt: string;
+}
+
+/** `changed` is false when the invite was already revoked (a harmless
+ * repeat): the caller audits only a real change. */
+export interface RevokeSignupInvitationResult {
+  invitation: SignupInvitationView;
+  changed: boolean;
+}
+
+export interface RequestSelfServeParams {
+  /** Already trimmed + lowercased by the zod schema. */
+  email: string;
+  /** UTC ISO. */
+  now: string;
+  baseUrl: string;
+  supportEmail: string;
+  emailConfigured: boolean;
+  /** Platform-wide self-serve requests allowed per rolling 24 hours. */
+  dailyCap: number;
+}
+
+/** Why a self-serve request did or did not queue an email. Internal only:
+ * the route answers every one of these identically (FR-028). */
+export type SelfServeRequestReason =
+  | "queued"
+  | "has_shop"
+  | "email_limit"
+  | "daily_cap";
+
+export interface SelfServeRequestResult {
+  queued: boolean;
+  reason: SelfServeRequestReason;
 }
 
 /** `ok: false` is the generic refusal; the caller never learns why. */
@@ -179,7 +218,6 @@ export function toSignupInviteEmailStatus(
 export function toSignupInvitationView(
   row: SignupInvitationListRow,
   now: string,
-  extras: SignupInvitationViewExtras,
 ): SignupInvitationView {
   return {
     id: row.id,
@@ -190,14 +228,17 @@ export function toSignupInvitationView(
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     usedAt: row.used_at,
-    usedByTenant: extras.usedByTenant,
+    usedByTenant:
+      row.used_by_tenant_id !== null && row.used_by_tenant_slug !== null
+        ? { id: row.used_by_tenant_id, slug: row.used_by_tenant_slug }
+        : null,
     revokedAt: row.revoked_at,
     emailDelivery:
       row.email_status === null
         ? null
         : {
             status: toSignupInviteEmailStatus(row.email_status),
-            attempts: extras.emailAttempts,
+            attempts: row.email_attempts ?? 0,
             lastError: row.email_last_error,
             sentAt: row.email_sent_at,
           },
@@ -288,28 +329,7 @@ export class SignupInvitationService {
         "Sign-up invitation created",
       );
 
-      return toSignupInvitationView(
-        {
-          id: invite.id,
-          email: invite.email,
-          shop_name_hint: invite.shop_name_hint,
-          source: invite.source,
-          invited_by_user_id: invite.invited_by_user_id,
-          expires_at: invite.expires_at,
-          claimed_at: invite.claimed_at,
-          used_at: invite.used_at,
-          used_by_tenant_id: invite.used_by_tenant_id,
-          revoked_at: invite.revoked_at,
-          email_outbox_id: outboxId,
-          created_at: invite.created_at,
-          updated_at: invite.updated_at,
-          email_status: "pending",
-          email_last_error: null,
-          email_sent_at: null,
-        },
-        params.now,
-        { emailAttempts: 0, usedByTenant: null },
-      );
+      return this.viewById(invite.id, params.now);
     } catch (error) {
       if (isAppError(error) && error.isOperational) {
         authLogger.info(
@@ -321,6 +341,108 @@ export class SignupInvitationService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Self-serve "email me a sign-up link" (US4, research R9). Checks, in
+   * order: the address already has a shop -> the per-email limit (3 per
+   * hour) -> the platform-wide daily cap (rolling 24 hours; warns, so the
+   * owner sees it in the logs) -> creates a `source: 'self'` invite with no
+   * inviter. Only `source='self'` rows count toward either limit.
+   *
+   * Never throws for a business outcome: the route answers every reason
+   * identically (FR-028), so a shop appearing between the check and the
+   * insert is reported as `has_shop`, not as a 409. The address is logged
+   * only as `hashToken(email)`.
+   */
+  requestSelfServe(params: RequestSelfServeParams): SelfServeRequestResult {
+    const emailHash = hashToken(params.email);
+    const refused = (reason: SelfServeRequestReason): SelfServeRequestResult => {
+      authLogger.info({ emailHash, reason }, "Self-serve sign-up request not sent");
+      return { queued: false, reason };
+    };
+
+    if (this.inviteRepo.findTenantByContactEmail(params.email)) {
+      return refused("has_shop");
+    }
+
+    const perEmail = this.inviteRepo.countSelfRequestsByEmailSince(
+      params.email,
+      addMs(params.now, -SELF_SERVE_PER_EMAIL_WINDOW_MS),
+    );
+    if (perEmail >= SELF_SERVE_PER_EMAIL_LIMIT) {
+      return refused("email_limit");
+    }
+
+    const today = this.inviteRepo.countSelfRequestsSince(
+      addMs(params.now, -SELF_SERVE_DAILY_WINDOW_MS),
+    );
+    if (today >= params.dailyCap) {
+      authLogger.warn(
+        { dailyCap: params.dailyCap, requestsInWindow: today },
+        "Self-serve sign-up daily cap reached: requests are not being emailed",
+      );
+      return refused("daily_cap");
+    }
+
+    try {
+      this.create({
+        source: "self",
+        email: params.email,
+        shopNameHint: null,
+        invitedByUserId: null,
+        now: params.now,
+        baseUrl: params.baseUrl,
+        emailConfigured: params.emailConfigured,
+        supportEmail: params.supportEmail,
+      });
+    } catch (error) {
+      if (isAppError(error) && error.code === EMAIL_ALREADY_HAS_SHOP) {
+        return refused("has_shop");
+      }
+      throw error;
+    }
+    authLogger.info({ emailHash }, "Self-serve sign-up link queued");
+    return { queued: true, reason: "queued" };
+  }
+
+  /** The newest invites, as the admin list shows them. */
+  list(now: string, limit: number = SIGNUP_INVITATION_LIST_LIMIT): SignupInvitationView[] {
+    return this.inviteRepo
+      .listRecent(limit)
+      .map((row) => toSignupInvitationView(row, now));
+  }
+
+  /**
+   * Revokes a pending (or expired) invite so its link is refused.
+   *
+   * - unknown id: NotFoundError (404);
+   * - already used: SignupInvitationUsedError (409) — the shop exists;
+   * - already revoked: returned unchanged with `changed: false`, no write.
+   *
+   * The row is read first because the repository's conditional UPDATE
+   * answers `false` for both "used" and "already revoked". If the UPDATE
+   * still loses (a sign-up finalized in between), the re-read says why.
+   */
+  revoke(id: number, now: string): RevokeSignupInvitationResult {
+    const before = this.inviteRepo.findListRowById(id);
+    if (!before) throw new NotFoundError("Sign-up invitation", id);
+    if (before.used_at) throw new SignupInvitationUsedError();
+    if (before.revoked_at) {
+      return { invitation: toSignupInvitationView(before, now), changed: false };
+    }
+
+    if (!this.inviteRepo.revoke(id, now)) {
+      const raced = this.inviteRepo.findListRowById(id);
+      if (raced?.used_at) throw new SignupInvitationUsedError();
+      if (raced?.revoked_at) {
+        return { invitation: toSignupInvitationView(raced, now), changed: false };
+      }
+      throw new DatabaseError("Sign-up invitation could not be revoked");
+    }
+
+    authLogger.info({ invitationId: id }, "Sign-up invitation revoked");
+    return { invitation: this.viewById(id, now), changed: true };
   }
 
   /**
@@ -410,6 +532,12 @@ export class SignupInvitationService {
       "Sign-up invite used",
     );
     return { ok: true, invite, result };
+  }
+
+  private viewById(id: number, now: string): SignupInvitationView {
+    const row = this.inviteRepo.findListRowById(id);
+    if (!row) throw new DatabaseError("Sign-up invitation could not be reloaded");
+    return toSignupInvitationView(row, now);
   }
 
   private claimHasLapsed(claimedAt: string, now: string): boolean {

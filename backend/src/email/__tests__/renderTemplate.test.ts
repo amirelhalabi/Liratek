@@ -11,6 +11,7 @@
  */
 
 import { renderTemplate, type EmailTemplate } from "../renderTemplate.js";
+import { signupInviteTemplate } from "../templates/signupInvite.js";
 
 function template(parts: Partial<EmailTemplate>): EmailTemplate {
   return {
@@ -102,5 +103,37 @@ describe("renderTemplate", () => {
       b: true,
     });
     expect(out.text).toBe("3 true");
+  });
+});
+
+// US3 (T038): the escaping contract proven on the REAL invite template with
+// hostile values, not just a toy template.
+describe("signup-invite template — hostile values (T038)", () => {
+  const HOSTILE_HINT = "<script>alert(1)</script>";
+  const HOSTILE_URL =
+    'https://www.liratek.test/signup?invite=abc"onmouseover="alert(1)';
+
+  const out = renderTemplate(signupInviteTemplate, {
+    inviteUrl: HOSTILE_URL,
+    shopNameHint: HOSTILE_HINT,
+    expiresAtText: "10 October 2026, 09:00 UTC",
+    supportEmail: "help@liratek.test",
+  });
+
+  it("renders a <script> shop name as text, never as markup", () => {
+    expect(out.html).not.toContain("<script>");
+    expect(out.html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
+  it("keeps a quote in the link inside the href attribute", () => {
+    expect(out.html).not.toContain('"onmouseover="');
+    expect(out.html).toContain(
+      'href="https://www.liratek.test/signup?invite=abc&quot;onmouseover=&quot;alert(1)"',
+    );
+  });
+
+  it("leaves the plain-text body verbatim (it is never parsed as HTML)", () => {
+    expect(out.text).toContain(HOSTILE_HINT);
+    expect(out.text).toContain(HOSTILE_URL);
   });
 });

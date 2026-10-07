@@ -488,6 +488,53 @@ describe("POST /api/admin/tenants (provisioning)", () => {
     }
   });
 
+  // LIRA-267 FR-013b: the optional contact email on "Add shop". Bodies are
+  // parsed through the real createTenantSchema (rule 24), so a renamed
+  // field fails here rather than being silently stripped.
+  it("stores an optional contactEmail (trimmed + lowercased); a duplicate is 409 EMAIL_ALREADY_HAS_SHOP with NO audit entry", async () => {
+    const token = await loginToken("root");
+    const first = {
+      name: "Mail Shop",
+      slug: "mail-shop",
+      contactEmail: "  Owner@MailShop.test ",
+      adminUsername: "mail_admin",
+      adminPassword: "MailPass123!",
+    };
+    expect(core.createTenantSchema.safeParse(first).success).toBe(true);
+    const res = await request(app)
+      .post("/api/admin/tenants")
+      .set("Authorization", `Bearer ${token}`)
+      .send(first);
+    expect(res.status).toBe(201);
+    const tenantId = ((res.body as ApiBody).data!.tenant as { id: number }).id;
+    const stored = db
+      .prepare(`SELECT contact_email FROM tenants WHERE id = ?`)
+      .get(tenantId) as { contact_email: string | null };
+    expect(stored.contact_email).toBe("owner@mailshop.test");
+
+    const before = countAudit("create", "tenant");
+    const duplicate = {
+      name: "Mail Shop Two",
+      slug: "mail-shop-two",
+      contactEmail: "OWNER@mailshop.test",
+      adminUsername: "mail_admin2",
+      adminPassword: "MailPass123!",
+    };
+    expect(core.createTenantSchema.safeParse(duplicate).success).toBe(true);
+    const dup = await request(app)
+      .post("/api/admin/tenants")
+      .set("Authorization", `Bearer ${token}`)
+      .send(duplicate);
+    expect(dup.status).toBe(409);
+    expect((dup.body as ApiBody).success).toBe(false);
+    expect((dup.body as ApiBody).error!.code).toBe("EMAIL_ALREADY_HAS_SHOP");
+    expect(countAudit("create", "tenant")).toBe(before);
+    const second = db
+      .prepare(`SELECT COUNT(*) AS n FROM tenants WHERE slug = 'mail-shop-two'`)
+      .get() as { n: number };
+    expect(second.n).toBe(0);
+  });
+
   it("rejects a duplicate slug with 409 and records NO audit entry", async () => {
     const token = await loginToken("root");
     const before = countAudit("create", "tenant");

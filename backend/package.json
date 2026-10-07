@@ -10,6 +10,7 @@
     "start": "node dist/server.js",
     "typecheck": "yarn workspace @liratek/core build && tsc --noEmit -p tsconfig.typecheck.json",
     "lint": "eslint src --max-warnings=9999",
+    "email:preview": "tsx src/scripts/email-preview.ts",
     "test": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs",
     "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage --coverageDirectory ../coverage/backend --coverageReporters=lcov",
     "env:setup": "[ -f .env ] || cp .env.dev .env",

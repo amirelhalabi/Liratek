@@ -181,6 +181,20 @@ export class EmailNotConfiguredError extends AppError {
   }
 }
 
+export const SIGNUP_INVITATION_USED = "SIGNUP_INVITATION_USED";
+
+/**
+ * LIRA-267: an invite that already created a shop cannot be revoked — the
+ * shop exists, and the list must keep saying which shop it was.
+ */
+export class SignupInvitationUsedError extends AppError {
+  constructor(
+    message: string = "This invite has already been used, so it cannot be revoked",
+  ) {
+    super(SIGNUP_INVITATION_USED, message, 409, true);
+  }
+}
+
 /**
  * Type guard to check if an error is an AppError
  */

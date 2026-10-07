@@ -378,3 +378,130 @@ describe("consume", () => {
     expect(shops.n).toBe(1);
   });
 });
+
+// =============================================================================
+// requestSelfServe (US4, T051)
+// =============================================================================
+
+describe("requestSelfServe", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { authLogger } = require("../../utils/logger.js") as typeof import("../../utils/logger.js");
+  let n = 0;
+
+  beforeEach(() => {
+    n = 0;
+    service = new SignupInvitationService(
+      inviteRepo,
+      outboxRepo,
+      () => `tok_self_${(n += 1)}`,
+    );
+  });
+
+  function req(
+    overrides: Partial<Parameters<SignupInvitationService["requestSelfServe"]>[0]> = {},
+  ) {
+    return service.requestSelfServe({
+      email: "visitor@example.com",
+      now: T0,
+      baseUrl: BASE_URL,
+      supportEmail: "help@liratek.test",
+      emailConfigured: true,
+      dailyCap: 50,
+      ...overrides,
+    });
+  }
+
+  function selfInvites(): Array<{
+    email: string;
+    source: string;
+    invited_by_user_id: number | null;
+  }> {
+    return db
+      .prepare(
+        `SELECT email, source, invited_by_user_id FROM signup_invitations
+          WHERE source = 'self' ORDER BY id`,
+      )
+      .all() as Array<{
+      email: string;
+      source: string;
+      invited_by_user_id: number | null;
+    }>;
+  }
+
+  it("queues a self-sourced invite with no inviter, plus its email", () => {
+    expect(req()).toEqual({ queued: true, reason: "queued" });
+    expect(selfInvites()).toEqual([
+      { email: "visitor@example.com", source: "self", invited_by_user_id: null },
+    ]);
+    expect(countOutbox()).toBe(1);
+  });
+
+  it("does nothing for an address that already has a shop", () => {
+    insertTenant("cellcity", "visitor@example.com");
+    expect(req()).toEqual({ queued: false, reason: "has_shop" });
+    expect(countInvites()).toBe(0);
+    expect(countOutbox()).toBe(0);
+  });
+
+  it("a shop appearing between the check and the insert is still has_shop, never a thrown 409", () => {
+    insertTenant("cellcity", "visitor@example.com");
+    jest
+      .spyOn(inviteRepo, "findTenantByContactEmail")
+      .mockReturnValueOnce(null);
+    expect(req()).toEqual({ queued: false, reason: "has_shop" });
+    expect(countInvites()).toBe(0);
+  });
+
+  it("allows 3 requests per email per hour; the 4th queues nothing; an hour later it works again", () => {
+    expect(req({ now: T0 }).queued).toBe(true);
+    expect(req({ now: plus(T0, 10 * MIN_MS) }).queued).toBe(true);
+    expect(req({ now: plus(T0, 20 * MIN_MS) }).queued).toBe(true);
+    expect(req({ now: plus(T0, 30 * MIN_MS) })).toEqual({
+      queued: false,
+      reason: "email_limit",
+    });
+    expect(selfInvites()).toHaveLength(3);
+    expect(countOutbox()).toBe(3);
+
+    // The first request is now more than an hour old.
+    expect(req({ now: plus(T0, HOUR_MS + 1000) }).queued).toBe(true);
+  });
+
+  it("admin invites to the same address do not count toward the per-email limit", () => {
+    for (let i = 0; i < 3; i += 1) {
+      service.create(params({ email: "visitor@example.com", now: T0 }));
+    }
+    expect(req().queued).toBe(true);
+  });
+
+  it("stops at the daily cap (rolling 24h, all addresses) and warns in the log", () => {
+    const warn = jest.spyOn(authLogger, "warn");
+    expect(req({ email: "a@example.com", dailyCap: 2 }).queued).toBe(true);
+    expect(req({ email: "b@example.com", dailyCap: 2 }).queued).toBe(true);
+    expect(req({ email: "c@example.com", dailyCap: 2 })).toEqual({
+      queued: false,
+      reason: "daily_cap",
+    });
+    expect(selfInvites()).toHaveLength(2);
+    expect(warn).toHaveBeenCalled();
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain("cap");
+    // The address is never logged in plain text.
+    expect(logged).not.toContain("c@example.com");
+    warn.mockRestore();
+
+    expect(
+      req({ email: "c@example.com", dailyCap: 2, now: plus(T0, 24 * HOUR_MS + 1000) })
+        .queued,
+    ).toBe(true);
+  });
+
+  it("checks the shop before the limits: an address over its limit that now has a shop reports has_shop", () => {
+    for (let i = 0; i < 3; i += 1) req({ now: plus(T0, i * MIN_MS) });
+    insertTenant("cellcity", "visitor@example.com");
+    expect(req({ now: plus(T0, 5 * MIN_MS) })).toEqual({
+      queued: false,
+      reason: "has_shop",
+    });
+  });
+});

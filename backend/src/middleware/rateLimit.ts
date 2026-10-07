@@ -77,6 +77,48 @@ export const signupLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Invite-link check limiter (LIRA-267).
+ *
+ * `POST /signup/invite/check` runs every time the sign-up page loads with an
+ * `?invite=` link. It used to share `signupLimiter` (5/hour), so a visitor
+ * who reloaded the page a few times was locked out of SIGNING UP before
+ * they had submitted anything. A check is read-only and reveals only
+ * "usable or not" for a 256-bit token, so it gets its own, roomier budget.
+ */
+export const signupCheckLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: envLimit("SIGNUP_CHECK_RATE_LIMIT_MAX", 30),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn({ ip: req.ip, path: req.path }, "Rate limit exceeded - invite check");
+    res.status(429).json({
+      success: false,
+      error: "Too many requests, please try again later",
+    });
+  },
+});
+
+/**
+ * Self-serve "email me a sign-up link" limiter (LIRA-267 FR-029): 5 per hour
+ * per IP. Counts every request. The answer never depends on the email, so
+ * it may differ from the generic success body (FR-028's one exception).
+ */
+export const signupRequestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: envLimit("SIGNUP_REQUEST_RATE_LIMIT_MAX", 5),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn({ ip: req.ip, path: req.path }, "Rate limit exceeded - sign-up request");
+    res.status(429).json({
+      success: false,
+      error: "Too many requests, please try again later",
+    });
+  },
+});
+
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: envLimit("AUTH_RATE_LIMIT_MAX", 5), // failed attempts per window

@@ -228,10 +228,10 @@
 
 **Independent test:** spec US2 scenarios 1–4.
 
-- [ ] T032 [P] [US2] Extend `signupInvitations.api.test.ts` first. Cases:
+- [X] T032 [P] [US2] Extend `signupInvitations.api.test.ts` first. Cases:
   - `GET /api/admin/signup-invitations` returns `emailConfigured` and items with derived `status` and `email.status`, where a pending outbox row shows as `queued`.
   - `POST /:id/revoke`: 200, and calling it twice is harmless; 409 if the invite is already used; 404 for an unknown id.
-- [ ] T033 [US2] In `SignupInvitationService`, add `list(now)` (map rows to the view shape, `deriveStatus`) and `revoke(id, now)`.
+- [X] T033 [US2] In `SignupInvitationService`, add `list(now)` (map rows to the view shape, `deriveStatus`) and `revoke(id, now)`.
   - In `backend/src/api/admin.ts`, add `GET /signup-invitations` and `POST /signup-invitations/:id/revoke`. Put the static paths before `/:id`. Add the audit entry `signup_invitation.revoke`.
 - [ ] T034 [US2] Add `adminListSignupInvitations` and `adminRevokeSignupInvitation` to `frontend/src/api/backendApi.ts`, and wire them into `useSignupInvitations.ts`.
   - On the Tenants page, add an **Invitations** section or tab below or beside the tenants table. It is a table with email, source (Admin or Self), sent, expires, status, and an email-state badge. A failed send shows `lastError` in a tooltip.
@@ -241,6 +241,7 @@
   - In `backend/src/api/admin.ts`, `POST /tenants` (:100) passes `contactEmail` through and maps a duplicate to 409 `EMAIL_ALREADY_HAS_SHOP`.
   - Add an optional email input to `frontend/src/features/admin/pages/Tenants/components/AddTenantModal.tsx`, typed from `createTenantSchema`.
   - Write tests first, in the existing admin tenants API test and the modal test.
+  - Backend half DONE (`POST /tenants` forwards `contactEmail`; duplicate → 409 `EMAIL_ALREADY_HAS_SHOP`, test in `wp5_wp6_admin_tenant.api.test.ts`). Frontend half (modal field + its test) still open, so this task stays unchecked.
 
 ---
 
@@ -250,7 +251,7 @@
 
 **Independent test:** spec US4 scenarios 1–6. In web e2e, use Cloudflare's always-pass test keys: site `1x00000000000000000000AA` and secret `1x0000000000000000000000000000000AA`. **Likely, based on Cloudflare's Turnstile docs:** those are the documented dummy keys. Verify them before relying on them.
 
-- [ ] T049 [P] [US4] Write tests first in `backend/src/api/__tests__/signupRequest.api.test.ts`, with Turnstile verification mocked through an injectable `verifyTurnstile`. Cases:
+- [X] T049 [P] [US4] Write tests first in `backend/src/api/__tests__/signupRequest.api.test.ts`, with Turnstile verification mocked through an injectable `verifyTurnstile`. Cases:
   - Self-serve off → 200 `success:false` "not available".
   - Turnstile fails → 200 `success:false` "complete the check", and nothing is queued.
   - Valid → 200 with the generic message, and one invite with `source='self'` plus one outbox row.
@@ -260,12 +261,13 @@
   - The 6th request from one IP in an hour → 429 "Too many requests, please try again later", whatever the email.
   - Turnstile `siteverify` times out or errors → 200 `success:false` "Please try again in a few minutes", and nothing is queued.
   - The response body is identical across the valid, has-shop, email-limit and cap cases (FR-028).
-- [ ] T050 [P] [US4] Write the test first, then create `backend/src/security/turnstile.ts`:
+- [X] T050 [P] [US4] Write the test first, then create `backend/src/security/turnstile.ts`:
   - `verifyTurnstile(token, ip)` POSTs form data to `https://challenges.cloudflare.com/turnstile/v0/siteverify` with `secret`, `response` and `remoteip`, a 5-second timeout and global `fetch`.
   - It returns `true` only when `success === true`. Network errors return `false`, so the check fails closed.
   - `isTurnstileConfigured()` is true when both keys are set.
-- [ ] T051 [US4] Add `signupRequestLimiter` to `backend/src/middleware/rateLimit.ts` (5 per hour per IP, following `signupLimiter` at :68). Add `SignupInvitationService.requestSelfServe({ email, now, baseUrl, emailConfigured, dailyCap })`. It returns `{ queued: boolean, reason }`. It checks the existing shop, then the per-email limit (3 per hour), then the daily cap, then calls `create({ source: "self", invitedByUserId: null })`. It contains no SQL.
-- [ ] T052 [US4] Add `POST /api/auth/signup/request` to `backend/src/api/auth.ts`, following contracts/api.md.
+  - As built: returns a tri-state `"passed" | "rejected" | "unavailable"` instead of a boolean, so the route can give contracts/api.md's two different messages. Both non-passed outcomes still fail closed. Cloudflare rejecting OUR secret (`invalid-input-secret` etc.) counts as `unavailable`, not `rejected`.
+- [X] T051 [US4] Add `signupRequestLimiter` to `backend/src/middleware/rateLimit.ts` (5 per hour per IP, following `signupLimiter` at :68). Add `SignupInvitationService.requestSelfServe({ email, now, baseUrl, emailConfigured, dailyCap })`. It returns `{ queued: boolean, reason }`. It checks the existing shop, then the per-email limit (3 per hour), then the daily cap, then calls `create({ source: "self", invitedByUserId: null })`. It contains no SQL.
+- [X] T052 [US4] Add `POST /api/auth/signup/request` to `backend/src/api/auth.ts`, following contracts/api.md.
   - The client IP comes from `req.ip`. Confirm Express `trust proxy` is set to match the Vercel → Fly chain already used by the limiters.
   - Log the outcome with `hashToken(email)`, never the plain address.
   - Extend `GET /signup-status` with `selfServeEnabled` and `turnstileSiteKey`.
@@ -292,7 +294,7 @@
 
 **Independent test:** spec US3 scenarios 1–5.
 
-- [ ] T036 [US3] Extend `outboxWorker.test.ts` first, using the scriptable fake transport and a fixed clock. Cases:
+- [X] T036 [US3] Extend `outboxWorker.test.ts` first, using the scriptable fake transport and a fixed clock. Cases:
   - In one round, a first transient error followed by success leads to `accepted`, with `attempts = 2`.
   - Two transient errors lead to `pending` with `next_attempt_at = now + 10m`.
   - The next round, once due, makes 2 more attempts.
@@ -302,13 +304,13 @@
   - A row stuck in `sending` with `locked_at` older than 10 minutes goes back to `pending` and is sent once.
   - Two `runOutboxOnce` calls on the same tick send once.
   - `last_error` contains no `SMTP_PASS` or `RESEND_API_KEY` value.
-- [ ] T037 [US3] Implement the retry and recovery branches in `backend/src/email/outboxWorker.ts`:
+- [X] T037 [US3] Implement the retry and recovery branches in `backend/src/email/outboxWorker.ts`:
   - Each round makes up to 2 `send` attempts back to back, with a 2-second pause between them. On two transient failures, set `next_attempt_at = now + 600_000`, or mark `failed` if that reaches `give_up_at` or later. Increment `attempts` on every try.
   - Call `recoverStuck` at the start of each run.
   - Classify errors: `PermanentEmailError` → failed; anything else → transient.
   - Before storing the error text, redact any configured secret value from it.
-- [ ] T038 [P] [US3] Add a template-escaping test to `renderTemplate.test.ts`: a shop name hint `<script>alert(1)</script>` and an `inviteUrl` containing `"` render as text and as a safe attribute.
-- [ ] T039 [P] [US3] Create `backend/src/scripts/email-preview.ts` and the `"email:preview": "tsx src/scripts/email-preview.ts"` script in `backend/package.json`.
+- [X] T038 [P] [US3] Add a template-escaping test to `renderTemplate.test.ts`: a shop name hint `<script>alert(1)</script>` and an `inviteUrl` containing `"` render as text and as a safe attribute.
+- [X] T039 [P] [US3] Create `backend/src/scripts/email-preview.ts` and the `"email:preview": "tsx src/scripts/email-preview.ts"` script in `backend/package.json`.
   - It renders `<name>` with built-in sample data into `os.tmpdir()/liratek-email-preview/<name>.html` and `.txt`, prints the paths, and opens the HTML with `open` on macOS or `xdg-open`, ignoring failures.
   - Sample data includes a hostile shop name, to show the escaping.
 

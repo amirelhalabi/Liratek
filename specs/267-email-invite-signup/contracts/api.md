@@ -21,6 +21,7 @@ Returns the 200 most recent invites, newest first.
   "emailConfigured": true,
   "invitations": [{
     "id": 12, "email": "owner@shop.com", "shopNameHint": "Cell City",
+    "source": "admin",                 // admin | self
     "status": "pending",               // pending | used | expired | revoked (derived)
     "createdAt": "2026-10-07T09:00:00.000Z",
     "expiresAt": "2026-10-10T09:00:00.000Z",
@@ -47,9 +48,10 @@ Returns the 200 most recent invites, newest first.
 ### `POST /api/admin/signup-invitations/:id/revoke`
 
 - **200:** `{ success: true, data: { invitation } }`. Calling it again is harmless: an already-revoked invite returns 200 unchanged.
-- **409:** the invite is already used.
+- **409:** `SIGNUP_INVITATION_USED` when the invite is already used. Nothing changes and nothing is audited.
+- **400:** a non-numeric id.
 - **404:** unknown id.
-- **Audit log:** `signup_invitation.revoke`.
+- **Audit log:** `signup_invitation.revoke`, written only when the call actually revoked something (a repeat call is not audited again).
 
 ### Re-sending
 
@@ -69,7 +71,7 @@ A re-send is not a separate route. The owner creates a new invite with `POST`; t
 
 ### `POST /api/auth/signup/invite/check`
 
-The token goes in the request body, not the URL path, so it never ends up in access logs. This route is rate-limited by the existing `signupLimiter`.
+The token goes in the request body, not the URL path, so it never ends up in access logs. This route has its own limiter, `signupCheckLimiter` (30 per hour per IP, tunable with `SIGNUP_CHECK_RATE_LIMIT_MAX`; 429 "Too many requests, please try again later"). It does not share `/signup`'s `signupLimiter`, so loading or reloading the sign-up page does not use up sign-up attempts.
 
 - **Body:** `{ token: string (1..200) }`
 - **200 valid:** `{ success: true, data: { email, shopNameHint, expiresAt } }`

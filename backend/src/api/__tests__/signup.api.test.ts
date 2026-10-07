@@ -85,6 +85,10 @@ jest.mock("@liratek/core", () => {
 // suite and its per-IP window would make these order-dependent.
 jest.mock("../../middleware/rateLimit.js", () => ({
   signupLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  signupCheckLimiter: (_req: unknown, _res: unknown, next: () => void) =>
+    next(),
+  signupRequestLimiter: (_req: unknown, _res: unknown, next: () => void) =>
+    next(),
   authLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   apiLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));

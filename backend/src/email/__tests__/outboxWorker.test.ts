@@ -19,11 +19,16 @@ import path from "node:path";
 import type DatabaseCtor from "better-sqlite3";
 import {
   EmailOutboxRepository,
+  emailLogger,
   SIGNUP_INVITE_TEMPLATE,
   SIGNUP_INVITE_URL_KEY,
   type EmailOutboxEntity,
 } from "@liratek/core";
-import { runOutboxOnce } from "../outboxWorker.js";
+import {
+  EMAIL_OUTBOX_ROUND_PAUSE_MS,
+  runOutboxOnce,
+  type OutboxWorkerDeps,
+} from "../outboxWorker.js";
 import { FakeEmailTransport } from "../transports/fake.js";
 import {
   PermanentEmailError,
@@ -46,6 +51,11 @@ function plus(iso: string, ms: number): string {
 let db: InstanceType<typeof DatabaseCtor>;
 let outbox: EmailOutboxRepository;
 let transport: FakeEmailTransport;
+/** Every pause the worker asked for; the test never actually waits. */
+let pauses: number[];
+
+const SMTP_PASS_VALUE = "hunter2-smtp-pass";
+const RESEND_KEY_VALUE = "re_live_abcdef123456";
 
 beforeEach(() => {
   db = new RealDatabase(":memory:");
@@ -58,6 +68,7 @@ beforeEach(() => {
   (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__ = db;
   outbox = new EmailOutboxRepository();
   transport = new FakeEmailTransport();
+  pauses = [];
 });
 
 afterEach(() => {
@@ -82,12 +93,16 @@ function enqueue(
   });
 }
 
-function deps() {
+function deps(): OutboxWorkerDeps {
   return {
     outbox,
     transport,
     from: "LiraTek <mail@liratek.test>",
     replyTo: "help@liratek.test",
+    sleep: async (ms: number) => {
+      pauses.push(ms);
+    },
+    secrets: [SMTP_PASS_VALUE, RESEND_KEY_VALUE, "", undefined],
   };
 }
 
@@ -168,7 +183,11 @@ describe("runOutboxOnce — no row is left in 'sending' (minimal error branch)",
 
   it("a transient error returns the row to pending, due again in 10 minutes", async () => {
     const row = enqueue();
-    transport.scriptOutcomes(new TransientEmailError("connection reset"));
+    // US3: a round is two attempts, so both must fail for the row to wait.
+    transport.scriptOutcomes(
+      new TransientEmailError("connection reset"),
+      new TransientEmailError("connection reset"),
+    );
 
     await runOutboxOnce(T0, deps());
 
@@ -182,7 +201,10 @@ describe("runOutboxOnce — no row is left in 'sending' (minimal error branch)",
 
   it("a transient error whose retry would land at or after give_up_at fails the row", async () => {
     const row = enqueue({ giveUpAt: plus(T0, TEN_MIN_MS) });
-    transport.scriptOutcomes(new TransientEmailError("timeout"));
+    transport.scriptOutcomes(
+      new TransientEmailError("timeout"),
+      new TransientEmailError("timeout"),
+    );
 
     await runOutboxOnce(T0, deps());
 
@@ -222,5 +244,219 @@ describe("runOutboxOnce — no row is left in 'sending' (minimal error branch)",
     await expect(runOutboxOnce(T0, deps())).resolves.toMatchObject({
       accepted: 0,
     });
+  });
+});
+
+// =============================================================================
+// US3 (T036) — two attempts per round, crash recovery, secret redaction
+// =============================================================================
+
+describe("runOutboxOnce — retry policy (US3)", () => {
+  it("a transient error then success in one round: accepted, attempts = 2, one 2s pause", async () => {
+    const row = enqueue();
+    transport.scriptOutcomes(new TransientEmailError("421 try later"));
+
+    const summary = await runOutboxOnce(T0, deps());
+
+    const after = reload(row.id);
+    expect(after.status).toBe("accepted");
+    expect(after.attempts).toBe(2);
+    expect(transport.calls).toBe(2);
+    expect(transport.sent).toHaveLength(1);
+    expect(pauses).toEqual([EMAIL_OUTBOX_ROUND_PAUSE_MS]);
+    expect(EMAIL_OUTBOX_ROUND_PAUSE_MS).toBe(2000);
+    expect(after.data_json).not.toContain("secret-token");
+    expect(summary).toMatchObject({ accepted: 1, retried: 0, failed: 0 });
+  });
+
+  it("two transient errors: pending, next_attempt_at = now + 10m, attempts = 2", async () => {
+    const row = enqueue();
+    transport.scriptOutcomes(
+      new TransientEmailError("timeout 1"),
+      new TransientEmailError("timeout 2"),
+    );
+
+    const summary = await runOutboxOnce(T0, deps());
+
+    const after = reload(row.id);
+    expect(after.status).toBe("pending");
+    expect(after.next_attempt_at).toBe(plus(T0, TEN_MIN_MS));
+    expect(after.attempts).toBe(2);
+    expect(after.last_error).toContain("timeout 2");
+    expect(after.locked_at).toBeNull();
+    expect(transport.calls).toBe(2);
+    expect(summary).toMatchObject({ retried: 1 });
+  });
+
+  it("the next round, once due (and not before), makes two more attempts", async () => {
+    const row = enqueue();
+    transport.scriptOutcomes(
+      new TransientEmailError("a"),
+      new TransientEmailError("b"),
+    );
+    await runOutboxOnce(T0, deps());
+
+    // Not due yet: nothing happens.
+    await runOutboxOnce(plus(T0, TEN_MIN_MS - 1000), deps());
+    expect(transport.calls).toBe(2);
+
+    transport.scriptOutcomes(
+      new TransientEmailError("c"),
+      new TransientEmailError("d"),
+    );
+    await runOutboxOnce(plus(T0, TEN_MIN_MS), deps());
+    let after = reload(row.id);
+    expect(transport.calls).toBe(4);
+    expect(after.attempts).toBe(4);
+    expect(after.status).toBe("pending");
+    expect(after.next_attempt_at).toBe(plus(T0, 2 * TEN_MIN_MS));
+
+    await runOutboxOnce(plus(T0, 2 * TEN_MIN_MS), deps());
+    after = reload(row.id);
+    expect(after.status).toBe("accepted");
+    expect(after.attempts).toBe(5);
+    expect(transport.sent).toHaveLength(1);
+  });
+
+  it("when now + 10m reaches give_up_at, two transient errors fail the row with last_error and scrub the link", async () => {
+    const row = enqueue({ giveUpAt: plus(T0, TEN_MIN_MS + 5000) });
+    transport.scriptOutcomes(
+      new TransientEmailError("x"),
+      new TransientEmailError("still down"),
+    );
+    // First round: T0 + 10m < give_up_at, so it waits.
+    await runOutboxOnce(T0, deps());
+    expect(reload(row.id).status).toBe("pending");
+
+    transport.scriptOutcomes(
+      new TransientEmailError("y"),
+      new TransientEmailError("still down at the end"),
+    );
+    await runOutboxOnce(plus(T0, TEN_MIN_MS), deps());
+
+    const after = reload(row.id);
+    expect(after.status).toBe("failed");
+    expect(after.attempts).toBe(4);
+    expect(after.last_error).toContain("still down at the end");
+    expect(after.data_json).not.toContain("secret-token");
+  });
+
+  it("a permanent error fails at once: one attempt, no pause, link scrubbed", async () => {
+    const row = enqueue();
+    transport.scriptOutcomes(new PermanentEmailError("550 no such user"));
+
+    const summary = await runOutboxOnce(T0, deps());
+
+    const after = reload(row.id);
+    expect(after.status).toBe("failed");
+    expect(after.attempts).toBe(1);
+    expect(transport.calls).toBe(1);
+    expect(pauses).toEqual([]);
+    expect(after.last_error).toContain("550 no such user");
+    expect(JSON.parse(after.data_json)).not.toHaveProperty(
+      SIGNUP_INVITE_URL_KEY,
+    );
+    expect(summary).toMatchObject({ failed: 1 });
+  });
+
+  it("a transient then a permanent error in one round fails the row (attempts = 2)", async () => {
+    const row = enqueue();
+    transport.scriptOutcomes(
+      new TransientEmailError("blip"),
+      new PermanentEmailError("535 auth rejected"),
+    );
+    await runOutboxOnce(T0, deps());
+    const after = reload(row.id);
+    expect(after.status).toBe("failed");
+    expect(after.attempts).toBe(2);
+    expect(after.last_error).toContain("535 auth rejected");
+  });
+});
+
+describe("runOutboxOnce — crash recovery (US3)", () => {
+  function markStuck(id: number, lockedAt: string): void {
+    db.prepare(
+      `UPDATE email_outbox SET status = 'sending', locked_at = ? WHERE id = ?`,
+    ).run(lockedAt, id);
+  }
+
+  it("a row stuck in sending for more than 10 minutes goes back to pending and is sent once", async () => {
+    const row = enqueue();
+    markStuck(row.id, plus(T0, -(TEN_MIN_MS + 60_000)));
+
+    await runOutboxOnce(T0, deps());
+    await runOutboxOnce(plus(T0, 30_000), deps());
+
+    const after = reload(row.id);
+    expect(after.status).toBe("accepted");
+    expect(transport.calls).toBe(1);
+    expect(transport.sent).toHaveLength(1);
+  });
+
+  it("a row locked 5 minutes ago is left alone (another run may still be sending it)", async () => {
+    const row = enqueue();
+    markStuck(row.id, plus(T0, -5 * 60_000));
+
+    await runOutboxOnce(T0, deps());
+
+    const after = reload(row.id);
+    expect(after.status).toBe("sending");
+    expect(transport.calls).toBe(0);
+  });
+});
+
+describe("runOutboxOnce — concurrency (US3)", () => {
+  it("two runs on the same tick send once, even while the first is paused between attempts", async () => {
+    const row = enqueue();
+    transport.scriptOutcomes(new TransientEmailError("first try fails"));
+    const yielding: OutboxWorkerDeps = {
+      ...deps(),
+      // A real yield to the event loop, so the second run gets in mid-round.
+      sleep: () => new Promise<void>((resolve) => setImmediate(resolve)),
+    };
+
+    await Promise.all([
+      runOutboxOnce(T0, yielding),
+      runOutboxOnce(T0, yielding),
+    ]);
+
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.calls).toBe(2);
+    expect(reload(row.id).status).toBe("accepted");
+  });
+});
+
+describe("runOutboxOnce — secret redaction (US3)", () => {
+  it("last_error and the log never contain a configured secret value", async () => {
+    const warn = jest.spyOn(emailLogger, "warn");
+    const row = enqueue();
+    const leak = `auth failed for user mail with pass ${SMTP_PASS_VALUE} (key ${RESEND_KEY_VALUE})`;
+    transport.scriptOutcomes(
+      new TransientEmailError(leak),
+      new TransientEmailError(leak),
+    );
+
+    await runOutboxOnce(T0, deps());
+
+    const after = reload(row.id);
+    expect(after.last_error).toContain("auth failed for user mail");
+    expect(after.last_error).toContain("[redacted]");
+    expect(after.last_error).not.toContain(SMTP_PASS_VALUE);
+    expect(after.last_error).not.toContain(RESEND_KEY_VALUE);
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).not.toContain(SMTP_PASS_VALUE);
+    expect(logged).not.toContain(RESEND_KEY_VALUE);
+    warn.mockRestore();
+  });
+
+  it("an empty or unset secret does not mangle the message", async () => {
+    const row = enqueue();
+    transport.scriptOutcomes(
+      new PermanentEmailError("550 mailbox unavailable"),
+    );
+    await runOutboxOnce(T0, deps());
+    expect(reload(row.id).last_error).toBe(
+      "PermanentEmailError: 550 mailbox unavailable",
+    );
   });
 });

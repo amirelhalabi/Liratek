@@ -257,3 +257,244 @@ describe("POST /api/admin/signup-invitations", () => {
     expect(count("signup_invitations")).toBe(0);
   });
 });
+
+// =============================================================================
+// US2 (T032) — list and revoke
+// =============================================================================
+
+async function createInvite(
+  token: string,
+  input: { email: string; shopNameHint?: string },
+): Promise<number> {
+  const res = await request(app)
+    .post("/api/admin/signup-invitations")
+    .set("Authorization", `Bearer ${token}`)
+    .send(body(input));
+  expect(res.status).toBe(201);
+  return res.body.data.invitation.id as number;
+}
+
+function auditCount(action: string, entityId: number): number {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM audit_log WHERE action = ? AND entity_id = ?`,
+      )
+      .get(action, String(entityId)) as { n: number }
+  ).n;
+}
+
+describe("GET /api/admin/signup-invitations", () => {
+  const url = "/api/admin/signup-invitations";
+
+  it("403 for a shop admin", async () => {
+    const token = await loginToken("cell_admin");
+    const res = await request(app)
+      .get(url)
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("lists newest first with emailConfigured, derived status, delivery state and the shop that used it", async () => {
+    const token = await loginToken("root");
+    const pendingId = await createInvite(token, {
+      email: "pending@example.com",
+      shopNameHint: "Pending Shop",
+    });
+    const usedId = await createInvite(token, { email: "used@example.com" });
+    const expiredId = await createInvite(token, {
+      email: "expired@example.com",
+    });
+
+    // pending + sending both show as "queued"; attempts come from the outbox.
+    db.prepare(
+      `UPDATE email_outbox SET status = 'sending', attempts = 2
+        WHERE idempotency_key = ?`,
+    ).run(`signup-invite:${pendingId}`);
+    db.prepare(
+      `UPDATE email_outbox SET status = 'accepted', attempts = 1,
+              sent_at = '2026-10-07T09:00:01.000Z'
+        WHERE idempotency_key = ?`,
+    ).run(`signup-invite:${usedId}`);
+    db.prepare(
+      `UPDATE email_outbox SET status = 'failed', attempts = 4,
+              last_error = 'PermanentEmailError: mailbox does not exist'
+        WHERE idempotency_key = ?`,
+    ).run(`signup-invite:${expiredId}`);
+    db.prepare(
+      `UPDATE signup_invitations SET used_at = ?, used_by_tenant_id = 2
+        WHERE id = ?`,
+    ).run("2026-10-07T09:30:00.000Z", usedId);
+    db.prepare(
+      `UPDATE signup_invitations SET expires_at = '2000-01-01T00:00:00.000Z'
+        WHERE id = ?`,
+    ).run(expiredId);
+
+    const res = await request(app)
+      .get(url)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.emailConfigured).toBe(true);
+    const items = res.body.data.invitations as Array<Record<string, unknown>>;
+    expect(items.map((i) => i.id)).toEqual([expiredId, usedId, pendingId]);
+
+    const byId = new Map(items.map((i) => [i.id as number, i]));
+    expect(byId.get(pendingId)).toMatchObject({
+      email: "pending@example.com",
+      shopNameHint: "Pending Shop",
+      source: "admin",
+      status: "pending",
+      usedByTenant: null,
+      emailDelivery: { status: "queued", attempts: 2, lastError: null },
+    });
+    expect(byId.get(usedId)).toMatchObject({
+      status: "used",
+      usedAt: "2026-10-07T09:30:00.000Z",
+      usedByTenant: { id: 2, slug: "cellcity" },
+      emailDelivery: {
+        status: "accepted",
+        attempts: 1,
+        sentAt: "2026-10-07T09:00:01.000Z",
+      },
+    });
+    expect(byId.get(expiredId)).toMatchObject({
+      status: "expired",
+      emailDelivery: {
+        status: "failed",
+        attempts: 4,
+        lastError: "PermanentEmailError: mailbox does not exist",
+      },
+    });
+
+    // Never the token or its hash.
+    const serialised = JSON.stringify(res.body);
+    expect(serialised).not.toContain("token");
+    const hashes = db
+      .prepare(`SELECT token_hash FROM signup_invitations`)
+      .all() as Array<{ token_hash: string }>;
+    for (const { token_hash } of hashes) {
+      expect(serialised).not.toContain(token_hash);
+    }
+  });
+
+  it("reports emailConfigured: false when the server cannot send", async () => {
+    emailConfigured = false;
+    const token = await loginToken("root");
+    const res = await request(app)
+      .get(url)
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ emailConfigured: false, invitations: [] });
+  });
+});
+
+describe("POST /api/admin/signup-invitations/:id/revoke", () => {
+  const revokeUrl = (id: number | string) =>
+    `/api/admin/signup-invitations/${id}/revoke`;
+
+  it("403 for a shop admin; nothing revoked", async () => {
+    const root = await loginToken("root");
+    const id = await createInvite(root, { email: "keep@example.com" });
+    const token = await loginToken("cell_admin");
+    const res = await request(app)
+      .post(revokeUrl(id))
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(403);
+    const row = db
+      .prepare(`SELECT revoked_at FROM signup_invitations WHERE id = ?`)
+      .get(id) as { revoked_at: string | null };
+    expect(row.revoked_at).toBeNull();
+  });
+
+  it("200 with the revoked view, audits once; a second call is harmless and not re-audited", async () => {
+    const token = await loginToken("root");
+    const id = await createInvite(token, { email: "wrong@example.com" });
+
+    const first = await request(app)
+      .post(revokeUrl(id))
+      .set("Authorization", `Bearer ${token}`);
+    expect(first.status).toBe(200);
+    expect(first.body.success).toBe(true);
+    expect(first.body.data.invitation).toMatchObject({
+      id,
+      email: "wrong@example.com",
+      status: "revoked",
+    });
+    const revokedAt = first.body.data.invitation.revokedAt as string;
+    expect(typeof revokedAt).toBe("string");
+    expect(auditCount("signup_invitation.revoke", id)).toBe(1);
+
+    const second = await request(app)
+      .post(revokeUrl(id))
+      .set("Authorization", `Bearer ${token}`);
+    expect(second.status).toBe(200);
+    expect(second.body.data.invitation).toMatchObject({
+      id,
+      status: "revoked",
+      revokedAt,
+    });
+    expect(auditCount("signup_invitation.revoke", id)).toBe(1);
+  });
+
+  it("the revoked link is refused by the invite check", async () => {
+    const token = await loginToken("root");
+    const id = await createInvite(token, { email: "gone@example.com" });
+    const outbox = db
+      .prepare(`SELECT data_json FROM email_outbox WHERE idempotency_key = ?`)
+      .get(`signup-invite:${id}`) as { data_json: string };
+    const rawToken = new URL(
+      (JSON.parse(outbox.data_json) as { inviteUrl: string }).inviteUrl,
+    ).searchParams.get("invite")!;
+
+    await request(app)
+      .post(revokeUrl(id))
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    const check = await request(app)
+      .post("/api/auth/signup/invite/check")
+      .send({ token: rawToken });
+    expect(check.body.success).toBe(false);
+  });
+
+  it("409 when the invite is already used; not revoked, not audited", async () => {
+    const token = await loginToken("root");
+    const id = await createInvite(token, { email: "done@example.com" });
+    db.prepare(
+      `UPDATE signup_invitations SET used_at = ?, used_by_tenant_id = 2
+        WHERE id = ?`,
+    ).run("2026-10-07T09:30:00.000Z", id);
+
+    const res = await request(app)
+      .post(revokeUrl(id))
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe("SIGNUP_INVITATION_USED");
+    const row = db
+      .prepare(`SELECT revoked_at FROM signup_invitations WHERE id = ?`)
+      .get(id) as { revoked_at: string | null };
+    expect(row.revoked_at).toBeNull();
+    expect(auditCount("signup_invitation.revoke", id)).toBe(0);
+  });
+
+  it("404 for an unknown id", async () => {
+    const token = await loginToken("root");
+    const res = await request(app)
+      .post(revokeUrl(999999))
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("400 for a non-numeric id", async () => {
+    const token = await loginToken("root");
+    const res = await request(app)
+      .post(revokeUrl("abc"))
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+});

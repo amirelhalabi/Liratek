@@ -19,6 +19,10 @@ import { jest } from "@jest/globals";
 jest.mock("../../middleware/rateLimit.js", () => ({
   authLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   signupLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  signupCheckLimiter: (_req: unknown, _res: unknown, next: () => void) =>
+    next(),
+  signupRequestLimiter: (_req: unknown, _res: unknown, next: () => void) =>
+    next(),
   apiLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 

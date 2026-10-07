@@ -10,6 +10,7 @@ import {
   EMAIL_REPLY_TO,
   SIGNUP_INVITE_BASE_URL,
 } from "@liratek/core";
+import { isEmailConfigured } from "./createTransport.js";
 
 /** `LiraTek <mail@liratek.shop>` -> `mail@liratek.shop`; a bare address is
  * returned trimmed. */
@@ -38,4 +39,14 @@ export function resolveInviteBaseUrl(
   if (explicit) return explicit.replace(/\/+$/, "");
   if (baseDomain) return `https://www.${baseDomain}`;
   return null;
+}
+
+/**
+ * Can this deployment email an invite link at all? Needs BOTH a mail
+ * transport and somewhere for the link to point. The one definition used by
+ * the admin list's `emailConfigured` banner and by self-serve availability,
+ * so neither can claim "configured" while every send would be refused.
+ */
+export function canSendInvites(): boolean {
+  return isEmailConfigured() && resolveInviteBaseUrl() !== null;
 }

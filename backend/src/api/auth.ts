@@ -19,12 +19,21 @@ import {
   EMAIL_ALREADY_HAS_SHOP,
   SIGNUP_INVITE_INVALID_MESSAGE,
   checkSignupInviteSchema,
+  requestSignupLinkSchema,
   getSignupInvitationService,
+  hashToken,
   safeEqual,
+  SIGNUP_SELF_SERVE_DAILY_CAP,
+  TURNSTILE_SITE_KEY,
   type TenantEntity,
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
-import { signupLimiter, authLimiter } from "../middleware/rateLimit.js";
+import {
+  signupLimiter,
+  signupCheckLimiter,
+  signupRequestLimiter,
+  authLimiter,
+} from "../middleware/rateLimit.js";
 import { auditRest } from "../middleware/audit.js";
 import { provisionTenantDomain } from "../services/tenantDomains.js";
 import {
@@ -37,6 +46,12 @@ import { authenticateJWT, type LiratekJwtPayload } from "../middleware/auth.js";
 import { isPerTenantDbMode } from "../database/tenantDbMode.js";
 import { logger } from "../server.js";
 import { isEmailConfigured } from "../email/createTransport.js";
+import {
+  canSendInvites,
+  resolveInviteBaseUrl,
+  resolveSupportEmail,
+} from "../email/emailConfig.js";
+import { isTurnstileConfigured, verifyTurnstile } from "../security/turnstile.js";
 import jwt from "jsonwebtoken";
 
 const router = express.Router();
@@ -631,6 +646,7 @@ router.delete(
 router.get("/signup-status", (req, res): void => {
   const realm = resolveTenantHost(req);
   const platformHost = realm.kind === "platform";
+  const selfServeEnabled = isSelfServeAvailable();
 
   res.json(
     createSuccessResponse({
@@ -638,6 +654,12 @@ router.get("/signup-status", (req, res): void => {
       // LIRA-267: can the platform email invite links at all? A boolean
       // only, never which transport.
       emailInvitesEnabled: isEmailConfigured(),
+      // LIRA-267 US4: can a visitor ask for a sign-up link by email? Both
+      // email and Turnstile must be configured. The site key is public (it
+      // is embedded in the page by design) and only sent when the form can
+      // actually be used.
+      selfServeEnabled,
+      turnstileSiteKey: selfServeEnabled ? (TURNSTILE_SITE_KEY ?? null) : null,
       platformHost,
       // Only alongside platformHost, and only so the page can spell out the
       // address format ("<your-shop>.liratek.shop"). Null everywhere else.
@@ -667,10 +689,11 @@ router.get("/signup-status", (req, res): void => {
 // path, so it stays out of access logs. Every unusable link — unknown,
 // expired, used, revoked, or claimed by a sign-up in progress — gets the
 // SAME 200 + success:false answer (FR-009), so the response says nothing
-// about why. Rate-limited like /signup.
+// about why. Has its OWN limiter (signupCheckLimiter, 30/hour/IP): loading
+// the sign-up page must not use up the /signup budget.
 router.post(
   "/signup/invite/check",
-  signupLimiter,
+  signupCheckLimiter,
   validateRequest(checkSignupInviteSchema),
   (req, res): void => {
     try {
@@ -695,6 +718,81 @@ router.post(
       res.json(
         createErrorResponse(ErrorCodes.FORBIDDEN, SIGNUP_INVITE_INVALID_MESSAGE),
       );
+    }
+  },
+);
+
+// POST /api/auth/signup/request — "email me a sign-up link" (PUBLIC, US4)
+//
+// contracts/api.md. Order: per-IP limiter (5/hour, 429) -> schema ->
+// self-serve available? -> Turnstile (fails closed) -> requestSelfServe.
+// Once Turnstile passes, the answer is IDENTICAL whether the link was sent,
+// the address already has a shop, the per-email limit was hit or the daily
+// cap was reached (FR-028), so the form cannot be used to learn which
+// addresses have shops. The address is logged only as hashToken(email).
+// No audit row: there is no tenant and no actor.
+//
+// `req.ip` is the client as seen through `trust proxy` (server.ts).
+const SELF_SERVE_NOT_AVAILABLE = "Sign-up is not available right now.";
+const SELF_SERVE_TURNSTILE_REJECTED = "Please complete the check and try again.";
+const SELF_SERVE_TRY_LATER = "Please try again in a few minutes.";
+const SELF_SERVE_GENERIC_MESSAGE =
+  "If this address can be used, we've emailed a link.";
+
+/** The ONE definition of "a visitor can ask for a sign-up link" (rule 14),
+ * shared by signup-status and the request route: invite links can be sent
+ * (transport + base URL) and Turnstile is configured. */
+function isSelfServeAvailable(): boolean {
+  return canSendInvites() && isTurnstileConfigured();
+}
+
+/** Rule 19c envelope: HTTP 200, plain-string error. */
+function selfServeRefusal(res: express.Response, message: string): void {
+  res.json({ success: false, error: message });
+}
+
+router.post(
+  "/signup/request",
+  signupRequestLimiter,
+  validateRequest(requestSignupLinkSchema),
+  async (req, res): Promise<void> => {
+    const email: string = req.body.email;
+    const emailHash = hashToken(email);
+    try {
+      const baseUrl = resolveInviteBaseUrl();
+      if (!isSelfServeAvailable() || !baseUrl) {
+        selfServeRefusal(res, SELF_SERVE_NOT_AVAILABLE);
+        return;
+      }
+
+      const verdict = await verifyTurnstile(req.body.turnstileToken, req.ip);
+      if (verdict !== "passed") {
+        logger.info({ emailHash, verdict }, "Self-serve sign-up: Turnstile not passed");
+        selfServeRefusal(
+          res,
+          verdict === "rejected" ? SELF_SERVE_TURNSTILE_REJECTED : SELF_SERVE_TRY_LATER,
+        );
+        return;
+      }
+
+      const outcome = runWithoutTenant(() =>
+        getSignupInvitationService().requestSelfServe({
+          email,
+          now: new Date().toISOString(),
+          baseUrl,
+          supportEmail: resolveSupportEmail(),
+          emailConfigured: isEmailConfigured(),
+          dailyCap: SIGNUP_SELF_SERVE_DAILY_CAP,
+        }),
+      );
+      logger.info(
+        { emailHash, queued: outcome.queued, reason: outcome.reason },
+        "Self-serve sign-up request handled",
+      );
+      res.json(createSuccessResponse({ message: SELF_SERVE_GENERIC_MESSAGE }));
+    } catch (error) {
+      logger.error({ error, emailHash }, "Self-serve sign-up request failed");
+      selfServeRefusal(res, SELF_SERVE_TRY_LATER);
     }
   },
 );

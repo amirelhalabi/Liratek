@@ -56,6 +56,7 @@ import {
 import { randomBytes } from "node:crypto";
 import { isEmailConfigured } from "../email/createTransport.js";
 import {
+  canSendInvites,
   resolveInviteBaseUrl,
   resolveSupportEmail,
 } from "../email/emailConfig.js";
@@ -114,6 +115,10 @@ router.post("/tenants", validateRequest(createTenantSchema), (req, res) => {
         contactName: req.body.contactName,
         contactPhone: req.body.contactPhone,
         notes: req.body.notes,
+        // LIRA-267 FR-013b: optional; a duplicate surfaces as
+        // EmailAlreadyHasShopError (409 EMAIL_ALREADY_HAS_SHOP) from the
+        // unique index, mapped by the AppError branch below.
+        contactEmail: req.body.contactEmail,
         adminUsername: req.body.adminUsername,
         adminPassword: req.body.adminPassword,
       }),
@@ -242,6 +247,98 @@ router.post(
     }
   },
 );
+
+// =============================================================================
+// GET /api/admin/signup-invitations — the newest 200 invites (LIRA-267, US2)
+// =============================================================================
+
+router.get("/signup-invitations", (_req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const invitations = runWithoutTenant(() =>
+      getSignupInvitationService().list(now),
+    );
+    res.json(
+      createSuccessResponse({
+        emailConfigured: canSendInvites(),
+        invitations,
+      }),
+    );
+  } catch (error) {
+    logger.error({ error }, "GET /api/admin/signup-invitations failed");
+    res
+      .status(500)
+      .json(
+        createErrorResponse(
+          ErrorCodes.INTERNAL_ERROR,
+          "Failed to list invitations",
+        ),
+      );
+  }
+});
+
+// =============================================================================
+// POST /api/admin/signup-invitations/:id/revoke — refuse an invite's link
+// (LIRA-267, US2). Repeating it is harmless: an already-revoked invite comes
+// back 200 unchanged and is not audited again.
+// =============================================================================
+
+router.post("/signup-invitations/:id/revoke", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res
+        .status(400)
+        .json(
+          createErrorResponse(
+            ErrorCodes.VALIDATION_ERROR,
+            "Invalid invitation id",
+          ),
+        );
+      return;
+    }
+
+    const { invitation, changed } = runWithoutTenant(() =>
+      getSignupInvitationService().revoke(id, new Date().toISOString()),
+    );
+
+    if (changed) {
+      // Platform action, no shop: platform row only. Never throws.
+      getAuditService().logAdminAction({
+        actorUserId: req.user!.userId,
+        actorUsername: req.user!.username,
+        actorRole: req.user!.role,
+        targetTenantId: null,
+        action: "signup_invitation.revoke",
+        entityType: "signup_invitation",
+        entityId: String(invitation.id),
+        summary: `Revoked the sign-up invite sent to ${invitation.email}`,
+        newValues: { email: invitation.email, revokedAt: invitation.revokedAt },
+      });
+    }
+
+    res.json(createSuccessResponse({ invitation }));
+  } catch (error) {
+    if (error instanceof AppError) {
+      res
+        .status(error.statusCode)
+        .json(createErrorResponse(error.code, error.message, error.details));
+      return;
+    }
+    logger.error(
+      { error },
+      "POST /api/admin/signup-invitations/:id/revoke failed",
+    );
+    res
+      .status(500)
+      .json(
+        createErrorResponse(
+          ErrorCodes.INTERNAL_ERROR,
+          "Failed to revoke the invitation",
+        ),
+      );
+  }
+});
 
 // =============================================================================
 // PATCH /api/admin/tenants/:id — update name/status/contact/notes

@@ -86,8 +86,12 @@ export interface SignupInvitationListRow {
   created_at: string;
   updated_at: string;
   email_status: EmailOutboxStatus | null;
+  /** Every individual send attempt so far; null when there is no outbox row. */
+  email_attempts: number | null;
   email_last_error: string | null;
   email_sent_at: string | null;
+  /** Slug of the shop this invite created; null until used. */
+  used_by_tenant_slug: string | null;
 }
 
 export interface TenantByContactEmail {
@@ -113,6 +117,25 @@ const COLUMNS = [
   "created_at",
   "updated_at",
 ].join(", ");
+
+/**
+ * The ONE projection behind every admin list row (rule 14): the invite minus
+ * its token hash, the announcing email's state, and the slug of the shop it
+ * created. `listRecent` and `findListRowById` add only their WHERE/ORDER.
+ */
+const LIST_ROW_SELECT = `
+  SELECT si.id, si.email, si.shop_name_hint, si.source,
+         si.invited_by_user_id, si.expires_at, si.claimed_at,
+         si.used_at, si.used_by_tenant_id, si.revoked_at,
+         si.email_outbox_id, si.created_at, si.updated_at,
+         eo.status AS email_status,
+         eo.attempts AS email_attempts,
+         eo.last_error AS email_last_error,
+         eo.sent_at AS email_sent_at,
+         t.slug AS used_by_tenant_slug
+    FROM signup_invitations si
+    LEFT JOIN email_outbox eo ON eo.id = si.email_outbox_id
+    LEFT JOIN tenants t ON t.id = si.used_by_tenant_id`;
 
 // =============================================================================
 // Derived status (pure)
@@ -275,19 +298,20 @@ export class SignupInvitationRepository extends BaseRepository<SignupInvitationE
   listRecent(limit: number): SignupInvitationListRow[] {
     return this.db
       .prepare(
-        `SELECT si.id, si.email, si.shop_name_hint, si.source,
-                si.invited_by_user_id, si.expires_at, si.claimed_at,
-                si.used_at, si.used_by_tenant_id, si.revoked_at,
-                si.email_outbox_id, si.created_at, si.updated_at,
-                eo.status AS email_status,
-                eo.last_error AS email_last_error,
-                eo.sent_at AS email_sent_at
-           FROM signup_invitations si
-           LEFT JOIN email_outbox eo ON eo.id = si.email_outbox_id
+        `${LIST_ROW_SELECT}
           ORDER BY si.created_at DESC, si.id DESC
           LIMIT ?`,
       )
       .all(limit) as SignupInvitationListRow[];
+  }
+
+  /** One admin list row by id, or null. Never the hash. */
+  findListRowById(id: number): SignupInvitationListRow | null {
+    return (
+      (this.db
+        .prepare(`${LIST_ROW_SELECT} WHERE si.id = ?`)
+        .get(id) as SignupInvitationListRow | undefined) ?? null
+    );
   }
 
   /**
