@@ -68,15 +68,17 @@ function countRows(
 /**
  * Inserts exactly ONE row into every `RESET_WIPE_TABLES` table for the given
  * tenant, satisfying every NOT-NULL foreign key in `create_db.sql` (nullable
- * FKs are left NULL — they need no parent row). 12 of the 54 rows double as
+ * FKs are left NULL — they need no parent row). 12 of the 53 rows double as
  * both a "parent" row (referenced by another WIPE table's mandatory FK) and
  * a WIPE-table row in their own right (e.g. `sales` / `sale_items`), so this
- * function's WIPE-table INSERT count is 54, matching `RESET_WIPE_TABLES
+ * function's WIPE-table INSERT count is 53, matching `RESET_WIPE_TABLES
  * .length` exactly — asserted by the "fixture sanity" step in each test
  * that uses it. `carrier_lines` is inserted too (as a non-WIPE parent for
  * `carrier_line_movements` / `carrier_line_owed_deliveries` /
  * `daily_closing_carrier_lines`), but since LIRA-254 it is a RESET_ZERO_TABLES
- * entry, not a WIPE one, so it does not count toward the 54.
+ * entry, not a WIPE one, so it does not count toward the 53. `sessions` (login sign-ins) is
+ * inserted too but is a RESET_KEEP_TABLES entry since 2026-10-07, so it does
+ * not count either — DatabaseResetRepository.keepsSignIns.test.ts guards it.
  * `defer_foreign_keys` removes any insertion-order requirement.
  */
 function insertTenantFixture(db: Database.Database, tenantId: number): void {
@@ -359,7 +361,7 @@ describe("DatabaseResetRepository", () => {
     insertTenantFixture(db, 1);
 
     // Fixture sanity — every WIPE table starts with exactly 1 row, and the
-    // fixture wrote exactly RESET_WIPE_TABLES.length rows (54), not fewer
+    // fixture wrote exactly RESET_WIPE_TABLES.length rows (53), not fewer
     // (a silently-skipped table would otherwise make this test pass
     // vacuously on that table).
     for (const table of RESET_WIPE_TABLES) {

@@ -30,7 +30,10 @@ import { parseMetaSafe } from "../auditConstants";
 import { formatPaymentLegs } from "../cashFlow";
 import {
   cashLegsFor,
+  cashMovementLine,
   checkpointPhysicalTotals,
+  displayAmountFields,
+  displaySummary,
   formatAmount,
   formatCheckpointAmounts,
   formatPaymentMethods,
@@ -39,6 +42,7 @@ import {
   methodLegsFor,
   sessionPooledCashLegsFor,
   sessionPooledMethodLegsFor,
+  sessionReversalLine,
 } from "../transactionDisplay";
 import { CashFlowBadge } from "./CashFlowBadge";
 import type { RowDerived } from "../rowDerived";
@@ -81,7 +85,12 @@ export function SummaryCell({
   isLegDetailExpanded: boolean;
   onToggleLegDetail: (rowId: number) => void;
 }) {
-  const { tender, commissionAmount, isGroupHeader } = derived;
+  const { commissionAmount, isGroupHeader } = derived;
+  // Production test 2026-10-07: the badge carries the TRANSACTION amount
+  // (Sale #99 → $4.25), never the cash handed over ($5) — the cash has its
+  // own line below.
+  const amount = commissionAmount ?? displayAmountFields(row);
+  const summaryText = displaySummary(row);
   return (
     <td className="p-2">
       <div className="flex flex-col gap-0.5">
@@ -99,15 +108,17 @@ export function SummaryCell({
         )}
         <CashFlowBadge
           type={row.type}
-          amountUsd={commissionAmount?.usd ?? tender?.usd ?? row.amount_usd}
-          amountLbp={commissionAmount?.lbp ?? tender?.lbp ?? row.amount_lbp}
+          amountUsd={amount.usd}
+          amountLbp={amount.lbp}
           metaJson={row.metadata_json}
           legs={row.payments}
+          reversesId={row.reverses_id}
+          signedAmounts={{ usd: row.amount_usd, lbp: row.amount_lbp }}
           providerBalance={derived.providerBalance}
         />
-        {row.summary && (
+        {summaryText && (
           <span className="text-slate-400 truncate max-w-[480px]">
-            {row.summary}
+            {summaryText}
           </span>
         )}
         {row.type === "CHECKPOINT" &&
@@ -125,7 +136,10 @@ export function SummaryCell({
             // LIRA-201b fix round (M3): always THIS row's own legs only —
             // never merged with the session's pooled basket legs, even on
             // the chosen group-header row. See cashLegsFor's doc.
-            const legs = formatPaymentLegs(cashLegsFor(row));
+            // A sale / its void / a refund: the cash in words ("paid $5.00
+            // · change $0.50"); every other type keeps "in: … · out: …".
+            const legs =
+              cashMovementLine(row) ?? formatPaymentLegs(cashLegsFor(row));
             const rate = row.exchange_rate
               ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
               : null;
@@ -145,15 +159,33 @@ export function SummaryCell({
           (() => {
             // LIRA-201b fix round (M3): the session basket's pooled total,
             // on its OWN labelled line — never mixed with the line above.
-            const legs = formatPaymentLegs(sessionPooledCashLegsFor(row));
-            if (!legs) return null;
+            // Production test 2026-10-07: a voided/refunded basket's pooled
+            // list also holds the reversal legs — summed together they read
+            // "in: $5.5 · out: $5.5". The checkout's own legs stay on this
+            // line; the reversal gets its own line in words.
+            const pooled = sessionPooledCashLegsFor(row);
+            const legs = formatPaymentLegs(pooled.filter((l) => !l.reversal));
+            const reversal = sessionReversalLine(pooled);
+            if (!legs && !reversal) return null;
             return (
-              <span
-                data-testid="session-payment-legs"
-                className="text-[11px] font-mono text-sky-500/70 truncate max-w-[480px]"
-              >
-                Session: {legs}
-              </span>
+              <>
+                {legs && (
+                  <span
+                    data-testid="session-payment-legs"
+                    className="text-[11px] font-mono text-sky-500/70 truncate max-w-[480px]"
+                  >
+                    Session: {legs}
+                  </span>
+                )}
+                {reversal && (
+                  <span
+                    data-testid="session-reversal-legs"
+                    className="text-[11px] font-mono text-sky-500/70 truncate max-w-[480px]"
+                  >
+                    {reversal}
+                  </span>
+                )}
+              </>
             );
           })()}
         {(methodLegsFor(row).length > 0 ||
@@ -202,7 +234,10 @@ export function AmountCell({
   row: TransactionRow;
   derived: RowDerived;
 }) {
-  const { credit, partnerSigned, tender, commissionAmount } = derived;
+  const { credit, partnerSigned, commissionAmount } = derived;
+  // The transaction amount, signed (a void/refund reads "−$4.25") — never the
+  // tender (production test 2026-10-07). See displayAmountFields.
+  const value = displayAmountFields(row);
   return (
     <td className="p-2 truncate" style={{ width: 160 }}>
       <span className={voidedText(row)}>
@@ -217,15 +252,9 @@ export function AmountCell({
             })()
           : formatAmount(
               commissionAmount?.usd ??
-                tender?.usd ??
-                (credit || partnerSigned
-                  ? Math.abs(row.amount_usd)
-                  : row.amount_usd),
+                (credit || partnerSigned ? Math.abs(value.usd) : value.usd),
               commissionAmount?.lbp ??
-                tender?.lbp ??
-                (credit || partnerSigned
-                  ? Math.abs(row.amount_lbp)
-                  : row.amount_lbp),
+                (credit || partnerSigned ? Math.abs(value.lbp) : value.lbp),
               row.metadata_json,
               row.type,
             )}

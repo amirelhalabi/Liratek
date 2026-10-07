@@ -300,8 +300,76 @@ export function getCashFlowDirection(
   }
 }
 
+const flipDirection = (
+  d: CashFlowDirection | null,
+): CashFlowDirection | null => (d === "in" ? "out" : d === "out" ? "in" : d);
+
+/** The arrow a row's own cash legs imply: out-only → out, in-only → in,
+ *  both → both, none → no badge. */
+function directionFromLegs(
+  legs: Array<{ direction: "in" | "out" }> | undefined,
+): CashFlowDirection | null {
+  const hasIn = !!legs?.some((l) => l.direction === "in");
+  const hasOut = !!legs?.some((l) => l.direction === "out");
+  if (hasIn && hasOut) return "both";
+  if (hasIn) return "in";
+  if (hasOut) return "out";
+  return null;
+}
+
 /**
- * SALE rows show the TENDER — what the customer actually handed over, summed
+ * The badge direction for one transactions-table ROW — `getCashFlowDirection`
+ * plus the two reversal shapes it cannot see from the type alone
+ * (production test 2026-10-07: void arrows did not match the amount's sign).
+ *
+ *  - A VOID row (`reverses_id` set, any type but REFUND) copies the
+ *    original's `type` and `metadata_json` and negates its amounts and legs
+ *    (`TransactionRepository._voidTransactionInternal`), so the per-type
+ *    answer is the ORIGINAL's direction — a voided sale showed a green ↓.
+ *    The answer is that direction reversed. It is computed from the
+ *    original's own inputs (signed amounts negated back, legs flipped back)
+ *    BEFORE reversing, so a type whose direction comes from its amount sign
+ *    (a historical PARTNER_* row) is reversed exactly once, not twice.
+ *    "both" and "no badge" are unchanged by a reversal.
+ *  - A REFUND row's type implies nothing (registry `direction: null`) and
+ *    its original's type is not on the row; its own legs say which way the
+ *    money went back (a sale's refund hands cash OUT, a payout's refund
+ *    takes it back IN). No cash legs → no badge, as before.
+ */
+export function getRowCashFlowDirection(row: {
+  type: string;
+  metadata_json: string | null;
+  amount_usd: number;
+  amount_lbp: number;
+  reverses_id?: number | null;
+  payments?: Array<{ direction: "in" | "out" }> | undefined;
+}): CashFlowDirection | null {
+  const legs = row.payments;
+  if (row.type === "REFUND") return directionFromLegs(legs);
+  const signed = { usd: row.amount_usd, lbp: row.amount_lbp };
+  if (row.reverses_id == null) {
+    return getCashFlowDirection(row.type, row.metadata_json, signed, legs);
+  }
+  const original = getCashFlowDirection(
+    row.type,
+    row.metadata_json,
+    { usd: -signed.usd, lbp: -signed.lbp },
+    legs?.map((l) => ({
+      ...l,
+      direction: l.direction === "in" ? ("out" as const) : ("in" as const),
+    })),
+  );
+  return flipDirection(original);
+}
+
+/**
+ * NO LONGER USED BY THE TABLE (production test 2026-10-07): the Amount column
+ * and badge now show the sale's VALUE (`displayAmountFields`), and the cash
+ * handed over is worded on its own line (`cashMovementLine`). Showing the
+ * tender made Sale #99 ($4.25, paid $5) read "$5" and its void "$0.5".
+ * Kept, with its unit test, only as the per-currency tender helper.
+ *
+ * Previously: SALE rows showed the TENDER — what the customer actually handed over, summed
  * per currency from the IN payment legs — in the Amount column and cash-flow
  * badge, instead of the row's amount fields. The amount fields carry the
  * sale's USD value; rendering value + tendered LBP together read as
@@ -358,6 +426,9 @@ export type TransactionPaymentLeg = {
   method: string;
   /** The drawer this leg moved money in/out of; absent for legs with no drawer (e.g. CUSTOMER_ACCOUNT). */
   drawer_name?: string;
+  /** A session basket's pooled leg that reverses the checkout (whole-basket
+   *  void/refund) — mirrors core's `TransactionPaymentLeg.reversal`. */
+  reversal?: true;
 };
 
 /** Format a single payment amount with its currency, e.g. "$50" or "100,000 LBP". */

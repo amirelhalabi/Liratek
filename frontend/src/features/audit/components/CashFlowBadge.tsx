@@ -6,8 +6,11 @@
  * helpers around it — that mix is what made the old TransactionsViewer hard
  * to navigate in the first place.
  */
-import { formatAmount, isSignedAmountType } from "../transactionDisplay";
-import { getCashFlowDirection, type TransactionPaymentLeg } from "../cashFlow";
+import { formatAmount } from "../transactionDisplay";
+import {
+  getRowCashFlowDirection,
+  type TransactionPaymentLeg,
+} from "../cashFlow";
 
 export interface CashFlowBadgeProps {
   type: string;
@@ -29,6 +32,15 @@ export interface CashFlowBadgeProps {
    *  figure for a bills-only row, not the stored 0/0) — this component never
    *  sees the stored amounts to re-derive it from. */
   providerBalance: boolean;
+  /** The row's `reverses_id`: set on a void/refund, whose arrow is the
+   *  original's reversed (production test 2026-10-07 — see
+   *  `getRowCashFlowDirection`). */
+  reversesId?: number | null;
+  /** The row's STORED amount_usd/amount_lbp, sign intact. Direction for the
+   *  signed-amount types is read from these; `amountUsd`/`amountLbp` above
+   *  are the display figure and may differ (a bills-only commission, a
+   *  sale's USD-only value). Defaults to the display figure. */
+  signedAmounts?: { usd: number; lbp: number };
 }
 
 export function CashFlowBadge({
@@ -38,6 +50,8 @@ export function CashFlowBadge({
   metaJson,
   legs,
   providerBalance,
+  reversesId = null,
+  signedAmounts,
 }: CashFlowBadgeProps) {
   // LIRA-140: money that landed in a PROVIDER BALANCE, not a till — matches
   // the split the closing count sheet already makes (till cash and provider
@@ -75,23 +89,25 @@ export function CashFlowBadge({
     );
   }
 
-  const direction = getCashFlowDirection(
+  const direction = getRowCashFlowDirection({
     type,
-    metaJson,
-    {
-      usd: amountUsd,
-      lbp: amountLbp,
-    },
-    legs,
-  );
+    metadata_json: metaJson ?? null,
+    amount_usd: signedAmounts?.usd ?? amountUsd,
+    amount_lbp: signedAmounts?.lbp ?? amountLbp,
+    reverses_id: reversesId,
+    payments: legs,
+  });
   if (!direction) return null;
 
-  // Partner/carrier-line-adjustment rows carry a signed magnitude (see
-  // isSignedAmountType) — the sign was only needed above to resolve
-  // direction; show the plain amount.
-  const amountStr = isSignedAmountType(type)
-    ? formatAmount(Math.abs(amountUsd), Math.abs(amountLbp), metaJson, type)
-    : formatAmount(amountUsd, amountLbp, metaJson, type);
+  // The arrow carries the direction, so the badge always shows the plain
+  // magnitude: a signed partner/carrier-line row, and (production test
+  // 2026-10-07) a void/refund's negated value — "↑ $4.25", never "↑ −$4.25".
+  const amountStr = formatAmount(
+    Math.abs(amountUsd),
+    Math.abs(amountLbp),
+    metaJson,
+    type,
+  );
 
   if (direction === "both") {
     return (

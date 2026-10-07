@@ -517,6 +517,39 @@ function profitClass(value: number): string {
 }
 
 /**
+ * Display fix (production review 2026-10-07) — a deduction line (Cost,
+ * Expenses) is written "-$4.00", but a zero deduction used to read "-$0.00".
+ * Prefixes the minus only when the amount is nonzero at the precision it is
+ * shown at (cents for USD, whole pounds for LBP), so a zero — or float dust
+ * that rounds to zero — reads "$0.00". The ONE place this rule lives
+ * (rule 14); every deduction line on this page goes through it.
+ */
+function deductionLabel(
+  value: number,
+  currency: "USD" | "LBP",
+  formatAmount: (value: number, currency: "USD" | "LBP") => string,
+): string {
+  const scale = currency === "LBP" ? 1 : 100;
+  if (Math.round(Math.abs(value) * scale) === 0)
+    return formatAmount(0, currency);
+  return `-${formatAmount(value, currency)}`;
+}
+
+/**
+ * Display fix (production review 2026-10-07) — By Cashier / By Client used
+ * to show the raw `transaction_count` (5) beside an "Avg Profit/Txn" divided
+ * by `recognized_transaction_count` (4), so the two never agreed. Both now
+ * read this one figure. Falls back to the raw count only for an older cached
+ * payload that predates the recognized column.
+ */
+function countedTransactions(row: {
+  transaction_count: number;
+  recognized_transaction_count?: number | null;
+}): number {
+  return row.recognized_transaction_count ?? row.transaction_count ?? 0;
+}
+
+/**
  * LIRA-233 (#14 slice 3 review round, finding 2) — a drill-down row's list
  * key. `id` alone collides for FINANCIAL_SERVICE_<provider> (a
  * `financial_services.id` and a `settlement_commission_allocations.id` are
@@ -806,9 +839,7 @@ export default function Profits() {
     useState<CommissionsReport | null>(null);
   // PA-4.16: same "a broken query must not read as a quiet day" fix as
   // byPaymentError/pendingError — own loader/tab only.
-  const [commissionsError, setCommissionsError] = useState<string | null>(
-    null,
-  );
+  const [commissionsError, setCommissionsError] = useState<string | null>(null);
   const [pendingData, setPendingData] = useState<{
     rows: {
       sale_id: number;
@@ -1177,11 +1208,14 @@ export default function Profits() {
             </div>
           </div>
         )}
-        {!currentTabLoading && tab === "overview" && !summaryError && !summary && (
-          <div className="text-center py-12 text-slate-500">
-            No data for this period
-          </div>
-        )}
+        {!currentTabLoading &&
+          tab === "overview" &&
+          !summaryError &&
+          !summary && (
+            <div className="text-center py-12 text-slate-500">
+              No data for this period
+            </div>
+          )}
         {!currentTabLoading && tab === "overview" && summary && (
           <div className="space-y-6">
             {/* PA-4.22 — headline "Total Net Profit" card: an explicit
@@ -1421,14 +1455,12 @@ export default function Profits() {
                             data-testid="deferred-unpaid-sales-caption"
                             className="text-[10px] text-amber-500/60 font-normal"
                           >
-                            as of now, all dates — not scoped to the range
-                            above
+                            as of now, all dates — not scoped to the range above
                           </span>
                         </span>
                         <span className="text-amber-300 font-semibold text-right">
                           {formatAmount(
-                            summary.deferred.unpaid_sales_outstanding_usd ??
-                              0,
+                            summary.deferred.unpaid_sales_outstanding_usd ?? 0,
                             "USD",
                           )}
                           <span className="block text-[11px] text-amber-400/70 font-normal">
@@ -1457,10 +1489,22 @@ export default function Profits() {
                   <span className="text-sm font-medium text-white">
                     Product Sales
                   </span>
-                  <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">
-                    {summary.sales.count} sales
+                  {/* Display fix 2026-10-07 — the count is NET (same rows
+                      as the revenue/cost/profit lines below), so a period
+                      whose sales were all voided or refunded read a bare
+                      "0 sales". Labeled as net instead of re-counted, so the
+                      badge and the money lines keep describing the same
+                      sales. */}
+                  <span
+                    className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full"
+                    title="Voided, fully refunded and unpaid sales are not counted"
+                  >
+                    {summary.sales.count ?? 0} net sales
                   </span>
                 </div>
+                <p className="text-[11px] text-slate-500">
+                  Voided, fully refunded and unpaid sales are not counted.
+                </p>
                 <div className="text-xs text-slate-400 space-y-1">
                   <div className="flex justify-between">
                     <span>Total Sales</span>
@@ -1471,7 +1515,11 @@ export default function Profits() {
                   <div className="flex justify-between">
                     <span>Cost</span>
                     <span className="text-red-400">
-                      -{formatAmount(summary.sales.cost_usd, "USD")}
+                      {deductionLabel(
+                        summary.sales.cost_usd,
+                        "USD",
+                        formatAmount,
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between border-t border-slate-700 pt-1">
@@ -1564,8 +1612,7 @@ export default function Profits() {
                       a past period's total can legitimately increase after
                       the fact. */}
                   <p className="text-[10px] text-slate-500 italic">
-                    Commission appears when settled; past periods may
-                    increase.
+                    Commission appears when settled; past periods may increase.
                   </p>
                   {(summary.financial_services.pending_commission_usd > 0 ||
                     summary.financial_services.pending_commission_lbp > 0 ||
@@ -1771,7 +1818,7 @@ export default function Profits() {
                     Custom Services
                   </span>
                   <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full">
-                    {summary.custom_services.count} jobs
+                    {summary.custom_services.count ?? 0} jobs
                   </span>
                 </div>
                 <div className="text-xs text-slate-400 space-y-1">
@@ -1871,7 +1918,7 @@ export default function Profits() {
                     Maintenance
                   </span>
                   <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
-                    {summary.maintenance.count} jobs
+                    {summary.maintenance.count ?? 0} jobs
                   </span>
                 </div>
                 <div className="text-xs text-slate-400 space-y-1">
@@ -1886,7 +1933,11 @@ export default function Profits() {
                   <div className="flex justify-between">
                     <span>Cost</span>
                     <span className="text-red-400">
-                      -{formatAmount(summary.maintenance.cost_usd, "USD")}
+                      {deductionLabel(
+                        summary.maintenance.cost_usd,
+                        "USD",
+                        formatAmount,
+                      )}
                       {(summary.maintenance.cost_lbp ?? 0) > 0 &&
                         ` − ${formatAmount(summary.maintenance.cost_lbp, "LBP")}`}
                     </span>
@@ -2356,15 +2407,20 @@ export default function Profits() {
                   alongside the real LBP figure. Hidden now whenever LBP
                   carried the period's expenses alone (same convention as
                   combinedAmountLabel/PA-4.7) — a genuinely all-zero period
-                  still shows "USD: -$0.00", since there is nothing else to
-                  show instead. */}
+                  still shows the USD column, since there is nothing else to
+                  show instead; it reads "USD: $0.00" (display fix
+                  2026-10-07, deductionLabel), no longer "-$0.00". */}
               <div className="flex gap-6 text-sm">
                 {(summary.expenses.total_usd !== 0 ||
                   summary.expenses.total_lbp === 0) && (
                   <div>
                     <span className="text-slate-400">USD: </span>
                     <span className="text-red-400 font-semibold">
-                      -{formatAmount(summary.expenses.total_usd, "USD")}
+                      {deductionLabel(
+                        summary.expenses.total_usd,
+                        "USD",
+                        formatAmount,
+                      )}
                     </span>
                   </div>
                 )}
@@ -2372,7 +2428,11 @@ export default function Profits() {
                   <div>
                     <span className="text-slate-400">LBP: </span>
                     <span className="text-red-400 font-semibold">
-                      -{formatAmount(summary.expenses.total_lbp, "LBP")}
+                      {deductionLabel(
+                        summary.expenses.total_lbp,
+                        "LBP",
+                        formatAmount,
+                      )}
                     </span>
                   </div>
                 )}
@@ -2407,8 +2467,8 @@ export default function Profits() {
                 directly counted transaction. Named once here rather than a
                 per-row tooltip nobody hovers. */}
             <p className="px-4 pt-3 text-[10px] text-slate-500 italic">
-              A row with Count 0 but nonzero profit was allocated at
-              settlement, not counted transaction-by-transaction.
+              A row with Count 0 but nonzero profit was allocated at settlement,
+              not counted transaction-by-transaction.
             </p>
             <DataTable<ModuleRow>
               columns={[
@@ -2636,9 +2696,7 @@ export default function Profits() {
                                       formatAmount={formatAmount}
                                     />
                                   </span>
-                                  <span className="text-slate-500">
-                                    (Net)
-                                  </span>
+                                  <span className="text-slate-500">(Net)</span>
                                   {/* note #3 (2026-09-24, CLOSED "no
                                       change") — the "≈ X LBP combined (at
                                       buy rate N)" figure that used to sit
@@ -2702,9 +2760,7 @@ export default function Profits() {
                 // every render of this table.
                 return (
                   <Fragment key={row.module}>
-                    <tr
-                      className="border-b border-slate-700/50 hover:bg-slate-700/30"
-                    >
+                    <tr className="border-b border-slate-700/50 hover:bg-slate-700/30">
                       <td className="px-4 py-3 font-medium text-white">
                         {/* PA-4.23 — expandable row: click to see
                             Revenue − Cost = Profit per currency, and for
@@ -2808,14 +2864,15 @@ export default function Profits() {
                               <p className="font-semibold text-slate-300 mb-1">
                                 USD
                               </p>
-                              <p data-testid={`by-module-detail-${row.module}-usd`}>
+                              <p
+                                data-testid={`by-module-detail-${row.module}-usd`}
+                              >
                                 {rowClass === PROFIT_ROW_CLASS.EQUATION ? (
                                   <>
                                     {formatAmount(row.revenue_usd, "USD")} −{" "}
                                     {formatAmount(row.cost_usd ?? 0, "USD")}
                                     {isSale &&
-                                      (row.sale_kept_change_usd ?? 0) !==
-                                        0 && (
+                                      (row.sale_kept_change_usd ?? 0) !== 0 && (
                                         <>
                                           {" "}
                                           {(row.sale_kept_change_usd ?? 0) > 0
@@ -2854,8 +2911,7 @@ export default function Profits() {
                                       {formatAmount(row.profit_usd, "USD")}
                                     </span>
                                   </>
-                                ) : rowClass ===
-                                  PROFIT_ROW_CLASS.COMMISSION ? (
+                                ) : rowClass === PROFIT_ROW_CLASS.COMMISSION ? (
                                   <>
                                     Commission:{" "}
                                     <span
@@ -2880,14 +2936,15 @@ export default function Profits() {
                               <p className="font-semibold text-slate-300 mb-1">
                                 LBP
                               </p>
-                              <p data-testid={`by-module-detail-${row.module}-lbp`}>
+                              <p
+                                data-testid={`by-module-detail-${row.module}-lbp`}
+                              >
                                 {rowClass === PROFIT_ROW_CLASS.EQUATION ? (
                                   <>
                                     {formatAmount(row.revenue_lbp, "LBP")} −{" "}
                                     {formatAmount(row.cost_lbp ?? 0, "LBP")}
                                     {isSale &&
-                                      (row.sale_kept_change_lbp ?? 0) !==
-                                        0 && (
+                                      (row.sale_kept_change_lbp ?? 0) !== 0 && (
                                         <>
                                           {" "}
                                           {(row.sale_kept_change_lbp ?? 0) > 0
@@ -2915,8 +2972,7 @@ export default function Profits() {
                                       {formatAmount(row.profit_lbp, "LBP")}
                                     </span>
                                   </>
-                                ) : rowClass ===
-                                  PROFIT_ROW_CLASS.COMMISSION ? (
+                                ) : rowClass === PROFIT_ROW_CLASS.COMMISSION ? (
                                   <>
                                     Commission:{" "}
                                     <span
@@ -2953,9 +3009,16 @@ export default function Profits() {
                                     Parts / Labour split
                                   </p>
                                   <p>
-                                    Parts: {formatAmount(row.parts_revenue_usd ?? 0, "USD")}{" "}
+                                    Parts:{" "}
+                                    {formatAmount(
+                                      row.parts_revenue_usd ?? 0,
+                                      "USD",
+                                    )}{" "}
                                     revenue −{" "}
-                                    {formatAmount(row.parts_cost_usd ?? 0, "USD")}{" "}
+                                    {formatAmount(
+                                      row.parts_cost_usd ?? 0,
+                                      "USD",
+                                    )}{" "}
                                     cost ={" "}
                                     <span
                                       className={profitClass(
@@ -3011,9 +3074,9 @@ export default function Profits() {
                                     row.kept_change_lbp ?? 0,
                                     formatAmount,
                                   )}{" "}
-                                  — already counted in the period&rsquo;s
-                                  gross profit, not in this row&rsquo;s own
-                                  Profit column above.
+                                  — already counted in the period&rsquo;s gross
+                                  profit, not in this row&rsquo;s own Profit
+                                  column above.
                                 </p>
                               </div>
                             )}
@@ -3086,8 +3149,8 @@ export default function Profits() {
                                     return (
                                       <div className="space-y-2">
                                         <p className="font-semibold text-slate-300">
-                                          Transactions —{" "}
-                                          {detail.counted.length} counted
+                                          Transactions — {detail.counted.length}{" "}
+                                          counted
                                           {detail.not_counted.length > 0
                                             ? `, ${detail.not_counted.length} not counted yet`
                                             : ""}
@@ -3118,7 +3181,9 @@ export default function Profits() {
                                             </thead>
                                             <tbody>
                                               {detail.counted.map((r) => (
-                                                <Fragment key={moduleDetailRowKey(r)}>
+                                                <Fragment
+                                                  key={moduleDetailRowKey(r)}
+                                                >
                                                   <tr className="border-t border-slate-800">
                                                     <td className="py-1 pr-2 text-slate-400">
                                                       {parseDbDate(
@@ -3263,8 +3328,7 @@ export default function Profits() {
                                                     )}
                                                 </Fragment>
                                               ))}
-                                              {detail.counted.length ===
-                                                0 && (
+                                              {detail.counted.length === 0 && (
                                                 <tr>
                                                   <td
                                                     colSpan={5}
@@ -3301,9 +3365,7 @@ export default function Profits() {
                                                     lbp={
                                                       detail.counted_total_profit_lbp
                                                     }
-                                                    formatAmount={
-                                                      formatAmount
-                                                    }
+                                                    formatAmount={formatAmount}
                                                   />
                                                 </td>
                                                 <td />
@@ -3347,25 +3409,22 @@ export default function Profits() {
                                                 </tr>
                                               </thead>
                                               <tbody>
-                                                {detail.not_counted.map(
-                                                  (r) => (
-                                                    <Fragment
-                                                      key={moduleDetailRowKey(
-                                                        r,
-                                                      )}
-                                                    >
-                                                      <tr className="border-t border-slate-800">
-                                                        <td className="py-1 pr-2 text-slate-500">
-                                                          {parseDbDate(
-                                                            r.date,
-                                                          ).toLocaleDateString()}
-                                                        </td>
-                                                        <td className="py-1 pr-2 text-slate-500">
-                                                          {r.counterpart}
-                                                        </td>
-                                                        <td className="py-1 pr-2 text-slate-500">
-                                                          {r.detail || "—"}
-                                                          {/* PROF-DD-FIX
+                                                {detail.not_counted.map((r) => (
+                                                  <Fragment
+                                                    key={moduleDetailRowKey(r)}
+                                                  >
+                                                    <tr className="border-t border-slate-800">
+                                                      <td className="py-1 pr-2 text-slate-500">
+                                                        {parseDbDate(
+                                                          r.date,
+                                                        ).toLocaleDateString()}
+                                                      </td>
+                                                      <td className="py-1 pr-2 text-slate-500">
+                                                        {r.counterpart}
+                                                      </td>
+                                                      <td className="py-1 pr-2 text-slate-500">
+                                                        {r.detail || "—"}
+                                                        {/* PROF-DD-FIX
                                                               (review round,
                                                               OA14-3) — an
                                                               auto-booked fee
@@ -3378,40 +3437,39 @@ export default function Profits() {
                                                               its SMS fee) —
                                                               it was silently
                                                               left out before. */}
-                                                          {r.fee_note && (
-                                                            <span
-                                                              className={feeNoteClass(
-                                                                r.fee_note_kind,
-                                                              )}
-                                                            >
-                                                              {" "}
-                                                              · {r.fee_note}
-                                                            </span>
-                                                          )}
-                                                        </td>
-                                                        <td className="py-1 text-right">
-                                                          <ProfitAmountSpans
-                                                            usd={r.profit_usd}
-                                                            lbp={r.profit_lbp}
-                                                            formatAmount={
-                                                              formatAmount
-                                                            }
-                                                          />
+                                                        {r.fee_note && (
+                                                          <span
+                                                            className={feeNoteClass(
+                                                              r.fee_note_kind,
+                                                            )}
+                                                          >
+                                                            {" "}
+                                                            · {r.fee_note}
+                                                          </span>
+                                                        )}
+                                                      </td>
+                                                      <td className="py-1 text-right">
+                                                        <ProfitAmountSpans
+                                                          usd={r.profit_usd}
+                                                          lbp={r.profit_lbp}
+                                                          formatAmount={
+                                                            formatAmount
+                                                          }
+                                                        />
+                                                      </td>
+                                                    </tr>
+                                                    {r.reason && (
+                                                      <tr>
+                                                        <td
+                                                          colSpan={4}
+                                                          className="pb-1 pr-2 text-slate-500 italic"
+                                                        >
+                                                          {r.reason}
                                                         </td>
                                                       </tr>
-                                                      {r.reason && (
-                                                        <tr>
-                                                          <td
-                                                            colSpan={4}
-                                                            className="pb-1 pr-2 text-slate-500 italic"
-                                                          >
-                                                            {r.reason}
-                                                          </td>
-                                                        </tr>
-                                                      )}
-                                                    </Fragment>
-                                                  ),
-                                                )}
+                                                    )}
+                                                  </Fragment>
+                                                ))}
                                               </tbody>
                                             </table>
                                           </div>
@@ -3515,8 +3573,14 @@ export default function Profits() {
               <DataTable<DateRow>
                 columns={[
                   { header: "Date", className: "text-left px-4 py-3" },
-                  { header: "Revenue (USD)", className: "text-right px-4 py-3" },
-                  { header: "Revenue (LBP)", className: "text-right px-4 py-3" },
+                  {
+                    header: "Revenue (USD)",
+                    className: "text-right px-4 py-3",
+                  },
+                  {
+                    header: "Revenue (LBP)",
+                    className: "text-right px-4 py-3",
+                  },
                   {
                     header: "Gross Profit (USD)",
                     className: "text-right px-4 py-3",
@@ -3525,7 +3589,10 @@ export default function Profits() {
                     header: "Gross Profit (LBP)",
                     className: "text-right px-4 py-3",
                   },
-                  { header: "Expenses (USD)", className: "text-right px-4 py-3" },
+                  {
+                    header: "Expenses (USD)",
+                    className: "text-right px-4 py-3",
+                  },
                   {
                     header: "Expenses (LBP)",
                     className: "text-right px-4 py-3",
@@ -3608,11 +3675,19 @@ export default function Profits() {
                                 : "—"}
                             </td>
                             <td className="px-4 py-3 text-right text-red-400">
-                              -{formatAmount(totalExpensesUsd, "USD")}
+                              {deductionLabel(
+                                totalExpensesUsd,
+                                "USD",
+                                formatAmount,
+                              )}
                             </td>
                             <td className="px-4 py-3 text-right text-red-400">
                               {totalExpensesLbp !== 0
-                                ? `-${formatAmount(totalExpensesLbp, "LBP")}`
+                                ? deductionLabel(
+                                    totalExpensesLbp,
+                                    "LBP",
+                                    formatAmount,
+                                  )
                                 : "—"}
                             </td>
                             <td
@@ -3662,14 +3737,18 @@ export default function Profits() {
                     </td>
                     <td className="px-4 py-3 text-right text-red-400">
                       {d.expenses_usd > 0
-                        ? `-${formatAmount(d.expenses_usd, "USD")}`
+                        ? deductionLabel(d.expenses_usd, "USD", formatAmount)
                         : "—"}
                     </td>
                     {/* PA-4.14 — expenses_lbp was already returned by
                         getByDate and never rendered. */}
                     <td className="px-4 py-3 text-right text-red-400">
                       {(d.expenses_lbp ?? 0) > 0
-                        ? `-${formatAmount(d.expenses_lbp ?? 0, "LBP")}`
+                        ? deductionLabel(
+                            d.expenses_lbp ?? 0,
+                            "LBP",
+                            formatAmount,
+                          )
                         : "—"}
                     </td>
                     <td
@@ -4030,8 +4109,9 @@ export default function Profits() {
                     partner-ledger) discounts stay excluded — a discount's
                     "who earned this" is genuinely three-way ambiguous. */}
                 <p className="px-4 pt-3 text-xs text-slate-500">
-                  Excludes counterparty discounts — not attributable to a
-                  single cashier.
+                  Excludes counterparty discounts — not attributable to a single
+                  cashier. Transactions is the count Avg Profit/Txn divides by —
+                  refunds and supplier settlements are not counted separately.
                 </p>
                 <DataTable<UserRow>
                   columns={[
@@ -4120,7 +4200,7 @@ export default function Profits() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-300">
-                        {row.transaction_count}
+                        {countedTransactions(row)}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-300">
                         {/* PA-4.19: divide by recognized_transaction_count,
@@ -4141,7 +4221,8 @@ export default function Profits() {
                           (row.profit_lbp ?? 0) !== 0 && (
                             <div className="text-xs text-slate-500">
                               {formatAmount(
-                                row.profit_lbp / row.recognized_transaction_count,
+                                row.profit_lbp /
+                                  row.recognized_transaction_count,
                                 "LBP",
                               )}
                             </div>
@@ -4177,7 +4258,9 @@ export default function Profits() {
                 {/* PA-2.6: see the By Cashier tab's identical caption above. */}
                 <p className="px-4 pt-3 text-xs text-slate-500">
                   Excludes exchange profit and counterparty discounts — not
-                  attributable to a single client.
+                  attributable to a single client. Transactions counts the same
+                  events as By Cashier — refunds and supplier settlements are
+                  not counted separately.
                 </p>
                 {/* PA-4.19: getProfitByClient is silently capped at the top
                     30 clients by profit — say so instead of letting the list
@@ -4187,9 +4270,9 @@ export default function Profits() {
                     below the cutoff — the notice now says so. */}
                 {byClient.length >= 30 && (
                   <p className="px-4 pb-1 text-xs text-slate-500">
-                    Showing the top 30 clients by profit for this period,
-                    ranked by USD profit (LBP-only profit is not included in
-                    the ranking).
+                    Showing the top 30 clients by profit for this period, ranked
+                    by USD profit (LBP-only profit is not included in the
+                    ranking).
                   </p>
                 )}
                 <DataTable<ClientRow>
@@ -4279,7 +4362,7 @@ export default function Profits() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-300">
-                        {row.transaction_count}
+                        {countedTransactions(row)}
                       </td>
                     </tr>
                   )}
@@ -4301,9 +4384,7 @@ export default function Profits() {
               <p className="font-medium text-red-300">
                 Couldn't load commissions
               </p>
-              <p className="mt-1 text-xs text-red-400/80">
-                {commissionsError}
-              </p>
+              <p className="mt-1 text-xs text-red-400/80">{commissionsError}</p>
             </div>
           </div>
         )}
@@ -4415,8 +4496,8 @@ export default function Profits() {
                     below, not a second currency-mismatched pie. */}
                 <p className="text-[11px] text-slate-500 mb-2 leading-snug">
                   Inner ring: transfer/transaction volume moved through each
-                  provider (not profit). Outer ring: commission pending, as
-                  of now. LBP figures are in the table.
+                  provider (not profit). Outer ring: commission pending, as of
+                  now. LBP figures are in the table.
                 </p>
                 <div className="mb-4">
                   {awaitingSettlementCount > 0 && (
@@ -4610,10 +4691,7 @@ export default function Profits() {
             period, so a broken query silently looked like a quiet day. */}
         {!loading && tab === "pending" && pendingError && (
           <div className="flex items-start gap-3 rounded-xl border border-red-800/50 bg-red-950/30 p-4">
-            <AlertTriangle
-              size={18}
-              className="mt-0.5 shrink-0 text-red-400"
-            />
+            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-400" />
             <div>
               <p className="font-medium text-red-300">
                 Couldn't load pending profit
@@ -4653,8 +4731,8 @@ export default function Profits() {
                     {pendingData.unsettled_totals.count} txns
                   </span>
                 )}
-                {(pendingData.unsettled_totals.awaiting_settlement_count ??
-                  0) > 0 && (
+                {(pendingData.unsettled_totals.awaiting_settlement_count ?? 0) >
+                  0 && (
                   <span
                     className="text-xs bg-amber-900/50 text-amber-400 px-2 py-0.5 rounded-full border border-amber-700"
                     title="Post-cutover OMT/WHISH/BILL rows — the real commission is unknowable until settlement, so this is a count, never a $ figure."
@@ -4686,8 +4764,8 @@ export default function Profits() {
                         Will be realized after settlement with supplier
                       </p>
                     </div>
-                    {pendingData.unsettled_totals
-                      .total_pending_commission_lbp > 0 && (
+                    {pendingData.unsettled_totals.total_pending_commission_lbp >
+                      0 && (
                       <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4">
                         <p className="text-xs text-amber-400/70 uppercase tracking-wider mb-1">
                           Pending Commission (LBP)
@@ -4824,9 +4902,9 @@ export default function Profits() {
                 </div>
               </div>
               <p className="text-xs text-slate-500">
-                Already stamped, not yet earned — separate from the unpaid
-                sales below (recognized once the partner or client pays), and
-                not included in any total on this page.
+                Already stamped, not yet earned — separate from the unpaid sales
+                below (recognized once the partner or client pays), and not
+                included in any total on this page.
               </p>
             </div>
           )}
@@ -4874,8 +4952,8 @@ export default function Profits() {
               />
             </div>
             <p className="text-xs text-slate-500">
-              Unpaid sales below are shown regardless of the date range above
-              — pending means as of now, not "unpaid within this period".
+              Unpaid sales below are shown regardless of the date range above —
+              pending means as of now, not "unpaid within this period".
             </p>
 
             {/* Table */}

@@ -84,6 +84,12 @@
 - Customer basket checkout: a For Partner OMT or Whish transfer in the basket is no longer added to what the customer pays; it goes on the partner's account only. A For Partner receive is no longer paid out to the customer. From now on.
 - Customer basket checkout: you can keep change as profit even when the basket includes a For Partner transfer.
 - Customer basket: if an item can't be added to the basket, you now get a message saying why, and the item is not shown in the basket. Before, it showed for a moment even though it wasn't saved, then disappeared without explanation — or made the checkout fail later.
+- The refund window now labels the amount "Hand back". When a refund can be slightly short, it says by how much (less than $1, or less than 100,000 LBP for LBP refunds) and that the difference is kept as profit.
+- The Amount column now shows the sale's price instead of the cash the customer handed over. Voids and refunds show the amount reversed with a minus sign (−$4.25).
+- Under each sale, void and refund, the cash is spelled out: "paid $5.00 · change $0.50", "handed back $4.00 · kept $0.25".
+- The up/down arrows on voids and refunds now point the way the money actually moved.
+- A basket that was voided or refunded as a whole shows its original payment and the reversal on separate lines.
+- OMT/Whish supplier rows now say "Owed to OMT increased/reduced by …" instead of "Supplier TOP_UP".
 
 ## 🔧 Maintenance
 
@@ -112,6 +118,10 @@
 - The Commissions tab now includes Binance, counted in dollars, so its total matches the Overview for the same period.
 - Payment-method fees on Binance transactions now count as profit (in dollars) on every Profits tab.
 - In a Binance or older OMT/Whish "Show transactions" list, a transfer with no commission now says "No commission was recorded on this transfer" instead of "counted when the supplier settles".
+- The Kept change details no longer list voided entries, and an empty entry no longer says "repayment" when it wasn't one.
+- By Cashier and By Client: the Transactions count now matches the number Avg Profit/Txn is worked out from, and clients or cashiers with nothing to show are hidden.
+- The Product Sales card now says its count is net: voided, fully refunded and unpaid sales are not counted.
+- The Custom Services card always shows a number of jobs, and zero costs or expenses now read "$0.00" instead of "-$0.00".
 
 ## 📱 MTC / Alfa
 
@@ -120,6 +130,7 @@
 - iPick, Katsh and Whish App: the touch and Alfa prepaid card tiles now show a picture of the card,
   so you can spot the right one at a glance.
 - Binance cash-outs, OMT App / Whish App receives, MTC/Alfa credit buy-backs and Whish App credit bought from a client: you can hand out a round amount a little under what's owed (less than $1 or 100,000 LBP) and the difference is shop profit. Payouts to a customer's account, from a wallet, for a partner or inside a customer session still need the exact amount.
+- Binance: the "≈ LBP" amount under the total now uses the rate you typed in the payment sheet, so it matches what is recorded.
 
 ## 🎟️ Loto
 
@@ -159,6 +170,7 @@
 - Payment form: change warnings now show the dollar sign before the amount (for example "Returning $0.53 more…").
 - Payment form: the Paid amount no longer turns red when change is due or kept. Red now only means something needs fixing, such as an underpayment or handing back too much change.
 - When a payment doesn't match the total, the message now starts with a plain explanation ("The payment doesn't add up to the total." or "The payment is more than the total.") instead of technical text — on Loto, Exchange, OMT/Whish fees, Hold Money, supplier payments and other screens.
+- At checkout, the screen now shows which drawer each payment goes into (for example Cash → General) instead of always saying Drawer B. The same applies when taking payment for a repair in Maintenance.
 
 ## 💳 Debts
 
@@ -197,3 +209,4 @@
 - Recharge page: admins can add a new category with the "New category" button under the cards (iPick, Katsh and Whish App), not only new items in existing categories.
 - If you type a category or subcategory name that already exists with different capital letters (for example "ALFA"), the item goes into the existing one instead of a second copy.
 - Items added or changed in Settings → Mobile Services now show on the Recharge page straight away, without reloading the app.
+- Reset Data no longer signs you out: you and everyone else in the shop stay signed in after a reset, and the "Done — rows removed" confirmation now shows. On the desktop app this applies from the next update.

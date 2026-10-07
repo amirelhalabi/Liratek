@@ -354,8 +354,7 @@ describe("ProfitRepository — Round 3 Lane LCC (OWNER_NOTES_2026-09-21.md §6, 
   beforeEach(() => {
     db = new Database(":memory:");
     createSchema(db);
-    (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__ =
-      db;
+    (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__ = db;
     repo = new ProfitRepository();
   });
 
@@ -562,7 +561,9 @@ describe("ProfitRepository — Round 3 Lane LCC (OWNER_NOTES_2026-09-21.md §6, 
       // The correct denominator: 1 recognized RECHARGE + 50 recognized
       // exchange rows = 51 — NOT 1 (which would read Avg Profit/Txn as $252).
       expect(cashier?.recognized_transaction_count).toBe(51);
-      const avg = (cashier?.profit_usd ?? 0) / (cashier?.recognized_transaction_count ?? 1);
+      const avg =
+        (cashier?.profit_usd ?? 0) /
+        (cashier?.recognized_transaction_count ?? 1);
       expect(avg).toBeCloseTo(252 / 51, 2);
     });
   });
@@ -963,5 +964,72 @@ describe("ProfitRepository — Round 3 Lane LCC (OWNER_NOTES_2026-09-21.md §6, 
       expect(client5).toBeDefined();
       expect(client5!.transaction_count).toBe(1);
     });
+  });
+});
+
+/**
+ * Profits page display fixes (production report 2026-10-07, issue 3) — a
+ * voided basket session left a "Client1" row on By Client reading $0.00 and
+ * 0 transactions: the void reversal of its KEPT_CHANGE row (same type,
+ * ACTIVE, `reverses_id` set, profit 0) still keyed an orphan row. A row with
+ * nothing counted and no money in any column is hidden from both tabs.
+ */
+describe("ProfitRepository — empty By Cashier / By Client rows are hidden", () => {
+  let db: Database.Database;
+  let repo: ProfitRepository;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    createSchema(db);
+    (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__ = db;
+    repo = new ProfitRepository();
+  });
+
+  afterEach(() => {
+    delete (globalThis as unknown as Record<string, unknown>)
+      .__LIRATEK_TEST_DB__;
+    db.close();
+  });
+
+  function seedVoidedBasketKeptChange(): void {
+    // bob's voided basket kept change + its void reversal (profit 0).
+    const voidedId = Number(
+      db
+        .prepare(
+          `INSERT INTO transactions
+            (tenant_id, type, status, source_table, source_id, user_id, profit_usd, profit_lbp, client_name, created_at)
+           VALUES (1, 'KEPT_CHANGE', 'VOIDED', 'customer_sessions', 1, 2, 0.4, 0, 'Client1', ?)`,
+        )
+        .run(IN_RANGE).lastInsertRowid,
+    );
+    db.prepare(
+      `INSERT INTO transactions
+        (tenant_id, type, status, source_table, source_id, user_id, profit_usd, profit_lbp, client_name, reverses_id, created_at)
+       VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 1, 2, 0, 0, 'Client1', ?, ?)`,
+    ).run(voidedId, IN_RANGE);
+    // alice's live kept change — the control, must still show.
+    db.prepare(
+      `INSERT INTO transactions
+        (tenant_id, type, status, source_table, source_id, user_id, profit_usd, profit_lbp, client_name, created_at)
+       VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 2, 1, 0.25, 0, 'Client2', ?)`,
+    ).run(IN_RANGE);
+  }
+
+  it("getByClient: no $0 / 0-transaction row for the voided session's client; the live one stays", () => {
+    seedVoidedBasketKeptChange();
+    const rows = runWithTenant(1, () => repo.getByClient(FROM, TO, 30));
+    expect(rows.map((r) => r.client_name)).not.toContain("Client1");
+    const live = rows.find((r) => r.client_name === "Client2");
+    expect(live).toBeDefined();
+    expect(live!.profit_usd).toBeCloseTo(0.25, 6);
+  });
+
+  it("getByUser: no $0 / 0-transaction row for the cashier whose only entry was voided; the live one stays", () => {
+    seedVoidedBasketKeptChange();
+    const rows = runWithTenant(1, () => repo.getByUser(FROM, TO));
+    expect(rows.map((r) => r.user_id)).not.toContain(2);
+    const alice = rows.find((r) => r.user_id === 1);
+    expect(alice).toBeDefined();
+    expect(alice!.profit_usd).toBeCloseTo(0.25, 6);
   });
 });

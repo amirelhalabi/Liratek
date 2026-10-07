@@ -29,7 +29,8 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
       "sales",
       "customer_sessions",
       "customer_session_transactions",
-      "sessions",
+      // NOT `sessions` — that is the LOGIN session table, which a reset
+      // keeps (resetTables.ts RESET_KEEP_TABLES) so nobody is signed out.
       "session_cart_items",
     ],
   },

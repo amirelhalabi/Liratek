@@ -15,7 +15,10 @@
  * components or helpers, not both (react-refresh/only-export-components).
  */
 import type { CSSProperties } from "react";
-import { CHECKPOINT_ADJUSTMENT_METHOD } from "@liratek/core";
+import {
+  CHECKPOINT_ADJUSTMENT_METHOD,
+  REFUND_KEPT_CHANGE_META,
+} from "@liratek/core";
 import {
   formatLegAmount,
   extraCurrencyLegs,
@@ -199,8 +202,12 @@ export function formatAmount(
   type?: string,
 ): string {
   const parts: string[] = [];
-  if (usd) parts.push(`$${usd.toLocaleString()}`);
-  if (lbp) parts.push(`${lbp.toLocaleString()} LBP`);
+  // Production test 2026-10-07: a negative amount (a void or refund) read
+  // "$-4.25". A real minus sign goes before the currency, like
+  // ReturnedCreditsCell's "−$73".
+  const sign = (n: number) => (n < 0 ? "−" : "");
+  if (usd) parts.push(`${sign(usd)}$${Math.abs(usd).toLocaleString()}`);
+  if (lbp) parts.push(`${sign(lbp)}${Math.abs(lbp).toLocaleString()} LBP`);
   // A €100 top-up carries 0/0 in usd/lbp — without this the Amount column and
   // the cash-flow badge both render "—" (owner report 2026-08-28). A MIXED
   // top-up ($50 + €100) appends, so neither side is hidden by the other.
@@ -227,6 +234,199 @@ export function formatAmount(
     }
   }
   return parts.join(" + ") || "—";
+}
+
+// ---------------------------------------------------------------------------
+// Transaction amount vs cash movement (production test 2026-10-07)
+// ---------------------------------------------------------------------------
+
+/**
+ * The amount fields the Amount column and the cash-flow badge show: the
+ * TRANSACTION's own value, never the cash handed over. Sale #99 ($4.25, paid
+ * $5) used to read "$5", and its void "$0.5" — the tender, summed from the IN
+ * legs (`saleTenderTotals`). The cash now has its own line
+ * (`cashMovementLine`).
+ *
+ * A SALE is USD-priced, so its value is `amount_usd` alone: rows written
+ * before the value-not-tender fix (SalesRepository) also stamped the LBP the
+ * customer handed over into `amount_lbp`, and showing both would read
+ * "$5 + 450,000 LBP" for a $5 sale. A SALE with no USD figure falls back to
+ * its LBP field. Every other type shows its stored fields as they are.
+ *
+ * Signed: a void/refund carries the negated value and renders "−$4.25".
+ * `amountSortValue` applies the same rule so sorting matches what is shown.
+ */
+export function displayAmountFields(
+  row: Pick<TransactionRow, "type" | "amount_usd" | "amount_lbp">,
+): { usd: number; lbp: number } {
+  if (row.type === "SALE" && row.amount_usd) {
+    return { usd: row.amount_usd, lbp: 0 };
+  }
+  return { usd: row.amount_usd, lbp: row.amount_lbp };
+}
+
+/** "$5.00" / "450,000 LBP" — two decimals for USD so cents read as cents
+ *  ("$0.50", not "$0.5") in the cash-movement wording. */
+function formatCashMoney(amount: number, currency: string): string {
+  return currency === "USD"
+    ? `$${amount.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`
+    : `${amount.toLocaleString()} ${currency}`;
+}
+
+/** Per-currency total of one side's legs, e.g. "$5.00 + 450,000 LBP". */
+function sumSide(
+  legs: TransactionPaymentLeg[],
+  side: "in" | "out",
+): string | null {
+  const totals = new Map<string, number>();
+  for (const leg of legs) {
+    if (leg.direction !== side) continue;
+    totals.set(
+      leg.currency_code,
+      (totals.get(leg.currency_code) ?? 0) + leg.amount,
+    );
+  }
+  const parts = [...totals.entries()].map(([c, a]) => formatCashMoney(a, c));
+  return parts.length ? parts.join(" + ") : null;
+}
+
+/** Wording for each side of the cash, by row shape. */
+const CASH_WORDS = {
+  sale: { in: "paid", out: "change" },
+  // A void hands the tender back OUT and takes the change back IN.
+  saleVoid: { out: "handed back", in: "change taken back" },
+  refund: { out: "handed back", in: "taken back" },
+} as const;
+
+/** The two sides of `legs` in words, in the order the wording reads best. */
+function describeLegs(
+  legs: TransactionPaymentLeg[],
+  words: { in: string; out: string },
+  order: readonly ("in" | "out")[],
+): string[] {
+  const parts: string[] = [];
+  for (const side of order) {
+    const total = sumSide(legs, side);
+    if (total) parts.push(`${words[side]} ${total}`);
+  }
+  return parts;
+}
+
+/** Refund shapes whose REFUND row is written with FRESH metadata (not a copy
+ *  of the original's) and stamps its own kept change as plain
+ *  `kept_change_*` — SalesRepository's item refund, the session item refund. */
+const OWN_METADATA_REFUND_TYPES = new Set(["item", "sessionItem"]);
+
+/** The kept change a REFUND row booked. The whole-transaction refund
+ *  (`_createRefundRow`) copies the ORIGINAL's metadata — its plain
+ *  `kept_change_*` is the sale-time kept change, not this refund's — and
+ *  records its own under `REFUND_KEPT_CHANGE_META`. Item refunds write fresh
+ *  metadata, where plain `kept_change_*` IS the refund's own. */
+function refundKeptChange(metaJson: string | null): string | null {
+  if (!metaJson) return null;
+  try {
+    const m = JSON.parse(metaJson) as Record<string, unknown>;
+    const parts: string[] = [];
+    const own =
+      typeof m.refundType === "string" &&
+      OWN_METADATA_REFUND_TYPES.has(m.refundType);
+    const usd =
+      m[REFUND_KEPT_CHANGE_META.usd] ?? (own ? m.kept_change_usd : null);
+    const lbp =
+      m[REFUND_KEPT_CHANGE_META.lbp] ?? (own ? m.kept_change_lbp : null);
+    if (typeof usd === "number" && usd > 0)
+      parts.push(formatCashMoney(usd, "USD"));
+    if (typeof lbp === "number" && lbp > 0)
+      parts.push(formatCashMoney(lbp, "LBP"));
+    return parts.length ? parts.join(" + ") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The cash that moved, in words, for the line under a SALE, a sale's void,
+ * or a REFUND — the rows whose cash differs from their amount because of
+ * change: "paid $5.00 · change $0.50", "handed back $5.00 · change taken
+ * back $0.50", "handed back $4.00 · kept $0.25". Returns null for every other
+ * type (they keep the generic "in: … · out: …" line) and when there is
+ * nothing to say.
+ */
+export function cashMovementLine(row: TransactionRow): string | null {
+  const legs = cashLegsFor(row);
+  let parts: string[];
+  if (row.type === "SALE") {
+    parts =
+      row.reverses_id == null
+        ? describeLegs(legs, CASH_WORDS.sale, ["in", "out"])
+        : describeLegs(legs, CASH_WORDS.saleVoid, ["out", "in"]);
+  } else if (row.type === "REFUND") {
+    parts = describeLegs(legs, CASH_WORDS.refund, ["out", "in"]);
+    const kept = refundKeptChange(row.metadata_json);
+    if (kept) parts.push(`kept ${kept}`);
+  } else {
+    return null;
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/**
+ * The "Basket reversed: …" line for a session basket that was voided or
+ * refunded as a whole — the pooled legs core flags `reversal`, worded like a
+ * sale's void. Null when the basket has no reversal legs.
+ */
+export function sessionReversalLine(
+  pooled: TransactionPaymentLeg[],
+): string | null {
+  const reversed = pooled.filter((l) => l.reversal);
+  if (!reversed.length) return null;
+  const parts = describeLegs(reversed, CASH_WORDS.saleVoid, ["out", "in"]);
+  return parts.length ? `Basket reversed: ${parts.join(" · ")}` : null;
+}
+
+/** Summary prefixes the void/refund paths prepend (`_voidTransactionInternal`,
+ *  `_createRefundRow`) — kept when a summary is re-worded for display. */
+const REVERSAL_SUMMARY_PREFIXES = ["VOID: ", "REFUND: "] as const;
+
+/**
+ * The Summary text to SHOW for a row — the stored summary, except for a
+ * supplier TOP_UP ledger row. `SupplierRepository.addLedgerEntry` writes those
+ * with the raw entry code ("Supplier TOP_UP: $-100 + 0 LBP") — every auto
+ * OMT/Whish SEND and RECEIVE sibling, plus the auto recharge and loto
+ * supplier rows. The sign is the meaning ("+" = the shop owes the supplier
+ * more, "−" = less: a RECEIVE reduces it), so it reads "Owed to OMT reduced
+ * by $100.00" / "Owed to OMT increased by $105.00". Display only — the
+ * stored summary, and search over it, are unchanged.
+ */
+export function displaySummary(row: TransactionRow): string | null {
+  if (row.type !== "SUPPLIER_PAYMENT" || !row.metadata_json) return row.summary;
+  try {
+    const m = JSON.parse(row.metadata_json) as {
+      entry_type?: unknown;
+      is_credit?: unknown;
+      counterparty?: { name?: unknown } | null;
+    };
+    if (m.entry_type !== "TOP_UP" || m.is_credit === true) return row.summary;
+    const signed = row.amount_usd || row.amount_lbp;
+    if (!signed) return row.summary;
+    const name =
+      typeof m.counterparty?.name === "string" && m.counterparty.name
+        ? m.counterparty.name
+        : "supplier";
+    const amounts: string[] = [];
+    if (row.amount_usd)
+      amounts.push(formatCashMoney(Math.abs(row.amount_usd), "USD"));
+    if (row.amount_lbp)
+      amounts.push(formatCashMoney(Math.abs(row.amount_lbp), "LBP"));
+    const prefix =
+      REVERSAL_SUMMARY_PREFIXES.find((p) => row.summary?.startsWith(p)) ?? "";
+    return `${prefix}Owed to ${name} ${signed > 0 ? "increased" : "reduced"} by ${amounts.join(" + ")}`;
+  } catch {
+    return row.summary;
+  }
 }
 
 // ---------------------------------------------------------------------------

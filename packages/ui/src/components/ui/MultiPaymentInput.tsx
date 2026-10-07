@@ -178,6 +178,10 @@ export interface MultiPaymentInputProps {
   onDiscountChange?: (discount: number) => void;
   /** Custom label for the header (defaults to "Payment") */
   label?: string;
+  /** Label of the summary's total-of-lines figure (defaults to "Paid").
+   *  A refund passes "Hand back" — there the lines are money the shop
+   *  returns, not money the customer paid. */
+  paidLabel?: string;
   /** Initial payment method for the first line (used on mount/remount). */
   initialMethod?: string;
   /** Selected client (voucher owner). Required to offer GIFT_CARD vouchers. */
@@ -343,6 +347,7 @@ export default function MultiPaymentInput({
   maxDiscount,
   onDiscountChange,
   label,
+  paidLabel = "Paid",
   initialMethod,
   initialLines,
   clientId,
@@ -2330,7 +2335,7 @@ export default function MultiPaymentInput({
 
         {/* Total Paid */}
         <div className="flex justify-between items-center text-xs pt-1.5 border-t border-slate-700/40">
-          <span className="text-slate-300 font-medium">Paid</span>
+          <span className="text-slate-300 font-medium">{paidLabel}</span>
           <span className="flex items-center gap-1.5">
             {paidExact ? (
               <svg

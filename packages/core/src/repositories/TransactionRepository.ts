@@ -218,6 +218,15 @@ export interface TransactionPaymentLeg {
    * drawer).
    */
   drawer_name?: string;
+  /**
+   * Production test 2026-10-07 — `true` on a session basket's pooled leg that
+   * REVERSES the checkout (`SESSION_BASKET_REVERSAL_NOTE`, written by
+   * `_reverseSessionPooledPayments` on a whole-basket void/refund). Without it
+   * the pooled list mixes the checkout and its reversal and the table read
+   * "in: $5.5 · out: $5.5" for a $5-paid basket. Display-only; ABSENT (never
+   * `false`) on every other leg.
+   */
+  reversal?: true;
 }
 
 /** The ONE `payments.method` marking telecom credit returned to the shop on an
@@ -1651,6 +1660,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         // Guard on truthiness — the column can be NULL at runtime even
         // though the query's row type declares it `string`.
         ...(p.drawer_name ? { drawer_name: p.drawer_name } : {}),
+        ...(p.note === SESSION_BASKET_REVERSAL_NOTE
+          ? { reversal: true as const }
+          : {}),
       };
     };
 

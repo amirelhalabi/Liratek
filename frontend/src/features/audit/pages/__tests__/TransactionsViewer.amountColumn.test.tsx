@@ -683,6 +683,11 @@ describe("TransactionsViewer — LIRA-139 Amount column sort order", () => {
   });
   const mixed30Row = baseRow({
     id: 303,
+    // Not SALE: a sale is USD-priced, so its amount_lbp is a legacy LBP
+    // tender, not value, and is neither shown nor sorted on (production
+    // test 2026-10-07, displayAmountFields). A debt repayment genuinely
+    // carries money on both sides.
+    type: "DEBT_REPAYMENT",
     amount_usd: 10,
     amount_lbp: 1_700_000,
     exchange_rate: 85_000,

@@ -14,7 +14,7 @@
  *
  * The six buckets:
  *
- * - RESET_KEEP_TABLES (17): untouched. Configuration captured by the setup
+ * - RESET_KEEP_TABLES (18): untouched. Configuration captured by the setup
  *   wizard's Account/Base-System/Modules/Currencies/Users pages, plus
  *   Settings-page config (`system_settings`, `currency_drawers`) and
  *   control-plane rows (`tenants`, `tenant_subscriptions`,
@@ -53,7 +53,7 @@
  * - RESET_PARTIAL_TABLES (1): `suppliers` — only ad-hoc (non-system,
  *   non-module) suppliers are deleted. See `SUPPLIER_KEEP_PREDICATE` below
  *   for why `is_system` alone is the wrong gate.
- * - RESET_WIPE_TABLES (54): every other tenant-owned operational table —
+ * - RESET_WIPE_TABLES (53): every other tenant-owned operational table —
  *   transactions, payments, drawer movements, ledgers, catalogs, contacts —
  *   deleted outright, tenant-scoped. `carrier_line_movements` and
  *   `carrier_line_owed_deliveries` stay here even though `carrier_lines`
@@ -83,8 +83,16 @@ export const DATABASE_RESET_CONFIRMATION_PHRASE = "RESET ALL DATA";
 // =============================================================================
 
 /**
- * KEEP — untouched (17). Setup-wizard + Settings-page config, control plane,
- * and the accounts themselves. The four v196 tables travel with `users`
+ * KEEP — untouched (18). Setup-wizard + Settings-page config, control plane,
+ * and the accounts themselves.
+ *
+ * `sessions` is the LOGIN session table (not customer sessions): every web
+ * request validates its JWT against a row here and the desktop app
+ * re-validates its stored token against it on every launch/reload. It was
+ * once in WIPE, which signed out the admin who pressed "Reset everything"
+ * (every later request 401'd, so the success message never showed) and
+ * every other device of the shop (production, 2026-10-07). Owner intent:
+ * a reset keeps every user AND their sign-ins. The four v196 tables travel with `users`
  * (KEEP): a user's Google link, pending invites to the shop, and open
  * password-reset / email-verification links are account state, not shop
  * operations, and a "Reset Data" that silently unlinked Google or killed a
@@ -102,6 +110,7 @@ export const RESET_KEEP_TABLES: readonly string[] = [
   "payment_methods",
   "schema_migrations",
   "service_providers",
+  "sessions",
   "system_settings",
   "tenant_subscriptions",
   "tenants",
@@ -160,7 +169,10 @@ export const RESET_RESEED_TABLES: readonly string[] = [
 /** WIPE PARTIAL (1) — see `SUPPLIER_KEEP_PREDICATE`. */
 export const RESET_PARTIAL_TABLES: readonly string[] = ["suppliers"];
 
-/** WIPE — full delete, tenant-scoped (55). */
+/** WIPE — full delete, tenant-scoped (53). LOGIN sessions (`sessions`) are
+ *  deliberately NOT here — see `RESET_KEEP_TABLES`. The three CUSTOMER
+ *  session tables (`customer_sessions`, `customer_session_transactions`,
+ *  `session_cart_items`) are operational data and stay in this list. */
 export const RESET_WIPE_TABLES: readonly string[] = [
   "audit_log",
   "carrier_line_movements",
@@ -205,7 +217,6 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "sale_items",
   "sales",
   "session_cart_items",
-  "sessions",
   "settlement_commission_allocations",
   "stock_adjustments",
   "stock_batch_consumptions",

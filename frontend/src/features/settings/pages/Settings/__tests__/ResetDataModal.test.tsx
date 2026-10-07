@@ -105,6 +105,35 @@ describe("ResetDataModal", () => {
     });
   });
 
+  // Coverage, not a regression guard: the modal was never the defect in the
+  // 2026-10-07 production report (the server wiped the caller's sign-in, so
+  // the NEXT request 401'd and the app logged out). This pins what the
+  // operator must see once the reset envelope reaches the UI.
+  it('shows "Done — N rows removed" and schedules the reload on success', async () => {
+    jest.useFakeTimers();
+    try {
+      mockResetDatabase.mockResolvedValue({
+        success: true,
+        data: { totalDeleted: 1500, deletedRows: { transactions: 1500 } },
+      });
+
+      openModal();
+      fireEvent.change(screen.getByTestId("reset-data-phrase-input"), {
+        target: { value: DATABASE_RESET_CONFIRMATION_PHRASE },
+      });
+      fireEvent.click(screen.getByTestId("reset-data-confirm-btn"));
+
+      expect(
+        await screen.findByText(/Done — 1,500 rows removed/),
+      ).toBeInTheDocument();
+      expect(mockReloadApp).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1500);
+      expect(mockReloadApp).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("shows the error and does not reload on a {success:false} response", async () => {
     mockResetDatabase.mockResolvedValue({
       success: false,

@@ -118,6 +118,16 @@ export function CryptoForm({
   onTransactionTimeChange,
 }: CryptoFormProps) {
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
+  // The rate the payment sheet is actually converting at (seeded rate, or
+  // the cashier's edit of its "1 USD =" field). The "≈ X LBP" line below
+  // uses it so it shows the same LBP figure the transaction is booked at —
+  // the page sends this same rate as `tender_exchange_rate`.
+  const [sheetRate, setSheetRate] = useState<number | undefined>();
+  const lbpEquivalentRate = sheetRate ?? exchangeRate;
+  const handleSheetRateChange = (rate: number) => {
+    setSheetRate(rate);
+    onExchangeRateChange?.(rate);
+  };
   // LIRA-269: the sheet's discount (capped at the fee by the sheet). Kept
   // here to size the cash-out target and forwarded to the page, which books
   // `commission = fee − discount` from the same helper.
@@ -598,11 +608,12 @@ export function CryptoForm({
                   : sendTotal.toFixed(2)}
               </span>
             </div>
-            {exchangeRate > 0 && parsedAmount > 0 && (
+            {lbpEquivalentRate > 0 && parsedAmount > 0 && (
               <div className="text-xs text-slate-500 font-mono">
                 ≈{" "}
                 {(
-                  (cryptoType === "RECEIVE" ? payout : sendTotal) * exchangeRate
+                  (cryptoType === "RECEIVE" ? payout : sendTotal) *
+                  lbpEquivalentRate
                 ).toLocaleString()}{" "}
                 LBP
               </div>
@@ -732,7 +743,7 @@ export function CryptoForm({
           currency="USD"
           paymentMethods={paymentMethods}
           exchangeRate={exchangeRate}
-          {...(onExchangeRateChange ? { onExchangeRateChange } : {})}
+          onExchangeRateChange={handleSheetRateChange}
           // LIRA-269: on a cash-out the discount comes off the shop's fee
           // and `payout` above already includes it (a payout sheet never
           // subtracts a discount itself).
