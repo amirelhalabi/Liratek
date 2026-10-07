@@ -207,6 +207,9 @@
 - Web app, Settings → Users: while a shop's subscription has lapsed, inviting users by email, changing a user's email and sending reset links are unavailable, like other staff changes. Revoking a waiting invitation still works.
 - Web app: an email invitation can no longer be used to join a shop whose subscription has lapsed. The invite page says "This shop is not active right now. Ask the shop owner to renew, then use the link again." — the invitation is kept, so the same link works once the shop renews (before it expires).
 - Several tills in the same shop no longer lock each other out with "Failed to load data" — each signed-in user now has their own allowance, and if it's ever reached the screen says to wait a minute and try again.
+- Web app: your shop's own address (for example your-shop.liratek.shop) now shows only what your staff need: username and password, "Forgot password?" and "Continue with Google". It no longer offers to create a new shop; opening the sign-up page there takes you to www.liratek.shop.
+- Web app: www.liratek.shop now asks "Sign in to your shop". Type your shop's address (just the name, like your-shop, is enough) and press Continue to go to your shop's sign-in page. "Continue with Google", "Forgot password?" and "Create your shop" are there too.
+- Web app: the sign-in page no longer shows a stray dot after the version number.
 
 ## 🧾 Expenses
 

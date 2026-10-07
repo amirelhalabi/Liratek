@@ -17,6 +17,23 @@ import { isElectron, publicAuthInfo } from "@/api/backendApi";
 import GoogleSignInButton from "@/features/auth/components/GoogleSignInButton";
 import { useSsoHandoff } from "@/features/auth/hooks/useSsoHandoff";
 
+// Platform front door vs a shop's own login (owner UX change 2026-10-07).
+import {
+  normalizeShopAddress,
+  resolveHostMode,
+  shopLoginUrl,
+  type HostMode,
+} from "@/features/auth/utils/hostMode";
+import {
+  currentHostname,
+  navigateAway,
+} from "@/features/auth/utils/browserNavigation";
+
+/** www: the typed address names no shop. */
+function shopAddressInvalid(baseDomain: string): string {
+  return `Enter your shop address, for example your-shop or your-shop.${baseDomain}.`;
+}
+
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -44,18 +61,35 @@ export default function Login() {
   // shop it was.
   const [hostShopName, setHostShopName] = useState<string | null>(null);
 
+  // Which page this host gets: the platform front door (www), a shop's own
+  // login, or the combined page (desktop, localhost, previews, no answer).
+  // null while the backend is being asked: the combined form shows, but
+  // nothing that creates a shop does, so it never flashes on a shop address.
+  const [hostMode, setHostMode] = useState<HostMode | null>(() =>
+    isElectron() ? { kind: "combined" } : null,
+  );
+  // www only: the shop address typed, and whether a platform admin asked for
+  // the username form (super admins sign in on www).
+  const [shopAddress, setShopAddress] = useState("");
+  const [adminSignIn, setAdminSignIn] = useState(false);
+
   useEffect(() => {
     if (isElectron()) return;
     let cancelled = false;
     publicAuthInfo()
       .then((r) => {
-        if (cancelled || !r.success || !r.data) return;
-        setCanSignUp(Boolean(r.data.selfServeEnabled));
-        if (r.data.shopName) setHostShopName(r.data.shopName);
+        if (cancelled) return;
+        const data = r.success ? r.data : undefined;
+        setHostMode(resolveHostMode(data, currentHostname()));
+        if (!data) return;
+        setCanSignUp(Boolean(data.selfServeEnabled));
+        if (data.shopName) setHostShopName(data.shopName);
       })
       // A backend that cannot answer is a backend that cannot sign anyone up
       // either, so staying silent is the correct outcome, not a failure.
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setHostMode({ kind: "combined" });
+      });
     return () => {
       cancelled = true;
     };
@@ -65,6 +99,25 @@ export default function Login() {
   // After "Continue with Google" on www (LIRA-280): exchanged once, then the
   // app restarts at home signed in. A refusal shows in the form's error box.
   const sso = useSsoHandoff();
+
+  const platformBase =
+    hostMode?.kind === "platform" ? hostMode.baseDomain : null;
+  const showShopForm = platformBase !== null && !adminSignIn;
+
+  // www: "Continue" goes to the shop's own login page. A full navigation —
+  // it is another origin. Not checked for existence first (there is no public
+  // lookup); an unknown address refuses every sign-in on its own.
+  const handleShopContinue = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (platformBase === null) return;
+    const slug = normalizeShopAddress(shopAddress);
+    if (!slug) {
+      setError(shopAddressInvalid(platformBase));
+      return;
+    }
+    setError("");
+    navigateAway(shopLoginUrl(slug, platformBase));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,6 +141,33 @@ export default function Login() {
       setLoading(false);
     }
   };
+
+  // [auth-D] hand-off progress / refusal, plus this page's own errors.
+  // Rendered INSIDE whichever form is showing: the page (and its e2e) reads
+  // a refused sign-in from the form itself.
+  const messages = (
+    <>
+      {sso.exchanging && (
+        <p className="text-sm text-slate-400" role="status">
+          Signing you in with Google...
+        </p>
+      )}
+      {(error || sso.error) && (
+        <div
+          role="alert"
+          className={clsx(
+            "p-4 rounded-lg flex items-start gap-3 text-sm animate-in fade-in border",
+            theme === "dark"
+              ? "bg-red-500/15 border-red-500/40 text-red-300"
+              : "bg-red-500/10 border-red-500/30 text-red-600",
+          )}
+        >
+          <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
+          <span>{error || sso.error}</span>
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div
@@ -155,85 +235,124 @@ export default function Login() {
 
         {/* Form */}
         <div className="p-8 relative z-10">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* [auth-D] hand-off progress / refusal */}
-            {sso.exchanging && (
-              <p className="text-sm text-slate-400" role="status">
-                Signing you in with Google...
-              </p>
-            )}
-            {(error || sso.error) && (
-              <div
+          {showShopForm ? (
+            <form onSubmit={handleShopContinue} className="space-y-5">
+              {messages}
+              <h2
                 className={clsx(
-                  "p-4 rounded-lg flex items-start gap-3 text-sm animate-in fade-in border",
-                  theme === "dark"
-                    ? "bg-red-500/15 border-red-500/40 text-red-300"
-                    : "bg-red-500/10 border-red-500/30 text-red-600",
+                  "text-xl font-semibold text-center",
+                  theme === "dark" ? "text-white" : "text-gray-900",
                 )}
               >
-                <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
-                <span>{error || sso.error}</span>
-              </div>
-            )}
-
-            <div className="pt-2">
-              <TextInput
-                value={username}
-                onChange={setUsername}
-                label="Username"
-                placeholder="Enter username"
-                icon="user"
-                required
-              />
-            </div>
-
-            <div>
-              <PasswordInput
-                value={password}
-                onChange={setPassword}
-                label="Password"
-                placeholder="••••••••"
-              />
-            </div>
-
-            <div className="flex items-center pt-2">
-              <div className="relative flex items-center">
+                Sign in to your shop
+              </h2>
+              <div>
+                <label
+                  htmlFor="login-shop-address"
+                  className={clsx(
+                    "block text-sm font-medium mb-1.5",
+                    theme === "dark" ? "text-slate-300" : "text-gray-700",
+                  )}
+                >
+                  Shop address
+                </label>
                 <input
-                  id="remember-me"
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="peer w-5 h-5 bg-slate-700 border-2 border-slate-600 rounded cursor-pointer accent-violet-500 hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-slate-800 transition-colors"
+                  id="login-shop-address"
+                  data-testid="login-shop-address"
+                  type="text"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={shopAddress}
+                  onChange={(e) => setShopAddress(e.target.value)}
+                  placeholder={`your-shop.${platformBase}`}
+                  className={clsx(
+                    "w-full rounded-lg px-3 py-2.5 text-sm border focus:outline-none focus:border-violet-500",
+                    theme === "dark"
+                      ? "bg-slate-900 border-slate-600 text-white"
+                      : "bg-white border-gray-300 text-gray-900",
+                  )}
+                  required
+                />
+                <p
+                  className={clsx(
+                    "mt-1 text-xs",
+                    theme === "dark" ? "text-slate-500" : "text-gray-500",
+                  )}
+                >
+                  The address your shop signs in at, for example your-shop.
+                  {platformBase}
+                </p>
+              </div>
+              <button
+                type="submit"
+                className="w-full py-3 px-4 rounded-lg text-white font-semibold transition-all duration-200 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 active:scale-[0.98] shadow-lg shadow-violet-600/30"
+              >
+                Continue
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {messages}
+              <div className="pt-2">
+                <TextInput
+                  value={username}
+                  onChange={setUsername}
+                  label="Username"
+                  placeholder="Enter username"
+                  icon="user"
+                  required
                 />
               </div>
-              <label
-                htmlFor="remember-me"
-                className="ml-3 text-sm text-slate-300 cursor-pointer select-none"
-              >
-                Keep me signed in on this device
-              </label>
-            </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className={clsx(
-                "w-full py-3 px-4 rounded-lg text-white font-semibold transition-all duration-200 mt-6",
-                loading
-                  ? "bg-slate-600 cursor-not-allowed opacity-70"
-                  : "bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 active:scale-[0.98] shadow-lg shadow-violet-600/30 hover:shadow-lg hover:shadow-violet-600/50",
-              )}
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                  Signing in...
-                </span>
-              ) : (
-                "Sign In"
-              )}
-            </button>
-          </form>
+              <div>
+                <PasswordInput
+                  value={password}
+                  onChange={setPassword}
+                  label="Password"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              <div className="flex items-center pt-2">
+                <div className="relative flex items-center">
+                  <input
+                    id="remember-me"
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="peer w-5 h-5 bg-slate-700 border-2 border-slate-600 rounded cursor-pointer accent-violet-500 hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-slate-800 transition-colors"
+                  />
+                </div>
+                <label
+                  htmlFor="remember-me"
+                  className="ml-3 text-sm text-slate-300 cursor-pointer select-none"
+                >
+                  Keep me signed in on this device
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className={clsx(
+                  "w-full py-3 px-4 rounded-lg text-white font-semibold transition-all duration-200 mt-6",
+                  loading
+                    ? "bg-slate-600 cursor-not-allowed opacity-70"
+                    : "bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 active:scale-[0.98] shadow-lg shadow-violet-600/30 hover:shadow-lg hover:shadow-violet-600/50",
+                )}
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                    Signing in...
+                  </span>
+                ) : (
+                  "Sign In"
+                )}
+              </button>
+            </form>
+          )}
 
           {/* [auth-C] "Forgot password?" link (web only) */}
           {/* The desktop app has no email reset: an admin sets a new
@@ -250,14 +369,64 @@ export default function Login() {
           )}
 
           {/* [auth-D] "Continue with Google" button (web only, when enabled) */}
-          <GoogleSignInButton />
+          {/* "Create a shop with Google": always on the combined page, never
+              on a shop's own address. On www only while email sign-up is off;
+              otherwise "Create your shop" below is the one door (the sign-up
+              page offers Google too). */}
+          <GoogleSignInButton
+            offerShopCreation={
+              hostMode?.kind === "combined" ||
+              (platformBase !== null && !canSignUp)
+            }
+          />
 
           {/* Web only, and only when a visitor can sign up on their own:
               self-serve email sign-up (LIRA-267). The desktop build
               provisions its single tenant through the first-run setup
               wizard, so a sign-up link there would lead to an endpoint IPC
-              never serves. */}
-          {canSignUp && (
+              never serves. On www it reads "Create your shop"; never on a
+              shop's own address (creating a shop is www's job). */}
+          {canSignUp && platformBase !== null && (
+            <p
+              className={clsx(
+                "mt-6 text-center text-sm",
+                theme === "dark" ? "text-slate-400" : "text-gray-600",
+              )}
+            >
+              New to LiraTek?{" "}
+              <Link
+                to="/signup"
+                className="text-orange-500 hover:text-orange-400"
+              >
+                Create your shop
+              </Link>
+            </p>
+          )}
+
+          {/* www: super admins sign in here with a username (they belong to
+              no shop). Tucked away so shop staff are not invited to type a
+              username that means nothing on this address. */}
+          {platformBase !== null && (
+            <p className="mt-4 text-center text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setAdminSignIn((v) => !v);
+                }}
+                className={clsx(
+                  "underline-offset-2 hover:underline",
+                  theme === "dark" ? "text-slate-500" : "text-gray-500",
+                )}
+              >
+                {adminSignIn
+                  ? "Sign in to your shop instead"
+                  : "Platform admin sign in"}
+              </button>
+            </p>
+          )}
+
+          {canSignUp && hostMode?.kind === "combined" && (
             <p
               className={clsx(
                 "mt-6 text-center text-sm",
@@ -290,22 +459,24 @@ export default function Login() {
               >
                 Version
               </span>{" "}
-              {__APP_VERSION__}{" "}
-              <span
-                className={clsx(
-                  "mx-2",
-                  theme === "dark" ? "text-slate-600" : "text-gray-400",
-                )}
-              >
-                •
-              </span>{" "}
+              {__APP_VERSION__}
               {/* Only when the shop has actually named itself. Before login
                   the settings read is unauthenticated and fails, so this is
                   empty on the web -- and "Licensed to" followed by a blank, or
                   worse a placeholder, is how a stranger's name ended up on
-                  every login page. */}
+                  every login page. The separator belongs to this part: alone
+                  it read "Version 1.33.0 •". */}
               {(shopName || hostShopName) && (
                 <>
+                  {" "}
+                  <span
+                    className={clsx(
+                      "mx-2",
+                      theme === "dark" ? "text-slate-600" : "text-gray-400",
+                    )}
+                  >
+                    •
+                  </span>{" "}
                   <span
                     className={
                       theme === "dark" ? "text-slate-300" : "text-gray-700"

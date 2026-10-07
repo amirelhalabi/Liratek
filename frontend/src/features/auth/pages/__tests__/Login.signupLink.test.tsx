@@ -55,7 +55,11 @@ function status(over: Record<string, unknown>) {
       enabled: false,
       selfServeEnabled: false,
       turnstileSiteKey: null,
-      platformHost: true,
+      // Owner UX change 2026-10-07: these cases are the COMBINED page
+      // (localhost, previews — no host tenancy). A shop's own address never
+      // offers sign-up, and www says "Create your shop" instead; both are
+      // pinned in Login.hostMode.test.tsx.
+      platformHost: false,
       baseDomain: null,
       shopName: null,
       ...over,

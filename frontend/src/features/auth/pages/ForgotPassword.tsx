@@ -17,31 +17,17 @@ import clsx from "clsx";
 import { AlertCircle, Mail } from "lucide-react";
 import { PASSWORD_RESET_CODES } from "@liratek/core";
 import type { ForgotPasswordInput } from "@liratek/core";
-import {
-  forgotPassword,
-  isElectron,
-  publicAuthInfo,
-} from "@/api/backendApi";
+import { forgotPassword, isElectron, publicAuthInfo } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import logger from "@/utils/logger";
+// The server validates the slug; this only strips what people paste around it.
+import { shopSlugFromAddress } from "@/features/auth/utils/hostMode";
 
 const UNREACHABLE = "Could not reach the server. Please try again.";
 const SHOP_REQUIRED_MESSAGE = "Enter your shop's address.";
 const GENERIC_SENT =
   "If this email belongs to an account in this shop, we've sent a link.";
-
-/** `https://CellCity.liratek.shop/` or `cellcity` -> `cellcity`. The server
- * validates the slug; this only strips what people paste around it. */
-function shopSlugFromAddress(value: string): string {
-  return (
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/^https?:\/\//, "")
-      .split(/[./#?]/)[0] ?? ""
-  );
-}
 
 type Setup =
   | { kind: "loading" }
@@ -206,8 +192,8 @@ export default function ForgotPassword() {
           <h1 className={clsx(headingClass, "mb-2")}>Check your inbox</h1>
           <p className={subtleClass}>{sentMessage}</p>
           <p className={clsx(hintClass, "mt-3")}>
-            The link works once. If nothing arrives in a few minutes, check
-            your spam folder, or ask your shop admin to set a new password.
+            The link works once. If nothing arrives in a few minutes, check your
+            spam folder, or ask your shop admin to set a new password.
           </p>
           {signInFooter}
         </div>

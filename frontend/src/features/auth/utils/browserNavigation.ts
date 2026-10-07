@@ -7,6 +7,11 @@
  * hand-off the app must boot again so AuthProvider picks up the new session.
  */
 
+/** This page's hostname (which login page to show depends on it). */
+export function currentHostname(): string {
+  return window.location.hostname;
+}
+
 /** Leave this page for another URL (another origin, or Google). */
 export function navigateAway(url: string): void {
   window.location.assign(url);
@@ -17,7 +22,10 @@ export function navigateAway(url: string): void {
  * Google linking: the link ticket travels in the body, so it never appears
  * in a URL, an access log or the browser history.
  */
-export function submitPostForm(url: string, fields: Record<string, string>): void {
+export function submitPostForm(
+  url: string,
+  fields: Record<string, string>,
+): void {
   const form = document.createElement("form");
   form.method = "POST";
   form.action = url;
