@@ -517,12 +517,17 @@ until Stage B removes it.
    - Keep exactly one SPF record at the domain apex.
 3. **Turnstile.** In the Cloudflare dashboard, create a Turnstile widget for
    `www.liratek.shop` and copy its site key and secret key.
-4. **Secrets:**
+4. **Secrets.** They live in `.env.fly` at the repo root (gitignored; the
+   repo is public, so never commit it). It holds `EMAIL_TRANSPORT=smtp`,
+   `EMAIL_FROM`, `SMTP_HOST=mail.spacemail.com`, `SMTP_PORT=465`,
+   `SMTP_USER=mail@liratek.shop`, `SMTP_PASS`, `SIGNUP_INVITE_BASE_URL=https://www.liratek.shop`,
+   and later `TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY`. Copy it to Fly after
+   every edit (restarts the API):
    ```bash
-   yarn api secrets set EMAIL_TRANSPORT=smtp EMAIL_FROM="LiraTek <mail@liratek.shop>" \
-     SMTP_HOST=mail.spacemail.com SMTP_PORT=465 SMTP_USER=mail@liratek.shop SMTP_PASS=<mailbox password> \
-     TURNSTILE_SITE_KEY=<site key> TURNSTILE_SECRET_KEY=<secret key>
+   grep -v '^#' .env.fly | grep -v '^$' | yarn api secrets import
    ```
+   `SIGNUP_INVITE_BASE_URL` is set explicitly because production reports no
+   base domain to the sign-up status endpoint; without it invites are refused.
    A missing mail secret never takes the API down: it stays up with email
    OFF (invites refused, self-serve hidden). Check `yarn api logs` for the
    "email configuration is invalid" error, which names the missing variable.

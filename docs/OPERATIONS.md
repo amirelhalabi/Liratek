@@ -120,11 +120,26 @@ and informational in `api:verify`.
 Runtime config lives in **Fly secrets**, never in the image, never in git.
 `backend/.env` is the local mirror and is gitignored.
 
+**`.env.fly` (repo root, gitignored) is the source copy of the production
+secrets it lists** (email/SMTP so far). The running app cannot read a file on
+your machine, so after any edit copy it to Fly — this restarts the API
+(~10–30 s):
+
+```bash
+grep -v '^#' .env.fly | grep -v '^$' | yarn api secrets import
+```
+
+The `grep`s drop comment and blank lines. Never commit `.env.fly`; the repo is
+public.
+
 ```bash
 yarn api:secrets                                   # list names
-yarn api -- secrets set KEY=value                  # triggers a machine update
-yarn api -- secrets import < file                  # bulk, values off the CLI
+yarn api secrets set KEY=value                     # triggers a machine update
+yarn api secrets import < file                     # bulk, values off the CLI
 ```
+
+On this repo's Yarn 4, write `yarn api <args>` — `yarn api -- <args>` passes a
+literal `--` to flyctl and fails.
 
 Groups: `JWT_SECRET`/`DATABASE_KEY` · `APP_BASE_DOMAIN`/`SIGNUP_INVITE_CODE`/
 `SUPER_ADMIN_*` · `CLOUDFLARE_*`/`VERCEL_*` (tenant subdomains) ·
