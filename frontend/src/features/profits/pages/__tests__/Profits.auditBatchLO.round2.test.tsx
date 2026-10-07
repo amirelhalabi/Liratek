@@ -48,7 +48,13 @@
  * convention.
  */
 
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+  within,
+} from "@testing-library/react";
 import Profits from "../Profits";
 
 // ---------------------------------------------------------------------------
@@ -90,7 +96,13 @@ jest.mock("../../../dashboard/components/CommissionsChart", () => ({
 function baseSummary() {
   return {
     period: "2026-08-01 to 2026-08-31",
-    sales: { revenue_usd: 0, cost_usd: 0, profit_usd: 0, profit_lbp: 0, count: 0 },
+    sales: {
+      revenue_usd: 0,
+      cost_usd: 0,
+      profit_usd: 0,
+      profit_lbp: 0,
+      count: 0,
+    },
     financial_services: {
       revenue_usd: 0,
       revenue_lbp: 0,
@@ -346,20 +358,27 @@ describe("Profits Overview — LO-V9 headline/expenses zero-hiding", () => {
 
     await renderOverview();
 
-    const card = screen.getByText("Expenses Deducted").closest("div")!
-      .parentElement!;
+    const card = screen
+      .getByText("Expenses Deducted")
+      .closest("div")!.parentElement!;
     expect(within(card).queryByText("0 USD")).not.toBeInTheDocument();
     expect(within(card).getByText("-45000 LBP")).toBeInTheDocument();
   });
 
-  it("Expenses Deducted still shows USD: -$0.00 for a genuinely all-zero period", async () => {
+  // Owner request 2026-10-07 (production review): a zero deduction reads
+  // "$0.00", never "-$0.00" — this assertion was "-0 USD" before that
+  // decision. The LO-V9 property it guards (the USD column still shows for
+  // an all-zero period) is unchanged.
+  it("Expenses Deducted still shows USD: $0.00 for a genuinely all-zero period", async () => {
     mockGetProfitSummary.mockResolvedValueOnce(baseSummary());
 
     await renderOverview();
 
-    const card = screen.getByText("Expenses Deducted").closest("div")!
-      .parentElement!;
-    expect(within(card).getByText("-0 USD")).toBeInTheDocument();
+    const card = screen
+      .getByText("Expenses Deducted")
+      .closest("div")!.parentElement!;
+    expect(within(card).getByText("0 USD")).toBeInTheDocument();
+    expect(within(card).queryByText("-0 USD")).not.toBeInTheDocument();
   });
 });
 
@@ -371,7 +390,13 @@ describe("Profits Overview — LO-V1 Kept Change card", () => {
   it("renders a sale's own LBP kept change, previously computed and never shown", async () => {
     mockGetProfitSummary.mockResolvedValueOnce({
       ...baseSummary(),
-      sales: { revenue_usd: 100, cost_usd: 80, profit_usd: 20, profit_lbp: 45000, count: 1 },
+      sales: {
+        revenue_usd: 100,
+        cost_usd: 80,
+        profit_usd: 20,
+        profit_lbp: 45000,
+        count: 1,
+      },
     });
 
     await renderOverview();
@@ -397,7 +422,13 @@ describe("Profits Overview — LO-V1 Kept Change card", () => {
   it("opens the card for a sale-kept-change-only period, even with zero debt-repayment kept change", async () => {
     mockGetProfitSummary.mockResolvedValueOnce({
       ...baseSummary(),
-      sales: { revenue_usd: 100, cost_usd: 80, profit_usd: 20, profit_lbp: 45000, count: 1 },
+      sales: {
+        revenue_usd: 100,
+        cost_usd: 80,
+        profit_usd: 20,
+        profit_lbp: 45000,
+        count: 1,
+      },
     });
 
     await renderOverview();
@@ -447,30 +478,32 @@ describe("Profits By Module — LO-V4/LO-V8 footer net row", () => {
     // comment) — `mockImplementation` (not `mockResolvedValueOnce`) so both
     // calls resolve, and `period` is derived from the actual args so the
     // footer's period-match gate (round 3) accepts it.
-    mockGetProfitSummary.mockImplementation(async (from: string, to: string) => ({
-      ...baseSummary(),
-      period: `${from} to ${to}`,
-      expenses: { total_usd: 8, total_lbp: 0, count: 1 },
-      totals: {
-        ...baseSummary().totals,
-        gross_profit_usd: 40,
-        net_profit_usd: 32,
-        // note #3 (2026-09-24, CLOSED "no change") — an LBP rate is
-        // configured here on purpose: the assertion below proves the
-        // removed combined figure stays absent even when a rate EXISTS
-        // (the exact inputs that used to render "2848000 LBP combined"),
-        // not merely when there is nothing to show.
-        lbp_buy_rate: 89000,
-        // round-1 fix-round finding round2-absence-guard-vacuous — also
-        // stamp the legacy fields themselves (a pre-removal backend/cache
-        // response would still send them). Without these, a regressed UI
-        // that started reading `combined_rate_used`/`combined_net_profit_lbp`
-        // again would render nothing here (the fixture never supplied them
-        // either), and this guard would stay green for the wrong reason.
-        combined_rate_used: 89000,
-        combined_net_profit_lbp: 2848000,
-      },
-    }));
+    mockGetProfitSummary.mockImplementation(
+      async (from: string, to: string) => ({
+        ...baseSummary(),
+        period: `${from} to ${to}`,
+        expenses: { total_usd: 8, total_lbp: 0, count: 1 },
+        totals: {
+          ...baseSummary().totals,
+          gross_profit_usd: 40,
+          net_profit_usd: 32,
+          // note #3 (2026-09-24, CLOSED "no change") — an LBP rate is
+          // configured here on purpose: the assertion below proves the
+          // removed combined figure stays absent even when a rate EXISTS
+          // (the exact inputs that used to render "2848000 LBP combined"),
+          // not merely when there is nothing to show.
+          lbp_buy_rate: 89000,
+          // round-1 fix-round finding round2-absence-guard-vacuous — also
+          // stamp the legacy fields themselves (a pre-removal backend/cache
+          // response would still send them). Without these, a regressed UI
+          // that started reading `combined_rate_used`/`combined_net_profit_lbp`
+          // again would render nothing here (the fixture never supplied them
+          // either), and this guard would stay green for the wrong reason.
+          combined_rate_used: 89000,
+          combined_net_profit_lbp: 2848000,
+        },
+      }),
+    );
 
     await renderByModuleDirectly();
 
@@ -552,7 +585,9 @@ describe("Profits By Module — LO-V1 off-currency kept change detail", () => {
       screen.queryByTestId("by-module-kept-change-FINANCIAL_SERVICE_OMT"),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("by-module-expand-FINANCIAL_SERVICE_OMT"));
+    fireEvent.click(
+      screen.getByTestId("by-module-expand-FINANCIAL_SERVICE_OMT"),
+    );
 
     const line = await screen.findByTestId(
       "by-module-kept-change-FINANCIAL_SERVICE_OMT",
@@ -627,8 +662,9 @@ describe("Profits By Module — LO-V11 Fragment key", () => {
 
     await renderByModuleDirectly();
 
-    const keyWarning = errorSpy.mock.calls.some((args) =>
-      String(args[0]).includes("unique") && String(args[0]).includes("key"),
+    const keyWarning = errorSpy.mock.calls.some(
+      (args) =>
+        String(args[0]).includes("unique") && String(args[0]).includes("key"),
     );
     expect(keyWarning).toBe(false);
 

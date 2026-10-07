@@ -114,7 +114,12 @@ function usdEquivalentForSort(
  * {@link ProfitSummary.totals}'s own combined-line convention.
  */
 function computeMargin(
-  row: { revenue_usd: number; revenue_lbp: number; profit_usd: number; profit_lbp: number },
+  row: {
+    revenue_usd: number;
+    revenue_lbp: number;
+    profit_usd: number;
+    profit_lbp: number;
+  },
   buyRate: number | null,
 ): { margin_pct: number | null; margin_converted: boolean } {
   const hasUsd = row.revenue_usd !== 0 || row.profit_usd !== 0;
@@ -743,7 +748,10 @@ export class ProfitService {
       // defend against.
       return rate !== null && rate > 0 ? rate : null;
     } catch (error) {
-      logger.warn({ error }, "ProfitService.getLbpBuyRate: rate lookup failed, degrading to null");
+      logger.warn(
+        { error },
+        "ProfitService.getLbpBuyRate: rate lookup failed, degrading to null",
+      );
       return null;
     }
   }
@@ -1714,9 +1722,7 @@ export class ProfitService {
         );
       }
 
-      const entry = this.moduleDetailRegistry.find((e) =>
-        e.match(moduleKey),
-      );
+      const entry = this.moduleDetailRegistry.find((e) => e.match(moduleKey));
       if (entry) {
         return entry.build(moduleKey, fromDt, toDt);
       }
@@ -1728,10 +1734,7 @@ export class ProfitService {
         `Module "${moduleKey}" is listed in hasModuleDetailSupport but has no moduleDetailRegistry entry (registry/constant drift).`,
       );
     } catch (error) {
-      logger.error(
-        { error, moduleKey },
-        "ProfitService.getModuleDetail error",
-      );
+      logger.error({ error, moduleKey }, "ProfitService.getModuleDetail error");
       throw error;
     }
   }
@@ -1966,11 +1969,8 @@ export class ProfitService {
     fromDt: string,
     toDt: string,
   ): ProfitModuleDetail {
-    const rows: FinancialServiceDetailRow[] = this.repo.getFinancialServiceDetail(
-      provider,
-      fromDt,
-      toDt,
-    );
+    const rows: FinancialServiceDetailRow[] =
+      this.repo.getFinancialServiceDetail(provider, fromDt, toDt);
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
     let countedProfitUsd = 0;
@@ -2346,10 +2346,7 @@ export class ProfitService {
     fromDt: string,
     toDt: string,
   ): ProfitModuleDetail {
-    const rows: ExchangeDetailRow[] = this.repo.getExchangeDetail(
-      fromDt,
-      toDt,
-    );
+    const rows: ExchangeDetailRow[] = this.repo.getExchangeDetail(fromDt, toDt);
     const counted: ProfitModuleDetailRow[] = [];
     const notCounted: ProfitModuleDetailRow[] = [];
     let countedProfitUsd = 0;
@@ -2550,9 +2547,13 @@ export class ProfitService {
                   ? "Refund kept change undone"
                   : "Kept change";
       const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
+      // Display fix 2026-10-07: only a debt repayment is a "repayment" —
+      // every other $0 kept-change row was mislabeled as one.
       const reason = isRealMoney
         ? null
-        : "No kept change on this repayment (rounds to $0).";
+        : r.txn_type === "DEBT_REPAYMENT"
+          ? "No kept change on this repayment (rounds to $0)."
+          : "No kept change on this entry (rounds to $0).";
 
       const row: ProfitModuleDetailRow = {
         id: r.id,
@@ -2600,8 +2601,10 @@ export class ProfitService {
     fromDt: string,
     toDt: string,
   ): ProfitModuleDetail {
-    const rows: ProfitOnlyDetailRow[] =
-      this.repo.getCounterpartyDiscountDetail(fromDt, toDt);
+    const rows: ProfitOnlyDetailRow[] = this.repo.getCounterpartyDiscountDetail(
+      fromDt,
+      toDt,
+    );
     const counted: ProfitModuleDetailRow[] = [];
     let countedProfitUsd = 0;
     let countedProfitLbp = 0;

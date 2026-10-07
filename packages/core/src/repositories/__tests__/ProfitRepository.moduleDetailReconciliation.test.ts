@@ -288,12 +288,19 @@ function createSchema(db: Database.Database): void {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  db.prepare(`INSERT INTO products (id, tenant_id, name) VALUES (1, 1, 'Charger')`).run();
+  db.prepare(
+    `INSERT INTO products (id, tenant_id, name) VALUES (1, 1, 'Charger')`,
+  ).run();
 }
 
 function seedSale(
   db: Database.Database,
-  opts: { finalUsd: number; paidUsd: number; soldPriceUsd: number; costUsd: number },
+  opts: {
+    finalUsd: number;
+    paidUsd: number;
+    soldPriceUsd: number;
+    costUsd: number;
+  },
 ): number {
   const res = db
     .prepare(
@@ -548,7 +555,11 @@ function seedMaintenanceTransaction(
 
 function seedLotoTicket(
   db: Database.Database,
-  opts: { saleAmount: number; ticketNumber?: string; clientName?: string | null },
+  opts: {
+    saleAmount: number;
+    ticketNumber?: string;
+    clientName?: string | null;
+  },
 ): number {
   const res = db
     .prepare(
@@ -586,7 +597,9 @@ function seedLotoTransaction(
  * whichever currency is asked.
  */
 function sumCounted(
-  detail: { counted: Array<{ counted_profit_usd: number; counted_profit_lbp: number }> },
+  detail: {
+    counted: Array<{ counted_profit_usd: number; counted_profit_lbp: number }>;
+  },
   currency: "usd" | "lbp",
 ): number {
   const key = currency === "usd" ? "counted_profit_usd" : "counted_profit_lbp";
@@ -686,15 +699,29 @@ describe("Profits drill-down (PROF-DD, #14 slice 2) — SALE reconciliation", ()
   it("counted rows add up EXACTLY to getSalesRevCost/getSalesProfit's own totals (the By Module row's source)", () => {
     const totals = runWithTenant(1, () => repo.getSalesRevCost(FROM, TO));
     const profitTotals = runWithTenant(1, () => repo.getSalesProfit(FROM, TO));
-    const detail = runWithTenant(1, () => service.getModuleDetail("SALE", "2026-09-01", "2026-09-30"));
+    const detail = runWithTenant(1, () =>
+      service.getModuleDetail("SALE", "2026-09-01", "2026-09-30"),
+    );
 
-    const sumRevenue = detail.counted.reduce((s, r) => s + r.amount_usd * (r.counted_pct / 100), 0);
-    const sumCost = detail.counted.reduce((s, r) => s + r.cost_usd * (r.counted_pct / 100), 0);
+    const sumRevenue = detail.counted.reduce(
+      (s, r) => s + r.amount_usd * (r.counted_pct / 100),
+      0,
+    );
+    const sumCost = detail.counted.reduce(
+      (s, r) => s + r.cost_usd * (r.counted_pct / 100),
+      0,
+    );
 
     expect(sumRevenue).toBeCloseTo(totals.revenue_usd, 6);
     expect(sumCost).toBeCloseTo(totals.cost_usd, 6);
-    expect(detail.counted_total_profit_usd).toBeCloseTo(profitTotals.profit_usd, 6);
-    expect(detail.counted_total_profit_lbp).toBeCloseTo(profitTotals.profit_lbp, 6);
+    expect(detail.counted_total_profit_usd).toBeCloseTo(
+      profitTotals.profit_usd,
+      6,
+    );
+    expect(detail.counted_total_profit_lbp).toBeCloseTo(
+      profitTotals.profit_lbp,
+      6,
+    );
 
     // Sanity on the actual figures (weight 1.0 + 0.5 + 1.0, sale 2 excluded):
     // revenue 50 + 25 = 75 (sale 4 contributes 0 — no sale_agg row for a
@@ -1901,7 +1928,9 @@ describe("Profits drill-down (LIRA-233, #14 slice 3) — KEPT_CHANGE reconciliat
   });
 
   it("counted rows add up EXACTLY to getDebtRepaymentProfit's own totals (no partner/debt gate — every row 100% counted)", () => {
-    const totals = runWithTenant(1, () => repo.getDebtRepaymentProfit(FROM, TO));
+    const totals = runWithTenant(1, () =>
+      repo.getDebtRepaymentProfit(FROM, TO),
+    );
     const detail = runWithTenant(1, () =>
       service.getModuleDetail("KEPT_CHANGE", "2026-09-01", "2026-09-30"),
     );
@@ -2040,7 +2069,11 @@ describe("Profits drill-down (LIRA-233, #14 slice 3) — SUPPLIER_COMMISSION (bi
       repo.getSupplierCommissionTotals(FROM, TO),
     );
     const detail = runWithTenant(1, () =>
-      service.getModuleDetail("SUPPLIER_COMMISSION", "2026-09-01", "2026-09-30"),
+      service.getModuleDetail(
+        "SUPPLIER_COMMISSION",
+        "2026-09-01",
+        "2026-09-30",
+      ),
     );
     expect(detail.counted_total_profit_usd).toBeCloseTo(
       totals.bills_only_profit_usd,
@@ -2051,7 +2084,11 @@ describe("Profits drill-down (LIRA-233, #14 slice 3) — SUPPLIER_COMMISSION (bi
 
   it("does not double-list the cashless settlement's commission (already under FINANCIAL_SERVICE_<provider>)", () => {
     const detail = runWithTenant(1, () =>
-      service.getModuleDetail("SUPPLIER_COMMISSION", "2026-09-01", "2026-09-30"),
+      service.getModuleDetail(
+        "SUPPLIER_COMMISSION",
+        "2026-09-01",
+        "2026-09-30",
+      ),
     );
     expect(detail.counted).toHaveLength(1);
     expect(detail.counted[0].profit_usd).toBeCloseTo(12, 6);
@@ -2059,7 +2096,11 @@ describe("Profits drill-down (LIRA-233, #14 slice 3) — SUPPLIER_COMMISSION (bi
 
   it("owner's sum contract: Σ(detail.counted[].counted_profit_usd/_lbp) equals counted_total_profit_usd/_lbp exactly", () => {
     const detail = runWithTenant(1, () =>
-      service.getModuleDetail("SUPPLIER_COMMISSION", "2026-09-01", "2026-09-30"),
+      service.getModuleDetail(
+        "SUPPLIER_COMMISSION",
+        "2026-09-01",
+        "2026-09-30",
+      ),
     );
     expect(sumCounted(detail, "usd")).toBeCloseTo(
       detail.counted_total_profit_usd,
@@ -2150,7 +2191,9 @@ describe("Profits drill-down (LIRA-233, #14 slice 3 review round) — count pari
        VALUES (1, 'REFUND', 'ACTIVE', 'customer_sessions', 1, ?, -1, 0, '2026-09-12 11:00:00')`,
     ).run(cId);
 
-    const totals = runWithTenant(1, () => repo.getDebtRepaymentProfit(FROM, TO));
+    const totals = runWithTenant(1, () =>
+      repo.getDebtRepaymentProfit(FROM, TO),
+    );
     const detail = runWithTenant(1, () =>
       service.getModuleDetail("KEPT_CHANGE", "2026-09-01", "2026-09-30"),
     );
@@ -2200,9 +2243,15 @@ describe("Profits drill-down (LIRA-233, #14 slice 3 review round) — count pari
        VALUES (1, 'REFUND', 'ACTIVE', 'supplier_ledger', 503, -3, 0, '2026-09-12 10:00:00')`,
     ).run();
 
-    const totals = runWithTenant(1, () => repo.getSupplierCommissionTotals(FROM, TO));
+    const totals = runWithTenant(1, () =>
+      repo.getSupplierCommissionTotals(FROM, TO),
+    );
     const detail = runWithTenant(1, () =>
-      service.getModuleDetail("SUPPLIER_COMMISSION", "2026-09-01", "2026-09-30"),
+      service.getModuleDetail(
+        "SUPPLIER_COMMISSION",
+        "2026-09-01",
+        "2026-09-30",
+      ),
     );
 
     // totals.bills_only_count counts EVENTS (A) — 1. detail.counted counts
@@ -2344,5 +2393,99 @@ describe("Profits drill-down (LIRA-233, #14 slice 3) — TOPUP_BUYBACK reconcili
       detail.counted_total_profit_lbp,
       6,
     );
+  });
+});
+
+/**
+ * Profits page display fixes (production report 2026-10-07, issue 1) —
+ * a VOIDED basket KEPT_CHANGE row's void reversal (same `type`, ACTIVE,
+ * `reverses_id` set, profit 0 — `TransactionRepository.voidTransaction`'s
+ * own INSERT shape) was listed under "Not counted yet" as "Kept change
+ * $0.00 — No kept change on this repayment (rounds to $0)". A voided entry
+ * never happened as far as Profits is concerned, and the "repayment"
+ * wording was wrong for a non-repayment row.
+ */
+describe("Profits drill-down — KEPT_CHANGE hides void reversals; $0 reason names the row kind", () => {
+  let db: Database.Database;
+  let repo: ProfitRepository;
+  let service: ProfitService;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
+    createSchema(db);
+    repo = new ProfitRepository();
+    service = new ProfitService(repo);
+  });
+
+  afterEach(() => {
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
+    db.close();
+  });
+
+  it("a voided KEPT_CHANGE and its void reversal appear in neither counted nor not_counted; totals unchanged", () => {
+    // Live kept change — the control, must stay counted.
+    db.prepare(
+      `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, client_name, profit_usd, profit_lbp, created_at)
+       VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 1, 'Client2', 0.25, 0, '2026-09-10 10:00:00')`,
+    ).run();
+    // Voided basket kept change + its void reversal (profit left at 0).
+    const voidedId = Number(
+      db
+        .prepare(
+          `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, client_name, profit_usd, profit_lbp, created_at)
+           VALUES (1, 'KEPT_CHANGE', 'VOIDED', 'customer_sessions', 2, 'Client1', 0.4, 0, '2026-09-11 10:00:00')`,
+        )
+        .run().lastInsertRowid,
+    );
+    const reversalId = Number(
+      db
+        .prepare(
+          `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, client_name, reverses_id, profit_usd, profit_lbp, created_at)
+           VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 2, 'Client1', ?, 0, 0, '2026-09-11 10:05:00')`,
+        )
+        .run(voidedId).lastInsertRowid,
+    );
+
+    const totals = runWithTenant(1, () =>
+      repo.getDebtRepaymentProfit(FROM, TO),
+    );
+    const detail = runWithTenant(1, () =>
+      service.getModuleDetail("KEPT_CHANGE", "2026-09-01", "2026-09-30"),
+    );
+    const allIds = [...detail.counted, ...detail.not_counted].map((r) => r.id);
+    expect(allIds).not.toContain(reversalId);
+    expect(allIds).not.toContain(voidedId);
+    expect(detail.not_counted).toHaveLength(0);
+    expect(detail.counted).toHaveLength(1);
+    expect(detail.counted_total_profit_usd).toBeCloseTo(totals.profit_usd, 6);
+    expect(totals.profit_usd).toBeCloseTo(0.25, 6);
+  });
+
+  it("a $0 non-repayment kept-change row's reason does not call it a repayment; a $0 repayment's still does", () => {
+    db.prepare(
+      `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, profit_usd, profit_lbp, created_at)
+       VALUES (1, 'KEPT_CHANGE', 'ACTIVE', 'customer_sessions', 3, 0, 0, '2026-09-12 10:00:00')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO transactions (tenant_id, type, status, source_table, source_id, profit_usd, profit_lbp, created_at)
+       VALUES (1, 'DEBT_REPAYMENT', 'ACTIVE', 'debt_ledger', 9, 0, 0, '2026-09-13 10:00:00')`,
+    ).run();
+    const detail = runWithTenant(1, () =>
+      service.getModuleDetail("KEPT_CHANGE", "2026-09-01", "2026-09-30"),
+    );
+    expect(detail.not_counted).toHaveLength(2);
+    const kept = detail.not_counted.find((r) => r.detail === "Kept change");
+    const repay = detail.not_counted.find(
+      (r) => r.detail === "Debt repayment kept change",
+    );
+    expect(kept).toBeDefined();
+    expect(kept!.reason).not.toMatch(/repayment/i);
+    expect(kept!.reason).toMatch(/rounds to \$0/);
+    expect(repay!.reason).toMatch(/repayment/i);
   });
 });

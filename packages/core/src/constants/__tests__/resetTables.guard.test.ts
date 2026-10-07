@@ -2,8 +2,7 @@
  * Database Reset table-classification guard (LIRA-165, rule 14).
  *
  * `resetTables.ts` classifies every table `create_db.sql` declares into
- * exactly one of six buckets (KEEP / EXCLUDED / ZERO / RESEED / PARTIAL /
- * WIPE). This guard parses `create_db.sql` directly — the same "ask the
+ * exactly one of four buckets (KEEP / EXCLUDED / ZERO / WIPE). This guard parses `create_db.sql` directly — the same "ask the
  * source, don't hand-maintain a mirror list" approach `TenantRepository
  * .tenantScopedTables()` uses for its own cascade-delete — and fails the
  * build the moment a new `CREATE TABLE` lands without a bucket decision.
@@ -31,8 +30,6 @@ import {
   RESET_KEEP_TABLES,
   RESET_EXCLUDED_TABLES,
   RESET_ZERO_TABLE_NAMES,
-  RESET_RESEED_TABLES,
-  RESET_PARTIAL_TABLES,
   RESET_WIPE_TABLES,
   RESET_ALL_CLASSIFIED_TABLES,
 } from "../resetTables";
@@ -112,8 +109,6 @@ describe("resetTables classification guard (rule 14)", () => {
       RESET_KEEP_TABLES,
       RESET_EXCLUDED_TABLES,
       RESET_ZERO_TABLE_NAMES,
-      RESET_RESEED_TABLES,
-      RESET_PARTIAL_TABLES,
       RESET_WIPE_TABLES,
     };
 
@@ -136,7 +131,7 @@ describe("resetTables classification guard (rule 14)", () => {
         `Unclassified table(s) found in create_db.sql, not present in any ` +
           `resetTables.ts bucket: ${unclassified.join(", ")}. Classify ` +
           `each one in packages/core/src/constants/resetTables.ts (KEEP / ` +
-          `EXCLUDED / ZERO / RESEED / PARTIAL / WIPE) — leaving a ledger ` +
+          `EXCLUDED / ZERO / WIPE) — leaving a ledger ` +
           `table out of the wipe set produces data that LOOKS corrupt after ` +
           `a reset (e.g. a supplier owing money with no transactions ` +
           `behind it). See docs/plans/done_plans/DATABASE_RESET_PLAN.md.`,
@@ -151,13 +146,11 @@ describe("resetTables classification guard (rule 14)", () => {
     expect(ghosts).toEqual([]);
   });
 
-  it("the six buckets are pairwise disjoint", () => {
+  it("the four buckets are pairwise disjoint", () => {
     const buckets: readonly (readonly string[])[] = [
       RESET_KEEP_TABLES,
       RESET_EXCLUDED_TABLES,
       RESET_ZERO_TABLE_NAMES,
-      RESET_RESEED_TABLES,
-      RESET_PARTIAL_TABLES,
       RESET_WIPE_TABLES,
     ];
     const seen = new Map<string, number>();
@@ -176,13 +169,11 @@ describe("resetTables classification guard (rule 14)", () => {
     expect(dupes).toEqual([]);
   });
 
-  it("RESET_ALL_CLASSIFIED_TABLES is the exact union of all six buckets", () => {
+  it("RESET_ALL_CLASSIFIED_TABLES is the exact union of all four buckets", () => {
     const union = new Set([
       ...RESET_KEEP_TABLES,
       ...RESET_EXCLUDED_TABLES,
       ...RESET_ZERO_TABLE_NAMES,
-      ...RESET_RESEED_TABLES,
-      ...RESET_PARTIAL_TABLES,
       ...RESET_WIPE_TABLES,
     ]);
     expect(new Set(RESET_ALL_CLASSIFIED_TABLES)).toEqual(union);

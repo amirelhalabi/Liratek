@@ -5,6 +5,7 @@ import {
   type RateTable,
 } from "@liratek/ui";
 import type { TransactionRow } from "./hooks/useTransactionRows";
+import { displayAmountFields } from "./transactionDisplay";
 
 /**
  * LIRA-139 — the Amount column's sort value for the transactions table.
@@ -38,8 +39,10 @@ import type { TransactionRow } from "./hooks/useTransactionRows";
  *    `frontend/src/features/sessions/components/SessionCheckoutModal.tsx:979-981`).
  *    This fallback only ever affects rows that never got a stamped rate —
  *    every other row still sorts strictly by its own historical rate.
- *  - Only the currency conversion used to ORDER rows changes here. The
- *    DISPLAYED cell (`AmountCell`/`formatAmount`) is completely untouched —
+ *  - The sort reads the same figure the Amount column shows
+ *    (`displayAmountFields` — production test 2026-10-07). Only the
+ *    currency conversion used to ORDER rows is added here; the
+ *    DISPLAYED cell (`AmountCell`/`formatAmount`) is not converted —
  *    an LBP row still reads e.g. "8,500,000 LBP"; only its position in the
  *    sorted list changes.
  *  - Signed `PARTNER_*` rows keep their sign exactly as before this change
@@ -79,15 +82,26 @@ function usableRate(rate: number | null | undefined): number | null {
  * module doc above for the full rule.
  */
 export function amountSortValue(
-  row: Pick<TransactionRow, "amount_usd" | "amount_lbp" | "exchange_rate">,
+  row: Pick<
+    TransactionRow,
+    "type" | "amount_usd" | "amount_lbp" | "exchange_rate"
+  >,
   fallbackUsdToLbpRate: number,
 ): number {
   // Defensive coercion: the fields are declared `number` on TransactionRow,
   // but the ticket documents runtime nulls arriving on some rows.
   // `Number.isFinite(null)` is `false`, so this handles that without
   // weakening the declared type.
-  const usd = Number.isFinite(row.amount_usd) ? row.amount_usd : 0;
-  const lbp = Number.isFinite(row.amount_lbp) ? row.amount_lbp : 0;
+  const rawUsd = Number.isFinite(row.amount_usd) ? row.amount_usd : 0;
+  const rawLbp = Number.isFinite(row.amount_lbp) ? row.amount_lbp : 0;
+  // Sort by exactly what the Amount column shows (production test
+  // 2026-10-07): a SALE's USD value only, never a legacy row's stamped LBP
+  // tender — see displayAmountFields.
+  const { usd, lbp } = displayAmountFields({
+    type: row.type,
+    amount_usd: rawUsd,
+    amount_lbp: rawLbp,
+  });
 
   // A same-currency (pure-USD) row is rate-independent by construction —
   // mirrors the money engine's own identity invariant I3

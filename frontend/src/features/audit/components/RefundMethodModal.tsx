@@ -1,7 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import { CounterpartySettleModal, type PaymentLine } from "@liratek/ui";
 import type { Money } from "@liratek/ui";
-import type { RefundKeptChangeInput } from "@liratek/core";
+import {
+  PAYOUT_KEEP_CHANGE_MAX,
+  type RefundKeptChangeInput,
+} from "@liratek/core";
 import type { TransactionPaymentLeg } from "../cashFlow";
 import {
   buildDefaultRefundLines,
@@ -187,6 +190,12 @@ export function RefundMethodModal({
   // mode then reports the small shortfall it keeps.
   const keptEligible = allowKeptChange && defaults.length === 1;
   const refundCurrency = defaults[0]?.currencyCode ?? "USD";
+  // The server's own cap (resolveKeptChange, payer "payout": kept must be
+  // strictly LESS than it), in the refund's one currency — never hand-typed.
+  const keptCapText =
+    refundCurrency === "LBP"
+      ? `${PAYOUT_KEEP_CHANGE_MAX.LBP.toLocaleString("en-US")} LBP`
+      : `$${PAYOUT_KEEP_CHANGE_MAX.USD.toLocaleString("en-US")}`;
 
   const totals: Money[] = useMemo(
     () => defaults.map((d) => ({ currency: d.currencyCode, amount: d.amount })),
@@ -324,9 +333,13 @@ export function RefundMethodModal({
     <CounterpartySettleModal
       title="Refund — Choose Return Method"
       subtitle={
-        hasLegsToOverride
-          ? "A reversal entry will be created. Choose which drawer(s) the refund pays back through, and adjust the rate if needed — the total value at the rate shown must match what the customer originally paid."
-          : "A reversal entry will be created. Review the returned phone(s) below, then confirm."
+        <span data-testid="refund-subtitle">
+          {!hasLegsToOverride
+            ? "A reversal entry will be created. Review the returned phone(s) below, then confirm."
+            : keptEligible
+              ? `A reversal entry will be created. Choose which drawer(s) the refund is handed back from, and adjust the rate if needed. Hand back what the customer originally paid — in cash or a wallet in ${refundCurrency} it may be short by less than ${keptCapText}, and the rest is kept as profit.`
+              : "A reversal entry will be created. Choose which drawer(s) the refund is handed back from, and adjust the rate if needed — the total value at the rate shown must match what the customer originally paid."}
+        </span>
       }
       onCancel={onCancel}
       onConfirm={handleConfirm}
@@ -368,6 +381,9 @@ export function RefundMethodModal({
               },
               showDiscount: false,
               showPmFee: false,
+              // A refund's lines are money the shop hands BACK, not money
+              // the customer paid (production test 2026-10-07).
+              paidLabel: "Hand back",
               // Refund kept change — the shop hands money OUT, and only a
               // caller that may keep change wires the report (opt-in).
               ...(keptEligible

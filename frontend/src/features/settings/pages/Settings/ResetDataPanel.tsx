@@ -29,7 +29,8 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
       "sales",
       "customer_sessions",
       "customer_session_transactions",
-      "sessions",
+      // NOT `sessions` — that is the LOGIN session table, which a reset
+      // keeps (resetTables.ts RESET_KEEP_TABLES) so nobody is signed out.
       "session_cart_items",
     ],
   },
@@ -49,11 +50,12 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     label: "Debts & supplier/partner ledgers",
     tables: [
       "debt_ledger",
+      // Ledgers only — the partner / supplier rows themselves are KEPT
+      // (resetTables.ts RESET_KEEP_TABLES); their balances read 0.
       "supplier_ledger",
       "partner_ledger",
-      "partners",
-      "suppliers",
       "hold_money",
+      "hold_money_pickups",
     ],
   },
   {
@@ -61,28 +63,27 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     tables: ["clients"],
   },
   {
-    label: "Products & stock",
+    // Products, categories and the product-supplier names are KEPT (the
+    // products with stock set to 0 — RESET_ZERO_TABLES), so only stock and
+    // its history appear here.
+    label: "Stock & purchases",
     tables: [
-      "products",
-      "product_categories",
       "product_stock_batches",
-      "product_suppliers",
       "product_units",
       "stock_adjustments",
       "stock_batch_consumptions",
-      "item_costs",
       "supplier_purchases",
       "supplier_settlements",
     ],
   },
   {
-    label: "Mobile-services catalog & recharges",
+    // The Mobile Services items (and their cost / picture settings) are
+    // KEPT — only the sales made with them are here.
+    label: "Recharges, money transfers & vouchers",
     tables: [
-      "mobile_service_items",
       "recharges",
       "financial_services",
       "settlement_commission_allocations",
-      "voucher_images",
       "vouchers",
     ],
   },
@@ -120,7 +121,6 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
       "maintenance_parts",
       "maintenance_status_history",
       "custom_services",
-      "service_presets",
     ],
   },
   {
@@ -198,41 +198,45 @@ export function ResetDataPanel() {
         </p>
       </div>
 
-      <div>
+      <div data-testid="reset-data-keeps">
         <h3 className="text-sm font-semibold text-white mb-2">This KEEPS</h3>
         <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
-          <li>The admin account and every user</li>
+          <li>The admin account, every user, and everyone stays signed in</li>
           <li>The shop name and base system configuration</li>
           <li>Enabled modules and payment methods</li>
           <li>Currencies and exchange rates</li>
           <li>Drawer configuration (which currencies each drawer holds)</li>
+          <li>Your product categories</li>
+          <li>Your products (names, barcodes, prices) — with stock set to 0</li>
+          <li>Your Mobile Services items, including the ones you added</li>
+          <li>Your service presets</li>
+          <li>Your partners and suppliers — with balances set to 0</li>
           <li>
             Your MTC/Alfa carrier lines (phone numbers, labels, SIM expiry) —
-            only their credits are reset to 0
+            with credits set to 0
           </li>
           <li>Every other Settings-page configuration</li>
         </ul>
       </div>
 
-      <div>
+      <div data-testid="reset-data-deletes">
         <h3 className="text-sm font-semibold text-white mb-2">This DELETES</h3>
         <ul className="text-sm text-slate-400 list-disc list-inside space-y-1">
-          <li>All transactions, payments, and drawer movements</li>
-          <li>Closings, debts, and supplier/partner ledgers</li>
-          <li>Products, stock, and clients</li>
+          <li>All transactions, sales, payments, and drawer movements</li>
+          <li>Closings, debts, and every supplier/partner ledger entry</li>
+          <li>Clients</li>
           <li>
-            The mobile-services catalog (it re-seeds itself automatically on the
-            next login)
+            Stock and stock history (stock batches, phone IMEIs, purchases)
           </li>
-          <li>The audit log</li>
+          <li>
+            Recharges, money transfers, exchange, loto, maintenance jobs, custom
+            services and expenses
+          </li>
+          <li>Customer sessions and the audit log</li>
         </ul>
         <p className="text-xs text-slate-500 mt-2">
           Drawer balances are set to zero — the app will ask for opening amounts
           again the next time it's used.
-        </p>
-        <p className="text-xs text-slate-500 mt-1">
-          MTC/Alfa carrier lines are kept, with credits reset to 0, to match
-          the zeroed drawers.
         </p>
       </div>
 

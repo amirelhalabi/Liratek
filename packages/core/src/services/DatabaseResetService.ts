@@ -65,8 +65,8 @@ export class DatabaseResetService {
   }
 
   /**
-   * Wipe every tenant-owned operational table to the fresh-install
-   * baseline. Rejects (without touching the repository) unless
+   * Wipe every tenant-owned operational table, keeping the shop's setup
+   * (see constants/resetTables.ts). Rejects (without touching the repository) unless
    * `input.confirmation` matches `DATABASE_RESET_CONFIRMATION_PHRASE`
    * exactly.
    */

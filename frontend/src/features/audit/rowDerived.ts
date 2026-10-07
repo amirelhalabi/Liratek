@@ -8,7 +8,6 @@
  * shared them; splitting the cells up must not quietly turn that into five
  * parses per row per render.
  */
-import { saleTenderTotals } from "./cashFlow";
 import {
   billsOnlyCommissionAmount,
   getSplitGroupInfo,
@@ -26,8 +25,6 @@ export type RowDerived = {
   /** PARTNER_* and CARRIER_LINE_ADJUSTMENT rows carry a SIGNED amount; the
    *  sign is direction, not value (see `isSignedAmountType`). */
   partnerSigned: boolean;
-  /** For a SALE: what the customer actually handed over. */
-  tender: { usd: number; lbp: number } | null;
   /** Set when the row is one unit of a multi-unit split checkout. */
   splitGroup: { groupId: string; units: number | null } | null;
   /** Bills-only settlement commission, unreachable via `row.payments`. */
@@ -58,7 +55,6 @@ export function deriveRow(
   return {
     credit: isSupplierCredit(row.type, row.metadata_json),
     partnerSigned: isSignedAmountType(row.type),
-    tender: saleTenderTotals(row.type, row.payments),
     splitGroup: getSplitGroupInfo(row.metadata_json),
     commissionAmount: billsOnlyCommissionAmount(row),
     providerBalance: isProviderBalanceInflow(row),

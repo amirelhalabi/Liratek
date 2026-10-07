@@ -12,7 +12,7 @@ import {
   type PaymentLine,
   type Money,
 } from "@liratek/ui";
-import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
+import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
 import {
@@ -33,6 +33,7 @@ import {
   toSnakeLegs,
 } from "@/utils/paymentUtils";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { saleDrawerDestinations } from "@/features/sales/utils/saleDrawerDestinations";
 import {
   ForPartnerToggle,
   ForPartnerNotice,
@@ -225,21 +226,11 @@ export default function CheckoutModal({
     return lines.length > 0 ? lines : undefined;
   });
 
-  // Determine selected currency from payment lines
-  const hasLBPPayment = paymentLines.some(
-    (line) => line.currencyCode === "LBP",
-  );
-  const selectedCurrency = hasLBPPayment ? "LBP" : "USD";
-
-  // Dynamic exchange rate for SALE transaction (Money IN = We Sell USD rate)
-  const {
-    rate: exchangeRate,
-    rateInfo: _rateInfo,
-    isBaseCurrency: _isBaseCurrency,
-  } = useDynamicExchangeRate({
-    selectedCurrency,
-    transactionType: "SALE",
-  });
+  // Payments convert LBP<->USD at the shop's BUY rate, like every other
+  // MultiPaymentInput (owner decisions 2026-07-06 and 2026-10-07). POS and
+  // Maintenance (which reuses this modal) used the SALE -> sell rate, so a
+  // $10 item asked more LBP here than on any other screen.
+  const { buyRate: exchangeRate } = useSellRate();
 
   // State for custom exchange rate (editable inside MultiPaymentInput now)
   const [customExchangeRate, setCustomExchangeRate] = useState<string>(
@@ -714,7 +705,14 @@ export default function CheckoutModal({
     });
   };
 
-  const drawerNameDisplay = String(DRAWER_B).replace(/_/g, " ");
+  // Production test 2026-10-07: name the drawer(s) the money actually posts
+  // to — each line's payment-method drawer, cash change out of General —
+  // never the hard-coded legacy DRAWER_B label (see saleDrawerDestinations).
+  const drawerDestinations = saleDrawerDestinations(
+    paymentLines,
+    paymentMethodOptions,
+    cashReturnUSD > 0 || cashReturnLBP > 0,
+  );
 
   // Memoize receipt content to ensure it updates when shopInfo or other data changes
   const receiptContent = useMemo(() => {
@@ -1146,13 +1144,16 @@ export default function CheckoutModal({
 
             {/* Drawer Info — no drawer moves on a FOR-partner sale (no
                 counter cash is taken), so hide this entirely in that mode. */}
-            {!forPartner && (
-              <div className="py-3 bg-slate-800/50 border-t border-slate-700 rounded-lg flex items-center gap-2 text-sm px-4 mt-4">
+            {!forPartner && drawerDestinations.length > 0 && (
+              <div
+                data-testid="checkout-drawer-destination"
+                className="py-3 bg-slate-800/50 border-t border-slate-700 rounded-lg flex items-center gap-2 text-sm px-4 mt-4"
+              >
                 <Inbox size={16} className="text-blue-400" />
                 <span className="text-slate-300">
-                  This sale will be recorded in:{" "}
+                  Money goes to:{" "}
                   <span className="font-bold text-blue-300">
-                    {drawerNameDisplay}
+                    {drawerDestinations.join(" · ")}
                   </span>
                 </span>
               </div>

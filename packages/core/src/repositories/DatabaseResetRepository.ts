@@ -17,19 +17,10 @@ import { DatabaseError } from "../utils/errors.js";
 import { settingsLogger } from "../utils/logger.js";
 import {
   RESET_WIPE_TABLES,
-  RESET_RESEED_TABLES,
   RESET_ZERO_TABLES,
-  SUPPLIER_KEEP_PREDICATE,
-  PRODUCT_CATEGORY_DEFAULTS,
-  SERVICE_PRESET_DEFAULTS,
   type DatabaseResetPreview,
   type DatabaseResetResult,
 } from "../constants/resetTables.js";
-
-/** `suppliers` is the one WIPE-PARTIAL table; not itself exported from
- *  resetTables.ts as a bucket array member beyond `RESET_PARTIAL_TABLES`,
- *  named here once for the two SQL sites (preview count + delete) that need it. */
-const SUPPLIERS_TABLE = "suppliers";
 
 export class DatabaseResetRepository extends BaseRepository<{ id: number }> {
   constructor() {
@@ -44,37 +35,27 @@ export class DatabaseResetRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
-   * Row counts a reset would touch, for the confirmation UI. Counts
-   * `RESET_WIPE_TABLES` + `RESET_RESEED_TABLES` (all full-delete-then-maybe-
-   * reseed tables) plus the ad-hoc-supplier subset of `suppliers`
-   * (`RESET_PARTIAL_TABLES`). Tables absent from the current schema are
-   * skipped via `tableExists` rather than throwing — an older install may
-   * legitimately lag a migration or two behind the newest classified table.
+   * Row counts a reset would delete, for the confirmation UI — exactly
+   * `RESET_WIPE_TABLES`. Kept setup tables (KEEP) and kept-but-zeroed rows
+   * (ZERO: drawers, carrier lines, products) are never counted: nothing in
+   * them is removed. Tables absent from the current schema are skipped via
+   * `tableExists` rather than throwing — an older install may legitimately
+   * lag a migration or two behind the newest classified table.
    */
   previewCounts(): DatabaseResetPreview {
     try {
       const tenantId = getCurrentTenantId();
       const counts: Record<string, number> = {};
 
-      for (const table of [...RESET_WIPE_TABLES, ...RESET_RESEED_TABLES]) {
+      for (const table of RESET_WIPE_TABLES) {
         if (!this.tableExists(table)) continue;
-        // `table` is only ever drawn from the frozen resetTables.ts arrays
+        // `table` is only ever drawn from the frozen resetTables.ts array
         // above — never from caller input — so this interpolation cannot
         // carry user-controlled SQL. The bound value stays parameterized.
         const row = this.db
           .prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE tenant_id = ?`)
           .get(tenantId) as { n: number };
         counts[table] = row.n;
-      }
-
-      if (this.tableExists(SUPPLIERS_TABLE)) {
-        const row = this.db
-          .prepare(
-            `SELECT COUNT(*) AS n FROM suppliers
-             WHERE tenant_id = ? AND NOT ${SUPPLIER_KEEP_PREDICATE}`,
-          )
-          .get(tenantId) as { n: number };
-        counts[SUPPLIERS_TABLE] = row.n;
       }
 
       const totalRows = Object.values(counts).reduce((sum, n) => sum + n, 0);
@@ -87,8 +68,8 @@ export class DatabaseResetRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
-   * Reset every tenant-owned operational table to the fresh-install
-   * baseline, in ONE transaction. See constants/resetTables.ts for what
+   * Wipe every tenant-owned OPERATIONAL table and zero the kept rows'
+   * balance-like columns, in ONE transaction — the shop's setup survives. See constants/resetTables.ts for what
    * each bucket means; see DATABASE_RESET_PLAN.md "Mechanics" for why
    * `defer_foreign_keys` (not `foreign_keys`, which cannot be toggled inside
    * a transaction) removes every delete-ordering concern.
@@ -111,11 +92,11 @@ export class DatabaseResetRepository extends BaseRepository<{ id: number }> {
 
         const deletedRows: Record<string, number> = {};
 
-        // Step 1 — full delete, tenant-scoped. RESET_RESEED_TABLES tables
-        // are wiped here too; they get their fresh-install rows back in
-        // Step 2. `table` is drawn ONLY from the frozen resetTables.ts
-        // arrays — never from caller input.
-        for (const table of [...RESET_WIPE_TABLES, ...RESET_RESEED_TABLES]) {
+        // Step 1 — full delete, tenant-scoped. `table` is drawn ONLY from
+        // the frozen resetTables.ts array — never from caller input. Setup
+        // tables (categories, presets, Mobile Services items, partners,
+        // suppliers, products, ...) are KEEP/ZERO and never reach here.
+        for (const table of RESET_WIPE_TABLES) {
           if (!this.tableExists(table)) continue;
           const result = this.db
             .prepare(`DELETE FROM "${table}" WHERE tenant_id = ?`)
@@ -123,57 +104,7 @@ export class DatabaseResetRepository extends BaseRepository<{ id: number }> {
           deletedRows[table] = result.changes;
         }
 
-        // Step 2 (suppliers, WIPE PARTIAL) — delete only ad-hoc suppliers.
-        // See SUPPLIER_KEEP_PREDICATE's doc comment: `is_system` alone is
-        // NOT a safe gate because the seeded `Whish` row has
-        // `is_system = 0` but `module_key = 'omt_whish'`.
-        if (this.tableExists(SUPPLIERS_TABLE)) {
-          const supplierResult = this.db
-            .prepare(
-              `DELETE FROM suppliers
-               WHERE tenant_id = ? AND NOT ${SUPPLIER_KEEP_PREDICATE}`,
-            )
-            .run(tenantId);
-          deletedRows[SUPPLIERS_TABLE] = supplierResult.changes;
-        }
-
-        // Step 3 — re-seed product_categories / service_presets with the
-        // exact create_db.sql fresh-install defaults, under the current
-        // tenant. created_at/updated_at are left to each column's own
-        // DEFAULT CURRENT_TIMESTAMP.
-        if (this.tableExists("product_categories")) {
-          const insertCategory = this.db.prepare(
-            `INSERT INTO product_categories (tenant_id, name, sort_order, tracks_imei_units)
-             VALUES (?, ?, ?, ?)`,
-          );
-          for (const cat of PRODUCT_CATEGORY_DEFAULTS) {
-            insertCategory.run(
-              tenantId,
-              cat.name,
-              cat.sort_order,
-              cat.tracks_imei_units,
-            );
-          }
-        }
-
-        if (this.tableExists("service_presets")) {
-          const insertPreset = this.db.prepare(
-            `INSERT INTO service_presets (tenant_id, name, category, cost_usd, price_usd, sort_order)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-          );
-          for (const preset of SERVICE_PRESET_DEFAULTS) {
-            insertPreset.run(
-              tenantId,
-              preset.name,
-              preset.category,
-              preset.cost_usd,
-              preset.price_usd,
-              preset.sort_order,
-            );
-          }
-        }
-
-        // Step 4 — RESET_ZERO_TABLES: KEEP the row, zero only the named
+        // Step 2 — RESET_ZERO_TABLES: KEEP the row, zero only the named
         // "balance-like" columns. `drawer_balances.balance` is the original
         // member — `ClosingRepository.hasInitialBalancesSet()` is
         // `COUNT(*) FROM drawer_balances WHERE balance != 0`; zeroing (not
@@ -183,6 +114,8 @@ export class DatabaseResetRepository extends BaseRepository<{ id: number }> {
         // same reason: the line itself is shop setup like a currency, only
         // its sold balance resets — matching the zeroed drawers so the
         // LIRA-252 invariant (drawer = Σ active line credits = 0) holds.
+        // `products.stock_quantity` (2026-10-07): the product is catalog
+        // setup; only its quantity resets, matching its wiped batches.
         // `spec.columns` is drawn ONLY from the frozen resetTables.ts
         // constant above, never from caller input, so this interpolation
         // cannot carry user-controlled SQL (same reasoning as the table-name

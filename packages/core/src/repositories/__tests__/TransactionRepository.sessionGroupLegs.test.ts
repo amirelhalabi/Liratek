@@ -29,6 +29,7 @@ import Database from "better-sqlite3";
 import {
   TransactionRepository,
   resetTransactionRepository,
+  SESSION_BASKET_REVERSAL_NOTE,
 } from "../TransactionRepository.js";
 import {
   initFixedTenantContext,
@@ -215,6 +216,37 @@ describe("TransactionRepository.getRecent — session group legs (LIRA-201b)", (
     // the exact "duplicate summary" bug the owner reported.
     expect(prizeRow.payments).toEqual([]);
     expect(saleRow.payments).toEqual([]);
+  });
+
+  it("production test 2026-10-07 — a voided basket's pooled reversal legs are flagged `reversal`, its original legs are not", () => {
+    // Pre-fix the pooled list mixed the checkout's legs with the
+    // `_reverseSessionPooledPayments` legs, indistinguishable, so the table
+    // printed "in: $5.5 · out: $5.5" for a $5-paid / $0.50-change basket.
+    insertSessionTxn(db, { id: 1, type: "SALE", sessionId: 7 });
+    insertBasketPayment(db, 7, "CASH", "USD", 5);
+    insertBasketPayment(db, 7, "CASH", "USD", -0.5);
+    for (const amount of [-5, 0.5]) {
+      db.prepare(
+        `INSERT INTO payments (session_id, method, drawer_name, currency_code, amount, note)
+         VALUES (7, 'CASH', 'General', 'USD', ?, ?)`,
+      ).run(amount, SESSION_BASKET_REVERSAL_NOTE);
+    }
+
+    const legs = repo.getRecent(10).find((r) => r.id === 1)!.session_payments!;
+    expect(
+      legs.map((l) => ({
+        signed: l.signed_amount,
+        reversal: l.reversal === true,
+      })),
+    ).toEqual([
+      { signed: 5, reversal: false },
+      { signed: -0.5, reversal: false },
+      { signed: -5, reversal: true },
+      { signed: 0.5, reversal: true },
+    ]);
+    // Absent (not `false`) on an ordinary leg, so every exact-shape
+    // assertion on legs elsewhere keeps holding.
+    expect("reversal" in legs[0]!).toBe(false);
   });
 
   it("EVERY member of the session carries the SAME pooled legs on session_payments, regardless of which one has own legs", () => {

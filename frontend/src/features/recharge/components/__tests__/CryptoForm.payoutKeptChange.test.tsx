@@ -11,7 +11,7 @@
  */
 
 import { useState } from "react";
-import { render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import type { PaymentLine } from "@liratek/ui";
 import { CryptoForm } from "../CryptoForm";
 
@@ -104,8 +104,10 @@ const FEE_PAYMENT_METHODS = [
  *  CryptoForm itself holds none of this state. */
 function Harness({
   initialCryptoType = "RECEIVE",
+  onExchangeRateChange,
 }: {
   initialCryptoType?: "SEND" | "RECEIVE";
+  onExchangeRateChange?: (rate: number) => void;
 }) {
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">(
     initialCryptoType,
@@ -151,6 +153,7 @@ function Harness({
       onReturnChange={onReturnChangeSpy}
       onKeptChange={onKeptChangeSpy}
       exchangeRate={89000}
+      {...(onExchangeRateChange ? { onExchangeRateChange } : {})}
     />
   );
 }
@@ -172,5 +175,34 @@ describe("CryptoForm — the cash-out sheet is a payout", () => {
     render(<Harness initialCryptoType="SEND" />);
     expect(mockSheetProps.last?.payer).not.toBe("payout");
     expect(mockSheetProps.last?.onReturnChange).toBe(onReturnChangeSpy);
+  });
+});
+
+/**
+ * The "≈ X LBP" line under the total must convert at the rate the sale will
+ * be booked at — the sheet's rate (`tender_exchange_rate`, which the page
+ * takes from `onExchangeRateChange`), not the seeded default once the
+ * cashier has typed a different one in the sheet's "1 USD =" field.
+ */
+describe("CryptoForm — LBP equivalent follows the sheet's rate", () => {
+  beforeEach(() => {
+    delete mockSheetProps.last;
+    mockActiveSession = null;
+  });
+
+  const lbpLine = () => screen.getByText(/≈/).textContent?.replace(/\s+/g, " ");
+
+  it("shows the seeded rate until the sheet reports another one", () => {
+    const pageSpy = jest.fn();
+    render(<Harness initialCryptoType="RECEIVE" onExchangeRateChange={pageSpy} />);
+    // payout = $100 (fee charged on top) → 100 × 89,000
+    expect(lbpLine()).toContain((100 * 89000).toLocaleString());
+
+    const report = mockSheetProps.last?.onExchangeRateChange as (r: number) => void;
+    act(() => report(90000));
+
+    expect(lbpLine()).toContain((100 * 90000).toLocaleString());
+    // The page still receives the rate for the payload.
+    expect(pageSpy).toHaveBeenCalledWith(90000);
   });
 });

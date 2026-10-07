@@ -333,6 +333,9 @@ export interface TransactionPaymentLeg {
   method: string;
   /** The drawer this leg moved money in/out of; absent for legs with no drawer (e.g. CUSTOMER_ACCOUNT). */
   drawer_name?: string;
+  /** A session basket's pooled leg that reverses the checkout (whole-basket
+   *  void/refund) — mirrors core's `TransactionPaymentLeg.reversal`. */
+  reversal?: true;
 }
 
 /**

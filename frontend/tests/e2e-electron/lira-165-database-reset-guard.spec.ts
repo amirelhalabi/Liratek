@@ -21,7 +21,7 @@
  *
  * Do NOT "complete" this test by making it actually reset. The wipe itself
  * (create → reset → assert every wipe-bucket table is empty, tenant
- * isolation, reseed, supplier partial-wipe, balance zeroing) is covered by
+ * isolation, kept setup, balance zeroing) is covered by
  * core jest against a disposable temp DB — see `packages/core/src/
  * repositories/__tests__/DatabaseResetRepository.test.ts` and the plan doc's
  * Phase 1 test list (`docs/plans/done_plans/DATABASE_RESET_PLAN.md`). This
@@ -30,13 +30,13 @@
  * all — none of which require ever actually wiping anything.
  * =====================================================================
  *
- * `RESET_RESEED_TABLES` (`product_categories`, `service_presets`) are
- * seeded unconditionally by `electron-app/create_db.sql` on every fresh
- * install, so the preview's "Products & stock" bucket (which includes
- * `product_categories`) and the overall total are non-zero from the very
- * first spec in the suite — this file's assertions hold whether run as
- * part of the full ordered suite (where transactions/clients/etc. have
- * also accumulated by this point) or in isolation via `-g`.
+ * Signing in writes an `audit_log` row on both transports, so the
+ * preview's "Audit log" bucket and the overall total are non-zero as soon as
+ * this spec has logged in — whether run as part of the full ordered suite
+ * or in isolation via `-g`. (It used to lean on `product_categories`, but
+ * since 2026-10-07 a reset KEEPS the shop's setup — categories, presets,
+ * Mobile Services items, partners, suppliers, products — so those tables
+ * are never counted as rows to remove; case 1 now asserts exactly that.)
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -140,19 +140,29 @@ test.describe("LIRA-165 — Database Reset guard (no real reset ever runs)", () 
     const previewTable = appPage.getByTestId("reset-data-preview");
     await expect(previewTable).toBeVisible({ timeout: 15_000 });
 
-    // `product_categories` (create_db.sql's 6-row seed) always lands in the
-    // "Products & stock" group and is always > 0, so this is a stable,
-    // order-independent recognisable category — not reliant on how much of
-    // the rest of the suite has already run.
+    // The sign-in itself writes an audit_log row, so the "Audit log" group
+    // is always > 0 here — a stable, order-independent recognisable row,
+    // not reliant on how much of the rest of the suite has already run.
     await expect(
-      previewTable.locator("tr").filter({ hasText: "Products & stock" }),
+      previewTable.locator("tr").filter({ hasText: "Audit log" }),
     ).toBeVisible({ timeout: 10_000 });
 
     // Ground truth over IPC (not just DOM text) — a zero total here means
     // the preview query itself is broken, not a rendering issue.
     const preview = await getPreview(appPage);
     expect(preview.totalRows).toBeGreaterThan(0);
-    expect(preview.counts.product_categories ?? 0).toBeGreaterThan(0);
+    expect(preview.counts.audit_log ?? 0).toBeGreaterThan(0);
+    // The shop's setup is kept, so it is never listed as rows to remove.
+    for (const kept of [
+      "product_categories",
+      "service_presets",
+      "mobile_service_items",
+      "partners",
+      "suppliers",
+      "products",
+    ]) {
+      expect(preview.counts).not.toHaveProperty(kept);
+    }
   });
 
   test("2. the typed-phrase gate holds in the UI; cancel closes without ever confirming", async ({

@@ -778,6 +778,11 @@ export default function TransactionsViewer({
                     {leg.direction === "in" ? "In" : "Out"} —{" "}
                     {legMethodLabel(leg, methodLabelByCode)}:{" "}
                     {formatLegAmount(leg)}
+                    {/* Production test 2026-10-07: a whole-basket void/refund's
+                        legs sit in the same pooled list — mark them so the
+                        (always-exported) detail doesn't read them as more
+                        checkout money. */}
+                    {leg.reversal ? " (basket reversal)" : ""}
                   </div>
                 ))}
               </div>

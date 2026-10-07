@@ -1567,6 +1567,41 @@ export function isVoidReversalRow(alias: string): string {
 }
 
 /**
+ * Profits page display fix (production review 2026-10-07) — a void's
+ * reversal row that carries no money of its own (the void INSERT never sets
+ * `profit_usd`/`profit_lbp`, see {@link isVoidReversalRow}). A drill-down
+ * list must not show it: a voided entry never happened as far as Profits is
+ * concerned, so listing its $0 reversal under "Not counted yet" (as the Kept
+ * Change drill-down did) only reads as a phantom entry. Restricted to the
+ * zero-profit shape so excluding it can never change a listed total — a
+ * reversal that DID carry money would still be listed. Parenthesised because
+ * {@link isVoidReversalRow} is an unbracketed `A AND B`. Binds no params.
+ */
+export function isEmptyVoidReversalRow(alias: string): string {
+  return `(${isVoidReversalRow(alias)} AND ${alias}.profit_usd = 0 AND ${alias}.profit_lbp = 0)`;
+}
+
+/**
+ * Profits page display fix (production review 2026-10-07) — the outer
+ * filter for `getByUser`/`getByClient`'s `SELECT * FROM (...)` wrapper: TRUE
+ * for a row with nothing counted and no money in any column. Such a row is
+ * produced by the orphan-key branch when its only source row is a voided
+ * entry's $0 reversal (a voided basket session left a "Client1 — $0.00 —
+ * 0 transactions" row on By Client). Requires BOTH counts to be 0 — the
+ * raw `transaction_count` (so a main-branch row, which always has ≥ 1 real
+ * row behind it, is never hidden — LCC-B1-disjunct-unguarded guards that)
+ * and `recognized_transaction_count` (the figure the page shows) — plus a
+ * half-cent tolerance on every money column so float dust is still
+ * "nothing". A row with ANY money, or any transaction, is kept. Reads only
+ * the wrapper's own output columns; binds no params.
+ */
+export const PROFIT_ATTRIBUTION_ROW_IS_EMPTY = `(COALESCE(transaction_count, 0) = 0
+          AND COALESCE(recognized_transaction_count, 0) = 0
+          AND ABS(COALESCE(revenue_usd, 0)) < 0.005 AND ABS(COALESCE(revenue_lbp, 0)) < 0.005
+          AND ABS(COALESCE(profit_usd, 0)) < 0.005 AND ABS(COALESCE(profit_lbp, 0)) < 0.005
+          AND ABS(COALESCE(pending_profit_usd, 0)) < 0.005 AND ABS(COALESCE(pending_profit_lbp, 0)) < 0.005)`;
+
+/**
  * Rule 14 — the ONE place that knows the `financial_services.commission_model`
  * column name and runs the PRAGMA to detect it. Feeds {@link
  * embeddedCommission}'s `supported` argument everywhere the predicate is used
@@ -4181,7 +4216,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         `SELECT
           COALESCE(SUM(t.profit_usd * (${partnerCoverageRatio("recharges", "r.id")})), 0) AS profit_usd,
           COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("recharges", "r.id")})), 0) AS profit_lbp,
-          SUM(CASE WHEN (${partnerCoverageRatio("recharges", "r.id")}) > 0 THEN 1 ELSE 0 END) AS count
+          COALESCE(SUM(CASE WHEN (${partnerCoverageRatio("recharges", "r.id")}) > 0 THEN 1 ELSE 0 END), 0) AS count
         FROM recharges r
         JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id
           AND ${topupBuybackSource("t")}
@@ -4889,7 +4924,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(SUM(cs.cost_lbp * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS cost_lbp,
           COALESCE(SUM(t.profit_usd * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS profit_usd,
           COALESCE(SUM(t.profit_lbp * (${partnerCoverageRatio("custom_services", "cs.id")})), 0) AS profit_lbp,
-          SUM(CASE WHEN (${partnerCoverageRatio("custom_services", "cs.id")}) > 0 THEN 1 ELSE 0 END) AS count
+          COALESCE(SUM(CASE WHEN (${partnerCoverageRatio("custom_services", "cs.id")}) > 0 THEN 1 ELSE 0 END), 0) AS count
         FROM custom_services cs
         JOIN transactions t ON t.source_table = 'custom_services' AND t.source_id = cs.id AND t.type = 'CUSTOM_SERVICE'
         WHERE cs.status = 'completed'
@@ -4977,7 +5012,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- USD-side kept change (probe: a $1 kept change on a loto sale
           -- showed gross_usd = 0 before this).
           COALESCE(SUM(${lotoKeptChangeUsd("t")} * (${partnerCoverageRatio("loto_tickets", "lt.id")})), 0) AS kept_change_usd,
-          SUM(CASE WHEN (${partnerCoverageRatio("loto_tickets", "lt.id")}) > 0 THEN 1 ELSE 0 END) AS count
+          COALESCE(SUM(CASE WHEN (${partnerCoverageRatio("loto_tickets", "lt.id")}) > 0 THEN 1 ELSE 0 END), 0) AS count
         FROM loto_tickets lt
         JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
         WHERE t.status = 'ACTIVE'
@@ -5048,7 +5083,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(SUM((${EXCHANGE_LEG_PROFIT}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS profit_usd,
           COALESCE(SUM((${exchangeKeptProfitUsd("exchange_transactions")}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS kept_change_usd,
           COALESCE(SUM((${usdRevenue}) * (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")})), 0) AS revenue_usd,
-          SUM(CASE WHEN (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")}) > 0 THEN 1 ELSE 0 END) AS count
+          COALESCE(SUM(CASE WHEN (${partnerCoverageRatio("exchange_transactions", "exchange_transactions.id")}) > 0 THEN 1 ELSE 0 END), 0) AS count
         FROM exchange_transactions
         WHERE ${notRefunded("exchange_transactions")}
           AND ${dateRange("created_at")}
@@ -6161,6 +6196,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM transactions t
         WHERE t.status = 'ACTIVE'
           AND ${keptChangeSource("t")}
+          -- Display fix 2026-10-07: a voided entry's $0 reversal is not a
+          -- kept-change entry — never list it (see isEmptyVoidReversalRow).
+          AND NOT ${isEmptyVoidReversalRow("t")}
           AND ${dateRange("t.created_at")}
           AND t.tenant_id = ?
 
@@ -8260,7 +8298,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE ${profitTxnRowMembership("t3", "orig3")}
             AND COALESCE(orig3.user_id, t3.user_id) IS k.user_id
         )
-      ) ORDER BY profit_usd DESC`,
+      ) WHERE NOT ${PROFIT_ATTRIBUTION_ROW_IS_EMPTY}
+        ORDER BY profit_usd DESC`,
       )
       .all(...params) as ProfitByUserRow[];
   }
@@ -8940,7 +8979,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                   AND COALESCE(t3.client_name, orig3.client_name, '') = k.client_name_key)
             )
         )
-      ) ORDER BY profit_usd DESC
+      ) WHERE NOT ${PROFIT_ATTRIBUTION_ROW_IS_EMPTY}
+        ORDER BY profit_usd DESC
         LIMIT ?`,
       )
       .all(...params) as ProfitByClientRow[];
