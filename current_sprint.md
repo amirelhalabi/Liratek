@@ -4567,7 +4567,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-283** (LIRA-257 … LIRA-266, LIRA-268 … LIRA-274 and LIRA-282 filed 2026-10-06/07; LIRA-267 and LIRA-275 … LIRA-281 taken by the email/sign-up work), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-285** (LIRA-257 … LIRA-266, LIRA-268 … LIRA-274 and LIRA-282 filed 2026-10-06/07; LIRA-267 and LIRA-275 … LIRA-281 taken by the email/sign-up work), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -6501,4 +6501,34 @@ load costs about 25–30 requests; the test exhausted it twice (≈11:45 and ≈
 internet connection then sees "Failed to load data. Tap refresh to retry." with no reason given. A shop with several
 tills on one connection could hit this in normal use. Options to decide: key the limit per authenticated user/tenant
 instead of per IP, raise the read limit, and show a clear "too many requests, wait a minute" message.
+
+---
+
+## LIRA-284: "Add category" in Settings → Mobile Services does nothing — MEDIUM — DONE (owner decisions 2026-10-07)
+
+Owner-reported 2026-10-07 on the web app (desktop is the same): Settings → Mobile Services → WHISH_APP → "Category",
+type "test", confirm — nothing happens and nothing is saved. Cause: a category has no table of its own; it is only the
+`category` text on items, so it exists once an item uses it. The confirm opened a subcategory input inside the new
+category's row, which cannot render until the category has an item — a dead end. The Recharge page's inline "+" only
+added items to EXISTING categories, so there was no way anywhere to create a new category.
+
+> Owner answers 2026-10-07: any category name is allowed, no warning for alfa/mtc-like names; admins must be able to
+> add a new category from the sale screen too.
+
+Built: confirming a new category opens the new-item form with the category filled in and an editable Subcategory
+field (saved with its first item). Recharge page (`KatchForm` for iPick/Katsh, `FinancialForm` for WHISH_APP): admin
+"New category" button under the cards, using one shared inline form (`NewServiceItemInlineForm`) and one payload
+builder (`buildNewServiceItemPayload`, `utils/catalogNames.ts`). Typed category/subcategory names reuse an existing
+spelling on a case-insensitive match (`resolveCatalogName`), because `parseCarrierKey` lowercases while
+`KatchForm.isTelecomVoucher` compares exactly. Settings now refreshes the shared `MobileServiceItemsContext` after
+every create/edit/delete/toggle (it loaded only at login, so Settings changes did not reach the Recharge page until a
+reload). Guards: `MobileServicesManager.addCategory`, `FinancialForm.newCategory`, `KatchForm.newCategory`. Failing-first,
+honestly: on the unfixed code the Settings tests failed at the missing Subcategory field and the FinancialForm tests at
+the missing button — that proves the dead end, but the spelling-reuse and catalog-refresh assertions were never reached
+on old code. The KatchForm tests failed first only because they did not wait for "Loading items...", so they are NOT
+proven failing-first, and the non-admin guard was never seen failing. Not run: web/desktop e2e and a real-app click-through. Not done: the hand-written `createMobileServiceItem` payload
+types in `backendApi.ts` / `ApiAdapter` (rule 21 debt, pre-existing).
+
+What users will notice: "Category" in Settings → Mobile Services now works, admins can add a new category from the
+Recharge page, and Settings changes show on the Recharge page without a reload.
 

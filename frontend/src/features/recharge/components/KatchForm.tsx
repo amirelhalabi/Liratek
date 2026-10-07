@@ -8,7 +8,7 @@ import {
   startTransition,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Phone, Plus, X } from "lucide-react";
+import { ChevronDown, Phone, Plus } from "lucide-react";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
@@ -46,6 +46,12 @@ import {
 } from "@/features/partners/components/ForPartnerToggle";
 import type { ProviderConfig, FinancialTransaction } from "../types";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
+import { NewServiceItemInlineForm } from "./NewServiceItemInlineForm";
+import {
+  buildNewServiceItemPayload,
+  emptyNewServiceItemForm,
+  type NewServiceItemForm,
+} from "../utils/catalogNames";
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
 import { isSelfChargeEligible } from "../utils/selfChargeEligibility";
@@ -584,16 +590,6 @@ interface CartLineItem {
   creditPriceLbpOverride?: number | undefined;
 }
 
-interface NewItemForm {
-  provider: string;
-  category: string;
-  subcategory: string;
-  label: string;
-  cost_lbp: string;
-  sell_lbp: string;
-  sort_order: string;
-}
-
 interface KatchFormProps {
   activeConfig: ProviderConfig | undefined;
   activeProvider: ProviderKey | null;
@@ -657,7 +653,9 @@ function KatchFormInner({
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
   const [localSubmitting, setLocalSubmitting] = useState(false);
-  const [newItemForm, setNewItemForm] = useState<NewItemForm | null>(null);
+  const [newItemForm, setNewItemForm] = useState<NewServiceItemForm | null>(
+    null,
+  );
   const [addItemError, setAddItemError] = useState("");
 
   // PFT-3b (Partner FOR-Transactions, financial-service dispatch): a partner
@@ -1256,31 +1254,20 @@ function KatchFormInner({
   const handleAddItem = async () => {
     if (!newItemForm) return;
     setAddItemError("");
-    if (
-      !newItemForm.label.trim() ||
-      !newItemForm.cost_lbp ||
-      !newItemForm.sell_lbp
-    ) {
-      setAddItemError("Label, cost, and sell are required");
-      return;
-    }
-    const costLbp = parseInt(newItemForm.cost_lbp, 10);
-    const sellLbp = parseInt(newItemForm.sell_lbp, 10);
-    if (isNaN(costLbp) || isNaN(sellLbp)) {
-      setAddItemError("Cost and sell must be valid numbers");
+    const provider = newItemForm.provider as ProviderKey;
+    const built = buildNewServiceItemPayload(
+      newItemForm,
+      categories,
+      (category) =>
+        getServiceItems(provider, category).map((i) => i.subcategory),
+    );
+    if (!built.ok) {
+      setAddItemError(built.error);
       return;
     }
     try {
       // LIRA-090: migrated from raw window.api.* to useApi() (rule 19).
-      const res = await api.createMobileServiceItem({
-        provider: newItemForm.provider,
-        category: newItemForm.category,
-        subcategory: newItemForm.subcategory,
-        label: newItemForm.label.trim(),
-        cost_lbp: costLbp,
-        sell_lbp: sellLbp,
-        sort_order: parseInt(newItemForm.sort_order, 10) || 0,
-      });
+      const res = await api.createMobileServiceItem(built.payload);
       if (!res.success) {
         setAddItemError(res.error ?? "Failed to create item");
         return;
@@ -1290,6 +1277,10 @@ function KatchFormInner({
     } catch {
       setAddItemError("Create failed");
     }
+  };
+  const cancelNewItem = () => {
+    setNewItemForm(null);
+    setAddItemError("");
   };
 
   const handleAddBill = () => {
@@ -2199,17 +2190,13 @@ function KatchFormInner({
                           e.stopPropagation();
                           setAddItemError("");
                           setNewItemForm(
-                            newItemForm?.category === category
+                            newItemForm?.category === category &&
+                              !newItemForm.isNewCategory
                               ? null
-                              : {
-                                  provider: activeProvider as string,
+                              : emptyNewServiceItemForm(
+                                  activeProvider as string,
                                   category,
-                                  subcategory: "",
-                                  label: "",
-                                  cost_lbp: "",
-                                  sell_lbp: "",
-                                  sort_order: "0",
-                                },
+                                ),
                           );
                         }}
                         className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
@@ -2226,115 +2213,16 @@ function KatchFormInner({
                     />
                   </div>
                 </div>
-                {newItemForm?.category === category && (
-                  <div className="mt-3 border border-slate-600/40 rounded-lg p-3 bg-slate-900/50 space-y-2">
-                    {addItemError && (
-                      <p className="text-xs text-red-400">{addItemError}</p>
-                    )}
-                    <div className="flex items-end gap-2 flex-wrap">
-                      <div className="flex-1 min-w-24">
-                        <label className="text-slate-400 text-xs block mb-1">
-                          Subcategory
-                        </label>
-                        <input
-                          type="text"
-                          value={newItemForm.subcategory}
-                          onChange={(e) =>
-                            setNewItemForm({
-                              ...newItemForm,
-                              subcategory: e.target.value,
-                            })
-                          }
-                          placeholder="e.g. pubg"
-                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                        />
-                      </div>
-                      <div className="flex-1 min-w-24">
-                        <label className="text-slate-400 text-xs block mb-1">
-                          Label
-                        </label>
-                        <input
-                          autoFocus
-                          type="text"
-                          value={newItemForm.label}
-                          onChange={(e) =>
-                            setNewItemForm({
-                              ...newItemForm,
-                              label: e.target.value,
-                            })
-                          }
-                          placeholder="e.g. 60UC"
-                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                        />
-                      </div>
-                      <div className="w-28">
-                        <label className="text-slate-400 text-xs block mb-1">
-                          Cost
-                        </label>
-                        <DecimalInput
-                          value={parseFloat(newItemForm.cost_lbp) || 0}
-                          onChange={(n) =>
-                            setNewItemForm({
-                              ...newItemForm,
-                              cost_lbp: n ? String(n) : "",
-                            })
-                          }
-                          placeholder="LBP"
-                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                        />
-                      </div>
-                      <div className="w-28">
-                        <label className="text-slate-400 text-xs block mb-1">
-                          Sell
-                        </label>
-                        <DecimalInput
-                          value={parseFloat(newItemForm.sell_lbp) || 0}
-                          onChange={(n) =>
-                            setNewItemForm({
-                              ...newItemForm,
-                              sell_lbp: n ? String(n) : "",
-                            })
-                          }
-                          placeholder="LBP"
-                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                        />
-                      </div>
-                      <div className="w-16">
-                        <label className="text-slate-400 text-xs block mb-1">
-                          Order
-                        </label>
-                        <input
-                          type="number"
-                          value={newItemForm.sort_order}
-                          onChange={(e) =>
-                            setNewItemForm({
-                              ...newItemForm,
-                              sort_order: e.target.value,
-                            })
-                          }
-                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                        />
-                      </div>
-                      <button
-                        onClick={handleAddItem}
-                        className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded text-sm font-medium transition-colors"
-                        type="button"
-                      >
-                        Add
-                      </button>
-                      <button
-                        onClick={() => {
-                          setNewItemForm(null);
-                          setAddItemError("");
-                        }}
-                        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm transition-colors"
-                        type="button"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                )}
+                {newItemForm?.category === category &&
+                  !newItemForm.isNewCategory && (
+                    <NewServiceItemInlineForm
+                      form={newItemForm}
+                      error={addItemError}
+                      onChange={setNewItemForm}
+                      onSubmit={handleAddItem}
+                      onCancel={cancelNewItem}
+                    />
+                  )}
                 {!collapsedCategories.has(category) && (
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
                     {categoryItems.map((item) => {
@@ -2381,6 +2269,36 @@ function KatchFormInner({
               </div>
             );
           })}
+          {isAdmin &&
+            (newItemForm?.isNewCategory ? (
+              <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
+                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+                  New category
+                </h3>
+                <NewServiceItemInlineForm
+                  form={newItemForm}
+                  error={addItemError}
+                  onChange={setNewItemForm}
+                  onSubmit={handleAddItem}
+                  onCancel={cancelNewItem}
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setAddItemError("");
+                  setNewItemForm(
+                    emptyNewServiceItemForm(activeProvider as string, "", true),
+                  );
+                }}
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-2 py-1 rounded hover:bg-slate-700/50 transition-colors"
+                title="New category"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                New category
+              </button>
+            ))}
         </div>
       )}
 
@@ -2634,8 +2552,8 @@ function KatchFormInner({
                         data-testid="self-charge-owed-payoff-notice"
                       >
                         {selfChargeValidityProjection?.owedApplied} of these{" "}
-                        {selfChargeValidityProjection?.requestedDays} days go
-                        to what you already sold ahead
+                        {selfChargeValidityProjection?.requestedDays} days go to
+                        what you already sold ahead
                         {(selfChargeValidityProjection?.appliedDays ?? 0) >
                         0 ? (
                           <>

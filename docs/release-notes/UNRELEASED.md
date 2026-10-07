@@ -173,3 +173,10 @@
 - Expenses: search and pick any inventory item or Katsh / iPick / Whish App product to record using it for the shop — it comes out of stock at its cost, no cash moves.
 - Desktop app: an expense entered with an earlier date and time now keeps that time (it was saved as "now").
 - Recording an expense now has a separate Bill amount. If you hand the vendor more than the bill, enter the change you got back — it goes back into your drawer, and any change the vendor kept is added to the expense. From now on.
+
+## ⚙️ Settings
+
+- Settings → Mobile Services: "Category" now works. Type the new category's name and the new item form opens; the category is saved with its first item. You can now also change the subcategory in that form.
+- Recharge page: admins can add a new category with the "New category" button under the cards (iPick, Katsh and Whish App), not only new items in existing categories.
+- If you type a category or subcategory name that already exists with different capital letters (for example "ALFA"), the item goes into the existing one instead of a second copy.
+- Items added or changed in Settings → Mobile Services now show on the Recharge page straight away, without reloading the app.
