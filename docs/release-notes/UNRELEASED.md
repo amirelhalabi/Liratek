@@ -171,6 +171,7 @@
 - Payment form: the Paid amount no longer turns red when change is due or kept. Red now only means something needs fixing, such as an underpayment or handing back too much change.
 - When a payment doesn't match the total, the message now starts with a plain explanation ("The payment doesn't add up to the total." or "The payment is more than the total.") instead of technical text — on Loto, Exchange, OMT/Whish fees, Hold Money, supplier payments and other screens.
 - At checkout, the screen now shows which drawer each payment goes into (for example Cash → General) instead of always saying Drawer B. The same applies when taking payment for a repair in Maintenance.
+- POS and Maintenance checkout now convert Lira at the same rate as every other screen — a $10 item asks 890,000 LBP at a rate of 89,000. From now on, a POS cart added to a session is saved at the same rate it is paid at. Earlier sales keep their rate.
 
 ## 💳 Debts
 
@@ -210,3 +211,4 @@
 - If you type a category or subcategory name that already exists with different capital letters (for example "ALFA"), the item goes into the existing one instead of a second copy.
 - Items added or changed in Settings → Mobile Services now show on the Recharge page straight away, without reloading the app.
 - Reset Data no longer signs you out: you and everyone else in the shop stay signed in after a reset, and the "Done — rows removed" confirmation now shows. On the desktop app this applies from the next update.
+- Settings › Reset Data now keeps your shop's setup: product categories, products (stock set to 0), Mobile Services items including the ones you added, service presets, and your partners and suppliers (balances set to 0). Sales, payments, clients, debts, stock history, closings and the audit log are still deleted.

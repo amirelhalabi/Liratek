@@ -65,11 +65,11 @@ jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => ({ activeSession: null }),
 }));
 
-jest.mock("@/hooks/useDynamicExchangeRate", () => ({
-  useDynamicExchangeRate: () => ({
-    rate: 90000,
-    rateInfo: {},
-    isBaseCurrency: true,
+jest.mock("@/hooks/useSellRate", () => ({
+  useSellRate: () => ({
+    sellRate: 90500,
+    buyRate: 90000,
+    isLoading: false,
   }),
 }));
 

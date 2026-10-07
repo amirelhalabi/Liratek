@@ -12,7 +12,7 @@ import {
   type PaymentLine,
   type Money,
 } from "@liratek/ui";
-import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
+import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
 import {
@@ -226,21 +226,11 @@ export default function CheckoutModal({
     return lines.length > 0 ? lines : undefined;
   });
 
-  // Determine selected currency from payment lines
-  const hasLBPPayment = paymentLines.some(
-    (line) => line.currencyCode === "LBP",
-  );
-  const selectedCurrency = hasLBPPayment ? "LBP" : "USD";
-
-  // Dynamic exchange rate for SALE transaction (Money IN = We Sell USD rate)
-  const {
-    rate: exchangeRate,
-    rateInfo: _rateInfo,
-    isBaseCurrency: _isBaseCurrency,
-  } = useDynamicExchangeRate({
-    selectedCurrency,
-    transactionType: "SALE",
-  });
+  // Payments convert LBP<->USD at the shop's BUY rate, like every other
+  // MultiPaymentInput (owner decisions 2026-07-06 and 2026-10-07). POS and
+  // Maintenance (which reuses this modal) used the SALE -> sell rate, so a
+  // $10 item asked more LBP here than on any other screen.
+  const { buyRate: exchangeRate } = useSellRate();
 
   // State for custom exchange rate (editable inside MultiPaymentInput now)
   const [customExchangeRate, setCustomExchangeRate] = useState<string>(

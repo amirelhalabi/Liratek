@@ -57,10 +57,10 @@ export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
       if (result.success) {
         setDeletedTotal(result.data?.totalDeleted ?? null);
         setStatus("success");
-        // Every in-memory context (drawer balances, the mobile-services
-        // catalog, the dashboard) was seeded before the wipe and stays stale
-        // otherwise — a full reload is the only way every context re-reads
-        // the emptied (and re-seeded-where-applicable) database.
+        // Every in-memory context (drawer balances, product stock, the
+        // dashboard) was loaded before the wipe and stays stale otherwise —
+        // a full reload is the only way every context re-reads the reset
+        // database.
         window.setTimeout(() => reloadApp(), 1500);
       } else {
         setError(result.error ?? "Reset failed");
@@ -110,8 +110,8 @@ export function ResetDataModal({ totalRows, onClose }: ResetDataModalProps) {
                     <strong className="text-white">
                       {totalRows.toLocaleString()}
                     </strong>{" "}
-                    rows of operational data. This cannot be undone. (A backup
-                    is taken first on desktop.)
+                    rows of operational data. Your shop's setup is kept. This
+                    cannot be undone. (A backup is taken first on desktop.)
                   </p>
                   <p className="text-slate-400 text-sm leading-relaxed mt-2">
                     Type{" "}

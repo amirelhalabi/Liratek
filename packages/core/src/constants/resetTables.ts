@@ -1,25 +1,49 @@
 /**
  * Database Reset — table classification (LIRA-165, DATABASE_RESET_PLAN.md).
  *
- * Single source of truth (rule 14) for which of the 72 tables in
+ * Single source of truth (rule 14) for which tables in
  * `electron-app/create_db.sql` survive an admin-triggered "Reset Data"
- * action, which are zeroed, which are wiped-and-reseeded, and which are
- * wiped outright. `DatabaseResetRepository` reads ONLY these arrays — it
- * never hardcodes a table name — and `resetTables.guard.test.ts` fails the
- * build the moment a new `CREATE TABLE` lands in `create_db.sql` without a
- * bucket decision here. Leaving a ledger table out of the wipe set produces
- * data that LOOKS corrupt after a reset (e.g. a supplier owing money with no
- * transactions behind it) — see DATABASE_RESET_PLAN.md "The correctness risk
- * this classification exists to kill".
+ * action, which are zeroed, and which are wiped outright.
+ * `DatabaseResetRepository` reads ONLY these arrays — it never hardcodes a
+ * table name — and `resetTables.guard.test.ts` fails the build the moment a
+ * new `CREATE TABLE` lands in `create_db.sql` without a bucket decision here.
+ * Leaving a ledger table out of the wipe set produces data that LOOKS
+ * corrupt after a reset (e.g. a supplier owing money with no transactions
+ * behind it) — see DATABASE_RESET_PLAN.md "The correctness risk this
+ * classification exists to kill".
  *
- * The six buckets:
+ * The rule (owner decision 2026-10-07): a reset KEEPS the shop's SETUP and
+ * wipes only OPERATIONAL data. Setup = anything the shop configured once and
+ * would have to re-type (accounts, modules, currencies, drawers, categories,
+ * the product catalog, the Mobile Services items, presets, partners,
+ * suppliers, carrier lines). Operational = anything a sale, payment,
+ * movement or closing wrote (transactions, payments, every ledger, debts,
+ * clients, stock and stock history, closings, customer sessions, audit log).
+ * Where a setup row carries a money/stock state, the ROW is kept and only
+ * that state resets — either by zeroing a column (ZERO) or, for balances
+ * derived from a ledger, simply because the ledger is wiped.
  *
- * - RESET_KEEP_TABLES (18): untouched. Configuration captured by the setup
- *   wizard's Account/Base-System/Modules/Currencies/Users pages, plus
- *   Settings-page config (`system_settings`, `currency_drawers`) and
- *   control-plane rows (`tenants`, `tenant_subscriptions`,
- *   `schema_migrations`). The shop should never have to re-run the wizard.
- * - RESET_EXCLUDED_TABLES (5): `sync_queue` / `sync_errors` were the first
+ * The four buckets:
+ *
+ * - RESET_KEEP_TABLES: untouched. Setup-wizard + Settings-page config,
+ *   control-plane rows, accounts and sign-ins, plus (2026-10-07) the shop's
+ *   own catalog setup:
+ *     · `product_categories`, `service_presets` — kept as the shop has them
+ *       (they used to be wiped and re-seeded to the fresh-install defaults,
+ *       which deleted every category/preset the shop had added or renamed).
+ *     · `mobile_service_items` — every item, including ones the shop added
+ *       (it used to be wiped and re-seeded from the built-in catalog on next
+ *       login, losing the shop's own items and prices). `item_costs` and
+ *       `voucher_images` key off those items' `item_key`s and are per-item
+ *       cost / picture settings, so they travel with them.
+ *     · `partners`, `suppliers` (ALL of them — system, module-owned and
+ *       hand-added), `product_suppliers` (the normalised supplier-name
+ *       picklist the inventory form uses: name / sort order / active flag /
+ *       optional link to a supplier, no money or event columns — setup, not
+ *       history). Neither `suppliers` nor `partners` stores a balance
+ *       column: a balance is the SUM of `supplier_ledger` / `partner_ledger`
+ *       rows, which are operational and wiped, so every balance reads 0.
+ * - RESET_EXCLUDED_TABLES: `sync_queue` / `sync_errors` were the first
  *   wipe-candidates with NO `tenant_id` column — they are documented in
  *   `BaseRepository` as control-plane/global tables, so a tenant-scoped
  *   `DELETE ... WHERE tenant_id = ?` cannot target them safely on the
@@ -31,44 +55,36 @@
  *   by no shop, so one shop's "Reset Data" must never touch them.
  *   `sso_handoff_tokens` (v196) joined for the same reason: a platform-level
  *   www -> shop sign-in hand-off with no `tenant_id` column.
- * - RESET_ZERO_TABLES (2): rows are KEPT and specific "balance-like" columns
+ * - RESET_ZERO_TABLES: rows are KEPT and specific "balance-like" columns
  *   are set to 0, never deleted. `drawer_balances.balance` is the original
  *   member — zeroing (not deleting) is load-bearing:
  *   `ClosingRepository.hasInitialBalancesSet()` is `COUNT(*) FROM
  *   drawer_balances WHERE balance != 0`, so zeroing re-arms the Dashboard
  *   "Starting drawer amounts not set" prompt on next login.
  *   `carrier_lines.credits`/`.days_owed` (LIRA-254, owner decision
- *   2026-10-02) joined it for the same reason as `suppliers`/`currencies`:
- *   the phone number IS shop setup, like a currency — only its *balance*
- *   should reset, matching the zeroed drawers (LIRA-252's drawer = Σ active
- *   line credits invariant). `validity_expires_at` is deliberately NOT
- *   zeroed/cleared: it is the SIM's real-world expiry date, not a derived
- *   balance, and a reset has no more business inventing a new one than it
- *   does changing a currency's exchange rate.
- * - RESET_RESEED_TABLES (2): wiped, then re-populated with the exact rows
- *   `create_db.sql` seeds on a fresh install (`PRODUCT_CATEGORY_DEFAULTS`,
- *   `SERVICE_PRESET_DEFAULTS` below). Migrations never re-run against an
- *   existing database, so a plain DELETE would leave a state no fresh
- *   install ever has.
- * - RESET_PARTIAL_TABLES (1): `suppliers` — only ad-hoc (non-system,
- *   non-module) suppliers are deleted. See `SUPPLIER_KEEP_PREDICATE` below
- *   for why `is_system` alone is the wrong gate.
- * - RESET_WIPE_TABLES (53): every other tenant-owned operational table —
- *   transactions, payments, drawer movements, ledgers, catalogs, contacts —
- *   deleted outright, tenant-scoped. `carrier_line_movements` and
- *   `carrier_line_owed_deliveries` stay here even though `carrier_lines`
- *   itself moved to ZERO: they are pure HISTORY of a line's balance
- *   mutations (rule 26 reversal-owner rows), not shop setup, and deleting
- *   them while KEEPING the parent row raises no FK problem — both carry
- *   their own `tenant_id` and are deleted by it directly, never via
- *   cascade-from-parent, and `defer_foreign_keys` removes any ordering
- *   concern either way.
- *
- * `mobile_service_items` needs no re-seed even though it is in WIPE: the
- * frontend catalog seed re-runs automatically on next login when the table
- * is empty (`MobileServiceItemsContext.load()`). `item_costs` and
- * `voucher_images` key off catalog `item_key`s and are wiped alongside it so
- * no stale override attaches to a reseeded row.
+ *   2026-10-02) joined it: the phone number IS shop setup, like a currency —
+ *   only its *balance* should reset, matching the zeroed drawers (LIRA-252's
+ *   drawer = Σ active line credits invariant). `validity_expires_at` is
+ *   deliberately NOT zeroed/cleared: it is the SIM's real-world expiry date,
+ *   not a derived balance. `products.stock_quantity` (2026-10-07) joined for
+ *   the same reason: the product (name, barcode, category, prices, minimum
+ *   stock) is catalog setup; the quantity on hand is stock, which a reset
+ *   wipes. Its stock batches, IMEI units, consumptions and adjustments are
+ *   in WIPE, so quantity 0 + no batches is consistent — and a product with
+ *   no batches is already a supported state (`StockBatchRepository.consume`
+ *   prices uncovered units at `cost_price_usd`).
+ * - RESET_WIPE_TABLES: every other tenant-owned operational table —
+ *   transactions, payments, drawer movements, every ledger, debts, clients,
+ *   stock and stock history, closings, customer sessions, audit log —
+ *   deleted outright, tenant-scoped. History rows whose PARENT is kept
+ *   (`carrier_line_movements` under `carrier_lines`, `supplier_ledger` under
+ *   `suppliers`, `partner_ledger` under `partners`, `product_stock_batches`
+ *   under `products`, ...) raise no FK problem: each carries its own
+ *   `tenant_id` and is deleted by it directly, never via cascade-from-
+ *   parent, and `defer_foreign_keys` removes any ordering concern. No KEPT
+ *   table references a WIPED one (checked against create_db.sql's FK list;
+ *   `DatabaseResetRepository.test.ts` runs `PRAGMA foreign_key_check` after
+ *   a full-fixture reset to prove it).
  */
 
 // =============================================================================
@@ -83,8 +99,10 @@ export const DATABASE_RESET_CONFIRMATION_PHRASE = "RESET ALL DATA";
 // =============================================================================
 
 /**
- * KEEP — untouched (18). Setup-wizard + Settings-page config, control plane,
- * and the accounts themselves.
+ * KEEP — untouched. Setup-wizard + Settings-page config, control plane,
+ * the accounts themselves, and the shop's catalog setup (categories, Mobile
+ * Services items + their cost/picture settings, presets, partners,
+ * suppliers, the product-supplier picklist) — see the header comment.
  *
  * `sessions` is the LOGIN session table (not customer sessions): every web
  * request validates its JWT against a row here and the desktop app
@@ -104,19 +122,27 @@ export const RESET_KEEP_TABLES: readonly string[] = [
   "currency_modules",
   "email_verification_tokens",
   "exchange_rates",
+  "item_costs",
   "loto_settings",
+  "mobile_service_items",
   "modules",
+  "partners",
   "password_reset_tokens",
   "payment_methods",
+  "product_categories",
+  "product_suppliers",
   "schema_migrations",
+  "service_presets",
   "service_providers",
   "sessions",
+  "suppliers",
   "system_settings",
   "tenant_subscriptions",
   "tenants",
   "user_identities",
   "user_invitations",
   "users",
+  "voucher_images",
 ];
 
 /**
@@ -134,7 +160,7 @@ export const RESET_EXCLUDED_TABLES: readonly string[] = [
 ];
 
 /**
- * ZERO — rows kept, named columns reset to 0 (2 tables). Each entry names
+ * ZERO — rows kept, named columns reset to 0. Each entry names
  * exactly which columns to zero; every other column on the row (identity,
  * config, the SIM's own `validity_expires_at`) survives untouched. Defined
  * ONCE here (rule 14) — `DatabaseResetRepository` builds its `UPDATE ...
@@ -151,6 +177,10 @@ export const RESET_ZERO_TABLES: readonly ResetZeroColumnsSpec[] = [
   // are shop setup and survive; only the sold balance resets, matching the
   // zeroed drawers (LIRA-252 drawer = Σ active line credits).
   { table: "carrier_lines", columns: ["credits", "days_owed"] },
+  // 2026-10-07: the product is catalog setup and survives; only the
+  // quantity on hand resets (its batches / IMEI units / stock history are
+  // in WIPE, so 0 matches them).
+  { table: "products", columns: ["stock_quantity"] },
 ];
 
 /** Table names only, derived (rule 14) — for call sites that only need
@@ -160,16 +190,7 @@ export const RESET_ZERO_TABLE_NAMES: readonly string[] = RESET_ZERO_TABLES.map(
   (z) => z.table,
 );
 
-/** WIPE + RESEED create_db.sql defaults (2). */
-export const RESET_RESEED_TABLES: readonly string[] = [
-  "product_categories",
-  "service_presets",
-];
-
-/** WIPE PARTIAL (1) — see `SUPPLIER_KEEP_PREDICATE`. */
-export const RESET_PARTIAL_TABLES: readonly string[] = ["suppliers"];
-
-/** WIPE — full delete, tenant-scoped (53). LOGIN sessions (`sessions`) are
+/** WIPE — full delete, tenant-scoped. LOGIN sessions (`sessions`) are
  *  deliberately NOT here — see `RESET_KEEP_TABLES`. The three CUSTOMER
  *  session tables (`customer_sessions`, `customer_session_transactions`,
  *  `session_cart_items`) are operational data and stay in this list. */
@@ -196,7 +217,6 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "financial_services",
   "hold_money",
   "hold_money_pickups",
-  "item_costs",
   "loto_cash_prizes",
   "loto_checkpoints",
   "loto_monthly_fees",
@@ -205,14 +225,10 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "maintenance",
   "maintenance_parts",
   "maintenance_status_history",
-  "mobile_service_items",
   "partner_ledger",
-  "partners",
   "payments",
   "product_stock_batches",
-  "product_suppliers",
   "product_units",
-  "products",
   "recharges",
   "sale_items",
   "sales",
@@ -224,13 +240,12 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "supplier_purchases",
   "supplier_settlements",
   "transactions",
-  "voucher_images",
   "vouchers",
   "wallet_exchanges",
 ];
 
 /**
- * Union of all six buckets — DERIVED, never retyped, so it can never drift
+ * Union of all four buckets — DERIVED, never retyped, so it can never drift
  * from the individual arrays above. Used by the guard test to assert every
  * `CREATE TABLE` in `create_db.sql` lands in exactly one bucket.
  */
@@ -238,103 +253,8 @@ export const RESET_ALL_CLASSIFIED_TABLES: readonly string[] = [
   ...RESET_KEEP_TABLES,
   ...RESET_EXCLUDED_TABLES,
   ...RESET_ZERO_TABLE_NAMES,
-  ...RESET_RESEED_TABLES,
-  ...RESET_PARTIAL_TABLES,
   ...RESET_WIPE_TABLES,
 ].sort();
-
-// =============================================================================
-// Suppliers partial-wipe predicate (rule 14 — defined ONCE, reused wherever
-// the ad-hoc-supplier gate is needed).
-// =============================================================================
-
-/**
- * SQL predicate selecting suppliers a reset must KEEP: anything a module or
- * the system seed owns, however it flagged `is_system`.
- *
- * Do NOT key on `is_system` alone: the seeded `Whish` row
- * (`electron-app/create_db.sql`'s supplier seed) has `is_system = 0` but
- * `module_key = 'omt_whish'` — a delete gated on `is_system = 0` alone would
- * still match Whish and remove it, breaking the omt_whish module (Whish
- * becomes an unresolvable supplier reference for every future Whish
- * transaction). Matching any ONE of the three columns being module/system-owned
- * is enough to protect the row.
- *
- * The partial wipe deletes the negation, `NOT (SUPPLIER_KEEP_PREDICATE)`,
- * which by De Morgan's is exactly `is_system = 0 AND module_key IS NULL AND
- * provider IS NULL` — the ad-hoc suppliers a shop added by hand. Callers
- * append `AND tenant_id = ?` themselves — this fragment intentionally
- * carries no tenant predicate so it composes into both a `SELECT COUNT(*)`
- * preview query and a `DELETE` statement.
- */
-export const SUPPLIER_KEEP_PREDICATE =
-  "(is_system = 1 OR module_key IS NOT NULL OR provider IS NOT NULL)";
-
-// =============================================================================
-// Re-seed payloads — copied EXACTLY from the `INSERT OR IGNORE` seed
-// statements in `electron-app/create_db.sql` (verified against the file,
-// not re-derived). `tenant_id` and timestamp columns are supplied by the
-// repository at insert time, not stored here.
-// =============================================================================
-
-export interface ProductCategoryDefault {
-  readonly name: string;
-  readonly sort_order: number;
-  readonly tracks_imei_units: 0 | 1;
-}
-
-/**
- * `create_db.sql` §"Product Categories" seed. `tracks_imei_units = 1` only
- * for "Phones" (LIRA-143 v157 decision #9 — per-unit IMEI tracking).
- */
-export const PRODUCT_CATEGORY_DEFAULTS: readonly ProductCategoryDefault[] = [
-  { name: "Accessories", sort_order: 0, tracks_imei_units: 0 },
-  { name: "Phones", sort_order: 1, tracks_imei_units: 1 },
-  { name: "Chargers", sort_order: 2, tracks_imei_units: 0 },
-  { name: "Audio", sort_order: 3, tracks_imei_units: 0 },
-  { name: "Parts", sort_order: 4, tracks_imei_units: 0 },
-  { name: "Services", sort_order: 5, tracks_imei_units: 0 },
-];
-
-export interface ServicePresetDefault {
-  readonly name: string;
-  readonly category: string;
-  readonly cost_usd: number;
-  readonly price_usd: number;
-  readonly sort_order: number;
-}
-
-/** `create_db.sql` §"Default service presets" seed (4 `digital_account` rows). */
-export const SERVICE_PRESET_DEFAULTS: readonly ServicePresetDefault[] = [
-  {
-    name: "Netflix Premium 1 Month",
-    category: "digital_account",
-    cost_usd: 7,
-    price_usd: 9,
-    sort_order: 0,
-  },
-  {
-    name: "Netflix Standard 1 Month",
-    category: "digital_account",
-    cost_usd: 5,
-    price_usd: 7,
-    sort_order: 1,
-  },
-  {
-    name: "Spotify Premium 1 Month",
-    category: "digital_account",
-    cost_usd: 3,
-    price_usd: 5,
-    sort_order: 2,
-  },
-  {
-    name: "Shahid VIP 1 Month",
-    category: "digital_account",
-    cost_usd: 4,
-    price_usd: 6,
-    sort_order: 3,
-  },
-];
 
 // =============================================================================
 // Result / preview shapes shared by the repository and service.

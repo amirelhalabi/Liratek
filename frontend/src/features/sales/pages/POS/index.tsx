@@ -14,7 +14,7 @@ import ProductForm from "@/features/inventory/pages/Inventory/ProductForm";
 import SaleDetailModal from "./components/SaleDetailModal";
 import { appEvents, useApi } from "@liratek/ui";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
-import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { useSellRate } from "@/hooks/useSellRate";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -38,7 +38,9 @@ export default function POS() {
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
-  const { rate: defaultExchangeRate } = useExchangeRate("USD", "LBP");
+  // BUY rate, the same rate CheckoutModal and the session checkout pay at —
+  // a POS cart added to a session is saved at the rate it is paid at.
+  const { buyRate: defaultExchangeRate } = useSellRate();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 

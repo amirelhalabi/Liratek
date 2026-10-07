@@ -24,8 +24,6 @@ import {
   RESET_KEEP_TABLES,
   RESET_ZERO_TABLES,
   RESET_EXCLUDED_TABLES,
-  PRODUCT_CATEGORY_DEFAULTS,
-  SERVICE_PRESET_DEFAULTS,
 } from "../../constants/resetTables.js";
 
 type TestGlobal = typeof globalThis & {
@@ -66,19 +64,16 @@ function countRows(
 }
 
 /**
- * Inserts exactly ONE row into every `RESET_WIPE_TABLES` table for the given
+ * Inserts at least ONE row into every `RESET_WIPE_TABLES` table for the given
  * tenant, satisfying every NOT-NULL foreign key in `create_db.sql` (nullable
- * FKs are left NULL — they need no parent row). 12 of the 53 rows double as
- * both a "parent" row (referenced by another WIPE table's mandatory FK) and
- * a WIPE-table row in their own right (e.g. `sales` / `sale_items`), so this
- * function's WIPE-table INSERT count is 53, matching `RESET_WIPE_TABLES
- * .length` exactly — asserted by the "fixture sanity" step in each test
- * that uses it. `carrier_lines` is inserted too (as a non-WIPE parent for
- * `carrier_line_movements` / `carrier_line_owed_deliveries` /
- * `daily_closing_carrier_lines`), but since LIRA-254 it is a RESET_ZERO_TABLES
- * entry, not a WIPE one, so it does not count toward the 53. `sessions` (login sign-ins) is
- * inserted too but is a RESET_KEEP_TABLES entry since 2026-10-07, so it does
- * not count either — DatabaseResetRepository.keepsSignIns.test.ts guards it.
+ * FKs are left NULL — they need no parent row). Several rows are "parents"
+ * another row's mandatory FK needs; since 2026-10-07 some of those parents
+ * (`suppliers`, `partners`, `products`, `carrier_lines`) are KEPT setup
+ * (KEEP / ZERO), and the fixture also writes rows into kept setup tables
+ * (`item_costs`, `mobile_service_items`, `product_suppliers`,
+ * `voucher_images`, login `sessions`) — they simply don't count toward the
+ * WIPE set. The "fixture sanity" step in each test asserts every WIPE table
+ * holds exactly 1 row, so a silently-skipped table cannot pass vacuously.
  * `defer_foreign_keys` removes any insertion-order requirement.
  */
 function insertTenantFixture(db: Database.Database, tenantId: number): void {
@@ -117,8 +112,7 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
       )
       .run(tenantId, `03-${tenantId}`).lastInsertRowid as number;
 
-    // 12 tables that are BOTH a mandatory-FK parent for another WIPE table
-    // AND themselves a RESET_WIPE_TABLES entry.
+    // Mandatory-FK parents for WIPE rows (some WIPE, some kept setup).
     const supplierId = db
       .prepare(`INSERT INTO suppliers (tenant_id, name) VALUES (?, ?)`)
       .run(tenantId, `Fixture Supplier ${tenantId}`).lastInsertRowid as number;
@@ -176,7 +170,7 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
        VALUES (?, 'SALE', 'sales', ?, ?)`,
     ).run(tenantId, saleId, userId);
 
-    // The remaining 41 WIPE tables — one plain row each.
+    // The remaining tables — one plain row each.
     db.prepare(
       `INSERT INTO audit_log (tenant_id, user_id, username, role, action, entity_type, summary)
        VALUES (?, ?, 'tester', 'staff', 'TEST', 'test', 'fixture')`,
@@ -361,7 +355,7 @@ describe("DatabaseResetRepository", () => {
     insertTenantFixture(db, 1);
 
     // Fixture sanity — every WIPE table starts with exactly 1 row, and the
-    // fixture wrote exactly RESET_WIPE_TABLES.length rows (53), not fewer
+    // fixture wrote a row into every one of them, not fewer
     // (a silently-skipped table would otherwise make this test pass
     // vacuously on that table).
     for (const table of RESET_WIPE_TABLES) {
@@ -408,73 +402,17 @@ describe("DatabaseResetRepository", () => {
     }
   });
 
-  it("deletes only ad-hoc suppliers, keeping module-owned and system rows", () => {
-    db.prepare(
-      `INSERT INTO suppliers (tenant_id, name) VALUES (1, 'AdHoc Co')`,
-    ).run();
-
-    runWithTenant(1, () => repo.resetTenantData());
-
-    const byName = (name: string): number =>
-      (
-        db
-          .prepare(
-            `SELECT COUNT(*) AS n FROM suppliers WHERE tenant_id = 1 AND name = ?`,
-          )
-          .get(name) as { n: number }
-      ).n;
-
-    expect(byName("AdHoc Co")).toBe(0);
-    // Seeded by create_db.sql: is_system = 0 but module_key = 'omt_whish'.
-    expect(byName("Whish")).toBe(1);
-    // Seeded by create_db.sql: is_system = 1.
-    expect(byName("iPick")).toBe(1);
-  });
-
-  it("wipes and reseeds product_categories / service_presets to the exact create_db.sql defaults", () => {
-    db.prepare(
-      `INSERT INTO product_categories (tenant_id, name, sort_order) VALUES (1, 'Custom Category', 99)`,
-    ).run();
-    db.prepare(
-      `INSERT INTO service_presets (tenant_id, name, category, cost_usd, price_usd, sort_order)
-       VALUES (1, 'Custom Preset', 'digital_account', 1, 2, 99)`,
-    ).run();
-
-    runWithTenant(1, () => repo.resetTenantData());
-
-    const categories = db
-      .prepare(
-        `SELECT name, sort_order, tracks_imei_units FROM product_categories WHERE tenant_id = 1 ORDER BY sort_order`,
-      )
-      .all();
-    expect(categories).toEqual(
-      PRODUCT_CATEGORY_DEFAULTS.map((c) => ({
-        name: c.name,
-        sort_order: c.sort_order,
-        tracks_imei_units: c.tracks_imei_units,
-      })),
-    );
-
-    const presets = db
-      .prepare(
-        `SELECT name, category, cost_usd, price_usd, sort_order FROM service_presets WHERE tenant_id = 1 ORDER BY sort_order`,
-      )
-      .all();
-    expect(presets).toEqual(
-      SERVICE_PRESET_DEFAULTS.map((p) => ({
-        name: p.name,
-        category: p.category,
-        cost_usd: p.cost_usd,
-        price_usd: p.price_usd,
-        sort_order: p.sort_order,
-      })),
-    );
-  });
+  // The old "deletes only ad-hoc suppliers" and "wipes and reseeds
+  // product_categories / service_presets" cases asserted the behaviour the
+  // owner reversed on 2026-10-07 (a reset now KEEPS every supplier, partner,
+  // category, preset, Mobile Services item and product). Their guards live in
+  // DatabaseResetRepository.keepsSetup.test.ts.
 
   it("zeroes drawer_balances without deleting rows", () => {
     expect(RESET_ZERO_TABLES.map((z) => z.table)).toEqual([
       "drawer_balances",
       "carrier_lines",
+      "products",
     ]);
     expect(
       RESET_ZERO_TABLES.find((z) => z.table === "drawer_balances")?.columns,
@@ -684,9 +622,6 @@ describe("DatabaseResetRepository", () => {
 
   it("previewCounts reports the exact per-table counts resetTenantData will delete", () => {
     insertTenantFixture(db, 1);
-    db.prepare(
-      `INSERT INTO suppliers (tenant_id, name) VALUES (1, 'AdHoc Co')`,
-    ).run();
 
     const preview = runWithTenant(1, () => repo.previewCounts());
 
@@ -697,24 +632,11 @@ describe("DatabaseResetRepository", () => {
       Object.values(preview.counts).reduce((sum, n) => sum + n, 0),
     );
 
-    // `suppliers` is the count the preview can get wrong on its own, because
-    // it is the only PARTIAL table — a predicate, not a whole table. Assert it
-    // against what the reset ACTUALLY deletes rather than a hand-counted
-    // literal: this line previously read `toBe(1)` ("only the ad-hoc
-    // supplier"), overlooking that `insertTenantFixture` seeds its own
-    // `Fixture Supplier 1` with no `module_key`/`provider` and `is_system = 0`
-    // — itself ad-hoc, making the true answer 2. A literal goes stale the
-    // moment a fixture or a seed changes; a delta cannot.
+    // The preview lists exactly the WIPE set — no kept setup table.
+    expect(Object.keys(preview.counts).sort()).toEqual(
+      [...RESET_WIPE_TABLES].sort(),
+    );
     const result = runWithTenant(1, () => repo.resetTenantData());
-    expect(result.deletedRows.suppliers).toBe(preview.counts.suppliers);
-
-    // …and both are non-zero, so the agreement is not two matching zeroes,
-    // while the module/system-owned seeds survive.
-    expect(preview.counts.suppliers).toBeGreaterThan(0);
-    const kept = db
-      .prepare(`SELECT COUNT(*) AS n FROM suppliers WHERE tenant_id = 1`)
-      .get() as { n: number };
-    expect(kept.n).toBeGreaterThan(0);
 
     // `totalDeleted` is legitimately LOWER than `totalRows` — do not "fix"
     // that to an equality. The wipe runs parent-before-child, so a child row
@@ -728,5 +650,19 @@ describe("DatabaseResetRepository", () => {
     // confirmation UI and `totalDeleted` the under-count.
     expect(result.totalDeleted).toBeLessThanOrEqual(preview.totalRows);
     expect(result.totalDeleted).toBeGreaterThan(0);
+  });
+
+  it("leaves no dangling foreign key after a reset (kept setup rows vs wiped operational rows)", () => {
+    // Every table populated, for two tenants, so a kept row (supplier,
+    // partner, product, carrier line) has children in wiped tables.
+    insertTenantFixture(db, 1);
+    insertTenantFixture(db, 2);
+    // Fixture sanity: the populated database starts FK-clean, so a non-empty
+    // check afterwards can only come from the reset.
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+
+    runWithTenant(1, () => repo.resetTenantData());
+
+    expect(db.pragma("foreign_key_check")).toEqual([]);
   });
 });

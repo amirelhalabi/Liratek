@@ -26,11 +26,13 @@
  * This file only proves the GUARD holds over REST + the real browser UI.
  * =====================================================================
  *
- * `RESET_RESEED_TABLES` (`product_categories`, `service_presets`) are
- * seeded unconditionally by `electron-app/create_db.sql` on every fresh
- * install, so the preview's "Products & stock" bucket is non-zero from the
- * very first spec in the suite — these assertions hold regardless of how
- * much of the rest of the suite has run before this file.
+ * Signing in writes an `audit_log` row on both transports, so the
+ * preview's "Audit log" bucket and the overall total are non-zero as soon as
+ * this spec has logged in — whether run as part of the full ordered suite
+ * or in isolation via `-g`. (It used to lean on `product_categories`, but
+ * since 2026-10-07 a reset KEEPS the shop's setup — categories, presets,
+ * Mobile Services items, partners, suppliers, products — so those tables
+ * are never counted as rows to remove; case 1 now asserts exactly that.)
  *
  * Case 4 (non-admin cannot reset) is a REAL test now (LIRA-235) — the suite
  * gained a shared staff-login fixture (`seedStaffUser`/`staffHeaders` in
@@ -118,7 +120,18 @@ test.describe("Database Reset guard (web/REST) — LIRA-165 (no real reset ever 
     // itself is broken, independent of any UI rendering issue.
     const preview = await getPreview(page, headers);
     expect(preview.totalRows).toBeGreaterThan(0);
-    expect(preview.counts.product_categories ?? 0).toBeGreaterThan(0);
+    expect(preview.counts.audit_log ?? 0).toBeGreaterThan(0);
+    // The shop's setup is kept, so it is never listed as rows to remove.
+    for (const kept of [
+      "product_categories",
+      "service_presets",
+      "mobile_service_items",
+      "partners",
+      "suppliers",
+      "products",
+    ]) {
+      expect(preview.counts).not.toHaveProperty(kept);
+    }
 
     // Then the real UI, driven fresh (same login, same page).
     await page.goto("/#/settings?tab=reset");
@@ -128,7 +141,7 @@ test.describe("Database Reset guard (web/REST) — LIRA-165 (no real reset ever 
     const previewTable = page.getByTestId("reset-data-preview");
     await expect(previewTable).toBeVisible({ timeout: 15_000 });
     await expect(
-      previewTable.locator("tr").filter({ hasText: "Products & stock" }),
+      previewTable.locator("tr").filter({ hasText: "Audit log" }),
     ).toBeVisible({ timeout: 10_000 });
   });
 
