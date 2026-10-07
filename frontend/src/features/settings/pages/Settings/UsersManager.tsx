@@ -76,6 +76,18 @@ const VISIBLE_INVITE_STATUSES: ReadonlySet<UserInvitationView["status"]> = new S
   "expired",
 ]);
 
+type AddUserMode = "create" | "invite";
+
+const ADD_USER_MODE_OPTIONS = [
+  { value: "create", label: "Create username/password" },
+  { value: "invite", label: "Send invitation" },
+];
+
+const ROLE_OPTIONS = [
+  { value: "staff", label: "Staff" },
+  { value: "admin", label: "Admin" },
+];
+
 function formatDay(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
@@ -96,6 +108,8 @@ export default function UsersManager() {
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<"admin" | "staff">("staff");
   const [creating, setCreating] = useState(false);
+  // Desktop has no email, so it only ever creates username/password accounts.
+  const [addMode, setAddMode] = useState<AddUserMode>("create");
 
   // Web-only (LIRA-279/281): desktop keeps manual accounts and has no email.
   const web = !isElectron();
@@ -106,7 +120,6 @@ export default function UsersManager() {
   const [invites, setInvites] = useState<UserInvitationView[]>([]);
   const [emailConfigured, setEmailConfigured] = useState(true);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"admin" | "staff">("staff");
   const [inviting, setInviting] = useState(false);
   const [busyInviteId, setBusyInviteId] = useState<number | null>(null);
 
@@ -208,7 +221,7 @@ export default function UsersManager() {
       return;
     }
     // Built ONCE (rule 22).
-    const payload: CreateUserInvitationInput = { email, role: inviteRole };
+    const payload: CreateUserInvitationInput = { email, role: newRole };
     setInviting(true);
     const result = await runAccountAction(
       () => createUserInvitation(payload),
@@ -218,7 +231,7 @@ export default function UsersManager() {
     if (!result) return;
     notifySuccess(`Invitation sent to ${result.invitation.email}`);
     setInviteEmail("");
-    setInviteRole("staff");
+    setNewRole("staff");
     await loadInvites();
   };
 
@@ -327,85 +340,83 @@ export default function UsersManager() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 flex items-center gap-2">
-        <TextInput
-          value={newUsername}
-          onChange={setNewUsername}
-          label=""
-          placeholder="Username"
-          compact
-          className="w-48"
-        />
-        <PasswordInput
-          value={newPassword}
-          onChange={setNewPassword}
-          label=""
-          placeholder="Password"
-          compact
-          className="flex-1"
-        />
-        <Select
-          value={newRole}
-          onChange={(value) => setNewRole(value as "admin" | "staff")}
-          options={[
-            { value: "staff", label: "Staff" },
-            { value: "admin", label: "Admin" },
-          ]}
-          ringColor="ring-violet-500"
-          buttonClassName="bg-slate-800 px-2 py-1"
-        />
-        <button
-          onClick={createUser}
-          disabled={creating}
-          className="px-3 py-1 bg-violet-600 rounded text-white disabled:opacity-50"
-        >
-          {creating ? "Creating…" : "Create"}
-        </button>
-      </div>
-
-      {web && (
-        <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 space-y-2">
-          {!emailConfigured && (
-            <p className="text-xs text-amber-400">
-              Email is not set up on this server, so invitations and
-              verification emails cannot be sent.
-            </p>
+      <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 space-y-2">
+        {web && !emailConfigured && (
+          <p className="text-xs text-amber-400">
+            Email is not set up on this server, so invitations and
+            verification emails cannot be sent.
+          </p>
+        )}
+        <div className="flex items-center gap-2">
+          {web && (
+            <div data-testid="add-user-mode" className="w-56 shrink-0">
+              <Select
+                value={addMode}
+                onChange={(value) => setAddMode(value as AddUserMode)}
+                options={ADD_USER_MODE_OPTIONS}
+                ringColor="ring-violet-500"
+                buttonClassName="bg-slate-800 px-2 py-1"
+              />
+            </div>
           )}
-          <div className="flex items-center gap-2">
+          {addMode === "create" ? (
+            <>
+              <TextInput
+                value={newUsername}
+                onChange={setNewUsername}
+                label=""
+                placeholder="Username"
+                compact
+                className="w-48"
+              />
+              <PasswordInput
+                value={newPassword}
+                onChange={setNewPassword}
+                label=""
+                placeholder="Password"
+                compact
+                className="flex-1"
+              />
+            </>
+          ) : (
             <input
               type="email"
               data-testid="invite-email"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="Email address"
+              placeholder="Email address (they choose their own username and password)"
               aria-label="Email address to invite"
               autoComplete="off"
               className={EMAIL_INPUT_CLASS}
             />
-            <Select
-              value={inviteRole}
-              onChange={(value) => setInviteRole(value as "admin" | "staff")}
-              options={[
-                { value: "staff", label: "Staff" },
-                { value: "admin", label: "Admin" },
-              ]}
-              ringColor="ring-violet-500"
-              buttonClassName="bg-slate-800 px-2 py-1"
-            />
+          )}
+          <Select
+            value={newRole}
+            onChange={(value) => setNewRole(value as "admin" | "staff")}
+            options={ROLE_OPTIONS}
+            ringColor="ring-violet-500"
+            buttonClassName="bg-slate-800 px-2 py-1"
+          />
+          {addMode === "create" ? (
+            <button
+              onClick={createUser}
+              disabled={creating}
+              className="px-3 py-1 bg-violet-600 rounded text-white disabled:opacity-50"
+            >
+              {creating ? "Creating…" : "Create"}
+            </button>
+          ) : (
             <button
               data-testid="invite-submit"
               onClick={inviteByEmail}
               disabled={inviting || !emailConfigured}
               className="px-3 py-1 bg-violet-600 rounded text-white disabled:opacity-50 whitespace-nowrap"
             >
-              {inviting ? "Sending…" : "Invite by email"}
+              {inviting ? "Sending…" : "Send invitation"}
             </button>
-          </div>
-          <p className="text-xs text-slate-500">
-            The person gets a link to choose their own username and password.
-          </p>
+          )}
         </div>
-      )}
+      </div>
 
       <div className="border border-slate-700 rounded-lg overflow-hidden">
         <DataTable

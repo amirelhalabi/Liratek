@@ -218,12 +218,29 @@ describe("UsersManager — emails (web)", () => {
   });
 });
 
+/** The add-user card starts in "Create username/password" mode. */
+async function switchToInvite() {
+  fireEvent.click(within(screen.getByTestId("add-user-mode")).getByRole("button"));
+  fireEvent.click(await screen.findByRole("option", { name: "Send invitation" }));
+  await screen.findByTestId("invite-email");
+}
+
 describe("UsersManager — invite by email (web)", () => {
+  it("starts in create mode and offers the invite mode in the same card", async () => {
+    render(<UsersManager />);
+    await screen.findByText("newbie@shop.test");
+    expect(screen.getByPlaceholderText("Username")).toBeInTheDocument();
+    expect(screen.queryByTestId("invite-email")).toBeNull();
+    await switchToInvite();
+    expect(screen.queryByPlaceholderText("Username")).toBeNull();
+  });
+
   it("invites { email, role } with a schema-shaped payload and reloads the list", async () => {
     createUserInvitation.mockResolvedValue({ success: true, data: { invitation: PENDING } });
     const notifications = captureNotifications();
     render(<UsersManager />);
     await screen.findByText("newbie@shop.test");
+    await switchToInvite();
 
     fireEvent.change(screen.getByTestId("invite-email"), {
       target: { value: "hire@shop.test" },
@@ -255,6 +272,7 @@ describe("UsersManager — invite by email (web)", () => {
     listUserInvitations.mockResolvedValue({ emailConfigured: false, invitations: [] });
     render(<UsersManager />);
     expect(await screen.findByText(/Email is not set up/i)).toBeInTheDocument();
+    await switchToInvite();
     expect(screen.getByTestId("invite-submit")).toBeDisabled();
   });
 });
@@ -265,6 +283,7 @@ describe("UsersManager — desktop", () => {
     render(<UsersManager />);
     expect(await screen.findByText("verified_vera")).toBeInTheDocument();
     expect(screen.queryByTestId("invite-email")).toBeNull();
+    expect(screen.queryByTestId("add-user-mode")).toBeNull();
     expect(screen.queryByText("Send password reset")).toBeNull();
     expect(screen.queryByText("Verified")).toBeNull();
     expect(listUserEmails).not.toHaveBeenCalled();

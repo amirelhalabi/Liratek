@@ -216,5 +216,6 @@
 - Recharge page: admins can add a new category with the "New category" button under the cards (iPick, Katsh and Whish App), not only new items in existing categories.
 - If you type a category or subcategory name that already exists with different capital letters (for example "ALFA"), the item goes into the existing one instead of a second copy.
 - Items added or changed in Settings → Mobile Services now show on the Recharge page straight away, without reloading the app.
+- Web app, Settings → Users: adding a user and inviting one by email now share one row. Pick "Create username/password" or "Send invitation" from the first dropdown.
 - Reset Data no longer signs you out: you and everyone else in the shop stay signed in after a reset, and the "Done — rows removed" confirmation now shows. On the desktop app this applies from the next update.
 - Settings › Reset Data now keeps your shop's setup: product categories, products (stock set to 0), Mobile Services items including the ones you added, service presets, and your partners and suppliers (balances set to 0). Sales, payments, clients, debts, stock history, closings and the audit log are still deleted.

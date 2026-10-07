@@ -83,6 +83,8 @@ test.describe("LIRA-281 / LIRA-279 — user invites and user emails", () => {
     // ── 1. Invite from Settings -> Users ──
     await loginAsAdmin(page);
     await page.goto("/#/settings?tab=users");
+    await page.getByTestId("add-user-mode").getByRole("button").click();
+    await page.getByRole("option", { name: "Send invitation" }).click();
     await page.getByTestId("invite-email").fill(email);
     await page.getByTestId("invite-submit").click();
     const inviteRow = page.locator("tr", { hasText: email });
