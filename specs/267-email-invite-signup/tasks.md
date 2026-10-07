@@ -358,7 +358,7 @@
 
 ## Phase 8: Polish and cross-cutting
 
-- [ ] T046 [P] Add release-note lines under `## 🌐 Web app` in `docs/release-notes/UNRELEASED.md`, in shop-owner language, with no ticket ids:
+- [ ] T046 [P] (Stage A line and sprint entry done; Stage B line pending) Add release-note lines under `## 🌐 Web app` in `docs/release-notes/UNRELEASED.md`, in shop-owner language, with no ticket ids:
   - **Stage A:** "New shops can sign up on the web app with just their email: click Sign up on the login page, then follow the link we email you."
   - **Stage B:** "Sign-up no longer uses an invite code. Every new shop confirms its email first."
   - Put a "What users will notice:" line in the LIRA-267 entry in `current_sprint.md`. Add that ticket entry if it's missing, and don't touch the unrelated edits already pending in that file.
@@ -367,7 +367,7 @@
   - `docs/plans/ongoing_plans/PLAN_OVERVIEW.md`: the email capability is now provided by LIRA-267.
   - `docs/plans/todo_plans/OPEN_PUBLIC_SIGNUP_PLAN.md` §3.3: done by LIRA-267, and §2's "keep SIGNUP_INVITE_CODE" is superseded.
   - Move `docs/plans/todo_plans/EMAIL_INVITE_SIGNUP_PLAN.md` to `docs/plans/done_plans/` when Stage B ships.
-- [ ] T048 Run the quality gates and confirm each suite actually ran (test counts and elapsed time, rule 28):
+- [X] T048 Run the quality gates (2026-10-07: all green in the worktree; web e2e 128/128; desktop Electron e2e not run) and confirm each suite actually ran (test counts and elapsed time, rule 28):
   - `yarn lint`, `yarn typecheck`
   - `yarn check:tenant-scoping`, `yarn check:bind-arity`, `yarn check:schema-equivalence`
   - The core, backend and frontend test suites

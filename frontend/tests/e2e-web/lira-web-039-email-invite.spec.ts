@@ -24,7 +24,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { hashPassword } from "@liratek/core";
-import { test, expect, loginAsUser } from "./fixtures";
+import { test, expect, loginAsUser, BACKEND_URL } from "./fixtures";
 import { EMAIL_FILE_DIR } from "../../playwright.web.config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -138,7 +138,13 @@ test.describe("LIRA-267 — email invites and self-serve sign-up", () => {
     expect(link).toContain("/signup?invite=");
 
     // ── 3. Open it logged out: email locked, shop name prefilled ──
+    // A fresh context skips the fixture's init script, so point it at this
+    // suite's backend the same way (fixtures.ts), or API calls hit Vite.
     const visitor = await browser.newContext();
+    await visitor.addInitScript((url: string) => {
+      (globalThis as { __LIRATEK_BACKEND_URL?: string }).__LIRATEK_BACKEND_URL =
+        url;
+    }, BACKEND_URL);
     try {
       const signupPage = await visitor.newPage();
       await signupPage.goto(link);
@@ -163,12 +169,15 @@ test.describe("LIRA-267 — email invites and self-serve sign-up", () => {
       expect(contactEmailOf(slug)).toBe(email);
 
       // ── 4. The link works once ──
-      await signupPage.goto(link);
-      await expect(signupPage.getByRole("alert")).toContainText(
-        INVITE_INVALID,
-        { timeout: 15_000 },
-      );
-      await expect(signupPage.getByTestId("signup-submit")).toHaveCount(0);
+      // A fresh tab, as when the email link is clicked again. Re-using the
+      // same tab would be a hash-only navigation to the URL it is already on,
+      // which reloads nothing.
+      const again = await visitor.newPage();
+      await again.goto(link);
+      await expect(again.getByRole("alert")).toContainText(INVITE_INVALID, {
+        timeout: 15_000,
+      });
+      await expect(again.getByTestId("signup-submit")).toHaveCount(0);
     } finally {
       await visitor.close();
     }
