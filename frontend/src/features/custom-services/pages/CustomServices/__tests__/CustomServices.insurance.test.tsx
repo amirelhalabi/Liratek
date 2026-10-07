@@ -325,6 +325,11 @@ describe("CustomServices — Insurance category (LIRA-155)", () => {
     expect(
       screen.getByTestId("custom-service-via-partner-toggle"),
     ).toBeChecked();
+    // Owner decision 2026-10-07: the payment sheet waits for a selling
+    // price, so enter one before looking for it.
+    fireEvent.change(screen.getAllByPlaceholderText("0.00")[1], {
+      target: { value: "10" },
+    });
     // VIA does not hide the payment section (unlike FOR).
     expect(screen.getByTestId("multi-payment-input")).toBeInTheDocument();
 

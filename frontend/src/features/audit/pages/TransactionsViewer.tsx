@@ -77,9 +77,10 @@ import {
   type SessionSaleLineItem,
 } from "../components/SessionSaleLinePickerModal";
 import { useSessionItemRefund } from "../hooks/useSessionItemRefund";
-import type {
-  RefundLegOverride,
-  RefundUnitExtraOverride,
+import {
+  refundCanKeepChange,
+  type RefundLegOverride,
+  type RefundUnitExtraOverride,
 } from "../refundLegOverride";
 import { messageFrom } from "@/api/apiError";
 
@@ -999,9 +1000,12 @@ export default function TransactionsViewer({
           exchangeRate={refundBookedRate?.bookedRate ?? fallbackRate ?? 89000}
           bookedRateSource={refundBookedRate?.bookedRateSource ?? "fallback"}
           // Refund kept change (owner decision 2026-10-07) — only for the
-          // types the server allows (one shared list, rule 14).
-          allowKeptChange={REFUND_KEPT_CHANGE_TYPES.includes(
+          // types the server allows (one shared list, rule 14), and
+          // (LIRA-272, now that the list covers every module) only when the
+          // refund hands money OUT — never a payout original's refund.
+          allowKeptChange={refundCanKeepChange(
             refundModalRow.type,
+            refundModalRow.payments,
           )}
           isSubmitting={isRefunding}
           onCancel={() => {

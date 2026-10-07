@@ -169,6 +169,10 @@ const PAYOUT_METHOD_ORDER = [
   "CUSTOMER_ACCOUNT",
 ];
 
+/** Stable empty line list (LIRA-270) — one identity, so clearing stale
+ *  payment lines never churns memo dependencies. */
+const NO_LINES: PaymentLine[] = [];
+
 /** Modules where only cashout methods are valid (CASH, CUSTOMER_ACCOUNT, OMT, WHISH, BINANCE) */
 const CASHOUT_ONLY_MODULES = new Set(["binance_receive"]);
 
@@ -490,6 +494,22 @@ export function SessionCheckoutModal({
   const netChargeUsd = systemChargeUsd + netGeneralChargeUsd;
   const netChargeLbp = systemChargeLbp + netGeneralChargeLbp;
 
+  // LIRA-270 — is there anything left for the customer to pay? The ONE
+  // condition the payment input's render gate, the legs below and the kept
+  // claim all read. When it is false the input unmounts, and any lines it
+  // reported earlier are stale: they must never be sent (a stale
+  // "IN CASH $105" was once posted as a real payment).
+  const hasChargeToCollect = netChargeUsd > 0 || netChargeLbp > 0;
+  const collectLines = hasChargeToCollect ? paymentLines : NO_LINES;
+  const collectReturnLines = hasChargeToCollect ? returnLines : NO_LINES;
+  useEffect(() => {
+    if (!hasChargeToCollect) {
+      setPaymentLines((prev) => (prev.length === 0 ? prev : NO_LINES));
+      setReturnLines((prev) => (prev.length === 0 ? prev : NO_LINES));
+      setKeptChange(null);
+    }
+  }, [hasChargeToCollect]);
+
   // Group items by module for display
   const groupedItems = useMemo(() => {
     const groups = new Map<string, CartItem[]>();
@@ -583,9 +603,9 @@ export function SessionCheckoutModal({
     // finding #1 (2026-09-24) — this was a real compile break, never exercised
     // because only the core `tsc` was run at the time.
     const legs: SessionCheckoutLeg[] = [
-      ...paymentLines.map(toLeg("IN")),
+      ...collectLines.map(toLeg("IN")),
       // Change/return from the pooled payment — never a payout.
-      ...returnLines.map(toLeg("OUT", "CHANGE")),
+      ...collectReturnLines.map(toLeg("OUT", "CHANGE")),
     ];
     // Cash-out payouts (loto cash prize, OMT/Whish RECEIVE, Binance cash out):
     // the shop owes the customer. Route to the operator-chosen method per
@@ -657,8 +677,8 @@ export function SessionCheckoutModal({
     }
     return legs;
   }, [
-    paymentLines,
-    returnLines,
+    collectLines,
+    collectReturnLines,
     systemPayoutUsd,
     systemPayoutLbp,
     generalPayoutUsd,
@@ -691,13 +711,13 @@ export function SessionCheckoutModal({
 
   const paidUSD = useMemo(
     () =>
-      paymentLines.reduce((sum, l) => {
+      collectLines.reduce((sum, l) => {
         if (l.currencyCode === "USD") return sum + (l.amount || 0);
         if (l.currencyCode === "LBP")
           return sum + (exchangeRate > 0 ? (l.amount || 0) / exchangeRate : 0);
         return sum;
       }, 0),
-    [paymentLines, exchangeRate],
+    [collectLines, exchangeRate],
   );
 
   // Payment is valid once the total is COVERED. Overpayment is allowed — the
@@ -802,7 +822,7 @@ export function SessionCheckoutModal({
         // input is hidden (net charge 0) a stale value from an earlier
         // render must not ride along and get the checkout refused.
         ...(keptChange &&
-        (netChargeUsd > 0 || netChargeLbp > 0) &&
+        hasChargeToCollect &&
         (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
               kept_change_usd: keptChange.usd,
@@ -1128,7 +1148,7 @@ export function SessionCheckoutModal({
               General-drawer CASH payout can bring this to 0 — correctly, by
               design: when it fully covers the charge there is nothing left
               to collect. */}
-                {(netChargeUsd > 0 || netChargeLbp > 0) && (
+                {hasChargeToCollect && (
                   <div className="space-y-1">
                     <MultiPaymentInput
                       key={`payment-${paymentInputKey}`}

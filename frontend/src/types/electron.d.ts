@@ -16,6 +16,10 @@ import type {
   CreateExpenseRequest,
   // Owner decision 2026-10-07 — refund kept change (core schema input).
   RefundKeptChangeInput,
+  // Rule 21 — custom-services:add payload (core schema input).
+  CreateCustomServicePayload,
+  // Rule 21 — session:checkout payload (core schema input).
+  SessionCheckoutPayload,
 } from "@liratek/core";
 
 /**
@@ -2894,36 +2898,9 @@ export interface ElectronAPI {
       amountUsd: number;
       amountLbp: number;
     }) => Promise<{ success: boolean; linked: boolean; error?: string }>;
-    checkout: (data: {
-      sessionId: number;
-      cartItems: Array<{
-        id: string;
-        module: string;
-        label: string;
-        amount: number;
-        currency: string;
-        formData: Record<string, unknown>;
-        ipcChannel: string;
-      }>;
-      paidByMethod: string;
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-        direction?: "IN" | "OUT";
-        kind?: "PAYOUT" | "CHANGE";
-        /** Owner decision #11-A (netted session checkout, 2026-09-24) —
-         *  meaningful only on a `kind: "PAYOUT"` leg. See
-         *  SessionPaymentService's `payoutOrigin` doc for the full contract. */
-        payoutOrigin?: "SYSTEM" | "GENERAL";
-        voucher_code?: string;
-      }>;
-      /** Operator-edited Money-IN exchange rate (1 USD = X LBP). */
-      exchangeRate?: number;
-      clientId?: number;
-      clientName?: string;
-      userId: number;
-    }) => Promise<{
+    /** Rule 21: the core schema's input type (sessionCheckoutSchema),
+     *  including kept_change_usd / kept_change_lbp. */
+    checkout: (data: SessionCheckoutPayload) => Promise<{
       success: boolean;
       results?: Array<{
         cartItemId: string;
@@ -3803,45 +3780,10 @@ export interface ElectronAPI {
       totalProfitUsd: number;
       totalProfitLbp: number;
     }>;
-    add: (data: {
-      description: string;
-      cost_usd?: number;
-      cost_lbp?: number;
-      price_usd?: number;
-      price_lbp?: number;
-      paid_by?: string;
-      status?: string;
-      client_id?: number;
-      client_name?: string;
-      phone_number?: string;
-      note?: string;
-      category?: string;
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-        voucher_code?: string;
-        direction?: "IN" | "OUT";
-      }>;
-      transaction_time?: string;
-      /** Operator-edited USD↔LBP rate of record (rule 12: preload type
-       *  completeness) — stamped verbatim onto the transaction by
-       *  CustomServiceRepository; omitted falls back to a live snapshot rate. */
-      exchange_rate?: number;
-      partnerId?: number;
-      /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
-       *  service and we owe them the cost instead. */
-      partnerMode?: "FOR" | "VIA";
-      /** OWNER_NOTES_REMAINING_BUILD.md #16 (rule 12: preload type
-       *  completeness) — "OUT" is a payout (Via-Partner only): cash leaves
-       *  the General drawer to a local recipient instead of a customer
-       *  paying the shop. Omitted/"IN" is the existing flow. */
-      direction?: "IN" | "OUT";
-      /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 (rule 12: preload type
-       *  completeness) — set only when the operator picked a product from
-       *  the inventory SearchBar; decrements 1 unit of stock. */
-      product_id?: number;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** Rule 21: the core schema's input type (createCustomServiceSchema). */
+    add: (
+      data: CreateCustomServicePayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
     updateMetadata: (data: {
       id: number;

@@ -8,6 +8,8 @@ import {
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// Session basket checkout payload, derived from the core schema (rule 21).
+import type { SessionCheckoutPayload } from "@liratek/core";
 // LIRA-267 — sign-up / invite payloads and views, derived from the core
 // schemas (rule 21). The `*BodyInput`/`*Input` aliases are `z.input<…>`
 // computed inside core, against core's own zod major.
@@ -81,6 +83,7 @@ import type {
   // LIRA-258 — loto sell/settle payloads derived from the core schemas
   // (rule 21): tender_exchange_rate, GIFT_CARD voucherCode, split settle legs.
   LotoSellPayload,
+  CreateCustomServicePayload,
   LotoCheckpointSettlePayload,
   LotoCheckpointsSettleBatchPayload,
   // LIRA-262 — "shop used its own stock" expense payload (rule 21).
@@ -5228,7 +5231,7 @@ export async function sessionCartClear(sessionId: number) {
 
 // Basket checkout — dual-mode. Both transports feed the same core
 // SessionCheckoutService (WP4). REST route: POST /api/sessions/checkout.
-export async function processSessionCheckout(data: any) {
+export async function processSessionCheckout(data: SessionCheckoutPayload) {
   return ipcOrHttp(
     async () => getElectronApi().session.checkout(data),
     async () =>
@@ -6367,36 +6370,12 @@ export async function getCustomServiceById(id: number): Promise<any> {
   );
 }
 
-export async function addCustomService(data: {
-  description: string;
-  cost_usd?: number;
-  cost_lbp?: number;
-  price_usd?: number;
-  price_lbp?: number;
-  paid_by?: string;
-  status?: string;
-  client_id?: number;
-  client_name?: string;
-  phone_number?: string;
-  note?: string;
-  category?: string;
-  transaction_time?: string;
-  /** Operator-edited USD↔LBP rate of record — stamped verbatim onto the
-   *  transaction; omitted falls back to a live snapshot rate. */
-  exchange_rate?: number;
-  partnerId?: number;
-  /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
-   *  service and we owe them the cost instead. */
-  partnerMode?: "FOR" | "VIA";
-  /** OWNER_NOTES_REMAINING_BUILD.md #16 — "OUT" is a payout (Via-Partner
-   *  only): cash leaves the General drawer to a local recipient instead of
-   *  a customer paying the shop. Omitted/"IN" is the existing flow. */
-  direction?: "IN" | "OUT";
-  /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
-   *  operator picked a product from the inventory SearchBar; decrements 1
-   *  unit of stock. Omitted (preset/free-text) -> NULL -> no stock movement. */
-  product_id?: number;
-}): Promise<{ success: boolean; id?: number; error?: string }> {
+// Rule 21: the payload type is the core schema's input type — never a
+// hand-copied literal (the old one lacked payments / kept_change_* /
+// voucher_code, which the page sends).
+export async function addCustomService(
+  data: CreateCustomServicePayload,
+): Promise<{ success: boolean; id?: number; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.add(data),
     async () =>

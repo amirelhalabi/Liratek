@@ -83,6 +83,15 @@ describe("LIRA-258 G13 — session basket store credit cannot be silently droppe
         )
         .run().lastInsertRowid,
     );
+    // The "$20 of goods" the doc above describes, linked to the basket.
+    // LIRA-270: recordBasketPayment now refuses a customer payment leg on a
+    // basket with nothing to collect, and this fixture used to pay $25 into
+    // an EMPTY basket — a shape a real checkout can never send.
+    db.prepare(
+      `INSERT INTO customer_session_transactions
+         (tenant_id, session_id, transaction_type, transaction_id, amount_usd, amount_lbp)
+       VALUES (1, ?, 'custom_service', 1, 20, 0)`,
+    ).run(sessionId);
   });
 
   afterEach(() => {

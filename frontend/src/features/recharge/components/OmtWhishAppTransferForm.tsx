@@ -248,6 +248,9 @@ function OmtWhishAppTransferFormInner({
     walletAmount,
     totalAmount,
     shopProfit,
+    commission,
+    feeToCollect,
+    customerPays,
   } = calculateOmtWhishAppFees({
     activeProvider,
     serviceType,
@@ -256,6 +259,9 @@ function OmtWhishAppTransferFormInner({
     manualFee,
     includingFees,
     feeCollectedSeparately,
+    // LIRA-269: no discount inside a session — the basket books none (the
+    // cart item carries no payment fields), so the sheet offers none either.
+    discount: activeSession ? 0 : discount,
   });
 
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C/D: whether the fee counter-
@@ -365,7 +371,9 @@ function OmtWhishAppTransferFormInner({
         serviceType,
         amount: walletAmount,
         currency,
-        commission: Math.max(0, shopProfit - discount),
+        // Fee after the discount — the same helper that sized the sheet's
+        // payout target (LIRA-269), and the figure the server pays out by.
+        commission,
         ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
         ...(activeProvider === "WHISH_APP" ? { whishFee: providerFee } : {}),
         clientId: resolvedClientId || undefined,
@@ -411,17 +419,18 @@ function OmtWhishAppTransferFormInner({
             }
           : {}),
         // Payment-Legs Integrity plan (Wave 9 + false-reject fix): SEND-only
-        // — this is the customer-owed total, not a payout. `totalAmount` is
-        // this form's own computed total (the exact figure the PaymentSheet
-        // charges); the repository's wallet-transfer SEND branch now
-        // reconciles legs against THIS instead of guessing `amount + fee`
-        // (lira-108: wrong for a fee carved OUT of the entered amount).
+        // — this is the customer-owed total, not a payout. The repository's
+        // wallet-transfer SEND branch reconciles the legs against THIS, and
+        // checks it equals `amount + commission`. LIRA-269 follow-up: it is
+        // the total AFTER the sheet's discount (`customerPays`, from the
+        // same helper as `commission`) — the undiscounted `totalAmount` here
+        // refused every discounted SEND.
         ...(serviceType === "SEND" && useStructuredPayments
           ? {
               checkoutTotal:
                 currency === "USD"
-                  ? { usd: totalAmount, lbp: 0 }
-                  : { usd: 0, lbp: totalAmount },
+                  ? { usd: customerPays, lbp: 0 }
+                  : { usd: 0, lbp: customerPays },
             }
           : {}),
         // `tender_exchange_rate` is the rate this form's own
@@ -458,10 +467,8 @@ function OmtWhishAppTransferFormInner({
               transactionId: result.id,
               amountUsd: currency === "USD" ? totalAmount : 0,
               amountLbp: currency === "LBP" ? totalAmount : 0,
-              profitUsd:
-                currency === "USD" ? Math.max(0, shopProfit - discount) : 0,
-              profitLbp:
-                currency === "LBP" ? Math.max(0, shopProfit - discount) : 0,
+              profitUsd: currency === "USD" ? commission : 0,
+              profitLbp: currency === "LBP" ? commission : 0,
             });
           } catch (err) {
             logger.error("Failed to link app transfer to session:", err);
@@ -584,7 +591,17 @@ function OmtWhishAppTransferFormInner({
       onChange={(val) => {
         const tab = val as TabId;
         setActiveTab(tab);
-        if (tab !== "EXCHANGE") setServiceType(tab as ServiceType);
+        if (tab !== "EXCHANGE") {
+          // Production testing 2026-10-07: a fee typed in one direction must
+          // not survive a switch to the other (a Whish App RECEIVE fee was
+          // charged on SEND, which shows no fee input). Reset the fee field
+          // and the "fee paid by" choice whenever the direction changes.
+          if (tab !== serviceType) {
+            setManualFee("");
+            setFeeMode("SENDER");
+          }
+          setServiceType(tab as ServiceType);
+        }
       }}
       accentColor={activeProvider === "OMT_APP" ? "amber" : "red"}
       customColor={activeProvider === "OMT_APP" ? "#ffde00" : "#ff0a46"}
@@ -1138,7 +1155,8 @@ function OmtWhishAppTransferFormInner({
           confirmLabel={
             activeSession
               ? "Add to Cart"
-              : `Pay ${formatAmount(totalAmount, currency)}`
+              : // SEND: what the customer pays after the sheet's discount.
+                `Pay ${formatAmount(isAppWalletReceive ? totalAmount : customerPays, currency)}`
           }
           summary={[
             // Client details in the confirm step (A3)
@@ -1177,17 +1195,17 @@ function OmtWhishAppTransferFormInner({
                     label: "Shop Profit",
                     // Net of the discount — the same figure handleSubmit
                     // books as `commission` (LIRA-185 lead 9).
-                    value: formatAmount(
-                      Math.max(0, shopProfit - discount),
-                      currency,
-                    ),
+                    value: formatAmount(commission, currency),
                     color: "text-emerald-400",
                   },
                 ]
               : []),
             {
               label: isAppWalletReceive ? "Customer Receives" : "Total",
-              value: formatAmount(totalAmount, currency),
+              value: formatAmount(
+                isAppWalletReceive ? totalAmount : customerPays,
+                currency,
+              ),
               ...(isAppWalletReceive ? { color: "text-emerald-400" } : {}),
             },
           ]}
@@ -1200,7 +1218,10 @@ function OmtWhishAppTransferFormInner({
           paymentMethods={allPaymentMethods}
           exchangeRate={exchangeRate}
           onExchangeRateChange={setEffectiveRate}
-          showDiscount={true}
+          // LIRA-269: the discount comes off the shop's fee. On a RECEIVE
+          // the payout target above already includes it (the sheet never
+          // subtracts a discount from a payout); none inside a session.
+          showDiscount={!(serviceType === "RECEIVE" && !!activeSession)}
           maxDiscount={shopProfit}
           onDiscountChange={setDiscount}
           requiresClientForDebt={true}
@@ -1262,7 +1283,9 @@ function OmtWhishAppTransferFormInner({
             ? {
                 counterFlow: {
                   label: "Customer pays — fee",
-                  totalAmount: providerFee,
+                  // Fee after the discount (LIRA-269) — what the server
+                  // reconciles the fee legs against (`commission`).
+                  totalAmount: feeToCollect,
                   currency,
                   onChange: setFeePaymentLines,
                   paymentMethods: allPaymentMethods.filter(

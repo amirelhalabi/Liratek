@@ -135,18 +135,53 @@ export const refundKeptChangeSchema = z.object(refundKeptChangeFields);
  * The transaction types whose refund may keep change — the ONE list the
  * repository gate (`TransactionRepository._resolveRefundKeptChange`) and
  * the refund popup both read (rule 14). Kept profit lives in the REFUND
- * row's own profit stamp, so it only reaches the Profits page where that
- * page sums REFUND rows: sales (`getSalesProfit`: SALE + REFUND) and debt
- * repayments (`keptChangeSource`: DEBT_REPAYMENT + REFUND). Every other
- * module's Profits section drops a refunded row and never reads its REFUND
- * row (measured for an OMT SEND: the stamp was booked, the Profits total
- * did not move) — kept change there would be profit nobody sees, so it is
- * refused until those sections count it.
+ * row's own profit stamp (−original profit + kept), so the generic refund
+ * negates it with everything else. Two groups, by how the Profits page
+ * reaches that kept part:
+ *   - {@link REFUND_KEPT_CHANGE_STAMP_NETTED_TYPES}: the page sums the
+ *     REFUND row's whole stamp next to the original's — sales
+ *     (`getSalesProfit`: SALE + REFUND) and debt repayments
+ *     (`keptChangeSource`: DEBT_REPAYMENT + REFUND) — so the kept part
+ *     shows by itself.
+ *   - {@link REFUND_KEPT_CHANGE_MODULE_TYPES} (LIRA-272, owner decision
+ *     2026-10-07: refunds of ALL modules may keep a leftover): the page
+ *     drops a refunded original entirely and never sums its REFUND row, so
+ *     the refund stamps the kept part separately
+ *     ({@link REFUND_KEPT_CHANGE_META}) and the Profits page reads exactly
+ *     that (`ProfitRepository.getRefundKeptChangeProfit`).
+ * A new type must join exactly one group, or its kept profit is invisible.
  */
-export const REFUND_KEPT_CHANGE_TYPES: readonly string[] = [
+export const REFUND_KEPT_CHANGE_STAMP_NETTED_TYPES: readonly string[] = [
   "SALE",
   "DEBT_REPAYMENT",
 ];
+/** @see REFUND_KEPT_CHANGE_TYPES — the modules whose refunded original the
+ *  Profits page drops, and whose refund kept change it reads off
+ *  {@link REFUND_KEPT_CHANGE_META}. */
+export const REFUND_KEPT_CHANGE_MODULE_TYPES: readonly string[] = [
+  "FINANCIAL_SERVICE",
+  "RECHARGE",
+  "CUSTOM_SERVICE",
+  "MAINTENANCE",
+  "LOTO",
+];
+export const REFUND_KEPT_CHANGE_TYPES: readonly string[] = [
+  ...REFUND_KEPT_CHANGE_STAMP_NETTED_TYPES,
+  ...REFUND_KEPT_CHANGE_MODULE_TYPES,
+];
+/**
+ * LIRA-272 — the REFUND row's `metadata_json` keys holding the change that
+ * refund kept, written ONLY by the refund itself
+ * (`TransactionRepository._createRefundRow`). A dedicated name, never
+ * `kept_change_usd/lbp`: a REFUND row starts from a copy of the original's
+ * metadata, and several originals record their OWN sale-time kept change
+ * under those names — reading them would surface the original's old kept
+ * change as refund profit.
+ */
+export const REFUND_KEPT_CHANGE_META = {
+  usd: "refund_kept_change_usd",
+  lbp: "refund_kept_change_lbp",
+} as const;
 export type RefundKeptChangeInput = z.input<typeof refundKeptChangeSchema>;
 
 export type RefundUnitExtraInput = z.infer<typeof refundUnitExtraSchema>;

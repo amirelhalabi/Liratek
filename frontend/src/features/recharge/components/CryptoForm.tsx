@@ -24,6 +24,7 @@ import {
 } from "@/features/partners/components/ForPartnerToggle";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { cryptoAmounts } from "../utils/cryptoAmounts";
 
 interface CryptoFormProps {
   activeConfig: ProviderConfig | undefined;
@@ -117,6 +118,10 @@ export function CryptoForm({
   onTransactionTimeChange,
 }: CryptoFormProps) {
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
+  // LIRA-269: the sheet's discount (capped at the fee by the sheet). Kept
+  // here to size the cash-out target and forwarded to the page, which books
+  // `commission = fee − discount` from the same helper.
+  const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
@@ -176,26 +181,26 @@ export function CryptoForm({
   const parsedAmount = parseFloat(cryptoAmount || "0");
   const fee = parseFloat(cryptoFee || "0");
 
-  // feeIncluded: the entered amount already contains the shop fee
-  // SEND:    feeIncluded → USDT out = amount-fee, customer pays amount
-  //         !feeIncluded → USDT out = amount,     customer pays amount+fee
-  // RECEIVE: feeIncluded → USDT in  = amount,     payout = amount-fee
-  //         !feeIncluded → USDT in  = amount+fee,  payout = amount
-  // RECEIVE mode C (feeCollectedSeparately): the wallet side collapses to
-  // the SAME numbers as feeIncluded=true (bare amount in), but the payout
-  // stays FULL — the fee is collected back from the customer separately
-  // instead of being netted out of the payout. This is the one place modes
-  // B (feeIncluded) and C (feeCollectedSeparately) diverge. Never applies to
-  // SEND — sendUsdt/sendTotal are untouched.
-  const sendUsdt = feeIncluded ? parsedAmount - fee : parsedAmount;
-  const sendTotal = feeIncluded ? parsedAmount : parsedAmount + fee;
-  const receiveUsdt =
-    feeIncluded || feeCollectedSeparately ? parsedAmount : parsedAmount + fee;
-  const payout = feeCollectedSeparately
-    ? parsedAmount
-    : feeIncluded
-      ? parsedAmount - fee
-      : parsedAmount;
+  // Fee-mode math + the cash-out discount: one helper shared with the
+  // page's submit payload (see cryptoAmounts.ts). No discount inside a
+  // customer session — the basket books none, so the sheet offers none.
+  const {
+    sendUsdt,
+    sendTotal,
+    sendCustomerPays,
+    receiveUsdt,
+    payout,
+    feeToCollect,
+    commission,
+  } = cryptoAmounts({
+    cryptoType,
+    parsedAmount,
+    fee,
+    feeIncluded,
+    feeCollectedSeparately,
+    discount: activeSession ? 0 : discount,
+  });
+  const receiveDiscountOffered = !activeSession;
 
   // PFT-3b direct submission for a "for partner" Binance transaction —
   // bypasses handleCryptoSubmit (the parent's normal path) and the
@@ -663,13 +668,13 @@ export function CryptoForm({
           subtitle={
             cryptoType === "RECEIVE"
               ? `Cash Out — Payout $${payout.toFixed(2)}`
-              : `Crypto — $${sendTotal.toFixed(2)}`
+              : `Crypto — $${sendCustomerPays.toFixed(2)}`
           }
           accentColor="bg-amber-600 hover:bg-amber-500 text-white"
           confirmLabel={
             cryptoType === "RECEIVE"
               ? `Confirm Cash Out $${payout.toFixed(2)}`
-              : `Pay $${sendTotal.toFixed(2)}`
+              : `Pay $${sendCustomerPays.toFixed(2)}`
           }
           summary={
             cryptoType === "RECEIVE"
@@ -688,7 +693,8 @@ export function CryptoForm({
                     ? [
                         {
                           label: "Shop Fee",
-                          value: `−$${fee.toFixed(2)}`,
+                          // After the discount (LIRA-269) — what is booked.
+                          value: `−$${commission.toFixed(2)}`,
                           color: "text-emerald-400",
                         },
                       ]
@@ -710,14 +716,15 @@ export function CryptoForm({
                     ? [
                         {
                           label: "Fee",
-                          value: `$${fee.toFixed(2)}`,
+                          // After the discount — what is booked.
+                          value: `$${commission.toFixed(2)}`,
                           color: "text-amber-400",
                         },
                       ]
                     : []),
                   {
                     label: "Customer Pays",
-                    value: `$${sendTotal.toFixed(2)}`,
+                    value: `$${sendCustomerPays.toFixed(2)}`,
                   },
                 ]
           }
@@ -726,9 +733,13 @@ export function CryptoForm({
           paymentMethods={paymentMethods}
           exchangeRate={exchangeRate}
           {...(onExchangeRateChange ? { onExchangeRateChange } : {})}
-          showDiscount={true}
+          // LIRA-269: on a cash-out the discount comes off the shop's fee
+          // and `payout` above already includes it (a payout sheet never
+          // subtracts a discount itself).
+          showDiscount={cryptoType !== "RECEIVE" || receiveDiscountOffered}
           maxDiscount={fee}
           onDiscountChange={(d) => {
+            setDiscount(d);
             onDiscountChange?.(d);
           }}
           requiresClientForDebt={true}
@@ -758,7 +769,9 @@ export function CryptoForm({
             ? {
                 counterFlow: {
                   label: `Customer pays — Binance fee`,
-                  totalAmount: fee,
+                  // Fee after the discount — what the server reconciles the
+                  // fee legs against (`commission`, LIRA-269).
+                  totalAmount: feeToCollect,
                   currency: "USD",
                   onChange: onFeePaymentLinesChange,
                   paymentMethods: feePaymentMethods,

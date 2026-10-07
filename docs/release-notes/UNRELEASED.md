@@ -51,6 +51,13 @@
 - Suppliers page: a voided transfer now shows as "Voided" in the supplier's transaction history (it used to say "Unpaid"), and it no longer counts toward the unpaid number or the Outstanding total.
 - Services page, OMT/Whish receive: you can now hand out a round amount a little under what's owed (less than $1 or 100,000 LBP) and the shop keeps the difference as profit. The receive payment screen no longer asks for change. From now on.
 - From now on, voiding or refunding a supplier payment also removes the discount you entered with it, so the supplier's balance and your profit go back to exactly where they were. Payments recorded before this update keep their discount after a void.
+- OMT App and Whish App sends with a discount now go through: the customer pays less, and the discount comes out of your fee.
+- On a Binance cash-out or an OMT App / Whish App receive, a discount now comes off your fee and the customer receives that much more, instead of the payout being refused.
+- Binance sends: from now on, a discount lowers the shop fee recorded for the send (and shown on Profits), matching the cash you actually took in.
+- The Services page no longer shows a discount box on OMT and Whish sends and receives, because a discount there was never applied.
+- Custom services: when a service has no selling price saved, the price box now stays empty and you type the price before you can take payment or add it to a customer's basket. Before, the customer was charged the cost.
+- From now on, a fee typed on a Whish App receive is no longer charged on a Whish App send. Switching between Send and Receive also clears the fee you typed.
+- In a customer basket, an OMT receive line no longer shows a fee, and a For Partner transfer says it goes on the partner's account instead of listing fees the customer doesn't pay.
 
 ## 🏠 Dashboard
 
@@ -67,7 +74,11 @@
 ## 🧾 Transactions
 
 - Refunding a currency exchange now works: the refund simply swaps the money back.
-- When refunding a sale or a debt payment in cash, you can now hand back a round amount: a leftover under $1 (or 100,000 LBP) in the refund's currency is kept as shop profit — for example, refund $20.12, hand back $20. Works on the Transactions page, POS "Refund Sale" and customer-session item refunds.
+- Refunds: you can now hand back a round amount and keep a small leftover (under $1 or 100,000 LBP, in the refund's currency) as shop profit — for example, refund $20.12, hand back $20. Works for sales, debt payments, OMT/Whish and wallet transfers, recharges, custom services, repairs and Loto tickets, paid back in cash or through a wallet (not a customer account or gift card). It shows on the Profits page under Kept change and in the day close. From now on.
+- Customer basket checkout: when a cash prize or payout covers the whole basket, a payment typed in earlier is no longer recorded as if the customer had paid it.
+- Customer basket checkout: an OMT receive no longer asks the customer to pay the OMT fee — OMT never charges a fee on a receive.
+- Customer basket checkout: a For Partner OMT or Whish transfer in the basket is no longer added to what the customer pays; it goes on the partner's account only. A For Partner receive is no longer paid out to the customer. From now on.
+- Customer basket checkout: you can keep change as profit even when the basket includes a For Partner transfer.
 
 ## 🔧 Maintenance
 
@@ -90,6 +101,9 @@
   do not count toward them.
 - Profits: items in a customer basket put on the customer's account now count as profit only once
   the customer pays for them, same as outside a basket. From now on only.
+- Binance transfers now show on the Profits page: the fee and any change you kept count in Overview, By Module, By Date, By Cashier and By Client, including past days. Binance amounts are counted as US dollars and now also count in revenue.
+- Undoing a refund now brings Profits back to what it was before the refund, on every Profits tab and in the day close, including refunds undone on earlier days.
+- In the Kept change details, change kept on a Debts credit cash-out is now labelled "Debts cash-out kept change".
 
 ## 📱 MTC / Alfa
 
@@ -133,6 +147,8 @@
 - Payment form: change can be kept as profit only from cash or wallet payments. If the customer paid by account or gift card, hand the change back in full.
 - Payment error messages now start with a plain explanation of what's wrong (for example, "The payment doesn't add up to the total.").
 - POS: when you refund a single item in cash, you can now keep a small leftover (under $1 or 100,000 LBP) as shop profit, the same as when refunding a whole sale. Undoing that item refund removes it again.
+- Payment form: change warnings now show the dollar sign before the amount (for example "Returning $0.53 more…").
+- Payment form: the Paid amount no longer turns red when change is due or kept. Red now only means something needs fixing, such as an underpayment or handing back too much change.
 
 ## 💳 Debts
 
@@ -140,6 +156,10 @@
 - Cashing out a credit now checks that the cash you hand out matches what comes off the client's credit, and only allows cash or wallet methods (not the client's account or a gift card).
 - Repayments where you keep the extra change: from now on the kept amount is checked against what the customer actually paid, and it no longer counts as paying off the client's other items.
 - Hold Money: when you hand back a held amount as a round figure (for example $50 of $50.12), the small leftover (under $1 or 100,000 LBP, same currency) is kept as shop profit and the hold is fully closed. It shows on the Profits page (its own Hold Money card and a By Module row) and in the day close; voiding the pickup takes it back out.
+- From now on, a debt repayment paid in lira against a dollar debt (or partly in each currency) counts once toward what the customer owed. Before, it could also mark recharges or services on the account as paid, so their profit showed up too early.
+- From now on, voiding or refunding a debt repayment puts back exactly what that repayment paid off — it no longer marks an unrelated earlier sale, or a sale paid in cash, as unpaid again.
+- Hold Money: when you return a hold in both dollars and lira, you can now hand back a little less in either currency (for example $50 + 950,000 LBP on a $50 + 1,000,000 LBP hold); the difference is kept as shop profit and the hold is closed. The return sheet shows how much is being kept before you confirm.
+- The Cash Out window is now titled "Cash Out Credit" and its button says "Confirm Cash Out", so it no longer looks like a repayment.
 
 ## 🌐 Web app
 

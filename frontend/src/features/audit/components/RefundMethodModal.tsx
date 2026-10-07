@@ -233,12 +233,14 @@ export function RefundMethodModal({
   // Payout mode reports ANY small shortfall, including a cross-currency
   // refund that is a cent or two short — which the value check has always
   // accepted (LIRA-236 tolerance). So the kept report is used only when it
-  // is keepable (all cash, refund currency); otherwise the plain check
-  // decides, and the cash/currency reason shows only when that fails too.
+  // is keepable (cash or wallet lines — `paymentMethods` is drawer-affecting
+  // only — in the refund currency); otherwise the plain check decides, and
+  // the method/currency reason shows only when that fails too.
   const keptError = validateRefundKeptChange(
     overrideLines,
     refundCurrency,
     reportedKept,
+    selectableMethodCodes,
   );
   const activeKept = keptError == null ? reportedKept : null;
   const plainError = validateRefundValue(

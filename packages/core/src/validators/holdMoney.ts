@@ -118,16 +118,78 @@ export const holdMoneyCollectSchema = z.object({
   exchange_rate: z.number().positive().optional(),
   transaction_time: z.string().optional(),
   // Kept change (owner decision 2026-10-07): a pickup is a PAYOUT — when the
-  // cashier hands out the round figure (held $50.12, hands $50) the leftover
-  // stays with the shop as profit, capped below PAYOUT_KEEP_CHANGE_MAX in
-  // the pickup's own currency. A CLAIM only: the repository verifies it with
-  // `resolveKeptChange` (payer "payout") and never books it unchecked.
-  // Refused on a pickup returning both USD and LBP (exact amount required).
+  // cashier hands out less than the portion the leftover stays with the
+  // shop as profit. A CLAIM only — the repository verifies it and never
+  // books it unchecked:
+  //  - ONE-currency pickup: capped below PAYOUT_KEEP_CHANGE_MAX in the
+  //    pickup's own currency, verified by `resolveKeptChange` (payer
+  //    "payout").
+  //  - TWO-currency pickup (USD and LBP both returned): per currency, NO cap
+  //    — kept = portion − handed in that currency (handed ≤ portion), and
+  //    the claim must match exactly (`holdPickupKeptPerCurrency` below).
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
 });
 
 export type HoldMoneyCollectInput = z.infer<typeof holdMoneyCollectSchema>;
+
+/**
+ * Two-currency Hold Money pickup kept change (owner decision 2026-10-07:
+ * "a pickup paid out in BOTH currencies may keep a leftover in each
+ * currency, with no cap"). The ONE definition of the per-currency math,
+ * shared by the pickup sheet (what it claims) and `HoldMoneyRepository.
+ * collectHold` (what it verifies) — rule 14. Pure arithmetic, no DB or Node
+ * import, so it stays reachable from `browser.ts` (rule 29).
+ *
+ * Per currency: `handed` = the sum of the payout legs in that currency
+ * (`Math.abs`, exactly what the posting loop debits; OUT legs ignored — the
+ * repository refuses them before this runs), `kept` = portion − handed,
+ * rounded to cents / whole LBP and floored at 0. `overUsd`/`overLbp` flag a
+ * currency where MORE than the portion was handed: that is a cross-currency
+ * payout (part of one currency paid in the other), which is exact-only —
+ * the caller must not claim kept change for it.
+ *
+ * Funding (kept only from drawer methods) is NOT checked here — it needs the
+ * payment-method table; the repository enforces it.
+ */
+export interface HoldPickupKeptResult {
+  handedUsd: number;
+  handedLbp: number;
+  keptUsd: number;
+  keptLbp: number;
+  overUsd: boolean;
+  overLbp: boolean;
+}
+
+/** Same epsilons the pickup sheet and repository use for "nothing left". */
+export const HOLD_PICKUP_EPSILON = { USD: 0.01, LBP: 1 } as const;
+
+export function holdPickupKeptPerCurrency(
+  portion: { usd: number; lbp: number },
+  legs: ReadonlyArray<{
+    currency_code: string;
+    amount: number;
+    direction?: "IN" | "OUT" | undefined;
+  }>,
+): HoldPickupKeptResult {
+  let handedUsd = 0;
+  let handedLbp = 0;
+  for (const leg of legs) {
+    if (leg.direction === "OUT") continue;
+    const amt = Math.abs(leg.amount);
+    if (!Number.isFinite(amt) || amt === 0) continue;
+    if (leg.currency_code === "USD") handedUsd += amt;
+    else if (leg.currency_code === "LBP") handedLbp += amt;
+  }
+  const overUsd = handedUsd > portion.usd + HOLD_PICKUP_EPSILON.USD;
+  const overLbp = handedLbp > portion.lbp + HOLD_PICKUP_EPSILON.LBP;
+  const keptUsd = Math.max(
+    0,
+    Math.round((portion.usd - handedUsd) * 100) / 100,
+  );
+  const keptLbp = Math.max(0, Math.round(portion.lbp - handedLbp));
+  return { handedUsd, handedLbp, keptUsd, keptLbp, overUsd, overLbp };
+}
 
 /**
  * Void (reverse) ONE pickup event — the rule-20 reversal owner for a

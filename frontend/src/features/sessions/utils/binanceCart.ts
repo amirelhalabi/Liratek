@@ -1,4 +1,8 @@
 import { allocatePayments, type Money, type RateTable } from "@liratek/ui";
+import {
+  sessionBasketCustomerAmount,
+  sessionPooledReceiveFee,
+} from "@liratek/core";
 import type { CartItem, CartModule } from "../types/cart";
 
 /**
@@ -60,11 +64,12 @@ export function binanceCashSide(
  * `binanceCashSide` folds a Binance item's USDT tag into its USD cash side;
  * every other item contributes its own `amount`/`currency`.
  *
- * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.5 Phase F: an OMT/WHISH system RECEIVE
- * (`omt_system`/`whish_system`, negative cart amount = a payout item) that
- * carries a customer-paid fee-on-top (`formData.includingFees` falsy,
- * `omtFee`/`whishFee` > 0) ALSO contributes that fee into the CHARGE bucket,
- * in the item's own currency — "the fee simply joins the gross charge bucket
+ * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.5 Phase F: a WHISH system RECEIVE
+ * (negative cart amount = a payout item) that carries a customer-paid
+ * fee-on-top (`formData.includingFees` falsy, `whishFee` > 0) ALSO
+ * contributes that fee into the CHARGE bucket, in its own currency — the
+ * ONE shared rule `sessionPooledReceiveFee` decides this, the same one the
+ * server uses (LIRA-271; an OMT RECEIVE never takes a fee, D1) — "the fee simply joins the gross charge bucket
  * ... collected by the pooled payment lines" (§1.5). Fee-included
  * (`includingFees` true) contributes nothing extra here: the fee is already
  * netted out of the (smaller) payout amount the item itself carries, so there
@@ -120,7 +125,13 @@ export function splitBasketCashSides(
     systemChargeLbp = 0;
   for (const item of items) {
     const binance = binanceCashSide(item);
-    const amt = binance ? binance.cashUsd : item.amount;
+    // A For-Partner item is the partner's obligation, booked by the item
+    // itself — it adds nothing to what the walk-in pays or is paid (one
+    // shared rule with SessionCheckoutService, @liratek/core).
+    const amt = sessionBasketCustomerAmount({
+      amount: binance ? binance.cashUsd : item.amount,
+      formData: item.formData,
+    });
     const ccy = binance ? "USD" : item.currency;
     const isSystemItem = SYSTEM_PAYOUT_MODULES.has(item.module);
     if (amt >= 0) {
@@ -141,28 +152,35 @@ export function splitBasketCashSides(
       }
     }
 
-    // A system RECEIVE's fee-on-top rides along as a SEPARATE charge, on top
-    // of (never instead of) the payout bucketing above — and it is itself a
-    // SYSTEM-box charge (collected as part of that same SYSTEM RECEIVE), so
-    // it counts toward systemChargeUsd/Lbp too.
-    if (
-      (item.module === "omt_system" || item.module === "whish_system") &&
-      amt < 0
-    ) {
-      const fd = item.formData ?? {};
-      const includingFees = fd.includingFees === true;
-      if (!includingFees) {
-        const rawFee = item.module === "omt_system" ? fd.omtFee : fd.whishFee;
-        const fee = typeof rawFee === "number" && rawFee > 0 ? rawFee : 0;
-        if (fee > 0) {
-          if (item.currency === "USD") {
-            chargeUsd += fee;
-            systemChargeUsd += fee;
-          } else if (item.currency === "LBP") {
-            chargeLbp += fee;
-            systemChargeLbp += fee;
-          }
-        }
+    // A WHISH system RECEIVE's fee-on-top rides along as a SEPARATE charge,
+    // on top of (never instead of) the payout bucketing above — and it is
+    // itself a SYSTEM-box charge (collected as part of that same SYSTEM
+    // RECEIVE), so it counts toward systemChargeUsd/Lbp too.
+    //
+    // LIRA-271: which fee counts is decided by the ONE shared rule
+    // (`sessionPooledReceiveFee`, @liratek/core) the server also uses — read
+    // from each financial payload, top level or batch sub-item, in that
+    // payload's own currency. An OMT RECEIVE's `omtFee` is informational
+    // only (D1) and an app-wallet RECEIVE's fee arrives in the wallet, so
+    // neither is ever collected here.
+    const fd = item.formData ?? {};
+    const payloads: Array<Record<string, unknown>> =
+      fd._batch === true && Array.isArray(fd.items)
+        ? (fd.items as Array<Record<string, unknown>>)
+        : [fd];
+    for (const payload of payloads) {
+      const fee = sessionPooledReceiveFee(payload);
+      if (fee <= 0) continue;
+      const feeCcy =
+        typeof payload.currency === "string" && payload.currency
+          ? payload.currency
+          : item.currency;
+      if (feeCcy === "USD") {
+        chargeUsd += fee;
+        systemChargeUsd += fee;
+      } else if (feeCcy === "LBP") {
+        chargeLbp += fee;
+        systemChargeLbp += fee;
       }
     }
   }

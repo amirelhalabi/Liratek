@@ -21,6 +21,7 @@
  */
 
 import {
+  REFUND_KEPT_CHANGE_TYPES,
   REFUND_LEG_AMOUNT_EPSILON,
   REFUND_VALUE_TOLERANCE_USD,
   type RefundLegInput,
@@ -362,20 +363,53 @@ export function validateRefundValue(
 }
 
 /**
+ * LIRA-272 — may the Transactions page's whole-transaction refund popup
+ * offer kept change for this row? Only for a type the server allows (the
+ * shared `REFUND_KEPT_CHANGE_TYPES`, rule 14) AND a refund that hands money
+ * OUT of the shop: the refunded legs' net is money the customer paid IN, in
+ * every currency it touches. The shared list includes FINANCIAL_SERVICE,
+ * which also covers payout originals (an OMT/Whish RECEIVE): refunding one
+ * takes money back FROM the customer, where "keeping" a shortfall would be
+ * a loss — the server refuses it (`TransactionRepository.
+ * _resolveRefundKeptChange`, "cannot keep change on a refund that takes
+ * money back"). `legs` are the ORIGINAL's own legs (`row.payments`, IN
+ * positive). Not for the session item refund popup, whose legs are the
+ * money-back legs (OUT, negative) — that caller passes the type list alone.
+ */
+export function refundCanKeepChange(
+  transactionType: string,
+  legs: TransactionPaymentLeg[] | undefined,
+): boolean {
+  if (!REFUND_KEPT_CHANGE_TYPES.includes(transactionType)) return false;
+  const live = Object.entries(netByCurrency(legs)).filter(
+    ([currencyCode, amount]) => Math.abs(amount) > epsilonFor(currencyCode),
+  );
+  return live.length > 0 && live.every(([, amount]) => amount > 0);
+}
+
+/**
  * Owner decision 2026-10-07 — refund kept change, client-side mirror of the
  * server's own preconditions (`TransactionRepository._resolveRefundKeptChange`
- * stays the authority): every return line is Cash, and every line is in the
- * refund's one currency. Returns why the kept change cannot be booked, or
- * null when it can (or when nothing is kept).
+ * stays the authority): every return line is DRAWER money — cash or a wallet
+ * (OMT, WHISH, Binance, …), never a customer account or gift card — and
+ * every line is in the refund's one currency. Returns why the kept change
+ * cannot be booked, or null when it can (or when nothing is kept).
+ *
+ * `drawerMethodCodes` is the caller's drawer-affecting method list
+ * (`usePaymentMethods().drawerAffectingMethods`, i.e. the DB's
+ * `affects_drawer` flag — the same source the server's
+ * `isDrawerAffectingMethod` reads), never a hard-coded second list here
+ * (rule 14).
  */
 export function validateRefundKeptChange(
   lines: RefundLegOverride[],
   refundCurrency: string,
   kept: { usd: number; lbp: number } | null,
+  drawerMethodCodes: readonly string[],
 ): string | null {
   if (!kept || (kept.usd <= 0 && kept.lbp <= 0)) return null;
-  if (lines.some((l) => l.method !== "CASH")) {
-    return "Keeping change works only when the whole refund is handed back in cash.";
+  if (lines.some((l) => !drawerMethodCodes.includes(l.method))) {
+    return "Keeping change works only when the refund is handed back in cash or a wallet.";
   }
   if (lines.some((l) => l.currencyCode !== refundCurrency)) {
     return `Keeping change works only when the refund is handed back in ${refundCurrency}.`;

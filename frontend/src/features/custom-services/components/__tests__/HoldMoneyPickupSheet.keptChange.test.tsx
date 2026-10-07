@@ -159,14 +159,107 @@ describe("HoldMoneyPickupSheet — payout kept change", () => {
     expect(sentPayload().kept_change_lbp).toBe(50_000);
   });
 
-  it("a pickup returning both USD and LBP offers no kept change and sends none", async () => {
-    const view = renderSheet(50.12, 100_000);
-    expect(mockCaptured.props!.onKeptChange).toBeUndefined();
-    fireEvent.click(view.getByTestId("hold-money-pickup-submit"));
-    await waitFor(() => expect(mockCollect).toHaveBeenCalled());
-    const payload = sentPayload();
-    expect(payload.kept_change_usd).toBeUndefined();
-    expect(payload.kept_change_lbp).toBeUndefined();
+  // Two-currency pickups (owner decision 2026-10-07, second half): kept per
+  // currency, NO cap. MultiPaymentInput's payout kept logic owes ONE
+  // currency and is capped, so the sheet computes it from its own payout
+  // lines vs the amounts being returned (holdPickupKeptPerCurrency, the
+  // same helper the server verifies with). Written failing-first: the old
+  // sheet sent no kept fields on a two-currency pickup.
+  describe("two-currency pickup", () => {
+    it("does not wire MultiPaymentInput's one-currency, capped onKeptChange", () => {
+      renderSheet(50, 1_000_000);
+      expect(mockCaptured.props!.onKeptChange).toBeUndefined();
+    });
+
+    it("owner example: held $50 + 1,000,000 LBP, hands $50 + 950,000 LBP → sends kept_change_lbp 50,000 and shows it", async () => {
+      const view = renderSheet(50, 1_000_000);
+      act(() => {
+        mockCaptured.props!.onChange!([
+          { id: "1", method: "CASH", currencyCode: "USD", amount: 50 },
+          { id: "2", method: "CASH", currencyCode: "LBP", amount: 950_000 },
+        ]);
+      });
+      expect(view.getByTestId("hold-pickup-kept-note").textContent).toMatch(
+        /50,000 LBP/,
+      );
+      fireEvent.click(view.getByTestId("hold-money-pickup-submit"));
+      await waitFor(() => expect(mockCollect).toHaveBeenCalled());
+      const payload = sentPayload();
+      expect(payload.kept_change_lbp).toBe(50_000);
+      expect(payload.kept_change_usd ?? 0).toBe(0);
+      expect(payload.usd_amount).toBe(50);
+      expect(payload.lbp_amount).toBe(1_000_000);
+      expect(payload.payments).toEqual([
+        { method: "CASH", currency_code: "USD", amount: 50 },
+        { method: "CASH", currency_code: "LBP", amount: 950_000 },
+      ]);
+    });
+
+    it("keeps in both currencies at once, with no cap", async () => {
+      const view = renderSheet(52.5, 1_250_000);
+      act(() => {
+        mockCaptured.props!.onChange!([
+          { id: "1", method: "CASH", currencyCode: "USD", amount: 50 },
+          { id: "2", method: "CASH", currencyCode: "LBP", amount: 1_000_000 },
+        ]);
+      });
+      fireEvent.click(view.getByTestId("hold-money-pickup-submit"));
+      await waitFor(() => expect(mockCollect).toHaveBeenCalled());
+      const payload = sentPayload();
+      expect(payload.kept_change_usd).toBe(2.5);
+      expect(payload.kept_change_lbp).toBe(250_000);
+    });
+
+    it("a cross-currency payout (more USD than the USD portion) sends no kept — exact reconcile path", async () => {
+      const view = renderSheet(50, 895_000);
+      act(() => {
+        mockCaptured.props!.onChange!([
+          { id: "1", method: "CASH", currencyCode: "USD", amount: 60 },
+        ]);
+      });
+      expect(view.queryByTestId("hold-pickup-kept-note")).toBeNull();
+      fireEvent.click(view.getByTestId("hold-money-pickup-submit"));
+      await waitFor(() => expect(mockCollect).toHaveBeenCalled());
+      const payload = sentPayload();
+      expect(payload.kept_change_usd).toBeUndefined();
+      expect(payload.kept_change_lbp).toBeUndefined();
+    });
+
+    it("an exact two-currency payout sends no kept fields", async () => {
+      const view = renderSheet(50, 1_000_000);
+      act(() => {
+        mockCaptured.props!.onChange!([
+          { id: "1", method: "CASH", currencyCode: "USD", amount: 50 },
+          { id: "2", method: "CASH", currencyCode: "LBP", amount: 1_000_000 },
+        ]);
+      });
+      fireEvent.click(view.getByTestId("hold-money-pickup-submit"));
+      await waitFor(() => expect(mockCollect).toHaveBeenCalled());
+      const payload = sentPayload();
+      expect(payload.kept_change_usd).toBeUndefined();
+      expect(payload.kept_change_lbp).toBeUndefined();
+    });
+
+    it("ignores a stale one-currency kept figure once both currencies are returned", async () => {
+      const view = renderSheet(50.12, 0);
+      act(() => {
+        mockCaptured.props!.onKeptChange!({ usd: 0.12, lbp: 0, exactUsd: 0.12, exactLbp: 0 });
+      });
+      // Not reachable from the UI clamp (max = remaining), so remount with a
+      // two-currency hold instead and confirm nothing leaks across.
+      view.unmount();
+      mockCollect.mockClear();
+      const v2 = renderSheet(50, 1_000_000);
+      act(() => {
+        mockCaptured.props!.onChange!([
+          { id: "1", method: "CASH", currencyCode: "USD", amount: 50 },
+          { id: "2", method: "CASH", currencyCode: "LBP", amount: 1_000_000 },
+        ]);
+      });
+      fireEvent.click(v2.getByTestId("hold-money-pickup-submit"));
+      await waitFor(() => expect(mockCollect).toHaveBeenCalled());
+      expect(sentPayload().kept_change_usd).toBeUndefined();
+    });
   });
 
   it("an exact pickup (nothing kept) sends no kept fields", async () => {

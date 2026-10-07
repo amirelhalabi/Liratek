@@ -35,6 +35,56 @@ import {
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
 
+/**
+ * Exactly which rows a repayment's FIFO coverage landed on, recorded on the
+ * DEBT_REPAYMENT transaction's `metadata_json[REPAYMENT_COVERAGE_KEY]` so a
+ * void/refund (TransactionRepository._restoreRepaymentDebt — the rule-20
+ * reversal owner) gives back THAT coverage and nothing else. Before this
+ * record existed the give-back was re-derived newest-first from sales, which
+ * un-paid sales the repayment never touched (incl. sales paid in cash at
+ * checkout) whenever the coverage had gone to a module charge.
+ */
+export const REPAYMENT_COVERAGE_KEY = "coverage_applied";
+
+export interface RepaymentCoverageRecord {
+  /** `sales.paid_usd` bumped by `_markSalesPaidFIFO`. */
+  sales: Array<{ id: number; usd: number }>;
+  /** `debt_ledger.covered_usd/covered_lbp` bumped by `_coverServiceDebtsFIFO`. */
+  charges: Array<{ id: number; usd: number; lbp: number }>;
+}
+
+/** Read a repayment's coverage record from its transaction metadata. Returns
+ *  null when absent or malformed (repayments booked before the record
+ *  existed) — the caller then falls back to the legacy re-derivation. */
+export function readRepaymentCoverage(
+  metadataJson: string | null | undefined,
+): RepaymentCoverageRecord | null {
+  if (!metadataJson) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(metadataJson);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const rec = (parsed as Record<string, unknown>)[REPAYMENT_COVERAGE_KEY];
+  if (!rec || typeof rec !== "object") return null;
+  const { sales, charges } = rec as Record<string, unknown>;
+  if (!Array.isArray(sales) || !Array.isArray(charges)) return null;
+  const num = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v) ? v : 0;
+  return {
+    sales: sales
+      .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+      .map((s) => ({ id: num(s.id), usd: num(s.usd) }))
+      .filter((s) => s.id > 0),
+    charges: charges
+      .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
+      .map((c) => ({ id: num(c.id), usd: num(c.usd), lbp: num(c.lbp) }))
+      .filter((c) => c.id > 0),
+  };
+}
+
 /** CQ-10 — a discount/write-off amount bundled with a settlement, or posted
  *  standalone. amount_usd/amount_lbp are the FORGIVEN amounts (always
  *  treated as positive magnitudes regardless of sign supplied). */
@@ -443,11 +493,14 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         data.tender_exchange_rate,
       );
 
-      // G44 — the amount actually APPLIED to the debt, per currency: the net
-      // tender (IN − OUT) minus the verified kept extra. The kept extra is
-      // shop profit, not repayment budget, so it must not FIFO-cover sales or
-      // module charges, nor be routed into a provider's cash drawer (the
-      // ledger reduction above already excludes it). A currency's remainder
+      // G44 — the amount actually APPLIED to the debt, per TENDER currency:
+      // the net tender (IN − OUT) minus the verified kept extra. The kept
+      // extra is shop profit, not repayment budget, so it must not be routed
+      // into a provider's cash drawer (the ledger reduction above already
+      // excludes it). Used only for the PCD routing cap below (cash routing,
+      // per tender currency); FIFO coverage uses the ledger reduction itself
+      // (step 4), which is the same applied amount expressed in the DEBT's
+      // currencies. A currency's remainder
       // may go negative when the kept extra sits in the other currency's
       // tender — settled against the other side at the stamped rate before
       // clamping (same netting as the page's computeRepaymentReduction).
@@ -781,24 +834,29 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       // 4. Mark originating sales as paid (FIFO — oldest unpaid sale first)
       //    so that profit is recognized once fully paid.
-      //    Use net totalUSD (IN − OUT) for accurate attribution; when no USD
-      //    was physically tendered (LBP-only tender against USD debt) fall
-      //    back to amount_usd — the caller-converted USD reduction.
-      //    KNOWN GAP: mixed tender (USD + LBP legs against USD debt) uses
-      //    only the USD-leg total, under-attributing the LBP-converted share;
-      //    amount_usd can't be used outright because with change legs it
-      //    overstates the net kept (see lira-096). Sale debts are
-      //    USD-denominated (SalesRepository), so pure-LBP debts never feed
-      //    this path.
-      //    G44: the APPLIED amount (kept extra excluded), not the raw net.
+      //    Coverage budget = the ledger reduction itself (amount_usd /
+      //    amount_lbp), i.e. the amount actually APPLIED to the debt, in the
+      //    debt's own currencies. The caller already netted change (OUT legs)
+      //    and the kept extra out of it (G44: IN − OUT − kept, verified by
+      //    resolveKeptChange above whenever a kept amount is claimed) and
+      //    converted any cross-currency tender into the debt's currency.
+      //    Coverage used to be fed from the raw TENDER per currency
+      //    (`appliedUSD || amount_usd`, `appliedLBP || amount_lbp`): an LBP
+      //    tender against a USD debt then covered sales with the converted
+      //    USD AND module charges with the full LBP — one payment counted
+      //    twice — and a mixed USD+LBP tender covered only the USD leg. The
+      //    void (TransactionRepository._restoreRepaymentDebt) gives back
+      //    exactly what is recorded below.
+      const coverage: RepaymentCoverageRecord = { sales: [], charges: [] };
       const usdRemainder = this._markSalesPaidFIFO(
         data.client_id,
-        appliedUSD || data.amount_usd,
+        data.amount_usd,
+        coverage.sales,
       );
 
       // DBT-1 (owner decision 2026-07-14): client-account SERVICE profit is
       // real only once the client repays. Whatever the repayment did NOT
-      // consume on sales (plus the full LBP side — sale debts are
+      // consume on sales (plus the LBP reduction — sale debts are
       // USD-denominated) FIFO-covers the client's module-debt charge rows;
       // ProfitRepository's notDebtPending gate reads the coverage. One
       // repayment budget, applied once: sales first (existing behavior,
@@ -806,8 +864,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       this._coverServiceDebtsFIFO(
         data.client_id,
         usdRemainder,
-        appliedLBP || data.amount_lbp,
+        data.amount_lbp,
+        coverage.charges,
       );
+      this._recordRepaymentCoverage(txnId, coverage);
 
       // CQ-10 — bundled discount: posted AFTER the repayment's own coverage
       // so the discount's FIFO budget only touches whatever the cash portion
@@ -953,7 +1013,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * Returns the UNCONSUMED remainder so `_coverServiceDebtsFIFO` can apply it
    * to service charge rows (DBT-1) — the same dollars are never applied twice.
    */
-  private _markSalesPaidFIFO(clientId: number, repaymentUsd: number): number {
+  private _markSalesPaidFIFO(
+    clientId: number,
+    repaymentUsd: number,
+    record?: RepaymentCoverageRecord["sales"],
+  ): number {
     if (repaymentUsd <= 0) return 0;
     const tenantId = getCurrentTenantId();
 
@@ -999,6 +1063,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     for (const t of takes) {
       updateStmt.run(t.take, t.id, tenantId);
       consumed += t.take;
+      record?.push({ id: Number(t.id), usd: t.take });
     }
     return Math.max(0, repaymentUsd - consumed);
   }
@@ -1024,6 +1089,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     clientId: number,
     repaymentUsd: number,
     repaymentLbp: number,
+    record?: RepaymentCoverageRecord["charges"],
   ): void {
     let remainingUsd = Math.max(0, repaymentUsd);
     let remainingLbp = Math.max(0, repaymentLbp);
@@ -1090,8 +1156,45 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           row.id,
           tenantId,
         );
+        record?.push({ id: row.id, usd: takeUsd, lbp: takeLbp });
       }
     }
+  }
+
+  /**
+   * Stamp a repayment's coverage record onto its DEBT_REPAYMENT transaction
+   * (see REPAYMENT_COVERAGE_KEY). Merged into the existing metadata — every
+   * other key is left exactly as createTransaction wrote it.
+   */
+  private _recordRepaymentCoverage(
+    txnId: number,
+    coverage: RepaymentCoverageRecord,
+  ): void {
+    const tenantId = getCurrentTenantId();
+    const row = this.db
+      .prepare(
+        `SELECT metadata_json FROM transactions WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(txnId, tenantId) as { metadata_json: string | null } | undefined;
+    if (!row) return;
+    let meta: Record<string, unknown> = {};
+    if (row.metadata_json) {
+      try {
+        const parsed: unknown = JSON.parse(row.metadata_json);
+        if (!parsed || typeof parsed !== "object") return;
+        meta = parsed as Record<string, unknown>;
+      } catch {
+        // Never clobber metadata we cannot read; the void then falls back
+        // to the legacy re-derivation for this one repayment.
+        return;
+      }
+    }
+    meta[REPAYMENT_COVERAGE_KEY] = coverage;
+    this.db
+      .prepare(
+        `UPDATE transactions SET metadata_json = ? WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(JSON.stringify(meta), txnId, tenantId);
   }
 
   // ---------------------------------------------------------------------------

@@ -475,7 +475,7 @@ describe("MultiPaymentInput", () => {
         target: { value: "45" },
       });
       expect(screen.getByTestId("return-mismatch-warning")).toHaveTextContent(
-        "5.00$",
+        "$5.00",
       );
     });
 

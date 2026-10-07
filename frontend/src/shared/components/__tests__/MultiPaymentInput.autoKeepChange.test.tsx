@@ -222,7 +222,7 @@ describe("MultiPaymentInput — automatic kept change (payment mode)", () => {
     });
 
     expect(screen.getByTestId("return-mismatch-warning")).toHaveTextContent(
-      "0.25$ of the change is not covered",
+      "$0.25 of the change is not covered",
     );
     expect(screen.queryByTestId("keep-change-summary")).not.toBeInTheDocument();
   });

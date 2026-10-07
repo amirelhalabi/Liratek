@@ -16,12 +16,7 @@
  * Scaffold copied from CustomServices.profitDisplay.test.tsx (stable useApi
  * mock, rule 25), with a MultiPaymentInput stand-in that records its props.
  */
-import {
-  render,
-  screen,
-  fireEvent,
-  waitFor,
-} from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { CreateCustomServiceInput } from "@liratek/core";
 import CustomServices from "../index";
 
@@ -254,6 +249,8 @@ describe("CustomServices — kept change wiring (G42)", () => {
 
   it('tells the payment widget the customer pays (payer="customer")', () => {
     render(<CustomServices />);
+    // The payment sheet waits for a selling price (owner decision 2026-10-07).
+    fillCostAndPrice("3", "5");
     expect(mockPaymentProps.length).toBeGreaterThan(0);
     expect(mockPaymentProps[mockPaymentProps.length - 1].payer).toBe(
       "customer",

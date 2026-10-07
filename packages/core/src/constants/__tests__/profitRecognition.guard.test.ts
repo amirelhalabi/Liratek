@@ -442,11 +442,13 @@ const EXCLUDED_UNITS: Record<string, string> = {
   // reasoning applies verbatim; these are NOT new gaps, just the totals
   // query's reasoning restated for its row-level twin (rule 14 — one
   // rationale, not a second one invented per unit).
-  "ProfitRepository:getKeptChangeDetail:(query)":
-    "Mirrors getDebtRepaymentProfit exactly (see that method's own " +
-    "EXCLUDED_UNITS entry above): DEBT_REPAYMENT/KEPT_CHANGE rows ARE the " +
-    "recognition event (kept change collected AT the repayment) — there is " +
-    "no counterparty-pending state left to gate against.",
+  // "ProfitRepository:getKeptChangeDetail:(query)" REMOVED (LIRA-272): the
+  // query gained a UNION ALL arm for a module refund's kept change
+  // (getRefundKeptChangeProfit's rows), gated by notDebtPending like its
+  // totals twin — so the unit now textually carries a gate and is no longer
+  // an exclusion. Its DEBT_REPAYMENT/KEPT_CHANGE arm is unchanged and
+  // still needs no gate, for getDebtRepaymentProfit's reason above (those
+  // rows ARE the recognition event).
   "ProfitRepository:getCounterpartyDiscountDetail:(query)":
     "Mirrors getCounterpartyDiscountTotals exactly (see that method's own " +
     "EXCLUDED_UNITS entry above): COUNTERPARTY_DISCOUNT carries a signed " +

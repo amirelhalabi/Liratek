@@ -2,7 +2,7 @@
  * Refund kept change on the POS per-item refund (owner decision
  * 2026-10-07) — the SAME rules the whole-sale refund already follows
  * (`TransactionRepository.refundKeptChange.test.ts`): a $20.12 item handed
- * back as $20 cash lets the shop keep the $0.12 as profit — cash only, one
+ * back as $20 lets the shop keep the $0.12 as profit — cash or wallet only, one
  * currency, the refund's own currency, under $1 / 100,000 LBP, checked by
  * `resolveKeptChange` (payer "payout"), refused on a FOR-partner sale.
  *
@@ -351,6 +351,25 @@ describe("refund kept change — POS per-item refund (refundSaleItem)", () => {
     );
   });
 
+  it("wallet: $20 handed back through WHISH keeps $0.12 of a $20.12 item refund", () => {
+    // Owner decision 2026-10-07: kept change may come from any drawer
+    // money (cash or wallet), never an account or gift card.
+    const plainProfit = plainItemRefundProfit(20.12, 10, "USD");
+    const { saleId, itemA } = twoLineCashSale(20.12, 10, "USD");
+    const before = snapshotLedgers(db);
+    const refundId = refundItem({
+      saleId,
+      saleItemId: itemA,
+      refundQuantity: 1,
+      refundLegs: [{ method: "WHISH", currencyCode: "USD", amount: 20 }],
+      keptChange: { kept_change_usd: 0.12 },
+    });
+    expectPostings(before, snapshotLedgers(db), {
+      drawers: { "Whish_App|USD": -20 },
+    });
+    expect(r6(txnRow(refundId).profit_usd)).toBe(r6(plainProfit + 0.12));
+  });
+
   describe("refusals write nothing", () => {
     function expectRefused(input: Record<string, unknown>, message: RegExp) {
       const before = snapshotLedgers(db);
@@ -402,19 +421,25 @@ describe("refund kept change — POS per-item refund (refundSaleItem)", () => {
       );
     });
 
-    it("non-cash return line: kept change refused", () => {
-      const { saleId, itemA } = twoLineCashSale(20.12, 10, "USD");
-      expectRefused(
-        {
-          saleId,
-          saleItemId: itemA,
-          refundQuantity: 1,
-          refundLegs: [{ method: "OMT", currencyCode: "USD", amount: 20 }],
-          keptChange: { kept_change_usd: 0.12 },
-        },
-        /only to a cash refund/,
-      );
-    });
+    // Owner decision 2026-10-07: a wallet return line MAY keep change (see
+    // the accepted "wallet" case above); only a line that moves no drawer
+    // (customer account, gift card) still refuses it.
+    it.each(["CUSTOMER_ACCOUNT", "GIFT_CARD"])(
+      "%s return line (moves no drawer): kept change refused",
+      (method) => {
+        const { saleId, itemA } = twoLineCashSale(20.12, 10, "USD");
+        expectRefused(
+          {
+            saleId,
+            saleItemId: itemA,
+            refundQuantity: 1,
+            refundLegs: [{ method, currencyCode: "USD", amount: 20 }],
+            keptChange: { kept_change_usd: 0.12 },
+          },
+          /cash or wallet/,
+        );
+      },
+    );
 
     it("no return lines (default mirror refund): kept change refused", () => {
       const { saleId, itemA } = twoLineCashSale(20.12, 10, "USD");

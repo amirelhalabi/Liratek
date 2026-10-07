@@ -134,8 +134,9 @@ export interface RecordBasketPaymentInput {
    * amount comes back as `keptUsd`/`keptLbp` on the result. Omitted = none.
    */
   keptChange?: KeptChange | null;
-  /** G42 — the basket holds a FOR-partner item; a kept claim is refused. */
-  basketHasForPartner?: boolean;
+  // (No FOR-partner flag: owner decision 2026-10-07 — a basket holding a
+  // FOR-partner item may keep change; the item's own partner posting is
+  // unaffected and kept change stays drawer-funded via resolveKeptChange.)
 }
 
 /** LIRA-258 / G17 — `allocateBasketAccountDebt`'s sales-first split. */
@@ -221,15 +222,54 @@ export function resolveBasketKeptChange(input: {
   >;
   claimedKept: KeptChange | null | undefined;
   exchangeRate: number;
-  /** The basket holds a FOR-partner item — kept change refused (owner
-   *  decision 2026-10-07: exact amount required). */
-  isForPartner?: boolean;
 }): { keptUsd: number; keptLbp: number } {
+  const { usd, lbp, inLegs, changeLegs } = basketNetCharge(
+    input.legs,
+    input.ctx,
+  );
+  const { keptUsd, keptLbp } = resolveKeptChange({
+    payer: "customer",
+    context: SESSION_KEPT_CONTEXT,
+    exchangeRate: input.exchangeRate,
+    claimedKept: input.claimedKept,
+    // Owner decision 2026-10-07: a customer basket may keep change even
+    // when it holds a FOR-partner item (the basket's customer is a real
+    // walk-in; the partner item's own ledger posting is untouched).
+    isForPartner: false,
+    expected: { usd, lbp },
+    inLegs,
+    outLegs: changeLegs,
+  });
+  return { keptUsd, keptLbp };
+}
+
+/**
+ * The ONE net-charge computation for a session basket (rule 14) — used by
+ * the kept-change check (G42) and the nothing-to-collect check (LIRA-270):
+ *
+ *   net = gross charge − gross payout + Σ(kind:"PAYOUT" OUT legs)
+ *
+ * per currency. Also returns the leg split both callers need: no
+ * `direction` = IN; an OUT leg without `kind` (or `kind: "CHANGE"`) is
+ * change; a `kind: "PAYOUT"` leg is folded into the net instead.
+ */
+export function basketNetCharge(
+  legs: BasketPaymentLeg[],
+  ctx: Pick<
+    SessionCashSplitContext,
+    "chargeTotalUsd" | "chargeTotalLbp" | "payoutTotalUsd" | "payoutTotalLbp"
+  >,
+): {
+  usd: number;
+  lbp: number;
+  inLegs: BasketPaymentLeg[];
+  changeLegs: BasketPaymentLeg[];
+} {
   const inLegs: BasketPaymentLeg[] = [];
   const changeLegs: BasketPaymentLeg[] = [];
   let payoutLegUsd = 0;
   let payoutLegLbp = 0;
-  for (const leg of input.legs) {
+  for (const leg of legs) {
     if (leg.direction !== "OUT") inLegs.push(leg);
     else if (leg.kind === "PAYOUT") {
       const amt = Math.abs(leg.amount);
@@ -237,21 +277,46 @@ export function resolveBasketKeptChange(input: {
       else payoutLegUsd += amt;
     } else changeLegs.push(leg);
   }
-  const { ctx } = input;
-  const { keptUsd, keptLbp } = resolveKeptChange({
-    payer: "customer",
-    context: SESSION_KEPT_CONTEXT,
-    exchangeRate: input.exchangeRate,
-    claimedKept: input.claimedKept,
-    isForPartner: input.isForPartner ?? false,
-    expected: {
-      usd: ctx.chargeTotalUsd - ctx.payoutTotalUsd + payoutLegUsd,
-      lbp: ctx.chargeTotalLbp - ctx.payoutTotalLbp + payoutLegLbp,
-    },
+  return {
+    usd: ctx.chargeTotalUsd - ctx.payoutTotalUsd + payoutLegUsd,
+    lbp: ctx.chargeTotalLbp - ctx.payoutTotalLbp + payoutLegLbp,
     inLegs,
-    outLegs: changeLegs,
-  });
-  return { keptUsd, keptLbp };
+    changeLegs,
+  };
+}
+
+/**
+ * LIRA-270 — the payment widget's own dust threshold ($0.01 / 0.5 LBP,
+ * `@liratek/ui` money registry): below it in BOTH currencies the checkout
+ * modal hides its payment input. Deliberately NOT the $0.05 reconcile
+ * epsilon, so a few-cent remainder the modal still asks for is never
+ * refused.
+ */
+const NOTHING_TO_COLLECT_USD = 0.01;
+const NOTHING_TO_COLLECT_LBP = 0.5;
+/** Float noise only — far below 0.5 LBP at any real rate. */
+const CROSS_CURRENCY_EPSILON_USD = 1e-6;
+
+/**
+ * LIRA-270 — is there nothing left for the customer to pay? True when the
+ * net charge is below dust in both currencies, or — at a real rate (> 1) —
+ * when a cross-currency netted payout cancels it exactly (USD negative, LBP
+ * positive, summing to ≤ 0). A remainder worth less than a cent but more
+ * than 0.5 LBP (e.g. 180 LBP) is still owed: the modal asks for it, so this
+ * stays false. A rate of 1 is the checkout's missing-rate fallback, so only
+ * the per-currency test applies then.
+ */
+export function basketHasNothingToCollect(
+  net: { usd: number; lbp: number },
+  exchangeRate: number,
+): boolean {
+  if (net.usd < NOTHING_TO_COLLECT_USD && net.lbp < NOTHING_TO_COLLECT_LBP) {
+    return true;
+  }
+  if (exchangeRate > 1) {
+    return net.usd + net.lbp / exchangeRate <= CROSS_CURRENCY_EPSILON_USD;
+  }
+  return false;
 }
 
 /** True when the client claimed any kept change. */
@@ -456,10 +521,28 @@ export class SessionPaymentService {
         ctx: cashSplitCtx,
         claimedKept: input.keptChange,
         exchangeRate: rate,
-        isForPartner: input.basketHasForPartner ?? false,
       });
       result.keptUsd = kept.keptUsd;
       result.keptLbp = kept.keptLbp;
+    }
+
+    // LIRA-270: when the basket has nothing left to collect (a cash payout
+    // cancels the whole charge), the customer pays nothing — so a
+    // customer-paid (IN) leg can only be a stale line the checkout screen
+    // failed to clear. Refuse it before any write instead of posting a
+    // phantom payment into a drawer (or a phantom debt on the account).
+    // Skipped when the item lookup failed: "unknown" must never read as
+    // "nothing due".
+    if (!cashSplitCtx.lookupFailed) {
+      const net = basketNetCharge(legs, cashSplitCtx);
+      const strayIn = net.inLegs.filter((l) => Math.abs(l.amount) > 0);
+      if (strayIn.length > 0 && basketHasNothingToCollect(net, rate)) {
+        throw new Error(
+          "There is nothing left to collect from the customer on this basket — remove the payment and try again. " +
+            `(Session checkout: net charge USD ${net.usd.toFixed(2)} / LBP ${Math.round(net.lbp)}, ` +
+            `but ${strayIn.length} customer payment leg(s) were sent.)`,
+        );
+      }
     }
 
     for (const leg of legs) {

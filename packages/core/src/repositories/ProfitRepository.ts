@@ -54,6 +54,10 @@ import {
   coverageOpenSql,
 } from "./sessionDebtCoverage.js";
 import { COMMISSION_PROVIDERS_SQL_LIST } from "../constants/commissionProviders.js";
+import {
+  REFUND_KEPT_CHANGE_META,
+  REFUND_KEPT_CHANGE_MODULE_TYPES,
+} from "../validators/transaction.js";
 import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
 import {
   partnerObligationHeadRowSql,
@@ -1892,6 +1896,70 @@ export function keptChangeSource(alias: string): string {
 }
 
 /**
+ * LIRA-272 (owner decision 2026-10-07) — refund kept change on a module whose
+ * refunded original the Profits page DROPS (FINANCIAL_SERVICE, RECHARGE,
+ * CUSTOM_SERVICE, MAINTENANCE, LOTO: each module query gates its source row
+ * on {@link notRefunded} and never sums the REFUND row). The REFUND row's
+ * stamp is −original + kept, so only its kept part may surface — never the
+ * −original half, which the dropped original already accounts for. Read off
+ * the refund's own dedicated metadata keys (`REFUND_KEPT_CHANGE_META`,
+ * written only by `TransactionRepository._createRefundRow`), never the
+ * stamp difference (`refund + original`): migrations have rewritten FS/
+ * custom-service stamps after the fact, and a REFUND row's copied
+ * `kept_change_usd/lbp` can be the ORIGINAL's sale-time kept change. No
+ * historical row carries the dedicated keys, so every older figure stays
+ * exactly as it was. `json_valid` guards a malformed blob (NULL → 0).
+ *
+ * SALE / DEBT_REPAYMENT refunds are NOT read here: their pages already sum
+ * the REFUND row's whole stamp (`REFUND_KEPT_CHANGE_STAMP_NETTED_TYPES`), so
+ * adding the kept part again would double it. By Cashier / By Client need
+ * nothing either — they sum original + REFUND stamps for every module, which
+ * already nets to the kept part.
+ */
+const REFUND_KEPT_CHANGE_MODULE_TYPES_SQL = REFUND_KEPT_CHANGE_MODULE_TYPES.map(
+  (t) => `'${t}'`,
+).join(", ");
+
+/** @see REFUND_KEPT_CHANGE_MODULE_TYPES_SQL — the kept amount, per currency.
+ *  `supported` = the `transactions.metadata_json` column exists (schema
+ *  drift: hand-rolled jest fixtures omit it; a DB without it can hold no
+ *  refund kept change, so the amount is a literal 0 there). */
+export function refundKeptChangeAmount(
+  alias: string,
+  currency: "usd" | "lbp",
+  supported: boolean,
+): string {
+  if (!supported) return "0";
+  return `(CASE WHEN json_valid(${alias}.metadata_json)
+                THEN COALESCE(CAST(json_extract(${alias}.metadata_json, '$.${REFUND_KEPT_CHANGE_META[currency]}') AS REAL), 0)
+                ELSE 0 END)`;
+}
+
+/**
+ * @see REFUND_KEPT_CHANGE_MODULE_TYPES_SQL — joins the refunded ORIGINAL
+ * (`origAlias`) of a module REFUND row `alias`. Callers date the kept change
+ * by `${origAlias}.created_at`: the same day By Cashier / By Client already
+ * attribute it to (`profitTxnRowMembership` dates a REFUND by its
+ * original), and the same rule a sale refund's kept change follows
+ * (`getSalesProfit` dates by the sale). No bind params.
+ */
+export function refundKeptChangeOriginalJoin(
+  alias: string,
+  origAlias: string,
+): string {
+  return `JOIN transactions ${origAlias} ON ${origAlias}.id = ${alias}.reverses_id
+            AND ${origAlias}.tenant_id = ${alias}.tenant_id
+            AND ${origAlias}.type IN (${REFUND_KEPT_CHANGE_MODULE_TYPES_SQL})`;
+}
+
+/** @see REFUND_KEPT_CHANGE_MODULE_TYPES_SQL — an ACTIVE REFUND row that
+ *  kept something. No bind params. */
+export function refundKeptChangeRow(alias: string, supported: boolean): string {
+  return `${alias}.status = 'ACTIVE' AND ${alias}.type = 'REFUND'
+            AND (${refundKeptChangeAmount(alias, "usd", supported)} != 0 OR ${refundKeptChangeAmount(alias, "lbp", supported)} != 0)`;
+}
+
+/**
  * LIRA-233 (#14 slice 3, finding 3) — the ONE "does this kept-change row
  * count as one of the By Module row's `count` events" predicate. Extracted
  * from {@link ProfitRepository.getDebtRepaymentProfit}'s own inline `count`
@@ -2192,6 +2260,98 @@ export function ownCurrencyProfit(
   profitAlias = "t",
 ): string {
   return `CASE WHEN ${currencyExpr} = 'LBP' THEN ${profitAlias}.profit_lbp ELSE ${profitAlias}.profit_usd END`;
+}
+
+/**
+ * LIRA-268 (rule 14) — the ONE definition of "which currency bucket does a
+ * financial-service row report in". Binance rows are stored with
+ * `currency = 'USDT'` (the crypto denomination), which matched neither the
+ * exact `'USD'` nor `'LBP'` bucket every Profits query uses (PA-1.4), so a
+ * Binance fee and kept change reached no Profits surface at all.
+ *
+ * USDT is valued 1:1 as US dollars. The codebase defines no USDT exchange
+ * rate (`exchange_rates` seeds LBP and EUR only, and no profit query reads a
+ * rate for USDT); every other ledger already treats USDT as dollars — a
+ * Binance SEND takes $102 cash for 100 USDT + a $2 fee, and a partner
+ * Binance balance is booked in USD (`FinancialServiceRepository`'s
+ * "partner never carries a USDT balance"). Every other third currency (EUR,
+ * …) still reports in neither bucket, exactly as before.
+ *
+ * Pass this as the `currencyExpr` of {@link ownCurrencyProfit} /
+ * {@link otherCurrencyKeptChangeUsd} / {@link otherCurrencyKeptChangeLbp} /
+ * `usdBucketPredicate`, and use it wherever an FS query compares or groups
+ * by the row's currency.
+ */
+export function fsReportingCurrency(alias: string): string {
+  return `(CASE WHEN ${alias}.currency = 'USDT' THEN 'USD' ELSE ${alias}.currency END)`;
+}
+
+/**
+ * LIRA-268 (rule 14) — the fee a USDT (Binance) row's profit STAMP leaves
+ * out. `FinancialServiceRepository.createTransaction` stamps the commission
+ * term only for a USD/LBP row (`currency === "USD" ? commission : 0` and the
+ * LBP twin), so a Binance row's stamp carries its kept change but never its
+ * fee. Its fee is still on the row: Binance is born `commission_model = 0`
+ * (legacy EMBEDDED), where `financial_services.commission` IS the settled
+ * truth ({@link embeddedCommission} — called here, so the embedded-commission
+ * guard's rule is applied inside this one helper), recorded in dollars.
+ *
+ * Gated on the CURRENCY, not on the provider: a row in USD/LBP already has
+ * its fee inside the stamp, so adding the column there would count it twice.
+ * Always a USD amount (USDT reports in USD, {@link fsReportingCurrency}).
+ *
+ * Callers add it next to `t.profit_usd` with the SAME recognition gates
+ * (fsStampRecognized, notRefunded / notDebtPending, partner coverage), and
+ * where a per-transaction row is read (getByUser/getByClient/By Date) they
+ * negate it on a REFUND row and zero it on a void reversal row
+ * ({@link isVoidReversalRow}) — the reversal joins the SAME fs row and would
+ * otherwise re-add the fee.
+ *
+ * If the stamp is ever changed to include the USDT fee, this addend must go
+ * in the SAME change, or the fee counts twice
+ * (`ProfitService.binanceProfitVisible.test.ts` pins the exact figure).
+ */
+export function unstampedUsdtCommission(
+  alias: string,
+  hasCommissionModelColumn: boolean,
+): string {
+  // Schema-drift guard: a hand-rolled jest fixture without
+  // `commission_model` (pre-LIRA-158 shape) often has no `commission` column
+  // either — degrade to "no add-on" there, the pre-LIRA-268 behaviour. Every
+  // real database has both columns.
+  if (!hasCommissionModelColumn) return "0";
+  return `(CASE WHEN ${alias}.currency = 'USDT' AND ${embeddedCommission(alias, hasCommissionModelColumn)} THEN COALESCE(${alias}.commission, 0) ELSE 0 END)`;
+}
+
+/**
+ * LIRA-268 — an FS row's profit in its reporting currency
+ * ({@link fsReportingCurrency}): the stamp ({@link ownCurrencyProfit}) plus,
+ * for a USDT row, the fee the stamp leaves out
+ * ({@link unstampedUsdtCommission}). For a USD/LBP row this is byte-for-byte
+ * `ownCurrencyProfit(fs.currency)`.
+ */
+export function fsOwnCurrencyProfit(
+  fsAlias: string,
+  hasCommissionModelColumn: boolean,
+  profitAlias = "t",
+): string {
+  return `(${ownCurrencyProfit(fsReportingCurrency(fsAlias), profitAlias)} + ${unstampedUsdtCommission(fsAlias, hasCommissionModelColumn)})`;
+}
+
+/**
+ * LIRA-268 — {@link unstampedUsdtCommission} read off ONE transactions row
+ * (getByUser/getByClient, which sum every FS-linked transactions row rather
+ * than one row per fs record): `+fee` on the FINANCIAL_SERVICE row, `−fee`
+ * on its REFUND row (the stamp side is already negated there), `0` on a void
+ * reversal row ({@link isVoidReversalRow}) — the reversal joins the SAME fs
+ * row and would otherwise re-add the fee after the original went VOIDED.
+ */
+function unstampedUsdtCommissionForTxn(
+  tAlias: string,
+  fsAlias: string,
+  hasCommissionModelColumn: boolean,
+): string {
+  return `((CASE WHEN ${isVoidReversalRow(tAlias)} THEN 0 WHEN ${tAlias}.type = '${TRANSACTION_TYPES.REFUND}' THEN -1 ELSE 1 END) * ${unstampedUsdtCommission(fsAlias, hasCommissionModelColumn)})`;
 }
 
 /**
@@ -2685,7 +2845,7 @@ function salePlusRefundProfitSubquery(
   return `COALESCE((
               SELECT SUM(t.${profitColumn}) FROM transactions t
               WHERE t.source_table = 'sales' AND t.source_id = ${saleAlias}.id
-                AND t.type IN ('SALE', 'REFUND') AND t.status = 'ACTIVE' AND t.tenant_id = ?
+                AND t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.status = 'ACTIVE' AND t.tenant_id = ?
             ), 0)`;
 }
 
@@ -2891,6 +3051,31 @@ function providerStockDrawersSql(): string {
 // (HOLD_MONEY_PROFIT_TYPES_SQL, rule 14). getByUser/getByClient give these
 // rows 0 revenue (the payout is the customer's own money going back, never
 // takings) — see their `holdMoneyProfitSource` revenue arms.
+/**
+ * LIRA-273 (rule 14) — the ONE list of transaction types that move a SALE's
+ * profit after the sale itself: a REFUND (negated stamp) and the admin
+ * "Undo refund" REFUND_UNDO that cancels it (the REFUND's stamp negated
+ * again — `SalesRepository.undoSaleItemRefund`,
+ * `TransactionRepository.undoSessionBasketItemRefund`). Both rows carry the
+ * SAME `source_table = 'sales'`/`source_id` pair as the SALE they adjust and
+ * no `reverses_id`, so every place that reads "the sale plus its refunds"
+ * must read the undo too, or undoing a refund leaves profit at the refunded
+ * level (owner-measured: 13.12 → 3 after the refund, still 3 after undo).
+ * Used for: the sale-ledger sums (Overview, By Date, the Sales drill-down),
+ * the REFUND-original join and its event test, the By Cashier/By Client
+ * revenue arms and "recognised transaction" count, and the By Payment Method
+ * refund flag. Never paste `'REFUND'` alone into one of those again.
+ */
+const REFUND_ADJUSTMENT_TYPES_SQL = [
+  TRANSACTION_TYPES.REFUND,
+  TRANSACTION_TYPES.REFUND_UNDO,
+]
+  .map((t) => `'${t}'`)
+  .join(", ");
+
+/** The SALE row plus every row in {@link REFUND_ADJUSTMENT_TYPES_SQL}. */
+const SALE_LEDGER_TYPES_SQL = `'${TRANSACTION_TYPES.SALE}', ${REFUND_ADJUSTMENT_TYPES_SQL}`;
+
 const PROFIT_TXN_TYPES =
   "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'REFUND_UNDO', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP', " +
   HOLD_MONEY_PROFIT_TYPES_SQL;
@@ -2984,7 +3169,7 @@ function refundOriginalIsProfitEvent(
   refundAlias: string,
   origAlias: string,
 ): string {
-  return `(${refundAlias}.type <> 'REFUND' OR ${origAlias}.id IS NULL OR ${origAlias}.type IN (${PROFIT_TXN_TYPES}))`;
+  return `(${refundAlias}.type NOT IN (${REFUND_ADJUSTMENT_TYPES_SQL}) OR ${origAlias}.id IS NULL OR ${origAlias}.type IN (${PROFIT_TXN_TYPES}))`;
 }
 
 /**
@@ -3062,7 +3247,7 @@ function refundOriginalIsProfitEvent(
  * (`MAX(COALESCE(t.client_name, orig.client_name))`).
  */
 function refundOriginalJoin(alias: string, origAlias: string): string {
-  return `LEFT JOIN transactions ${origAlias} ON ${alias}.type = 'REFUND' AND ${origAlias}.tenant_id = ?
+  return `LEFT JOIN transactions ${origAlias} ON ${alias}.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}) AND ${origAlias}.tenant_id = ?
         AND (${origAlias}.id = ${alias}.reverses_id
           OR (${alias}.reverses_id IS NULL AND ${alias}.source_table = 'sales'
             AND ${origAlias}.id = (
@@ -3487,6 +3672,27 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * the same name); this method only adds this repository's per-instance
    * memoization on top of it.
    */
+  private _hasTransactionsMetadataColumnCache: boolean | null = null;
+
+  /**
+   * LIRA-272 schema-drift guard — the refund kept-change reader
+   * ({@link refundKeptChangeAmount}) reads `transactions.metadata_json`,
+   * which several hand-rolled jest fixtures omit (same trap
+   * {@link _hasCommissionModelColumn} documents). Without the column no
+   * refund can have stamped kept change, so the reader is a literal 0.
+   */
+  private _hasTransactionsMetadataColumn(): boolean {
+    if (this._hasTransactionsMetadataColumnCache === null) {
+      const cols = this.db
+        .prepare(`PRAGMA table_info(transactions)`)
+        .all() as { name: string }[];
+      this._hasTransactionsMetadataColumnCache = cols.some(
+        (c) => c.name === "metadata_json",
+      );
+    }
+    return this._hasTransactionsMetadataColumnCache;
+  }
+
   private _hasCommissionModelColumn(): boolean {
     if (this._hasCommissionModelColumnCache === null) {
       this._hasCommissionModelColumnCache = hasCommissionModelColumn(this.db);
@@ -3742,7 +3948,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN sales s ON s.id = t.source_id
         WHERE t.status = 'ACTIVE'
           AND t.source_table = 'sales'
-          AND t.type IN ('SALE', 'REFUND')
+          AND t.type IN (${SALE_LEDGER_TYPES_SQL})
           AND s.status IN ('completed', 'refunded')
           AND ${dateRange("s.created_at")}
           AND t.tenant_id = ? AND s.tenant_id = ?`,
@@ -3906,6 +4112,40 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${holdMoneyProfitSource("t")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, getCurrentTenantId()) as TopupBuybackProfitRow;
+  }
+
+  /**
+   * LIRA-272 — refund kept change on a FINANCIAL_SERVICE / RECHARGE /
+   * CUSTOM_SERVICE / MAINTENANCE / LOTO refund: the leftover the shop kept
+   * when it handed back less than the refund (refund $20.12, hand back
+   * $20 → $0.12). Profit-only, per currency, dated by the refunded
+   * original's day — see {@link refundKeptChangeAmount} for why it is read
+   * off the refund's own keys and why sales/debt repayments are not here.
+   * A REFUND row is never voided (`_assertReversible`), and no undo exists
+   * for these modules' refunds (both REFUND_UNDO writers are sale-only), so
+   * once booked it stays. Gated by {@link notDebtPending} like every other
+   * PROFIT_TXN_TYPES row; a REFUND row is never itself a debt charge, so
+   * the gate always passes today. `count` = refunds that kept something.
+   */
+  getRefundKeptChangeProfit(
+    fromDt: string,
+    toDt: string,
+  ): TopupBuybackProfitRow {
+    const hasMeta = this._hasTransactionsMetadataColumn();
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(${refundKeptChangeAmount("t", "usd", hasMeta)}), 0) AS profit_usd,
+          COALESCE(SUM(${refundKeptChangeAmount("t", "lbp", hasMeta)}), 0) AS profit_lbp,
+          COUNT(*) AS count
+        FROM transactions t
+        ${refundKeptChangeOriginalJoin("t", "rko")}
+        WHERE ${refundKeptChangeRow("t", hasMeta)}
+          AND ${notDebtPending("t.id")}
+          AND ${dateRange("rko.created_at")}
           AND t.tenant_id = ?`,
       )
       .get(fromDt, toDt, getCurrentTenantId()) as TopupBuybackProfitRow;
@@ -4102,31 +4342,36 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     fromDt: string,
     toDt: string,
   ): FinCurrencyRow[] {
+    // LIRA-268: grouped by fsReportingCurrency (USDT reports as USD) and the
+    // commission column adds the fee a USDT row's stamp leaves out
+    // (fsOwnCurrencyProfit) — see both fragments' doc comments.
+    const cm = this._hasCommissionModelColumn();
+    const cur = fsReportingCurrency("fs");
     return this.db
       .prepare(
         `SELECT
-          fs.currency AS currency,
+          ${cur} AS currency,
           COALESCE(SUM((${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS revenue,
-          COALESCE(SUM((${ownCurrencyProfit("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS commission,
+          COALESCE(SUM((${fsOwnCurrencyProfit("fs", cm)}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS commission,
           SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count,
-          COALESCE(SUM((${otherCurrencyKeptChangeUsd("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS kept_change_usd,
-          COALESCE(SUM((${otherCurrencyKeptChangeLbp("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS kept_change_lbp
+          COALESCE(SUM((${otherCurrencyKeptChangeUsd(cur)}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS kept_change_usd,
+          COALESCE(SUM((${otherCurrencyKeptChangeLbp(cur)}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS kept_change_lbp
         FROM financial_services fs
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
-        WHERE ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
+        WHERE ${fsStampRecognized("fs", cm)}
           AND fs.provider IN (${COMMISSION_PROVIDERS})
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
-        GROUP BY fs.currency
+        GROUP BY ${cur}
         ${havingAnyContribution([
           `SUM((${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
-          `SUM((${ownCurrencyProfit("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM((${fsOwnCurrencyProfit("fs", cm)}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
           `SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) != 0`,
-          `SUM((${otherCurrencyKeptChangeUsd("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
-          `SUM((${otherCurrencyKeptChangeLbp("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM((${otherCurrencyKeptChangeUsd(cur)}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM((${otherCurrencyKeptChangeLbp(cur)}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
         ])}`,
       )
       .all(
@@ -4265,24 +4510,28 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     toDt: string,
   ): FsWaitingForRepaymentRow[] {
     const tenantId = getCurrentTenantId();
+    // LIRA-268: USDT reports as USD and its fee (missing from the stamp)
+    // is added — same fragments as getFinancialSettledByCurrency.
+    const cm = this._hasCommissionModelColumn();
+    const cur = fsReportingCurrency("fs");
     const stampRows = this.db
       .prepare(
         `SELECT
-          fs.currency AS currency,
-          COALESCE(SUM((${ownCurrencyProfit("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS commission,
-          SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 AND (${ownCurrencyProfit("fs.currency")}) != 0 THEN 1 ELSE 0 END) AS count
+          ${cur} AS currency,
+          COALESCE(SUM((${fsOwnCurrencyProfit("fs", cm)}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS commission,
+          SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 AND (${fsOwnCurrencyProfit("fs", cm)}) != 0 THEN 1 ELSE 0 END) AS count
         FROM financial_services fs
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
-        WHERE ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
+        WHERE ${fsStampRecognized("fs", cm)}
           AND fs.provider IN (${COMMISSION_PROVIDERS})
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND NOT (${notDebtPending("t.id")})
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
-        GROUP BY fs.currency
+        GROUP BY ${cur}
         ${havingAnyContribution([
-          `SUM((${ownCurrencyProfit("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM((${fsOwnCurrencyProfit("fs", cm)}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
         ])}`,
       )
       .all(
@@ -4366,25 +4615,29 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     fromDt: string,
     toDt: string,
   ): FinCurrencyRow[] {
+    // LIRA-268: USDT reports as USD and its fee (missing from the stamp)
+    // is added — same fragments as getFinancialSettledByCurrency.
+    const cm = this._hasCommissionModelColumn();
+    const cur = fsReportingCurrency("fs");
     return this.db
       .prepare(
         `SELECT
-          fs.currency AS currency,
-          COALESCE(SUM((${ownCurrencyProfit("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS commission,
+          ${cur} AS currency,
+          COALESCE(SUM((${fsOwnCurrencyProfit("fs", cm)}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS commission,
           COALESCE(SUM((${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS revenue,
           SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count
         FROM financial_services fs
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
         WHERE fs.is_settled = 0
-          AND ${embeddedCommission("fs", this._hasCommissionModelColumn())}
+          AND ${embeddedCommission("fs", cm)}
           AND fs.provider IN (${COMMISSION_PROVIDERS})
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
-        GROUP BY fs.currency
+        GROUP BY ${cur}
         ${havingAnyContribution([
-          `SUM((${ownCurrencyProfit("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
+          `SUM((${fsOwnCurrencyProfit("fs", cm)}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
           `SUM((${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
           `SUM(CASE WHEN (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) != 0`,
         ])}`,
@@ -4996,6 +5249,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     toDt: string,
   ): FinByProviderRow[] {
     const tenantId = getCurrentTenantId();
+    // LIRA-268: the base arm buckets by fsReportingCurrency (a Binance USDT
+    // row reports as USD) and adds the fee a USDT row's stamp leaves out
+    // (unstampedUsdtCommission) — see both fragments' doc comments.
+    const cm = this._hasCommissionModelColumn();
+    const cur = fsReportingCurrency("fs");
     const hasAllocations = this._hasSettlementAllocationsTable();
     const allocationArm = hasAllocations
       ? `
@@ -5049,21 +5307,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- into the USD bucket; it now contributes to neither, matching
             -- the Overview's own getFinancialSettledByCurrency (which
             -- already groups by fs.currency with no such binary fallback).
-            COALESCE(SUM(CASE WHEN fs.currency = 'USD' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_usd,
-            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_lbp,
+            COALESCE(SUM(CASE WHEN ${cur} = 'USD' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_usd,
+            COALESCE(SUM(CASE WHEN ${cur} = 'LBP' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_lbp,
             -- PA-2.9: real BILL-flow cost (fs.cost; 0 for a plain
             -- SEND/RECEIVE) — was hard-coded 0 at the ProfitService layer
             -- while revenue = price.
-            COALESCE(SUM(CASE WHEN fs.currency = 'USD' THEN fs.cost * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS cost_usd,
-            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN fs.cost * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS cost_lbp,
-            COALESCE(SUM(CASE WHEN fs.currency = 'USD' THEN t.profit_usd * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_usd,
-            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_lbp,
+            COALESCE(SUM(CASE WHEN ${cur} = 'USD' THEN fs.cost * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS cost_usd,
+            COALESCE(SUM(CASE WHEN ${cur} = 'LBP' THEN fs.cost * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS cost_lbp,
+            COALESCE(SUM(CASE WHEN ${cur} = 'USD' THEN (t.profit_usd + ${unstampedUsdtCommission("fs", cm)}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_usd,
+            COALESCE(SUM(CASE WHEN ${cur} = 'LBP' THEN t.profit_lbp * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS profit_lbp,
             -- LO-V1/PA-3.1 — kept change stamped in the OTHER currency (see
             -- otherCurrencyKeptChangeUsd/Lbp's own doc comment): before this,
             -- an LBP-native fs row's USD change (or a USD row's LBP change)
             -- was dropped here entirely.
-            COALESCE(SUM((${otherCurrencyKeptChangeUsd("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS kept_change_usd,
-            COALESCE(SUM((${otherCurrencyKeptChangeLbp("fs.currency")}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS kept_change_lbp,
+            COALESCE(SUM((${otherCurrencyKeptChangeUsd(cur)}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS kept_change_usd,
+            COALESCE(SUM((${otherCurrencyKeptChangeLbp(cur)}) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS kept_change_lbp,
             -- LO-EUR-phantom (open_LO.txt) — count only fs.currency IN
             -- ('USD', 'LBP') rows. Every revenue/cost/profit column above is
             -- already currency-gated by PA-1.4 (a third currency like EUR/
@@ -5076,7 +5334,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- matched USD/LBP branch, dropping an EUR row's count
             -- entirely — this makes By Module agree with it instead of the
             -- two tabs disagreeing on the same period's count.
-            SUM(CASE WHEN fs.currency IN ('USD', 'LBP') AND (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count
+            SUM(CASE WHEN ${cur} IN ('USD', 'LBP') AND (${partnerCoverageRatio("financial_services", "fs.id")}) > 0 THEN 1 ELSE 0 END) AS count
           FROM financial_services fs
           JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
           -- PA-2.8/LO-V2: a mobile-services provider (iPick/Katsh/BOB)
@@ -5086,7 +5344,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- a provider outside BOTH known lists is now excluded here too,
           -- matching the Overview (see fsProviderRowRecognized's own doc
           -- comment for the full rationale and the probe that found the gap).
-          WHERE ${fsProviderRowRecognized("fs", this._hasCommissionModelColumn())}
+          WHERE ${fsProviderRowRecognized("fs", cm)}
             AND t.status = 'ACTIVE'
             AND ${notRefunded("fs")}
             AND ${notDebtPending("t.id")}
@@ -5387,7 +5645,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND EXISTS (
             SELECT 1 FROM transactions t2
             WHERE t2.source_table = 'sales' AND t2.source_id = s.id
-              AND t2.type IN ('SALE', 'REFUND') AND t2.status = 'ACTIVE'
+              AND t2.type IN (${SALE_LEDGER_TYPES_SQL}) AND t2.status = 'ACTIVE'
               AND t2.tenant_id = ?
           )
         ORDER BY s.created_at DESC, s.id DESC`,
@@ -5508,6 +5766,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     const tenantId = getCurrentTenantId();
     const hasCommissionModel = this._hasCommissionModelColumn();
     const hasAllocations = this._hasSettlementAllocationsTable();
+    // LIRA-268: a transfer row reports in fsReportingCurrency (a Binance
+    // USDT row reads as USD, so `currency_code` is 'USD' and the service's
+    // tracked-currency check counts it) and its profit adds the fee the
+    // USDT stamp leaves out — the SAME fragments as By Module/Overview.
+    const cur = fsReportingCurrency("fs");
 
     const transferRows = this.db
       .prepare(
@@ -5518,19 +5781,19 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           fs.client_name AS counterpart_name,
           fs.phone_number AS counterpart_phone,
           fs.service_type AS detail,
-          fs.currency AS currency_code,
-          CASE WHEN fs.currency = 'USD' THEN (${fsRevenue("fs")}) ELSE 0 END AS amount_usd,
-          CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END AS amount_lbp,
-          CASE WHEN fs.currency = 'USD' THEN fs.cost ELSE 0 END AS cost_usd,
-          CASE WHEN fs.currency = 'LBP' THEN fs.cost ELSE 0 END AS cost_lbp,
-          CASE WHEN fs.currency = 'USD' THEN t.profit_usd ELSE 0 END AS profit_usd,
-          CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END AS profit_lbp,
+          ${cur} AS currency_code,
+          CASE WHEN ${cur} = 'USD' THEN (${fsRevenue("fs")}) ELSE 0 END AS amount_usd,
+          CASE WHEN ${cur} = 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END AS amount_lbp,
+          CASE WHEN ${cur} = 'USD' THEN fs.cost ELSE 0 END AS cost_usd,
+          CASE WHEN ${cur} = 'LBP' THEN fs.cost ELSE 0 END AS cost_lbp,
+          CASE WHEN ${cur} = 'USD' THEN t.profit_usd + ${unstampedUsdtCommission("fs", hasCommissionModel)} ELSE 0 END AS profit_usd,
+          CASE WHEN ${cur} = 'LBP' THEN t.profit_lbp ELSE 0 END AS profit_lbp,
           CASE WHEN ${fsProviderRowRecognized("fs", hasCommissionModel)} THEN 1 ELSE 0 END AS recognized,
           CASE WHEN ${fsProviderKnown("fs")} THEN 1 ELSE 0 END AS provider_known,
           CASE WHEN fs.provider IN (${COMMISSION_PROVIDERS}) THEN 1 ELSE 0 END AS is_commission_provider,
           fs.id AS related_transfer_id,
-          (${otherCurrencyKeptChangeUsd("fs.currency")}) AS kept_change_usd,
-          (${otherCurrencyKeptChangeLbp("fs.currency")}) AS kept_change_lbp,
+          (${otherCurrencyKeptChangeUsd(cur)}) AS kept_change_usd,
+          (${otherCurrencyKeptChangeLbp(cur)}) AS kept_change_lbp,
           CASE WHEN ${hasPartnerObligation("financial_services", "fs.id")} THEN 1 ELSE 0 END AS has_partner_obligation,
           (${partnerCoverageRatio("financial_services", "fs.id")}) AS partner_coverage_ratio,
           CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
@@ -5769,6 +6032,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    */
   getKeptChangeDetail(fromDt: string, toDt: string): ProfitOnlyDetailRow[] {
     const tenantId = getCurrentTenantId();
+    const hasMeta = this._hasTransactionsMetadataColumn();
     return this.db
       .prepare(
         `SELECT
@@ -5784,9 +6048,29 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${keptChangeSource("t")}
           AND ${dateRange("t.created_at")}
           AND t.tenant_id = ?
-        ORDER BY t.created_at DESC, t.id DESC`,
+
+        UNION ALL
+
+        -- LIRA-272 — a module refund's kept change: ONLY its kept part
+        -- (getRefundKeptChangeProfit's exact rows and amounts, rule 14),
+        -- labelled REFUND_KEPT_CHANGE so the service names it.
+        SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          t.client_name AS counterpart_name,
+          t.client_phone AS counterpart_phone,
+          'REFUND_KEPT_CHANGE' AS txn_type,
+          ${refundKeptChangeAmount("t", "usd", hasMeta)} AS profit_usd,
+          ${refundKeptChangeAmount("t", "lbp", hasMeta)} AS profit_lbp
+        FROM transactions t
+        ${refundKeptChangeOriginalJoin("t", "rko")}
+        WHERE ${refundKeptChangeRow("t", hasMeta)}
+          AND ${notDebtPending("t.id")}
+          AND ${dateRange("rko.created_at")}
+          AND t.tenant_id = ?
+        ORDER BY created_at DESC, id DESC`,
       )
-      .all(fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
+      .all(fromDt, toDt, tenantId, fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
   }
 
   /**
@@ -5912,6 +6196,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   ): ProfitByDateRow[] {
     const tenantId = getCurrentTenantId();
     const hasAllocations = this._hasSettlementAllocationsTable();
+    // LIRA-268: daily_commissions buckets by fsReportingCurrency (USDT
+    // reports as USD) and adds the fee a USDT row's stamp leaves out.
+    const cm = this._hasCommissionModelColumn();
+    const fsCur = fsReportingCurrency("fs");
+    // LIRA-272 — daily_refund_kept degrades to 0 without metadata_json.
+    const hasMeta = this._hasTransactionsMetadataColumn();
     // REV lane (2026-09-24, owner decision (a), OWNER_NOTES_2026-09-21.md
     // §6.9) — the SAME schema-drift gate getSalesRevCost uses, now shared by
     // daily_sales below so both queries degrade together on a fixture
@@ -6049,6 +6339,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     params.push(fromDt, toDt, tenantId); // daily_bills_commission
     params.push(fromDt, toDt, tenantId, tenantId); // daily_topup_buyback (r, t)
     params.push(fromDt, toDt, tenantId); // daily_hold_money (t)
+    params.push(fromDt, toDt, tenantId); // daily_refund_kept (t, rko)
 
     return this.db
       .prepare(
@@ -6088,7 +6379,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           JOIN sales s ON s.id = t.source_id
           WHERE t.status = 'ACTIVE'
             AND t.source_table = 'sales'
-            AND t.type IN ('SALE', 'REFUND')
+            AND t.type IN (${SALE_LEDGER_TYPES_SQL})
             AND s.status IN ('completed', 'refunded')
             AND ${dateRange("s.created_at")}
             AND t.tenant_id = ? AND s.tenant_id = ?
@@ -6128,17 +6419,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- like EUR, which matches neither term and is correctly
               -- excluded, preserving PA-1.4's "dropped, not given a bucket"
               -- policy), just spelled with the one shared building block.
-              COALESCE(SUM(((CASE WHEN fs.currency = 'USD' THEN t.profit_usd ELSE 0 END) + (${otherCurrencyKeptChangeUsd("fs.currency")})) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS profit_usd,
-              COALESCE(SUM(((CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END) + (${otherCurrencyKeptChangeLbp("fs.currency")})) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS profit_lbp,
-              COALESCE(SUM(CASE WHEN fs.currency = 'USD' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_usd,
-              COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_lbp
+              COALESCE(SUM(((CASE WHEN ${fsCur} = 'USD' THEN t.profit_usd + ${unstampedUsdtCommission("fs", cm)} ELSE 0 END) + (${otherCurrencyKeptChangeUsd(fsCur)})) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS profit_usd,
+              COALESCE(SUM(((CASE WHEN ${fsCur} = 'LBP' THEN t.profit_lbp ELSE 0 END) + (${otherCurrencyKeptChangeLbp(fsCur)})) * (${partnerCoverageRatio("financial_services", "fs.id")})), 0) AS profit_lbp,
+              COALESCE(SUM(CASE WHEN ${fsCur} = 'USD' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_usd,
+              COALESCE(SUM(CASE WHEN ${fsCur} = 'LBP' THEN (${fsRevenue("fs")}) * (${partnerCoverageRatio("financial_services", "fs.id")}) ELSE 0 END), 0) AS revenue_lbp
             FROM financial_services fs
             JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
             -- LO-V2/PA-2.8: see fsProviderRowRecognized's own doc comment —
             -- mobile providers recognise unconditionally, commission
             -- providers need fsStampRecognized, anything outside BOTH known
             -- lists is excluded (matches the Overview).
-            WHERE ${fsProviderRowRecognized("fs", this._hasCommissionModelColumn())}
+            WHERE ${fsProviderRowRecognized("fs", cm)}
               AND t.status = 'ACTIVE'
               AND ${notRefunded("fs")}
             AND ${notDebtPending("t.id")}
@@ -6367,6 +6658,22 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${dateRange("t.created_at")}
             AND t.tenant_id = ?
           GROUP BY ${localDayExpr("t.created_at")}
+        ),
+        daily_refund_kept AS (
+          -- LIRA-272 — a module refund's kept change, dated by the refunded
+          -- original's day — the SAME fragments getRefundKeptChangeProfit
+          -- uses (rule 14).
+          SELECT
+            ${localDayExpr("rko.created_at")} AS d,
+            COALESCE(SUM(${refundKeptChangeAmount("t", "usd", hasMeta)}), 0) AS profit_usd,
+            COALESCE(SUM(${refundKeptChangeAmount("t", "lbp", hasMeta)}), 0) AS profit_lbp
+          FROM transactions t
+          ${refundKeptChangeOriginalJoin("t", "rko")}
+          WHERE ${refundKeptChangeRow("t", hasMeta)}
+            AND ${notDebtPending("t.id")}
+            AND ${dateRange("rko.created_at")}
+            AND t.tenant_id = ?
+          GROUP BY ${localDayExpr("rko.created_at")}
         )
         SELECT
           dates.d AS date,
@@ -6374,17 +6681,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(dc.revenue_lbp, 0) + COALESCE(dr.revenue_lbp, 0) + COALESCE(dcm.revenue_lbp, 0) + COALESCE(dm.revenue_lbp, 0) + COALESCE(dl.revenue_lbp, 0) AS revenue_lbp,
           COALESCE(ds.cost_usd, 0) + COALESCE(dr.cost_usd, 0) + COALESCE(dcm.cost_usd, 0) + COALESCE(dm.cost_usd, 0) + COALESCE(dex.revenue_usd, 0) - COALESCE(dex.profit_usd, 0) AS cost_usd,
           COALESCE(dr.cost_lbp, 0) + COALESCE(dcm.cost_lbp, 0) + COALESCE(dm.cost_lbp, 0) AS cost_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(dl.profit_usd, 0) AS profit_usd,
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) AS profit_usd,
           -- PA-3.1: dsp.profit_lbp (a sale's LBP kept change) was missing
           -- from this column entirely. PA-2.2: dkc/ddisc/dbc/dtb are the
           -- four new sources above. LO-V1 (round 2): dl.profit_usd is loto's
           -- USD-side kept change (dc/dr already fold their own off-currency
           -- kept change unconditionally now — see each CTE's own comment).
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) AS profit_lbp,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) AS profit_lbp,
           COALESCE(de.expenses_usd, 0) AS expenses_usd,
           COALESCE(de.expenses_lbp, 0) AS expenses_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(dl.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
         FROM dates
         LEFT JOIN daily_sales ds ON ds.d = dates.d
         LEFT JOIN daily_sales_profit dsp ON dsp.d = dates.d
@@ -6401,6 +6708,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN daily_bills_commission dbc ON dbc.d = dates.d
         LEFT JOIN daily_topup_buyback dtb ON dtb.d = dates.d
         LEFT JOIN daily_hold_money dhm ON dhm.d = dates.d
+        LEFT JOIN daily_refund_kept drk ON drk.d = dates.d
         ORDER BY dates.d DESC`,
       )
       .all(...params) as ProfitByDateRow[];
@@ -6663,7 +6971,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             p.currency_code AS currency_code,
             p.amount AS amount,
             CASE WHEN t.type = 'DEBT_REPAYMENT' THEN 1 ELSE 0 END AS is_debt_repayment,
-            CASE WHEN t.type = 'REFUND' THEN 1 ELSE 0 END AS is_partial_refund
+            CASE WHEN t.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}) THEN 1 ELSE 0 END AS is_partial_refund
           FROM payments p
           JOIN transactions t ON t.id = p.transaction_id AND t.tenant_id = ?
           WHERE ${dateRange("p.created_at")}
@@ -7560,12 +7868,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- instead of lumped into USD.
               SELECT CASE
                 WHEN ${isVoidReversalRow("t")} THEN 0
-                WHEN ${usdBucketPredicate("fs.currency", true)} AND ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
+                WHEN ${usdBucketPredicate(fsReportingCurrency("fs"), true)} AND ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
                   THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0) * ${txnPartnerCoverageRatio("t")}
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
-            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
+            WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3 (2026-09-05): weighted by saleRecognitionWeight instead
               -- of gated by the old binary salePaidOrPartnerSettled — see this
               -- method's own doc comment for the full rationale. REV lane
@@ -7598,13 +7906,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE
                 WHEN ${isVoidReversalRow("t")} THEN 0
-                WHEN fs.currency = 'LBP' AND ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
+                WHEN ${fsReportingCurrency("fs")} = 'LBP' AND ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
                   THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0) * ${txnPartnerCoverageRatio("t")}
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             -- sales carry no final_amount_lbp — sale revenue is always USD.
-            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN 0
+            WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN 0
             -- LCC-V4: see the revenue_usd CASE above — identical branch.
             WHEN t.source_table = 'supplier_ledger' THEN 0
             -- Hold Money: a pickup's amount is the customer's own money
@@ -7625,7 +7933,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- underlying fs row's OWN coverage is Lane A's concern inside
             -- supplierSettlementProfitArm, not this call site's.
             ${supplierSettlementProfitArm(hasAllocations, "usd")}
-            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
+            WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3: see the revenue_usd CASE above.
               SELECT t.profit_usd * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
@@ -7642,7 +7950,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- (the OUTER WHEN NOT notDebtPending above would otherwise zero
               -- it out too) — see the standalone SUM addend below instead.
               SELECT
-                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN t.profit_usd * ${txnPartnerCoverageRatio("t")} ELSE 0 END
+                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN (t.profit_usd + ${unstampedUsdtCommissionForTxn("t", "fs", this._hasCommissionModelColumn())}) * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             ELSE t.profit_usd * ${txnPartnerCoverageRatio("t")}
@@ -7683,7 +7991,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN t.profit_lbp * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
-            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
+            WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3: see the revenue_usd CASE above.
               SELECT t.profit_lbp * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
@@ -7715,7 +8023,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- ruling on which behavior is correct; flagged in the batch
           -- report instead of guessed at.
           SUM(CASE
-            WHEN t.type IN ('REFUND', 'SUPPLIER_SETTLEMENT') THEN 0
+            WHEN t.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}, 'SUPPLIER_SETTLEMENT') THEN 0
             -- Hold Money: only a live pickup that kept change is an event.
             WHEN ${holdMoneyProfitSource("t")} THEN (CASE WHEN ${holdMoneyCountEligible("t")} THEN 1 ELSE 0 END)
             WHEN NOT ${notDebtPending("t.id")} THEN 0
@@ -8249,12 +8557,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- non-LBP currency is now dropped instead of lumped into USD.
               SELECT CASE
                 WHEN ${isVoidReversalRow("t")} THEN 0
-                WHEN ${usdBucketPredicate("fs.currency", true)} AND ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
+                WHEN ${usdBucketPredicate(fsReportingCurrency("fs"), true)} AND ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
                   THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0) * ${txnPartnerCoverageRatio("t")}
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
-            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
+            WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3 (2026-09-05): weighted by saleRecognitionWeight instead
               -- of gated by the old binary salePaidOrPartnerSettled — see
               -- getByUser's own doc comment for the full rationale. REV lane
@@ -8280,13 +8588,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE
                 WHEN ${isVoidReversalRow("t")} THEN 0
-                WHEN fs.currency = 'LBP' AND ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
+                WHEN ${fsReportingCurrency("fs")} = 'LBP' AND ${fsStampRecognized("fs", this._hasCommissionModelColumn())}
                   THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0) * ${txnPartnerCoverageRatio("t")}
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             -- sales carry no final_amount_lbp — sale revenue is always USD.
-            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN 0
+            WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN 0
             -- LCC-V4: see the revenue_usd CASE above — identical branch.
             WHEN t.source_table = 'supplier_ledger' THEN 0
             -- Hold Money: a pickup's amount is the customer's own money
@@ -8304,7 +8612,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- Never partner-pending for the settlement row itself; the
             -- underlying fs row's coverage is Lane A's concern internally.
             ${supplierSettlementProfitArm(hasAllocations, "usd")}
-            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
+            WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3: see the revenue_usd CASE above.
               SELECT t.profit_usd * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
@@ -8320,7 +8628,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- this branch — a debt-pending transfer's fee must still count
               -- — see the standalone SUM addend below instead.
               SELECT
-                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN t.profit_usd * ${txnPartnerCoverageRatio("t")} ELSE 0 END
+                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN (t.profit_usd + ${unstampedUsdtCommissionForTxn("t", "fs", this._hasCommissionModelColumn())}) * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             ELSE t.profit_usd * ${txnPartnerCoverageRatio("t")}
@@ -8351,7 +8659,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN t.profit_lbp * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
-            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
+            WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3: see the revenue_usd CASE above.
               SELECT t.profit_lbp * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
@@ -8371,7 +8679,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- PA-4.19: see getByUser's own recognized_transaction_count column
           -- for the full rationale — identical shape here.
           SUM(CASE
-            WHEN t.type IN ('REFUND', 'SUPPLIER_SETTLEMENT') THEN 0
+            WHEN t.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}, 'SUPPLIER_SETTLEMENT') THEN 0
             -- Hold Money: only a live pickup that kept change is an event.
             WHEN ${holdMoneyProfitSource("t")} THEN (CASE WHEN ${holdMoneyCountEligible("t")} THEN 1 ELSE 0 END)
             WHEN NOT ${notDebtPending("t.id")} THEN 0

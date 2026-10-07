@@ -2101,10 +2101,14 @@ export default function Debts() {
             hand-rolled modal shell byte-for-byte in behavior. */}
         {showRepaymentModal && (
           <CounterpartySettleModal
-            title="Process Repayment"
+            title={
+              repayMode === "cashout" ? "Cash Out Credit" : "Process Repayment"
+            }
             onCancel={() => setShowRepaymentModal(false)}
             onConfirm={handleProcessRepayment}
-            confirmLabel="Confirm Payment"
+            confirmLabel={
+              repayMode === "cashout" ? "Confirm Cash Out" : "Confirm Payment"
+            }
             confirmColor="emerald"
             multiPaymentInput={{
               // Per-currency totals (multi-currency engine, T2 fix): the

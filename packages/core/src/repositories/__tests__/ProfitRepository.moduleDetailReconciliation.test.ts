@@ -190,6 +190,9 @@ function createSchema(db: Database.Database): void {
       currency TEXT NOT NULL DEFAULT 'USD',
       cost REAL NOT NULL DEFAULT 0,
       price REAL NOT NULL DEFAULT 0,
+      -- LIRA-268: the real schema's column, read for a USDT (Binance) row's
+      -- fee (unstampedUsdtCommission); 0 for every row this fixture seeds.
+      commission REAL DEFAULT 0,
       payment_method_fee REAL NOT NULL DEFAULT 0,
       client_name TEXT,
       phone_number TEXT,

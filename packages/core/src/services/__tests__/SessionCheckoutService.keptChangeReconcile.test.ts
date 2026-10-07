@@ -665,4 +665,188 @@ describe("G42 — session checkout kept change is checked server-side", () => {
     expect(result.success).toBe(true);
     expect(keptRows(sessionId)).toHaveLength(0);
   });
+
+  // ── LIRA-270 — nothing to collect means no customer payment leg ─────────
+  //
+  // When a cash payout cancels the whole charge, the modal hides its payment
+  // input; a stale IN leg left in its state used to be sent and POSTED (a
+  // phantom cash payment into the drawer). With no kept claim the G42 check
+  // never ran, so nothing refused it.
+
+  function payoutItemOf(amount: number, cashoutMethod: string): CartItem {
+    const item = payoutItem(cashoutMethod);
+    item.amount = -amount;
+    item.formData = { ...item.formData, amount };
+    return item;
+  }
+  const PAYOUT = (amount: number, origin: "GENERAL" | "SYSTEM"): Leg => ({
+    method: "CASH",
+    currency_code: "USD",
+    amount,
+    direction: "OUT",
+    kind: "PAYOUT",
+    payoutOrigin: origin,
+  });
+
+  it("LIRA-270: refuses a customer payment leg when the basket has nothing left to collect", async () => {
+    const sessionId = newSession();
+    // $100 charge, $130 cash payout netted: nothing due, $30 excess paid out.
+    const result = await checkout(
+      sessionId,
+      [chargeItem(), payoutItemOf(130, "CASH")],
+      { payments: [IN("CASH", "USD", 105), PAYOUT(30, "GENERAL")] },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/nothing (left )?to collect/i);
+    expect(writtenRows()).toBe(0);
+    expect(sessionIsActive(sessionId)).toBe(true);
+  });
+
+  it("LIRA-270: still accepts a nothing-to-collect basket that sends only its payout leg", async () => {
+    const sessionId = newSession();
+    const result = await checkout(
+      sessionId,
+      [chargeItem(), payoutItemOf(130, "CASH")],
+      { payments: [PAYOUT(30, "GENERAL")] },
+    );
+
+    expect(result.success).toBe(true);
+    expect(sessionIsActive(sessionId)).toBe(false);
+  });
+
+  // ── LIRA-271 — one fee-on-top rule for the modal and the server ─────────
+  //
+  // An honest kept claim is built from the charge the modal shows. These are
+  // the legs the modal sends under the shared rule (only a WHISH system
+  // RECEIVE with the fee on top adds its fee to the charge — top level or
+  // inside a batch). The server must agree, or it refuses the kept claim.
+
+  function omtSystemReceive(amount: number, omtFee: number): CartItem {
+    return {
+      id: "cart-omt-receive",
+      module: "omt_system",
+      label: "OMT RECEIVE",
+      amount: -amount,
+      currency: "USD",
+      formData: {
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        omtServiceType: "INTRA",
+        amount,
+        currency: "USD",
+        omtFee,
+        includingFees: false,
+        cashoutMethod: "CASH",
+      },
+      ipcChannel: "financial:create",
+    };
+  }
+  function whishAppReceive(amount: number, whishFee: number): CartItem {
+    return {
+      id: "cart-whish-app-receive",
+      module: "whish_app",
+      label: "Whish App RECEIVE",
+      amount: -amount,
+      currency: "USD",
+      formData: {
+        provider: "WHISH_APP",
+        serviceType: "RECEIVE",
+        amount: amount + whishFee,
+        currency: "USD",
+        commission: whishFee,
+        whishFee,
+        includingFees: false,
+        cashoutMethod: "CASH",
+      },
+      ipcChannel: "financial:create",
+    };
+  }
+  function whishSystemReceiveSub(amount: number, whishFee: number) {
+    return {
+      provider: "WHISH",
+      serviceType: "RECEIVE",
+      amount,
+      currency: "USD",
+      whishFee,
+      cashoutMethod: "CASH",
+    };
+  }
+
+  it("LIRA-271: OMT system RECEIVE — its fee is never collected, an honest kept claim is accepted", async () => {
+    // OMT must be the shop's base system for a walk-in OMT RECEIVE.
+    db.exec(
+      `INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT', 'OMT', 1);
+       UPDATE system_settings SET value = 'OMT' WHERE key_name = 'shop_base_system';`,
+    );
+    const binanceSend: CartItem = {
+      id: "cart-binance-send",
+      module: "binance_send",
+      label: "Binance Send",
+      amount: 100,
+      currency: "USDT",
+      formData: {
+        provider: "BINANCE",
+        serviceType: "SEND",
+        amount: 100,
+        currency: "USDT",
+        commission: 0,
+      },
+      ipcChannel: "financial:create",
+    };
+    const sessionId = newSession();
+    // Charge $100; the $100 OMT payout is its own SYSTEM leg. $105 paid on
+    // $100, $5 kept. (The old modal asked for $101 — the OMT fee on top.)
+    const result = await checkout(
+      sessionId,
+      [binanceSend, omtSystemReceive(100, 1)],
+      {
+        payments: [IN("CASH", "USD", 105), PAYOUT(100, "SYSTEM")],
+        kept_change_usd: 5,
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBe(true);
+    expect(keptRows(sessionId)[0].profit_usd).toBeCloseTo(5, 6);
+  });
+
+  it("LIRA-271: Whish App RECEIVE — the fee arrives in the wallet, an honest kept claim is accepted", async () => {
+    const sessionId = newSession();
+    // Charge $100, $40 cash payout netted → $60 due; $65 paid, $5 kept.
+    const result = await checkout(
+      sessionId,
+      [chargeItem(), whishAppReceive(40, 1)],
+      {
+        payments: [IN("CASH", "USD", 65)],
+        kept_change_usd: 5,
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBe(true);
+    expect(keptRows(sessionId)[0].profit_usd).toBeCloseTo(5, 6);
+  });
+
+  it("LIRA-271: a WHISH RECEIVE inside a batch — its fee on top is collected, an honest kept claim is accepted", async () => {
+    const sessionId = newSession();
+    const batch: CartItem = {
+      id: "cart-batch",
+      module: "whish_system",
+      label: "Whish batch",
+      amount: -100,
+      currency: "USD",
+      formData: { _batch: true, items: [whishSystemReceiveSub(100, 2)] },
+      ipcChannel: "financial:create",
+    };
+    // Charge $100 + the $2 fee; $100 SYSTEM payout leg. $107 paid, $5 kept.
+    const result = await checkout(sessionId, [chargeItem(), batch], {
+      payments: [IN("CASH", "USD", 107), PAYOUT(100, "SYSTEM")],
+      kept_change_usd: 5,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBe(true);
+    expect(keptRows(sessionId)[0].profit_usd).toBeCloseTo(5, 6);
+  });
 });

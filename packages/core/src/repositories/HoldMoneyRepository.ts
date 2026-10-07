@@ -27,8 +27,13 @@ import {
   type ReconciliationLeg,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
-import { paymentMethodToDrawerName, partitionLegs } from "../utils/payments.js";
+import {
+  isDrawerAffectingMethod,
+  paymentMethodToDrawerName,
+  partitionLegs,
+} from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import { holdPickupKeptPerCurrency } from "../validators/holdMoney.js";
 import type {
   HoldMoneyCreateInput,
   HoldMoneyCollectInput,
@@ -347,7 +352,11 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
    * currency, verified by `resolveKeptChange` (payer "payout") and stamped
    * on the HOLD_MONEY_COLLECT row's own profit_usd/profit_lbp. The pickup
    * still records the FULL portion, so the held balance clears completely.
-   * A pickup returning both USD and LBP must be paid out exactly.
+   * A pickup returning both USD and LBP may keep a leftover in EACH
+   * currency with NO cap (owner decision 2026-10-07): per currency handed ≤
+   * portion, kept = portion − handed, claim matched exactly
+   * (`holdPickupKeptPerCurrency`). Without a claim it is reconciled exactly
+   * (cross-currency allowed), as before.
    */
   collectHold(
     data: HoldMoneyCollectInput,
@@ -410,26 +419,60 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         // Verify the payout legs (and any kept-change claim) BEFORE any
         // write. One-currency pickup → `resolveKeptChange` (payer "payout"):
         // refuses OUT legs, checks paid = owed − kept, the cap, the
-        // currency and a phantom claim. Two-currency pickup → no kept change
-        // (the payout helper owes ONE currency); OUT legs refused with the
-        // same rule, then the plain S2 reconcile over both currencies.
+        // currency and a phantom claim. Two-currency pickup → OUT legs
+        // refused with the same rule; then, with NO kept claim, the plain S2
+        // reconcile over both currencies (unchanged — a cross-currency exact
+        // payout still works), or, WITH a claim, the per-currency uncapped
+        // path below.
         const context = "Hold Money pickup";
         const returnsUsd = portionUsd > USD_EPSILON;
         const returnsLbp = portionLbp > LBP_EPSILON;
         let keptUsd = 0;
         let keptLbp = 0;
         if (returnsUsd && returnsLbp) {
-          if (claimsKept) {
-            throw new Error(
-              `${context}: keeping change works only when returning one currency — pay out the exact amount`,
-            );
-          }
           if (outLegs.length > 0) {
             throw new Error(
               `${context}: a payout cannot carry change (OUT) legs — the shop hands out money, it never receives change`,
             );
           }
-          if (legs.length > 0) {
+          if (claimsKept) {
+            // Owner decision 2026-10-07: a two-currency pickup may keep a
+            // leftover in EACH currency, NO cap. Per currency: handed ≤
+            // portion, kept = portion − handed, and the claim must match
+            // that exactly (tamper guard, both directions — an under-claim
+            // would leave money unaccounted while the hold still clears).
+            // The math is `holdPickupKeptPerCurrency` (shared with the
+            // pickup sheet, rule 14).
+            if (legs.length === 0) {
+              throw new Error(
+                `Enter what you hand to the customer before keeping change. (${context}: a kept-change claim needs payout lines)`,
+              );
+            }
+            const k = holdPickupKeptPerCurrency(
+              { usd: portionUsd, lbp: portionLbp },
+              legs,
+            );
+            if (k.overUsd || k.overLbp) {
+              const cur = k.overUsd ? "USD" : "LBP";
+              throw new Error(
+                `You can't hand out more ${cur} than is being returned while keeping change — pay the exact amount instead. (${context}: handed ${cur} ${cur === "USD" ? k.handedUsd.toFixed(2) : Math.round(k.handedLbp)} is more than the ${cur === "USD" ? portionUsd.toFixed(2) : Math.round(portionLbp)} returned)`,
+              );
+            }
+            const usdMismatch = Math.abs(claimedKept.usd - k.keptUsd) > 0.005;
+            const lbpMismatch = Math.abs(claimedKept.lbp - k.keptLbp) > 0.5;
+            if (usdMismatch || lbpMismatch) {
+              throw new Error(
+                `The payment doesn't add up to the total. (${context}: claimed kept $${claimedKept.usd.toFixed(2)} + ${Math.round(claimedKept.lbp)} LBP, but held − handed is $${k.keptUsd.toFixed(2)} + ${k.keptLbp} LBP)`,
+              );
+            }
+            if (!legs.every((l) => isDrawerAffectingMethod(l.method))) {
+              throw new Error(
+                `Change can only be kept from cash or a wallet. (${context}: every payout line must be a drawer method to keep change)`,
+              );
+            }
+            keptUsd = k.keptUsd;
+            keptLbp = k.keptLbp;
+          } else if (legs.length > 0) {
             reconcileLegs({
               inLegs,
               expectedTotals: { usd: portionUsd, lbp: portionLbp },

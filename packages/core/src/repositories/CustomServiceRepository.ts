@@ -51,18 +51,25 @@ import {
 } from "./moneyPosting.js";
 
 /**
- * What the customer owes for an IN-mode custom service — the total the
- * Services page's payment sheet asks for (`priceUsd || costUsd`, per the
- * active currency): the price, or the cost when no price was entered.
- * Defined once so the server reconciles against exactly what the page shows.
+ * What the customer owes for an IN-mode custom service — the selling price,
+ * the total the Services page's payment sheet asks for. Never the cost:
+ * owner decision 2026-10-07 — a service saved with no selling price only
+ * means the price is not pre-filled; the cashier types it on the spot, and a
+ * customer-pays sale with no price is refused (`hasSellingPrice` below)
+ * rather than charging the customer the cost. Defined once so the server
+ * reconciles against exactly what the page shows.
  */
 function customerAmountDue(data: CreateCustomServiceInput): ExpectedTotals {
-  const priceUsd = data.price_usd ?? 0;
-  const priceLbp = data.price_lbp ?? 0;
-  return priceUsd > 0 || priceLbp > 0
-    ? { usd: priceUsd, lbp: priceLbp }
-    : { usd: data.cost_usd ?? 0, lbp: data.cost_lbp ?? 0 };
+  return { usd: data.price_usd ?? 0, lbp: data.price_lbp ?? 0 };
 }
+
+/** True when a selling price was entered in either currency. */
+function hasSellingPrice(data: CreateCustomServiceInput): boolean {
+  return (data.price_usd ?? 0) > 0 || (data.price_lbp ?? 0) > 0;
+}
+
+/** The plain refusal a customer-pays sale with no selling price gets. */
+const NO_SELLING_PRICE_ERROR = "Enter a selling price first.";
 
 function toReconciliationLegs(
   legs: NonNullable<CreateCustomServiceInput["payments"]>,
@@ -200,9 +207,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
          ORDER BY t.id ASC LIMIT 1), custom_services.${col}) AS ${col}`;
     return this.getColumns()
       .split(", ")
-      .map((c) =>
-        c === "profit_usd" || c === "profit_lbp" ? stamp(c) : c,
-      )
+      .map((c) => (c === "profit_usd" || c === "profit_lbp" ? stamp(c) : c))
       .join(", ");
   }
 
@@ -342,6 +347,24 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           throw new Error(
             "A custom service payout cannot keep change — the recipient is paid the exact amount",
           );
+        }
+        // Owner decision 2026-10-07 — a customer-pays sale needs a selling
+        // price; it is never reconciled against the cost. Scoped to the
+        // direct customer-pays path only:
+        //   - payout: has its own both-sides rule above;
+        //   - FOR partner: no customer pays (the partner is booked the price);
+        //   - session-basket item (deferPayment): the basket owns the
+        //     customer's money, and `session_cart_items` is persisted, so a
+        //     basket opened before this rule must still check out. The page
+        //     refuses to add a no-price item to the basket instead.
+        // Runs before the first write, so nothing is rolled back.
+        if (
+          !isPayout &&
+          !isForPartner &&
+          !data.deferPayment &&
+          !hasSellingPrice(data)
+        ) {
+          throw new BusinessRuleError(NO_SELLING_PRICE_ERROR);
         }
         let keptUsd = 0;
         let keptLbp = 0;
@@ -803,7 +826,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               // Fix-round I3: a payout leg is technically `isOut`, but
               // "Change returned" would mislabel it — it isn't change, it's
               // the recipient's cash.
-              isPayout ? `${noteText} (payout)` : isOut ? "Change returned" : noteText,
+              isPayout
+                ? `${noteText} (payout)`
+                : isOut
+                  ? "Change returned"
+                  : noteText,
               createdBy,
             );
             upsertBalance.run(tenantId, drawer, leg.currency_code, signed);

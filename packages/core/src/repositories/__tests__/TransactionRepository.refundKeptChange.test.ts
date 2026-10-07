@@ -1,14 +1,15 @@
 /**
  * Refund kept change (owner decision 2026-10-07): a refund of $20.12 where
  * the cashier hands back $20 lets the shop keep the $0.12 as profit — capped
- * below $1 / 100,000 LBP, in the refund's own currency, cash only. It is NOT
+ * below $1 / 100,000 LBP, in the refund's own currency, from cash or wallet
+ * (drawer) money only — never a customer account or gift card. It is NOT
  * a partial refund: the item side (stock, REFUND amount, debt) is the full
  * refund; only the cash handed back is short, and the shortfall lands in the
  * REFUND row's own profit stamp (−original profit + kept), so the Profits
  * page shows it once and an undo negates it with everything else.
  *
  * Server authority: `resolveKeptChange` (payer "payout") checks every claim;
- * the refund path adds its own preconditions (cash legs only, one currency,
+ * the refund path adds its own preconditions (drawer legs only, one currency,
  * a money-IN original).
  *
  * Real production schema (create_db.sql + migrations), real writers.
@@ -61,7 +62,10 @@ import {
   resetSessionPaymentService,
 } from "../../services/SessionPaymentService";
 import { ProfitService } from "../../services/ProfitService";
-import { sessionItemRefundSchema } from "../../validators/transaction";
+import {
+  REFUND_KEPT_CHANGE_META,
+  sessionItemRefundSchema,
+} from "../../validators/transaction";
 import {
   expectPostings,
   ledgerDeltas,
@@ -311,6 +315,25 @@ describe("refund kept change — whole-transaction refund (Transactions page)", 
     expect(r6(grossProfit().usd - profitBefore.usd)).toBe(0.12);
   });
 
+  it("wallet: $20.12 sale refunded with $20 through WHISH keeps $0.12, Whish drawer −$20, Profits +$0.12 once", () => {
+    // Owner decision 2026-10-07: kept change may come from any DRAWER money
+    // (cash or wallet), never an account or gift card.
+    const { id, profit_usd } = cashSale(20.12, 10, "USD");
+    const profitBefore = grossProfit();
+    const before = snapshotLedgers(db);
+    const refundId = getTransactionRepository().refundTransaction(id, USER_ID, {
+      refundLegs: [{ method: "WHISH", currencyCode: "USD", amount: 20 }],
+      keptChange: { usd: 0.12 },
+    });
+    expectPostings(before, snapshotLedgers(db), {
+      drawers: { "Whish_App|USD": -20 },
+    });
+    expect(r6(txnRow(refundId).profit_usd)).toBe(r6(-profit_usd + 0.12));
+    expect(r6(grossProfit().usd - profitBefore.usd)).toBe(
+      r6(-profit_usd + 0.12),
+    );
+  });
+
   it("no kept change → unchanged: the full refund goes back and the stamp is the plain negation", () => {
     const { id, profit_usd } = cashSale(20.12, 10, "USD");
     const before = snapshotLedgers(db);
@@ -399,17 +422,23 @@ describe("refund kept change — whole-transaction refund (Transactions page)", 
       );
     });
 
-    it("non-cash return line: kept change refused", () => {
-      const { id } = cashSale(20.12, 10, "USD");
-      expectRefused(
-        id,
-        {
-          refundLegs: [{ method: "OMT", currencyCode: "USD", amount: 20 }],
-          keptChange: { usd: 0.12 },
-        },
-        /only to a cash refund/,
-      );
-    });
+    // Owner decision 2026-10-07: a wallet return line (OMT/WHISH) MAY keep
+    // change now — see the accepted "wallet" case above. Only a line that
+    // moves no drawer (customer account, gift card) still refuses it.
+    it.each(["CUSTOMER_ACCOUNT", "GIFT_CARD"])(
+      "%s return line (moves no drawer): kept change refused",
+      (method) => {
+        const { id } = cashSale(20.12, 10, "USD");
+        expectRefused(
+          id,
+          {
+            refundLegs: [{ method, currencyCode: "USD", amount: 20 }],
+            keptChange: { usd: 0.12 },
+          },
+          /cash or wallet/,
+        );
+      },
+    );
 
     it("no return lines (default mirror refund): kept change refused", () => {
       const { id } = cashSale(20.12, 10, "USD");
@@ -445,7 +474,12 @@ describe("refund kept change — whole-transaction refund (Transactions page)", 
       );
     });
 
-    it("OMT SEND: refused — the Profits page never reads an FS refund's stamp, so kept profit would be invisible", () => {
+    it("OMT SEND (LIRA-272): no longer refused — the kept part is stamped on the refund's own keys the Profits page reads", () => {
+      // Was "refused — the Profits page never reads an FS refund's stamp".
+      // LIRA-272 made the Profits page read it (refund kept change on every
+      // module, ProfitRepository.refundKeptChangeModules.test.ts), so the
+      // guard is now that the refund is accepted AND carries the dedicated
+      // keys that reader uses — never only the copied kept_change_* names.
       new FinancialServiceRepository().createTransaction({
         provider: "OMT",
         serviceType: "SEND",
@@ -462,14 +496,23 @@ describe("refund kept change — whole-transaction refund (Transactions page)", 
           )
           .get() as { id: number }
       ).id;
-      expectRefused(
+      const refundId = getTransactionRepository().refundTransaction(
         txnId,
+        USER_ID,
         {
           refundLegs: [{ method: "CASH", currencyCode: "USD", amount: 104.5 }],
           keptChange: { usd: 0.5 },
         },
-        /not available when refunding this kind of transaction/,
       );
+      const meta = JSON.parse(
+        (
+          db
+            .prepare(`SELECT metadata_json FROM transactions WHERE id = ?`)
+            .get(refundId) as { metadata_json: string }
+        ).metadata_json,
+      ) as Record<string, unknown>;
+      expect(meta[REFUND_KEPT_CHANGE_META.usd]).toBe(0.5);
+      expect(meta[REFUND_KEPT_CHANGE_META.lbp]).toBe(0);
     });
 
     it("payout original (OMT RECEIVE): the customer hands money back, so kept change refused", () => {
@@ -496,9 +539,9 @@ describe("refund kept change — whole-transaction refund (Transactions page)", 
           refundLegs: [{ method: "CASH", currencyCode: "USD", amount: 99.5 }],
           keptChange: { usd: 0.5 },
         },
-        // Refused by the type gate before the money-direction check (that
-        // check stays as defence in depth for the allowed types).
-        /not available when refunding this kind of transaction/,
+        // LIRA-272: FINANCIAL_SERVICE is an allowed type now, so the
+        // money-direction check is what refuses it.
+        /cannot keep change on a refund that takes money back from the customer/,
       );
     });
   });
@@ -591,6 +634,29 @@ describe("refund kept change — session basket item refund", () => {
     // separately with NO kept change, a session item refund's REFUND_UNDO
     // row is not counted by ProfitService.getSummary at all (gross stays at
     // the refunded level) — a pre-existing gap, reported, not pinned here.
+  });
+
+  it("wallet: a WHISH return line keeps $0.12 of a $20.12 item refund", () => {
+    const { sessionId, txnId, saleItemId, profit_usd } = sessionSale(20.12);
+    const before = snapshotLedgers(db);
+    const payload = sessionItemRefundSchema.parse({
+      sessionId,
+      transactionId: txnId,
+      saleItemId,
+      quantity: 1,
+      refundLegs: [{ method: "WHISH", currencyCode: "USD", amount: 20 }],
+      kept_change_usd: 0.12,
+    });
+    const res = getTransactionRepository().refundSessionBasketItem({
+      ...payload,
+      userId: USER_ID,
+    });
+    expectPostings(before, snapshotLedgers(db), {
+      drawers: { "Whish_App|USD": -20 },
+    });
+    expect(r6(txnRow(res.refundTransactionId).profit_usd)).toBe(
+      r6(-profit_usd + 0.12),
+    );
   });
 
   it("tampered kept on a session item refund is refused and writes nothing", () => {

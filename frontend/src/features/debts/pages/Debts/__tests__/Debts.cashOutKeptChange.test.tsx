@@ -67,10 +67,12 @@ jest.mock("@liratek/ui", () => {
     useApi: () => mockApi,
     appEvents: { emit: jest.fn() },
     CounterpartySettleModal: ({
+      title,
       onConfirm,
       confirmLabel,
       multiPaymentInput,
     }: {
+      title: string;
       onConfirm: () => void;
       confirmLabel: string;
       multiPaymentInput: MpiProps;
@@ -78,6 +80,7 @@ jest.mock("@liratek/ui", () => {
       lastMpi = multiPaymentInput;
       return (
         <div data-testid="settle-modal">
+          <h2 data-testid="settle-modal-title">{title}</h2>
           <button
             type="button"
             onClick={() =>
@@ -245,7 +248,7 @@ describe("Debts page — credit cash-out kept change", () => {
     await openCashOut();
     fireEvent.click(screen.getByText("Lines USD 101"));
     fireEvent.click(screen.getByText("Keep USD"));
-    fireEvent.click(screen.getByText("Confirm Payment"));
+    fireEvent.click(screen.getByText("Confirm Cash Out"));
 
     await waitFor(() => expect(mockCashOut).toHaveBeenCalled());
     const payload = debtCashOutSchema.parse(mockCashOut.mock.calls[0][0]);
@@ -266,13 +269,34 @@ describe("Debts page — credit cash-out kept change", () => {
     expect(lastMpi?.totalAmountCurrency).toBe("LBP");
     fireEvent.click(screen.getByText("Lines LBP 9M"));
     fireEvent.click(screen.getByText("Keep LBP"));
-    fireEvent.click(screen.getByText("Confirm Payment"));
+    fireEvent.click(screen.getByText("Confirm Cash Out"));
 
     await waitFor(() => expect(mockCashOut).toHaveBeenCalled());
     const payload = debtCashOutSchema.parse(mockCashOut.mock.calls[0][0]);
     expect(payload.amountLBP).toBe(9_050_000);
     expect(payload.amountUSD).toBe(0);
     expect(payload.keptChangeLBP).toBe(50_000);
+  });
+
+  it("cash-out dialog says cash out (title + confirm button), not repayment", async () => {
+    withBalance(-20, 0);
+    await openCashOut();
+    expect(screen.getByTestId("settle-modal-title").textContent).toBe(
+      "Cash Out Credit",
+    );
+    expect(screen.getByText("Confirm Cash Out")).toBeTruthy();
+    expect(screen.queryByText("Confirm Payment")).toBeNull();
+    expect(screen.queryByText("Process Repayment")).toBeNull();
+  });
+
+  it("repayment dialog keeps its repayment wording", async () => {
+    withBalance(10, 0);
+    render(<Debts />);
+    fireEvent.click(await screen.findByText("Settle Debt"));
+    expect(screen.getByTestId("settle-modal-title").textContent).toBe(
+      "Process Repayment",
+    );
+    expect(screen.getByText("Confirm Payment")).toBeTruthy();
   });
 
   it("mixed USD + LBP credit: kept change is not offered (the server refuses it)", async () => {

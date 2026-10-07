@@ -61,6 +61,10 @@ import {
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
+import {
+  walletReceiveAmounts,
+  walletSendAmounts,
+} from "../utils/walletReceivePayout.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -3449,6 +3453,35 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             !deferPayment &&
             data.checkoutTotal
           ) {
+            // LIRA-269 follow-up: the caller's total must be the SAME
+            // `amount + commission` this branch books — from the one helper
+            // the sending sheets size `checkoutTotal` with (rule 14/22). A
+            // discount comes off the shop's fee, so a discounted total with
+            // the full fee booked (Binance, pre-fix) or an undiscounted
+            // total with the discounted fee (OMT/Whish App, pre-fix) leaves
+            // the drawers and the profit stamp disagreeing by the discount.
+            const { customerPays } = walletSendAmounts({
+              walletOutflow: cryptoAmount,
+              fee,
+            });
+            const sent =
+              cashCurrency === "LBP"
+                ? data.checkoutTotal.lbp
+                : data.checkoutTotal.usd;
+            const other =
+              cashCurrency === "LBP"
+                ? data.checkoutTotal.usd
+                : data.checkoutTotal.lbp;
+            const tolerance = cashCurrency === "LBP" ? 1 : 0.01;
+            if (
+              Math.abs(sent - customerPays) > tolerance ||
+              Math.abs(other) > 0
+            ) {
+              throw new Error(
+                `${data.provider} SEND: the amount to pay does not match the transfer plus the shop fee — please re-open the payment and try again ` +
+                  `(checkoutTotal ${data.checkoutTotal.usd} USD / ${data.checkoutTotal.lbp} LBP; expected ${customerPays} ${cashCurrency} = amount ${cryptoAmount} + fee ${fee})`,
+              );
+            }
             reconcileLegs({
               inLegs: data.payments,
               outLegs: returnLegs,
@@ -3537,8 +3570,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 }
               }
             } else {
-              // Single-payment fallback: customer pays cryptoAmount + fee.
-              const cashTotal = cryptoAmount + fee;
+              // Single-payment fallback: customer pays cryptoAmount + fee
+              // (`fee` is already net of any discount — the same helper).
+              const cashTotal = walletSendAmounts({
+                walletOutflow: cryptoAmount,
+                fee,
+              }).customerPays;
               if (paidBy === "CUSTOMER_ACCOUNT") {
                 const debtClientId = this.resolveBinanceDebtClient(data, txnId);
                 bookClientDebtCharge(this.db, {
@@ -3617,9 +3654,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               (isAppWallet || isBINANCE) &&
               !!data.feePayments &&
               data.feePayments.length > 0;
-            const payoutAmount = isFeeCollectedSeparately
-              ? cryptoAmount
-              : cryptoAmount - fee;
+            // LIRA-269: ONE definition shared with the payout sheets. `fee`
+            // here is the page's `commission`, already net of any sheet
+            // discount (the discount comes off the shop's fee, so the
+            // customer receives more) — the sheet computes its target with
+            // the same helper from the list fee + discount.
+            const { payout: payoutAmount } = walletReceiveAmounts({
+              walletInflow: cryptoAmount,
+              fee,
+              feeCollectedSeparately: isFeeCollectedSeparately,
+            });
             const cashoutMethod = data.cashoutMethod || "CASH";
 
             // Mode C fee-collection legs: the customer hands the fee over

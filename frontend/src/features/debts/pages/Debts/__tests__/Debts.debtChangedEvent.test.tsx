@@ -295,7 +295,7 @@ describe("Debts page — 'debt:changed' emitted on every account write (LIRA-212
 
     fireEvent.click(await screen.findByText("Cash Out"));
     fireEvent.click(screen.getByText("Set Lines"));
-    fireEvent.click(screen.getByText("Confirm Payment"));
+    fireEvent.click(screen.getByText("Confirm Cash Out"));
 
     await waitFor(() => expect(mockCashOut).toHaveBeenCalled());
     expect(mockAppEventsEmit).toHaveBeenCalledWith("debt:changed");

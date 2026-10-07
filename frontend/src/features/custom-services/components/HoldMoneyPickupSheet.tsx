@@ -7,7 +7,11 @@ import {
   MultiPaymentInput,
   type PaymentLine,
 } from "@liratek/ui";
-import { HOLD_MONEY_METHODS } from "@liratek/core";
+import {
+  HOLD_MONEY_METHODS,
+  HOLD_PICKUP_EPSILON,
+  holdPickupKeptPerCurrency,
+} from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { toHoldMoneyLegs } from "@/utils/paymentUtils";
@@ -32,8 +36,8 @@ interface HoldMoneyPickupSheetProps {
   onCollected: () => void;
 }
 
-const EPS_USD = 0.01;
-const EPS_LBP = 1;
+const EPS_USD = HOLD_PICKUP_EPSILON.USD;
+const EPS_LBP = HOLD_PICKUP_EPSILON.LBP;
 
 /**
  * "Return hold" — the shared pickup sheet for Hold Money (LIRA-214,
@@ -58,7 +62,8 @@ export function HoldMoneyPickupSheet({
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   // Kept change (owner decision 2026-10-07): a pickup is a PAYOUT — handing
   // out the round figure (held $50.12, hands $50) keeps the leftover as shop
-  // profit, under $1 / 100,000 LBP, reported by MultiPaymentInput.
+  // profit, under $1 / 100,000 LBP, reported by MultiPaymentInput (ONE-
+  // currency pickups only — see `twoCurrencyKept` below).
   const [keptChange, setKeptChange] = useState<{
     usd: number;
     lbp: number;
@@ -80,17 +85,38 @@ export function HoldMoneyPickupSheet({
     [methods],
   );
 
-  // Kept change needs ONE payout currency (the server's payout rule owes a
-  // single currency). A pickup returning both USD and LBP is paid out
-  // exactly — `onKeptChange` is not wired then, and any stale value from a
-  // one-currency moment is ignored.
+  // ONE-currency pickup: MultiPaymentInput reports the kept change (payout
+  // mode, capped, in that currency) via `onKeptChange`.
+  // TWO-currency pickup (owner decision 2026-10-07): kept per currency, NO
+  // cap. MultiPaymentInput cannot report that — its payout kept logic owes a
+  // single `totalAmountCurrency` and is capped — so `onKeptChange` is not
+  // wired and the sheet derives it from its own payout lines vs the amounts
+  // being returned, with the SAME helper the server verifies the claim with
+  // (`holdPickupKeptPerCurrency`, rule 14). A cross-currency payout (more of
+  // one currency handed than is returned in it) claims nothing and is
+  // reconciled exactly, as before. Any stale one-currency figure is ignored.
   const pickupCurrency: "USD" | "LBP" | null =
     returnUsd > EPS_USD && returnLbp > EPS_LBP
       ? null
       : returnLbp > EPS_LBP
         ? "LBP"
         : "USD";
-  const keptToSend = pickupCurrency ? keptChange : null;
+  // Built ONCE and used for both the kept math and the payload (rule 22).
+  const payoutLegs = useMemo(
+    () => toHoldMoneyLegs(paymentLines),
+    [paymentLines],
+  );
+  const twoCurrencyKept = useMemo(() => {
+    if (pickupCurrency !== null || payoutLegs.length === 0) return null;
+    const k = holdPickupKeptPerCurrency(
+      { usd: returnUsd, lbp: returnLbp },
+      payoutLegs,
+    );
+    if (k.overUsd || k.overLbp) return null;
+    if (k.keptUsd < EPS_USD && k.keptLbp < EPS_LBP) return null;
+    return { usd: k.keptUsd, lbp: k.keptLbp };
+  }, [pickupCurrency, payoutLegs, returnUsd, returnLbp]);
+  const keptToSend = pickupCurrency ? keptChange : twoCurrencyKept;
 
   const isPartial =
     returnUsd < hold.remaining_usd - EPS_USD ||
@@ -108,7 +134,7 @@ export function HoldMoneyPickupSheet({
         id: hold.id,
         usd_amount: returnUsd,
         lbp_amount: returnLbp,
-        payments: toHoldMoneyLegs(paymentLines),
+        payments: payoutLegs,
         exchange_rate: effectiveRate ?? buyRate,
         ...(keptToSend && (keptToSend.usd > 0 || keptToSend.lbp > 0)
           ? {
@@ -287,6 +313,29 @@ export function HoldMoneyPickupSheet({
               label="Payout"
             />
           </div>
+
+          {twoCurrencyKept && (
+            <p
+              className="text-xs text-emerald-400"
+              data-testid="hold-pickup-kept-note"
+            >
+              Keeping{" "}
+              {[
+                twoCurrencyKept.usd >= EPS_USD
+                  ? `$${twoCurrencyKept.usd.toFixed(2)}`
+                  : null,
+                twoCurrencyKept.lbp >= EPS_LBP
+                  ? `${twoCurrencyKept.lbp.toLocaleString("en-US")} LBP`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" + ")}{" "}
+              as profit
+              {isPartial
+                ? " — this part of the hold is cleared in full."
+                : " — the hold is closed in full."}
+            </p>
+          )}
 
           <div className="pt-2 flex gap-3">
             <button

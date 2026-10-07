@@ -1864,7 +1864,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // short of THIS ITEM's net by a small leftover the shop keeps as profit.
     // Checked by the SAME gate the whole-sale refund runs
     // (`resolvePartialRefundKeptChange` → `_resolveRefundKeptChange` →
-    // `resolveKeptChange`, payer "payout": cash only, one currency, under
+    // `resolveKeptChange`, payer "payout": cash or wallet only, one currency, under
     // $1 / 100,000 LBP, FOR-partner refused) — rule 14, never a copy. The
     // legs are then validated against the net MINUS the checked kept amount.
     // A claim with no return lines is refused by that gate's own message.

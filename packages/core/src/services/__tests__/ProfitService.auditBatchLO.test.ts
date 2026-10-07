@@ -150,6 +150,8 @@ function makeFakeRepo(overrides: FakeOverrides = {}): ProfitRepository {
     getSupplierCommissionTotals: () => zeroSupplierCommission,
     getTopupBuybackProfit: () => zeroTopupBuyback,
     getHoldMoneyProfit: () => zeroTopupBuyback,
+    // LIRA-272 — refund kept change on a module refund (profit-only).
+    getRefundKeptChangeProfit: () => zeroTopupBuyback,
     getExpenseTotals: () => zeroExpense,
     getDeferredProfit: () => zeroDeferred,
     getPendingSaleProfit: (): PendingSaleProfitRow[] => [],

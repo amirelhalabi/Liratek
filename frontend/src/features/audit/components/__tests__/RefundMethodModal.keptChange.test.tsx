@@ -2,7 +2,7 @@
 /**
  * Refund kept change (owner decision 2026-10-07) through the real, unmocked
  * MultiPaymentInput: a $20.12 refund handed back as $20 keeps $0.12 as shop
- * profit — under $1, same currency, cash only, and only where the caller
+ * profit — under $1, same currency, cash or wallet only, and only where the caller
  * says this refund can keep change (`allowKeptChange`, the server's
  * `REFUND_KEPT_CHANGE_TYPES`).
  *
@@ -28,6 +28,7 @@ const cashIn = (amount: number, currency_code = "USD"): TransactionPaymentLeg =>
 const PAYMENT_METHODS = [
   { code: "CASH", label: "Cash" },
   { code: "OMT", label: "OMT Wallet" },
+  { code: "WHISH", label: "Whish Wallet" },
 ];
 
 function renderModal(
@@ -75,6 +76,36 @@ describe("RefundMethodModal — refund kept change", () => {
     );
   });
 
+  it("LIRA-272 guard: a session item refund's money-back legs (direction OUT, negative) still keep change", () => {
+    // The session refund preview's `defaultLegs` are OUT legs with a
+    // NEGATIVE signed_amount (TransactionRepository._defaultSessionRefundLegs)
+    // — the opposite sign of a whole-transaction refund's original IN legs.
+    // The money-direction gate for payout originals lives with the caller
+    // (refundCanKeepChange, Transactions page), never in this popup, or
+    // every session refund would silently lose kept change.
+    const moneyBack: TransactionPaymentLeg = {
+      direction: "out",
+      amount: 20.12,
+      signed_amount: -20.12,
+      currency_code: "USD",
+      method: "CASH",
+    };
+    const onConfirm = renderModal([moneyBack], true);
+    fireEvent.change(screen.getByTestId(/payment-amount-/), {
+      target: { value: "20" },
+    });
+    expect(
+      screen.queryByTestId("refund-validation-error"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(confirmButton());
+    expect(onConfirm).toHaveBeenCalledWith(
+      [{ method: "CASH", currencyCode: "USD", amount: 20 }],
+      undefined,
+      89_000,
+      refundKeptChangeSchema.parse({ kept_change_usd: 0.12, kept_change_lbp: 0 }),
+    );
+  });
+
   it("not allowed for this refund: handing back $20 of $20.12 stays blocked", () => {
     renderModal([cashIn(20.12)], false);
     fireEvent.change(screen.getByTestId(/payment-amount-/), {
@@ -84,18 +115,30 @@ describe("RefundMethodModal — refund kept change", () => {
     expect(confirmButton()).toBeDisabled();
   });
 
-  it("a non-cash return line cannot keep change", () => {
-    renderModal([cashIn(20.12)], true);
+  // Owner decision 2026-10-07: kept change may come from any drawer money —
+  // cash OR wallet. This case used to assert a wallet line refuses (rule 24:
+  // rewritten into the accepted case, not deleted). Account / gift-card
+  // refusal is pinned in refundLegOverride.keptChange.test.ts (those methods
+  // are never selectable in this popup).
+  it("a WHISH return line handing back $20 of $20.12 keeps $0.12", () => {
+    const onConfirm = renderModal([cashIn(20.12)], true);
     fireEvent.change(screen.getByTestId(/payment-method-/), {
-      target: { value: "OMT" },
+      target: { value: "WHISH" },
     });
     fireEvent.change(screen.getByTestId(/payment-amount-/), {
       target: { value: "20" },
     });
-    expect(screen.getByTestId("refund-validation-error")).toHaveTextContent(
-      /cash/i,
+    expect(
+      screen.queryByTestId("refund-validation-error"),
+    ).not.toBeInTheDocument();
+    expect(confirmButton()).not.toBeDisabled();
+    fireEvent.click(confirmButton());
+    expect(onConfirm).toHaveBeenCalledWith(
+      [{ method: "WHISH", currencyCode: "USD", amount: 20 }],
+      undefined,
+      89_000,
+      refundKeptChangeSchema.parse({ kept_change_usd: 0.12, kept_change_lbp: 0 }),
     );
-    expect(confirmButton()).toBeDisabled();
   });
 
   it("$1 or more short is not kept change — stays blocked", () => {

@@ -208,8 +208,18 @@ jest.mock("../../../hooks/useCustomServices", () => ({
 
 jest.mock("@/utils/logger", () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
-  logger: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+  default: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
+  logger: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 jest.mock("@/shared/hooks/useSaveAsClient", () => ({
@@ -271,13 +281,16 @@ describe("CustomServices — Pay out (OWNER_NOTES_REMAINING_BUILD.md #16)", () =
 
     fireEvent.click(screen.getByTestId("custom-service-via-partner-toggle"));
     await screen.findByText(`Partner: ${SOLE_PARTNER.name}`);
+    // Owner decision 2026-10-07: the payment sheet waits for a selling
+    // price, so enter one before looking for it.
+    fireEvent.change(screen.getAllByPlaceholderText("0.00")[1], {
+      target: { value: "10" },
+    });
     expect(screen.getByTestId("multi-payment-input")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("custom-service-payout-toggle"));
 
-    expect(
-      screen.queryByTestId("multi-payment-input"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("multi-payment-input")).not.toBeInTheDocument();
     expect(
       screen.getByTestId("custom-service-payout-notice"),
     ).toBeInTheDocument();

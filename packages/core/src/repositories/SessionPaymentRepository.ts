@@ -104,6 +104,12 @@ export interface SessionCashSplitContext {
    */
   systemPayoutTotalUsd: number;
   systemPayoutTotalLbp: number;
+  /**
+   * LIRA-270 — true only on the fail-soft all-zero context returned when the
+   * lookup threw. Zeros there mean "unknown", not "nothing due", so the
+   * nothing-to-collect check must skip rather than refuse every leg.
+   */
+  lookupFailed?: boolean;
 }
 
 interface SessionCashSplitRow {
@@ -419,7 +425,7 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
         { error, sessionId },
         "getSessionCashSplitContext failed — defaulting to no PCD split (cash stays in General)",
       );
-      return zeroContext;
+      return { ...zeroContext, lookupFailed: true };
     }
   }
 
