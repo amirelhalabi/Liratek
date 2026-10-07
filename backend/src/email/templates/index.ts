@@ -9,12 +9,14 @@ import { signupInviteTemplate } from "./signupInvite.js";
 // [auth-B] imports: userInviteTemplate, verifyEmailTemplate
 
 // [auth-C] imports: passwordResetTemplate
+import { passwordResetTemplate } from "./passwordReset.js";
 
 const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
   [signupInviteTemplate.name]: signupInviteTemplate,
   // [auth-B] entries: "user-invite", "verify-email"
 
   // [auth-C] entries: "password-reset"
+  [passwordResetTemplate.name]: passwordResetTemplate,
 };
 
 /** Throws for an unknown name: a row naming a template that does not exist

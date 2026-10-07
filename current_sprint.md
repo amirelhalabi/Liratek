@@ -6431,7 +6431,9 @@ Spec, plan and tasks: `specs/267-email-invite-signup/`. Branch `267-email-invite
 
 **What users will notice:** on the web app, sign-up no longer uses an invite code: new shops join through an email invitation link from LiraTek. The platform admin can email invitations and see whether they were used.
 
-## LIRA-275: "Forgot password?" on the login page (web app) — TODO
+## LIRA-275: "Forgot password?" on the login page (web app) — BUILT on branch `auth-c` (not merged, not deployed)
+
+Built 2026-10-07 (feature C of `docs/plans/todo_plans/SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md`, contract C): `/api/password-reset/forgot|check|reset`, core `PasswordResetService`, `password-reset` email template, `/#/forgot-password` and `/#/reset-password` pages, "Forgot password?" link on the web login page. Decided by the v196 foundation: option (a), `users.email`; mail goes only to a VERIFIED email (owner to confirm). No Turnstile: per-IP limit (5/hour) + per-user limit (3/hour) instead. Web e2e `lira-web-040` written, not yet run.
 
 Owner request 2026-10-07. The email capability now exists (LIRA-267: Spacemail SMTP, `email_outbox`, templates, retries).
 
@@ -6441,9 +6443,11 @@ Owner request 2026-10-07. The email capability now exists (LIRA-267: Spacemail S
 - Reuse: `generateToken`/`hashToken` (store only the hash), the outbox worker, the template renderer, `/#/…` hash-route links.
 - Web-only (desktop has no email and no reset flow) — record the exception like LIRA-267.
 
-**What users will notice:** a "Forgot password?" link on the web login page that emails a reset link.
+**What users will notice:** a "Forgot password?" link on the web login page that emails a link to choose a new password, for users whose email is confirmed. Choosing a new password signs that account out everywhere.
 
 ## LIRA-276: reset password from Settings by email (web app) — TODO
+
+Endpoint built 2026-10-07 on branch `auth-c`: `POST /api/password-reset/send/:userId` (admin of that shop; refuses `USER_HAS_NO_EMAIL`, `EMAIL_NOT_VERIFIED`, `EMAIL_NOT_CONFIGURED`, `RATE_LIMITED`, `NOT_FOUND`) and `sendPasswordReset(userId)` in `backendApi.ts`. The Settings → Users button is feature B's.
 
 Owner request 2026-10-07. Today an admin can already set a user's password directly (`PUT /api/users/:id/password`). This ticket adds the email route:
 

@@ -147,6 +147,7 @@
 - liratek.shop now opens an information page about LiraTek, in English and Arabic. Shops keep logging in at their own address, as before, and the page has a box to jump to your shop's login.
 - Web app: sign-up no longer uses an invite code. New shops join through an email invitation from LiraTek: open the link in the email to finish creating your shop.
 - Web app (platform admin): you can now email a sign-up invitation from the Tenants page, see whether each invitation was used, and cancel one that went to the wrong address. "Add shop" also takes an optional contact email.
+- Web app: the login page has a "Forgot password?" link. Enter the email on your account (and your shop's address if asked) and you get an email with a link to choose a new password. It only works for users whose email address has been confirmed; anyone else should ask their shop admin to set a new password. Choosing a new password signs that account out on every device.
 
 ## 🧾 Expenses
 

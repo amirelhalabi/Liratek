@@ -7922,5 +7922,73 @@ export async function selfChargeTelecomItem(data: {
 // [auth-B] user invitations + user email (LIRA-279/281)
 
 // [auth-C] forgot / reset password (LIRA-275/276)
+// Payload types are the core schemas' input types (rule 21); the import sits
+// here, under this anchor, so parallel branches never touch the file's top.
+import type {
+  ForgotPasswordInput,
+  CheckResetTokenInput,
+  ResetPasswordInput,
+  PasswordResetCheckResult,
+} from "@liratek/core";
+
+/**
+ * What every /api/password-reset route answers. Refusals carry their code
+ * both in `error.code` and at the top level (`code`); a zod refusal is a
+ * plain string `error`. Pages compare `code` against PASSWORD_RESET_CODES,
+ * never message text.
+ */
+export interface PasswordResetEnvelope<T> {
+  success: boolean;
+  data?: T;
+  error?: PublicRouteError;
+  code?: string;
+}
+
+/**
+ * "Forgot password?" (PUBLIC, web only). The server answers the SAME message
+ * whether or not it sent anything. `SHOP_REQUIRED` means the page is on an
+ * address that names no shop and must ask for one. The per-IP limit is a
+ * 429, which THROWS (requestJson).
+ */
+export async function forgotPassword(input: ForgotPasswordInput) {
+  assertWebOnly("Password reset");
+  return requestJson<PasswordResetEnvelope<{ message: string }>>(
+    "/api/password-reset/forgot",
+    { method: "POST", body: input, auth: false },
+  );
+}
+
+/** Is this emailed reset link usable? (PUBLIC, web only). Every unusable
+ * link gets one generic refusal. The token goes in the BODY. */
+export async function checkResetToken(input: CheckResetTokenInput) {
+  assertWebOnly("Password reset");
+  return requestJson<PasswordResetEnvelope<PasswordResetCheckResult>>(
+    "/api/password-reset/check",
+    { method: "POST", body: input, auth: false },
+  );
+}
+
+/** Choose the new password from an emailed link (PUBLIC, web only). On
+ * success every session of that user is signed out; `loginUrl` is the
+ * shop's own address, or null when host tenancy is off. */
+export async function resetPassword(input: ResetPasswordInput) {
+  assertWebOnly("Password reset");
+  return requestJson<PasswordResetEnvelope<{ loginUrl: string | null }>>(
+    "/api/password-reset/reset",
+    { method: "POST", body: input, auth: false },
+  );
+}
+
+/** A shop admin emails one of the shop's users a reset link (LIRA-276,
+ * web only; the Settings → Users button belongs to feature B). Refusal
+ * codes: NOT_FOUND, USER_HAS_NO_EMAIL, EMAIL_NOT_VERIFIED,
+ * EMAIL_NOT_CONFIGURED, RATE_LIMITED. */
+export async function sendPasswordReset(userId: number) {
+  assertWebOnly("Password reset");
+  return requestJson<PasswordResetEnvelope<{ sent: true }>>(
+    `/api/password-reset/send/${userId}`,
+    { method: "POST" },
+  );
+}
 
 // [auth-D] Google sign-in + hand-off (LIRA-280)

@@ -559,5 +559,23 @@ export type { SessionSweepResult } from "./SessionSweepService.js";
 // [auth-B] exports
 
 // [auth-C] exports
+export {
+  PasswordResetService,
+  PasswordResetRefusedError,
+  getPasswordResetService,
+  resetPasswordResetService,
+  PASSWORD_RESET_TEMPLATE,
+  PASSWORD_RESET_URL_KEY,
+} from "./PasswordResetService.js";
+export type {
+  PasswordResetRequestReason,
+  PasswordResetMailOptions,
+  RequestPasswordResetParams,
+  SendPasswordResetParams,
+  PasswordResetCheckResult,
+  PasswordResetDone,
+  PasswordResetServiceDeps,
+} from "./PasswordResetService.js";
+export * from "../constants/passwordReset.js";
 
 // [auth-D] exports

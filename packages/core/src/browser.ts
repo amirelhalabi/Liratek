@@ -371,5 +371,8 @@ export type {
 // [auth-B] exports
 
 // [auth-C] exports
+// Forgot / reset password codes + fixed messages (pure leaf module).
+export * from "./constants/passwordReset.js";
+export type { PasswordResetCheckResult } from "./services/PasswordResetService.js";
 
 // [auth-D] exports
